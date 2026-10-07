@@ -162,12 +162,24 @@ export { ssrHandleError, ssrScope } from "./hydration.js";
 // is unchanged.
 import { installServerWithOrigin } from "./shared.js";
 
-/**
- * @internal — client-only (see client/hydration.ts). The server stub is
- * inert: nothing delivers a trace TO a server, so a marker passes through.
- */
-export function materializeContainerTrace(marker: unknown): unknown {
-  return marker;
+// The container-trace materializer's seams (client/hydration.ts; consumed by
+// `solid-js/internal/container-trace`, a client-only entry). Mirrored here
+// for export parity, inert: nothing delivers a trace TO a server, so the
+// dispatch is the core primitive and nothing applies a patch batch.
+/** @internal */
+export function withStoreHydration<T>(
+  coreFn: (fn: any, seed: any, options?: any) => T,
+  fn: any,
+  seed: any,
+  options?: any
+): T {
+  return coreFn(fn, seed, options);
+}
+/** @internal */
+export function applyPatches(_target: any, _patches: any[]): void {}
+/** @internal */
+export function forwardIteratorReturn(it: any, value?: any): any {
+  return Promise.resolve(it.return ? it.return(value) : { done: true, value });
 }
 
 // Observe / dev — same shape as the client entry. Both literals are replaced

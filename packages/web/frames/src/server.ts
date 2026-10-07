@@ -155,5 +155,8 @@ export {
   FRAME_STREAM_HEADER,
   FRAME_HAVE_HEADER,
   FRAME_HAVE_BUDGET,
+  // The tier announcement's header name (frames savings pass §2). The client
+  // entry reads it but does not re-export it (its one use inlines).
+  FRAME_TIERS_HEADER,
   isFrameStreamResponse
 } from "./frame-transport.js";

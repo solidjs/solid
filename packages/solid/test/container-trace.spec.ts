@@ -8,7 +8,8 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { createOwner } from "@solidjs/signals";
 import { createRoot, createRenderEffect, flush } from "../src/index.js";
-import { enableHydration, materializeContainerTrace, sharedConfig } from "../src/index.js";
+import { enableHydration, sharedConfig } from "../src/index.js";
+import { materializeContainerTrace } from "../src/client/container-trace.js";
 
 /**
  * A hand-cranked RAW seroval stream (the wire shape since the stream-mint
@@ -215,11 +216,14 @@ describe("materializeContainerTrace — id neutrality", () => {
   });
 });
 
-// The park (frames-rulings 3.6 (iii), "the consumer parks"): a replayed
+// The park (frames-rulings 3.6 (iii), "the consumer parks"): materialized for
+// a CLAIM (`claiming`, the frames client's adopt-time mount), a replayed
 // backlog beyond the snapshot applies after hydration ends — the first reads
 // see the snapshot, what the server's markup was rendered from — so a claim
 // pass over that markup reads the state it shows, and the backlog lands
-// after the claim as the update it is.
+// after the claim as the update it is. Keyed on the claim since the traces
+// tier (plan step C3): a fresh mount — nothing on screen to agree with —
+// reads the fold of its whole backlog at once and pays no beat.
 describe("materializeContainerTrace — the parked backlog", () => {
   afterEach(() => {
     sharedConfig.hydrating = false;
@@ -237,11 +241,11 @@ describe("materializeContainerTrace — the parked backlog", () => {
     return stream;
   };
 
-  test("during hydration the snapshot serves; the backlog lands at hydration end, as one update", () => {
+  test("materialized for a claim during hydration: the snapshot serves; the backlog lands at hydration end, as one update", () => {
     enableHydration();
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
     sharedConfig.hydrating = true;
-    const store: any = materializeContainerTrace({ $tr: ahead(), $ta: 0 } as any);
+    const store: any = materializeContainerTrace({ $tr: ahead(), $ta: 0 } as any, true);
     const reads: string[] = [];
     createRoot(() => {
       createRenderEffect(
@@ -259,12 +263,27 @@ describe("materializeContainerTrace — the parked backlog", () => {
     expect(reads).toEqual(["Ada/0", "Ada (edited)/2"]);
   });
 
-  test("with no hydration in progress the backlog lands on the next microtask", async () => {
-    const store: any = materializeContainerTrace({ $tr: ahead(), $ta: 0 } as any);
+  test("a claim with no hydration in progress (a frame's late claim): the snapshot serves; the backlog lands on the next microtask", async () => {
+    const store: any = materializeContainerTrace({ $tr: ahead(), $ta: 0 } as any, true);
     expect(store.name).toBe("Ada");
     expect(store.edits).toBe(0);
     await Promise.resolve();
     flush();
+    expect(store.name).toBe("Ada (edited)");
+    expect(store.edits).toBe(2);
+  });
+
+  test("a fresh mount parks nothing: the first read is the fold of the whole backlog", () => {
+    const store: any = materializeContainerTrace({ $tr: ahead(), $ta: 0 } as any);
+    expect(store.name).toBe("Ada (edited)");
+    expect(store.edits).toBe(2);
+  });
+
+  test("a fresh mount during hydration parks nothing either (the park is the claim's, not the pass's)", () => {
+    enableHydration();
+    (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
+    sharedConfig.hydrating = true;
+    const store: any = materializeContainerTrace({ $tr: ahead(), $ta: 0 } as any);
     expect(store.name).toBe("Ada (edited)");
     expect(store.edits).toBe(2);
   });
@@ -282,7 +301,7 @@ describe("materializeContainerTrace — the parked backlog", () => {
   test("a failure in the backlog applies in order, after the parked patches", async () => {
     const stream = ahead();
     stream.throw(new Error("boom"));
-    const store: any = materializeContainerTrace({ $tr: stream, $ta: 0 } as any);
+    const store: any = materializeContainerTrace({ $tr: stream, $ta: 0 } as any, true);
     // Parked: the snapshot reads, the failure has not surfaced.
     expect(store.name).toBe("Ada");
     await Promise.resolve();

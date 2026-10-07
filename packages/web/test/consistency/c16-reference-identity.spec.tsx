@@ -26,8 +26,8 @@
  * plain roots (a fill's claim is C1/C10's business).
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createMemo, createRoot, createSignal, Loading } from "solid-js";
-import { dynamic, hydrate } from "@solidjs/web";
+import { createMemo, createRoot, createSignal, Loading, type Component } from "solid-js";
+import { dynamic, dynamicComponent, hydrate } from "@solidjs/web";
 import { installServerComponents } from "../../frames/src/client.js";
 import {
   COMPONENT_BINDING,
@@ -106,13 +106,23 @@ afterEach(async () => {
   document.body.innerHTML = "";
 });
 
+// Both entry points: `dynamic` and its component-only sibling
+// `dynamicComponent` share one implementation (`bindingOf`, `sameInstance`,
+// the delivery into mounted sites included); the sibling is the documented
+// server-component mount, so the rule is pinned on it by name.
+type Dyn = (source: () => any) => Component<any>;
+const VIA: ReadonlyArray<[string, Dyn]> = [
+  ["dynamic", dynamic],
+  ["dynamicComponent", dynamicComponent]
+];
+
 /**
  * A site over `source`. The document face hydrates INTO `container` (the
  * shell is the bare `<solid-frame>`); the dom face mounts a fresh root under
  * a `<Loading>`, appended to `container`.
  */
-function mountSite(source: () => unknown, container: Element, face: "document" | "dom") {
-  const Site = dynamic(() => source() as any);
+function mountSite(dyn: Dyn, source: () => unknown, container: Element, face: "document" | "dom") {
+  const Site = dyn(() => source() as any);
   let div: Element = container;
   if (face === "document") {
     disposers.push(
@@ -147,7 +157,7 @@ function mountSite(source: () => unknown, container: Element, face: "document" |
   };
 }
 
-describe("C16 — one component identity per function", () => {
+describe.each(VIA)("C16 — one component identity per function — via %s", (_via, dyn) => {
   // Arms (a), (b), (d) on one document page: the hydration reference
   // (`_$SC.r(fid, A)`) mounts first and adopts the SSR'd element; then a
   // refetch of A (staged — the site shows A), a switch to B, a re-call of A.
@@ -175,7 +185,7 @@ describe("C16 — one component identity per function", () => {
       resolutions.push(Promise.resolve(call));
       return call;
     };
-    const site = mountSite(source, page.container, "document");
+    const site = mountSite(dyn, source, page.container, "document");
     await quiesce();
     await quiesce();
     const el = site.frame()!;
@@ -259,7 +269,7 @@ describe("C16 — one component identity per function", () => {
       })
     );
     const list = createRoot(() => createMemo(() => (cache().list ?? getX()) as any));
-    const site = mountSite(() => list(), document.body, "dom");
+    const site = mountSite(dyn, () => list(), document.body, "dom");
     await pump();
     for (const c of chunks(fid, 1, "v1")) held[0].send(c);
     held[0].close();

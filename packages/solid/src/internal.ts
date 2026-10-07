@@ -26,6 +26,11 @@
  *    read back the same way (real on both entries), for renderers that
  *    build boundaries without the components, and so are `sharedConfig`
  *    (the hydration/SSR coordination object) and the `$DEVCOMP` brand.
+ *
+ * Not here: the container-trace materializer. It lives in its own entry,
+ * `solid-js/internal/container-trace`, so the store engine it builds on can
+ * be a lazy chunk — a re-export from this (eagerly imported) module would
+ * weld the engine back into the main chunk.
  */
 import * as core from "solid-js";
 import type { Accessor, RevealOrder, ServerErrorHook, ServerErrorSite } from "solid-js";
@@ -121,12 +126,6 @@ export const getProjectionTrace: (
  */
 export const shareAsyncIterable: <T>(source: AsyncIterable<T>) => AsyncIterable<T> =
   core.shareAsyncIterable;
-
-/** Client: rebuild a store from a serialized container-trace marker. Server: stub. */
-export const materializeContainerTrace: (marker: {
-  $tr: AsyncIterable<any> | { __SEROVAL_STREAM__: true };
-  $ta?: number;
-}) => unknown = core.materializeContainerTrace as any;
 
 /** The primitive behind `<Errored>`: `fn()`, or `fallback(error, reset)` once something under it throws. */
 export const createErrorBoundary: <T, U>(

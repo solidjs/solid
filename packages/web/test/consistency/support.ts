@@ -332,7 +332,16 @@ export interface Page {
  * shell parses. `fetch` is stubbed to THROW unless the test re-stubs it —
  * the document face must never request what the page carries.
  */
-export function bootPage(shellHtml: string, options: { hostOptions?: Record<string, any> } = {}) {
+export function bootPage(
+  shellHtml: string,
+  options: {
+    hostOptions?: Record<string, any>;
+    /** Tier loaders for `installServerComponents({ tiers })` (frames savings pass §2). */
+    tiers?: Record<string, () => Promise<{ install?(): void }>>;
+    /** `_$HY.r` records present before the frames client installs (the shell's data script). */
+    records?: Record<string, unknown>;
+  } = {}
+) {
   installDocumentRuntime();
   const hy: any = { events: [], completed: new WeakSet(), r: {}, fe() {} };
   (globalThis as any)._$HY = hy;
@@ -357,6 +366,7 @@ export function bootPage(shellHtml: string, options: { hostOptions?: Record<stri
     }
   });
   enableHydration();
+  Object.assign(hy.r, options.records);
   // The PRODUCTION host by default (`getFrameHost()`: per-response data
   // tables, the lazy codec, the container-trace hooks — on S1 also the lazy
   // materializer's `prepareData`/`prepareArgs` seams). A document page never
@@ -365,6 +375,7 @@ export function bootPage(shellHtml: string, options: { hostOptions?: Record<stri
   // a CUSTOM host (`hostOptions`), which is the only time it is wired.
   const table = createJSONDataTable();
   let host: any;
+  const install = options.tiers ? { tiers: options.tiers } : undefined;
   if (options.hostOptions) {
     host = createFrameHost({
       applyData: (c: any) => table.apply(c),
@@ -372,9 +383,9 @@ export function bootPage(shellHtml: string, options: { hostOptions?: Record<stri
       revive: reviveContainerTraces,
       ...options.hostOptions
     });
-    installServerComponents(host);
+    installServerComponents(host, install);
   } else {
-    installServerComponents();
+    installServerComponents(undefined, install);
     host = getFrameHost();
   }
   const warnings: string[] = [];

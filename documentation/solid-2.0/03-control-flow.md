@@ -228,6 +228,7 @@ const Article = dynamic(() => loadArticle(params.id), { deferStream: true });
 #### Notes
 
 - The source evaluation is shared across all mounted instances of the returned component, so using one `dynamic(...)` in many places doesn't duplicate work.
+- Because a source may answer with a tag name, one `dynamic` on a page retains the element runtime (`spread`, the attribute helpers, the namespace tables) for everyone; `dynamicComponent(source)` is the same primitive for a source that only ever answers with a component — a server component mount ([RFC 11](11-server-components.md#using-one)) — and never does.
 
 ### Client-only components: `clientOnly`
 

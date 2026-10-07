@@ -117,6 +117,36 @@ export function dynamic<T extends ValidComponent>(
   source: () => T | Promise<T> | null | undefined | false,
   options?: DynamicOptions
 ): Component<ComponentProps<T>> {
+  return dynamicCore(source, options, ssrTag);
+}
+
+/**
+ * The server twin of the client's `dynamicComponent`: `dynamic` for a source
+ * that only ever answers with a component, never a tag name. Same owner
+ * shape as `dynamic` on both sides (the factory / value / render memos), so
+ * hydration ids agree with the client whichever of the two mounts the same
+ * value. The client entry's JSDoc carries the cost model; here the tag arm
+ * is simply absent.
+ */
+export function dynamicComponent<C extends Component<any>>(
+  source: () => C | Promise<C> | null | undefined | false,
+  options?: DynamicOptions
+): Component<ComponentProps<C>> {
+  return dynamicCore(source, options);
+}
+
+/** `dynamic`'s string arm on the server: a tag name is one `ssrElement()`. */
+type TagArm = (tag: string, props: any) => JSX.Element;
+const ssrTag: TagArm = (tag, props) =>
+  ssrElement(tag, props, undefined, true) as unknown as JSX.Element;
+
+// The shared implementation behind `dynamic` and `dynamicComponent`; the tag
+// arm is the only thing that differs (what a string value renders as).
+function dynamicCore(
+  source: () => any,
+  options: DynamicOptions | undefined,
+  tagArm?: TagArm
+): Component<any> {
   // Static: the same owner-free path as the client — a tag is one
   // ssrElement(), a component one call — so both sides allocate the same
   // hydration keys. No memo on either level, so nothing to serialize or hold.
@@ -125,8 +155,7 @@ export function dynamic<T extends ValidComponent>(
     if (isDev && component && typeof component.then === "function")
       throw new Error("dynamic(): a static source must resolve synchronously, not to a promise");
     if (typeof component === "function") return props => (component as Function)(props);
-    if (typeof component === "string")
-      return props => ssrElement(component, props, undefined, true) as unknown as JSX.Element;
+    if (typeof component === "string" && tagArm) return props => tagArm(component, props);
     return () => undefined as unknown as JSX.Element;
   }
   // Mirrors the client exactly — three memos, the same owner shape on both
@@ -238,9 +267,9 @@ export function dynamic<T extends ValidComponent>(
         const c: unknown = value();
         if (c) {
           if (typeof c === "function") return (c as Function)(props);
-          if (typeof c === "string") {
-            return ssrElement(c, props, undefined, true) as unknown as JSX.Element;
-          }
+          // `dynamic` only: `dynamicComponent` has no tag arm, so a string
+          // renders nothing there — as it does on the client.
+          if (typeof c === "string" && tagArm) return tagArm(c, props);
         }
       },
       { sync: true } as any

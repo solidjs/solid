@@ -11,15 +11,25 @@
 //    already contains the comments AND the client wrappers' markup; slots
 //    claim their rendered DOM via ctx.existing (Astro-style opaque slots) —
 //    zero hydration data, the page source carries each text once.
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createRoot, createSignal, flush, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents, createFrame, createFrameHost } from "../frames/src/client.js";
+import { prepareTier } from "../frames/src/frame-client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { createChunk } from "../server-functions/src/shared.js";
 
 const settle = () => new Promise(r => setTimeout(r));
+
+// The hand-framed responses below announce no tier; the story comments are
+// `{$frame}` regions, so the frames client's REGIONS TIER
+// (`@solidjs/web/frames/regions`, loaded through `prepareTier("regions")` at
+// the first record naming one) is warmed here — these cells pin the slice's
+// UX with the tier resident, as the production host has it after that
+// first load; the load itself is pinned in
+// `test/consistency/tier-regions-hold.spec.tsx`.
+beforeAll(() => prepareTier("regions"));
 
 function frameResponse(chunks: any[]) {
   const body = new ReadableStream({

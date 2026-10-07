@@ -762,7 +762,14 @@ function hasLoadingWindow(options: any): boolean {
   );
 }
 
-function forwardIteratorReturn(it: any, value?: any) {
+/**
+ * Forward an iterator's `return()`: the source's own answer when it is a
+ * promise, otherwise a synchronously-settling thenable of the done result
+ * (the hydration resume path must not wait a microtask for it).
+ *
+ * @internal — shared with `solid-js/internal/container-trace`.
+ */
+export function forwardIteratorReturn(it: any, value?: any) {
   const returned = it.return?.(value);
   return returned && typeof returned.then === "function"
     ? returned
@@ -819,7 +826,16 @@ function normalizeIterator(it: any, deferFirst?: boolean) {
   };
 }
 
-function applyPatches(target: any, patches: any[]) {
+/**
+ * Apply a projection's recorded patch batch — `[path, value]` writes,
+ * `[path]` deletes, `[path, value, 1]` splice-inserts — to a draft. The
+ * continuation protocol a server projection serializes as (hydration
+ * resume below; a container trace at the slot border, consumed by
+ * `solid-js/internal/container-trace`).
+ *
+ * @internal
+ */
+export function applyPatches(target: any, patches: any[]) {
   for (const patch of patches) {
     const path = patch[0];
     let current = target;
@@ -1259,198 +1275,6 @@ function hydrateStoreFromAsyncIterable(
     initialValue,
     options
   );
-}
-
-/**
- * Materialize a container TRACE — snapshot then patch batches, the
- * continuation protocol a server projection serializes as when it crosses a
- * boundary (hydration resume above; the slot border via the serializer's
- * container plugin) — into a live local projection. The result reads like
- * the server value did: not-ready until the snapshot lands, then a
- * read-only store the batches keep updating, done when the trace ends.
- *
- * Created under a DETACHED root (see `detachedRoot`): revival can run inside
- * a render effect's owner, and the store is memoized per trace (see the
- * plugin's WeakMap) — a store owned by its first reader would be disposed by
- * that reader's re-render while other readers still hold it, and one rooted
- * under it would take a hydration id from it. Consumption is pull-driven and
- * the trace is response-bounded, so the projection settles on its own; GC
- * collects the pair with the trace.
- *
- * A replayed backlog beyond the snapshot is PARKED until hydration ends
- * (frames-rulings 3.6 (iii), "the consumer parks"): the first reads see the
- * snapshot alone. A trace is materialized at a fill's arg-read, and when
- * that fill CLAIMS adopted markup — the document's pass, a frame's deferred
- * claim under its hold (3.1 / 3.2), a claim at a fragment's reveal or by a
- * frame adopted after done — the snapshot is the state the server rendered
- * that markup from; the claim renders against it and trusts it — a text
- * hole is never rewritten during a claim — so a store already past the
- * markup left the DOM diverged from it for good (the trace had nothing
- * further to emit). Applied after the claim, the backlog re-runs the fill's
- * reads outside hydration and the DOM catches up: the same parking
- * `hydrateStoreFromAsyncIterable` gives a buffered backlog. The release
- * order is the one 3.2 pins: claim, the frame's hold release, done, then
- * the backlog — and the next microtask when no hydration is in progress,
- * which is what a claim made after hydration-done gets, and what a FRESH
- * mount pays for not being told apart: its backlog lands one beat after
- * its snapshot, before any paint. Live emissions land after the claim by
- * construction. A failure applies in order, after everything queued before
- * it, so it, too, waits on a parked backlog.
- *
- * @internal — consumed by the serialization layer (@solidjs/web).
- */
-export function materializeContainerTrace(marker: {
-  $tr: AsyncIterable<any> | { __SEROVAL_STREAM__: true };
-  $ta?: number;
-}): Store<any> {
-  const src = marker.$tr as any;
-  // Raw seroval stream (the wire shape since the stream-mint protocol):
-  // `.on()` replays buffered emissions SYNCHRONOUSLY, so a snapshot the
-  // document already delivered is applied before the first read — the store
-  // reads as READY during hydration's synchronous claim walk, matching the
-  // page's settled markup. The async-iterable branch below (pre-stream
-  // payloads) can only surface its buffer through microtasks, which made a
-  // settled-inline boundary suspend at the walk and hydrate a phantom
-  // fallback over settled markup (the chat welcome/status meter miss).
-  if (src != null && src.__SEROVAL_STREAM__ === true) {
-    const queue: any[] = [];
-    let failed: { error: any } | undefined;
-    let cursor = 0;
-    let first = true;
-    // How far into the queue a compute may apply: everything, except a
-    // claim's replayed backlog beyond the snapshot, parked until hydration
-    // ends (see above).
-    let limit = Infinity;
-    // Everything lives under the detached root (see the block comment
-    // below): materialization runs at arg-read inside a reader's render
-    // scope, and a version signal owned by that reader would be disposed by
-    // its re-render while the memoized store lives on.
-    return detachedRoot(() => {
-      const [version, setVersion] = coreSignal(0);
-      // Subscribe before creating the projection: the buffered replay runs
-      // synchronously inside on(), filling the queue the first compute
-      // drains. Replayed values must NOT bump the version — the replay can
-      // run inside an owned render scope where reactive writes are illegal,
-      // and the projection doesn't exist yet to need waking. Only live
-      // emissions (stream callbacks on later tasks) bump.
-      let live = false;
-      const bump = () => live && setVersion(n => n + 1);
-      src.on({
-        next(value: any) {
-          queue.push(value);
-          bump();
-        },
-        // The trace ended: the last applied state latches (same contract as
-        // the iterable path's `done`).
-        return() {},
-        throw(error: any) {
-          failed = { error };
-          bump();
-        }
-      });
-      live = true;
-      // The park (see above). Decided here, unconditionally: the
-      // projection's first compute runs at creation, so the decision cannot
-      // wait for the first read, and materialization runs at arg-read —
-      // before the frame opens its claim window and, for a claim made after
-      // hydration-done (an occurrence inside a server `<Loading>` whose
-      // fragment reveals after done; a frame adopted late), with no
-      // hydration state that says "claim" at all. Serving the snapshot
-      // first costs a fresh mount one beat (the next microtask, before any
-      // paint) and nothing else. Released at hydration end with a version
-      // bump, so the compute drains the backlog as one ordinary update.
-      if (queue.length > 1) {
-        limit = 1;
-        onHydrationEnd(() => {
-          limit = Infinity;
-          bump();
-        });
-      }
-      return createProjection(
-        (draft: any) => {
-          version();
-          while (cursor < queue.length && cursor < limit) {
-            const value = queue[cursor++];
-            if (first) {
-              first = false;
-              // Full authoritative snapshot into a fresh {}/[] seed — pure
-              // writes, no draft reads (see the iterable branch below).
-              if (Array.isArray(value)) {
-                for (let i = 0; i < value.length; i++) draft[i] = value[i];
-                draft.length = value.length;
-              } else {
-                Object.assign(draft, value);
-              }
-            } else {
-              applyPatches(draft, value);
-            }
-          }
-          // In order: after everything queued before it has applied.
-          if (failed && cursor === queue.length) throw failed.error;
-          // Nothing buffered yet (revival raced ahead of the record's data
-          // script): pending until the snapshot lands, marked on the
-          // projection's own node — the version bump reruns this compute.
-          if (first) throw new NotReadyError(getOwner());
-        },
-        (marker.$ta ? [] : {}) as any
-      );
-    });
-  }
-  // A root, not a bare null owner: the projection's async machinery routes
-  // its pending/error states through the owner's queue, and with no owner
-  // at all the internal NotReadyError (the "pending until snapshot" mark)
-  // surfaces as an unhandled error in dev. The root is never disposed —
-  // the projection settles itself when the trace ends and is collected
-  // with the store.
-  return detachedRoot(() =>
-    createProjection(
-      (draft: any) => ({
-        [Symbol.asyncIterator]() {
-          const srcIt = src[Symbol.asyncIterator]();
-          let first = true;
-          return {
-            next: () =>
-              Promise.resolve(srcIt.next()).then((res: any) => {
-                if (res.done) return { done: true as const, value: undefined };
-                if (first) {
-                  first = false;
-                  // The first yield is the full authoritative snapshot. The
-                  // seed is a fresh empty {}/[] minted here, so this is pure
-                  // writes — no reads of the draft, which is still PENDING
-                  // (reading a pending proxy throws NotReadyError, which
-                  // would reject this step and error the projection).
-                  if (Array.isArray(res.value)) {
-                    for (let i = 0; i < res.value.length; i++) draft[i] = res.value[i];
-                    draft.length = res.value.length;
-                  } else {
-                    Object.assign(draft, res.value);
-                  }
-                } else {
-                  applyPatches(draft, res.value);
-                }
-                return { done: false as const, value: undefined };
-              }),
-            return: (value?: any) => forwardIteratorReturn(srcIt, value)
-          };
-        }
-      }),
-      (marker.$ta ? [] : {}) as any
-    )
-  );
-}
-
-/**
- * A root with NO parent, for the container-trace materializer. It runs at
- * arg-read, under whatever owner is reading — during hydration an
- * id-carrying one — and a root created there inherits the next child id,
- * shifting every key the reader mints after it: a trace revived at t=0
- * consumed one root id while one revived by a late claim (no ambient owner)
- * consumed none, and a keyed sibling after the frame hydrated under
- * different keys in the two runs. The store is shared and memoized per
- * trace; it belongs to no reader's id space.
- */
-function detachedRoot<T>(init: () => T): T {
-  return runWithOwner(null, () => coreRoot(init))!;
 }
 
 // --- Hydration-aware implementations ---
@@ -2318,6 +2142,34 @@ export const createProjection: <T extends object = {}>(
 }) as any;
 
 type NoFn<T> = T extends Function ? never : T;
+
+/**
+ * The hydration dispatch the store-family wrappers above share
+ * (`createProjection`, `createStore`, `createOptimisticStore`), for a caller
+ * that brings its own core primitive: under hydration the generic store
+ * adapter runs with `coreFn`, otherwise `coreFn` runs directly. Exists so a
+ * store-family node can be built from a module that must NOT reference the
+ * wrappers — `solid-js/internal/container-trace` reaches `createProjection`
+ * through `@solidjs/signals` so the store engine stays in its lazy chunk
+ * (every wrapper here is welded to the engine by its core import, and this
+ * dist is one flat module) while behaving under hydration exactly as the
+ * wrapper does. `coreFn` is the caller's, so referencing this retains the
+ * adapter, never the engine (the same retention story as the slot itself).
+ *
+ * @internal
+ */
+export function withStoreHydration<T>(
+  coreFn: (fn: any, seed: any, options?: any) => T,
+  fn: any,
+  seed: any,
+  options?: any
+): T {
+  // `hydrating` can only be true once enableHydration() installed the
+  // adapter slot (see createOptimistic above for the retention story).
+  return sharedConfig.hydrating
+    ? _hydrateStoreLike!(coreFn, fn, seed, options)
+    : coreFn(fn, seed, options);
+}
 
 /**
  * Creates a deeply-reactive store backed by a Proxy. Reads track each

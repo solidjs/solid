@@ -16,7 +16,7 @@
 //   multi-flight  — the mutation returns plain data; the action then
 //                   `refresh`es the source the boundary reads, and the
 //                   refetched region arrives on its own response.
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import {
   action,
   createMemo,
@@ -29,7 +29,7 @@ import {
 } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents } from "../frames/src/client.js";
-import { FRAME_ID_ATTR } from "../frames/src/frame-client.js";
+import { FRAME_ID_ATTR, prepareTier } from "../frames/src/frame-client.js";
 import {
   SERVER_COMPONENT,
   SERVER_COMPONENT_ADDRESS,
@@ -160,6 +160,14 @@ function expectHeld(trace: string[]) {
   expect(trace.slice(2).filter(entry => entry.endsWith("/false"))).toEqual([]);
   expect(trace.at(-1)).toBe("true/true");
 }
+
+// The nested-region cells below (`{$frame}` args in hand-framed responses
+// that announce no tier) run with the frames client's REGIONS TIER
+// (`@solidjs/web/frames/regions`, loaded through `prepareTier("regions")` at
+// the first record naming one) RESIDENT — what this file pins is the hold
+// of optimism over a region's fill, not the tier's load (that is
+// `test/consistency/tier-regions-hold.spec.tsx`).
+beforeAll(() => prepareTier("regions"));
 
 const unsubscribes: (() => void)[] = [];
 afterEach(() => {

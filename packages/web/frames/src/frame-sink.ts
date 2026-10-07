@@ -219,6 +219,7 @@ import { observeFrame } from "../../src/server-observe.js";
 import {
   FRAME_HAVE_HEADER,
   FRAME_STREAM_HEADER,
+  FRAME_TIERS_HEADER,
   decodeHaveList,
   SERVER_COMPONENT,
   SERVER_COMPONENT_ADDRESS,
@@ -387,10 +388,34 @@ function withHoles(chunk, holes) {
  */
 export function createFrameSink(write, frame, have, hooks) {
   const { id, version } = frame;
-  // Every emission passes here, so a sweep knows whether it produced one.
+  // The tiers this render has minted (frames savings pass §2, the
+  // server-announced tier mechanism): the frames-client capabilities the
+  // response needs, learned where the sink mints each feature — a nested
+  // region (`regions`), an assets chunk (`assets`), a binding-slot position
+  // read (`bind`), a container trace in an arg (`trace`), a `live` response
+  // (`wire`). `announce()` hands the set to the response head
+  // (`X-Frame-Tiers`); a name minted since the last chunk left rides
+  // IN-BAND on the next one (`chunk.tiers`) — so a tier the head could not
+  // know (a later segment's) is still announced ahead of, or with, the
+  // chunk that needs it. Both are warm starts for the client's loads; its
+  // readiness checks detect and hold regardless.
+  const tiers = new Set();
+  let staged = [];
+  // Every emission passes here, so a sweep knows whether it produced one,
+  // and a staged tier announcement leaves with the next chunk.
   const emit = chunk => {
     if (swept) swept.emitted = true;
+    if (staged.length) {
+      chunk.tiers = staged;
+      staged = [];
+    }
     write(chunk);
+  };
+  const needs = name => {
+    if (!tiers.has(name)) {
+      tiers.add(name);
+      staged.push(name);
+    }
   };
   // Conditional emission (Stage 8 B4, RFC 11 §9.5 Server face 2). `have`
   // is the client's ledger for this address; `conditional` arms once the
@@ -552,6 +577,7 @@ export function createFrameSink(write, frame, have, hooks) {
             chunk.preloads.push(wirePreload(entry));
           }
         }
+        needs("assets");
         emit(chunk);
       }
       emit(withHoles({ type: "html", id, version, html, digest }, holeDigests(html, attrText)));
@@ -633,6 +659,7 @@ export function createFrameSink(write, frame, have, hooks) {
         if (inline.length) {
           chunk.inlineStyles = inline.map(e => ({ id: e.id, content: e.content, attrs: e.attrs }));
         }
+        needs("assets");
         emit(chunk);
       }
       emit(
@@ -692,8 +719,10 @@ export function createFrameSink(write, frame, have, hooks) {
       // style links on the fragment path. Emitting them here too would
       // duplicate, mis-keyed to the root.
       if (type === "module") {
+        needs("assets");
         emit({ type: "assets", id, version, key: "", modules: [value] });
       } else if (type === "preload") {
+        needs("assets");
         emit({ type: "assets", id, version, key: "", preloads: [wirePreload(value)] });
       }
     },
@@ -728,7 +757,9 @@ export function createFrameSink(write, frame, have, hooks) {
     // A nested server-content region (a `{$frame}` slot arg): its html is a
     // chunk addressed to the CHILD frame id — the consumer binds a nested
     // frame to the arg's marker range and the host routes/buffers by id.
+    // The first region minted is the `regions` tier announced.
     region(childId, html) {
+      needs("regions");
       emit({ type: "html", id: childId, version, html });
     },
     // A live-hole re-emission (Stage 3): the hole's re-resolved HTML, keyed
@@ -785,6 +816,23 @@ export function createFrameSink(write, frame, have, hooks) {
     /** The current commit epoch (see the ledger comment above). */
     get epoch() {
       return epoch;
+    },
+    // ---- tiers (see `tiers` above) ----
+    /**
+     * This render needs the named frames-client tier: announced on the
+     * response head if it has not left, in-band on the next chunk if it
+     * has. Called where the sink mints the tier's feature; idempotent.
+     */
+    needs,
+    /**
+     * The tiers minted so far, for the response head — every one the sync
+     * render pass produced, the stream face's `X-Frame-Tiers`. Names it
+     * returns need no in-band announcement; what is minted later rides the
+     * next chunk.
+     */
+    announce() {
+      staged = [];
+      return [...tiers];
     }
   };
 } /**
@@ -901,6 +949,11 @@ const DEFAULT_MAX_DURATION_MS = 30_000;
 // The abort reason a response's own `cancel` tears its render down with:
 // the reader left, so the stream must not dress the end as a bound.
 const DISCONNECTED = Symbol("solid.frames.disconnected");
+// A pipe writable's hook for the tiers the sync render pass minted (see
+// `createFrameSink`'s `announce`): `serverComponentResponse` writes them
+// into the response head, which it builds right after the pass. Module-
+// private — the `pipe` writable's public shape is `write`/`end`.
+const ANNOUNCE = Symbol("solid.frames.announce");
 
 function frameStream(makeCode, options) {
   const { id = "", version = 1 } = options.frame || {};
@@ -985,6 +1038,9 @@ function frameStream(makeCode, options) {
           }
         : undefined
     );
+    // A `live` response is the wire tier's: the standing connection the
+    // client holds after this answer is that tier's code.
+    if (options.live) sink.needs("wire");
     w.write({ type: "start", id, version });
     // A caller already gone has nobody to render for.
     if (upstream && upstream.aborted) return finish();
@@ -1026,6 +1082,10 @@ function frameStream(makeCode, options) {
       observation && observation.settle("error", err);
       finish();
     }
+    // The sync render pass is over: the tiers it minted are what the
+    // response head can carry (the shell's own flush, and everything after
+    // it, is asynchronous — those mints ride in-band).
+    if (w[ANNOUNCE]) w[ANNOUNCE](sink.announce());
   }
   return {
     pipe: stream,
@@ -1095,13 +1155,18 @@ function isRangeKey(key) {
   const c = key.charCodeAt(0);
   return c === 36 /* $ */ || (c >= 48 && c <= 57) /* index */ || RANGE_KEYS.has(key);
 }
-function slotProxy(range, occurrence, face, content, onData) {
+// `needs(tier)` is the face's tier announcement (createFrameSink's `needs`
+// on a stream, `documentNeeds` on a document): a property read is a
+// binding-slot position minted, and the `bind` tier announced with it.
+function slotProxy(range, occurrence, face, content, onData, needs) {
   return new Proxy(range, {
     get(target, key, receiver) {
       if (typeof key !== "string" || isRangeKey(key)) return Reflect.get(target, key, receiver);
       // The first property read fixes the proxy's face as DATA (see
       // repeatKey): a placed range never gets here.
       if (onData) onData = void onData();
+      // A read off markup binds nothing (a dev finding at the position).
+      if (face !== SLOT_FACE_MARKUP) needs("bind");
       return slotValue(occurrence, key, content ? content[key] : undefined, face);
     }
   });
@@ -1117,8 +1182,8 @@ function slotProxy(range, occurrence, face, content, onData) {
  * client an object where it expects the value (`{ k, v, f }` — and on the
  * document face `v` is the t=0 value, which hydration then contradicts).
  */
-function argBorderForm(value, key, occurrence) {
-  return toBorderForm(withoutStandIns(value, key, occurrence), true);
+function argBorderForm(value, key, occurrence, needs) {
+  return toBorderForm(withoutStandIns(value, key, occurrence, needs), true);
 }
 
 /**
@@ -1130,12 +1195,18 @@ function argBorderForm(value, key, occurrence) {
  * objects alone; anything exotic is the app's and is not read. Both faces
  * take the same arg: the document face's t=0 fill reads what hydration
  * will (see createDocumentSlotProps), the records carry it.
+ *
+ * A container met here (at any depth) is a trace the serializer will
+ * stamp: the `trace` tier announced (`needs`, the face's).
  */
-function withoutStandIns(value, key, occurrence) {
+function withoutStandIns(value, key, occurrence, needs) {
   return rewriteTree(
     value,
     (v, path) => {
-      if (isContainerTraced(v)) return v;
+      if (isContainerTraced(v)) {
+        needs("trace");
+        return v;
+      }
       if (Object.getPrototypeOf(v) === Object.prototype && isSlotValue(v)) {
         if ("_SOLID_DEV_") standInArgFinding(v, key, occurrence, path);
         return undefined;
@@ -1469,7 +1540,14 @@ export function createDocumentSlotProps(clientProps, frameId) {
     r.$occurrence = occurrence;
     const face = slotFace(r, content);
     r.$face = face;
-    return slotProxy(r, occurrence, face, face === SLOT_FACE_DATA ? content : undefined);
+    return slotProxy(
+      r,
+      occurrence,
+      face,
+      face === SLOT_FACE_DATA ? content : undefined,
+      undefined,
+      documentNeeds
+    );
   };
   // Client content renders under a per-occurrence hydration-key OWNER
   // scope, so the adopting client re-renders each slot under the SAME
@@ -1655,12 +1733,17 @@ export function createDocumentSlotProps(clientProps, frameId) {
                 // itself: settled reads pass through; a pending read throws
                 // not-ready into the hole machinery — a per-arg suspend, the
                 // value tier's own behavior. The record ships the proxy, which
-                // the serializer's trace plugin carries as snapshot + patches.
+                // the serializer's trace plugin carries as snapshot + patches
+                // — the `trace` tier, announced.
+                documentNeeds("trace");
                 resolved[key] = value;
               } else if (isServerContent(value)) {
                 const childId = `${frameId}.${occurrence}.${key}`;
                 const region = { key, childId, value, used: false, locked: false };
                 regions.push(region);
+                // Used or occluded, the record names it `{$frame}`: the
+                // `regions` tier, announced.
+                documentNeeds("regions");
                 resolved[key] = () => {
                   // Streaming occlusion lock: the usage flip below runs at the
                   // wrapper's SYNCHRONOUS return, but a wrapper that places this
@@ -1714,7 +1797,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
                 // `undefined` in the record (argBorderForm), so the t=0 fill
                 // takes the same value — the one-record shape holds for the
                 // args the fill saw, not only the ones it shipped.
-                resolved[key] = vals[key] = withoutStandIns(value, key, occurrence);
+                resolved[key] = vals[key] = withoutStandIns(value, key, occurrence, documentNeeds);
               }
             }
             const out = suppressedFill(() =>
@@ -1747,7 +1830,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
                 if (!isContainerTraced(value) && isServerContent(value)) continue;
                 // Containers (at any depth) ride the record as trace envelopes;
                 // everything else passes through by reference.
-                args[key] = argBorderForm(value, key, occurrence);
+                args[key] = argBorderForm(value, key, occurrence, documentNeeds);
               }
               // A CLONE settles the declaration (or IS the record, on a sync
               // render); `args` stays canonical for the ledger below —
@@ -1790,7 +1873,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
                     evals[key],
                     states[key],
                     value => {
-                      args[key] = argBorderForm(value, key, occurrence);
+                      args[key] = argBorderForm(value, key, occurrence, documentNeeds);
                       liveArgs.slot(frameId, occurrence, { ...args });
                     }
                   );
@@ -1875,6 +1958,43 @@ const FRAME_ELEMENT_CLOSE = `</${FRAME_TAG}>`;
  * never saw the first) rides `ctx.live`, the shared slot the root context
  * creates and every derived context inherits by reference.
  */
+/**
+ * The document face's tier announcement (frames savings pass §2): the
+ * `sc:tiers` hydration record — the names of the frames-client tiers the
+ * document's server components have minted, `_$HY.r["sc:tiers"] =
+ * ["bind", …]` — and, when the integration gave the tier's chunk URL
+ * (`frameTransformDirectResult`'s `tierUrls`), a `modulepreload` for it in
+ * the head. The client's `installServerComponents` reads the record and
+ * starts each import; the preload made it warm.
+ *
+ * The record is RE-WRITTEN at each new mint with the cumulative list:
+ * written once at the first mint, a later component's tier (or one inside
+ * a boundary that resumes before the shell) would be missing from it,
+ * and the hydration serializer parses a value when it is written. Every
+ * write before the shell flush lands in the shell's data script (the last
+ * assignment wins — the complete set); one after it is a later script,
+ * which the client may or may not have run by install — the adopt-time
+ * sync's own detection covers that (the hold). The link goes through the
+ * render's asset registry (`registerAsset("module")`: joins the shell head
+ * before the flush, writes into the stream after; identity-deduped).
+ *
+ * Carrier: `ctx.live`, the one slot the streaming root context shares by
+ * reference with every component's context copy (see
+ * `armDocumentLiveHoles`). A sync render (`renderToString`) has no shared
+ * slot and no later script — it announces nothing; the client detects.
+ */
+function documentNeeds(name) {
+  const ctx = sharedConfig.context;
+  const live = ctx && ctx.live;
+  if (!live || !ctx.serialize) return;
+  const tiers = live.tiers || (live.tiers = []);
+  if (tiers.includes(name)) return;
+  tiers.push(name);
+  ctx.serialize("sc:tiers", tiers.slice());
+  const url = live.tierUrls && live.tierUrls[name];
+  if (url && ctx.registerAsset) ctx.registerAsset("module", url);
+}
+
 function armDocumentLiveHoles(ctx) {
   if (!ctx || ctx.liveHoles !== undefined) return;
   const live = ctx.live;
@@ -2025,7 +2145,21 @@ function armDocumentLiveHoles(ctx) {
  */
 export function frameTransformDirectResult<T>(
   value: T,
-  options: { id: string; args?: unknown[] }
+  options: {
+    id: string;
+    args?: unknown[];
+    /**
+     * The client chunk URL of each frames-client tier, by tier name (the
+     * integration's, from its manifest — the server does not know the
+     * client's chunks). Given, the document emits a `modulepreload` for a
+     * tier when a server component first mints its feature, beside the
+     * `sc:tiers` record it writes either way; absent, the record alone
+     * announces the name and the client's `installServerComponents` starts
+     * the import from it. Document-wide: the first call's map is the
+     * render's.
+     */
+    tierUrls?: Record<string, string>;
+  }
 ): T;
 
 /**
@@ -2036,7 +2170,7 @@ export function frameTransformDirectResult<T>(
  * ELEMENT around it, document-mode slot props inside. HTTP calls are
  * untouched (`frameTransformResult` owns that leg).
  */
-export function frameTransformDirectResult(value, { id, args }) {
+export function frameTransformDirectResult(value, { id, args, tierUrls }) {
   if (typeof value !== "function") return value;
   const component = value;
   const wrapped = props => [
@@ -2048,6 +2182,10 @@ export function frameTransformDirectResult(value, { id, args }) {
     serverOwned(() => {
       const page = sharedConfig.context;
       armDocumentLiveHoles(page);
+      // The tier chunk URLs, for the document's `modulepreload` links (see
+      // documentNeeds) — on the shared slot, so every component's mint
+      // reads them.
+      if (tierUrls && page && page.live && !page.live.tierUrls) page.live.tierUrls = tierUrls;
       // Handler positions: arm the compiled `ssrClaim` guard — and the
       // spread walk's slot probes — for this subtree, on a render context
       // DERIVED from the page's (prototype: every shared field and method
@@ -2071,8 +2209,11 @@ export function frameTransformDirectResult(value, { id, args }) {
         // every async source inside takes its first value and closes — the
         // document completes, and the standing render is the client's
         // connection after hydration (RFC 11 §9.5, Server face 3). Read at
-        // render, not at wrap: the brand arrives from `live`, outside.
-        return serverComponentScope(() => component(slotProps), !!wrapped[LIVE_SOURCE]);
+        // render, not at wrap: the brand arrives from `live`, outside. That
+        // connection is the wire tier's — announced with the document.
+        const live = !!wrapped[LIVE_SOURCE];
+        if (live) documentNeeds("wire");
+        return serverComponentScope(() => component(slotProps), live);
       } finally {
         sharedConfig.context = page;
       }
@@ -2311,6 +2452,9 @@ export function createSlotProps(sink, frame) {
   const getters = new Map();
   // Repeated calls are one occurrence within a render (see repeatKey).
   const repeats = new Map();
+  // The tier announcement (createFrameSink's `needs`); a composed sink
+  // without one announces nothing — the client detects and holds.
+  const needs = sink.needs || (() => {});
   return new Proxy(Object.create(null), {
     // Every key virtually exists — a prop is a *position* the client may
     // fill, and the server cannot know which ones the client supplied. This
@@ -2332,7 +2476,7 @@ export function createSlotProps(sink, frame) {
       if (!fn) {
         fn = (...callArgs) => {
           if (callArgs.length === 0 || callArgs[0] === undefined) {
-            return slotProxy(slotRange(prop), prop, SLOT_FACE_STREAM, undefined);
+            return slotProxy(slotRange(prop), prop, SLOT_FACE_STREAM, undefined, undefined, needs);
           }
           const rk = repeatKey(prop, callArgs[0]);
           const repeat = rk !== undefined && repeats.get(rk);
@@ -2480,8 +2624,11 @@ export function createSlotProps(sink, frame) {
               } else {
                 const ref = `arg:${occurrence}:${key}`;
                 // Containers (at any depth) swap for their trace envelopes
-                // before the value meets seroval — see toBorderForm.
-                ctx.serialize(ref, argBorderForm(value, key, occurrence));
+                // before the value meets seroval — see toBorderForm. A
+                // container announces the `trace` tier (`sink.needs`)
+                // before the serializer emits the record's data chunk, so
+                // the announcement rides that very chunk.
+                ctx.serialize(ref, argBorderForm(value, key, occurrence, needs));
                 args[key] = { $ref: ref };
                 if (evaluate && !state) state = { settled: true, last: value };
               }
@@ -2511,7 +2658,7 @@ export function createSlotProps(sink, frame) {
               } else {
                 const ref = `arg:${occurrence}:${key}@${sink.nextArgRef(ledgerKey)}`;
                 sink.mintRef(ref);
-                ctx.serialize(ref, argBorderForm(value, key, occurrence));
+                ctx.serialize(ref, argBorderForm(value, key, occurrence, needs));
                 args[key] = { $ref: ref };
               }
               sink.slot(occurrence, { ...args });
@@ -2526,7 +2673,8 @@ export function createSlotProps(sink, frame) {
             occurrence,
             SLOT_FACE_STREAM,
             undefined,
-            rk === undefined || keyed ? undefined : () => repeats.has(rk) || repeats.set(rk, out)
+            rk === undefined || keyed ? undefined : () => repeats.has(rk) || repeats.set(rk, out),
+            needs
           );
           if (keyed) repeats.set(rk, out);
           return out;
@@ -2654,7 +2802,16 @@ export function serverComponentResponse(component, options = {}, init = {}) {
             closed = true;
           }
         },
-        end
+        end,
+        // The tiers the sync render pass minted, into the response head
+        // (`X-Frame-Tiers`; frames savings pass §2). `start` runs
+        // synchronously inside the `ReadableStream` constructor, so this
+        // fires before the `Response` below is built — the head carries
+        // what the render knew at its first flush; anything later rides
+        // in-band on a chunk. Omitted when the pass minted nothing.
+        [ANNOUNCE](tiers) {
+          if (tiers.length) headers.set(FRAME_TIERS_HEADER, tiers.join(","));
+        }
       });
     },
     cancel() {

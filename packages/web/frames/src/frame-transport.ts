@@ -20,8 +20,7 @@ import {
   deserializeStream,
   frameAddress,
   getServerFunctionsCodec,
-  hasFlightMetadata,
-  isEventStream
+  hasFlightMetadata
 } from "../../server-functions/src/shared.js";
 import { observeFrameApply } from "../../src/observe.js";
 
@@ -33,7 +32,7 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 // experimental preview, excluded from the 2.0 stability guarantee: API
 // shapes and the wire format may change between prereleases (RFC 11).
 // Every export in this module is @experimental.
-import { FrameChunk, FrameHost } from "./frame-client.js";
+import { FrameChunk, FrameHost, prepareTier, tierLoads } from "./frame-client.js";
 
 import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
 
@@ -114,6 +113,20 @@ export interface ServerComponentHandlerOptions<C = unknown> {
 export const FRAME_STREAM_HEADER = "X-Frame-Stream";
 
 /**
+ * The tiers a frame stream needs (frames savings pass §2, the
+ * server-announced tier mechanism): the names, comma-separated, of the
+ * frames-client tiers the render had minted when the response head left
+ * — `bind,regions,assets,trace,wire` — so the client starts their loads
+ * before it reads the body. Omitted when nothing was minted. A tier first
+ * needed after the head rides in-band instead: `tiers` on the next chunk
+ * (`FrameChunk.tiers`). Additive wire: an old client ignores both; a new
+ * client without them falls back to detection at the readiness check and
+ * holds (frames-rulings 3.1) — the same DOM, later.
+ * @experimental
+ */
+export const FRAME_TIERS_HEADER = "X-Frame-Tiers";
+
+/**
  * The resume request's have-list (RFC 11 §9.5, Resume request): the
  * digests the client holds for the address it is reconnecting — the root
  * skeleton under `""`, then one entry per live hole (`lh:N`), attr hole
@@ -131,24 +144,9 @@ export const FRAME_HAVE_HEADER = "X-Frame-Have";
 /** The have-list's size ceiling in encoded bytes (see FRAME_HAVE_HEADER). */
 export const FRAME_HAVE_BUDGET = 4096;
 
-/**
- * Encodes a have-list for the header: `key=digest` pairs, comma-joined
- * (keys never contain either separator; the root's key is empty).
- * `undefined` when the list is empty or over budget.
- * @internal
- */
-export function encodeHaveList(have: Record<string, string>): string | undefined;
-
-export function encodeHaveList(have) {
-  let out = "";
-  for (const key in have) {
-    const digest = have[key];
-    if (typeof digest !== "string") continue;
-    out += (out ? "," : "") + key + "=" + digest;
-    if (out.length > FRAME_HAVE_BUDGET) return undefined;
-  }
-  return out || undefined;
-}
+// The encoder (`encodeHaveList`) is the live wire tier's (wire-tier.ts): the
+// client sends the have-list only from a `live` reconnect, which runs
+// through the tier. The decoder below is the server's.
 
 /**
  * Decodes a have-list header value; `undefined` for an absent/empty one.
@@ -247,17 +245,20 @@ async function observedApplyFrameResponse(response, host, options = {}) {
  */
 function applyFrames(response, host, options = {}, observation) {
   const rootId = response.headers.get(FRAME_STREAM_HEADER) ?? "";
+  // The announced tiers (see FRAME_TIERS_HEADER): their loads start here,
+  // before the body is read, so a tier downloads in parallel with the
+  // stream and is resident by the time a frame's sync needs it. Idempotent
+  // and a no-op for a tier with no loader (eager).
+  response.headers.get(FRAME_TIERS_HEADER)?.split(",").forEach(prepareTier);
   const as = options.as;
   const version = options.version;
   const perFrame = typeof version === "function" ? new Map() : null;
-  // A `live` loop's call (the slot it threads through its invoke options —
-  // see LIVE_WIRE): the body is read through the loop's own reader when it
-  // is framed as an event stream, and the connection's end is reported to
-  // the loop instead of being judged here.
-  const wire = options[LIVE_WIRE];
-  const connection = wire && wire.connection;
-  const reader =
-    wire && isEventStream(response) ? wire.open(response.body) : new ChunkReader(response.body);
+  // A `live` loop's call runs through the live wire tier (wire-tier.ts,
+  // `connect`), which hands its own reader in under the loop's slot
+  // (LIVE_WIRE): the loop's event-stream reader when the body is framed as
+  // one, and the connection's end is judged THERE — by what the body left
+  // open, told to the loop — never here.
+  const reader = options[LIVE_WIRE] || new ChunkReader(response.body);
   // The frames this response has begun (`start`) and not yet ended —
   // `complete` is the bounded signal (a frame the server declared done), an
   // unkeyed `error` the failing kind of it. A body that ends with any still
@@ -267,24 +268,6 @@ function applyFrames(response, host, options = {}, observation) {
   // ids as applied (remapped, per-frame versioned), so an error record
   // written for one lands in its store.
   const open = new Map();
-  // Supersession (§9.5, Client face 4): the handler cancels this connection
-  // when a newer response writes the address — the read ends as a death
-  // carrying the reason, and the loop reconnects from it.
-  let cancelled;
-  let resolveEnd;
-  if (connection) {
-    connection.ended = new Promise(resolve => (resolveEnd = resolve));
-    connection.cancel = reason => {
-      if (cancelled !== undefined) return;
-      cancelled = reason;
-      // The reader owns the body's lock; cancelling through it ends the
-      // drain as a clean body end (the death is in `open`, not the error).
-      try {
-        const r = reader.cancel && reader.cancel(reason);
-        if (r && typeof r.then === "function") r.then(undefined, () => {});
-      } catch {}
-    };
-  }
   const errorRecord = (id, error) => ({
     type: "error",
     id,
@@ -311,36 +294,48 @@ function applyFrames(response, host, options = {}, observation) {
         // The observe tier's chunk census (see `observedApplyFrameResponse`);
         // folds with the literal.
         if (IS_OBSERVE && observation) observation.chunk(chunk, wireId);
-        // Codec-free until a `data` chunk actually arrives: a host whose
-        // deserializer loads lazily (`prepareData`) gets awaited here, and
-        // because the loop is sequential every later chunk — the records
-        // referencing this data included — queues behind the load. Chunk
+        // In-band tier announcement (`chunk.tiers`, see FRAME_TIERS_HEADER):
+        // a tier the render first needed after the head left names itself
+        // on the next chunk out; its load starts here. A `data` chunk that
+        // carries the name is one whose node tree NEEDS the tier to decode
+        // (the serializer minted the feature on this very record — a
+        // container trace's plugin node materializes into a live container
+        // only with the tier resident), so it awaits the load, as it awaits
+        // the codec below.
+        const needs = chunk.tiers?.map(prepareTier) || [];
+        // Codec-free until a chunk that READS data actually arrives: a host
+        // whose deserializer loads lazily (`prepareData`) gets awaited here,
+        // and because the loop is sequential every later chunk — the
+        // records referencing this data included — queues behind the load.
+        // A `slot` chunk whose args carry a `{$ref}` reads data too (its
+        // refs settle at the write, through its response's table — a key
+        // not delivered yet is the TABLE's pending read, so the table must
+        // exist); the producer emits the data ahead of the record that
+        // names it, so on its wire this await is already answered. Chunk
         // ORDER is the only contract downstream (network jitter already
         // stretches time between chunks), so nothing else observes the wait.
-        if (chunk.type === "data" && host.prepareData) await host.prepareData();
+        if (
+          chunk.type === "data" ||
+          (chunk.type === "slot" && Object.values(chunk.args).some(v => v && v.$ref))
+        )
+          await Promise.all([host.prepareData?.(), ...needs]);
         host.apply(chunk);
       }
       result = await reader.next();
     }
   };
-  // How the body ended, judged by what it left open. A live loop is TOLD
-  // (the connection's lifetime signal — death or completion — and the sweep
-  // it may run over the open frames if the iteration ends for good by
-  // error; `close` leaves them as they stand, since a superseding
-  // reconnect re-renders them). Without a loop, an open frame's death is an
-  // ERROR on the frame — a bounded server component the server never
+  // How the body ended, judged by what it left open: an open frame's death
+  // is an ERROR on the frame — a bounded server component the server never
   // declared complete was cut off mid-render, and nothing resumes it
   // (undeclared death, D1): the record surfaces through `frame.error`, and
-  // the content already applied stays.
+  // the content already applied stays. (A live loop's verdict is the wire
+  // tier's: its host swallows this sweep once the body has drained and
+  // tells the loop instead — death or completion, with the sweep the loop
+  // may run if the iteration ends for good by error.)
   const end = error => {
-    const dead = error || cancelled || new Error("Frame stream ended before the frame completed.");
-    const sweep = () => {
-      for (const id of open.keys()) host.apply(errorRecord(id, dead));
-    };
-    if (connection) {
-      connection.done = true;
-      resolveEnd({ open: open.size, error: dead, sweep, close: () => {} });
-    } else if (error === undefined) sweep();
+    if (error === undefined)
+      for (const id of open.keys())
+        host.apply(errorRecord(id, new Error("Frame stream ended before the frame completed.")));
   };
   return drain().then(
     () => {
@@ -425,26 +420,29 @@ export const stagedContent: {
 // seam never needs a global.
 let resolveServerComponent;
 
-// The call behind an address, as the transport saw it — `{ id, meta, args }`
-// — recorded when a response for it is handled (or the document answered
-// it). An address is a one-way hash of the call, so this is the only way
-// back from "this address errored" to "ask the server again": a frame's
-// `:error` is its one async value rejecting (frames-rulings 3.3), and the
-// enclosing `<Errored>`'s `reset` re-reads the landing — an errored landing
-// is not a landing for a fresh consumer, so the re-read is a new flight for
-// the same address, re-invoked from this record (`client.ts`, `reask`).
-// Same module-state pattern as `resolveServerComponent`; one entry per
-// address, the newest call wins (same call, same hash).
+// The call behind an address, as the transport saw it — `{ id, meta, args,
+// retry }` — recorded when a response for it is handled (or the document
+// answered it). An address is a one-way hash of the call, so this is the
+// only way back from "this address errored" to "ask the server again": a
+// frame's `:error` is its one async value rejecting (frames-rulings 3.3),
+// and the enclosing `<Errored>`'s `reset` re-reads the landing — an errored
+// landing is not a landing for a fresh consumer, so the re-read is a new
+// flight for the same address, made again through the call's own `retry`
+// (the server-function client's thunk for the dispatch it made — see
+// `client.ts`, `reask`). Same module-state pattern as
+// `resolveServerComponent`; one entry per address, the newest call wins
+// (same call, same hash).
 const calls = new Map();
 
 /**
- * The call recorded for an address (`{ id, meta, args }`), or `undefined`
- * for an address no response or document answer named.
+ * The call recorded for an address — `{ id, meta, args, retry }`, `retry`
+ * the thunk that makes the same call again — or `undefined` for an address
+ * no response or document answer named.
  * @internal
  */
 export function callFor(
   address: string
-): { id: string; meta: unknown; args: unknown[] } | undefined;
+): { id: string; meta: unknown; args: unknown[]; retry(): Promise<unknown> } | undefined;
 
 export function callFor(address) {
   return calls.get(address);
@@ -596,18 +594,42 @@ export function flightCodec(codec) {
  * @experimental
  */
 export function createServerComponentHandler<C>(options: ServerComponentHandlerOptions<C>): {
-  intercept?(info: { id: string; meta: unknown; args: unknown[] }): unknown;
+  /**
+   * `retry` (the server-function client's thunk for the call it is
+   * answering or dispatched, declared shape included) is recorded behind
+   * the call's address for the re-ask (`callFor`, frames-rulings 3.3).
+   */
+  intercept?(info: {
+    id: string;
+    meta: unknown;
+    args: unknown[];
+    retry?(): Promise<unknown>;
+  }): unknown;
   handle(
     response: Response,
-    ctx: { id: string; meta: unknown; args: unknown[]; context: unknown }
+    ctx: {
+      id: string;
+      meta: unknown;
+      args: unknown[];
+      context: unknown;
+      retry?(): Promise<unknown>;
+    }
   ): unknown;
+  /**
+   * A `live()` call was made (before its first fetch): starts the live wire
+   * tier's load (`prepareTier("wire")`), so the import races only the
+   * request — preload-at-call.
+   */
+  onLive(): void;
   /**
    * What a `live` (re)connect of the call resumes from (RFC 11 §9.5,
    * Resume request): the address's version ordinal as the position
    * (`Last-Event-ID`) and, when a mount shows the address with a ledger,
    * its have-list under `FRAME_HAVE_HEADER` — omitted over budget, so the
    * render is a full snapshot then. `undefined` when nothing here has
-   * shown the call.
+   * shown the call — or while the live wire tier, which keeps the ledger
+   * and answers this, is not resident yet (a first connect over content a
+   * plain call applied: a full snapshot, the degraded case accepted).
    */
   resume(info: {
     id: string;
@@ -618,10 +640,8 @@ export function createServerComponentHandler<C>(options: ServerComponentHandlerO
    * Declares that the document is showing a call: hydration-data references
    * carry their call's address (`_$SC.r(id, address)`) but never travel
    * through the transport, so the integration forwards those records here.
-   * Mints the call's binding (a post-load refetch then resolves a value
-   * whose component matches what the document mounted) and brands the
-   * per-function component so cache-seeded readers deliver instead of
-   * remounting when their site later switches calls.
+   * Mints the call's binding, so a post-load refetch resolves a value
+   * whose component matches what the document mounted.
    */
   showing(address: string, functionId: string): void;
 };
@@ -768,13 +788,6 @@ export function createServerComponentHandler({ host, component, intercept }) {
   // party that observes ordering across transports (a getter refetch, a
   // mutation's regions, a preload), so stale-guarding is per-address here.
   const versions = new Map();
-  // The live connection per address — the `live` loop's call whose body is
-  // currently streaming into the store (its lifetime slot, see LIVE_WIRE).
-  // One per address: content is keyed by call, so two live readers of one
-  // call share one connection (the second joins the first's lifetime below)
-  // — otherwise each would supersede the other's stream and the two loops
-  // would cycle for as long as both were mounted.
-  const connections = new Map();
   const bump = address => {
     const version = (versions.get(address) || 0) + 1;
     versions.set(address, version);
@@ -783,23 +796,12 @@ export function createServerComponentHandler({ host, component, intercept }) {
     staged.delete(address);
     // Supersession is a death (§9.5, Client face 4): a newer version from
     // another response — a getter refetch, a preload, a mutation's region —
-    // makes the open connection's later chunks inert under the stale-guard,
-    // so it is cancelled and the loop reconnects from the death. Run for
-    // every bump, the loop's own reconnect included (whose predecessor has
-    // already ended and left the slot).
-    const connection = connections.get(address);
-    if (connection) {
-      connections.delete(address);
-      connection.cancel(new Error("Superseded by a newer response for the address."));
-    }
+    // makes an open live connection's later chunks inert under the
+    // stale-guard, so it is cancelled and the loop reconnects from the
+    // death. The connections are the live wire tier's (wire-tier.ts): a
+    // page with the tier absent has none to cancel.
+    tierLoads.wire?.r?.cancel(host, address);
     return version;
-  };
-  /** Register a live connection under its address until its body ends. */
-  const hold = (address, connection) => {
-    connections.set(address, connection);
-    connection.ended.then(() => {
-      if (connections.get(address) === connection) connections.delete(address);
-    });
   };
   /**
    * An unstaged response has begun for an address — at its header, before
@@ -835,19 +837,17 @@ export function createServerComponentHandler({ host, component, intercept }) {
           return hit.then(landed => (landed ? binding() : undefined));
         return binding();
       }),
+    // Preload-at-call (plan §1, the wire row): `live()` fires this at the
+    // call, before its first fetch, so the tier's import races only the
+    // request; `handle`'s live arm awaits the same load.
+    onLive() {
+      prepareTier("wire");
+    },
+    // The resume request is the tier's (`resume`: the ordinal, the mount's
+    // have-list). Before the tier is resident nothing here has shown a live
+    // call — the ledger is kept there — so the loop's own cursor stands.
     resume(info) {
-      const address = frameAddress(info.id, info.args);
-      const version = versions.get(address);
-      // The ledger is the MOUNT's (it tracks what the DOM shows); the first
-      // mount under the address speaks for all — they show the same store.
-      const frame = host.get(address);
-      const have = frame && frame.have ? frame.have() : undefined;
-      if (version === undefined && !have) return undefined;
-      const encoded = have && encodeHaveList(have);
-      return {
-        position: String(version || 0),
-        headers: encoded ? { [FRAME_HAVE_HEADER]: encoded } : undefined
-      };
+      return tierLoads.wire?.r?.resume(host, info, versions);
     },
     handle(response, ctx) {
       if (!isFrameStreamResponse(response)) return undefined;
@@ -863,43 +863,20 @@ export function createServerComponentHandler({ host, component, intercept }) {
       if (response.headers.has(SINGLE_FLIGHT_HEADER)) {
         return applyFlightResponse(response, address, binding);
       }
-      // A `live` loop's call: the binding resolves it now, and the
-      // response's lifetime — its end and how it ended — reaches the loop
-      // through its wire slot (§9.5, Client face 2), so frames CONSUME the
-      // loop rather than mirror it: death → the loop's backoff and
-      // re-invoke, which resolves this same binding again (stable per
-      // address, so an equals-gated reader keeps its instance); completion
-      // → the loop completes.
+      // A `live` loop's call (its wire slot rides on the ctx, see
+      // LIVE_WIRE) is the live wire tier's (wire-tier.ts, `connect`): the
+      // binding resolves it, and the response's lifetime reaches the loop
+      // through the slot (§9.5, Client face 2). The arm AWAITS the tier —
+      // `live()` started the load at the call (`onLive`), so the import
+      // raced only the request and is usually here; the body is not read
+      // before it is, so a live connection without the tier cannot happen.
+      // `connection.ended` is set inside `connect`, before the promise this
+      // returns resolves — the loop reads it after awaiting the call.
       const wire = ctx[LIVE_WIRE];
-      const connection = wire && wire.connection;
-      if (connection) {
-        // A live connection already streams this address: join its
-        // lifetime instead of opening a second stream into the same store
-        // (see `connections`). This response is ended here — the server
-        // tears its render down on the cancel — and the joining loop sees
-        // the shared connection's death when it comes, reconnecting like
-        // the loop that owns it (one of the two wins the next slot; the
-        // other joins again).
-        const current = connections.get(address);
-        if (current && !current.done) {
-          connection.ended = current.ended;
-          const body = response.body;
-          if (body) body.cancel().catch(() => {});
-          return binding;
-        }
-        const version = bump(address);
-        begin(address, version);
-        // The end is judged by the loop from `connection.ended` (set
-        // synchronously by applyFrames); a rejected read is a death it
-        // already sees, not an error record — the loop decides what the
-        // open frames become (a sweep when it ends by error, nothing when
-        // it reconnects).
-        applyFrameResponse(response, host, { as: address, version, [LIVE_WIRE]: wire }).catch(
-          () => {}
+      if (wire)
+        return prepareTier("wire").then(() =>
+          tierLoads.wire.r.connect(response, wire, address, binding, host, bump, begin)
         );
-        hold(address, connection);
-        return binding;
-      }
       // The call behind the address, for a re-ask (see `calls`): a plain
       // response's — a `live` loop owns its own reconnects.
       calls.set(address, ctx);
@@ -941,21 +918,12 @@ export function createServerComponentHandler({ host, component, intercept }) {
      * through this seam instead — the t=0 reference carries it (see
      * ServerComponentPlugin.serialize). Minting the binding here keeps a
      * post-load refetch of the same call resolving a value whose component
-     * matches what the document mounted; branding the document's per-
-     * function placeholder (the cache-seeded value readers hold at t=0)
-     * lets an equals-gated reader deliver instead of remounting when its
-     * site later switches calls.
+     * matches what the document mounted. (The reference the reader holds
+     * at t=0 is the bootstrap's BINDING for the address — branded there —
+     * never the bare per-function placeholder, so nothing brands it here.)
      */
     showing(address, functionId) {
       bindingFor(address, functionId);
-      const comp = componentFor(functionId);
-      if (
-        comp &&
-        (typeof comp === "function" || typeof comp === "object") &&
-        !comp[COMPONENT_BINDING]
-      ) {
-        comp[COMPONENT_BINDING] = { component: comp, address };
-      }
     }
   };
 

@@ -130,22 +130,23 @@ thing here.
 
 ## Using it from the client
 
-There is no server-component API on the client. `dynamic` — the same
-utility you'd use to swap any component — is the whole surface:
+There is no server-component API on the client. `dynamicComponent` — the
+component-only form of `dynamic`, the same utility you'd use to swap any
+component — is the whole surface:
 
 ```tsx
-import { dynamic } from "@solidjs/web";
+import { dynamicComponent } from "@solidjs/web";
 
 function StoryPage(props) {
   const [collapsedAll, setCollapsedAll] = createSignal(false);
 
   // The source is tracked: when props.storyId changes it re-calls the
   // server function. Every call for the same (function, args) resolves to
-  // the IDENTICAL component — a refetch passes dynamic's equals-gate, so
+  // the IDENTICAL component — a refetch passes the equals-gate, so
   // nothing remounts and the stream morphs the boundary in place. A new
   // storyId resolves that story's own boundary and the site swaps to it,
   // seeded from retained content when the story has shown before.
-  const Story = dynamic(() => getStory(props.storyId));
+  const Story = dynamicComponent(() => getStory(props.storyId));
 
   return (
     <Story
@@ -223,7 +224,7 @@ own:
 
 - **Wrap the section function in `query`** and route-level `preload` warms
   it on intent — the response's chunks buffer until a boundary mounts,
-  then drain. The `dynamic()` read resolves through the same cached
+  then drain. The `dynamicComponent()` read resolves through the same cached
   in-flight call, and a later fresh cache hit re-materializes the boundary
   from retained state with no request at all — back/forward navigation
   renders like a bfcache restore.
@@ -365,7 +366,7 @@ must not break:
 ### What a router does with this
 
 A router integration is thin by design: translate URL changes into
-server-function calls and let a `dynamic` source (or
+server-function calls and let a `dynamicComponent` source (or
 `applyFrameResponse(response, host, { as })` directly) read them — the
 router names nothing, because the calls themselves name the boundaries
 (invariant 3). Wrapping the section functions in the router's `query`

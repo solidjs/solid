@@ -1055,7 +1055,11 @@ server's node.**
   child, two after a keyed sibling — per S1's note); the client's `adoptBoundary`
   consumes none. S1's `.fails` pin: `container-trace-hold-id-determinism` "a
   keyed sibling after the frame claims the server's node". Independent of any
-  hold; pre-existing on `next`.
+  hold; pre-existing on `next`. **The pin is on the tree since C3**
+  (2026-10-06, `test/hydration/container-trace-hold-id-determinism.spec.tsx`,
+  ported with S1's hold specs): still red on a resident run, still `.fails`,
+  with this ruling named as the reading it waits on (3c) — C3 changed
+  nothing in what the server or the adopter consumes.
 - **Decides.** That pin. A parity bug under C10's rule read one level up (the
   frame's own ids, not the fill's) — fix without a new ruling, but it needs the
   server's consumption pinned first (it varies by position), and the fix may be
@@ -1185,6 +1189,29 @@ update it is. The claim pass never rewrites a hole.**
   `claiming` hint (S1's `revive(value, claiming?)`, threaded from the
   adopt-time mount) arrives at plan step C3 with S1 and converts the park
   back to keyed-on-claim then.
+- **Landed (2026-10-06, C3 — `feat/frames-traces-tier`): the park is
+  keyed on the claim again.** The hint is threaded as S1 had it —
+  `#invokeSlot`'s `adopted` → `#resolveArgs(occurrence, record, claiming)` →
+  `FrameHostOptions.revive(value, claiming)` → `reviveContainerTraces(value,
+claiming)` → `materialize(marker, claiming)` → `materializeContainerTrace
+(marker, claiming)` (now `solid-js/internal/container-trace`, the traces
+  tier's entry) — and the materializer parks only when `claiming` is true:
+  every adopt-time mount of an adopt frame (t = 0, under the tier's hold,
+  at a fragment's reveal, on a frame adopted after done — `ctx.adopted` is
+  the one invocation a consumer may answer with a claim, so it is exactly
+  the set of claims; the "no hydration state says claim" problem the
+  unconditional port worked around does not arise, since the hint is the
+  frame's, not the pass's). A fresh mount — a stream re-call, a codec-face
+  decode — reads the fold of its whole backlog at once and pays no beat.
+  The release order 3.2 pins holds through the tier's hold: the late claim
+  under `needsTrace` materializes with `claiming`, the frame's hold releases
+  after that sync, done after the hold, the backlog after done
+  (`container-trace-hold-{snapshot,hydration-end}`, `tier-trace-hold`;
+  solid's `container-trace.spec` pins the keyed park itself: a fresh mount
+  during hydration parks nothing either). The +4 B this costs on the
+  `@solidjs/web` server floor is `materialize`'s second parameter in the
+  codec plugin the SSR runtime bundles (within the minified allowance;
+  brotli −9).
 
 - **Mechanism today.** `web/src/client.ts:insertExpression` under hydration is
   a claim pass, not a mutation pass (C1/C9: nothing moves);

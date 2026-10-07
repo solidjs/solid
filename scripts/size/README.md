@@ -6,7 +6,9 @@ app, a representative CSR app, a hydrating pair — with and without store
 primitives — that keeps the store engine pay-for-use under `hydrate()`, three
 compiled-template scenarios — a compiled floor and a JSX todo app in CSR and
 hydrating form — the frames client as a package, two server-component PAGES:
-base and live, and two server-entry floors: `getRequestEvent`/`isServer` and
+base and live, their two compiled counterparts — the same pages as JSX with
+the templates a real page has — and two server-entry floors:
+`getRequestEvent`/`isServer` and
 `renderToString`) with hard brotli limits on the eager entry chunk. CI fails
 when a scenario exceeds its limit and grew more than a small minified
 allowance over its base (see [The gate](#the-gate)) — that means tree-shaking regressed, or a deliberate
@@ -101,7 +103,13 @@ actually downloads. Rolldown is pinned exactly in `package.json`: its minifier
 decides the numbers, so an upgrade is a re-base recorded like any other cap
 change. Code splitting is real — a scenario's `import()` yields a lazy chunk
 that is reported and never counted; the seroval codec the page scenarios load
-lazily shows up that way at its true size.
+lazily shows up that way at its true size. The eager graph is the entry chunk
+**plus any chunk it imports statically**: when the entry and a lazy chunk
+share modules, Rolldown may hoist them into a chunk the entry `import`s at
+its top, and the browser fetches that before the entry runs. Such a chunk is
+counted (each file brotli'd on its own) and named in the output as `eager
+(… counted)`; the compiled live server-component page is the one scenario
+that splits this way (its ledger note says why).
 
 Scenarios bundle for the browser unless they set `platform`/`conditions`.
 The `server:` scenarios bundle for Node (Rolldown's node conditions, no
@@ -133,6 +141,26 @@ every other scenario. The compiler sees only each file's basename, so the
 output — and the numbers — are the same on every host. The compiled app's
 own modules report as the `app` package. CI needs nothing beyond what it
 already does: the compiler is built before `pnpm build`.
+
+The two server-component page scenarios have compiled counterparts for the
+same reason (`page: compiled base …`, `page: compiled live …`;
+`fixtures/compiled/sc-base.jsx`, `sc-live.jsx`, the shared `sc-shell.jsx`):
+the hand-written `sc-base-app.js` / `sc-live-app.js` keep the runtime alive as
+values and never compile a template, so a change that drops the attribute
+runtime from those pages drops nothing from a page an application ships —
+compiled templates import `className`, `style`, `setAttribute`, `addEvent`
+and `delegateEvents` themselves. The compiled pages mount the same server
+component through `dynamicComponent()` over the same server-function
+reference (the live one through `live(GET(…))`, with `action` and
+`isPending`/`latest`), inside a compiled shell: links with a dynamic `class`
+and `style`, an `href`, a handler passed through as a prop, a search input
+with a `value` binding, `<For>`, `<Show>`, `<Errored>`/`<Loading>` and a
+`lazy()` child — and **no element spread** (the maintainer's ruling,
+2026-10-07: most server-component apps do not have client element spreads, so
+the compiled baseline must not carry one; `spread` is absent from both
+pages' rendered `web.js`). The hand-written pages stay as the frames-only
+floor (their caps are the frozen ones); the compiled pages are the number a
+real page moves by.
 
 ## Frozen floor caps
 

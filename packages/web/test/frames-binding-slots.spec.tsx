@@ -20,13 +20,14 @@
 // The server side is hand-framed Responses (marker-bearing html and slot
 // records, exactly what the server face emits — pinned by
 // test/server/frame-binding-slots.spec.tsx) behind a stubbed fetch.
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { createSignal, flush, Loading, OBSERVE } from "solid-js";
-// From the packaged entry, not `../src`: the frames client writes positions
+// From the packaged entry, not `../src`: the bind tier writes positions
 // through `@solidjs/web`'s `assign` (the shared instance an app has), and
 // delegated dispatch must find the root registered by the SAME instance.
 import { dynamic, render } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
+import { prepareTier } from "../frames/src/frame-client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { createChunk } from "../server-functions/src/shared.js";
@@ -43,6 +44,13 @@ function frameResponse(id: string, chunks: any[]) {
 }
 
 const ID = "todos/list";
+
+// Binding-slot positions are the BIND TIER's (`@solidjs/web/frames/bind`,
+// loaded through `prepareTier("bind")` at the first marker met — plan step
+// C6). These cells pin the positions' behaviour with the tier RESIDENT, so
+// it is warmed once here; the un-announced hold and the install's flush
+// are pinned in consistency/tier-bind-hold.spec.tsx.
+beforeAll(() => prepareTier("bind"));
 
 type Todo = { id: string; title: string; completed: boolean };
 

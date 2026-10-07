@@ -11,7 +11,8 @@
 import { vi } from "vitest";
 import { createSignal, flush, untrack } from "solid-js";
 import { hydrate } from "@solidjs/web";
-import { getFrameHost, installServerComponents } from "../../../frames/src/client.js";
+import { installServerComponents } from "../../../frames/src/client.js";
+import { prepareTier } from "../../../frames/src/frame-client.js";
 import {
   bootPage,
   fillHtml,
@@ -50,17 +51,18 @@ let runCounter = 0;
 let holeCounter = 0;
 
 /**
- * On a branch whose materializer loads lazily, warm it once so trace args
- * read synchronously at claim (the pins do the same; see C11's
- * `readyMaterializer`). A no-op where the materializer is resident.
+ * The materializer is the frames client's traces tier, loaded on demand
+ * (`prepareTier("trace")`, plan step C3); warm it once so trace args read
+ * synchronously at claim (the pins do the same; see C11's
+ * `readyMaterializer`). The load and the hold while it pends have their own
+ * pins (`tier-trace-hold.spec`, the `container-trace-hold-*` specs).
  */
 let materializerReady: Promise<void> | undefined;
 async function readyMaterializer() {
   if (!materializerReady) {
     materializerReady = (async () => {
       installServerComponents();
-      const host: any = getFrameHost();
-      await host.prepareArgs?.({ probe: traceMarker().marker });
+      await prepareTier("trace");
       delete (globalThis as any)._$SC;
     })();
   }

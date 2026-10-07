@@ -21,10 +21,20 @@
  *
  * Release order pinned (3.2, "ordering to pin with it"): the claim, then
  * the frame's hold release, then done, then the backlog.
+ *
+ * The materializer is the frames client's traces tier (plan step C3), loaded
+ * through `prepareTier("trace")`; these cells run with it RESIDENT (warmed
+ * once below, as the production host has it once that load has settled), so
+ * the t=0 claim is synchronous. The park is keyed on the claim since C3
+ * (`revive(value, claiming)`): a fresh mount pays no beat — pinned in
+ * solid's `container-trace.spec`; the late claim UNDER THE TIER'S OWN HOLD
+ * is `container-trace-hold-snapshot.spec` (test/hydration).
  */
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createSignal, flush, untrack } from "solid-js";
 import { hydrate } from "@solidjs/web";
+import { prepareTier } from "../../frames/src/frame-client.js";
+import "../../frames/src/client.js";
 import {
   bootPage,
   fillHtml,
@@ -45,6 +55,8 @@ afterEach(async () => {
   await page?.cleanup();
   page = undefined;
 });
+// The traces tier, resident before any page boots (see the module doc).
+beforeAll(() => prepareTier("trace"));
 
 /** A trace the server rendered at `n = snapshot` and then moved past. */
 function movedTrace(snapshot: number, ...patches: number[]) {

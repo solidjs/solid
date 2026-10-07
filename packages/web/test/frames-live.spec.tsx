@@ -13,10 +13,17 @@
 // equals-gate keeps the instance; a completion (every frame complete)
 // completes the iteration. Supersession by another response is a death;
 // an undeclared frame's death is an error; `onstatus` reports the wire.
-import { afterEach, describe, expect, test, vi } from "vitest";
+//
+// The live arm is the LIVE WIRE TIER's (frames savings pass §3 row C2,
+// `@solidjs/web/frames/wire`): the handler awaits its load before the body
+// is read. Warmed here (`prepareTier("wire")`) so every cell runs resident —
+// the shape a live page is in once `live()`'s preload-at-call has landed;
+// `consistency/tier-wire-preload.spec` pins the load itself.
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createMemo, createRoot, createSignal, Errored, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents } from "../frames/src/client.js";
+import { prepareTier } from "../frames/src/frame-client.js";
 import { createServerReference, live } from "../server-functions/src/client.js";
 import { frameAddress } from "../server-functions/src/shared.js";
 import {
@@ -72,6 +79,7 @@ function mountUnderLoading(Comp: any, props: Record<string, any> = {}) {
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+beforeAll(() => prepareTier("wire"));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("frames consume live: death vs complete", () => {

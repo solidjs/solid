@@ -69,9 +69,33 @@ const floorMinified = Object.fromEntries(
 // Rolldown splits it the same way, so it shows up in the report as a lazy
 // chunk at its true size and stays out of the cap. (Under size-limit the
 // specifiers resolved to a stub because esbuild did not split there.) The
-// "frames: eager client consumer" scenario measures the package; these
-// measure the page. Subpath aliases first (see above).
+// frames client's TRACES TIER (`@solidjs/web/frames/trace` — plan step C3,
+// 2026-10-06: solid's container-trace materializer, reached through its own
+// `solid-js/internal/container-trace` entry, plus the plugin's client half;
+// the store engine's one edge into these pages) is its second dynamic import
+// and reports the same way: `trace.js` is the tier + the engine, lazy, not
+// counted; its REGIONS TIER (`@solidjs/web/frames/regions` — plan step C4,
+// 2026-10-06: nested server-content regions) is the third, `regions.js`,
+// and its ASSETS TIER (`@solidjs/web/frames/assets` — plan step C5,
+// 2026-10-06: the stylesheet gate, module / typed preloads, inline styles)
+// the fourth, `assets.js`, and its BIND TIER (`@solidjs/web/frames/bind` —
+// plan step C6, 2026-10-06: binding-slot positions, `assign` with them)
+// the fifth, `bind.js`, and its LIVE WIRE TIER (`@solidjs/web/frames/wire`
+// — plan step C2, 2026-10-06: a `live()` loop's connection — join / open /
+// supersede, the SSE reader, the lifetime told to the loop, the have-list
+// ledger and the resume request) the sixth, `wire.js` — each lazy, not
+// counted. The "frames: eager client consumer" scenario measures the
+// package; these measure the page.
+// Subpath aliases first (see above) — the tier specifiers before
+// `@solidjs/web/frames` and `solid-js/internal`, which would otherwise
+// swallow them.
 const pageAlias = {
+  "@solidjs/web/frames/trace": "../../packages/web/frames/dist/trace.js",
+  "@solidjs/web/frames/regions": "../../packages/web/frames/dist/regions.js",
+  "@solidjs/web/frames/assets": "../../packages/web/frames/dist/assets.js",
+  "@solidjs/web/frames/bind": "../../packages/web/frames/dist/bind.js",
+  "@solidjs/web/frames/wire": "../../packages/web/frames/dist/wire.js",
+  "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/frames": "../../packages/web/frames/dist/client.js",
@@ -111,6 +135,17 @@ const framesAlias = {
 const framesExternal = [
   "solid-js",
   "solid-js/internal",
+  // The traces tier: lazily imported by the frames client (plan step C3,
+  // 2026-10-06) — external like the codec, so this scenario keeps measuring
+  // the eager graph alone; its own `solid-js` entry rides with it. The
+  // regions tier (C4), the assets tier (C5), the bind tier (C6) and the live
+  // wire tier (C2) likewise.
+  "solid-js/internal/container-trace",
+  "@solidjs/web/frames/trace",
+  "@solidjs/web/frames/regions",
+  "@solidjs/web/frames/assets",
+  "@solidjs/web/frames/bind",
+  "@solidjs/web/frames/wire",
   "@solidjs/web",
   "@solidjs/web/serialization",
   "@solidjs/web/serialization/decode"
@@ -3530,8 +3565,126 @@ module.exports = [
     // still pending have streamed in. Folded into one expression (from a
     // helper) before measuring. Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-07.
-    limit: "14.02 KB",
-    capMinified: 44032,
+    // Frames savings pass C3 — the traces tier (2026-10-06): measured at
+    // 13,866 B against the Phase B head e05ba0283's 13,949 (-83 B; -484 B
+    // minified, 43,452 -> 42,968) and `next` @ 9d89df731's 13,787 (+79 B;
+    // -446 B minified). The container tier's client half left for the lazy
+    // `@solidjs/web/frames/trace` chunk (solid's materializer + the plugin's
+    // revive walk, memo and marker test: -951 B minified / -239 B brotli,
+    // measured on an edited dist copy); the trigger left behind — the loader
+    // entry and the container probe, the held-set predicate (`needsTrace`:
+    // the marker walk while the tier is absent), the `claiming` thread and
+    // the held-record mount — costs +467 / +156. Still 76 B over the 13.79 KB
+    // cap by Phase A's and B's own bytes (their notes); the minified size is
+    // below the recorded 43,414 B, so the gate passes by its minified rule.
+    // Cap unchanged (over it); recorded minified lowered to 42,968 B (the
+    // ratchet: a cap not lowered only ever has its recorded minified
+    // lowered).
+    // Frames savings pass C4 — the regions tier (2026-10-06): 13.79 -> 13.64 KB,
+    // measured at 13,629 B against the C3 head 89954fa1b's 13,866 (-237 B;
+    // -1,078 B minified, 42,968 -> 41,890) and `next` @ 9d89df731's 13,787
+    // (-158 B; -1,524 B minified). Nested server-content regions left for the
+    // lazy `@solidjs/web/frames/regions` chunk (the per-frame region cache,
+    // discovery in an adopted interior, the `{$frame}` arm of arg
+    // resolution with the wire-name rename, the bind of a frame over each
+    // region element, disposal: -1,596 B minified / -423 B brotli, measured
+    // on an edited dist copy); the glue left behind — the installed-module
+    // table, the loader entry, the `needsRegions` wait at the fresh-mount
+    // and update sites, the tier calls at bind / resolve / unmount / the
+    // staged preview, the `options` getter and the `parent` thread-up —
+    // costs +518 / +186. First time under the cap since Phase A: cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 41,890 B.
+    // Frames savings pass C5 — the assets tier (2026-10-06, measured on its
+    // own branch off the C3 head): 13,332 B against 89954fa1b's 13,866
+    // (-534 B; -1,913 B minified, 42,968 -> 41,055) and `next` @ 9d89df731's
+    // 13,787 (-455 B; -2,359 B minified). The head mirror a segment's assets
+    // record drives (the stylesheet gate, module / typed preloads, inline
+    // styles) left for the lazy `@solidjs/web/frames/assets` chunk (2,040 B
+    // minified / 783 B brotli); the whole group measured -2,419 / -666 on an
+    // edited dist copy, and what stays eager — the record cases (+208 min),
+    // the reveal-readiness term with the load trigger and the assets walk's
+    // dispatch (+300 min) — costs +508 / +131.
+    // C5 follow-up (2026-10-06): the readiness term holds a segment whose
+    // record carries INLINE styles too while the tier is absent (its
+    // `<style>` is the tier's to land — revealing before the install was the
+    // unstyled window the term exists to prevent). Measured on the edited
+    // dist first: +22 min / +14 br; built the same on C5's branch, 13,346 B
+    // (41,077 B minified).
+    // Frames savings pass — Phases B + C3 + C4 + C5 integrated
+    // (2026-10-06, `wip/frames-tiers-integration`): 13.35 -> 13.10 KB,
+    // measured at 13,083 B (40,000 B minified) against the Phase A base
+    // 0aab93230's 13,804 (-721 B; -2,979 B minified, 42,979 -> 40,000) and
+    // `next` @ 9d89df731's 13,787 (-704 B; -3,414 B minified). The four
+    // steps' minified deltas sum to -2,980; the integration's one byte is
+    // the dispatch unification (C4's installed-module table folded into
+    // C5's resident stamp, `tierLoads[name].r = module`). Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 40,000 B.
+    // Frames savings pass C6 (2026-10-06, the bind tier): 13.10 -> 11.92 KB,
+    // measured at 11,901 B (36,007 B minified) against the integration base
+    // 6b7213d64's 13,086 (-1,185 B; -4,005 B minified, 40,012 -> 36,007)
+    // and `next` @ 9d89df731's 13,787 (-1,886 B; -7,407 B minified).
+    // Binding-slot positions — the consumer walk, the per-frame consumer
+    // sets and rebinders, the owned-position arms of the morph, the fill's
+    // bind (`assign` with it) — are `bind.js` (4,771 B minified / 1,844 B
+    // brotli, lazy, not counted). The eager client keeps the marker
+    // detection at the walk (`hasSlotMarker` → the 3.1 hold), the text-pair
+    // arm of `reconcileChildren` (a client-owned text node must survive a
+    // morph the tier has not seen — the pin at frames-binding-slots "a
+    // refetch re-sends the empty pairs"), `isAsyncValue` (shared with the
+    // tier through the entry) and the loader entry. The delegated-event
+    // replay window is the server's ` _hk` stamp on event-slot consumers
+    // (0 eager bytes; +106 min / +48 br in the chunk). Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 36,007 B.
+    // Frames residue pass, step 1 (2026-10-06): 11.92 -> 11.67 KB, measured
+    // at 11,654 B (35,250 B minified): the D list without the mirror
+    // (`documentAddress`, one dispose map, the zombie heuristic + `#slotNodes`,
+    // the default reveal seam, `showing`'s brand), `FRAME_HAVE_*` off the
+    // entry's export list, and the lean re-ask (`ctx.retry` from the sf
+    // client in place of the RPC-seam re-ask) — −757 min / −247 br. The
+    // capture arm stays (pinned by `lifecycle-matrix/remount`). Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 35,250 B.
+    // Frames residue pass, step 3 (2026-10-06): 11.67 -> 11.38 KB, measured
+    // at 11,367 B (34,272 B minified): every fill through `insert` — the
+    // Solid binding's static path (`normalizeSlotContent`,
+    // `isReactiveContent`, `settle`) and the runtime's own range writer
+    // (`#replaceRange`, the returned-nodes path) gone, the fill owns its
+    // range through `ctx.range`; the runtime's never-used comment-marker
+    // range mode (`#start` / `#end`) gone, the frame element IS the range —
+    // −978 min / −287 br. Cap set at measured + 10 B at the 0.01 KB step
+    // (the ratchet); recorded minified 34,272 B.
+    // Frames residue pass, step 4 (2026-10-06): 11.38 -> 11.21 KB, measured
+    // at 11,193 B (33,767 B minified): S-ref's pending read moved into the
+    // lazy decode table — a `{$ref}` to a key the response has not
+    // delivered is answered by the table with a promise it settles at the
+    // key's `data` chunk and rejects when the response ends (`closeData`);
+    // the host's `pendingRef` / `settleWait` / per-store waits are gone,
+    // what stays eager is the `record.pending` count and one fan-out
+    // helper — −505 min / −174 br (the decode chunk, lazy, +420 / +161).
+    // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 33,767 B.
+    // Frames savings pass, C2 (2026-10-07): 11.21 -> 10.90 KB, measured at
+    // 10,888 B (32,802 B minified): the live wire moved into a lazy tier
+    // (`wire.js`, 1,922 / 934, reported not counted) — the connection
+    // bookkeeping (open-frame count, join of two loops on one address,
+    // supersession cancel), the have-list ledger and its encoder, the
+    // resume shape; what stays eager is the arm that awaits the tier's
+    // residency and the preload-at-call hook (`responseHandler.onLive`),
+    // ≈ +467 min / +162 br of carrier over the −1,432 / −472 ceiling —
+    // −965 min / −305 br. Cap set at measured + 10 B at the 0.01 KB step
+    // (the ratchet); recorded minified 32,802 B.
+    // Frames tiers, merged onto `next` @ 3c1d51267 (#3860, 2026-10-07):
+    // `next`'s 14.02 KB -> 11.13 KB, measured at 11,112 B by CI (Size run
+    // 37671002618) against `next`'s 14,012 (-2,900 B; -10,178 B minified,
+    // 43,596 -> 33,418). The branch's own ratchets above were measured on
+    // its pre-merge base; `next`'s bytes since (#3846's ChunkReader, #3865,
+    // #3874) land under them (+616 B minified, +224 B brotli over the C2
+    // note's 32,802 / 10,888). Cap set at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified 33,418 B.
+    limit: "11.13 KB",
+    capMinified: 33418,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3720,6 +3873,89 @@ module.exports = [
     // read, and verdict-lane stagedReaders. Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen
     // again at 45.14 KB.
+    // Frames savings pass C3 — the traces tier (2026-10-06): 44.89 -> 38.61 KB
+    // (floor-caps.json), measured at 38,598 B against the Phase B head
+    // e05ba0283's 45,210 (-6,612 B; -24,069 B minified, 146,097 -> 122,028)
+    // and `next` @ 9d89df731's 44,882 (-6,284 B). The store engine (signals
+    // `store/*`), solid's container-trace materializer (its own entry,
+    // `solid-js/internal/container-trace`) and the plugin's client half leave
+    // this page's eager chunk for `trace.js` — reported above as lazy, not
+    // counted, 25,409 B minified / 8,170 B brotli — which the frames client
+    // fetches when the document announces the tier (`_$HY.r["sc:tiers"]`) or
+    // an adopt-time record's args carry a trace. What stays: the store
+    // hydration adapters (`enableHydration`'s on every hydrating page, as
+    // before), the store symbols the chunk shares with the eager one, and
+    // the tier's trigger in the frames client (its note). Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 122,028 B.
+    // Frames savings pass C4 — the regions tier (2026-10-06): 38.61 -> 38.33 KB
+    // (floor-caps.json), measured at 38,317 B against the C3 head
+    // 89954fa1b's 38,598 (-281 B; -1,083 B minified, 122,028 -> 120,945) and
+    // `next` @ 9d89df731's 44,882 (-6,565 B). Nested server-content regions
+    // leave this page's eager chunk for `regions.js` — reported above as
+    // lazy, not counted, 1,872 B minified / 805 B brotli — which the frames
+    // client fetches when the document announces the tier or a record names
+    // a `{$frame}` region (the frames note). Cap set at measured + 10 B at
+    // the 0.01 KB step (the ratchet); recorded minified 120,945 B.
+    // Frames savings pass C5 — the assets tier (2026-10-06, measured on its
+    // own branch off the C3 head): 37,970 B (120,102 B minified): -628 /
+    // -1,926 against the C3 head, -6,912 / -25,655 against `next` @
+    // 9d89df731. The head mirror leaves for the lazy `assets.js` chunk
+    // (783 B brotli, reported, not counted). The C5 follow-up (inline styles
+    // hold while the tier is absent): 37,969 B (120,124 B minified), +22 min
+    // / -1 br.
+    // Frames savings pass — Phases B + C3 + C4 + C5 integrated
+    // (2026-10-06, `wip/frames-tiers-integration`): 37.98 -> 37.79 KB
+    // (floor-caps.json), measured at 37,772 B (119,044 B minified) against
+    // the Phase A base 0aab93230's 45,033 (-7,261 B; -26,575 B minified)
+    // and `next` @ 9d89df731's 44,882 (-7,110 B; -26,713 B minified). The
+    // three tier chunks ride beside the eager one — reported above as lazy,
+    // not counted: `trace.js` 25,419 B minified / 8,176 B brotli,
+    // `regions.js` 1,872 / 805, `assets.js` 2,040 / 783. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 119,044 B.
+    // Frames savings pass C6 (2026-10-06, the bind tier): 37.79 -> 36.66 KB
+    // (floor-caps.json), measured at 36,647 B (115,087 B minified) against
+    // the integration base 6b7213d64's 37,747 (-1,100 B; -3,969 B minified)
+    // and `next` @ 9d89df731's 44,882 (-8,235 B; -30,670 B minified). The
+    // fourth tier chunk rides beside the eager one — reported above as
+    // lazy, not counted: `bind.js` 4,771 B minified / 1,844 B brotli. Cap
+    // set at measured + 10 B at the 0.01 KB step (the ratchet); recorded
+    // minified 115,087 B.
+    // Frames residue pass, step 1 (2026-10-06): 36.66 -> 36.50 KB, measured
+    // at 36,488 B (114,422 B minified): the frames client's D list, the lean
+    // re-ask (the sf client carries the `retry` thunks, +≈ 80 B minified,
+    // and the page still shrinks) — −665 min / −159 br. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 114,422 B.
+    // Frames residue pass, step 3 (2026-10-06): 36.50 -> 36.29 KB, measured
+    // at 36,271 B (113,443 B minified): every fill through `insert`, the
+    // frame element as the range — −979 min / −217 br. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 113,443 B.
+    // Frames residue pass, step 4 (2026-10-06): 36.29 -> 36.09 KB, measured
+    // at 36,071 B (112,938 B minified): S-ref's pending read in the decode
+    // table (lazy `decode.js` +420 / +161) — −505 min / −200 br. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 112,938 B.
+    // Frames savings pass, C2 (2026-10-07): 36.09 -> 35.74 KB, measured at
+    // 35,722 B (112,003 B minified): the live wire in a lazy tier (`wire.js`
+    // 1,922 / 934, reported not counted) — −935 min / −349 br. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 112,003 B.
+    // `dynamicComponent` (B.3-sync, 2026-10-07): 35.74 -> 33.58 KB, measured
+    // at 33,570 B (104,586 B minified): the fixture mounts its server
+    // component through `dynamicComponent`, the component-only sibling of
+    // `dynamic` (documentation/plans/frames-b3-sync.md), so `dynamic`'s
+    // string-tag arm — `staticElement`, `createElement`, `spread`, the
+    // prop-collection helpers, the SVG/MathML tables — is no longer
+    // reachable from this page: −7,417 min / −2,152 br (the edited-dist
+    // model said −7,423 / −2,158). `assign` and below stay for the lazy bind
+    // chunk. Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 104,586 B.
+    // Frames tiers, merged onto `next` @ 3c1d51267 (#3860, 2026-10-07):
+    // `next`'s 45.14 KB -> 33.92 KB (floor-caps.json), measured at 33,908 B
+    // by CI (Size run 37671002618) against `next`'s 45,291 (-11,383 B;
+    // -41,032 B minified, 146,284 -> 105,252). `next`'s bytes since the
+    // branch's base land under the `dynamicComponent` note's 33,570 /
+    // 104,586 (+666 B minified, +338 B brotli). Cap set at measured + 10 B
+    // rounded up to 0.01 KB; recorded minified 105,252 B.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -3866,9 +4102,198 @@ module.exports = [
     // read, and verdict-lane stagedReaders. Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen
     // again at 48.91 KB.
+    // Frames savings pass C3 — the traces tier (2026-10-06): 48.60 -> 42.16 KB
+    // (floor-caps.json), measured at 42,147 B against the Phase B head
+    // e05ba0283's 48,873 (-6,726 B; -24,161 B minified, 158,060 -> 133,899)
+    // and `next` @ 9d89df731's 48,595 (-6,448 B). The same split as the base
+    // page (its note): the store engine, the materializer and the plugin's
+    // client half leave for `trace.js` (lazy, not counted, 25,409 B minified
+    // / 8,158 B brotli); the store hydration adapters stay. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 133,899 B.
+    // Frames savings pass C4 — the regions tier (2026-10-06): 42.16 -> 41.90 KB
+    // (floor-caps.json), measured at 41,886 B against the C3 head
+    // 89954fa1b's 42,147 (-261 B; -1,083 B minified, 133,899 -> 132,816) and
+    // `next` @ 9d89df731's 48,595 (-6,709 B). The same split as the base page
+    // (its note): regions leave for `regions.js` (lazy, not counted, 1,872 B
+    // minified / 802 B brotli). Cap set at measured + 10 B at the 0.01 KB
+    // step (the ratchet); recorded minified 132,816 B.
+    // Frames savings pass C5 — the assets tier (2026-10-06, measured on its
+    // own branch off the C3 head): 41,651 B (131,973 B minified): -496 /
+    // -1,926 against the C3 head, -6,944 / -25,747 against `next` @
+    // 9d89df731; the same cut as the base page. The C5 follow-up (inline
+    // styles hold while the tier is absent): 41,650 B (131,995 B minified),
+    // +22 min / -1 br.
+    // Frames savings pass — Phases B + C3 + C4 + C5 integrated
+    // (2026-10-06, `wip/frames-tiers-integration`): 41.67 -> 41.44 KB
+    // (floor-caps.json), measured at 41,427 B (130,915 B minified) against
+    // the Phase A base 0aab93230's 48,715 (-7,288 B; -26,667 B minified)
+    // and `next` @ 9d89df731's 48,595 (-7,168 B; -26,805 B minified). The
+    // same split as the base page (its note); the chunks here: `trace.js`
+    // 25,419 / 8,173, `regions.js` 1,872 / 802, `assets.js` 2,040 / 783.
+    // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 130,915 B.
+    // Frames savings pass C6 (2026-10-06, the bind tier): 41.44 -> 40.30 KB
+    // (floor-caps.json), measured at 40,286 B (126,964 B minified) against
+    // the integration base 6b7213d64's 41,396 (-1,110 B; -3,963 B minified)
+    // and `next` @ 9d89df731's 48,595 (-8,309 B; -30,756 B minified). The
+    // chunk here: `bind.js` 4,771 / 1,843 (it imports the eager frames
+    // entry, so Rolldown attaches it to the page's graph instead of
+    // splitting the shared runtime out of the entry — see bind-tier.ts).
+    // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 126,964 B.
+    // Frames residue pass, step 1 (2026-10-06): 40.30 -> 40.14 KB, measured
+    // at 40,125 B (126,294 B minified): the frames client's D list and the
+    // lean re-ask — −670 min / −161 br. Cap set at measured + 10 B at the
+    // 0.01 KB step (the ratchet); recorded minified 126,294 B.
+    // Frames residue pass, step 3 (2026-10-06): 40.14 -> 39.92 KB, measured
+    // at 39,904 B (125,315 B minified): every fill through `insert`, the
+    // frame element as the range — −979 min / −221 br. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 125,315 B.
+    // Frames residue pass, step 4 (2026-10-06): 39.92 -> 39.76 KB, measured
+    // at 39,747 B (124,810 B minified): S-ref's pending read in the decode
+    // table (lazy `decode.js` +420 / +161) — −505 min / −157 br. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 124,810 B.
+    // Frames savings pass, C2 (2026-10-07): 39.76 -> 39.43 KB, measured at
+    // 39,412 B (123,903 B minified): the live wire in a lazy tier (`wire.js`
+    // 1,922 / 933, reported not counted — this page LOADS it at its first
+    // `live()` call, so its total transfer is 39,412 + 933 = 40,345 br
+    // against the base's 39,747) — −907 min / −335 br eager. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 123,903 B.
+    // `dynamicComponent` (B.3-sync, 2026-10-07): 39.43 -> 37.26 KB, measured
+    // at 37,241 B (116,485 B minified): the fixture mounts through
+    // `dynamicComponent`, shedding `dynamic`'s string-tag arm as on the base
+    // page — −7,418 min / −2,171 br. Cap set at measured + 10 B at the
+    // 0.01 KB step (the ratchet); recorded minified 116,485 B.
+    // Frames tiers, merged onto `next` @ 3c1d51267 (#3860, 2026-10-07):
+    // `next`'s 48.91 KB -> 37.53 KB (floor-caps.json), measured at 37,512 B
+    // by CI (Size run 37671002618) against `next`'s 48,962 (-11,450 B;
+    // -41,096 B minified, 158,397 -> 117,301). `next`'s bytes since the
+    // branch's base land under the `dynamicComponent` note's 37,241 /
+    // 116,485 (+816 B minified, +271 B brotli). Cap set at measured + 10 B
+    // rounded up to 0.01 KB; recorded minified 117,301 B.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
+    alias: pageAlias
+  },
+  // Compiled server-component PAGES (2026-10-07): the two page scenarios
+  // above are hand-written — they keep the runtime alive as values and never
+  // compile a template, so the attribute runtime a compiled template imports
+  // (`className`, `style`, `setAttribute`, `addEvent`, `delegateEvents`)
+  // reaches them only through the bind tier's `assign` edge, and a change
+  // that "removes" it from those pages removes nothing from a page an
+  // application ships. These two are the same pages as JSX under
+  // fixtures/compiled/ (sc-base.jsx, sc-live.jsx, the shared sc-shell.jsx),
+  // compiled hydratable by the measured checkout's @solidjs/compiler like
+  // the `app: compiled hydrating` scenario, with the templates a real page
+  // has — and NO element spread: the maintainer's ruling (2026-10-07) is
+  // that most server-component apps do not have client element spreads, so
+  // the compiled baseline must not carry one (`spread` must be absent from
+  // the rendered web.js of both pages; the notes record the check). The
+  // hand-written pages stay as the frames-only floor (frozen caps); these
+  // carry inline caps like the compiled app scenarios: measured + 10 B
+  // rounded up to 0.01 KB, with the minified recorded from the same run.
+  {
+    name: "page: compiled base server components (the base page as JSX: templates with class/style/attributes/events, For/Show; no spread)",
+    // sc-base-app.js as a compiled page: the same server-component mount
+    // (`dynamicComponent()` over a server-function reference, the frames
+    // transport installed), the same client signal + memo, `lazy()` child,
+    // Show / For / Loading / Errored — inside a compiled shell: links with
+    // `href` (`setAttribute`), a dynamic `class` and `style` value
+    // (`className`, `style`, and the `readShallow` the compiler wraps them
+    // in), a handler passed through as a prop (`addEvent`, `delegateEvents`),
+    // a search input with a `value` binding (`setProperty`), `<For>`, `<Show>`
+    // with a function child. The delta against the hand-written base page is
+    // what the compiled templates retain of @solidjs/web plus the compiled
+    // app's own bytes.
+    //
+    // Added 2026-10-07 on feat/web-dynamic-component @ 99915141a (#3870's
+    // head; the stack beneath is #3860 -> #3849 -> next). Measured locally
+    // (macOS, Node 26): 34,869 B (108,634 B minified; signals=33,849
+    // web/frames=26,261 solid=17,675 web=16,521 web/server-functions=12,364
+    // app=1,966) — +1,299 B brotli / +4,048 B minified over the hand-written
+    // base page's 33,570 / 104,586 on the same build: web +1,083
+    // (`template`/`getNextElement`/`getNextMarker` 632, `readShallow` 238,
+    // `setProperty` 217, `scope` 35), signals +1,192 (store/utils.js 1,071:
+    // `readShallow` calls `sourceKeys(value, SOURCE_PROXY)`, which retains
+    // the leaf/merge key walkers of the merge/omit view records — the one
+    // store-view cost left on a spread-free page; `merge`/`omit` themselves
+    // are absent), app +1,966. `spread` is absent (992 B with the spread the
+    // fixture first carried; store/utils.js was 3,510 then). The attribute
+    // runtime proper (`className` 713, `style` 454, `setAttribute` 368,
+    // `addEvent` 282, `delegateEvents` 184, `eventHandler` 1,108, `assign`
+    // 283 + `assignProp` 921 minified) is on BOTH pages: the hand-written one
+    // reaches all of it through the bind tier's `assign` import (Rolldown
+    // attaches bind.js to the entry graph); here the templates import
+    // everything but `assign`/`assignProp` directly — which is why a cut
+    // that drops the bind edge from the hand-written page saves only
+    // `assign`/`assignProp` here. On `next` @ 11e9fb653 (same harness; the
+    // fixture mounts with `dynamic`, which is all `next` has): 45,900 /
+    // 148,820 — the stack is −11,031 B brotli / −40,186 B minified on this
+    // page (−11,569 / −41,837 on the hand-written one). Mounted with
+    // `dynamic` instead of `dynamicComponent` on this head: 36,550 / 114,446
+    // — the sibling saves 1,681 B brotli / 5,812 B minified on this page,
+    // against 2,152 / 7,417 on the hand-written one (the templates already
+    // carry `readShallow` and the walk helpers `dynamic`'s tag arm shares).
+    // Cap at local measured + 10 B at the 0.01 KB step; CI (Linux, Node 24)
+    // must confirm — lower only.
+    // Merged onto `next` @ 3c1d51267 (#3860, 2026-10-07): 34.88 -> 35.09 KB,
+    // measured at 35,079 B by CI (Size run 37671002618; 109,300 B minified).
+    // The 34.88 KB above was local bytes on the branch's pre-merge base;
+    // `next`'s bytes since (#3846's ChunkReader, #3865, #3874 — the same
+    // +666 B minified as the hand-written base page) land under it. No cap
+    // on `next` (a new scenario; `next` cannot bundle the fixture). Cap set
+    // at CI measured + 10 B rounded up to 0.01 KB; recorded minified
+    // 109,300 B.
+    path: "fixtures/compiled/sc-base.jsx",
+    compile: { hydratable: true },
+    limit: "35.09 KB",
+    capMinified: 109300,
+    alias: pageAlias
+  },
+  {
+    name: "page: compiled live server components (the compiled base page + live/GET + action + isPending/latest)",
+    // sc-live-app.js as a compiled page: the compiled base page plus
+    // `live(GET(...))` on the reference, an `action` dispatched from a
+    // compiled click handler, `isPending` / `latest` read in a template's
+    // `class` and a text hole. Still no client stores, no spread.
+    //
+    // Added 2026-10-07 on feat/web-dynamic-component @ 99915141a. Measured
+    // locally (macOS, Node 26): 40,266 B (121,963 B minified; signals=41,889
+    // web/frames=27,502 solid=17,173 web/server-functions=16,912 web=16,047
+    // app=2,439). This page's eager graph is TWO chunks (bundle.mjs): with
+    // `isPending` on the page, the frames tiers (trace.js, bind.js) and the
+    // lazy comments route all reaching the core, Rolldown hoists the shared
+    // runtime — signals core, solid-js, @solidjs/web, 66,354 B minified —
+    // into a `web.js` the entry imports statically (entry 55,609 / 18,354 +
+    // web.js 66,354 / 21,912). It ships eagerly, so it is counted; the two
+    // compressions cost ≈ 1,223 B brotli over one chunk (39,043 concatenated)
+    // and the export glue ≈ 1.3 KB minified. The hand-written live page does
+    // not split only because its lazy page is empty: the same page with a
+    // template in its lazy route splits the same way. +5,397 B brotli /
+    // +13,329 B minified over the compiled base page (the hand-written pair
+    // is +3,671 / +11,899). `spread` absent, as on the base page. On `next`
+    // @ 11e9fb653 (same harness, `dynamic` mount, one chunk — no tiers to
+    // share with): 49,721 / 161,233 — the stack is −9,455 B brotli / −39,270
+    // B minified on this page (−11,647 / −42,051 on the hand-written one).
+    // Mounted with `dynamic` on this head: 42,002 / 127,779 (−1,736 /
+    // −5,816 for `dynamicComponent`). Cap at local measured + 10 B at the
+    // 0.01 KB step; CI (Linux, Node 24) must confirm — lower only.
+    // Merged onto `next` @ 3c1d51267 (#3860, 2026-10-07): 40.28 -> 40.61 KB,
+    // measured at 40,593 B by CI (Size run 37671002618; 122,779 B minified,
+    // the statically-imported web.js chunk counted). The 40.28 KB above was
+    // local bytes on the branch's pre-merge base; `next`'s bytes since land
+    // under it (+816 B minified, as on the hand-written live page). No cap
+    // on `next` (a new scenario; `next` cannot bundle the fixture). Cap set
+    // at CI measured + 10 B rounded up to 0.01 KB; recorded minified
+    // 122,779 B.
+    path: "fixtures/compiled/sc-live.jsx",
+    compile: { hydratable: true },
+    limit: "40.61 KB",
+    capMinified: 122779,
     alias: pageAlias
   },
   {

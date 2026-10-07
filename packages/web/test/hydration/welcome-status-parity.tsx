@@ -16,17 +16,38 @@
  * paths the client allocates must be byte-identical to what the ssr compile
  * minted — any extra reactive scope the client wraps an arg read in shows up
  * as a hydration key miss and a re-rendered (or blank) range.
+ *
+ * The `usage` arg is a container trace, and the frames client loads the
+ * materializer as its TRACES TIER (`@solidjs/web/frames/trace`, through
+ * `prepareTier("trace")` — plan step C3). Two configurations, one per spec
+ * file:
+ *   - resident (default): the tier is installed before `hydrate()`, as the
+ *     production host has it once that load has settled — the claim walk
+ *     revives synchronously and the fill claims in the root pass;
+ *   - `lazy`: the production host wiring with nothing installed, the page
+ *     as the browser runs it — the shell's data script ANNOUNCES the tier
+ *     (`_$HY.r["sc:tiers"] = ["trace"]`, the artifact's), `installServer
+ *     Components` starts the import from the record before any boundary
+ *     adopts, and the adopt-time sync HOLDS the `status#0` occurrence
+ *     (server interior on screen; the frame's hold registered, hydration
+ *     not done — frames-rulings 3.1) until the load settles, then mounts
+ *     the fill, which claims the same nodes in place. Same assertions: the
+ *     attach is late, never a re-render.
  */
 import { expect, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { flush } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../../frames/src/client.js";
+import { prepareTier, tierLoads } from "../../frames/src/frame-client.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
 import { reviveContainerTraces } from "../../frames/src/frame-container-plugin.js";
 import { FID, statusFill } from "../harness/frames-welcome.jsx";
+
+const traceTierResident = () => !!(tierLoads as any).trace?.r;
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
 
@@ -81,7 +102,10 @@ export function cleanupWelcomeStatusParity() {
   document.body.innerHTML = "";
 }
 
-export async function runWelcomeStatusParity(mode: "loaded" | "streamed") {
+export async function runWelcomeStatusParity(
+  mode: "loaded" | "streamed",
+  options: { lazy?: boolean } = {}
+) {
   const { shell, rest } = loadArtifact(mode);
   const fid = FID(mode);
   const container = document.createElement("div");
@@ -90,19 +114,39 @@ export async function runWelcomeStatusParity(mode: "loaded" | "streamed") {
   vi.stubGlobal("fetch", () => {
     throw new Error("fetch must not be called");
   });
-  installServerComponents(makeHost());
 
   const warnings: string[] = [];
   vi.spyOn(console, "warn").mockImplementation((...args: any[]) => {
     warnings.push(args.map(String).join(" "));
   });
 
+  // The shell (its data scripts included) parses before the client entry
+  // runs, as in a browser; the lazy configuration depends on that order —
+  // the entry's `installServerComponents` reads the announcement the
+  // shell's script wrote.
   applyChunk(container, shell, true);
   if (mode === "loaded") applyChunk(container, rest, false);
+
+  if (options.lazy) {
+    expect(traceTierResident()).toBe(false);
+    // The document announced the tier (the artifact's record, minted where
+    // the sink serialized the trace — B's re-recorded fixture).
+    expect((globalThis as any)._$HY.r["sc:tiers"]).toEqual(["trace"]);
+    installServerComponents();
+    // The import started at install, from the record — before any boundary
+    // adopted (the production loader, through the test alias).
+    expect((tierLoads as any).trace).toBeTruthy();
+    expect(traceTierResident()).toBe(false);
+  } else {
+    installServerComponents(makeHost());
+    await prepareTier("trace");
+    expect(traceTierResident()).toBe(true);
+  }
 
   const frame = container.querySelector(`solid-frame[data-fid="${fid}"]`)!;
   const ssrStatus = container.querySelector(".status");
   expect(ssrStatus).toBeTruthy();
+  const ssrText = frame.textContent;
 
   const SC = (globalThis as any)._$SC.r(fid);
   const dispose = hydrate(() => <SC status={statusFill} />, container);
@@ -110,8 +154,22 @@ export async function runWelcomeStatusParity(mode: "loaded" | "streamed") {
   await Promise.resolve();
   flush();
 
+  if (options.lazy) {
+    // The hold: the root pass adopted the boundary with the tier absent, so
+    // `status#0` is not mounted yet and the server-rendered interior stands
+    // untouched — exactly what was on screen; the frame's hold is a pending
+    // boundary, so hydration is not done (3.1).
+    expect(frame.textContent).toBe(ssrText);
+    expect(sharedConfig.isHydrationInProgress!()).toBe(true);
+    // The load settles on its own schedule; wait for the install, then for
+    // the flush it triggers.
+    for (let i = 0; i < 200 && !traceTierResident(); i++) await sleep(10);
+    expect(traceTierResident()).toBe(true);
+  }
+
   if (mode === "streamed") applyChunk(container, rest, false);
   await settle();
+  if (options.lazy) expect(sharedConfig.isHydrationInProgress!()).toBe(false);
 
   if (process.env.DEBUG_DOM)
     process.stdout.write(

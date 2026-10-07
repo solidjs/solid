@@ -36,7 +36,6 @@ const INTERNAL = [
   "inServerComponentScope",
   "creationStamp",
   "getProjectionTrace",
-  "materializeContainerTrace",
   // boundary primitives behind Errored/Loading/Reveal (#3709)
   "createErrorBoundary",
   "createLoadingBoundary",
@@ -45,6 +44,12 @@ const INTERNAL = [
   "sharedConfig",
   "$DEVCOMP"
 ];
+
+// The container-trace materializer's seams: exported from the client entry at
+// runtime (so `solid-js/internal/container-trace` shares this module's
+// state), `@internal`, and declared NOWHERE public — that entry types them
+// itself. Checked against the main declarations only.
+const CONTAINER_TRACE_SEAMS = ["withStoreHydration", "applyPatches", "forwardIteratorReturn"];
 
 const typesDir = resolve(import.meta.dirname, "../types");
 const read = (file: string) => readFileSync(resolve(typesDir, file), "utf8");
@@ -57,7 +62,9 @@ test.each([
   ["server", "server/index.d.ts"]
 ])("no internal name reaches the %s entry's declarations", (_tier, file) => {
   const declarations = read(file);
-  const leaked = INTERNAL.filter(name => mentions(declarations, name));
+  const leaked = [...INTERNAL, ...CONTAINER_TRACE_SEAMS, "materializeContainerTrace"].filter(name =>
+    mentions(declarations, name)
+  );
   expect(leaked).toEqual([]);
 });
 
@@ -65,4 +72,13 @@ test("solid-js/internal's declarations carry the protocol and the seams", () => 
   const declarations = read("internal.d.ts");
   const missing = INTERNAL.filter(name => !mentions(declarations, name));
   expect(missing).toEqual([]);
+});
+
+// The materializer is its own entry (the store engine it builds on must be
+// assignable to a lazy chunk, which a re-export from the flat main module or
+// from `solid-js/internal` would prevent); the subpath declares it, and
+// neither eager entry does.
+test("solid-js/internal/container-trace declares the materializer; solid-js/internal does not", () => {
+  expect(mentions(read("client/container-trace.d.ts"), "materializeContainerTrace")).toBe(true);
+  expect(mentions(read("internal.d.ts"), "materializeContainerTrace")).toBe(false);
 });

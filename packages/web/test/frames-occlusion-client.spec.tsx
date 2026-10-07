@@ -8,14 +8,23 @@
 // documentBoundary must drain those records into the host BEFORE binding
 // the adopting frame, so the first slot sync claims WITH real args and the
 // wrapper mounts the body from the frame store on expand — zero network.
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createRoot, createSignal, flush, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
+import { prepareTier } from "../frames/src/frame-client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 
 const settle = () => new Promise(r => setTimeout(r));
+
+// Occluded regions are the REGIONS TIER's (`@solidjs/web/frames/regions`,
+// loaded through `prepareTier("regions")` at the first record naming one;
+// the document pages here announce nothing). Warmed, so these cells pin the
+// occlusion records with the tier resident; the load itself — the hold,
+// the `sc:region:` html landing in the store before it — is pinned in
+// `test/consistency/tier-regions-hold.spec.tsx`.
+beforeAll(() => prepareTier("regions"));
 
 function makeHost() {
   const table = createJSONDataTable();

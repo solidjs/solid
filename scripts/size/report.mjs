@@ -41,7 +41,15 @@ const rows = head.map((h, i) => {
       : v.verdict === "warn"
         ? `⚠️ over by ${v.overBy} B, ${v.headroom} B minified headroom`
         : `❌ over by ${v.overBy} B`;
-  const lazy = h.lazy?.length ? h.lazy.map(c => `${c.name} ${toKB(c.br)}`).join(", ") : "";
+  const chunks = c => c.map(c => `${c.name} ${toKB(c.br)}`).join(", ");
+  // An eager chunk the entry imports statically is counted in `head`; it is
+  // named here so a split is visible in the comment that reports it.
+  const lazy = [
+    h.eager?.length ? `eager (counted): ${chunks(h.eager)}` : "",
+    h.lazy?.length ? chunks(h.lazy) : ""
+  ]
+    .filter(Boolean)
+    .join("; ");
   return `| ${h.name} | ${size} | ${change} | ${minChange} | ${minRecorded} | ${cap} | ${status} | ${lazy} |`;
 });
 
