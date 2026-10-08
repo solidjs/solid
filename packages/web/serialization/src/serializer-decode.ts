@@ -1,6 +1,6 @@
 // @ts-nocheck
 // @ts-expect-error seroval's published types omit these ESM named exports
-import { createStream, Feature, fromCrossJSON } from "seroval";
+import { createStream, Feature, fromCrossJSON, isStream } from "seroval";
 import {
   AbortSignalPlugin,
   CustomEventPlugin,
@@ -371,6 +371,11 @@ export function createJSONDeserializer(options) {
   // throw (a store suspended on its fill). Classification therefore reads
   // nothing off a value it cannot vouch for without a guard — a value that
   // refuses to be read is not a deferred of ours.
+  //
+  // A stream comes in two shapes: `fromCrossJSON` mints seroval's internal
+  // stream class (untagged since seroval 1.6.8 — only `isStream` knows it),
+  // while the eval path (`deserialize`, the hydration scripts) still builds
+  // a literal tagged `__SEROVAL_STREAM__`. Both are checked.
   const pendingResolvers = new Set();
   const streams = new Set();
   const STREAM = 1;
@@ -378,7 +383,7 @@ export function createJSONDeserializer(options) {
   function classify(value) {
     if (value === null || typeof value !== "object") return 0;
     try {
-      if (value.__SEROVAL_STREAM__) return STREAM;
+      if (isStream(value) || value.__SEROVAL_STREAM__) return STREAM;
       if (
         typeof value.s === "function" &&
         typeof value.f === "function" &&
@@ -427,7 +432,7 @@ export function createJSONDeserializer(options) {
   /**
    * Fails every value still waiting on chunks that will never arrive. The
    * shared refs map holds seroval's in-progress state between chunks: open
-   * streams (`__SEROVAL_STREAM__`) and pending-promise resolvers (`{p, s, f}`
+   * streams (see `classify`) and pending-promise resolvers (`{p, s, f}`
    * — the promise under one id, its resolver under the special-reference id
    * next to it). Both settle idempotently — throwing into a completed stream
    * and rejecting a resolved promise are no-ops — so the sweep is safe to

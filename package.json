@@ -47,7 +47,7 @@
     "rimraf": "^3.0.2",
     "rollup": "^4.24.0",
     "rollup-plugin-cleanup": "^3.2.1",
-    "seroval": "~1.6.7",
+    "seroval": "~1.6.8",
     "simple-git-hooks": "^2.8.1",
     "symlink-dir": "^5.0.1",
     "tsconfig-replace-paths": "^0.0.11",

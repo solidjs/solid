@@ -208,14 +208,29 @@ export function toBorderForm(value, envelopeContainers) {
   );
 }
 
+// A raw seroval stream, in either of its shapes: the literal tagged
+// `__SEROVAL_STREAM__` that the eval path (`deserialize`, the hydration
+// scripts) builds, or seroval's internal stream class, which `createStream`
+// and the JSON path (`fromCrossJSON`) produce untagged since seroval 1.6.8.
+// This module stays seroval-free (see setContainerTraceStreamMint), so the
+// class is recognized by its surface: an `.on()` subscription and no async
+// iterator — what tells it apart from the async-iterable `$tr` form, and
+// from a Node stream (`.on()` too, but iterable).
+function isSerovalStream(value) {
+  return (
+    value.__SEROVAL_STREAM__ === true ||
+    (typeof value.on === "function" && typeof value[Symbol.asyncIterator] !== "function")
+  );
+}
+
 // An async iterable the sharer may take over: not one of seroval's own
 // async carriers (a seroval stream — `.on()`-shaped, not iterable, but
-// probed by its tag to be explicit; a ReadableStream, which seroval encodes
-// as itself). The probe reads one well-known symbol off an unknown exotic
-// value under a guard — a proxy whose reads throw is not ours.
+// probed explicitly; a ReadableStream, which seroval encodes as itself).
+// The probe reads well-known keys off an unknown exotic value under a
+// guard — a proxy whose reads throw is not ours.
 function isShareableIterable(value) {
   try {
-    if (value.__SEROVAL_STREAM__ === true) return false;
+    if (isSerovalStream(value)) return false;
     if (typeof ReadableStream !== "undefined" && value instanceof ReadableStream) return false;
     return typeof value[Symbol.asyncIterator] === "function";
   } catch {
@@ -261,13 +276,15 @@ export function isContainerTraceMarker(value: unknown): value is ContainerTraceM
  * trace as `{ $tr: stream, $ta: 0|1 }` (a plain literal — data scripts
  * execute before any runtime that could materialize is guaranteed
  * resident, so revival is deferred to the arg-read site). `$tr` is a raw
- * seroval stream (see setContainerTraceStreamMint); the async-iterable
- * shape is accepted for payloads minted before the stream protocol.
+ * seroval stream (see setContainerTraceStreamMint) — tagged from the eval
+ * face, seroval's untagged class from the codec face's hookless fallback;
+ * the async-iterable shape is accepted for payloads minted before the
+ * stream protocol.
  */
 export function isContainerTraceMarker(value) {
   if (value == null || typeof value !== "object" || value.$tr == null) return false;
   const tr = value.$tr;
-  return tr.__SEROVAL_STREAM__ === true || typeof tr[Symbol.asyncIterator] === "function";
+  return isSerovalStream(tr) || typeof tr[Symbol.asyncIterator] === "function";
 } /** Deep-revive trace markers inside a decoded value (document-face slot args). */
 export function reviveContainerTraces(value: unknown, claiming?: boolean): unknown;
 

@@ -96,6 +96,7 @@ import {
 
 import { JSX } from "../jsx/jsx.js";
 
+import { isStream } from "seroval";
 import { SerializerPlugin } from "../serialization/src/serializer-decode.js";
 import { toBorderForm } from "../frames/src/frame-container-plugin.js";
 
@@ -2466,7 +2467,8 @@ export function renderToStream(code, options = {}) {
   const pendingSerialized = new Map();
   // The wire policy on a channel: a thenable's rejection and an async
   // iterable's thrown step reach the client sanitized; a seroval stream
-  // (`__SEROVAL_STREAM__`, the container-trace carrier) is the codec's own
+  // (the container-trace carrier — seroval's stream class, untagged since
+  // seroval 1.6.8, or the `__SEROVAL_STREAM__` literal) is the codec's own
   // and passes as-is; values pass as-is — an Error reached as a value was
   // never thrown, so it is data and the author's (#3113's ruling). One guard
   // per channel object, so a source serialized under two ids stays one
@@ -2534,7 +2536,7 @@ export function renderToStream(code, options = {}) {
     });
   };
   const guardChannel = p => {
-    if (!p || typeof p !== "object" || "__SEROVAL_STREAM__" in p) return p;
+    if (!p || typeof p !== "object" || isStream(p) || "__SEROVAL_STREAM__" in p) return p;
     let guarded = guardedChannels.get(p);
     if (guarded !== undefined) return guarded;
     if (typeof p.then === "function") {
