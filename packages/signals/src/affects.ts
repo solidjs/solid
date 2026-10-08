@@ -36,6 +36,7 @@ import { enqueueSub } from "./core/heap.js";
 import { flushTransaction, GlobalQueue, resolveTx, schedule } from "./core/scheduler.js";
 import type { Computed, Signal } from "./core/types.js";
 import type { Accessor } from "./signals.js";
+import { installStoreAffects, releaseMarkScope, storeMarks } from "./store/affects.js";
 import { $TARGET, type Store } from "./store/types.js";
 
 type Marked = Signal<any> | Computed<any>;
@@ -87,7 +88,7 @@ function release(nodes: Marked[]): void {
       repoll(n);
       // A store mark's carrier: its scope (and the marks the nodes born in
       // its window inherited) goes with it.
-      GlobalQueue._releaseMarkScope?.(n);
+      releaseMarkScope(n);
     }
   }
   nodes.length = 0;
@@ -146,7 +147,8 @@ export function affects(target: any, key?: PropertyKey): void {
   // record's carrier and every live node under it.
   const t = target?.[$TARGET];
   if (t !== undefined) {
-    const nodes = GlobalQueue._storeMarks!(t, key);
+    installStoreAffects();
+    const nodes = storeMarks(t, key);
     for (let i = 0; i < nodes.length; i++) register(nodes[i]);
     schedule();
     return;

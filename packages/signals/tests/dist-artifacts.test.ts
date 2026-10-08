@@ -232,12 +232,13 @@ describe("@solidjs/signals cleanup order per tier", () => {
   }
 });
 
-describe("@solidjs/signals bundled through the package's sideEffects", () => {
-  // #3891: `store/index.ts` installs the store half of `affects()` with a bare
-  // `import "./affects.js"`. A bundler honouring `sideEffects` drops a module
-  // it believes has none, so the per-module trees must declare that one —
-  // and only that one, or an app without stores ships it. The fixture imports
-  // the package by name (self-reference) so the bundler reads package.json.
+describe("@solidjs/signals bundled under `sideEffects: false`", () => {
+  // #3891: the store half of `affects()` was installed by a bare
+  // `import "./affects.js"`, which a bundler honouring `sideEffects: false`
+  // drops — `affects(store)` then crashed in prod and observe. `affects()`
+  // now installs it on its first store target, and it never imports the
+  // store engine. The fixture imports the package by name (self-reference)
+  // so the bundler reads package.json.
   const pkg = fileURLToPath(new URL("..", import.meta.url));
   async function bundle(contents: string, conditions: string[]) {
     const { build } = await import("esbuild");
@@ -258,37 +259,58 @@ describe("@solidjs/signals bundled through the package's sideEffects", () => {
       retained: Object.keys(inputs).filter(f => inputs[f].bytesInOutput > 0)
     };
   }
+  const run = (code: string) =>
+    execFileSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8" });
+  const REPORT = `.then(() => process.stdout.write("ok"), e => process.stdout.write(String(e)))`;
   const STORE_APP = `
     import { action, affects, createStore } from "@solidjs/signals";
-    const [store] = createStore({ n: 1 });
-    action(function* () { affects(store, "n"); })().then(
-      () => process.stdout.write("ok"),
-      e => process.stdout.write(String(e))
-    );
+    const [store] = createStore({ n: 1, row: { m: 2 } });
+    action(function* () { affects(store, "n"); affects(store.row); })()${REPORT};
   `;
-  const NO_STORE_APP = `
+  const AFFECTS_APP = `
+    import { action, affects, createEffect, createRoot, createSignal } from "@solidjs/signals";
+    const n = createRoot(() => {
+      const [n] = createSignal(1);
+      createEffect(n, () => {});
+      return n;
+    });
+    action(function* () { affects(n); })()${REPORT};
+  `;
+  const SIGNALS_APP = `
     import { createEffect, createRoot, createSignal } from "@solidjs/signals";
     createRoot(() => {
       const [n] = createSignal(1);
-      createEffect(n, v => console.log(v));
+      createEffect(n, v => { console.log(v); });
     });
   `;
+  // Store modules a bundle keeps besides `store/types.js` (`$TARGET`, which
+  // `affects()` reads to tell a store apart).
+  const storeModules = (retained: string[]) =>
+    retained.filter(f => f.includes("/store/") && !f.endsWith("/store/types.js"));
   const BUILDS = { prod: [], observe: ["observe"], dev: ["development"] } as const;
   for (const [tier, conditions] of Object.entries(BUILDS)) {
-    test(`${tier}: a production bundle calling affects(store, key) runs`, async () => {
-      const { code } = await bundle(STORE_APP, [...conditions]);
-      const out = execFileSync(process.execPath, ["--input-type=module", "-e", code], {
-        encoding: "utf8"
-      });
-      expect(out).toBe("ok");
+    test(`${tier}: a bundle calling affects(store) runs`, async () => {
+      expect(run((await bundle(STORE_APP, [...conditions])).code)).toBe("ok");
+    });
+    test(`${tier}: a bundle calling affects() without stores runs`, async () => {
+      expect(run((await bundle(AFFECTS_APP, [...conditions])).code)).toBe("ok");
     });
   }
   for (const tier of ["prod", "observe"] as const) {
-    test(`${tier}: an app without stores leaves store/affects.js out`, async () => {
-      const store = await bundle(STORE_APP, [...BUILDS[tier]]);
-      expect(store.retained).toContain(`dist/${tier}/store/affects.js`);
-      const { retained } = await bundle(NO_STORE_APP, [...BUILDS[tier]]);
-      expect(retained.filter(f => f.includes("/store/"))).toEqual([]);
+    test(`${tier}: the store half ships with affects(store) only`, async () => {
+      expect((await bundle(STORE_APP, [...BUILDS[tier]])).retained).toContain(
+        `dist/${tier}/store/affects.js`
+      );
+      // A store app that never declares a mark carries none of it.
+      const plain = `import { createStore } from "@solidjs/signals"; console.log(createStore({ n: 1 }));`;
+      expect((await bundle(plain, [...BUILDS[tier]])).retained).not.toContain(
+        `dist/${tier}/store/affects.js`
+      );
+      // `affects()` without stores never reaches the store engine.
+      expect(storeModules((await bundle(AFFECTS_APP, [...BUILDS[tier]])).retained)).not.toContain(
+        `dist/${tier}/store/store.js`
+      );
+      expect(storeModules((await bundle(SIGNALS_APP, [...BUILDS[tier]])).retained)).toEqual([]);
     });
   }
 });
