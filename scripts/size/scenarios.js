@@ -4631,8 +4631,12 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB; recorded minified 142,472 B.
     // CI-confirmed to the byte, two chunks included (Size run 37751396603:
     // 46,919 / 142,472; `client.js` 85,618 / 27,801).
-    limit: "46.93 KB",
-    capMinified: 142472,
+    // Size-Exception (consumer-declared re-claim attributes, #3923 / #3924,
+    // 2026-10-08): 46.93 KB -> 46.99 KB, measured at 46,976 B against `next`
+    // @ 893834ca5's 46,919 (+57 B br; 46 B over the cap; +125 B minified,
+    // 142,472 -> 142,597). Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "46.99 KB",
+    capMinified: 142597,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
