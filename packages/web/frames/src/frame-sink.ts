@@ -1918,10 +1918,56 @@ const FRAME_TAG = "solid-frame";
 const FRAME_ID_ATTR = "data-fid";
 
 /** Open tag for a boundary/region element with `id`. `id` is developer-owned
- *  (a server-function id), but attribute-escaped defensively. */
-function frameElementOpen(id) {
-  const escaped = sharedConfig.context ? sharedConfig.context.escape(String(id), true) : String(id);
-  return `<${FRAME_TAG} ${FRAME_ID_ATTR}="${escaped}" style="display:contents">`;
+ *  (a server-function id, or a per-site scope of one — see `documentSiteId`),
+ *  but attribute-escaped defensively. `fnId`, when it differs from `id`, is
+ *  the function the client groups sites under (`data-fn`); a single mount
+ *  omits it and the tag is unchanged. */
+function frameElementOpen(id, fnId) {
+  const escape = sharedConfig.context
+    ? value => sharedConfig.context.escape(String(value), true)
+    : value => String(value);
+  const fn = fnId && fnId !== id ? ` data-fn="${escape(fnId)}"` : "";
+  return `<${FRAME_TAG} ${FRAME_ID_ATTR}="${escape(id)}"${fn} style="display:contents">`;
+}
+
+// Per-document site scopes (#3889). One server function mounted twice renders
+// two inline frames. They share the function id — that is the mount identity
+// `dynamic` keeps — but each site needs its own element, slot records and
+// hydration-key owner. Sharing one scope makes the second claim walk the
+// first site's nodes (the registry is first-key-wins) and the second button
+// never becomes live. The first site keeps the bare function id, so a page
+// with one mount is byte-identical. Keyed by owner: a re-render of the same
+// mount reuses the scope it already minted.
+const DOCUMENT_SITES = Symbol();
+function contextSites(ctx) {
+  if (ctx[DOCUMENT_SITES]) return ctx[DOCUMENT_SITES];
+  const proto = Object.getPrototypeOf(ctx);
+  if (proto && proto[DOCUMENT_SITES]) return (ctx[DOCUMENT_SITES] = proto[DOCUMENT_SITES]);
+  // A Loading boundary's context (and this wrapper's own claims context) is
+  // `Object.create(page)`. The bag belongs to the page, shared by every
+  // derived context that renders a frame into the same document.
+  if (proto && typeof proto.escape === "function")
+    return (ctx[DOCUMENT_SITES] = contextSites(proto));
+  return (ctx[DOCUMENT_SITES] = { byOwner: new Map(), counts: Object.create(null) });
+}
+function mintSiteId(sites, fnId) {
+  const n = sites.counts[fnId] || 0;
+  sites.counts[fnId] = n + 1;
+  return n === 0 ? fnId : fnId + "~" + (n + 1);
+}
+function documentSiteId(fnId) {
+  const ctx = sharedConfig.context;
+  if (!ctx) return fnId;
+  const sites = contextSites(ctx);
+  const owner = getOwner ? getOwner() : null;
+  if (!owner) return mintSiteId(sites, fnId);
+  let byFn = sites.byOwner.get(owner);
+  if (!byFn) sites.byOwner.set(owner, (byFn = new Map()));
+  const prev = byFn.get(fnId);
+  if (prev) return prev;
+  const siteId = mintSiteId(sites, fnId);
+  byFn.set(fnId, siteId);
+  return siteId;
 }
 const FRAME_ELEMENT_CLOSE = `</${FRAME_TAG}>`;
 
@@ -2178,53 +2224,61 @@ export function frameTransformDirectResult<T>(
 export function frameTransformDirectResult(value, { id, args, tierUrls }) {
   if (typeof value !== "function") return value;
   const component = value;
-  const wrapped = props => [
-    { t: frameElementOpen(id) },
-    // Slot props are created OUTSIDE the context barrier: their zone owner
-    // (captured at proxy creation) is what client positions re-enter, so
-    // the client's content keeps full app context while the component's
-    // own render is context-isolated.
-    serverOwned(() => {
-      const page = sharedConfig.context;
-      armDocumentLiveHoles(page);
-      // The tier chunk URLs, for the document's `modulepreload` links (see
-      // documentNeeds) — on the shared slot, so every component's mint
-      // reads them.
-      if (tierUrls && page && page.live && !page.live.tierUrls) page.live.tierUrls = tierUrls;
-      // Handler positions: arm the compiled `ssrClaim` guard — and the
-      // spread walk's slot probes — for this subtree, on a render context
-      // DERIVED from the page's (prototype: every shared field and method
-      // reads through, as a Loading boundary's buffered context does). The
-      // page's own context never carries `claims`, so the document's
-      // elements after the component keep the pre-slot walk; a late hole
-      // minted inside re-emits under its mint-time context — this one —
-      // and stays armed. Marking is additionally scope-gated inside
-      // ssrClaim, so client fill content — which re-enters the zone owner
-      // outside the component barrier — neither marks nor warns.
-      const ctx = Object.create(page);
-      ctx.claims = CLAIMS_DOCUMENT;
-      // The frame this scope renders: a failure escaping a boundary inside
-      // it is addressed to this frame on the live channel (`live.error`).
-      ctx.frameId = id;
-      sharedConfig.context = ctx;
-      try {
-        const slotProps = createDocumentSlotProps(props, id);
-        // A `live` answer (the declaration's in-process brand lands on this
-        // wrapper after it is made, before it renders) marks the scope live:
-        // every async source inside takes its first value and closes — the
-        // document completes, and the standing render is the client's
-        // connection after hydration (RFC 11 §9.5, Server face 3). Read at
-        // render, not at wrap: the brand arrives from `live`, outside. That
-        // connection is the wire tier's — announced with the document.
-        const live = !!wrapped[LIVE_SOURCE];
-        if (live) documentNeeds("wire");
-        return serverComponentScope(() => component(slotProps), live);
-      } finally {
-        sharedConfig.context = page;
-      }
-    }),
-    { t: FRAME_ELEMENT_CLOSE }
-  ];
+  const wrapped = props => {
+    // Mint at the call, under the mount's owner, before the context barrier:
+    // a second consumption site of this same factory gets its own scope
+    // while a re-render of this mount reuses the one it already took.
+    const siteId = documentSiteId(id);
+    return [
+      { t: frameElementOpen(siteId, id) },
+      // Slot props are created OUTSIDE the context barrier: their zone owner
+      // (captured at proxy creation) is what client positions re-enter, so
+      // the client's content keeps full app context while the component's
+      // own render is context-isolated.
+      serverOwned(() => {
+        const page = sharedConfig.context;
+        armDocumentLiveHoles(page);
+        // The tier chunk URLs, for the document's `modulepreload` links (see
+        // documentNeeds) — on the shared slot, so every component's mint
+        // reads them.
+        if (tierUrls && page && page.live && !page.live.tierUrls) page.live.tierUrls = tierUrls;
+        // Handler positions: arm the compiled `ssrClaim` guard — and the
+        // spread walk's slot probes — for this subtree, on a render context
+        // DERIVED from the page's (prototype: every shared field and method
+        // reads through, as a Loading boundary's buffered context does). The
+        // page's own context never carries `claims`, so the document's
+        // elements after the component keep the pre-slot walk; a late hole
+        // minted inside re-emits under its mint-time context — this one —
+        // and stays armed. Marking is additionally scope-gated inside
+        // ssrClaim, so client fill content — which re-enters the zone owner
+        // outside the component barrier — neither marks nor warns.
+        const ctx = Object.create(page);
+        ctx.claims = CLAIMS_DOCUMENT;
+        // The frame this scope renders: a failure escaping a boundary inside
+        // it is addressed to this frame on the live channel (`live.error`).
+        // The SITE scope, not the function id: two mounts of one factory must
+        // not publish live ops onto each other's ranges.
+        ctx.frameId = siteId;
+        sharedConfig.context = ctx;
+        try {
+          const slotProps = createDocumentSlotProps(props, siteId);
+          // A `live` answer (the declaration's in-process brand lands on this
+          // wrapper after it is made, before it renders) marks the scope live:
+          // every async source inside takes its first value and closes — the
+          // document completes, and the standing render is the client's
+          // connection after hydration (RFC 11 §9.5, Server face 3). Read at
+          // render, not at wrap: the brand arrives from `live`, outside. That
+          // connection is the wire tier's — announced with the document.
+          const live = !!wrapped[LIVE_SOURCE];
+          if (live) documentNeeds("wire");
+          return serverComponentScope(() => component(slotProps), live);
+        } finally {
+          sharedConfig.context = page;
+        }
+      }),
+      { t: FRAME_ELEMENT_CLOSE }
+    ];
+  };
   // Branded so the hydration serializer can write it as a reference (see
   // ServerComponentPlugin) instead of meeting an unserializable function.
   wrapped[SERVER_COMPONENT] = id;
