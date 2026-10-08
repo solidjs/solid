@@ -4633,10 +4633,13 @@ module.exports = [
     // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer (2026-10-08, "perf is important enough —
     // it's the point here").
-    // Re-based onto #3909 (router next.37 + the `solid` condition): the cap
-    // above is #3909's; this exception's bytes are re-measured on that base.
-    limit: "41.26 KB",
-    capMinified: 129175,
+    // Re-derived on #3909's base (router next.37 + the `solid` condition,
+    // `next` @ 893834ca5, 2026-10-08): 41.26 -> 41.40 KB, measured at 41,386 B
+    // by CI (Size run 37805628234) against #3909's 41,244 (+142 B; +334 B
+    // minified, 129,175 -> 129,509; recorded 129,175 -> 129,509) — the same
+    // frames bytes as above. Cap set at measured + 10 B rounded up to 0.01 KB.
+    limit: "41.40 KB",
+    capMinified: 129509,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -4705,10 +4708,13 @@ module.exports = [
     // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer (2026-10-08, "perf is important enough —
     // it's the point here").
-    // Re-based onto #3909 (router next.37 + the `solid` condition): the cap
-    // above is #3909's; this exception's bytes are re-measured on that base.
-    limit: "46.93 KB",
-    capMinified: 142472,
+    // Re-derived on #3909's base (router next.37 + the `solid` condition,
+    // `next` @ 893834ca5, 2026-10-08): 46.93 -> 47.10 KB, measured at 47,084 B
+    // by CI (Size run 37805628234) against #3909's 46,919 (+165 B; +332 B
+    // minified, 142,472 -> 142,804; recorded 142,472 -> 142,804) — the same
+    // frames bytes as above. Cap set at measured + 10 B rounded up to 0.01 KB.
+    limit: "47.10 KB",
+    capMinified: 142804,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
