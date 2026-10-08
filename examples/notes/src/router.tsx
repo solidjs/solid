@@ -3,7 +3,7 @@
 // template. The collector reruns these routes' server calls and preloads for
 // a mutation's target URL, so the sidebar list's query lives here too: the
 // root preload names it, on every route, filtered by the search param.
-import { createRouter, defineRoute, query } from "@solidjs/router";
+import { createRouter, defineRoute, intentPreload, query } from "@solidjs/router";
 import { lazy, type ComponentProps } from "solid-js";
 import type { Slot } from "@solidjs/web/frames";
 import { format, isToday } from "date-fns";
@@ -107,7 +107,11 @@ export const getNoteList = query(async (searchText: string) => {
 const NewNote = lazy(() => import("~/routes/new"));
 const EditNote = lazy(() => import("~/routes/edit"));
 
+// `intentPreload` warms a link's route on hover, focus, and touch, which is
+// what gets the lazy editor chunk (and its data) fetched before the click.
+// Link preloading is opt-in as of router 2.0.0-next.38.
 export const Router = createRouter({
+  preloadLinks: intentPreload(),
   routes: [
     defineRoute({ path: "/", component: Home }),
     defineRoute({ path: "/new", component: NewNote }),
