@@ -321,27 +321,25 @@ function followAddress(host: any, frame: { rebind(address: string): void }, bind
 function landing<T>(host: any, address: string, value: T, failed: () => unknown): () => T {
   // A record is its response's: the version that carried the error names
   // it, not the payload — the server's is a message string, and two flights
-  // that fail alike carry equal ones. What the address's store holds at
-  // creation is applied: a fresh consumer of an errored address re-asks, it
-  // does not re-throw.
-  const errored = () => {
-    const frame = host.get(address);
-    return frame && frame.error !== undefined ? frame.version : undefined;
-  };
-  let thrown = errored();
+  // that fail alike carry equal ones. `errored` reads the address: false
+  // when it holds no error, 1 for the error already surfaced, 2 for a new
+  // one (now marked surfaced). What the address's store holds at creation
+  // is applied: a fresh consumer of an errored address re-asks, it does not
+  // re-throw.
+  let frame: any, thrown: number | undefined;
+  const errored = () =>
+    (frame = host.get(address))?.error !== undefined &&
+    (thrown === (thrown = frame.version) ? 1 : 2);
+  errored();
   return createMemo(() => {
     failed();
-    const version = errored();
-    if (version !== undefined && version !== thrown) {
-      thrown = version;
-      throw host.get(address).error;
-    }
+    const state = errored();
+    if (state > 1) throw frame.error;
     const wait = host.landing(address);
     if (!wait) return value;
     // An errored address with no flight open (a flight's `start` clears
     // the mounts' error): this read is the re-ask.
-    const asked = version !== undefined ? reask(address) : undefined;
-    return (asked ? asked.then(() => wait) : wait).then(() => value);
+    return (state ? reask(address, wait) : wait).then(() => value);
   });
 }
 
@@ -351,18 +349,18 @@ function landing<T>(host: any, address: string, value: T, failed: () => unknown)
  * server-function client hands its response handler the call it dispatched
  * (or answered locally) as a thunk: the same reference, arguments, declared
  * shape and per-call options, so a `GET`-declared read stays a GET by
- * construction. Resolves when the call's response has been handled: the
- * flight is open and lands through the host. `undefined` for an address no
- * call is recorded for.
+ * construction. Resolves to `wait` (the address's next landing) once the
+ * call's response has been handled: the flight is open and lands through
+ * the host. `wait` itself for an address no call is recorded for.
  */
-function reask(address: string): Promise<unknown> | undefined {
+function reask<T>(address: string, wait: Promise<T>): Promise<T> {
   const call = callFor(address);
   if (IS_DEV && !call)
     console.error(
       `Server component boundary "${address}" errored, but no call is recorded for it; ` +
         `reset() cannot re-ask the server. (The address was written by hand, not by a call.)`
     );
-  return call && call.retry();
+  return call ? call.retry().then(() => wait) : wait;
 }
 
 /**
