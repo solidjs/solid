@@ -32,6 +32,7 @@
 import {
   CONFIG_AUTHORITATIVE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_FRESH_READ,
   CONFIG_GUESS,
   CONFIG_HELD,
   CONFIG_INPUTS_PUBLISHED,
@@ -52,6 +53,7 @@ import {
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SCREEN_READ,
+  STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
@@ -536,8 +538,25 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
  * member throws like any. */
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
-  if (c !== null && c._config & CONFIG_AUTHORITATIVE)
+  // Authoritative (`until`) sees the base a guess covers. refresh()'s waiter
+  // is a fresh-pull, not authoritative: a guessed node's own flight is not
+  // that answer — the guess is the caller's overlay, and the pre-reask
+  // commit is what the re-ask replaces. NOT_PENDING falls through to the
+  // pending or error throw, so the landing (or the rejection) delivers
+  // (#3895). Settled, the truth staged beneath the guess is the answer.
+  // until() has no fresh-pull bit.
+  if (
+    c !== null &&
+    (c._config & CONFIG_AUTHORITATIVE || (guess && c._config & CONFIG_FRESH_READ))
+  ) {
+    if (
+      guess &&
+      c._config & CONFIG_FRESH_READ &&
+      (el as Computed<any>)._statusFlags & (STATUS_PENDING | STATUS_ERROR)
+    )
+      return NOT_PENDING;
     return guess && el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+  }
   if (c === null) return laneValueOf(el);
   const l = txOf(el);
   const status = (el as Computed<any>)._statusFlags;
