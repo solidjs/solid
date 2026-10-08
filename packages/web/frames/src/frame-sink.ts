@@ -2061,6 +2061,11 @@ function armDocumentLiveHoles(ctx) {
     new ReadableStream({
       start(c) {
         channel = c;
+      },
+      // An aborted document cancels the channel: later ops and `live.end()`
+      // must not touch the closed controller.
+      cancel() {
+        closed = true;
       }
     })
   );
