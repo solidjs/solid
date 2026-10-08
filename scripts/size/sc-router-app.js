@@ -12,6 +12,11 @@
 // The instance, its routes and the route components are all reachable from
 // the root, so the router's runtime — matching, the integration, the
 // context, preloading, link claims — is retained, not just its imports.
+// Since `2.0.0-next.37` `data-pending` on anchors is opt-in
+// (`createRouter({ routes, links: pendingLinks })`) and nothing in the
+// router's navigation core reads `isPending` / `latest`; this page does not
+// opt in — it measures a router whose app renders no pending state (the
+// scenario's ledger note has the opt-in's cost).
 import {
   hydrate,
   Show,

@@ -136,6 +136,25 @@ registry for nothing. The router's own modules report as the `other`
 package. These are not floors: their caps are inline, and the two page
 floors stay the gate on the runtime alone.
 
+The router is resolved through its **`solid` export condition**
+(`solidConditions` in `scenarios.js`: `solid` ahead of Rolldown's browser
+set, the order `@solidjs/vite-plugin` gives Vite), which is `dist/index.jsx`
+plus the router's per-module output — two of those modules are JSX, compiled
+at measure time by the measured checkout's compiler like a compiled
+scenario's fixtures (the scenarios set `compile`), hydratable as an SSR'd
+app compiles them. That is what a Vite application ships. The package's
+`default` condition is a flat `dist/index.js` rolled up with
+`inlineDynamicImports`, which turns the lazy server-form fallback
+(`data/events`' `import("./serverForms.js")`) into a static edge to the
+action layer, `query` and the flight consumer — eager there, a lazy chunk
+under `solid`. Until 2026-10-08 (router `2.0.0-next.35`) the scenarios
+resolved the flat build and overstated the router by 2.7 KB brotli / 8.4 KB
+minified on the base page; the switch to `solid` landed with the
+`2.0.0-next.37` re-base (the dated notes in `scenarios.js` separate the two).
+Under `solid` the live + router page's eager graph is two chunks (Rolldown
+hoists the runtime the entry shares with the lazy server-form chunk into a
+statically-imported chunk), counted the way the compiled live page is.
+
 ## Compiled scenarios
 
 The hand-written `app:` fixtures call the runtime directly and never compile
