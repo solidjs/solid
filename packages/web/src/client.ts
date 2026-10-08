@@ -3005,13 +3005,17 @@ function cleanChildren(parent, current, marker, replacement) {
 }
 
 function gatherHydratable(element, root) {
-  // A prefix-scoped gather (a boundary's late resume; an adopted frame
-  // occurrence's claim window) names exactly what it owns — collect wherever
-  // the keys sit, frame interiors included: keys are namespaced by their
-  // producer chain, so a nested frame's content can never match a foreign
-  // prefix. Selected natively: it runs once per resume or per occurrence,
-  // and a full `_hk` sweep filtered in JS each time is a cost per
-  // occurrence on the whole page.
+  // A prefix-scoped gather (a streamed boundary's late resume) names exactly
+  // what it owns — collect wherever the keys sit, frame interiors included:
+  // keys are namespaced by their producer chain, so a nested frame's content
+  // can never match a foreign prefix. Selected natively: it runs once per
+  // resume, and a full `_hk` sweep filtered in JS each time is a cost per
+  // resume on the whole page. An adopted frame's occurrences do NOT gather
+  // here: a scan of the root per occurrence is a cost per occurrence on the
+  // whole page (37 ms on a 652-occurrence thread), so the frames client
+  // indexes its element's keys once at adoption and serves its windows from
+  // that (`claimScope` in frames/src/client.ts) — only a window a frame
+  // opens with no root gathered yet falls through to this gather.
   const templates = element.querySelectorAll(
     root ? `[_hk^="${root.replace(/["\\]/g, "\\$&")}"]` : `*[_hk]`
   );
