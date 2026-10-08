@@ -1,13 +1,13 @@
-@@ -20,7 +20,7 @@
- var _g11$ = ["<button", " type=\"button\">Write</button>"];
- var _g12$ = ["<button class=\"", "\">Hi</button>"];
- var _g13$ = k => {
+@@ -24,7 +24,7 @@
+   href: "/"
+ };
+ var _g14$ = k => {
 -  return k === "disabled" || k === "readonly" || k === "title" || k === "style";
 +  return k === "disabled" || k === "readonly" || k === "title" || k === "style" || k === "class";
  };
- var _g14$ = k => {
+ var _g15$ = k => {
    return k === "style";
-@@ -33,17 +33,15 @@
+@@ -37,17 +37,15 @@
  const template = _$ssrElement__r_server("div", [{
    id: "main"
  }, results], _$ssrElement__r_server("h1", [{
@@ -18,7 +18,7 @@
 -    }]) || ""}`;
 -  }
 +  class: "base"
- }, results], (_g1$ = link, _$ssr__r_server(_g4$, _$ssrAttribute__r_server("readonly", _$escape__r_server(value, true)))), false, _g13$, () => {
+ }, results], (_g1$ = link, _$ssr__r_server(_g4$, _$ssrAttribute__r_server("readonly", _$escape__r_server(value, true)), _$ssrLinkClaim__r_server(_g13$))), false, _g14$, () => {
    return " disabled readonly" + _$ssrElementAttribute__r_server("title", welcoming()) + _$ssrElementAttribute__r_server("style", {
      "background-color": color(),
      "margin-right": "40px"
@@ -27,6 +27,6 @@
 +    dynamic: dynamic(),
 +    selected: selected
 +  }]);
- }), false, _g14$, () => {
+ }), false, _g15$, () => {
    return _$ssrElementAttribute__r_server("style", {
      color: color
