@@ -3574,10 +3574,6 @@ export function createErrorBoundary<T, U>(
   // children — re-running would recreate the async work from scratch, which
   // is pending again on every pass and can never settle (#2809 SSR loop).
   let pending: { t: string[]; h: Function[]; p: Promise<any>[] } | undefined;
-  // An enclosing async hole can pull this boundary again after it failed.
-  // Keep its fallback (including any pending holes) so it retains its owners
-  // and hydration ids, and the same error is not serialized again (#3920).
-  let failed: { value: U } | undefined;
   // The client boundary is two computeds under `owner`: one runs `fn`, the
   // next flattens its result. A zero-arg function `fn` hands back — a nested
   // boundary's accessor, a function child — is unwrapped inside that second
@@ -3644,6 +3640,16 @@ export function createErrorBoundary<T, U>(
           () => err,
           () => {}
         );
+  // A children-slot retry re-invokes this accessor after the boundary has
+  // already rendered its fallback: a sibling in the same `{props.children}`
+  // hole suspended, or the fallback's own async hole did. `disposeOwner`
+  // resets `owner` but not `outputOwner`, so a second `renderFallback`
+  // continues that owner's child ids while the client renders the fallback
+  // once — the server markup's keys never match (#3920). Keep the fallback
+  // produced for this request (its ids, its still-pending holes, and the
+  // one serialized error) and hand that same value back.
+  let fallbackResult: any;
+  let fallbackSettled = false;
   // The boundary's own id, read once: an error lands mid-resolve, while
   // `owner.id` is rewritten to the resolve scope's (see `resolveIn`), and the
   // client looks the record up at the boundary id.
@@ -3656,7 +3662,9 @@ export function createErrorBoundary<T, U>(
   // The finding (observe/dev): a render error this boundary contained by
   // rendering its fallback — the response completes, the failure is real,
   // and nothing else records it (renderToStream never rejects for it and
-  // `onError` never hears it). Once per boundary per failure text.
+  // `onError` never hears it). Once per boundary per failure text: the
+  // enclosing Loading re-pulls this accessor on every discovery pass and the
+  // same throw recurs each time.
   let reportedFailure: string | undefined;
   const reportContained = (err: any) => {
     if (!IS_OBSERVE) return;
@@ -3686,6 +3694,7 @@ export function createErrorBoundary<T, U>(
   // sanitized record under a fallback rendered from the original would
   // mismatch). See `ssrSanitizeError`.
   const handleError = (err: any) => {
+    if (fallbackSettled) return fallbackResult;
     reportContained(err);
     const wire = ssrSanitizeError(
       err,
@@ -3694,9 +3703,9 @@ export function createErrorBoundary<T, U>(
       ctx && ctx.errorPolicy
     );
     serializeError(wire);
-    const value = renderFallback(wire);
-    if (ctx) failed = { value };
-    return value;
+    fallbackResult = renderFallback(wire);
+    fallbackSettled = true;
+    return fallbackResult;
   };
   // The server's rendered OUTCOME for a post-flush failure inside a server
   // component (frames-rulings 3.3, A0 corollary 4 inward; asked through the
@@ -3733,9 +3742,11 @@ export function createErrorBoundary<T, U>(
   // which re-creates owners and re-enters retry plumbing per sweep.
   return Object.assign(
     () => {
-      if (failed) return failed.value;
       let result: any;
       let handled = false;
+      // Already showing the fallback for this request. Re-running would
+      // allocate new fallback ids and serialize the error again (#3920).
+      if (fallbackSettled) return fallbackResult;
       // Disposing while resuming would tear down the very computations the
       // stashed holes read from (marking them disposed drops their settlement).
       if (ctx && !pending) disposeOwner(owner, false);

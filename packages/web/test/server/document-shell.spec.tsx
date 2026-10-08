@@ -7,10 +7,6 @@
  * hydrates against.
  */
 import { describe, expect, test } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { renderToStream } from "@solidjs/web";
 import {
   App,
   AsyncApp,
@@ -22,21 +18,12 @@ import {
   STYLED_LATE_CSS
 } from "../harness/document-shell.jsx";
 import { hydrationRecordKeys } from "../harness/hydration-records.js";
+import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
-const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
-
-function collectChunks(code: () => any): Promise<string[]> {
-  return new Promise(resolvePromise => {
-    const chunks: string[] = [];
-    renderToStream(code).pipe({
-      write(chunk: string) {
-        chunks.push(chunk);
-      },
-      end() {
-        resolvePromise(chunks);
-      }
-    });
-  });
+// The shell, then each later chunk.
+async function collectChunks(code: () => any): Promise<string[]> {
+  const { shell, chunks } = await recordStream(code);
+  return [shell, ...chunks];
 }
 
 describe("document-shell pattern — server render (#3000)", () => {
@@ -74,11 +61,7 @@ describe("document-shell pattern — server render (#3000)", () => {
     expect(html).toContain("server-data");
 
     // The client half replays these chunks and must adopt the record by id.
-    mkdirSync(artifactsDir, { recursive: true });
-    writeFileSync(
-      resolve(artifactsDir, "document-shell-async.json"),
-      JSON.stringify({ chunks }, null, 2)
-    );
+    writeArtifact("document-shell-async", { chunks });
   });
 
   test("useHead + shell-authored head: prelude splices ahead of authored children (#3081)", async () => {
@@ -97,11 +80,7 @@ describe("document-shell pattern — server render (#3000)", () => {
     );
 
     // The client half hydrates against exactly these bytes.
-    mkdirSync(artifactsDir, { recursive: true });
-    writeFileSync(
-      resolve(artifactsDir, "document-shell-usehead.json"),
-      JSON.stringify({ html }, null, 2)
-    );
+    writeArtifact("document-shell-usehead", { html });
   });
 
   test("useHead stylesheets: shell sheet in the head, late sheet gates its fragment swap", async () => {
@@ -113,11 +92,7 @@ describe("document-shell pattern — server render (#3000)", () => {
     const [shell, ...late] = chunks;
     const rest = late.join("");
 
-    mkdirSync(artifactsDir, { recursive: true });
-    writeFileSync(
-      resolve(artifactsDir, "document-shell-styled.json"),
-      JSON.stringify({ chunks: [shell, rest] }, null, 2)
-    );
+    writeArtifact("document-shell-styled", { chunks: [shell, rest] });
 
     expect(shell).toContain(`<link rel="stylesheet" href="${STYLED_SHELL_CSS}">`);
     expect(shell).toContain("waiting");
