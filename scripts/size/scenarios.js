@@ -3835,8 +3835,24 @@ module.exports = [
     // #3874) land under them (+616 B minified, +224 B brotli over the C2
     // note's 32,802 / 10,888). Cap set at measured + 10 B rounded up to
     // 0.01 KB; recorded minified 33,418 B.
-    limit: "11.13 KB",
-    capMinified: 33418,
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 11.13 -> 11.28 KB,
+    // measured at 11,264 B by CI (Size run 37756065705) against `next` @
+    // 8d23a5a13's 11,112 (+152 B; 134 B over the cap; +333 B minified,
+    // 33,418 -> 33,751; recorded 33,418 -> 33,751) — the adopt-time walk's
+    // `_s:` marker scan gated on the page's `sc:tiers` announcement (an
+    // announced page that did not name `bind` is never scanned for binding
+    // slots, never loads the tier), and the recursive per-node walk replaced
+    // by one `TreeWalker` by `whatToShow` (comments; elements only when
+    // markers may exist) with a `startsWith("slot:")` test before the regex.
+    // The gate expression alone is ≈ 75 B minified, so no variant of the
+    // change fit the 20 B allowance; the gate-only variant (+94 B minified,
+    // under the cap) was measured at 9.92 ms against this one's 5.35 ms on
+    // the HN twins' story page (`next`: 14.23 ms). Cap set at measured + 10 B
+    // rounded up to 0.01 KB. Accepted by the maintainer (2026-10-08, "perf is
+    // important enough — it's the point here": the full walker variant).
+    limit: "11.28 KB",
+    capMinified: 33751,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4108,6 +4124,17 @@ module.exports = [
     // branch's base land under the `dynamicComponent` note's 33,570 /
     // 104,586 (+666 B minified, +338 B brotli). Cap set at measured + 10 B
     // rounded up to 0.01 KB; recorded minified 105,252 B.
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 33.92 -> 34.06 KB
+    // (floor-caps.json), measured at 34,047 B by CI (Size run 37756065705)
+    // against `next` @ 8d23a5a13's 33,910 (+137 B; 127 B over the cap; +334 B
+    // minified, 105,413 -> 105,747; recorded 105,252 -> 105,747) — the frames
+    // client's bytes from the frames eager note above (the `sc:tiers`-gated
+    // marker scan, the `TreeWalker` walk); this page carries the client
+    // whole. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by
+    // the maintainer (2026-10-08, "perf is important enough — it's the point
+    // here"): `collectSlots` 14.23 -> 5.35 ms on the HN twins' story page.
+    // The cap is frozen again at 34.06 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -4336,6 +4363,15 @@ module.exports = [
     // (`liveTx`, `holdNode`). Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer 2026-10-07 on the condition hello world stays
     // under 10 KB. The cap is frozen again at 37.59 KB.
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 37.59 -> 37.77 KB
+    // (floor-caps.json), measured at 37,759 B by CI (Size run 37756065705)
+    // against `next` @ 8d23a5a13's 37,610 (+149 B; 169 B over the cap; +334 B
+    // minified, 117,456 -> 117,790; recorded 117,441 -> 117,790) — the frames
+    // client's bytes from the frames eager note (the `sc:tiers`-gated marker
+    // scan, the `TreeWalker` walk). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-08, "perf is important
+    // enough — it's the point here"). The cap is frozen again at 37.77 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -4421,8 +4457,17 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "35.13 KB",
-    capMinified: 109446,
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 35.13 -> 35.34 KB,
+    // measured at 35,323 B by CI (Size run 37756065705) against `next` @
+    // 8d23a5a13's 35,146 (+177 B; 193 B over the cap; +334 B minified,
+    // 109,461 -> 109,795; recorded 109,446 -> 109,795) — the frames client's
+    // bytes from the frames eager note (the `sc:tiers`-gated marker scan, the
+    // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-08, "perf is important enough —
+    // it's the point here").
+    limit: "35.34 KB",
+    capMinified: 109795,
     alias: pageAlias
   },
   {
@@ -4472,8 +4517,17 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "40.66 KB",
-    capMinified: 122918,
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 40.66 -> 40.83 KB,
+    // measured at 40,819 B by CI (Size run 37756065705) against `next` @
+    // 8d23a5a13's 40,651 (+168 B; 159 B over the cap; +332 B minified,
+    // 122,933 -> 123,265; recorded 122,918 -> 123,265) — the frames client's
+    // bytes from the frames eager note (the `sc:tiers`-gated marker scan, the
+    // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-08, "perf is important enough —
+    // it's the point here").
+    limit: "40.83 KB",
+    capMinified: 123265,
     alias: pageAlias
   },
   {
@@ -4570,8 +4624,22 @@ module.exports = [
     // eager chunk. Cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified 129,175 B. CI-confirmed to the byte (Size run 37751396603:
     // 41,244 / 129,175).
-    limit: "41.26 KB",
-    capMinified: 129175,
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 46.02 -> 46.13 KB,
+    // measured at 46,120 B by CI (Size run 37756065705) against `next` @
+    // 8d23a5a13's 45,996 (+124 B; 100 B over the cap; +334 B minified,
+    // 144,238 -> 144,572; recorded 144,223 -> 144,572) — the frames client's
+    // bytes from the frames eager note (the `sc:tiers`-gated marker scan, the
+    // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-08, "perf is important enough —
+    // it's the point here").
+    // Re-derived on #3909's base (router next.37 + the `solid` condition,
+    // `next` @ 893834ca5, 2026-10-08): 41.26 -> 41.40 KB, measured at 41,386 B
+    // by CI (Size run 37805628234) against #3909's 41,244 (+142 B; +334 B
+    // minified, 129,175 -> 129,509; recorded 129,175 -> 129,509) — the same
+    // frames bytes as above. Cap set at measured + 10 B rounded up to 0.01 KB.
+    limit: "41.40 KB",
+    capMinified: 129509,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -4631,8 +4699,22 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB; recorded minified 142,472 B.
     // CI-confirmed to the byte, two chunks included (Size run 37751396603:
     // 46,919 / 142,472; `client.js` 85,618 / 27,801).
-    limit: "46.93 KB",
-    capMinified: 142472,
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 47.29 -> 47.47 KB,
+    // measured at 47,460 B by CI (Size run 37756065705) against `next` @
+    // 8d23a5a13's 47,326 (+134 B; 170 B over the cap; +334 B minified,
+    // 148,683 -> 149,017; recorded 148,668 -> 149,017) — the frames client's
+    // bytes from the frames eager note (the `sc:tiers`-gated marker scan, the
+    // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-08, "perf is important enough —
+    // it's the point here").
+    // Re-derived on #3909's base (router next.37 + the `solid` condition,
+    // `next` @ 893834ca5, 2026-10-08): 46.93 -> 47.10 KB, measured at 47,084 B
+    // by CI (Size run 37805628234) against #3909's 46,919 (+165 B; +332 B
+    // minified, 142,472 -> 142,804; recorded 142,472 -> 142,804) — the same
+    // frames bytes as above. Cap set at measured + 10 B rounded up to 0.01 KB.
+    limit: "47.10 KB",
+    capMinified: 142804,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }

@@ -6,10 +6,6 @@
 // component wrapped by `frameTransformDirectResult`. Writes the chunk
 // artifacts test/hydration/frame-nonlive-document-3666.spec.tsx replays.
 import { describe, expect, test } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { renderToStream } from "@solidjs/web";
 import { frameTransformDirectResult, ServerComponentPlugin } from "../../frames/src/frame-sink.js";
 import {
   ARGS,
@@ -18,35 +14,12 @@ import {
   makeApp,
   makeNoteComponent
 } from "../harness/frame-nonlive-document-3666.jsx";
-
-const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
-mkdirSync(artifactsDir, { recursive: true });
+import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-function collectChunks(code: () => any): Promise<{ shell: string; rest: string }> {
-  return new Promise(resolvePromise => {
-    const chunks: string[] = [];
-    let shell = "";
-    let shellDone = false;
-    renderToStream(code, {
-      plugins: [ServerComponentPlugin],
-      onCompleteShell() {
-        shellDone = true;
-      }
-    } as any).pipe({
-      write(chunk: string) {
-        chunks.push(chunk);
-        if (shellDone && !shell) shell = chunks.join("");
-      },
-      end() {
-        const full = chunks.join("");
-        if (!shell) shell = full;
-        resolvePromise({ shell, rest: full.slice(shell.length) });
-      }
-    });
-  });
-}
+const collectChunks = (code: () => any) =>
+  recordStream(code, { plugins: [ServerComponentPlugin] } as any);
 
 const visibleText = (html: string) =>
   html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]*>/g, "");
@@ -83,14 +56,11 @@ describe("document face — NON-LIVE server component under Loading (#3666) — 
           expect(rest).toContain(`data-fid="${FID}"`);
         }
 
-        writeFileSync(
-          resolve(artifactsDir, `frame-nonlive-document-3666-${variant}-${mode}.json`),
-          JSON.stringify(
-            { name: `frame-nonlive-document-3666-${variant}-${mode}`, shell, rest },
-            null,
-            2
-          )
-        );
+        writeArtifact(`frame-nonlive-document-3666-${variant}-${mode}`, {
+          name: `frame-nonlive-document-3666-${variant}-${mode}`,
+          shell,
+          rest
+        });
       });
     }
   }
