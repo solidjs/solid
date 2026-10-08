@@ -3835,8 +3835,26 @@ module.exports = [
     // the HN twins' story page (`next`: 14.23 ms). Cap set at measured + 10 B
     // rounded up to 0.01 KB. Accepted by the maintainer (2026-10-08, "perf is
     // important enough — it's the point here": the full walker variant).
-    limit: "11.28 KB",
-    capMinified: 33751,
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 11.28 -> 11.39 KB, measured at
+    // 11,375 B by CI (Size run 37765150570) against #3913's e9c233c81's
+    // 11,264 (+111 B; 95 B over the cap; +361 B minified, 33,751 -> 34,112;
+    // recorded 33,751 -> 34,112; the two PRs together: +263 B brotli / +694 B
+    // minified over `next` @ 8d23a5a13's 11,112 / 33,418) — `adoptBoundary`
+    // builds the boundary's claim index at adoption (one `[_hk]` query over
+    // the adopted element, every keyed node bucketed by its occurrence
+    // prefix — the key's last dash), the window's `gather(id)` is a map
+    // lookup narrowed by `startsWith` to nodes still in the document, and
+    // the fragment-reveal callback extends the index with the revealed
+    // parent before the apply — in place of one `querySelectorAll('[_hk^=…]')`
+    // over the whole hydration root per occurrence (652 on the HN twins'
+    // story page: `gatherHydratable` 42–52 ms -> < 1 ms, total hydration
+    // ≈ 77 -> ≈ 42 ms). The `[_hk^=…]` selector path stays for the streamed
+    // boundary's resume at page level, so the index is additive. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here").
+    limit: "11.39 KB",
+    capMinified: 34112,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4119,6 +4137,20 @@ module.exports = [
     // the maintainer (2026-10-08, "perf is important enough — it's the point
     // here"): `collectSlots` 14.23 -> 5.35 ms on the HN twins' story page.
     // The cap is frozen again at 34.06 KB.
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 34.06 -> 34.22 KB
+    // (floor-caps.json), measured at 34,209 B by CI (Size run 37765150570)
+    // against #3913's e9c233c81's 34,047 (+162 B; 149 B over the cap; +360 B
+    // minified, 105,747 -> 106,107; recorded 105,747 -> 106,107; the two PRs
+    // together: +299 B brotli / +694 B minified over `next` @ 8d23a5a13's
+    // 33,910 / 105,413) — the adoption-time claim index from the frames
+    // eager note (the frames client carries the index; `@solidjs/web`'s
+    // page-level gather and resume path are unchanged, comments only — the
+    // non-SC hydrating scenarios measure 0). Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here"): total
+    // hydration ≈ 77 -> ≈ 42 ms on the HN twins' story page. The cap is
+    // frozen again at 34.22 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -4356,6 +4388,16 @@ module.exports = [
     // scan, the `TreeWalker` walk). Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer (2026-10-08, "perf is important
     // enough — it's the point here"). The cap is frozen again at 37.77 KB.
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 37.77 -> 37.94 KB
+    // (floor-caps.json), measured at 37,924 B by CI (Size run 37765150570)
+    // against #3913's e9c233c81's 37,759 (+165 B; 154 B over the cap; +360 B
+    // minified, 117,790 -> 118,150; recorded 117,790 -> 118,150; the two PRs
+    // together: +314 B brotli / +694 B minified over `next` @ 8d23a5a13's
+    // 37,610 / 117,456) — the adoption-time claim index from the frames
+    // eager note. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
+    // by the maintainer (2026-10-08, "perf is important enough — it's the
+    // point here"). The cap is frozen again at 37.94 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -4450,8 +4492,17 @@ module.exports = [
     // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer (2026-10-08, "perf is important enough —
     // it's the point here").
-    limit: "35.34 KB",
-    capMinified: 109795,
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 35.34 -> 35.47 KB, measured at
+    // 35,459 B by CI (Size run 37765150570) against #3913's e9c233c81's
+    // 35,323 (+136 B; 119 B over the cap; +360 B minified, 109,795 -> 110,155;
+    // recorded 109,795 -> 110,155; the two PRs together: +313 B brotli /
+    // +694 B minified over `next` @ 8d23a5a13's 35,146 / 109,461) — the
+    // adoption-time claim index from the frames eager note. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here").
+    limit: "35.47 KB",
+    capMinified: 110155,
     alias: pageAlias
   },
   {
@@ -4510,8 +4561,17 @@ module.exports = [
     // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer (2026-10-08, "perf is important enough —
     // it's the point here").
-    limit: "40.83 KB",
-    capMinified: 123265,
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 40.83 -> 40.95 KB, measured at
+    // 40,932 B by CI (Size run 37765150570) against #3913's e9c233c81's
+    // 40,819 (+113 B; 102 B over the cap; +363 B minified, 123,265 -> 123,628;
+    // recorded 123,265 -> 123,628; the two PRs together: +281 B brotli /
+    // +695 B minified over `next` @ 8d23a5a13's 40,651 / 122,933) — the
+    // adoption-time claim index from the frames eager note. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here").
+    limit: "40.95 KB",
+    capMinified: 123628,
     alias: pageAlias
   },
   {
@@ -4569,8 +4629,17 @@ module.exports = [
     // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer (2026-10-08, "perf is important enough —
     // it's the point here").
-    limit: "46.13 KB",
-    capMinified: 144572,
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 46.13 -> 46.30 KB, measured at
+    // 46,282 B by CI (Size run 37765150570) against #3913's e9c233c81's
+    // 46,120 (+162 B; 152 B over the cap; +360 B minified, 144,572 -> 144,932;
+    // recorded 144,572 -> 144,932; the two PRs together: +286 B brotli /
+    // +694 B minified over `next` @ 8d23a5a13's 45,996 / 144,238) — the
+    // adoption-time claim index from the frames eager note. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here").
+    limit: "46.30 KB",
+    capMinified: 144932,
     alias: pageAlias
   },
   {
@@ -4607,8 +4676,17 @@ module.exports = [
     // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer (2026-10-08, "perf is important enough —
     // it's the point here").
-    limit: "47.47 KB",
-    capMinified: 149017,
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 47.47 -> 47.57 KB, measured at
+    // 47,556 B by CI (Size run 37765150570) against #3913's e9c233c81's
+    // 47,460 (+96 B; 86 B over the cap; +360 B minified, 149,017 -> 149,377;
+    // recorded 149,017 -> 149,377; the two PRs together: +230 B brotli /
+    // +694 B minified over `next` @ 8d23a5a13's 47,326 / 148,683) — the
+    // adoption-time claim index from the frames eager note. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here").
+    limit: "47.57 KB",
+    capMinified: 149377,
     alias: pageAlias
   },
   {
