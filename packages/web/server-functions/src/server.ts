@@ -3228,7 +3228,16 @@ function encodeResult(value, headers, status, codec, signal, scope) {
   // where a throw would escape the handler entirely.
   if (NULL_BODY_STATUSES.has(status)) {
     if (value === undefined || value === null) {
-      headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
+      // 204/205 are the stored answer, so the void tag is how the client
+      // tells a runtime-encoded empty body from an untagged peer. A 304 is
+      // not a stored response (#3134): RFC 9111 §3.2 freshens the cached
+      // entry with the header fields the 304 carries, and the body stays
+      // the one already stored. Stamping a format here replaces the cached
+      // representation's tag — the replay is still the original payload,
+      // decoded under Void, which is `undefined` (#3897). An author who
+      // echoes the stored tag on the 304 is left alone; the runtime simply
+      // does not invent one.
+      if (status !== 304) headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
       return new Response(null, { status, headers });
     }
     const error = new Error(
