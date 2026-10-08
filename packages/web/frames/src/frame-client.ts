@@ -15,7 +15,7 @@
  */
 
 // The module's one import, and only for the dev-tier integrity check
-// (`devCheckRange`): the diagnostics channel and its console face. `solid-js`
+// (`devReportRange`): the diagnostics channel and its console face. `solid-js`
 // is external to every frames client bundle, so this reaches the same
 // `OBSERVE` the rest of the page runs on — no cross-bundle seam to keep in
 // agreement, unlike the registered-symbol brands this module otherwise
@@ -1612,7 +1612,7 @@ class FrameImpl {
     // positions rather than filling a range (no interior, no regions, never
     // replaced), and whose consumer set may change without a re-call.
     const found: Map<any, any> & { b?: boolean } = new Map();
-    if (root) collectSlots(root.firstChild, null, found, found);
+    if (root) collectSlots(root, found, found);
     else this.#collectSlots(found, found);
     // Whether this sync leaves an occurrence WAITING to mount — for its
     // record, for a `{$ref}`'s data: a claim the frame owes the page and has
@@ -2016,7 +2016,7 @@ class FrameImpl {
   /** Collect this frame's own top-level slot ranges (bounded to its content),
    *  and — for the slot sync — its binding-slot elements into the same map. */
   #collectSlots(found, elements) {
-    collectSlots(this.#element.firstChild, null, found, elements);
+    collectSlots(this.#element, found, elements);
   }
 
   /** The `pl-<name>` template in `root` (a segment's content being
@@ -2595,44 +2595,109 @@ function findPlaceholder(n, end, id) {
 }
 
 /**
- * Collect slot ranges (`slot:<key>:start`) among the siblings `[n, end)` into
- * `out`, keyed by slot id. Descends through server-owned elements but never
- * into a range's interior or a nested frame/region element — those are
- * child-owned (the child discovers, with callbacks and records threaded
- * down), so slots belonging to nested frames / client content are ignored.
+ * Collect slot ranges (`slot:<key>:start`) in `root`'s subtree into `out`,
+ * keyed by slot id. Descends through server-owned elements but never into a
+ * range's interior or a nested frame/region element — those are child-owned
+ * (the child discovers, with callbacks and records threaded down), so slots
+ * belonging to nested frames / client content are ignored.
+ *
+ * ONE pass per walk, as a TreeWalker over the node kinds the pass needs
+ * (`whatToShow` — no filter callback: one costs a JS call per node, more
+ * than the walk it was to save; measured on the HN story page, 11.7 ms
+ * against 6.1): the platform steps over text nodes natively — and over
+ * elements too when nothing asks for them — and a comment's data is tested
+ * by prefix before any regex runs, so the marker vocabulary a page's
+ * comments mostly ARE (`$`/`/` hole pairs, `lh:` live holes) never reaches
+ * one. A range's interior is skipped by stepping the walker to its end
+ * marker (a sibling scan from the start); the end marker missing is the
+ * truncated range (dev reports it) and the rest of that sibling list is
+ * abandoned, as before. A nested frame element is stepped over whole when
+ * elements are shown; a comments-only walk sees its comments and tests a
+ * slot start's ancestry instead — once per start marker, not per node.
+ *
+ * Binding-slot markers (`_s:*`) are looked for when the caller wants them
+ * — the slot sync does (`elements`); the morph's range index does not (an
+ * element is reconciled as an element, not relocated as a protected range)
+ * — AND the page may carry them (`bind`). The server knows at render time
+ * whether it minted a binding-slot position and announces the `bind` tier
+ * where it did (frames savings pass §2 — the announcement read for the
+ * SCAN, not only the load): the document's `sc:tiers` record
+ * (frame-sink.ts `documentNeeds`, re-written cumulatively — read HERE, at
+ * each walk, not snapshotted at install, so a name a later data script
+ * added is seen by the boundary it was added for); a stream's
+ * `X-Frame-Tiers` head or in-band `chunk.tiers`, both of which start the
+ * tier's load before the chunk that carries the markers applies
+ * (`tierLoads.bind` is set from then on, by an announcement or by the
+ * walk's own detection). So: the load started, or the record names the
+ * tier, or the page announced NOTHING (no record: a page that minted no
+ * tier, a sync render, an older producer) — detection stays, as the
+ * un-announced fallback. Only a page that announced OTHER tiers and not
+ * this one is trusted to carry no position: its walk sees comments alone
+ * (a `_s:` marker it meets anyway is a producer out of step with its own
+ * announcement, not a client-side case). Only then are elements shown to
+ * the walk at all.
+ *
+ * The BIND TIER parses the markers: a text position's start marker joins
+ * its parent element's consumer entry (`text`); an element's positions
+ * join its occurrence's consumer list, in document order (`positions`).
+ * With the tier absent, the walk only NOTES that a marker was met
+ * (`elements.b`) — the sync holds on the note and the install's flush
+ * re-walks. A text pair's interior (one text node, the end marker) and the
+ * element's interior are walked like any server content: they may hold
+ * further occurrences of either kind.
  */
-function collectSlots(n, end, out, elements) {
-  while (n && n !== end) {
-    const id = slotStartId(n);
-    if (id !== null) {
-      if ("_SOLID_DEV_") devCheckRange(n, id);
+function collectSlots(root, out, elements) {
+  let announced;
+  // `elements` is the found map or undefined; `tierLoads.bind` a promise or undefined.
+  const bind =
+    elements &&
+    (tierLoads.bind ||
+      !(announced = (globalThis as any)._$HY?.r?.["sc:tiers"]) ||
+      announced.includes("bind"));
+  const B = bind && tierLoads.bind?.r;
+  // `NodeFilter.SHOW_COMMENT`, `| SHOW_ELEMENT` — as literals (the same on
+  // every platform).
+  const w = root.ownerDocument.createTreeWalker(root, bind ? 0x81 : 0x80);
+  let n, p;
+  while ((n = w.nextNode())) {
+    if (n.nodeType !== COMMENT_NODE) {
+      // An element (shown only when markers are looked for): a nested frame
+      // is stepped over whole (below); any other with attributes is parsed
+      // or noted.
+      if (!n.hasAttribute(FRAME_ID_ATTR)) {
+        if (n.hasAttributes())
+          B ? B.positions(n, elements) : hasSlotMarker(n) && (elements.b = true);
+        continue;
+      }
+      p = n;
+    } else if (n.data.startsWith("slot:")) {
+      const id = slotStartId(n);
+      if (!id) continue;
+      if (!bind) {
+        // Comments-only: a start inside a nested frame element is its own.
+        for (p = n.parentNode; p !== root; p = p.parentNode)
+          if (p.hasAttribute(FRAME_ID_ATTR)) break;
+        if (p !== root) continue;
+      }
       if (!out.has(id)) out.set(id, n);
-      n = afterRange(n, id);
+      const end = findMarker(n, slotEnd(id));
+      if (end) {
+        w.currentNode = end;
+        continue;
+      }
+      if ("_SOLID_DEV_") devReportRange(id);
+      // Truncated: abandon the rest of this sibling list (below).
+      p = n.parentNode;
+      if (p === root) return;
+    } else {
+      if (bind && n.data.startsWith(SLOT_TEXT)) B ? B.text(n, elements) : (elements.b = true);
       continue;
     }
-    // Binding-slot markers (`_s:*`), when the caller wants them — the slot
-    // sync does; the morph's range index does not (an element is reconciled
-    // as an element, not relocated as a protected range). The BIND TIER
-    // parses them: a text position's start marker joins its parent
-    // element's consumer entry (`text`); an element's positions join its
-    // occurrence's consumer list, in document order (`positions`). With
-    // the tier absent, the walk only NOTES that a marker was met
-    // (`elements.b`) — the sync holds on the note and the install's flush
-    // re-walks. A text pair's interior (one text node, the end marker) and
-    // the element's interior are walked like any server content: they may
-    // hold further occurrences of either kind.
-    if (elements !== undefined && isTextStart(n)) {
-      const B = tierLoads.bind?.r;
-      B ? B.text(n, elements) : (elements.b = true);
-    }
-    if (n.nodeType === ELEMENT_NODE && !isFrameElement(n)) {
-      if (elements !== undefined && n.hasAttributes()) {
-        const B = tierLoads.bind?.r;
-        B ? B.positions(n, elements) : hasSlotMarker(n) && (elements.b = true);
-      }
-      collectSlots(n.firstChild, null, out, elements);
-    }
-    n = n.nextSibling;
+    // Step over `p`'s subtree: from its deepest last descendant, the
+    // walker's `nextNode` climbs out (a `nextSibling` call would stop at
+    // an accepted parent).
+    while (p.lastChild) p = p.lastChild;
+    w.currentNode = p;
   }
 }
 
@@ -2813,16 +2878,16 @@ function morphNode(oldNode, newNode, claim, ranges, grafts) {
 }
 
 /** The sibling immediately after the `slot:<id>:end` marker for `start`. */
-const afterRange = (start, id) => afterMarker(start, slotEnd(id));
+const afterRange = (start, id) => findMarker(start, slotEnd(id))?.nextSibling;
 /** The sibling after a text position's end marker. */
-const afterText = start => afterMarker(start, SLOT_TEXT_END);
+const afterText = start => findMarker(start, SLOT_TEXT_END)?.nextSibling;
 
-/** The sibling immediately after the first `end` comment following `start`
- *  (null if the range is truncated). */
-function afterMarker(start, end) {
+/** The first `end` comment among the siblings after `start` (null if the
+ *  range is truncated). */
+function findMarker(start, end) {
   let n = start.nextSibling;
   while (n) {
-    if (n.nodeType === COMMENT_NODE && n.data === end) return n.nextSibling;
+    if (n.nodeType === COMMENT_NODE && n.data === end) return n;
     n = n.nextSibling;
   }
   return null;
@@ -2875,21 +2940,15 @@ function devSlotOrphan(frame, occurrence, consumers, why) {
 }
 
 /**
- * Dev-only range integrity check: a slot start marker whose end marker is not
- * a later sibling means the range was corrupted between the producer and
- * here. `afterRange` returning null is ambiguous (an end marker that IS the
- * last sibling also has no `nextSibling`), so this re-scans for the marker
- * itself and reports the two known corruption causes loudly instead of
- * letting collection silently truncate at the broken range.
+ * Dev-only range integrity finding: a slot start marker whose end marker is
+ * not a later sibling (`collectSlots` found none) means the range was
+ * corrupted between the producer and here. Reports the two known corruption
+ * causes loudly instead of letting collection silently truncate at the
+ * broken range.
  */
-function devCheckRange(start, id) {
+function devReportRange(id) {
   if (!"_SOLID_DEV_") return;
   const end = slotEnd(id);
-  let n = start.nextSibling;
-  while (n) {
-    if (n.nodeType === COMMENT_NODE && n.data === end) return;
-    n = n.nextSibling;
-  }
   // A finding on the one channel (`FRAME_MARKER_CORRUPTED`) and its console
   // face — the same code the server table reserves for the frames pair, so a
   // consumer sees the client-detected corruption beside the server's

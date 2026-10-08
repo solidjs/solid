@@ -20,6 +20,21 @@ const ChildProperties = /*#__PURE__*/ new Set([
   "children"
 ]);
 
+// The attributes a link handler decides an anchor's link state on
+// (solidjs/solid#3878): the SSR compilers carry the ones present on a
+// candidate `<a href>` into its `ssrLinkClaim` hole, and `ssrElement`
+// collects the same set from a spread anchor's winning sources. `link` is
+// the explicit-links opt-in marker; `aria-current` is the author's, and
+// wins.
+const LinkAttributes = /*#__PURE__*/ new Set([
+  "href",
+  "target",
+  "rel",
+  "download",
+  "link",
+  "aria-current"
+]);
+
 // Per-node tag identifying the owning slot's marker. Set on every runtime
 // insertion site so that subsequent reconcile / cleanup work can distinguish
 // "the node still belongs to my slot" from "the node has migrated to another
@@ -243,6 +258,7 @@ function isEventName(name: string): boolean {
 export {
   DOMWithState,
   ChildProperties,
+  LinkAttributes,
   DelegatedEvents,
   SVGElements,
   MathMLElements,

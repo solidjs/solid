@@ -3640,6 +3640,16 @@ export function createErrorBoundary<T, U>(
           () => err,
           () => {}
         );
+  // A children-slot retry re-invokes this accessor after the boundary has
+  // already rendered its fallback: a sibling in the same `{props.children}`
+  // hole suspended, or the fallback's own async hole did. `disposeOwner`
+  // resets `owner` but not `outputOwner`, so a second `renderFallback`
+  // continues that owner's child ids while the client renders the fallback
+  // once — the server markup's keys never match (#3920). Keep the fallback
+  // produced for this request (its ids, its still-pending holes, and the
+  // one serialized error) and hand that same value back.
+  let fallbackResult: any;
+  let fallbackSettled = false;
   // The boundary's own id, read once: an error lands mid-resolve, while
   // `owner.id` is rewritten to the resolve scope's (see `resolveIn`), and the
   // client looks the record up at the boundary id.
@@ -3684,6 +3694,7 @@ export function createErrorBoundary<T, U>(
   // sanitized record under a fallback rendered from the original would
   // mismatch). See `ssrSanitizeError`.
   const handleError = (err: any) => {
+    if (fallbackSettled) return fallbackResult;
     reportContained(err);
     const wire = ssrSanitizeError(
       err,
@@ -3692,7 +3703,9 @@ export function createErrorBoundary<T, U>(
       ctx && ctx.errorPolicy
     );
     serializeError(wire);
-    return renderFallback(wire);
+    fallbackResult = renderFallback(wire);
+    fallbackSettled = true;
+    return fallbackResult;
   };
   // The server's rendered OUTCOME for a post-flush failure inside a server
   // component (frames-rulings 3.3, A0 corollary 4 inward; asked through the
@@ -3731,6 +3744,9 @@ export function createErrorBoundary<T, U>(
     () => {
       let result: any;
       let handled = false;
+      // Already showing the fallback for this request. Re-running would
+      // allocate new fallback ids and serialize the error again (#3920).
+      if (fallbackSettled) return fallbackResult;
       // Disposing while resuming would tear down the very computations the
       // stashed holes read from (marking them disposed drops their settlement).
       if (ctx && !pending) disposeOwner(owner, false);

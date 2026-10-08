@@ -137,7 +137,16 @@ export function materializeContainerTrace(
   // payloads) can only surface its buffer through microtasks, which made a
   // settled-inline boundary suspend at the walk and hydrate a phantom
   // fallback over settled markup (the chat welcome/status meter miss).
-  if (src != null && src.__SEROVAL_STREAM__ === true) {
+  // Two stream shapes reach here: the eval face's literal, tagged
+  // `__SEROVAL_STREAM__`, and seroval's internal stream class from the codec
+  // face (`fromCrossJSON`), untagged since seroval 1.6.8. This entry does not
+  // load seroval, so the class is recognized by its surface — an `.on()`
+  // subscription, no async iterator.
+  if (
+    src != null &&
+    (src.__SEROVAL_STREAM__ === true ||
+      (typeof src.on === "function" && typeof src[Symbol.asyncIterator] !== "function"))
+  ) {
     const queue: any[] = [];
     let failed: { error: any } | undefined;
     let cursor = 0;
