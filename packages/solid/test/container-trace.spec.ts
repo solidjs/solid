@@ -184,6 +184,24 @@ describe("materializeContainerTrace", () => {
     expect(Array.isArray(store) ? store.length : -1).toBe(2);
     expect(store[1]).toBe("b");
   });
+
+  // Since seroval 1.6.8 the codec face (`fromCrossJSON`) decodes the trace
+  // as seroval's own stream class, which carries no `__SEROVAL_STREAM__`
+  // tag: an `.on()` subscription and no async iterator.
+  test("untagged stream: a buffered snapshot reads synchronously, live batches update", () => {
+    const { __SEROVAL_STREAM__, ...stream } = makeStream();
+    stream.next({ name: "Ada", role: "admin" });
+    const store: any = materializeContainerTrace({ $tr: stream, $ta: 0 } as any);
+    expect(store.name).toBe("Ada");
+    expect(store.role).toBe("admin");
+
+    stream.next([[["name"], "Grace"]]);
+    flush();
+    expect(store.name).toBe("Grace");
+    stream.return(undefined);
+    flush();
+    expect(store.name).toBe("Grace");
+  });
 });
 
 // The materializer's root is DETACHED (frames-rulings 3.6, S1's "id

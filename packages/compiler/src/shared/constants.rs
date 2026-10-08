@@ -256,6 +256,17 @@ pub(crate) fn namespaces(prefix: &str) -> Option<&'static str> {
     }
 }
 
+/// The attributes a link handler decides an anchor's link state on
+/// (`LinkAttributes` in web/src/constants.ts, solidjs/solid#3878): the SSR
+/// transform carries the ones present on a candidate `<a href>` into its
+/// `ssrLinkClaim` hole, and keeps them out of a spread anchor's baked tail.
+pub(crate) fn is_link_attribute(name: &str) -> bool {
+    matches!(
+        name,
+        "href" | "target" | "rel" | "download" | "link" | "aria-current"
+    )
+}
+
 /// Babel's `isEventName`: only `on` + an uppercase letter is an event
 /// handler. Lowercase `on*` names (`onclick`) are plain attributes.
 pub(crate) fn is_event_name(name: &str) -> bool {

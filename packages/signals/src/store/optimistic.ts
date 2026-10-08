@@ -50,7 +50,6 @@ import {
   getContainerNode,
   getHasNode,
   getNode,
-  installOptHooks,
   LaneView,
   nameStore,
   resolveChainedRaw,
@@ -60,6 +59,7 @@ import {
   unwrapValue,
   wrap
 } from "./store.js";
+import { installOptHooks } from "./hooks.js";
 import { $OWNER, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
