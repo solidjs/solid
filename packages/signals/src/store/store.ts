@@ -134,9 +134,10 @@ export function installOptHooks(hooks: OptHooks): void {
   optHooks = hooks;
 }
 
-/** The store half of `affects()` (store/affects.ts), installed with the
- * stores: a node born on a covered record inherits the live mark; an
- * untracked verdict probe through a record with no node is witnessed. */
+/** The store half of `affects()` (store/affects.ts), installed by the first
+ * store-targeted declaration: a node born on a covered record inherits the
+ * live mark; an untracked verdict probe through a record with no node is
+ * witnessed. */
 export interface AffectsHooks {
   born(t: StoreTarget, node: Signal<any>, key: PropertyKey): void;
   witness(t: StoreTarget, key: PropertyKey | undefined): void;

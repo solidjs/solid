@@ -23,9 +23,13 @@ afterAll(() => {
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
 });
 
-async function bundleFixture(code: string): Promise<{
+async function bundleFixture(
+  code: string,
+  moduleSideEffects?: boolean
+): Promise<{
   minifiedBytes: number;
   retained: string[];
+  bundledCode: string;
 }> {
   const dir = mkdtempSync(join(tmpdir(), "solid-treeshake-"));
   tempDirs.push(dir);
@@ -40,7 +44,10 @@ async function bundleFixture(code: string): Promise<{
       write: false,
       minify: false,
       target: "esnext",
-      lib: { entry, formats: ["es"], fileName: "out" }
+      lib: { entry, formats: ["es"], fileName: "out" },
+      ...(moduleSideEffects !== undefined && {
+        rollupOptions: { treeshake: { moduleSideEffects } }
+      })
     }
   })) as Rollup.RollupOutput[];
   const chunk = result[0].output[0];
@@ -53,7 +60,7 @@ async function bundleFixture(code: string): Promise<{
     minify: true,
     mangleProps: /^_/
   });
-  return { minifiedBytes: Buffer.byteLength(minified.code), retained };
+  return { minifiedBytes: Buffer.byteLength(minified.code), retained, bundledCode: chunk.code };
 }
 
 function retainedFrom(retained: string[], names: string[]): string[] {
@@ -473,6 +480,27 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     ).toEqual([]);
   });
 
+  it("keeps store affects registration in a tree-shaken production bundle (#3891)", async () => {
+    const fixture = `import { affects, createStore, flush } from "sigsrc";
+       export function run() {
+         const [store] = createStore({ n: 1 });
+         affects(store, "n");
+         flush();
+         return "ok";
+       }`;
+    const { bundledCode, retained } = await bundleFixture(fixture, false);
+    expect(retained).toContain("store/affects.ts");
+    const url = `data:text/javascript;base64,${Buffer.from(bundledCode).toString("base64")}`;
+    const { run } = await import(/* @vite-ignore */ url);
+    let result: string;
+    try {
+      result = run();
+    } catch (error) {
+      result = (error as Error).message;
+    }
+    expect(result).toBe("ok");
+  });
+
   it("createOptimistic loads the lane engine; the floor ceiling reflects its absence", async () => {
     const { retained } = await bundleFixture(
       `export { createSignal, createEffect, createRoot, flush, createOptimistic } from "sigsrc";`
@@ -508,7 +536,10 @@ describe("pay-for-use tree-shaking (#2883)", () => {
   // when dist/prod hasn't been built (it is gitignored; run `pnpm build`).
   const DIST = resolve(dirname(fileURLToPath(import.meta.url)), "../dist/prod/index.js");
 
-  async function bundleDistFixture(code: string): Promise<string[]> {
+  async function bundleDistFixture(code: string): Promise<{
+    retained: string[];
+    bundledCode: string;
+  }> {
     const dir = mkdtempSync(join(tmpdir(), "solid-treeshake-dist-"));
     tempDirs.push(dir);
     const entry = join(dir, "entry.ts");
@@ -526,15 +557,20 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     })) as Rollup.RollupOutput[];
     const chunk = result[0].output[0];
     const distRoot = dirname(DIST) + "/";
-    return Object.entries(chunk.modules)
-      .filter(([, mod]) => mod.renderedLength > 0)
-      .map(([id]) => id.replace(distRoot, ""));
+    return {
+      retained: Object.entries(chunk.modules)
+        .filter(([, mod]) => mod.renderedLength > 0)
+        .map(([id]) => id.replace(distRoot, "")),
+      bundledCode: chunk.code
+    };
   }
 
   describe.skipIf(!existsSync(DIST))("dist artifact (dist/prod)", () => {
     it("isPending-only fixture retains the same module set as src — packaging adds no coupling", async () => {
       const fixture = `export { createSignal, createEffect, createRoot, flush, isPending, latest } from "SPEC";`;
-      const distRetained = await bundleDistFixture(fixture.replace("SPEC", "sigdist"));
+      const { retained: distRetained } = await bundleDistFixture(
+        fixture.replace("SPEC", "sigdist")
+      );
       const { retained: srcRetained } = await bundleFixture(fixture.replace("SPEC", "sigsrc"));
       // The by-design verdict -> lanes coupling, mirrored from the src test.
       expect(retainedFrom(distRetained, ["core/verdict.js"])).toEqual(["core/verdict.js"]);
@@ -551,7 +587,7 @@ describe("pay-for-use tree-shaking (#2883)", () => {
     });
 
     it("core-floor fixture keeps every optional feature module out of the dist bundle", async () => {
-      const distRetained = await bundleDistFixture(
+      const { retained: distRetained } = await bundleDistFixture(
         `export { createSignal, createMemo, createEffect, createRoot, flush } from "sigdist";`
       );
       expect(
@@ -566,6 +602,22 @@ describe("pay-for-use tree-shaking (#2883)", () => {
           "core/context.js"
         ])
       ).toEqual([]);
+    });
+
+    it("keeps store affects registration in the shipped production artifact (#3891)", async () => {
+      const { retained, bundledCode } = await bundleDistFixture(
+        `import { affects, createStore, flush } from "sigdist";
+         export function run() {
+           const [store] = createStore({ n: 1 });
+           affects(store, "n");
+           flush();
+           return "ok";
+         }`
+      );
+      expect(retained).toContain("store/affects.js");
+      const url = `data:text/javascript;base64,${Buffer.from(bundledCode).toString("base64")}`;
+      const { run } = await import(/* @vite-ignore */ url);
+      expect(run()).toBe("ok");
     });
   });
 

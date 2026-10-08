@@ -36,6 +36,7 @@ import { enqueueSub } from "./core/heap.js";
 import { flushTransaction, GlobalQueue, resolveTx, schedule } from "./core/scheduler.js";
 import type { Computed, Signal } from "./core/types.js";
 import type { Accessor } from "./signals.js";
+import { installStoreAffects } from "./store/affects.js";
 import { $TARGET, type Store } from "./store/types.js";
 
 type Marked = Signal<any> | Computed<any>;
@@ -146,6 +147,7 @@ export function affects(target: any, key?: PropertyKey): void {
   // record's carrier and every live node under it.
   const t = target?.[$TARGET];
   if (t !== undefined) {
+    installStoreAffects();
     const nodes = GlobalQueue._storeMarks!(t, key);
     for (let i = 0; i < nodes.length; i++) register(nodes[i]);
     schedule();

@@ -15,8 +15,9 @@
  * the verdict. A mark declared on a draft (inside a setter) or over an
  * optimistic family walks the view the writer sees.
  *
- * Installed by `store/index.ts`: a program with stores carries it; one
- * without pays nothing (affects.ts asks `GlobalQueue._storeMarks`).
+ * Installed on the first store-targeted `affects()` call. The explicit value
+ * import from affects.ts survives package tree shaking; a bare side-effect
+ * import from store/index.ts did not (#3891).
  */
 import { GlobalQueue } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
@@ -118,32 +119,41 @@ function covering(t: StoreTarget, key: PropertyKey | undefined, skip?: Marked): 
   return null;
 }
 
-installAffectsHooks({
-  // A node born on a record a live mark covers inherits it (released with
-  // the carrier's last registration).
-  born(t, node, key) {
-    if (key === $AFFECTS) return;
-    const carrier = covering(t, key, node);
-    if (carrier === null) return;
-    GlobalQueue._mark!(node);
-    scopes.get(carrier)!.inherited.push(node);
-  },
-  // An untracked probe (`isPending(() => s.x)` with no observer) reading a
-  // record a live mark covers: no node carries the mark for it — the
-  // verdict is told directly.
-  witness(t, key) {
-    const own = t.n?.[$AFFECTS as any];
-    if ((own !== undefined && own._x !== null && own._x._marks !== 0) || covering(t, key) !== null)
-      GlobalQueue._witnessMark!();
-  }
-});
+let installed = false;
 
-GlobalQueue._storeMarks = storeMarks;
-/** The carrier's last mark released (affects.ts): its scope dies, and the
- * nodes that inherited the mark release theirs. */
-GlobalQueue._releaseMarkScope = carrier => {
-  const entry = scopes.get(carrier);
-  if (entry === undefined) return;
-  scopes.delete(carrier);
-  GlobalQueue._releaseMarks!(entry.inherited);
-};
+export function installStoreAffects(): void {
+  if (installed) return;
+  installed = true;
+  installAffectsHooks({
+    // A node born on a record a live mark covers inherits it (released with
+    // the carrier's last registration).
+    born(t, node, key) {
+      if (key === $AFFECTS) return;
+      const carrier = covering(t, key, node);
+      if (carrier === null) return;
+      GlobalQueue._mark!(node);
+      scopes.get(carrier)!.inherited.push(node);
+    },
+    // An untracked probe (`isPending(() => s.x)` with no observer) reading a
+    // record a live mark covers: no node carries the mark for it — the
+    // verdict is told directly.
+    witness(t, key) {
+      const own = t.n?.[$AFFECTS as any];
+      if (
+        (own !== undefined && own._x !== null && own._x._marks !== 0) ||
+        covering(t, key) !== null
+      )
+        GlobalQueue._witnessMark!();
+    }
+  });
+
+  GlobalQueue._storeMarks = storeMarks;
+  /** The carrier's last mark released (affects.ts): its scope dies, and the
+   * nodes that inherited the mark release theirs. */
+  GlobalQueue._releaseMarkScope = carrier => {
+    const entry = scopes.get(carrier);
+    if (entry === undefined) return;
+    scopes.delete(carrier);
+    GlobalQueue._releaseMarks!(entry.inherited);
+  };
+}
