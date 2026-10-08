@@ -76,16 +76,6 @@ a {
   position: relative;
 }
 
-.page {
-  transition: opacity 0.2s;
-}
-
-/* The delay keeps a navigation that preloading already made fast from flickering. */
-.page.routing {
-  opacity: 0.55;
-  transition-delay: 0.15s;
-}
-
 @media (max-width: 860px) {
   .header .inner {
     padding: 15px 30px;
