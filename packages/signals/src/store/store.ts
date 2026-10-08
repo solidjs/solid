@@ -1763,11 +1763,13 @@ function pullFamily(target: StoreTarget): void {
     // One that already observes the flight (linked by the pass that saw it
     // go up — the frame's hold, `blocked`) keeps observing it: a re-run for
     // another reason (a guess it read, the seam) that dropped the link would
-    // release the hold with the flight still up.
+    // release the hold with the flight still up. An errored derive has no
+    // landing to learn of: the error is what the frame shows.
     const c: any = context;
     if (
       c !== null &&
       c._type === EFFECT_RENDER &&
+      !(fw._statusFlags & STATUS_ERROR) &&
       fw._config & CONFIG_HELD &&
       flushTransaction !== txOf(fw) &&
       !linkedTo(c, fw)
