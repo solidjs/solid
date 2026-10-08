@@ -93,6 +93,9 @@ export type {
 } from "./client/core.js";
 
 export * from "./client/component.js";
+export { dynamicComponent, type DynamicOptions } from "./client/dynamic.js";
+/** @internal — tag-arm core behind `dynamicComponent` and `@solidjs/web`'s `dynamic`. */
+export { dynamicCore } from "./client/dynamic.js";
 export * from "./client/flow.js";
 export type { ArrayElement, Element } from "./types.js";
 export {
