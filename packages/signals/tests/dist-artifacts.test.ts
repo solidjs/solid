@@ -232,6 +232,63 @@ describe("@solidjs/signals cleanup order per tier", () => {
   }
 });
 
+describe("@solidjs/signals awaited refresh per tier", () => {
+  // #3888: the waiter `refresh()` returns is the same node in every tier, but
+  // prod once built it without a root, and an unowned waiter was released by
+  // the settle walk instead of re-running — the promise never settled. Only
+  // the artifacts show the tier split.
+  const cores: Record<keyof typeof TIERS, () => Promise<any>> = {
+    prod: () => import("../dist/prod/index.js"),
+    observe: () => import("../dist/observe/index.js"),
+    dev: () => import("../dist/dev.js")
+  };
+  const settle = async (flush: () => void) => {
+    for (let i = 0; i < 5; i++) {
+      flush();
+      await new Promise(r => setTimeout(r));
+    }
+  };
+  async function mount(core: any) {
+    let calls = 0;
+    const seen: number[] = [];
+    let value!: () => number;
+    const dispose = core.createRoot((dispose: () => void) => {
+      value = core.createMemo(() => Promise.resolve(++calls));
+      core.createRenderEffect(value, (v: number) => void seen.push(v));
+      return dispose;
+    });
+    await settle(core.flush);
+    expect(seen).toEqual([1]);
+    return { value, seen, dispose };
+  }
+  for (const tier of Object.keys(TIERS) as (keyof typeof TIERS)[]) {
+    test(`${tier}: await refresh(x) delivers the refetch`, async () => {
+      const core = await cores[tier]();
+      const { value, seen, dispose } = await mount(core);
+      let out: unknown = "pending";
+      core.refresh(value).then((v: unknown) => (out = v));
+      await settle(core.flush);
+      expect(out).toBe(2);
+      expect(seen).toEqual([1, 2]);
+      dispose();
+    });
+
+    test(`${tier}: an action's yield refresh(x) finishes and the refetch renders`, async () => {
+      const core = await cores[tier]();
+      const { value, seen, dispose } = await mount(core);
+      let out: unknown = "pending";
+      const save = core.action(function* () {
+        return yield core.refresh(value);
+      });
+      save().then((v: unknown) => (out = v));
+      await settle(core.flush);
+      expect(out).toBe(2);
+      expect(seen).toEqual([1, 2]);
+      dispose();
+    });
+  }
+});
+
 describe("@solidjs/signals node literals per tier", () => {
   // Each node factory has two object literals — prod, and observe = prod plus
   // its diagnostic slots (`_name`; `_owner` on signals) — selected at build
