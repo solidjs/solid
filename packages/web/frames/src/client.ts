@@ -334,7 +334,7 @@ function landing<T>(host: any, address: string, value: T, failed: () => unknown)
   return createMemo(() => {
     failed();
     const state = errored();
-    if (state > 1) throw frame.error;
+    if ((state as number) > 1) throw frame.error;
     const wait = host.landing(address);
     if (!wait) return value;
     // An errored address with no flight open (a flight's `start` clears
