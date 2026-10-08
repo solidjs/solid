@@ -9,7 +9,7 @@
  * client renders it once.
  */
 import { describe, expect, test } from "vitest";
-import { Errored, renderToStream } from "@solidjs/web";
+import { Errored, renderToStream, type JSX } from "@solidjs/web";
 import { createMemo, createUniqueId } from "solid-js";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -25,7 +25,7 @@ function Layout(props: { children: any }) {
   return <main>{props.children}</main>;
 }
 
-function Throws() {
+function Throws(): JSX.Element {
   throw new Error("boom");
 }
 
