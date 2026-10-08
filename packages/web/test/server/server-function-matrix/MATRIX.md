@@ -341,6 +341,37 @@ Pinned in `server-functions-undefined-arguments` (default-config refusal,
 rich-argument delivery, plain-JSON string call, FormData/URLSearchParams/File
 controls).
 
+## Ruling — 304 does not retarget a cached representation (#3897, 2026-10-08)
+
+A 304 is a cache update, not a stored response (the same fact as #3134's
+`Cache-Control` ruling). RFC 9111 §3.2 freshens the stored entry with the
+header fields the 304 carries and leaves the stored body in place. The
+body-format tag is representation metadata: writing `Void` onto the 304
+replaces the tag the original GET stored (`Json` for `{ value: 17 }`) while
+the cached bytes stay that JSON, so the browser's replay — status 200, cached
+body, freshened headers — decodes as `undefined`.
+
+Resolved:
+
+1. **A 304 does not receive a runtime-invented body-format tag.** `encodeResult`
+   still answers 204/205 with `Void`, because those statuses are the stored
+   answer and the tag is how the client tells a runtime-encoded empty body
+   from an untagged peer. 304 is the exception. An author who echoes the
+   stored tag on the 304 keeps it; the runtime does not overwrite it and does
+   not add one.
+2. **A scripted 304 with no cached body still decodes as `undefined`.** The
+   client already treats 304 as a conditional answer rather than a payload
+   (#3101). Omitting the tag does not make that call throw, and it does not
+   turn the 304 into a value.
+3. **The dev warning for a scripted 304 is unchanged.** It still fires when a
+   scripted call's answer is 304 (#3101), including a browser-generated
+   `If-None-Match` the transport itself did not set. Narrowing that warning
+   would change the diagnostic contract; the representation bug does not
+   require it.
+
+Pinned in `server-functions-304-format-3897` (cached `{ value: 17 }` survives
+the freshened headers; 204 keeps `Void`).
+
 ## Extraction and merge discipline
 
 - A red test demonstrates current behavior; it becomes an ordinary guard only
