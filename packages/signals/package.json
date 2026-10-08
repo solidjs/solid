@@ -22,7 +22,10 @@
   "engines": {
     "node": ">=22.12.0"
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/prod/store/affects.js",
+    "./dist/observe/store/affects.js"
+  ],
   "files": [
     "dist",
     "package.json"
