@@ -10,9 +10,9 @@ import { readShallow as _$readShallow } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { effect as _$effect } from "r-dom";
+import { claimElement as _$claimElement } from "r-dom";
 import { className as _$className } from "r-dom";
 import { ref as _$ref } from "r-dom";
-import { claimElement as _$claimElement } from "r-dom";
 import { spread as _$spread } from "r-dom";
 var _tmpl$ = /*#__PURE__*/ _$template(`<div><h1><a href="/">Welcome</a></h1></div>`),
   _tmpl$2 = /*#__PURE__*/ _$template(`<div><div></div><div> </div><div></div></div>`),
@@ -139,12 +139,12 @@ _$spread(
   ],
   true
 );
-_$claimElement(_el$3);
 _$className(_el$3, {
   "ccc ddd": true
 });
 var _ref$ = link;
 typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => _ref$, _el$3) : (link = _el$3);
+_$claimElement(_el$3);
 const template = _el$;
 var _el$4 = _tmpl$2(),
   _el$5 = _el$4.firstChild,
@@ -303,7 +303,6 @@ _$effect(
 );
 const template23 = _el$28;
 var _el$29 = _tmpl$14();
-_$claimElement(_el$29);
 _$spread(
   _el$29,
   [
@@ -318,7 +317,6 @@ const template24 = _el$29;
 var _el$30 = _tmpl$15(),
   _el$31 = _el$30.firstChild;
 _$insert(_el$30, () => props.children, _el$31);
-_$claimElement(_el$31);
 _$spread(
   _el$31,
   [
