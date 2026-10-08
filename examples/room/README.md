@@ -32,8 +32,9 @@ open and close them.
 answers with a **component**, declared exactly like the data sources:
 `live(GET(async (room, me) => { "use server"; return props => <…/> }))`. The
 page ([src/routes/home.tsx](./src/routes/home.tsx)) mounts it with
-`dynamic(() => roomPanel(room, me))` — `dynamic` is a memo, and a `live`
-reference's answer is an async iterable it pumps like any other.
+`dynamicComponent(() => roomPanel(room, me))` — `dynamicComponent` is a
+memo, and a `live` reference's answer is an async iterable it pumps like
+any other.
 
 - **The render is the connection.** The component reads the same in-memory
   watchers `/live`'s sources read, through memos; every change re-renders the
@@ -65,8 +66,8 @@ reference's answer is an async iterable it pumps like any other.
   completes. The browser adopts that markup at hydration (no request, no
   fallback — the markup is the value) and connects once, from the identity
   the tab mints during hydration: `roomPanel(room, me)` is a different
-  call from the document's `roomPanel(room, null)`, and `dynamic` delivers
-  the new address into the same instance rather than remounting. The
+  call from the document's `roomPanel(room, null)`, and `dynamicComponent`
+  delivers the new address into the same instance rather than remounting. The
   document's render only watches — `join` runs when there is a `me` — so
   the tab's connection is the one that joins. Everything above (death →
   reconnect, the draft surviving) then starts from adopted content.
