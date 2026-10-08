@@ -16,9 +16,13 @@
  * `import("solid-js/internal")` would split off a facade and leave the engine
  * where it was. This module reaches `createProjection` through
  * `@solidjs/signals` (per-module files the app bundler can assign to this
- * chunk) and takes the hydration dispatch and the patch protocol from
- * `solid-js` by name, so it behaves exactly as the wrapper did at every call
- * site while retaining nothing of the engine on the eager side.
+ * chunk), bundles its own copy of the store hydration adapter
+ * (store-hydration.ts — see there: reading the eager slot through the main
+ * entry pinned the adapter into every server-component page's entry chunk),
+ * and takes the patch protocol and the adapter's helpers from `solid-js` by
+ * name, so it behaves exactly as the wrapper did at every call site while
+ * retaining nothing of the engine, and nothing of the adapter, on the eager
+ * side.
  */
 import {
   createProjection as coreProjection,
@@ -29,11 +33,17 @@ import {
   runWithOwner,
   type Store
 } from "@solidjs/signals";
-// Read back from the main entry (external: the app's one instance, whose
-// `enableHydration()` filled the adapter slot `withStoreHydration` reads).
-// Property reads, not named imports, so a server-tier resolution of this
-// entry (which has none of these) stays inert until something calls it.
+// Read back from the main entry (external: the app's one instance). Property
+// reads, not named imports, so a server-tier resolution of this entry (which
+// has none of these) stays inert until something calls it.
 import * as core from "solid-js";
+// This entry's OWN copy (rollup.config.js bundles the module here; its
+// `./hydration.js` import resolves to the external `solid-js`, so the copy
+// reads the one instance's state). Not the slot `enableHydration()` fills: a
+// read of that slot from here is an import of the flat main module's binding,
+// and the app bundler keeps the adapter eager for it — on a page that never
+// creates a client store, 2.5 KB minified it has no use for.
+import { hydrateStoreLike } from "./store-hydration.js";
 
 // The seams, typed here because the main entry marks them `@internal`
 // and strips them from its declarations — `sharedConfig` is public, listed
@@ -44,24 +54,27 @@ import * as core from "solid-js";
 // variable retains every export of the flat main module (measured: +32 KB
 // minified on the page, the store wrappers' engine edge included).
 interface Seams {
-  withStoreHydration<T>(
-    coreFn: (fn: any, seed: any, options?: any) => T,
-    fn: any,
-    seed: any,
-    options?: any
-  ): T;
   applyPatches(target: any, patches: any[]): void;
   forwardIteratorReturn(it: any, value?: any): any;
-  sharedConfig: { onHydrationEnd?: (callback: () => void) => void };
+  sharedConfig: { hydrating: boolean; onHydrationEnd?: (callback: () => void) => void };
 }
 const applyPatches = (target: any, patches: any[]) =>
   (core as unknown as Seams).applyPatches(target, patches);
 const forwardIteratorReturn = (it: any, value?: any) =>
   (core as unknown as Seams).forwardIteratorReturn(it, value);
 
-/** The projection constructor with solid's hydration dispatch — what `createProjection` from `solid-js` does, minus the wrapper's own engine edge. */
+/**
+ * The projection constructor with solid's hydration dispatch — what
+ * `createProjection` from `solid-js` does, minus the wrapper's own engine
+ * edge: under hydration the store adapter (this entry's copy) runs with the
+ * engine's constructor, otherwise the constructor runs directly. `hydrating`
+ * can only be true once `enableHydration()` ran, the same precondition the
+ * wrapper's slot read has.
+ */
 const createProjection = (fn: (draft: any) => any, seed: any): Store<any> =>
-  (core as unknown as Seams).withStoreHydration(coreProjection as any, fn, seed);
+  (core as unknown as Seams).sharedConfig.hydrating
+    ? hydrateStoreLike(coreProjection, fn, seed)
+    : coreProjection(fn as any, seed);
 
 /**
  * A root with NO parent. Materialization runs at arg-read, under whatever
