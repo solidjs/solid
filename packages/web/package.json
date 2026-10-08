@@ -381,8 +381,8 @@
     "test-types": "tsc --project tsconfig.test.json && tsc --project tsconfig.test.augment.json"
   },
   "dependencies": {
-    "seroval": "~1.6.7",
-    "seroval-plugins": "~1.6.7"
+    "seroval": "1.6.7",
+    "seroval-plugins": "1.6.7"
   },
   "peerDependencies": {
     "solid-js": "^2.0.0-rc.14"
