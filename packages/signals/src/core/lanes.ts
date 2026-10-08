@@ -371,12 +371,33 @@ export function laneStage(
  * covered (no landing beneath it) — `optimisticReverted`'s "reverted". */
 let reverting = false;
 
+/** Plain data with the same contents: an optimistic row and the source
+ * object that echoes it. Not reference equality. A throw (a cycle, a
+ * throwing accessor) is not a match, so that landing stays a correction. */
+function sameContents(a: unknown, b: unknown): boolean {
+  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return false;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 export function supersede(n: Signal<any> | Computed<any>, value: unknown, changed: boolean): void {
   const l = txOf(n);
   // Resolved: the parent may have merged into another transaction since the
   // lane opened (two actions guessing one slot entangle, A34 (1)) — the
   // truth is held by the transaction that lands, not the merged-away one.
   const parent = resolveTx(l._parent ?? l);
+  // A different object with the same plain contents is the guess's echo, not
+  // a correction (#3898). Reference inequality dissolved the lane and held
+  // the echo under the open action, so a mainline `until` (after `await`)
+  // dropped a source that already contained the acknowledgement. Confirming
+  // stages the truth beneath the guess: the screen keeps the guess, and an
+  // authoritative reader sees the echo without the pass joining the hold.
+  // A real content change still corrects. A held broadcast of a different row
+  // (#3482) is not this landing.
+  if (changed && sameContents(n._x!._lane, value)) changed = false;
   if (changed) {
     // Observe: a displayed guess is being replaced by a differing truth — a
     // landing's (superseded), or the value it covered (reverted: the body
