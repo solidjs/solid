@@ -101,6 +101,8 @@ async function getStory(id: number) {
 ### Using one
 
 ```tsx
+import { dynamicComponent } from "solid-js";
+
 function StoryPage(props) {
   const Story = dynamicComponent(() => getStory(props.storyId));
   return (
