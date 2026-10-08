@@ -372,10 +372,11 @@ export function createJSONDeserializer(options) {
   // nothing off a value it cannot vouch for without a guard — a value that
   // refuses to be read is not a deferred of ours.
   //
-  // A stream comes in two shapes: `fromCrossJSON` mints seroval's internal
-  // stream class (untagged since seroval 1.6.8 — only `isStream` knows it),
-  // while the eval path (`deserialize`, the hydration scripts) still builds
-  // a literal tagged `__SEROVAL_STREAM__`. Both are checked.
+  // A stream must be a real one: seroval's `isStream` AND a callable `.on`.
+  // `isStream` may be only a `__SEROVAL_STREAM__` key check, which a decoded
+  // plain object carrying that key also passes; JSON cannot carry a
+  // function, so such data fails `.on` and stays data — never swept, never
+  // subscribed.
   const pendingResolvers = new Set();
   const streams = new Set();
   const STREAM = 1;
@@ -383,7 +384,7 @@ export function createJSONDeserializer(options) {
   function classify(value) {
     if (value === null || typeof value !== "object") return 0;
     try {
-      if (isStream(value) || value.__SEROVAL_STREAM__) return STREAM;
+      if (isStream(value) && typeof value.on === "function") return STREAM;
       if (
         typeof value.s === "function" &&
         typeof value.f === "function" &&

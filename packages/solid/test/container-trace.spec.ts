@@ -6,7 +6,6 @@
 // are not-ready until the snapshot lands, then a read-only store the
 // batches keep updating, latched when the trace ends.
 import { afterEach, describe, expect, test } from "vitest";
-import { createStream } from "seroval";
 import { createOwner } from "@solidjs/signals";
 import { createRoot, createRenderEffect, flush } from "../src/index.js";
 import { enableHydration, sharedConfig } from "../src/index.js";
@@ -186,12 +185,11 @@ describe("materializeContainerTrace", () => {
     expect(store[1]).toBe("b");
   });
 
-  // The codec face (`fromCrossJSON`) decodes the trace as seroval's own
-  // stream class, which since seroval 1.6.8 carries no `__SEROVAL_STREAM__`
-  // tag — `createStream` mints the same class.
-  test("seroval stream instance: a buffered snapshot reads synchronously, live batches update", () => {
-    const stream = createStream<any>();
-    expect("__SEROVAL_STREAM__" in stream).toBe(false);
+  // Since seroval 1.6.8 the codec face (`fromCrossJSON`) decodes the trace
+  // as seroval's own stream class, which carries no `__SEROVAL_STREAM__`
+  // tag: an `.on()` subscription and no async iterator.
+  test("untagged stream: a buffered snapshot reads synchronously, live batches update", () => {
+    const { __SEROVAL_STREAM__, ...stream } = makeStream();
     stream.next({ name: "Ada", role: "admin" });
     const store: any = materializeContainerTrace({ $tr: stream, $ta: 0 } as any);
     expect(store.name).toBe("Ada");

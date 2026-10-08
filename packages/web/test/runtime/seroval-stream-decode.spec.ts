@@ -1,8 +1,8 @@
 /**
- * Streams decoded through the JSON codec. Since seroval 1.6.8,
- * `fromCrossJSON` mints its internal stream class, which carries no
- * `__SEROVAL_STREAM__` tag; the decoder must still track those streams so
- * `open()` counts them and `abort()` / `close()` end them when the body ends.
+ * Streams decoded through the JSON codec. The decoder tracks them so
+ * `open()` counts them and `abort()` / `close()` end them when the body ends,
+ * whichever shape seroval mints: the `__SEROVAL_STREAM__`-tagged literal up
+ * to 1.6.7, or the untagged internal class since 1.6.8.
  */
 import { describe, expect, it } from "vitest";
 import { createStream } from "seroval";
@@ -98,10 +98,8 @@ describe("JSON codec: decoded seroval streams", () => {
     expect((result as any).reason?.message).toBe("body ended");
   });
 
-  it("recognizes a container trace carried by an untagged seroval stream", () => {
-    const stream = createStream<unknown>();
-    expect("__SEROVAL_STREAM__" in stream).toBe(false);
-    expect(isContainerTraceMarker({ $tr: stream, $ta: 0 })).toBe(true);
+  it("recognizes a container trace carried by a seroval stream, tagged or not", () => {
+    expect(isContainerTraceMarker({ $tr: createStream<unknown>(), $ta: 0 })).toBe(true);
     expect(isContainerTraceMarker({ $tr: { on() {} }, $ta: 0 })).toBe(true);
     expect(isContainerTraceMarker({ $tr: {}, $ta: 0 })).toBe(false);
   });
