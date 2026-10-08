@@ -2466,11 +2466,13 @@ export function renderToStream(code, options = {}) {
   const pendingSerialized = new Map();
   // The wire policy on a channel: a thenable's rejection and an async
   // iterable's thrown step reach the client sanitized; a seroval stream
-  // (`__SEROVAL_STREAM__`, the container-trace carrier) is the codec's own
-  // and passes as-is; values pass as-is — an Error reached as a value was
-  // never thrown, so it is data and the author's (#3113's ruling). One guard
-  // per channel object, so a source serialized under two ids stays one
-  // channel for seroval's cross-references.
+  // (the container-trace carrier) is the codec's own and passes as-is — the
+  // `__SEROVAL_STREAM__` literal by its tag, seroval's untagged stream class
+  // (1.6.8+) as the class instance it is: no `.then`, no async iterator, and
+  // the border walk leaves it whole; values pass as-is — an Error reached
+  // as a value was never thrown, so it is data and the author's (#3113's
+  // ruling). One guard per channel object, so a source serialized under two
+  // ids stays one channel for seroval's cross-references.
   //
   // The verdict is read in the rejection's own microtask — no added tick on
   // the error path. This handler was attached at serialize time, ahead of
