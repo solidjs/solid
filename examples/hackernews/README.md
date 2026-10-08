@@ -21,19 +21,22 @@ pnpm build && pnpm start  # http://localhost:3004
 A `"use server"` function that **returns a function** is a server component.
 The function's arguments are the server's inputs; the returned component's
 props are the slots a client would fill, which never travel to the server (this
-app has none). Each route file holds its screen's server component inside the
-router's `query`, which gives the call cache identity and preloading, and
-exports it as a server route:
+app has none). Each route file holds its screen's server component as a `GET`
+server function, with `respond()` marking the response cacheable for a
+minute, and exports it as a server route:
 
 ```tsx
-const getStory = query(async ({ params }: ServerRouteArgs<RouteParams<"/stories/:id">>) => {
+const getStory = GET(async ({ params }: ServerRouteArgs<RouteParams<"/stories/:id">>) => {
   "use server";
   const story = await hn.getStory(params.id);
-  return () => <div class="item-view">…</div>;
-}, "story");
+  return respond(() => <div class="item-view">…</div>, cacheable);
+});
 
 export default serverRouteComponent(getStory);
 ```
+
+`respond()` is typed as the value it wraps, so the call is still typed as
+returning the component.
 
 There is no route component and no `preload` to write. The router makes the
 call from the match (the route's params, and the feeds' `page` through the
@@ -65,11 +68,13 @@ removed from the client build; what ships is the router, the loading
 boundary, and the runtime that mounts server components. (The 1,406-comment
 capture stays on the server in both apps.)
 
-**Navigation.** Hover a link and the router makes its call ahead of the click,
-so most navigations land at once. When one has to wait (click the big thread
-without hovering, or tab to a link and press Enter), the current page stays up
-and dims until the next is ready, instead of going blank. That's
-`useIsRouting()` in [src/app.tsx](./src/app.tsx), the same in both twins.
+**Navigation.** Hover a link and the router makes its call ahead of the
+click. The response is cacheable ([src/server/cache.ts](./src/server/cache.ts)),
+so the click's identical `GET` reads it from the browser's HTTP cache and
+the navigation lands at once. The SPA twin shares the call in memory through
+`query` instead. When a navigation has to wait (click the big thread without
+hovering, or tab to a link and press Enter), the current page stays up until
+the next is ready, instead of going blank.
 
 **The nav is a server component too.** It is static chrome with no reactive
 input, so it renders inline at t=0, the client adopts it, and navigation
@@ -82,15 +87,18 @@ JSON, and the boundary morphs as they arrive.
 ## How it's wired
 
 - [src/routes/](./src/routes) — one file per screen, each exporting its server
-  component (inside `query`) as a server route. The feeds also export their
-  `?page` search schema, and the thread's file holds the recursive `Comment`.
+  component (a `GET` server function) as a server route. The feeds also
+  export their `?page` search schema, and the thread's file holds the
+  recursive `Comment`.
+- [src/server/cache.ts](./src/server/cache.ts) — the one cache policy every
+  screen's response carries: public, for a minute.
 - [src/server/hn.ts](./src/server/hn.ts) — the data source. Live HN API, except
   story `30186326` ("Facebook loses users for the first time", 1,406 comments,
   14 levels deep), which is served from a capture so the big thread is
   deterministic. It begins `import "server-only"`, which fails the build if it
   is ever imported from client code.
 - [src/app.tsx](./src/app.tsx) — the route table (the same as the SPA twin's),
-  the loading boundary, the navigation dim, and the nav's server component.
+  the loading boundary, and the nav's server component.
 - [vite.config.ts](./vite.config.ts) — identical to the SPA twin's but for one
   flag: `serverFunctions: { components: true }`. That flag is the entire wiring
   difference between the two apps. The turnkey `start` object generates the

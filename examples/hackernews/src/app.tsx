@@ -7,11 +7,11 @@
 // `<details>`.
 //
 // Note there is no server-component API in this file. A `"use server"` call
-// mounts as a route (`serverRouteComponent`) or through `dynamic()`; the
-// transport install lives in the generated entry.
-import { createRouter, defineRoute, useIsRouting } from "@solidjs/router";
+// mounts as a route (`serverRouteComponent`) or through `dynamicComponent()`;
+// the transport install lives in the generated entry.
+import { createRouter, defineRoute } from "@solidjs/router";
 import { Loading } from "solid-js";
-import { dynamic } from "@solidjs/web";
+import { dynamicComponent } from "@solidjs/web";
 import Stories, { searchSchema } from "~/routes/stories";
 import Story from "~/routes/story";
 import User from "~/routes/user";
@@ -67,24 +67,19 @@ const Router = createRouter({
 });
 
 export default function App() {
-  const Nav = dynamic(() => getNav());
+  const Nav = dynamicComponent(() => getNav());
   return (
     <Router>
-      {props => {
-        // A navigation keeps the current page up, dimmed, until the next one
-        // is ready, instead of blanking it.
-        const isRouting = useIsRouting();
-        return (
-          <>
-            <Nav />
-            <div class={["page", { routing: isRouting() }]}>
-              <Loading fallback={<div class="news-list-nav">Loading...</div>}>
-                {props.children}
-              </Loading>
-            </div>
-          </>
-        );
-      }}
+      {props => (
+        <>
+          <Nav />
+          <div class="page">
+            <Loading fallback={<div class="news-list-nav">Loading...</div>}>
+              {props.children}
+            </Loading>
+          </div>
+        </>
+      )}
     </Router>
   );
 }

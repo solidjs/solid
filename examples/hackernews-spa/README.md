@@ -20,7 +20,7 @@ pnpm build && pnpm start  # http://localhost:3005
 This is a *good* baseline, not a strawman: fine-grained hydration, no requests
 at boot (the serialized data resumes the render), one JSON fetch per
 navigation, preloading on link hover, and navigations that keep the current
-page up, dimmed, until the next is ready.
+page up until the next is ready.
 
 The difference from the server-components twin is structural rather than one
 of quality. View source on a thread and search for any comment's text: it is
