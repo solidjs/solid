@@ -292,8 +292,9 @@ function followAddress(host: any, frame: { rebind(address: string): void }, bind
  * error). The error is announced to this node by the mount's frame
  * (`failed`, a tick written from its `onApply`); the node reads the record
  * off the frame bound to the address and surfaces each record once — the
- * applied state of 2.1, keyed by record identity, so a re-read of an error
- * this node already surfaced is not a re-throw but a RE-ASK.
+ * applied state of 2.1, keyed by the response version that carried it, so
+ * a re-read of an error this node already surfaced is not a re-throw but a
+ * RE-ASK, and a re-asked flight's error is a new one however alike.
  *
  * `reset` re-asks: the `<Errored>`'s `reset` recomputes the node that
  * threw — this one — and an errored landing is not a landing for a fresh
@@ -318,21 +319,28 @@ function followAddress(host: any, frame: { rebind(address: string): void }, bind
  * never sees the node go async.
  */
 function landing<T>(host: any, address: string, value: T, failed: () => unknown): () => T {
-  // What the address's store holds at creation is applied: a fresh
-  // consumer of an errored address re-asks, it does not re-throw.
-  let thrown = host.get(address)?.error;
+  // A record is its response's: the version that carried the error names
+  // it, not the payload — the server's is a message string, and two flights
+  // that fail alike carry equal ones. What the address's store holds at
+  // creation is applied: a fresh consumer of an errored address re-asks, it
+  // does not re-throw.
+  const errored = () => {
+    const frame = host.get(address);
+    return frame && frame.error !== undefined ? frame.version : undefined;
+  };
+  let thrown = errored();
   return createMemo(() => {
     failed();
-    const error = host.get(address)?.error;
-    if (error !== undefined && error !== thrown) {
-      thrown = error;
-      throw error;
+    const version = errored();
+    if (version !== undefined && version !== thrown) {
+      thrown = version;
+      throw host.get(address).error;
     }
     const wait = host.landing(address);
     if (!wait) return value;
     // An errored address with no flight open (a flight's `start` clears
     // the mounts' error): this read is the re-ask.
-    const asked = error !== undefined ? reask(address) : undefined;
+    const asked = version !== undefined ? reask(address) : undefined;
     return (asked ? asked.then(() => wait) : wait).then(() => value);
   });
 }
