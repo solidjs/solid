@@ -1051,13 +1051,23 @@ export function style(node, value, prev) {
  * literal is already the compute's own); a proxy is copied with ONE
  * `ownKeys` trap (its own trap keeps the key set tracked) plus one tracked
  * read per key; a clsx-style class array is re-mapped element-wise (className
- * allocates for an array anyway; measured at parity). */
+ * allocates for an array anyway; measured at parity).
+ *
+ * The proxy's keys are read with `Reflect.ownKeys` directly — what
+ * `sourceKeys(value, SOURCE_PROXY)` resolves to by definition (`leafOf` is
+ * the identity for a proxy kind; `leafKeys` answers a proxy with one
+ * `ownKeys` trap) — rather than through `sourceKeys`, whose kind argument is
+ * a runtime value: calling it here retained the merge/omit view walkers
+ * (`collectKeys`, `mergeKeysOf`, `hiddenByAny`, …, ≈ 1.1 KB minified) on
+ * every compiled page with a dynamic `class`/`style`, reached by nothing
+ * (hydration-split-measured.md, candidate (e)). `spread()` still reads its
+ * sources through `sourceKeys`, so a page with an element spread keeps them. */
 export function readShallow(value: unknown): unknown;
 export function readShallow(value) {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(readShallow);
   if (value[$PROXY] !== value) return value;
-  const keys = sourceKeys(value, SOURCE_PROXY);
+  const keys = Reflect.ownKeys(value);
   const out = {};
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i];
