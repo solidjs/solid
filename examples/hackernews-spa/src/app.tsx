@@ -4,7 +4,7 @@
 // (../hackernews) renders the same routes with the same markup — only the
 // static parts come back as server components there, so they arrive as HTML
 // once and never as data.
-import { createRouter, defineRoute } from "@solidjs/router";
+import { createRouter, defineRoute, intentPreload } from "@solidjs/router";
 import { Loading } from "solid-js";
 import Nav from "~/components/nav";
 import Stories, { preload as preloadStories } from "~/routes/stories";
@@ -18,7 +18,10 @@ import "./app.css";
 // `defineRoute` types each route's component and preload from its own `path`,
 // so the `:id` routes read `params.id` as `string` rather than
 // `string | undefined`.
+// `intentPreload` is the hover, focus, and touch preload. Link preloading is
+// opt-in as of router 2.0.0-next.38.
 const Router = createRouter({
+  preloadLinks: intentPreload(),
   routes: [
     defineRoute({
       path: "/:type?",

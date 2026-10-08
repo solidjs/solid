@@ -9,7 +9,7 @@
 // Note there is no server-component API in this file. A `"use server"` call
 // mounts as a route (`serverRouteComponent`) or through `dynamicComponent()`;
 // the transport install lives in the generated entry.
-import { createRouter, defineRoute } from "@solidjs/router";
+import { createRouter, defineRoute, intentPreload } from "@solidjs/router";
 import { Loading } from "solid-js";
 import { dynamicComponent } from "@solidjs/web";
 import Stories, { searchSchema } from "~/routes/stories";
@@ -53,7 +53,10 @@ async function getNav() {
 // The same route table as the SPA twin. Every screen is a server route: the
 // router makes its call from the match — params, and the feeds' `page`
 // through `searchSchema` — on navigation and on link hover alike.
+// `intentPreload` is that hover (and focus, and touch); link preloading is
+// opt-in as of router 2.0.0-next.38.
 const Router = createRouter({
+  preloadLinks: intentPreload(),
   routes: [
     defineRoute({
       path: "/:type?",
