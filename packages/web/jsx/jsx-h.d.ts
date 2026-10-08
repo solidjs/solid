@@ -1140,8 +1140,8 @@ export namespace JSX {
     noscroll?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
     /** Replace the current history entry instead of pushing a new one. */
     replace?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    /** Route preload intent; `"false"` disables the integration's default eager preload. */
-    preload?: FunctionMaybe<boolean | "false" | RemoveAttribute>;
+    /** Route preload hint: `"viewport"` or `"eager"` opts the link into that strategy, `"false"` opts it out of all preloading. */
+    preload?: FunctionMaybe<boolean | "false" | "viewport" | "eager" | RemoveAttribute>;
 
     /** @experimental */
     attributionsrc?: FunctionMaybe<string | RemoveAttribute>;

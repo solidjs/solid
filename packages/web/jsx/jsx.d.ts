@@ -1151,8 +1151,8 @@ export namespace JSX {
     noscroll?: BooleanAttribute | RemoveAttribute;
     /** Replace the current history entry instead of pushing a new one. */
     replace?: BooleanAttribute | RemoveAttribute;
-    /** Route preload intent; `"false"` disables the integration's default eager preload. */
-    preload?: boolean | "false" | RemoveAttribute;
+    /** Route preload hint: `"viewport"` or `"eager"` opts the link into that strategy, `"false"` opts it out of all preloading. */
+    preload?: boolean | "false" | "viewport" | "eager" | RemoveAttribute;
 
     /** @experimental */
     attributionsrc?: string | RemoveAttribute;
