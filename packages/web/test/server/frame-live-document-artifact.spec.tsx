@@ -8,10 +8,6 @@
 // the document completes. Writes the chunk artifact the hydration spec
 // replays (test/hydration/frame-live-document.spec.tsx).
 import { describe, expect, test } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { renderToStream } from "@solidjs/web";
 import { frameTransformDirectResult, ServerComponentPlugin } from "../../frames/src/frame-sink.js";
 import { frameAddress } from "../../server-functions/src/shared.js";
 import {
@@ -21,34 +17,12 @@ import {
   makeApp,
   makeRoomComponent
 } from "../harness/frame-live-document.jsx";
+import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
 const LIVE_SOURCE = Symbol.for("solid.LiveSource");
-const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
-mkdirSync(artifactsDir, { recursive: true });
 
-function collectChunks(code: () => any): Promise<{ shell: string; rest: string }> {
-  return new Promise(resolvePromise => {
-    const chunks: string[] = [];
-    let shell = "";
-    let shellDone = false;
-    renderToStream(code, {
-      plugins: [ServerComponentPlugin],
-      onCompleteShell() {
-        shellDone = true;
-      }
-    } as any).pipe({
-      write(chunk: string) {
-        chunks.push(chunk);
-        if (shellDone && !shell) shell = chunks.join("");
-      },
-      end() {
-        const full = chunks.join("");
-        if (!shell) shell = full;
-        resolvePromise({ shell, rest: full.slice(shell.length) });
-      }
-    });
-  });
-}
+const collectChunks = (code: () => any) =>
+  recordStream(code, { plugins: [ServerComponentPlugin] } as any);
 
 const visibleText = (html: string) =>
   html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]*>/g, "");
@@ -85,10 +59,11 @@ describe("document face — live server component (server render, writes the art
       expect(full).toContain("slot:composer");
       expect(full).toContain(`.r("${FID}","${frameAddress(FID, ARGS)}")`);
 
-      writeFileSync(
-        resolve(artifactsDir, `frame-live-document-${mode}.json`),
-        JSON.stringify({ name: `frame-live-document-${mode}`, shell, rest }, null, 2)
-      );
+      writeArtifact(`frame-live-document-${mode}`, {
+        name: `frame-live-document-${mode}`,
+        shell,
+        rest
+      });
     });
   }
 });
