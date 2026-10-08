@@ -47,7 +47,10 @@ const decoder = new TextDecoder();
 
 // Rewrites each length-prefixed frame (`;0x` + 8 hex digits + `;` + payload)
 // and re-measures it.
-function rewriteFrames(body: Uint8Array, rewrite: (payload: string) => string): Uint8Array {
+function rewriteFrames(
+  body: Uint8Array,
+  rewrite: (payload: string) => string
+): Uint8Array<ArrayBuffer> {
   const out: Uint8Array[] = [];
   let at = 0;
   while (at < body.length) {
