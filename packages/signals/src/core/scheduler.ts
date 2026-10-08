@@ -26,13 +26,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import {
-  ext,
-  markUnflushedStaged,
-  recompute,
-  resyncUnflushedCompanions,
-  flushLaneScreenWakes
-} from "./core.js";
+import { ext, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
@@ -919,8 +913,6 @@ export class GlobalQueue implements IQueue {
     // Boundaries: readers that settled, landed or died this flush are
     // dropped; a fallback with none left reveals next round.
     GlobalQueue._boundarySeam?.();
-    // A lane slot the screen was showing, left for the committed value.
-    flushLaneScreenWakes();
   }
   run(type: number) {
     const effects = this._queues[type - 1];

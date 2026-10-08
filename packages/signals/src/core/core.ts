@@ -104,15 +104,12 @@ import {
   schedule,
   setPassLane,
   txOf,
-  blocked,
-  resolveTx,
   inEffectCallback,
   passTx,
   joinPassTx,
   stagedReaders,
   staleReader,
-  laneDirty,
-  type Transaction
+  laneDirty
 } from "./scheduler.js";
 import type {
   Computed,
@@ -250,26 +247,6 @@ export function clearSnapshots(): void {
     snapshotSources = null;
   }
   snapshotCaptureActive = false;
-}
-
-/** Nodes whose shown lane slot this flush differed from the committed value
- * they kept. Woken at the seam, unless a later pass publishes a new value. */
-const laneScreenWakes: Computed<any>[] = [];
-function queueLaneScreenWake(el: Computed<any>): void {
-  if (laneScreenWakes.indexOf(el) === -1) laneScreenWakes.push(el);
-}
-function dropLaneScreenWake(el: Computed<any>): void {
-  const i = laneScreenWakes.indexOf(el);
-  if (i !== -1) laneScreenWakes.splice(i, 1);
-}
-/** Seam: readers still showing a lane slot the pass left behind. */
-export function flushLaneScreenWakes(): void {
-  if (laneScreenWakes.length === 0) return;
-  const list = laneScreenWakes.splice(0);
-  for (let i = 0; i < list.length; i++) {
-    const el = list[i];
-    if (!(el._flags & REACTIVE_DISPOSED) && el._subs !== null) insertSubs(el);
-  }
 }
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
@@ -536,19 +513,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // Listed before its staging, a pending pass included (the lane's own
   // flight is the lane's); false: the pass left the lane (lanes.ts).
   const errored = !!el._x?._error;
-  // What a revealed lane is showing, and the frame it broke out of.
-  // Leaving clears the slot before the equality check, so a return to the
-  // committed value looks unchanged. Wake that reader only once its frame
-  // is no longer held — while the frame is held the slot stays the screen
-  // (#3892, #3540).
-  let shown: unknown = NOT_PENDING;
-  let shownParent: Transaction | null = null;
   if (lane !== null) {
-    const tx = el._x?._transaction;
-    if (tx?._lane && tx._shown && el._x!._lane !== NOT_PENDING) {
-      shown = el._x!._lane;
-      shownParent = tx._parent;
-    }
     if (GlobalQueue._laneStage!(el, lane, create, errored)) setPassLane(lane);
     else lane = null;
   }
@@ -581,19 +546,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           ? el._x!._lane
           : el._value;
     let valueChanged = false;
-    // Returned the committed value after leaving a shown lane: the equality
-    // check above does not see the slot the screen is still showing.
-    let leftShown = false;
     try {
       valueChanged =
         (!isEffect && wasUninitialized) || !el._equals || !el._equals(compareValue, value);
-      if (
-        !valueChanged &&
-        lane === null &&
-        shown !== NOT_PENDING &&
-        (shownParent === null || !blocked(resolveTx(shownParent)))
-      )
-        leftShown = !el._equals || !el._equals(shown, value);
     } catch (e) {
       // A throwing user comparator is an error of this node's computation.
       // Route it through the same status path as a compute-phase throw so
@@ -604,7 +559,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
     // A committed derived change becomes a cause for this node's subscribers,
     // chaining their attribution through this node to the root write.
-    if (valueChanged && laneScreenWakes.length !== 0) dropLaneScreenWake(el);
     if (__OBSERVE__ && attrHooks !== null) {
       devChanged = valueChanged && !el._x?._error;
       if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
@@ -732,10 +686,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) insertIntoHeapHeight(s._sub, dirtyQueue);
     }
-    // The slot the screen showed differed from the value this pass kept.
-    // Deferred to the seam: a later pass this flush may publish a newer
-    // value and notify itself (#3528). Waking now would flash the stale one.
-    if (leftShown) queueLaneScreenWake(el);
 
     // Silent recovery: errored → unchanged value fires no notification, but
     // dependents still holding the propagated error consumed their dirty flag
