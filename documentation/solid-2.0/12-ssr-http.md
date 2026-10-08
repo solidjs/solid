@@ -28,6 +28,8 @@ Server (`@solidjs/web` under the `node`/`deno`/`worker` conditions):
 
 For hydration, the document needs the hydration script ahead of the app markup: `generateHydrationScript({ nonce?, eventNames? })` returns it as a string for hand-built documents, and `<HydrationScript />` renders it in JSX documents.
 
+**CSP nonce.** `renderToString`/`renderToStream` take `nonce` (a string, or a `{ script, style }` pair routing each tag to its CSP directive); it reaches `<HydrationScript />`, the streamed data and swap scripts, preload links and inline styles. Under a request scope the default is the request event's `nonce` field, so a handler or middleware sets it once on the event — before the render starts — and every render and `createSSRResponse` under that request picks it up. An explicit `nonce` option wins; an explicit `null`, `""` or `{ script: false, style: false }` renders without one. Code that authors its own inline scripts reads the same value: `scriptNonce(getRequestEvent()?.nonce)`.
+
 In a hand-built document the render output ends with the serialized hydration records (`_$HY.r`), written by a classic inline `<script>`. The client entry must execute after that script: make it a deferred `<script type="module">` (or a `defer` classic script), or place it after the render output — never `async`, which may run before the records have been parsed and hydrate against an empty document. `<HydrationScript />` documents handle the ordering themselves: the records script is spliced immediately after the bootstrap, so the entry may be `async` there.
 
 ### Consuming the stream: `pipe`, `pipeTo`, `readable`
@@ -326,7 +328,7 @@ export function handleRequest(request: Request): Promise<Response> {
 - `createSSRResponse(result, event, options?)` accepts a string (from `renderToString`, or an awaited stream) or a `renderToStream` result, and runs the head lifecycle against `event.response`:
   - **At shell flush** — the moment the head freezes — the stub is `committed` and its status/headers are merged over `options.responseInit` (`Set-Cookie` values survive as separate entries; `Server-Timing` folds entry by entry; `content-type` defaults to `text/html; charset=utf-8`). The commit is also where the request's trace reaches the head (`Server-Timing: traceparent;desc="…"` — see `getTraceContext()`).
   - **A `Location` present before the flush** becomes a real redirect instead of an HTML response: bodyless, carrying the stub’s cookies, with the status from `getExpectedRedirectStatus` (also exported — the stub’s own status when it is a redirect status, `302` otherwise, because a status set for the page render doesn’t describe the redirect that preempts it).
-  - **A `Location` set after the flush** can only be honored client-side: stream completion appends `<script>window.location=…</script>` before closing, carrying `options.nonce` so a strict `script-src` CSP doesn’t block it.
+  - **A `Location` set after the flush** can only be honored client-side: stream completion appends `<script>window.location=…</script>` before closing, carrying `options.nonce` (default: `event.nonce`) so a strict `script-src` CSP doesn’t block it.
   - **A render that ends before the flush** (it failed, which `onError` hears as `handling: "failed"`, or its `signal` aborted) produced no page: the promise resolves with a bodyless `500` (a `Location` already on the stub still redirects) and the stub is committed. It never rejects.
   - `options.transformChunk(chunk)` rewrites each outgoing HTML chunk — the seam handlers use for entry-script injection and doctype prefixes.
 
@@ -334,24 +336,28 @@ export function handleRequest(request: Request): Promise<Response> {
 
 - `commitEventResponse(response, event?)` is the **other exit** — handler-lifecycle plumbing for a `Response` that did not go through `createSSRResponse` (a middleware early return, an API result), the same fold the server-function handler's own responses take. It folds the event's stub onto the response — `Set-Cookie` appends entry-by-entry alongside the response's own, `Server-Timing` folds by name beside the response's own metrics, other stub headers fill gaps only (never the wire-protocol family the handlers own, never `Content-Type`/`Content-Length` on a bodiless response), the status is never taken from the stub — then commits the stub, so later writes fail loudly. An event **without** a `response` stub (the server-function handler's default event, a bare integration) still hands the request's trace on: the response is rebuilt with the `Server-Timing` entries when there is something to say, and comes back untouched otherwise. `event` defaults to the ambient `getRequestEvent()`. It is **idempotent at the handler edge**: an already-committed stub passes the response through untouched, so a handler applies it unconditionally after its middleware chain fully unwinds — page responses come back from `createSSRResponse` committed and do not double-fold. Like `createResponseStub` and `getExpectedRedirectStatus`, this is an integrator-tier export: application middleware never calls it — writes to `event.response` inside the request scope are the application surface; the handler edge runs the fold once.
 
-Handlers compose request middleware with the same web-standard shape everything else uses — `(request, next) => Response | Promise<Response>`:
+Handlers compose request middleware over the request event — `(event, next) => Response | Promise<Response>`, with the request at `event.request`:
 
 ```ts
-import { composeMiddleware, getRequestEvent } from "@solidjs/web";
+import { composeMiddleware } from "@solidjs/web";
 
 const run = composeMiddleware([
-  async (request, next) => {
-    getRequestEvent()!.locals.user = await authenticate(request);
+  async (event, next) => {
+    event.locals.user = await authenticate(event.request);
+    event.nonce = crypto.randomUUID(); // read by the render inside next()
     const response = await next();
     response.headers.set("x-served-by", "solid");
     return response;
   }
 ]);
+
+// the handler: run(event, () => render(event)) inside provideRequestEvent(event, ...)
 ```
 
-`next()` advances the chain (an optional `Request` argument substitutes the request downstream); the terminal `next` handed to the composed function dispatches to the actual handler. Two properties are load-bearing:
+`next()` advances the chain; the terminal `next` handed to the composed function dispatches to the actual handler. The event is the one source of truth for the request: to hand a different request downstream, assign `event.request` before calling `next()` — `next` takes no arguments (passing one rejects with a migration error), so the request a later middleware, the handler and the render see is always `event.request`. Three properties are load-bearing:
 
-- The chain runs **inside the request scope** the handler established, so `getRequestEvent()` — `locals`, the response stub — works in middleware exactly as it does in application code.
+- The chain runs **inside the request scope** the handler established, so `getRequestEvent()` answers with the same event in middleware and in application code.
+- The render happens **inside** `next()`: per-request render inputs on the event (`nonce`, an integration's own fields) must be set before calling it — by the time `next()` resolves, the shell has been produced.
 - Nothing reaches the wire until the outermost middleware returns: a streamed body hasn’t been consumed yet when `next()` resolves, so headers on the returned `Response` are still mutable through the whole unwind. Error middleware is a plain `try { return await next(); } catch { … }`.
 
 What core deliberately does not ship: routing of middleware (per-path matching), session policy (see the recipe above — cookie _access_ is core, what you build on it is not), and platform adapters — those belong to the layer above, which composes them out of this shape.
@@ -364,7 +370,7 @@ What core deliberately does not ship: routing of middleware (per-path matching),
 | `import { getRequestEvent } from "solid-js/web"`                                         | `import { getRequestEvent } from "@solidjs/web"`                                                                                                                                                                                                      |
 | Start’s `<HttpStatusCode code={404} />` / `<HttpHeader />` components (`@solidjs/start`) | `httpStatus(404)` / `httpHeader(...)` primitives from `@solidjs/web` — core ships functions only                                                                                                                                                      |
 | Hand-rolled `TransformStream` around `pipeTo` for `Response` bodies                      | `renderToStream(...).readable`                                                                                                                                                                                                                        |
-| Start’s `createMiddleware` (h3 `Middleware` shapes)                                      | `composeMiddleware` over web-standard `(request, next) => Response` functions                                                                                                                                                                         |
+| Start’s `createMiddleware` (h3 `Middleware` shapes)                                      | `composeMiddleware` over `(event, next) => Response` functions (the request is `event.request`)                                                                                                                                                       |
 | Hand-rolled head merging / redirect handling in server handlers                          | `createRequestEvent` + `createSSRResponse` (commit at shell flush, redirect protocol, post-flush script fallback)                                                                                                                                     |
 | Start’s `getCookie`/`setCookie` (vinxi/h3 re-exports)                                    | `parseCookieHeader`/`serializeCookie` from `@solidjs/web` over `event.request.headers` / `event.response.headers` — the codec + native `Headers`; jars and sessions are app-layer by ruling (see the sessions recipe)                                 |
 | Start’s `useSession` (vinxi/h3 sealed cookies)                                           | app-layer composition — `@remix-run/cookie` (signed, rotating) + the request event, per the sessions recipe; sealed 1.x cookies cannot be verified by a signed helper, so sessions reset (re-login) at the migration boundary                         |

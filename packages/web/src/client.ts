@@ -38,7 +38,7 @@ import { effect, memo, setSpreadName, spreadName, tagElement } from "./render.js
 
 import { JSX } from "../jsx/jsx.js";
 
-import type { RequestEventLocals, HydrationWriter, HydrationValue } from "./server.js";
+import type { RequestEventLocals, HydrationWriter, HydrationValue, CSPNonce } from "./server.js";
 import type { TraceContext } from "./trace.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
@@ -114,6 +114,8 @@ export type { HydrationWriter, HydrationValue } from "./server.js";
 export interface RequestEvent {
   request: Request;
   locals: RequestEventLocals;
+  /** CSP nonce for server renders under this request (see the server entry). */
+  nonce?: CSPNonce;
 }
 
 export type { CookieOptions } from "./cookies.js";

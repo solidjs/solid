@@ -165,7 +165,7 @@ export type CSPNonce = string | { script: string | false; style: string | false 
 export function renderToString<T>(
   fn: () => T,
   options?: {
-    nonce?: CSPNonce;
+    nonce?: CSPNonce | null;
     renderId?: string;
     noScripts?: boolean;
     plugins?: any[];
@@ -216,7 +216,7 @@ export function renderToString<T>(
 export function renderToStream<T>(
   fn: () => T,
   options?: {
-    nonce?: CSPNonce;
+    nonce?: CSPNonce | null;
     renderId?: string;
     noScripts?: boolean;
     plugins?: any[];
@@ -263,14 +263,15 @@ export function renderToStream<T>(
   throwInBrowser(renderToStream);
 }
 /**
- * Fetch-style middleware: receives the `Request` and a `next` continuation
- * (pass a `Request` to substitute it downstream) and returns the `Response`.
- * Composed with `composeMiddleware`; runs inside the request-event scope, so
- * `getRequestEvent()` works exactly as in application code.
+ * Request middleware: receives the request event (the request is
+ * `event.request`) and a `next` continuation, and returns the `Response`.
+ * Assign `event.request` before `next()` to substitute the request
+ * downstream. Composed with `composeMiddleware`; runs inside the
+ * request-event scope, so `getRequestEvent()` answers with the same event.
  */
-export type FetchMiddleware = (
-  request: Request,
-  next: (request?: Request) => Promise<Response>
+export type FetchMiddleware<E extends RequestEvent = RequestEvent> = (
+  event: E,
+  next: () => Promise<Response>
 ) => Response | Promise<Response>;
 
 /**
@@ -289,7 +290,7 @@ export function createResponseStub(): ResponseStub {
 export function createRequestEvent<T extends object = {}>(
   request: Request,
   init?: T
-): { request: Request; locals: RequestEventLocals; response: ResponseStub } & T {
+): RequestEvent & { response: ResponseStub } & T {
   throwInBrowser(createRequestEvent);
 }
 
@@ -316,7 +317,7 @@ export function createSSRResponse(
   event: RequestEvent | undefined,
   options?: {
     responseInit?: ResponseInit;
-    nonce?: string;
+    nonce?: CSPNonce | null;
     transformChunk?: (chunk: string) => string;
   }
 ): Response;
@@ -325,7 +326,7 @@ export function createSSRResponse(
   event: RequestEvent | undefined,
   options?: {
     responseInit?: ResponseInit;
-    nonce?: string;
+    nonce?: CSPNonce | null;
     transformChunk?: (chunk: string) => string;
   }
 ): Promise<Response>;
@@ -348,17 +349,16 @@ export function commitEventResponse(response: Response, event?: RequestEvent): R
 }
 
 /**
- * Composes fetch-style middleware — `(request, next) => Response` — into a
- * single function of the same shape. Nothing reaches the wire until the
- * outermost middleware returns, so headers on the returned `Response` stay
- * mutable through the whole unwind, streamed bodies included. Server-only.
+ * Composes request middleware — `(event, next) => Response` — into a
+ * single function of the same shape. `next()` takes no arguments: assign
+ * `event.request` before calling it to substitute the request downstream.
+ * Nothing reaches the wire until the outermost middleware returns, so
+ * headers on the returned `Response` stay mutable through the whole
+ * unwind, streamed bodies included. Server-only.
  */
-export function composeMiddleware(
-  middlewares: FetchMiddleware[]
-): (
-  request: Request,
-  next: (request?: Request) => Response | Promise<Response>
-) => Promise<Response> {
+export function composeMiddleware<E extends RequestEvent = RequestEvent>(
+  middlewares: FetchMiddleware<E>[]
+): (event: E, next: () => Response | Promise<Response>) => Promise<Response> {
   throwInBrowser(composeMiddleware);
 }
 

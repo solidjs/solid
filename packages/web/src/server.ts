@@ -308,6 +308,13 @@ export interface RequestEventLocals {
 export interface RequestEvent {
   request: Request;
   locals: RequestEventLocals;
+  /**
+   * CSP nonce for renders under this request: `renderToString`,
+   * `renderToStream` and `createSSRResponse` use it when they are not given
+   * an explicit `nonce` option. Read when the render starts, so middleware
+   * sets it before calling `next()`.
+   */
+  nonce?: CSPNonce;
 }
 
 export type { CookieOptions } from "./cookies.js";
@@ -321,20 +328,26 @@ export type {
 export interface SSRResponseOptions {
   /** Base head; the stub's status/headers win over it. */
   responseInit?: ResponseInit;
-  /** Nonce carried by the post-flush `<script>` redirect fallback. */
-  nonce?: string;
+  /**
+   * Nonce carried by the post-flush `<script>` redirect fallback (a
+   * `{ script, style }` pair contributes its script value). Defaults to
+   * `event.nonce`; an explicit `null` or `""` sends none.
+   */
+  nonce?: CSPNonce | null;
   /** Rewrites each outgoing HTML chunk (entry script injection, ...). */
   transformChunk?: (chunk: string) => string;
 }
 
 /**
- * Fetch-style middleware: return a `Response` to answer the request, or
- * call `next()` (optionally with a substitute `Request`) to advance the
- * chain and observe/replace the eventual response.
+ * Request middleware: receives the request event (the request is
+ * `event.request`) and a `next` continuation, and returns the `Response`.
+ * Return a `Response` to answer the request, or call `next()` to advance
+ * the chain and observe/replace the eventual response. To hand a different
+ * request downstream, assign `event.request` before calling `next()`.
  */
-export type FetchMiddleware = (
-  request: Request,
-  next: (request?: Request) => Promise<Response>
+export type FetchMiddleware<E extends RequestEvent = RequestEvent> = (
+  event: E,
+  next: () => Promise<Response>
 ) => Response | Promise<Response>;
 
 // `mergeProps` comes from the framework like the client/universal entries —
@@ -1423,6 +1436,14 @@ function normalizeNonce(nonce) {
   };
 }
 
+// The nonce a render (or response) uses: an explicit `nonce` option wins —
+// `null`, `""` and `{ script: false, style: false }` included, which send
+// none — else the request event's.
+function renderNonce(options, event) {
+  if (options.nonce !== undefined) return options.nonce;
+  return event ? event.nonce : undefined;
+}
+
 function destinationNonce(nonce, destination) {
   if (nonce == null) return undefined;
   if (typeof nonce === "string") return nonce || undefined;
@@ -1703,7 +1724,11 @@ const HEAD_SCRIPT = `function $dha(o,i,e,n){for(i=0;i<o.length;i++)e=o[i],"t"==e
 export function renderToString<T>(
   fn: () => T,
   options?: {
-    nonce?: CSPNonce;
+    /**
+     * CSP nonce for the emitted tags (see `CSPNonce`). Defaults to the
+     * request event's `nonce`; an explicit `null` or `""` renders without one.
+     */
+    nonce?: CSPNonce | null;
     renderId?: string;
     noScripts?: boolean;
     plugins?: SerializerPlugin[];
@@ -1734,7 +1759,9 @@ export function renderToString<T>(
 
 export function renderToString(code, options = {}) {
   const { renderId = "", noScripts, manifest, onHead } = options;
-  const nonce = normalizeNonce(options.nonce);
+  const requestEvent = peekRequestEvent();
+  const rawNonce = renderNonce(options, requestEvent);
+  const nonce = normalizeNonce(rawNonce);
   let scripts = "";
   const serializer = createHydrationSerializer({
     scopeId: renderId,
@@ -1758,7 +1785,7 @@ export function renderToString(code, options = {}) {
   // module global, and another request's writes must not read this latch.
   let closed = false;
   sharedConfig.context = {
-    nonce: options.nonce,
+    nonce: rawNonce,
     escape: escape,
     resolve: resolveSSRNode,
     ssr: ssr,
@@ -1811,7 +1838,6 @@ export function renderToString(code, options = {}) {
   // stale one on the lingering context.
   const context = sharedConfig.context;
   context.writer = createHydrationWriter(context, () => !closed);
-  const requestEvent = peekRequestEvent();
   if (requestEvent) setRequestErrorHook(requestEvent, options.onError);
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   const render = timeDocument(context, context.trace, "string", requestEvent);
@@ -1895,7 +1921,11 @@ const ABANDON_RENDER = Symbol();
 export function renderToStream<T>(
   fn: () => T,
   options?: {
-    nonce?: CSPNonce;
+    /**
+     * CSP nonce for the emitted tags (see `CSPNonce`). Defaults to the
+     * request event's `nonce`; an explicit `null` or `""` renders without one.
+     */
+    nonce?: CSPNonce | null;
     renderId?: string;
     noScripts?: boolean;
     plugins?: SerializerPlugin[];
@@ -1976,7 +2006,6 @@ export function renderToStream<T>(
 
 export function renderToStream(code, options = {}) {
   let { onCompleteShell, onCompleteAll, renderId = "", noScripts, manifest, onHead } = options;
-  const nonce = normalizeNonce(options.nonce);
   // The request this render serves, read at start: the scope-tied response
   // primitives (`httpStatus`/`httpHeader`) write to ITS `response` head, and
   // the awaited path freezes that same head at completion (see `then`).
@@ -1986,6 +2015,8 @@ export function renderToStream(code, options = {}) {
   // storage module's own documented shape.
   const requestEvent = peekRequestEvent();
   if (requestEvent) setRequestErrorHook(requestEvent, options.onError);
+  const rawNonce = renderNonce(options, requestEvent);
+  const nonce = normalizeNonce(rawNonce);
   let dispose;
   let dead = false;
   // The render's `"render"` record (`timeDocument`, once the context is up):
@@ -2683,7 +2714,7 @@ export function renderToStream(code, options = {}) {
 
   sharedConfig.context = context = {
     async: true,
-    nonce: options.nonce,
+    nonce: rawNonce,
     // Which face this render is: a document (the default emission) or a
     // frame stream (`options.sink`). Read by the server runtime's dev check
     // on undeclared unbounded sources, which only a document render pays for.
@@ -6981,7 +7012,7 @@ export function createSSRResponse(
 export function createSSRResponse(result, event, options = {}) {
   const stub = event && event.response;
   const { responseInit, transformChunk } = options;
-  const nonce = normalizeNonce(options.nonce);
+  const nonce = normalizeNonce(renderNonce(options, event));
 
   if (typeof result === "string") {
     if (stub) commitResponseStub(stub, { event });
@@ -7093,39 +7124,52 @@ export function createSSRResponse(result, event, options = {}) {
     result.pipe(sink);
   });
 } /**
- * Composes fetch-style middleware into one function of the same shape;
- * the terminal `next` dispatches to the actual handler. Runs in whatever
- * scope the caller established (`provideRequestEvent`), so
- * `getRequestEvent()` works exactly as in application code.
+ * Composes request middleware — `(event, next) => Response` — into one
+ * function of the same shape; the terminal `next` dispatches to the actual
+ * handler. Substitute the request downstream by assigning `event.request`
+ * before `next()` (which takes no arguments). Runs in whatever scope the
+ * caller established (`provideRequestEvent`), so `getRequestEvent()`
+ * answers with the same event.
  */
-export function composeMiddleware(
-  middlewares: FetchMiddleware[]
-): (
-  request: Request,
-  next: (request?: Request) => Response | Promise<Response>
-) => Promise<Response>;
+export function composeMiddleware<E extends RequestEvent = RequestEvent>(
+  middlewares: FetchMiddleware<E>[]
+): (event: E, next: () => Response | Promise<Response>) => Promise<Response>;
 
 /**
- * Composes fetch-style middleware — `(request, next) => Response` — into a
- * single function of the same shape. `next()` advances the chain (an
- * optional `Request` argument substitutes the request downstream) and the
+ * Composes request middleware — `(event, next) => Response` — into a
+ * single function of the same shape. `next()` advances the chain and the
  * terminal `next` handed to the composed function dispatches to the actual
- * handler. Middleware runs inside whatever scope the caller established
- * (e.g. `provideRequestEvent`), so `getRequestEvent()` works exactly as it
- * does in application code; nothing reaches the wire until the outermost
+ * handler. The event is the one source of truth for the request: a
+ * middleware substitutes it for everything downstream by assigning
+ * `event.request` before calling `next()` (`next` takes no arguments, and
+ * passing one throws). Middleware runs inside whatever scope the caller
+ * established (e.g. `provideRequestEvent`), so `getRequestEvent()` answers
+ * with the same event; nothing reaches the wire until the outermost
  * middleware returns, so headers on the returned `Response` remain mutable
  * through the whole unwind — streamed bodies included.
  */
 export function composeMiddleware(middlewares) {
-  return function run(request, next) {
+  return function run(event, next) {
     let index = -1;
-    function dispatch(i, req) {
+    function dispatch(i) {
       if (i <= index) return Promise.reject(new Error("next() called multiple times"));
       index = i;
-      if (i === middlewares.length) return Promise.resolve(next(req));
-      return Promise.resolve(middlewares[i](req, override => dispatch(i + 1, override || req)));
+      if (i === middlewares.length) return Promise.resolve(next());
+      return Promise.resolve(
+        middlewares[i](event, function next() {
+          if (arguments.length && arguments[0] !== undefined) {
+            return Promise.reject(
+              new TypeError(
+                "next() takes no arguments: middleware receives the request event, so " +
+                  "assign event.request = newRequest before calling next() to substitute the request."
+              )
+            );
+          }
+          return dispatch(i + 1);
+        })
+      );
     }
-    return dispatch(0, request);
+    return dispatch(0);
   };
 } /**
  * Server no-op: element claims are a client-only concern, but consumers may
