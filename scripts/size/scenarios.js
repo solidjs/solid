@@ -4567,8 +4567,9 @@ module.exports = [
     //    be read across it.
     // Against the base page's 33,910 / 105,413 the router's marginal is
     // now +7,334 B br / +23,762 B minified (was +12,086 / +38,825). One
-    // eager chunk. Cap at local measured + 10 B rounded up to 0.01 KB;
-    // recorded minified 129,175 B.
+    // eager chunk. Cap at measured + 10 B rounded up to 0.01 KB; recorded
+    // minified 129,175 B. CI-confirmed to the byte (Size run 37751396603:
+    // 41,244 / 129,175).
     limit: "41.26 KB",
     capMinified: 129175,
     alias: pageAlias,
@@ -4627,8 +4628,9 @@ module.exports = [
     //    machinery is already here.
     // Against the live page's 37,610 / 117,456 the router's marginal is
     // now +9,309 B br / +25,016 B minified (was +9,716 / +31,227). Cap at
-    // local measured + 10 B rounded up to 0.01 KB; recorded minified
-    // 142,472 B.
+    // measured + 10 B rounded up to 0.01 KB; recorded minified 142,472 B.
+    // CI-confirmed to the byte, two chunks included (Size run 37751396603:
+    // 46,919 / 142,472; `client.js` 85,618 / 27,801).
     limit: "46.93 KB",
     capMinified: 142472,
     alias: pageAlias,
