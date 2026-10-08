@@ -992,8 +992,16 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "14.68 KB",
-    capMinified: 44582,
+    // Size-Exception (an optimistic view reads a property its inner store
+    // removed as undefined, #3883, 2026-10-07): 14.68 KB -> 14.70 KB, measured
+    // at 14,687 B by CI (Size run 37704068417) against `next` @ 3086f1b77's
+    // 14,671 (+16 B; 7 B over the cap; +40 B minified, 44,597 -> 44,637;
+    // recorded 44,582 -> 44,637) — the store `get` trap: an absent key on a
+    // chained target reads through to the inner store (`serveDataKey`). Cap
+    // set at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-07: store scenarios only, hello world unchanged.
+    limit: "14.70 KB",
+    capMinified: 44637,
     alias
   },
   {
@@ -3435,8 +3443,16 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "31.12 KB",
-    capMinified: 99617,
+    // Size-Exception (an optimistic view reads a property its inner store
+    // removed as undefined, #3883, 2026-10-07): 31.12 KB -> 31.17 KB, measured
+    // at 31,155 B by CI (Size run 37704068417) against `next` @ 3086f1b77's
+    // 31,155 (+0 B; 35 B over the cap; +40 B minified, 99,632 -> 99,672;
+    // recorded 99,617 -> 99,672) — the store `get` trap: an absent key on a
+    // chained target reads through to the inner store (`serveDataKey`). Cap
+    // set at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-07: store scenarios only, hello world unchanged.
+    limit: "31.17 KB",
+    capMinified: 99672,
     alias
   },
   {
