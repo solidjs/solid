@@ -2910,60 +2910,29 @@ function insertExpression(parent, value, current, marker) {
       message: `[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (${typeof value}).`,
       data: { type: typeof value, value }
     });
-  // Options inserted after `<select value>` was written (an async list, a
-  // `<For>` under `<Loading>`) otherwise leave the browser on the first
-  // option — the write already ran, and it does not run again (#3928).
-  reapplyPendingSelectValue(parent);
+  // Installed by `writeSelectValue` (#3928). Absent until a select value
+  // misses, so apps that never bind one keep a null check here.
+  selectInsert && selectInsert(parent);
   return value;
 }
 
-// The value `<select value>` asked for when no option matched yet. Cleared
-// once a selected option carries it, so a later option-list update does not
-// clobber a selection the user made after the binding stuck.
-const pendingSelectValues = new WeakMap();
-
-function selectValueApplied(node, value) {
-  const options = node.options;
-  for (let i = 0; i < options.length; i++) {
-    const option = options[i];
-    if (option.selected && option.value == value) return true;
-  }
-  return false;
-}
-
-function applyPendingSelectValue(node) {
-  if (!pendingSelectValues.has(node)) return;
-  const value = pendingSelectValues.get(node);
-  node.value = value;
-  if (selectValueApplied(node, value)) pendingSelectValues.delete(node);
-}
-
+// Pending `<select value>` (#3928). Microtask: option `.value` writes later
+// in the same turn. Inserts (async options, including under an optgroup):
+// `selectInsert`. Cleared once a selected option matches, so a later list
+// update does not clobber a user selection. Arrays keep the historical
+// sync-plus-microtask write (`select.value = array` stringifies).
+let selectInsert;
 function writeSelectValue(node, value) {
-  // `select.value = array` stringifies; it cannot select each entry. Keep
-  // the historical sync-plus-microtask write and don't retry it.
-  if (Array.isArray(value)) {
-    queueMicrotask(() => (node.value = value)) || (node.value = value);
-    return;
-  }
-  pendingSelectValues.set(node, value);
-  applyPendingSelectValue(node);
-  // Same-turn options are often inserted after this write returns (the
-  // compiled binding runs before `insert`). The microtask covers that; later
-  // insertions reapply from `insertExpression`.
-  queueMicrotask(() => applyPendingSelectValue(node));
-}
-
-function reapplyPendingSelectValue(parent) {
-  if (!parent || parent.nodeType !== 1) return;
-  const select =
-    parent.localName === "select"
-      ? parent
-      : parent.localName === "optgroup" &&
-          parent.parentNode &&
-          parent.parentNode.localName === "select"
-        ? parent.parentNode
-        : null;
-  if (select) applyPendingSelectValue(select);
+  if (value == null || Array.isArray(value))
+    return queueMicrotask(() => (node.value = value)) || (node.value = value);
+  node._$v = value;
+  (selectInsert ||= p => {
+    p && p._$v == null && (p = p.parentNode);
+    p &&
+      p._$v != null &&
+      ((p.value = p._$v), p.selectedIndex > -1 && p.value == p._$v && (p._$v = null));
+  })(node);
+  queueMicrotask(() => selectInsert(node));
 }
 
 function normalize(value, current, multi, doNotUnwrap) {

@@ -104,4 +104,58 @@ describe("#3928 select value when options arrive later", () => {
     dispose();
     root.remove();
   });
+
+  test("selects the bound value when options arrive inside an optgroup", async () => {
+    const [options, setOptions] = createSignal<string[]>([]);
+    let select!: HTMLSelectElement;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select ref={select} value="b">
+          <optgroup label="g">
+            <For each={options()}>{item => <option value={item}>{item}</option>}</For>
+          </optgroup>
+        </select>
+      ),
+      root
+    );
+
+    setOptions(["a", "b"]);
+    flush();
+    await Promise.resolve();
+
+    expect(select.value).toBe("b");
+    expect(select.selectedIndex).toBe(1);
+    dispose();
+    root.remove();
+  });
+
+  test("does not clobber a user selection once the bound value has applied", async () => {
+    const [options, setOptions] = createSignal<string[]>([]);
+    let select!: HTMLSelectElement;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select ref={select} value="b">
+          <For each={options()}>{item => <option value={item}>{item}</option>}</For>
+        </select>
+      ),
+      root
+    );
+
+    setOptions(["a", "b"]);
+    flush();
+    await Promise.resolve();
+    expect(select.value).toBe("b");
+
+    select.value = "a";
+    setOptions(["a", "b", "c"]);
+    flush();
+    await Promise.resolve();
+    expect(select.value).toBe("a");
+    dispose();
+    root.remove();
+  });
 });
