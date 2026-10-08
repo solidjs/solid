@@ -4788,11 +4788,12 @@ module.exports = [
     // +360 B minified over #3913's 47,460 / 149,017) — the adoption-time
     // claim index from the frames eager note. Accepted by the maintainer
     // (2026-10-08, "perf is important enough — it's the point here").
-    // Re-derived onto #3913's post-#3909 cap (47,084 / 142,804) by that same
-    // delta: 47,180 B / 143,164 minified. Cap at that sum + 10 B rounded up
-    // to 0.01 KB.
-    limit: "47.19 KB",
-    capMinified: 143164,
+    // Re-derived onto #3913's post-#3909 cap. The carried +96 B brotli delta
+    // landed at 47.19 KB; CI on this merge (Size run 37852899252) measured
+    // 47,281 B / 143,158 minified (+197 B brotli / +354 B minified over
+    // #3913's 47,084 / 142,804). Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "47.30 KB",
+    capMinified: 143158,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
