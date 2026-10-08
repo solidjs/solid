@@ -224,15 +224,17 @@ function isSerovalStream(value) {
 }
 
 // An async iterable the sharer may take over: not one of seroval's own
-// async carriers (a seroval stream — `.on()`-shaped, not iterable, but
-// probed explicitly; a ReadableStream, which seroval encodes as itself).
-// The probe reads well-known keys off an unknown exotic value under a
-// guard — a proxy whose reads throw is not ours.
+// async carriers (a ReadableStream, which seroval encodes as itself; a
+// seroval stream, in either shape, is not iterable and fails the first
+// test). The border walk asks this of every object, so the one symbol read
+// comes first. The probe reads off an unknown exotic value under a guard —
+// a proxy whose reads throw is not ours.
 function isShareableIterable(value) {
   try {
-    if (isSerovalStream(value)) return false;
-    if (typeof ReadableStream !== "undefined" && value instanceof ReadableStream) return false;
-    return typeof value[Symbol.asyncIterator] === "function";
+    return (
+      typeof value[Symbol.asyncIterator] === "function" &&
+      !(typeof ReadableStream !== "undefined" && value instanceof ReadableStream)
+    );
   } catch {
     return false;
   }
