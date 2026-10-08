@@ -13,11 +13,12 @@
  * their `comp.disposed` lifecycle cleanup on the creation context instead of
  * on their own owner — a retry must not cancel itself.
  */
-import { describe, expect, test, beforeEach, afterEach } from "vitest";
+import { describe, expect, test, beforeEach, afterEach, vi } from "vitest";
 import {
   createRoot,
   createMemo,
   createRenderEffect,
+  createErrorBoundary,
   createProjection,
   createUniqueId,
   getOwner
@@ -135,6 +136,32 @@ describe("#2900: async retry paths reset owner child state (hydration id stabili
   });
   afterEach(() => {
     sharedConfig.context = savedContext;
+  });
+
+  test("Errored fallback ids stay stable when a surrounding hole retries (#3920)", () => {
+    const { context } = createMockSSRContext();
+    sharedConfig.context = context;
+    context.serialize = vi.fn();
+    const fallback = vi.fn(() => createUniqueId());
+    const { read, dispose } = createRoot(
+      dispose => ({
+        dispose,
+        read: createErrorBoundary(() => {
+          throw new Error("failed child");
+        }, fallback)
+      }),
+      { id: "t" }
+    );
+
+    try {
+      const firstId = read();
+      expect(read()).toBe(firstId);
+      expect(read()).toBe(firstId);
+      expect(fallback).toHaveBeenCalledOnce();
+      expect(context.serialize).toHaveBeenCalledOnce();
+    } finally {
+      dispose();
+    }
   });
 
   test("site 1: serverEffect async retry resets child ids", async () => {
