@@ -4,7 +4,7 @@
 // answers) are server components; their markup arrives as HTML over frame
 // streams and never exists here as templates or JSON.
 import { createSignal, For, Loading, onSettled } from "solid-js";
-import { dynamic } from "@solidjs/web";
+import { dynamicComponent } from "@solidjs/web";
 import { reply, welcome } from "~/lib/ai";
 import Status from "~/components/status";
 import "./app.css";
@@ -43,7 +43,7 @@ export default function App() {
   // document's own response, and hydration adopts the boundary in place
   // (zero network) and picks the generation up mid-sentence. The `reply`
   // calls below are the same machinery on the call-driven face.
-  const Welcome = dynamic(() => welcome());
+  const Welcome = dynamicComponent(() => welcome());
 
   const send = (e: SubmitEvent) => {
     e.preventDefault();
@@ -104,7 +104,7 @@ export default function App() {
             // with two live expression args (DR-2): progress updates on every
             // yield, stats settles when generation completes. The <Status>
             // reading them is client code.
-            const Reply = dynamic(() => reply(m.prompt));
+            const Reply = dynamicComponent(() => reply(m.prompt));
             return (
               <li class="exchange">
                 <div class="bubble user">{m.prompt}</div>

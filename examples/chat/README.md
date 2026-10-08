@@ -87,7 +87,7 @@ bottom.
   for each message, `welcome()` for the t=0 face, `<Message>` for the live
   hole, and the projection that becomes the client's usage store.
 - [src/app.tsx](./src/app.tsx) — the whole client app: transcript state, the
-  composer, autoscroll, and one `dynamic()` per reply.
+  composer, autoscroll, and one `dynamicComponent()` per reply.
 - [src/components/status.tsx](./src/components/status.tsx) — the client fill
   reading all three tiers: expression args, the pending promise read, and the
   materialized store.

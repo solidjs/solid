@@ -12,7 +12,7 @@
 // render on the server too.
 import { useSubmissions, type RouteProps, type Submission } from "@solidjs/router";
 import { For } from "solid-js";
-import { dynamic } from "@solidjs/web";
+import { dynamicComponent } from "@solidjs/web";
 import { clearCompleted, removeTodo, toggleAll, toggleTodo } from "~/actions";
 import { getTodoList, parseFilter } from "~/todo-list";
 
@@ -62,7 +62,7 @@ function Failures() {
 }
 
 export default function Todos(props: RouteProps<"/">) {
-  const List = dynamic(() => getTodoList(parseFilter(props.location.query.filter)));
+  const List = dynamicComponent(() => getTodoList(parseFilter(props.location.query.filter)));
   return (
     <>
       <List />

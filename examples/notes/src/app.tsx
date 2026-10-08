@@ -3,7 +3,7 @@
 // — and they refresh fine-grained while the shell stands still: unlike the
 // original demo, navigation re-renders only the boundary that changed.
 import { Loading } from "solid-js";
-import { dynamic } from "@solidjs/web";
+import { dynamicComponent } from "@solidjs/web";
 import EditButton from "~/components/EditButton";
 import SearchField from "~/components/SearchField";
 import SidebarNoteContent from "~/components/SidebarNoteContent";
@@ -16,7 +16,9 @@ export default function App() {
       {props => {
         // The list refetches when the search param changes — and morphs in
         // place when a mutation's single-flight response includes it.
-        const NoteList = dynamic(() => getNoteList(String(props.location.query.searchText || "")));
+        const NoteList = dynamicComponent(() =>
+          getNoteList(String(props.location.query.searchText || ""))
+        );
         return (
           <div class="main">
             <section class="col sidebar">
