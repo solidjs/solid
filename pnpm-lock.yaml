@@ -88,7 +88,7 @@ importers:
         specifier: ^3.2.1
         version: 3.2.1(rollup@4.59.0)
       seroval:
-        specifier: ~1.6.7
+        specifier: 1.6.7
         version: 1.6.7
       simple-git-hooks:
         specifier: ^2.8.1
@@ -534,10 +534,10 @@ importers:
         specifier: ^3.1.0
         version: 3.2.3
       seroval:
-        specifier: ~1.6.7
+        specifier: 1.6.7
         version: 1.6.7
       seroval-plugins:
-        specifier: ~1.6.7
+        specifier: 1.6.7
         version: 1.6.7(seroval@1.6.7)
 
   packages/test-integration:
@@ -580,10 +580,10 @@ importers:
   packages/web:
     dependencies:
       seroval:
-        specifier: ~1.6.7
+        specifier: 1.6.7
         version: 1.6.7
       seroval-plugins:
-        specifier: ~1.6.7
+        specifier: 1.6.7
         version: 1.6.7(seroval@1.6.7)
     devDependencies:
       '@codspeed/vitest-plugin':

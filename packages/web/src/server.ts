@@ -2,6 +2,7 @@
 import {
   COMPOSED_BODY_FRAMING,
   ChildProperties,
+  LinkAttributes,
   isEventName,
   isHttpNavigationTarget
 } from "./constants.js";
@@ -2466,11 +2467,13 @@ export function renderToStream(code, options = {}) {
   const pendingSerialized = new Map();
   // The wire policy on a channel: a thenable's rejection and an async
   // iterable's thrown step reach the client sanitized; a seroval stream
-  // (`__SEROVAL_STREAM__`, the container-trace carrier) is the codec's own
-  // and passes as-is; values pass as-is — an Error reached as a value was
-  // never thrown, so it is data and the author's (#3113's ruling). One guard
-  // per channel object, so a source serialized under two ids stays one
-  // channel for seroval's cross-references.
+  // (the container-trace carrier) is the codec's own and passes as-is — the
+  // `__SEROVAL_STREAM__` literal by its tag, seroval's untagged stream class
+  // (1.6.8+) as the class instance it is: no `.then`, no async iterator, and
+  // the border walk leaves it whole; values pass as-is — an Error reached
+  // as a value was never thrown, so it is data and the author's (#3113's
+  // ruling). One guard per channel object, so a source serialized under two
+  // ids stays one channel for seroval's cross-references.
   //
   // The verdict is read in the rejection's own microtask — no added tick on
   // the error path. This handler was attached at serialize time, ahead of
@@ -4473,6 +4476,14 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   // as it did before binding slots existed.
   const ctx = renderConfig.context;
   const slots = ctx !== undefined && ctx.claims !== undefined;
+  // A spread anchor under a render with a link handler (`setLinkClaim`):
+  // the walk below collects the anchor's link-relevant attributes
+  // (`LinkAttributes`) from their winning sources into `link`, and the
+  // handler's markup is appended after the walk — the spread path's
+  // counterpart of the compiled `ssrLinkClaim` hole. The compiler keeps
+  // these attributes out of an anchor's baked tail so the walk sees them.
+  // Any other element, or a render with no handler, pays the two checks.
+  const link = tag === "a" && ctx !== undefined && ctx.linkClaim !== undefined ? {} : null;
   if (Array.isArray(props)) {
     if (slots && props.$slot === true) props = slotSpreadSource(tag, props);
     else {
@@ -4627,6 +4638,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
           );
         continue;
       }
+      if (link !== null && LinkAttributes.has(prop)) link[prop] = value;
       if (slots && typeof value === "object") {
         result += spreadObjectAttribute(prop, value);
       } else if (prop === "style") {
@@ -4669,6 +4681,11 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   if (slots && (behaviors !== null || claims !== undefined))
     result += spreadBehaviorMarkers(behaviors, claims, ctx.claims);
   if (attrs !== undefined) result += typeof attrs === "function" ? attrs() : attrs;
+  // The link handler's markup for a spread anchor (see `link` above): after
+  // every source and the tail, so the attributes it decided on are the
+  // element's final ones. `ssrLinkClaim` applies the author's `aria-current`
+  // precedence; a spread with no `href` is not a link.
+  if (link !== null && link.href !== undefined) result += ssrLinkClaim(link);
   // The hydration key is unquoted, so a void element needs the space before
   // `/>` or the slash becomes part of the key's value.
   if (skipChildren) return { t: result + " />" };
@@ -5340,6 +5357,68 @@ function claimInScope(mode) {
     mode === CLAIMS_STREAM ||
     (typeof inServerComponentScope === "function" && inServerComponentScope())
   );
+}
+
+// --- Link claims (solidjs/solid#3878) -----------------------------------------
+//
+// The server half of the element-claim contract for anchors. The client
+// claims every `a[href]` at creation (`claimElement`) so a router can mark
+// the current page (`aria-current="page"`, `data-active`); claims never fire
+// during SSR, so the compiled SSR output gives each candidate anchor one
+// hole after its attributes — `ssrLinkClaim(attrs)` — and a render that
+// has a LINK HANDLER (`setLinkClaim`, set by the router from its server
+// render) gets the handler's attribute markup there. With no handler the
+// hole is `""`: one property read per anchor per render, zero bytes.
+//
+// The hole is a string, evaluated eagerly for a static anchor (a hoisted
+// attributes object, no allocation per render) and inside the element's
+// attribute group for a dynamic one, where it reuses the value the `href`
+// hole evaluated. It creates no owner and takes no hydration id, so the id
+// sequence of a render with the handler set is the one without it.
+//
+// The compiler emits the hole for every anchor it cannot rule out at
+// compile time: a static non-empty `target`, a `download`, a `rel` naming
+// `external`, an author-written `aria-current` or a non-HTTP scheme
+// (`mailto:`, `tel:`, `javascript:` …) can never be the current page, so
+// those anchors get no hole. Everything the handler needs to apply the same
+// rules at runtime travels in `attrs`: the six link-relevant attributes
+// (`LinkAttributes`, shared with the compilers) that are present, static
+// ones as literals, dynamic ones as the values the attribute holes evaluated
+// (raw, not attribute-escaped).
+
+/**
+ * A render's link handler (`setLinkClaim`): given an anchor's link-relevant
+ * attributes — `href`, and `target` / `rel` / `download` / `link` /
+ * `aria-current` when present, raw values as written — returns the extra
+ * attribute markup for the anchor, each attribute with its leading space
+ * (`" data-active"`, `' data-active aria-current="page"'`), or `""`.
+ * Synchronous and pure; the markup is the handler's own and is written
+ * verbatim.
+ * @experimental
+ */
+export type LinkClaimHandler = (attrs: Readonly<Record<string, unknown>>) => string;
+
+/**
+ * Compiler-emitted hole after a candidate anchor's attributes in SSR output:
+ * the render's link handler's markup for the anchor (`setLinkClaim`), or
+ * `""` when the render has no handler. An author-written `aria-current`
+ * wins — the handler is not consulted for that anchor. Not for hand-written
+ * code.
+ * @internal
+ */
+export function ssrLinkClaim(attrs: Readonly<Record<string, unknown>>): string;
+
+export function ssrLinkClaim(attrs) {
+  // Read off the CURRENT context, as the compiled `ssrClaim` guard does:
+  // the handler sits on the render's root context, and every context a
+  // render derives from it (a Loading boundary's buffered context, the
+  // frame renderer's document-face scope — `Object.create(page)`) reads it
+  // through the prototype, so server-component markup is marked like the
+  // page around it. A render with no handler pays this read and nothing
+  // else.
+  const ctx = renderConfig.context;
+  if (ctx === undefined || ctx.linkClaim === undefined || attrs["aria-current"] != null) return "";
+  return ctx.linkClaim(attrs);
 }
 
 // --- <select value> resolution (solidjs/solid#3013) ---------------------------
@@ -6493,13 +6572,83 @@ function createHydrationWriter(context, isOpen) {
 export function getHydrationWriter(): HydrationWriter | undefined;
 
 export function getHydrationWriter() {
+  const ctx = currentRenderContext();
+  return ctx && ctx.writer;
+}
+
+// The render the caller belongs to: through the owner chain, else (no
+// owner) through the request scope when exactly one render is open for
+// that request. Never another request's render.
+function currentRenderContext() {
   let ctx = renderContextOf(getOwner());
   if (!ctx) {
     const event = peekRequestEvent();
     const renders = event && eventRenders.get(event);
     if (renders && renders.size === 1) for (const c of renders) ctx = c;
   }
-  return ctx && ctx.writer;
+  return ctx;
+}
+
+/**
+ * The hydration record a render writes once when a link handler is set
+ * (`setLinkClaim`): `_$HY.r.links = 1`. Its presence tells the client that
+ * the document's anchors carry the server's link state; its absence that no
+ * handler ran (a page rendered without the router), so the client resolves
+ * link state itself. Read on the client with `hasServerLinkState()`.
+ */
+const LINK_STATE_RECORD = "links";
+
+/**
+ * Sets the link handler of the render the caller belongs to — found through
+ * the caller's owner (component setup), else through the request scope when
+ * exactly one render is open for it — so every candidate anchor rendered
+ * from here on carries the handler's markup (`aria-current="page"`,
+ * `data-active`) in the server HTML. Returns `false` outside any render.
+ *
+ * Scoped to the render: concurrent renders never share a handler, and it is
+ * gone with the render. Set once per render, typically from a router's
+ * server render with its request's location; `undefined` clears it. Anchors
+ * serialized BEFORE the call (a document shell above the router) are not
+ * marked. Server components inline in the document render under the page's
+ * handler; a server component's own frame stream has none unless its render
+ * sets one.
+ *
+ * The first call with a handler writes the `links` hydration record once for
+ * the response (`hasServerLinkState()` on the client), the signal that the
+ * anchors' link state is the server's and can be trusted at hydration.
+ *
+ * @example
+ * ```ts
+ * // in <Router>'s server render
+ * setLinkClaim(attrs => matchLink(attrs, location) ? ' data-active aria-current="page"' : "");
+ * ```
+ * @experimental
+ */
+export function setLinkClaim(handler: LinkClaimHandler | undefined): boolean;
+
+export function setLinkClaim(handler) {
+  const ctx = currentRenderContext();
+  if (!ctx) {
+    if ("_SOLID_DEV_")
+      console.warn(
+        "setLinkClaim was called outside a render: no render was found through the current owner or the request scope. Call it during component setup."
+      );
+    return false;
+  }
+  ctx.linkClaim = handler;
+  // The record rides the shell's hydration script (document face) or the
+  // first flush (frame stream); `write` is first-write-wins, so it is one
+  // record however often the handler is set.
+  if (handler !== undefined) ctx.writer.write(LINK_STATE_RECORD, 1);
+  return true;
+}
+
+/**
+ * Server: `false`. The client reads the `links` hydration record a render
+ * with a link handler wrote (`setLinkClaim`); see the client entry.
+ */
+export function hasServerLinkState(): boolean {
+  return false;
 }
 
 /** Server stub — the registry is the client's. See the client entry. */

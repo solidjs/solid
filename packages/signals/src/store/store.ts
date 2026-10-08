@@ -102,49 +102,7 @@ import {
   type StoreFamily,
   type StoreTarget
 } from "./target.js";
-/** The optimistic machinery (optimistic.ts, S4), installed when it loads
- * — a plain store pays nothing for it (#2883): the plain paths reach it
- * only through a family with `opt` set, which only `createOptimisticStore`
- * sets. */
-export interface OptHooks {
-  /** A user setter's draft on an optimistic family: a clone of the
-   * writer's view (a staging already on the target is set aside). */
-  draft(t: StoreTarget): Record<PropertyKey, any>;
-  /** The setter's exit: the draft becomes guesses; returns the staging the
-   * draft set aside (`null`: none). */
-  writes(t: StoreTarget, pb: Record<PropertyKey, any>): Record<PropertyKey, any> | null;
-  /** `src` with the lanes' values over it (`writer`: the next write's base
-   * — the unflushed guesses too). */
-  view(t: StoreTarget, src: Record<PropertyKey, any>, writer?: boolean): Record<PropertyKey, any>;
-  /** An untracked `key in store`: the presence guess, or `undefined`. */
-  has(t: StoreTarget, key: PropertyKey): boolean | undefined;
-  /** A guessed key's descriptor (`null`: removed; `undefined`: no guess). */
-  descriptor(t: StoreTarget, key: PropertyKey): PropertyDescriptor | null | undefined;
-  /** The flush's commit: targets no lane holds leave `overlaid`. */
-  sweep(): void;
-  /** The container comparator's lane arm: an arrangement guess against a
-   * landing (or another arrangement), by row identity. */
-  arrangement(t: StoreTarget, a: any, b: any): boolean;
-  /** A user's `reconcile` on an optimistic family: the keyed diff written
-   * into the draft. */
-  reconcile(draft: any, incoming: any, keyFn: ((item: any) => any) | null): void;
-}
-export let optHooks: OptHooks | null = null;
-export function installOptHooks(hooks: OptHooks): void {
-  optHooks = hooks;
-}
-
-/** The store half of `affects()` (store/affects.ts), installed with the
- * stores: a node born on a covered record inherits the live mark; an
- * untracked verdict probe through a record with no node is witnessed. */
-export interface AffectsHooks {
-  born(t: StoreTarget, node: Signal<any>, key: PropertyKey): void;
-  witness(t: StoreTarget, key: PropertyKey | undefined): void;
-}
-export let affectsHooks: AffectsHooks | null = null;
-export function installAffectsHooks(hooks: AffectsHooks): void {
-  affectsHooks = hooks;
-}
+import { affectsHooks, optHooks } from "./hooks.js";
 import {
   $PROXY,
   $RECORD,
@@ -371,7 +329,7 @@ function releaseSlot(node: any): void {
 function noteNode(target: StoreTarget, node: Signal<any>, key: PropertyKey): void {
   if (target.fam !== null) target.fam.live.add(target);
   markDescendants(target);
-  if (affectsHooks !== null) affectsHooks.born(target, node, key);
+  if (affectsHooks !== null) affectsHooks._born(target, node, key);
 }
 
 // Shared slot-node release handler: registered once; the core sweep
@@ -964,6 +922,10 @@ GlobalQueue._storeCommit = () => {
   drainFolds();
   optHooks?.sweep();
 };
+/** The store half of `affects()` (store/affects.ts) makes its marks' nodes
+ * and walks records through these: it never imports the engine. */
+GlobalQueue._storeNode = getNode;
+GlobalQueue._storeWrappable = isWrappable;
 
 /** A projection's creation run commits directly (a memo's first value is
  * its `_value`, not a staging): the draft still writes a clone of the seed,
@@ -1763,11 +1725,13 @@ function pullFamily(target: StoreTarget): void {
     // One that already observes the flight (linked by the pass that saw it
     // go up — the frame's hold, `blocked`) keeps observing it: a re-run for
     // another reason (a guess it read, the seam) that dropped the link would
-    // release the hold with the flight still up.
+    // release the hold with the flight still up. An errored derive has no
+    // landing to learn of: the error is what the frame shows.
     const c: any = context;
     if (
       c !== null &&
       c._type === EFFECT_RENDER &&
+      !(fw._statusFlags & STATUS_ERROR) &&
       fw._config & CONFIG_HELD &&
       flushTransaction !== txOf(fw) &&
       !linkedTo(c, fw)
@@ -1886,7 +1850,7 @@ const traps: ProxyHandler<StoreTarget> = {
     // (The witness before the pull: a mark on an uninitialized derived
     // store is witnessed, then the pull throws — loading, declared pending.)
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
-      affectsHooks.witness(target, key);
+      affectsHooks._witness(target, key);
     if (target.fam !== null) pullFamily(target);
     // Hot inline case: existing PLAIN node (non-accessor) read outside any
     // draft — the dbmon/uibench effect re-read shape. Core's `read()` serves
@@ -2034,7 +1998,7 @@ const traps: ProxyHandler<StoreTarget> = {
     // (The witness before the pull: a mark on an uninitialized derived
     // store is witnessed, then the pull throws — loading, declared pending.)
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
-      affectsHooks.witness(target, key);
+      affectsHooks._witness(target, key);
     if (target.fam !== null) pullFamily(target);
     const src = readSource(target, key);
     // A tracked reader's presence node answers (born from the two frames;
@@ -2060,7 +2024,7 @@ const traps: ProxyHandler<StoreTarget> = {
 
   ownKeys(target) {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
-      affectsHooks.witness(target, undefined);
+      affectsHooks._witness(target, undefined);
     if (target.fam !== null) pullFamily(target);
     return visibleKeys(target, enumerationSource(target));
   },
@@ -2069,7 +2033,7 @@ const traps: ProxyHandler<StoreTarget> = {
     if (key === $OWNER || key === $RECORD) return undefined;
     const obs = getObserver();
     if (verdict !== null && affectsHooks !== null && obs === null)
-      affectsHooks.witness(target, key);
+      affectsHooks._witness(target, key);
     if (target.fam !== null) pullFamily(target);
     // An enumerator (spread, Object.entries) already holds the container
     // node and reads its frame; a descriptor read on its own tracks

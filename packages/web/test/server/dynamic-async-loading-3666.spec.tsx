@@ -7,37 +7,8 @@
  * replays into jsdom.
  */
 import { describe, expect, test } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { renderToStream } from "@solidjs/web";
 import { variants } from "../harness/dynamic-async-loading-3666.jsx";
-
-const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
-mkdirSync(artifactsDir, { recursive: true });
-
-function collectChunks(code: () => any): Promise<{ shell: string; rest: string }> {
-  return new Promise(resolvePromise => {
-    const chunks: string[] = [];
-    let shell = "";
-    let shellDone = false;
-    renderToStream(code, {
-      onCompleteShell() {
-        shellDone = true;
-      }
-    }).pipe({
-      write(chunk: string) {
-        chunks.push(chunk);
-        if (shellDone && !shell) shell = chunks.join("");
-      },
-      end() {
-        const full = chunks.join("");
-        if (!shell) shell = full;
-        resolvePromise({ shell, rest: full.slice(shell.length) });
-      }
-    });
-  });
-}
+import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
 const visibleText = (html: string) =>
   html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]*>/g, "");
@@ -45,7 +16,7 @@ const visibleText = (html: string) =>
 describe("async dynamic() inside Loading (#3666) — server render", () => {
   for (const variant of variants) {
     test(`${variant.name}: writes the artifact`, async () => {
-      const { shell, rest } = await collectChunks(() => <variant.App />);
+      const { shell, rest } = await recordStream(() => <variant.App />);
       console.log(`${variant.name} SHELL:\n${shell}\n\nREST:\n${rest}`);
 
       if (variant.streams) {
@@ -57,10 +28,7 @@ describe("async dynamic() inside Loading (#3666) — server render", () => {
         expect(rest).toBe("");
       }
 
-      writeFileSync(
-        resolve(artifactsDir, `${variant.name}.json`),
-        JSON.stringify({ name: variant.name, shell, rest }, null, 2)
-      );
+      writeArtifact(variant.name, { name: variant.name, shell, rest });
     });
   }
 });

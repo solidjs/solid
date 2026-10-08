@@ -12,7 +12,7 @@
     "build": "cd ../.. && pnpm install --frozen-lockfile && pnpm build"
   },
   "devDependencies": {
-    "@solidjs/router": "2.0.0-next.35",
+    "@solidjs/router": "2.0.0-next.37",
     "rolldown": "1.2.11"
   }
 }

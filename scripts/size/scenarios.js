@@ -104,6 +104,22 @@ const pageAlias = {
   ...alias
 };
 
+// The `solid` export condition (2026-10-08): how a Vite application resolves
+// `@solidjs/router` — @solidjs/vite-plugin puts `solid` ahead of the client
+// defaults (`['solid', ...defaultClientConditions]`), so the router's
+// `exports["."]` selects `dist/index.jsx` and its per-module output (two of
+// them JSX, compiled by the app's compiler — here the measured checkout's,
+// hydratable, through the scenario's `compile`) instead of the flat
+// `default` build, `dist/index.js`. The flat build is rolled up with
+// `inlineDynamicImports`, which turns `data/events`' lazy
+// `import("./serverForms.js")` — the server-form fallback — into a static
+// edge to `data/action`, `data/query`, signals' `action` and the flight
+// consumer; a Vite app ships that as a lazy chunk. Rolldown's own browser set
+// is `["import", "browser", "default"]`; `conditions` replaces it, so the set
+// is spelled out with `solid` first. Only the router has a `solid` condition
+// in these graphs — seroval and everything else resolve as before.
+const solidConditions = ["solid", "import", "browser", "default"];
+
 // Observe tier (documentation/plans/observe-tier-plan.md): the artifacts the
 // `observe` export condition selects — wiring kept (attribution hook sites,
 // owner labels, edge counters, the diagnostics channel), checks folded. Its
@@ -4579,9 +4595,10 @@ module.exports = [
     // The base page as an application ships it: with a router. The two page
     // floors above carry no router, so the "base case" they gate is a page
     // nobody deploys; this scenario is the same composition plus
-    // `@solidjs/router` 2.0 (`2.0.0-next.35`, pinned exactly in this
-    // directory's package.json — the Solid 2 line; a router upgrade is a
-    // re-base recorded like a Rolldown upgrade) with `createRouter`, two
+    // `@solidjs/router` 2.0 (`2.0.0-next.35` at landing, `2.0.0-next.37`
+    // since 2026-10-08, pinned exactly in this directory's package.json —
+    // the Solid 2 line; a router upgrade is a re-base recorded like a
+    // Rolldown upgrade, below) with `createRouter`, two
     // routes (one `preload`, one lazy), the instance as the hydrated root
     // and `useNavigate` in a route component. Not a floor: an inline cap,
     // and the router's growth is the router's — this scenario attributes it
@@ -4620,6 +4637,53 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
+    // Router 2.0.0-next.35 -> 2.0.0-next.37 and the `solid` condition
+    // (2026-10-08, next @ 8d23a5a13): 46.02 KB -> 41.26 KB. Two changes,
+    // measured apart (local bytes; minified exact, brotli ±tens vs CI):
+    // 1. next.37 (solid-router#660, pay-for-use `isRouting`): on the flat
+    //    build 45,996 / 144,238 -> 43,931 / 137,617 (−2,065 B br / −6,621
+    //    B minified). The router's navigation core no longer reads
+    //    `isPending` / `latest` — intent, the redirect hop count, the
+    //    leave-guard destination and scroll restoration use its own
+    //    location writes and `onSettled` — so signals' verdict machinery
+    //    left this page entirely: `core/lanes.js` −5,150 and
+    //    `core/verdict.js` −2,585 (signals 41,698 -> 34,081). The router's
+    //    own bytes grew +487 (27,395 -> 27,882): scroll restoration now
+    //    hands a server-rendered document load back to the browser's
+    //    native restore and settles traversals through `onSettled`
+    //    (`routers/scrollRestoration.js` 868 -> 1,238 under `solid`), and
+    //    the settle-based coordination replaces the verdict reads
+    //    (`routing.js` itself shrank, 6,915 -> 6,531); `pending.js` — the
+    //    opt-in readers — is exported and shaken. `data-pending` on plain
+    //    anchors is opt-in now
+    //    (`createRouter({ routes, links: pendingLinks })`); this fixture
+    //    never opted in — next.35 applied it by default — so it measures
+    //    the default. With the opt-in (measured, not a scenario): +8,635 /
+    //    +4,301 under `solid` — `pending.js` 532 and lanes + verdict back
+    //    (≈7.5 K minified), plus Rolldown hoisting the shared runtime into a
+    //    statically-imported chunk again (two brotli streams). That is the
+    //    shape the live + router scenario already carries, so no third
+    //    router scenario.
+    // 2. The `solid` export condition (solidConditions above; this is what
+    //    a Vite app ships): 43,931 / 137,617 -> 41,244 / 129,175 (−2,687 /
+    //    −8,442). The flat `default` build inlines the server-form fallback;
+    //    under `solid` it is the lazy `serverForms.js` chunk (8,972 B
+    //    minified / 3,583 B br: `data/serverForms`, `data/action`,
+    //    `data/query`, signals' `core/action.js`, the flight consumer).
+    //    The router is 20,237 B minified eager here (`routing.js` 6,531,
+    //    `utils.js` 2,785, `routers/factory.jsx` 2,622, `data/events.js`
+    //    2,068, `routers/components.jsx` 1,338, `claims.js` 1,263,
+    //    `routers/scrollRestoration.js` 1,238, `routers/history.js` 1,051,
+    //    `paths.js` 460, `serverRouteShared.js` 435), 28,327 on the flat
+    //    build. On next.35 the condition alone was worth −623 / −7,195
+    //    (45,373 / 137,043; there the entry split into two eager chunks).
+    //    The ledger before this line is flat-build bytes; deltas must not
+    //    be read across it.
+    // Against the base page's 33,910 / 105,413 the router's marginal is
+    // now +7,334 B br / +23,762 B minified (was +12,086 / +38,825). One
+    // eager chunk. Cap at measured + 10 B rounded up to 0.01 KB; recorded
+    // minified 129,175 B. CI-confirmed to the byte (Size run 37751396603:
+    // 41,244 / 129,175).
     // Size-Exception (frames: announcement-gated slot/region scans, one
     // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 46.02 -> 46.13 KB,
     // measured at 46,120 B by CI (Size run 37756065705) against `next` @
@@ -4629,18 +4693,25 @@ module.exports = [
     // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer (2026-10-08, "perf is important enough —
     // it's the point here").
+    // Re-derived on #3909's base (router next.37 + the `solid` condition,
+    // `next` @ 893834ca5, 2026-10-08): 41.26 -> 41.40 KB, measured at 41,386 B
+    // by CI (Size run 37805628234) against #3909's 41,244 (+142 B; +334 B
+    // minified, 129,175 -> 129,509; recorded 129,175 -> 129,509) — the same
+    // frames bytes as above. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Size-Exception (hydration: gather hydratable nodes once per adoption,
-    // #3916, 2026-10-08, stacked on #3913): 46.13 -> 46.30 KB, measured at
-    // 46,282 B by CI (Size run 37765150570) against #3913's e9c233c81's
-    // 46,120 (+162 B; 152 B over the cap; +360 B minified, 144,572 -> 144,932;
-    // recorded 144,572 -> 144,932; the two PRs together: +286 B brotli /
-    // +694 B minified over `next` @ 8d23a5a13's 45,996 / 144,238) — the
-    // adoption-time claim index from the frames eager note. Cap set at
-    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // #3916, 2026-10-08, stacked on #3913): measured on the pre-#3909 router
+    // at 46,282 B / 144,932 minified (Size run 37765150570; +162 B brotli /
+    // +360 B minified over #3913's 46,120 / 144,572) — the adoption-time
+    // claim index from the frames eager note. Accepted by the maintainer
     // (2026-10-08, "perf is important enough — it's the point here").
-    limit: "46.30 KB",
-    capMinified: 144932,
-    alias: pageAlias
+    // Re-derived onto #3913's post-#3909 cap (41,386 / 129,509) by that same
+    // delta: 41,548 B / 129,869 minified. Cap at that sum + 10 B rounded up
+    // to 0.01 KB.
+    limit: "41.56 KB",
+    capMinified: 129869,
+    alias: pageAlias,
+    conditions: solidConditions,
+    compile: { hydratable: true }
   },
   {
     name: "page: live + router (live page + @solidjs/router: createRouter, two routes, preload, useNavigate)",
@@ -4667,6 +4738,36 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
+    // Router 2.0.0-next.35 -> 2.0.0-next.37 and the `solid` condition
+    // (2026-10-08, next @ 8d23a5a13; see the base + router note): 47.29 KB
+    // -> 46.93 KB. Measured apart (local bytes):
+    // 1. next.37 on the flat build: 47,326 / 148,683 -> 47,347 / 148,933
+    //    (+21 B br / +250 B minified). Nothing left: this page reads
+    //    `isPending` / `latest` on its own signal and ships an `action`, so
+    //    signals' lanes (5,171) and verdict (2,596) are the page's, not the
+    //    router's — what left the base page is exactly what this page keeps
+    //    for itself. The +250 is the router's own (27,512 -> 27,801), the
+    //    price of the pay-for-use seam on a page that pays for use.
+    // 2. The `solid` condition: 47,347 / 148,933 -> 46,919 / 142,472 (−428
+    //    / −6,461). The server-form fallback is the lazy `serverForms.js`
+    //    chunk (8,283 / 3,310; smaller than on the base page because
+    //    signals' `action` is already eager here). The eager graph is TWO
+    //    chunks on this page: Rolldown hoists the runtime the entry shares
+    //    with that lazy chunk into `client.js` (85,618 / 27,801), imported
+    //    statically by the entry (56,854 / 19,118) — counted, as bundle.mjs
+    //    counts it (the compiled live page splits the same way). Two brotli
+    //    streams cost 1,393 B over the same bytes as one (45,526), which is
+    //    why −6,461 minified is only −428 br. The base + router page does
+    //    not split: with lanes/verdict out of its entry, nothing the lazy
+    //    chunk needs is shared.
+    //    With `links: pendingLinks` (measured, not a scenario): +516 /
+    //    +154 — `pending.js` 532 and the claims plugin's wiring; the verdict
+    //    machinery is already here.
+    // Against the live page's 37,610 / 117,456 the router's marginal is
+    // now +9,309 B br / +25,016 B minified (was +9,716 / +31,227). Cap at
+    // measured + 10 B rounded up to 0.01 KB; recorded minified 142,472 B.
+    // CI-confirmed to the byte, two chunks included (Size run 37751396603:
+    // 46,919 / 142,472; `client.js` 85,618 / 27,801).
     // Size-Exception (frames: announcement-gated slot/region scans, one
     // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 47.29 -> 47.47 KB,
     // measured at 47,460 B by CI (Size run 37756065705) against `next` @
@@ -4676,18 +4777,25 @@ module.exports = [
     // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer (2026-10-08, "perf is important enough —
     // it's the point here").
+    // Re-derived on #3909's base (router next.37 + the `solid` condition,
+    // `next` @ 893834ca5, 2026-10-08): 46.93 -> 47.10 KB, measured at 47,084 B
+    // by CI (Size run 37805628234) against #3909's 46,919 (+165 B; +332 B
+    // minified, 142,472 -> 142,804; recorded 142,472 -> 142,804) — the same
+    // frames bytes as above. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Size-Exception (hydration: gather hydratable nodes once per adoption,
-    // #3916, 2026-10-08, stacked on #3913): 47.47 -> 47.57 KB, measured at
-    // 47,556 B by CI (Size run 37765150570) against #3913's e9c233c81's
-    // 47,460 (+96 B; 86 B over the cap; +360 B minified, 149,017 -> 149,377;
-    // recorded 149,017 -> 149,377; the two PRs together: +230 B brotli /
-    // +694 B minified over `next` @ 8d23a5a13's 47,326 / 148,683) — the
-    // adoption-time claim index from the frames eager note. Cap set at
-    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // #3916, 2026-10-08, stacked on #3913): measured on the pre-#3909 router
+    // at 47,556 B / 149,377 minified (Size run 37765150570; +96 B brotli /
+    // +360 B minified over #3913's 47,460 / 149,017) — the adoption-time
+    // claim index from the frames eager note. Accepted by the maintainer
     // (2026-10-08, "perf is important enough — it's the point here").
-    limit: "47.57 KB",
-    capMinified: 149377,
-    alias: pageAlias
+    // Re-derived onto #3913's post-#3909 cap (47,084 / 142,804) by that same
+    // delta: 47,180 B / 143,164 minified. Cap at that sum + 10 B rounded up
+    // to 0.01 KB.
+    limit: "47.19 KB",
+    capMinified: 143164,
+    alias: pageAlias,
+    conditions: solidConditions,
+    compile: { hydratable: true }
   },
   {
     name: "server: floor (getRequestEvent + isServer)",
