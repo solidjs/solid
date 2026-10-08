@@ -4472,8 +4472,17 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "40.66 KB",
-    capMinified: 122918,
+    // Size-Exception (consumer-declared re-claim attributes, #3923 / #3924,
+    // 2026-10-08): 40.66 KB -> 40.76 KB, measured at 40,748 B by CI (Size run
+    // 37848169895) against `next` @ 893834ca5's 40,651 (+97 B br; 88 B over
+    // the cap; +10 B minified, 122,933 -> 122,943; recorded 122,918 ->
+    // 122,943). The only compiled page fixture with an anchor pays
+    // `var _o$ = _$getOwner()` and the owner argument; `next` was already
+    // +15 B over the recorded minified, so the gate read +25 B against the
+    // record. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer 2026-10-08.
+    limit: "40.76 KB",
+    capMinified: 122943,
     alias: pageAlias
   },
   {
