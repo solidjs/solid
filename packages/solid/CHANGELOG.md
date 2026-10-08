@@ -1,5 +1,107 @@
 # solid-js
 
+## 2.0.0-rc.14
+
+### Patch Changes
+
+- 4b4c2cb: A server `<Loading>` whose creating pass is disposed (an `<Errored>` retry re-rendering its children) now stops retrying instead of looping until "did not converge". A boundary re-created under the same fragment id owns the fragment, so the abandoned instance never settles it with blank markup; with no successor, the abandoned instance releases its fragment so the response still ends.
+- 21ff8f8: Infer `createEffect` and `createRenderEffect` compute results as const so inline tuple results retain their element types without a type argument or `as const`.
+- 3c1d512: A fill that claims adopted markup reads the state the server rendered it from (frames-rulings 3.6 (iii), "the consumer parks" — S1's third commit ported onto `next` without its `claiming` hint).
+  - `materializeContainerTrace` parks a replayed backlog beyond the snapshot until hydration ends (`onHydrationEnd`; the next microtask when no hydration is in progress) and then applies it as one ordinary update. A container trace is materialized at a fill's arg-read; when that fill claims server markup — the document's pass, a frame's deferred claim under its hold, a claim at a fragment's reveal after hydration-done — the snapshot is what the markup was rendered from, the claim trusts the markup (a text hole is never rewritten during a claim), and a store already past the markup left the DOM diverged for good. Parked, the claim reads the snapshot and the backlog lands after it, so the DOM catches up outside hydration. The release order is the one 3.2 pins: the claim, the frame's hold release, done, then the backlog. A fresh mount pays one beat for not being told apart: its backlog lands a microtask after its snapshot, before any paint. A failure in the backlog applies in order, after the parked patches.
+  - The materializer creates its projection under a DETACHED root. Rooted under the reading owner — during hydration an id-carrying one — a trace revived at t=0 consumed one child id per trace while one revived by a late claim consumed none, and a keyed sibling after the frame hydrated under different keys in the two runs.
+
+- 9a213bb: Derived writes apply first, then derivations re-run. A manual write to a writable derived value (`createSignal(fn)`, `createStore(fn)`) lands at once; when one of its sources changes — in the same update or later, inside or outside an action, across async holds — the function re-runs and receives the write as `prev` (or as the draft for `createStore(fn)`), and decides what to keep. A write on its own never re-runs the function.
+
+  This reverses beta.11's same-tick precedence (#2692), where a write beat a source change in the same flush: a function that ignores `prev` now discards a write made in the same update as a source change, and a same-value write no longer holds against it. To keep a local value across source changes, carry it in the data as a flag the function honors. It also fixes #3733 (a write inside an action blocked later source changes for the whole hold, a regression since #2692) and supersedes the frame-scoped mask from #3740, whose changeset this replaces.
+
+- b0c6e6a: Add the missing diagnostic guide sections so every diagnostic code links to its repair guidance.
+- da84bd9: Fix hydration adoption throwing when a traced compute calls `Promise.withResolvers()` or `Promise.try()`. The trace run swaps the global `Promise` for a never-settling mock that lacked these two statics, so the call threw out of hydration instead of adopting the server value. The mock now provides both: `withResolvers` returns a never-settling mock with no-op `resolve`/`reject`, and `try` returns a never-settling mock without invoking its callback (matching how the mock's constructor ignores its executor).
+- 3c1d512: Frames A5′ — a deferred fragment's placeholder inside a server component's element is the frame's content by rendering, not by adoption (frames-rulings 3.3, ruled 2026-10-06).
+
+  **`solid-js`:** the document fragment ledger's `fragmentPolicy` lets a post-done swap proceed when the fragment is owned — its `pl-*` template is in the document and the integration's ownership predicate `_$HY.fa(placeholder)` says so — beside the existing claimant case; no hold, no replay for owned fragments. `_$HY.fr.claim` / `_$HY.fr.release` are removed from the published ledger (`_$HY.fr` is `{ pending, subscribe }`); `_$HY.fa(placeholder): boolean` is the new integration hook. `fragmentPending` now reads a revealed fragment from its swap record (`_$HY.v`) before its `_fr` stamp: the producer emits the swap script and then the `_fr` settle in the same batch, so a `_$HY.fr.pending()` read inside the reveal notification saw the revealing fragment as still pending — a page's last reveal never read as exhaustion and a waiter released on exhaustion waited forever.
+
+  **`@solidjs/web` (frames client):** installs `_$HY.fa` once (`pl.closest("[data-fid]")`, minus elements of a boundary disposed in place — C14); deletes `claimRegionFragments`, the per-adoption claim set, the cascade's claim half and the release loop (the dev-only rejection report over the region's `pl-*` templates stays, 0 prod bytes); `documentBoundary` pends on the intercept's one arrival answer (`awaitBoundary`) and `boundaryWaiters` is deleted (G9). A post-done swap into server-component markup no client has adopted yet now lands at once; the adoption that follows finds it in place and reads its declared records synchronously.
+
+- 3c1d512: A server `<Loading>` inside a server component that fails after the first flush renders the server's outcome into its fragment instead of a blank (C12 (c), frames-rulings 3.3): the nearest server `<Errored>`'s fallback for the error, at the `<Loading>`'s position (asked through the boundary error handler's new `outcome` mode; a `<Loading>` between passes the question up); with no server `<Errored>` the error escapes the component — the frame's own `:error` on the stream face (an unkeyed `error` chunk), a frame-addressed `{ type: "error", fid, error }` op on the document face's `sc:live` channel (only the owning adopted boundary applies it) — and the position keeps the boundary's own fallback. `_fr` still rejects and the keyed error chunk still rides (the diagnostics). Outside a server component nothing changes (the blank the client twin renders fresh over). `HydrationContext.registerFragment`'s resolver gains a third argument (`escaped?: { frame?: string }`) and the context an internal `frameId`.
+- 3c1d512: An adopted frame occurrence claims its server markup by re-entering hydration the way a streamed `<Loading>` resume does (frames-rulings 3.1 / 3.2, the savings plan's A2 — S-hold's window form).
+  - `solid-js`: `hydrateWindow(id, fn, scope?)` is factored out of a streamed boundary's resume and reached as `sharedConfig.hydrateWindow` (`@internal`): the keys under `id` gathered into the registry (the captured `scope` pair when another `hydrate()` root replaced the live one, #2917), hydrating on for the synchronous window, the current owner the claim owner (a render the window forces elsewhere is a client render, #3504), the owner the window's snapshot and live scope when none is open — so a write during a late claim is held and replays once the claim is over, and a late claim no longer re-marks the root's scope. `sharedConfig.claimRoots` (`@internal`) is typed: the claimant declares a range that may be detached around its window. `holdBoundary` stays the registration; the resume path is unchanged in behaviour.
+  - `@solidjs/web` (frames): `claimRender` is the window — one `createOwner({ id: prefix })` and the call — instead of a registry of its own gathered by walking the range, a hydrating flag flipped through `sharedConfig`'s setter (which reset hydration-done and re-ran its completion from outside the runtime), and a hand-over of keys from the root registry: `gatherClaims` and `hasPendingFragment` are deleted (the window gathers by the producer prefix and always engages). `adoptBoundary` captures the registry/gather pair it adopts under so a claim made long after — under the frame's hold, at a fragment's reveal — gathers against the root that holds the frame.
+  - `@solidjs/web`: `gatherHydratable`'s prefix-scoped gather selects its keys natively (`[_hk^="…"]`) instead of sweeping every `_hk` and filtering in JS — it now runs once per adopted occurrence, not only per late resume.
+
+- 9d89df7: Hydration-done counts the frames client's holds (frames-rulings 3.1, ruled): an adopted occurrence the frame has not claimed yet — waiting for its args record or a `{$ref}`'s data — registers as a pending boundary through the same registration a streamed `<Loading>` resume takes (`sharedConfig.holdBoundary`, internal), so `onHydrationEnd` and `isHydrationInProgress()` mean the same thing with or without server components (contract C3 a).
+- 7233451: frames: the container-trace materializer is the frames client's traces tier — `@solidjs/web/frames/trace`, loaded through the server-announced tier mechanism (`prepareTier("trace")`), so the store engine leaves every server-component page that never meets a trace (page base −6.6 KB brotli, page live −6.7 KB; frames eager −83 B). `solid-js/internal/container-trace` is a new `solid-js` entry carrying `materializeContainerTrace(marker, claiming?)` (the store engine reached through `@solidjs/signals`, the hydration dispatch `withStoreHydration` and the patch protocol read back from `solid-js`); the materializer leaves `solid-js`'s main and `solid-js/internal` entries. The eager frames client keeps the trigger: the loader entry, the held-set predicate (an adopt-time record whose args carry a `{ $tr }` marker while the tier is absent is held under frames-rulings 3.1 — its server interior on screen, hydration-done waits — and mounts with the record it was held on, a replacement applying as an args change), and the `claiming` hint (`FrameHostOptions.revive(value, claiming?)`), which keys the materializer's parked backlog on the claim again: a fresh mount reads the fold of its whole backlog at once.
+- 759a9b6: A server memo re-created at a still-pending slot now takes the slot's answer when the earlier flight settles it (#3815). A retry pass that re-creates a component while its async memo is in flight hands the new memo the slot's shared deferred, but only the earlier memo's promise settles it, so the new memo kept its `NotReadyError` on that already-resolved promise. A memo reading it then retried every microtask, so no timer fired again, the stream never ended and the process sat at 100% CPU. On rc.13 the trigger was a function hole that created a component returning a pending `lazy()` view. On `next` it is an `<Errored>` retry that re-creates a pending `<Loading>`, with a fresh promise per setup and a memo reading it. The joined memo now adopts the slot's value or error when the shared deferred settles, the same way a re-created async-iterable node already did.
+- e345dc7: A live source whose server value is still streaming when the root hydration pass ends now takes over when hydration ends, not when the root pass ends. A source with a `loadingValue` keeps taking over when the root pass ends: its markup is commit #0, which needs no claim against the streamed value. Before, a source created in the shell and read by a streamed `<Loading>` boundary connected before that boundary's fragment arrived, so the boundary could not claim its server-rendered DOM and rendered a second copy beside it.
+- 41fdf96: `reportRequestFailure(error, event)` (`@solidjs/web`, server) reports a failure that fails a request outside any render or server function the runtime reports, such as a middleware throw that a framework's request handler catches. The ambient server error hook hears it as `kind: "request"`, `handling: "failed"`, with the request event, once per error object, and its return is ignored. With no hook registered the failure goes to `console.error`, as a render that fails before its shell does. `ServerErrorSite.kind` (`solid-js`) gains `"request"`. On the client the function is a no-op.
+
+  A synchronous throw out of `renderToString`, or out of `renderToStream`'s first pass (and so `renderToFrameStream` and `serverComponentResponse`), is now reported to the server error hook as `kind: "render"`, `handling: "failed"` before it is rethrown, where it previously reached the caller without the hook hearing it. A request handler that catches it and calls `reportRequestFailure` adds nothing; the hook hears it once, as the render's.
+
+- 87a3862: Server `createMemo` over an async iterable now keeps by-slot flight memory like thenables do: a `<Loading>` retry that re-creates the node adopts the slot's settled first value (or joins its pending flight) instead of opening a fresh iterable every pass, so sources that hand back a new iterable per call (subscribers, `liveQuery()`) converge instead of reporting "did not converge".
+- 7addcc6: Fix two SSR failures when the shell suspends above an `<Errored>` (a lazy memo throwing `NotReadyError`, the router's flash-decode shape). A `<Loading>` below the boundary whose content settled before the shell's suspension did lost its content: the fallback shipped and nothing swapped it, because the fragment inlined into a shell that did not yet hold its placeholder. And a hole that reached a suspension through a returned accessor (`{props.children}` resolving to an `<Errored>` whose subtree is pending — a `lazy()` route with no `<Loading>` between, for one) re-read its expression on every retry, re-creating every component above the boundary — state and pending sources included, so a component owning its pending source never converged. The retry now resumes the accessor that suspended.
+- Updated dependencies [0c550fd]
+- Updated dependencies [ecb68a1]
+- Updated dependencies [b07fed5]
+- Updated dependencies [21ff8f8]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [fa371c3]
+- Updated dependencies [96c5e19]
+- Updated dependencies [9a213bb]
+- Updated dependencies [721eb06]
+- Updated dependencies [b07fed5]
+- Updated dependencies [bc51ada]
+- Updated dependencies [eaddda4]
+- Updated dependencies [d231b99]
+- Updated dependencies [3086f1b]
+- Updated dependencies [3c7631a]
+- Updated dependencies [09eadfe]
+- Updated dependencies [be82cf3]
+- Updated dependencies [fd9f381]
+- Updated dependencies [b07fed5]
+- Updated dependencies [fff1615]
+- Updated dependencies [11e9fb6]
+- Updated dependencies [11e9fb6]
+- Updated dependencies [b0bad02]
+- Updated dependencies [0c550fd]
+- Updated dependencies [2317623]
+- Updated dependencies [4f67697]
+- Updated dependencies [2317623]
+- Updated dependencies [d1309ad]
+- Updated dependencies [924d909]
+- Updated dependencies [6be6c51]
+- Updated dependencies [7acc039]
+- Updated dependencies [bde4299]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1b9ceb6]
+- Updated dependencies [1a3f87f]
+- Updated dependencies [5622be8]
+- Updated dependencies [11e9fb6]
+- Updated dependencies [b07fed5]
+- Updated dependencies [b0bad02]
+- Updated dependencies [b07fed5]
+- Updated dependencies [b0c8489]
+  - @solidjs/signals@2.0.0-rc.14
+
 ## 2.0.0-rc.13
 
 ### Patch Changes

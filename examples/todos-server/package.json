@@ -1,7 +1,7 @@
 {
   "name": "todos-server-example",
   "description": "TodoMVC as a Solid Server Component — the list is server markup, and every optimistic behavior (toggle, remove, pending/error/retry, counts, filters) is a client fill over slot args and createOptimisticStore state: binding slots the server template reads at positions, a shared TodoRow on both sides, one markup slot for pending adds",
-  "version": "0.0.1-rc.1",
+  "version": "0.0.1-rc.2",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",
