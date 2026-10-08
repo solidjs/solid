@@ -1919,15 +1919,10 @@ const FRAME_ID_ATTR = "data-fid";
 
 /** Open tag for a boundary/region element with `id`. `id` is developer-owned
  *  (a server-function id, or a per-site scope of one — see `documentSiteId`),
- *  but attribute-escaped defensively. `fnId`, when it differs from `id`, is
- *  the function the client groups sites under (`data-fn`); a single mount
- *  omits it and the tag is unchanged. */
-function frameElementOpen(id, fnId) {
-  const escape = sharedConfig.context
-    ? value => sharedConfig.context.escape(String(value), true)
-    : value => String(value);
-  const fn = fnId && fnId !== id ? ` data-fn="${escape(fnId)}"` : "";
-  return `<${FRAME_TAG} ${FRAME_ID_ATTR}="${escape(id)}"${fn} style="display:contents">`;
+ *  but attribute-escaped defensively. */
+function frameElementOpen(id) {
+  const escaped = sharedConfig.context ? sharedConfig.context.escape(String(id), true) : String(id);
+  return `<${FRAME_TAG} ${FRAME_ID_ATTR}="${escaped}" style="display:contents">`;
 }
 
 // Per-document site scopes (#3889). One server function mounted twice renders
@@ -2230,7 +2225,7 @@ export function frameTransformDirectResult(value, { id, args, tierUrls }) {
     // while a re-render of this mount reuses the one it already took.
     const siteId = documentSiteId(id);
     return [
-      { t: frameElementOpen(siteId, id) },
+      { t: frameElementOpen(siteId) },
       // Slot props are created OUTSIDE the context barrier: their zone owner
       // (captured at proxy creation) is what client positions re-enter, so
       // the client's content keeps full app context while the component's

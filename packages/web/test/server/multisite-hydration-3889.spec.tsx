@@ -50,10 +50,10 @@ describe("shared server-component factory (#3889) — server render", () => {
     expect(visible).not.toContain("pending");
     expect(full.match(/<button\b/g)?.length).toBe(2);
     // The first site keeps the function id. Each later site stamps its own
-    // scope on `data-fid` and groups under the function with `data-fn`, and
-    // the two counters take distinct hydration keys.
+    // scope on `data-fid`, and the two counters take distinct hydration keys.
     expect(full).toContain(`data-fid="${FID}"`);
-    expect(full).toContain(`data-fn="${FID}"`);
+    expect(full).toContain(`data-fid="${FID}~2"`);
+    expect(full).not.toContain("data-fn=");
     const keys = [...full.matchAll(/_hk=([^ >]+)/g)].map(m => m[1]);
     expect(keys).toHaveLength(2);
     expect(new Set(keys).size).toBe(2);
