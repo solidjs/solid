@@ -657,11 +657,10 @@ export function setProperty(node, name, value) {
 // (compiled output captures it at creation), since the effect's callback
 // runs ownerless when the mount lands from a held flush.
 let claimHandlers = null;
-// Per registered handler, the attribute names whose writes re-claim; and
-// their union, what the write sites consult. Rebuilt on (un)registration.
-let claimAttributeSets = null;
-let claimedAttributes = null;
-const DEFAULT_CLAIM_ATTRIBUTES = ["href", "action"];
+// Per registered handler, the attribute names whose writes re-claim — the
+// write sites consult their union (a handful of names across one or two
+// consumers; scanned, not indexed).
+const claimAttributeSets = [];
 
 // The live handler list is mirrored onto a registered symbol so the frame
 // runtime — deliberately importless in both directions, like the FRAME
@@ -708,31 +707,14 @@ export function registerElementClaim(
  */
 export function registerElementClaim(handler, options) {
   (claimHandlers || (claimHandlers = globalThis[CLAIM_SEAM] = [])).push(handler);
-  (claimAttributeSets || (claimAttributeSets = [])).push(
-    (options && options.attributes) || DEFAULT_CLAIM_ATTRIBUTES
-  );
-  rebuildClaimedAttributes();
+  claimAttributeSets.push(options?.attributes || ["href", "action"]);
   return () => {
     const index = claimHandlers.indexOf(handler);
     if (index > -1) {
       claimHandlers.splice(index, 1);
       claimAttributeSets.splice(index, 1);
-      rebuildClaimedAttributes();
     }
   };
-}
-
-// The union of the declared sets, keyed the way the write sites see names:
-// the plain name (`setAttribute`, `setProperty`, the spread's property path
-// with `prop:` stripped) and its qualified namespaced forms (`setAttributeNS`
-// receives `xlink:href`), expanded here so the write sites do no parsing.
-function rebuildClaimedAttributes() {
-  claimedAttributes = new Set();
-  for (let i = 0; i < claimAttributeSets.length; i++)
-    for (const name of claimAttributeSets[i]) {
-      claimedAttributes.add(name);
-      for (const prefix in Namespaces) claimedAttributes.add(prefix + ":" + name);
-    }
 }
 
 /** Fire every handler in `handlers` on `node`. */
@@ -744,13 +726,19 @@ function runClaimHandlers(handlers, node) {
 // element has had its mount claim (`_$claimed`), a write to a declared
 // attribute re-claims it. `name` is the name as the write site has it —
 // plain, `prop:` stripped on the property path, qualified on the namespaced
-// path (the set carries both forms). The registry check comes first on
-// purpose: `claimHandlers` is only ever
-// assigned by `registerElementClaim`, so an app without a consumer (the
-// registration tree-shaken) has the bundler fold this — and `claimElement`
-// — to nothing; the dormant path costs no bytes and no reads.
+// path — and the declared names are plain, so a qualified name is looked up
+// by its local part (`xlink:href` re-claims as `href`; a plain name slices
+// from 0, which hands back the same string). The registry check comes first
+// on purpose: `claimHandlers` is only ever assigned by `registerElementClaim`,
+// so an app without a consumer (the registration tree-shaken) has the bundler
+// fold this — and `claimElement` — to nothing; the dormant path costs no
+// bytes and no reads.
 function reclaimAttribute(node, name) {
-  if (claimHandlers !== null && node._$claimed && claimedAttributes.has(name))
+  if (
+    claimHandlers !== null &&
+    node._$claimed &&
+    claimAttributeSets.some(set => set.includes(name.slice(name.indexOf(":") + 1)))
+  )
     runClaimHandlers(claimHandlers, node);
 }
 
