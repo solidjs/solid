@@ -47,11 +47,6 @@ const createStoreObject = (amount: number) => {
   return state;
 };
 
-// The harness times `await fn()`: a returned merge/omit view would have its
-// `.then` probed through the proxy traps inside the timed window. Subjects
-// hand their result here instead, which also keeps it live.
-let sink: unknown;
-
 type Test = {
   title: string;
   benchs: { title: string; func: any }[];
@@ -82,6 +77,11 @@ function createTest<G extends (...args: any[]) => any>(options: {
       };
       if (options.filter && !options.filter.exec(test.title)) continue;
       for (const subject of options.subjects) {
+        // The harness times `await fn()`: a returned merge/omit view would
+        // have its `.then` probed through the proxy traps inside the timed
+        // window. The result goes to a sink instead (one per subject, so
+        // each slot only ever holds one kind of value).
+        let sink: unknown;
         test.benchs.push({
           title: subject.name,
           func: () => {
