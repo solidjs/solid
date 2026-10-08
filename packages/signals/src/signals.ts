@@ -907,11 +907,12 @@ export function refresh<T>(
   const own = flushTransaction;
   const promise = new Promise<any>((res, rej) => {
     queueMicrotask(() => {
-      // No createRoot: the microtask has no ambient owner, so the watcher is
-      // naturally detached, and settle disposes the node directly (dev keeps
-      // a root husk purely to stay quiet about the missing owner). The
-      // capture runs inside the watcher's own pass, where the ambient owner
-      // IS the watcher — exactly what dispose() takes.
+      // The root is load-bearing: an ownerless computed is auto-disposing,
+      // and the settle walk releases an unobserved one instead of re-running
+      // it, so the waiter would never see the refetch land (#3888). Settle
+      // disposes the waiter directly; the capture runs inside the watcher's
+      // own pass, where the ambient owner IS the watcher — exactly what
+      // dispose() takes.
       let waiter: Computed<unknown> | null = null;
       const make = () =>
         watch(
@@ -931,7 +932,7 @@ export function refresh<T>(
           undefined,
           own
         );
-      __DEV__ ? createRoot(make) : make();
+      createRoot(make);
     });
   });
   // Fire-and-forget refresh must not turn a failed refetch into an unhandled
