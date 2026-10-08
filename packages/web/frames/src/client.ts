@@ -33,7 +33,12 @@ import type { Element as SolidElement } from "solid-js";
 // already has). Kept external in rollup.config.js for the same reason the
 // server-functions/client import below is. (`assign` — a binding slot's
 // position writer — is the bind tier's import, not this entry's.)
-import { insert } from "@solidjs/web";
+// `installServerComponentHydration` is the server-component half of
+// hydration — solid's hold, claim window, fragment ownership and ledger
+// answer, and the DOM runtime's declared claim roots and frame exclusion of
+// the root sweep — installed from here (see installRevealHook) so a page
+// without server components never carries it.
+import { installServerComponentHydration, insert } from "@solidjs/web";
 import {
   createFrame,
   createFrameElement,
@@ -1184,8 +1189,21 @@ function boundaryMayArrive() {
  *   can no longer answer re-evaluate. Scoping the rescan to the revealed
  *   fragment's parent (rather than the document) keeps this proportional
  *   to what just arrived.
+ *
+ * First, the server-component half of hydration itself
+ * (`installServerComponentHydration`, `@solidjs/web`): the hold and the
+ * claim window this client registers and claims through, the ownership term
+ * the ledger asks `_$HY.fa` for, the ledger's answer — `_$HY.fr`, which the
+ * hooks below subscribe to and the arrival wait reads — and the DOM
+ * runtime's declared claim roots and frame exclusion of the root sweep.
+ * Installed from the integration rather than `hydrate()`, so a page without
+ * server components carries none of it; idempotent, and the ledger's answer
+ * needs only the page's `_$HY`, which is why this re-attempts wherever it is
+ * called (the entry call may precede the page's bootstrap in a test; the
+ * first document boundary cannot).
  */
 function installRevealHook() {
+  installServerComponentHydration();
   const hy = (globalThis as any)._$HY;
   if (!hy || hy.$sc || !hy.fr) return;
   hy.$sc = true;
@@ -1635,9 +1653,11 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
   }
   g._$SC.impl = (id: string, props: any, binding?: () => string) =>
     documentBoundary(host, id, props, binding);
-  // Late boundaries arrive with the reveals, so subscribe as early as the
-  // ledger allows (it installs with enableHydration; when this entry call
-  // precedes it, the first documentBoundary re-attempts).
+  // The server-component half of hydration (solid's and the DOM runtime's —
+  // see installRevealHook), ahead of the page's `hydrate()` and its root
+  // sweep, which this entry call precedes; and the reveal subscription, as
+  // early as the page's `_$HY` allows (when this call precedes the page's
+  // bootstrap, the first documentBoundary re-attempts).
   installRevealHook();
   const handler = createServerComponentHandler({
     host,

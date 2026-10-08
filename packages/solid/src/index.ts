@@ -119,6 +119,13 @@ export {
 // module's state, `@internal` so they are stripped from the declarations.
 /** @internal */
 export { sharedConfig } from "./client/hydration.js";
+// The server-component half of hydration (the hold, the claim window,
+// fragment ownership, the ledger's published answer): installed by the
+// integration that owns server markup wholesale (`@solidjs/web/frames`'
+// client, through `solid-js/internal`), so a page without one carries none
+// of it. Runtime export so that entry shares this module's state.
+/** @internal */
+export { enableServerComponentHydration } from "./client/hydration.js";
 // The container-trace materializer's seams (`solid-js/internal/container-trace`,
 // a separate dist entry so the store engine it builds on stays in a lazy
 // chunk): the projection patch protocol, and the hydration helpers the store

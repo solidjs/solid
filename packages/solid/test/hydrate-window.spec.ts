@@ -6,11 +6,19 @@
  * wholesale (the frames client's adopted occurrences): hydrating on for the
  * synchronous run, the current owner the claim owner, the keys under the id
  * gathered into the registry (the captured pair when given), the claim
- * roots declared, everything restored on the way out.
+ * roots declared, everything restored on the way out. Installed by the
+ * server-component half of hydration (`enableServerComponentHydration`, the
+ * integration's install), not by `enableHydration()` — a page without server
+ * components never carries the window.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createOwner, createRoot, runWithOwner } from "@solidjs/signals";
-import { enableHydration, isHydrating, sharedConfig } from "../src/client/hydration.js";
+import {
+  enableHydration,
+  enableServerComponentHydration,
+  isHydrating,
+  sharedConfig
+} from "../src/client/hydration.js";
 
 function stopHydration() {
   sharedConfig.hydrating = false;
@@ -22,8 +30,9 @@ function stopHydration() {
 describe("sharedConfig.hydrateWindow", () => {
   afterEach(stopHydration);
 
-  test("installed by enableHydration(); returns the window's result", () => {
+  test("installed by enableServerComponentHydration(); returns the window's result", () => {
     enableHydration();
+    enableServerComponentHydration();
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
     (sharedConfig as any).registry = new Map();
     (sharedConfig as any).gather = () => {};
@@ -41,6 +50,7 @@ describe("sharedConfig.hydrateWindow", () => {
 
   test("hydrating on inside, the current owner the claim owner; all restored", () => {
     enableHydration();
+    enableServerComponentHydration();
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
     const registry = new Map<string, object>();
     const gather = vi.fn();
@@ -67,6 +77,7 @@ describe("sharedConfig.hydrateWindow", () => {
 
   test("a captured registry/gather pair is swapped in for the window and restored (#2917)", () => {
     enableHydration();
+    enableServerComponentHydration();
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
     const liveRegistry = new Map<string, object>();
     const liveGather = vi.fn();
@@ -90,6 +101,7 @@ describe("sharedConfig.hydrateWindow", () => {
 
   test("restores on a throw, and nests: an inner window leaves the outer one's state", () => {
     enableHydration();
+    enableServerComponentHydration();
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
     (sharedConfig as any).registry = new Map();
     (sharedConfig as any).gather = () => {};

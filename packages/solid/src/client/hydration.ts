@@ -219,9 +219,10 @@ type SharedConfig = {
    * disposal releases), with an `id` no fragment uses, and only while
    * `isHydrationInProgress()` — a hold taken on a page that never hydrated,
    * or after it settled, is the holder's business, not the page's. Returns
-   * the release (idempotent). Assigned by enableHydration(); absent in CSR
-   * bundles (nothing to hold). Cross-package wiring; not part of the
-   * user-facing API.
+   * the release (idempotent). Assigned by `enableServerComponentHydration()`
+   * (the integration's install); absent in CSR bundles and on pages without
+   * server components (nothing to hold). Cross-package wiring; not part of
+   * the user-facing API.
    *
    * @internal
    */
@@ -236,9 +237,10 @@ type SharedConfig = {
    * the registry/gather pair the claimant adopted under when another
    * `hydrate()` root may have replaced the live one since (#2917). Call it
    * only once a root has gathered (`sharedConfig.registry` is set): there
-   * is nothing to claim against before. Assigned by `enableHydration()`;
-   * absent in CSR bundles. Cross-package wiring; not part of the
-   * user-facing API.
+   * is nothing to claim against before. Assigned by
+   * `enableServerComponentHydration()` (the integration's install); absent
+   * in CSR bundles and on pages without server components. Cross-package
+   * wiring; not part of the user-facing API.
    *
    * @internal
    */
@@ -1396,33 +1398,19 @@ export function enableHydration() {
   sharedConfig.isHydrationInProgress = isHydrationInProgress;
   sharedConfig.onHydrationEnd = onHydrationEnd;
   sharedConfig.isClaiming = isClaiming;
-  // A client hold on adopted markup is a resume's registration — the count,
-  // the owner's `_hp` mark (a rerun under it is still the claim in
-  // progress), the disposal release — with nothing to resume; `id` keys the
-  // registration's bookkeeping, and the holder passes one no fragment uses.
-  sharedConfig.holdBoundary = id => {
-    const release = initBoundaryResume(getOwner()!, id)[2];
-    return () => release() && checkHydrationComplete();
-  };
-  // An adopted occurrence's claim is a resume's window — the keys under its
-  // producer prefix, the current owner the claim owner — without a resume's
-  // registration (the frame's hold above is that).
-  sharedConfig.hydrateWindow = hydrateWindow;
+  // What an integration that owns server markup wholesale needs of this
+  // module — the hold, the claim window, fragment ownership, the ledger's
+  // published answer — installs from `enableServerComponentHydration()`,
+  // not here: a page without server components never reaches any of it.
 
   // Take ownership of streamed-fragment reveals (see the fragment ledger).
   // The header script creates `_$HY` before any module runs, so the hook is
   // in place before the first `$df` the stream can emit under hydration —
   // and installing here (not module load) keeps CSR bundles free of it.
+  // `_$HY.f` is the once-marker: one owner of the reveal policy per page.
   const hy = (globalThis as any)._$HY;
-  if (hy && !hy.fr) {
-    if (!hy.f) hy.f = fragmentPolicy;
-    // Integrations that own server-rendered markup wholesale (the frames
-    // document adoption) answer for their fragments through `_$HY.fa`
-    // (ownership by rendering, see the ledger) — no per-fragment claim API.
-    hy.fr = {
-      pending: anyFragmentPending,
-      subscribe: subscribeFragments
-    };
+  if (hy && !hy.f) {
+    hy.f = fragmentPolicy;
     // Every $dfr announces its swap through `_$HY.fe`; fanning it out here
     // gives ledger subscribers one channel for "content just landed".
     const prevFe = hy.fe;
@@ -1476,6 +1464,53 @@ export function enableHydration() {
     configurable: true,
     enumerable: true
   });
+}
+
+/**
+ * Installs what an integration that owns server-rendered markup wholesale —
+ * the frames client's document adoption (`@solidjs/web/frames`'
+ * `installServerComponents`) — needs of this module, and nothing else
+ * reaches: `sharedConfig.holdBoundary`, `sharedConfig.hydrateWindow`,
+ * fragment ownership by rendering (the `_$HY.fa` term of the reveal
+ * policy), and the ledger's published answer `_$HY.fr`. Installed from the
+ * integration, not from `enableHydration()`, so a hydrating page without
+ * server components carries none of it (hydration-split-measured.md,
+ * candidate (g-sc)). Idempotent, and independent of `enableHydration()`'s
+ * order: call it before or after `hydrate()` — the frames client calls it
+ * where it installs its reveal hook, once at `installServerComponents()`
+ * and again at the first document boundary, where hydration is necessarily
+ * live. Cross-package wiring; not part of the user-facing API.
+ *
+ * @internal
+ */
+export function enableServerComponentHydration() {
+  // A client hold on adopted markup is a resume's registration — the count,
+  // the owner's `_hp` mark (a rerun under it is still the claim in
+  // progress), the disposal release — with nothing to resume; `id` keys the
+  // registration's bookkeeping, and the holder passes one no fragment uses.
+  sharedConfig.holdBoundary = id => {
+    const release = initBoundaryResume(getOwner()!, id)[2];
+    return () => release() && checkHydrationComplete();
+  };
+  // An adopted occurrence's claim is a resume's window — the keys under its
+  // producer prefix, the current owner the claim owner — without a resume's
+  // registration (the frame's hold above is that).
+  sharedConfig.hydrateWindow = hydrateWindow;
+  // Ownership by rendering (see the ledger's policy): a post-done swap into
+  // a placeholder the integration's `_$HY.fa` predicate owns proceeds.
+  _ownedFragment = ownedFragment;
+  // The ledger's answer, published for the integration: whether the
+  // document may still deliver a fragment, and the reveal channel. Needs
+  // the page's `_$HY` (the header script creates it before any module runs
+  // on a server-rendered page; a client-only boot has none, and nothing to
+  // publish for).
+  const hy = (globalThis as any)._$HY;
+  if (hy && !hy.fr) {
+    hy.fr = {
+      pending: anyFragmentPending,
+      subscribe: subscribeFragments
+    };
+  }
 }
 
 // Wrapped primitives — delegate to override or core
@@ -2228,10 +2263,11 @@ function initBoundaryResume(
 //
 // enableHydration() installs `_$HY.f` — from that moment every `$df(id)`
 // the stream emits routes here (the same one-owner handoff the head-patch
-// runtime uses via `_$HY.h`) — and publishes the ledger as `_$HY.fr`
-// ({ pending, subscribe }) so integrations (the frames client's document
-// adoption) share this one answer instead of scanning for `pl-*` templates
-// or patching `_$HY.fe` themselves.
+// runtime uses via `_$HY.h`). enableServerComponentHydration() publishes the
+// ledger as `_$HY.fr` ({ pending, subscribe }) so integrations (the frames
+// client's document adoption) share this one answer instead of scanning for
+// `pl-*` templates or patching `_$HY.fe` themselves — published from the
+// integration's install, since nothing else reads it.
 //
 // Policy: while global hydration is still in progress, swaps proceed —
 // boundaries are coming to claim them. Once hydration completes, a swap only
@@ -2264,9 +2300,16 @@ function fragmentState(id: string) {
   return f;
 }
 
+// The ownership-by-rendering term of the policy — `ownedFragment` below —
+// reached through a slot `enableServerComponentHydration()` fills: only an
+// integration that owns server markup wholesale installs `_$HY.fa`, so a
+// page without one never asks, and does not carry the predicate.
+let _ownedFragment: ((id: string) => boolean) | undefined;
+
 function fragmentPolicy(id: string) {
   const f = fragmentState(id);
-  if (!_hydrationDone || f.claimed || ownedFragment(id)) return (globalThis as any).$dfr(id);
+  if (!_hydrationDone || f.claimed || (_ownedFragment !== undefined && _ownedFragment(id)))
+    return (globalThis as any).$dfr(id);
   f.held = true;
   return 0;
 }

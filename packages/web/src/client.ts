@@ -22,6 +22,7 @@ import {
 import type { ClientErrorHook, Owner } from "solid-js";
 import {
   sharedConfig,
+  enableServerComponentHydration,
   viewOf,
   OmitView,
   sourceKeys,
@@ -2685,18 +2686,80 @@ function isHydrating(node) {
   if (sharedConfig.isClaiming && !sharedConfig.isClaiming()) return false;
   if (!node || node.isConnected) return true;
   // Connectivity tells claimed SSR nodes apart from fresh template clones,
-  // but a claimed tree isn't always IN the document: a frame adoption whose
-  // slot fill resolved async claims its server-rendered range after a
-  // pending boundary displaced it (re-inserted on reveal). Such claim scopes
-  // declare their roots (sharedConfig.claimRoots); descent from one is as
-  // claimed as being connected. Fresh clones descend from neither.
-  const roots = sharedConfig.claimRoots;
-  if (roots) {
-    for (let i = 0; i < roots.length; i++) {
-      if (roots[i].contains(node)) return true;
+  // but a claimed tree isn't always IN the document — a server-component
+  // integration's declared claim roots are as claimed as connected (see
+  // enableServerComponentClaims). Without one, fresh clones is all a
+  // detached node can be.
+  return serverComponentClaims !== null && serverComponentClaims.claimed(node);
+}
+
+// The server-component half of hydration, installed by the integration that
+// owns server markup wholesale (`@solidjs/web/frames`'
+// `installServerComponents`) and reached by nothing else: a hydrating page
+// without server components carries neither the claim-roots walk nor the
+// frame-region exclusion of the root sweep below, nor solid's half
+// (hydration-split-measured.md, candidate (g-sc)). Same slot shape as
+// `installHydrationRuntime` above.
+let serverComponentClaims = null;
+/**
+ * Installs the server-component half of hydration — solid's
+ * (`enableServerComponentHydration`: the hold, the claim window, fragment
+ * ownership, the ledger's published answer) and this runtime's two terms of
+ * the claim walk:
+ *
+ * - `sharedConfig.claimRoots` (ruling 95): a claimed tree isn't always IN
+ *   the document — a frame adoption whose slot fill resolved async claims
+ *   its server-rendered range after a pending boundary displaced it
+ *   (re-inserted on reveal). Such claim scopes declare their roots, and
+ *   descent from one is as claimed as being connected; fresh clones
+ *   descend from neither.
+ * - The root sweep's frame exclusion (ruling 97): frame regions
+ *   (`data-fid` — the frame runtime's element brand, an importless
+ *   duplicate like FRAME_ID_ATTR in frame-client/frame-sink) are another
+ *   layer's property. Their fills claim through their own windows on their
+ *   own schedule (a lazy route module may adopt long after the root
+ *   completes), so collecting them in the ambient sweep only sets up the
+ *   completion sweep to report legitimately-late claims as unclaimed.
+ *   Whether the root has frames is one question about the page, not one
+ *   per keyed node: found once per sweep, containment-tested against the
+ *   list rather than `closest("[data-fid]")` from every node.
+ *
+ * The same shape as `hydrate()` — solid's half, then this runtime's — one
+ * call for the integration. Before `hydrate()` runs its root sweep (the
+ * frames client calls it from `installServerComponents()`, which precedes
+ * `hydrate()` in every entry) and again wherever it re-attempts its reveal
+ * hook; idempotent. Cross-package wiring; not for application code.
+ *
+ * @internal
+ */
+export function installServerComponentHydration(): void;
+export function installServerComponentHydration() {
+  enableServerComponentHydration();
+  if (serverComponentClaims !== null) return;
+  serverComponentClaims = {
+    claimed(node) {
+      const roots = sharedConfig.claimRoots;
+      if (roots) {
+        for (let i = 0; i < roots.length; i++) {
+          if (roots[i].contains(node)) return true;
+        }
+      }
+      return false;
+    },
+    // The root sweep's exclusion test for `element`, or undefined when the
+    // root has no frame region (the common page: no per-node test at all).
+    inFrame(element) {
+      const frames = element.querySelectorAll("[data-fid]");
+      const frameCount = frames.length;
+      if (frameCount === 0) return undefined;
+      // `contains` is inclusive: a node that is itself a frame is skipped
+      // too, as `closest` (which starts at the node) did before.
+      return node => {
+        for (let j = 0; j < frameCount; j++) if (frames[j].contains(node)) return true;
+        return false;
+      };
     }
-  }
-  return false;
+  };
 }
 
 function classListToObject(classList) {
@@ -3192,35 +3255,17 @@ function gatherHydratable(element, root) {
   const templates = element.querySelectorAll(
     root ? `[_hk^="${root.replace(/["\\]/g, "\\$&")}"]` : `*[_hk]`
   );
-  // The ambient sweep claims only what this hydration root itself walks.
-  // Frame regions ("data-fid" — the frame runtime's element brand, an
-  // importless duplicate like FRAME_ID_ATTR in frame-client/frame-sink)
-  // are another layer's property: their fills claim through their own
-  // windows on their own schedule (a lazy route module may adopt long
-  // after this root completes), so collecting them here only sets up the
-  // completion sweep to report legitimately-late claims as unclaimed.
-  // Whether the root has frames is one question about the page, not one per
-  // keyed node: find them once and test containment against the list, rather
-  // than `closest("[data-fid]")` from every node — an ancestor walk to the
-  // document root for each element, paid in full on pages with no frames.
-  const frames = root ? null : element.querySelectorAll("[data-fid]");
-  const frameCount = frames ? frames.length : 0;
+  // The ambient sweep claims only what this hydration root itself walks:
+  // with a server-component integration installed, the frame regions it
+  // owns are excluded (see enableServerComponentClaims); without one there
+  // is nothing on the page to exclude.
+  const inFrame =
+    root || serverComponentClaims === null ? undefined : serverComponentClaims.inFrame(element);
   const registry = sharedConfig.registry;
   for (let i = 0; i < templates.length; i++) {
     const node = templates[i];
+    if (inFrame !== undefined && inFrame(node)) continue;
     const key = node.getAttribute("_hk");
-    if (frameCount !== 0) {
-      // `contains` is inclusive: a node that is itself a frame is skipped too,
-      // as `closest` (which starts at the node) did before.
-      let inFrame = false;
-      for (let j = 0; j < frameCount; j++) {
-        if (frames[j].contains(node)) {
-          inFrame = true;
-          break;
-        }
-      }
-      if (inFrame) continue;
-    }
     if (!registry.has(key)) registry.set(key, node);
   }
 } /** Hydration-walk primitive; not for hand-written code. @internal */

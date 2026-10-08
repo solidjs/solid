@@ -232,6 +232,12 @@ export function syncThenable(value: any): { then(fn: (value: any) => void): void
 }
 /** @internal */
 export const UNASKED: PromiseLike<never> = { then() {} } as any;
+// The server-component half of client hydration (client/hydration.ts;
+// installed by `@solidjs/web/frames`' client through `solid-js/internal`).
+// Mirrored for export parity, inert: there is no claim window, hold or
+// reveal ledger on a server.
+/** @internal */
+export function enableServerComponentHydration(): void {}
 /** @internal */
 export function forwardIteratorReturn(it: any, value?: any): any {
   return Promise.resolve(it.return ? it.return(value) : { done: true, value });
