@@ -38,7 +38,12 @@ import { effect, memo, setSpreadName, spreadName, tagElement } from "./render.js
 
 import { JSX } from "../jsx/jsx.js";
 
-import type { RequestEventLocals, HydrationWriter, HydrationValue } from "./server.js";
+import type {
+  RequestEventLocals,
+  HydrationWriter,
+  HydrationValue,
+  LinkClaimHandler
+} from "./server.js";
 import type { TraceContext } from "./trace.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
@@ -109,7 +114,7 @@ export interface ResponseStub {
  * `locals`, whichever entry typed the event.
  */
 export type { RequestEventLocals } from "./server.js";
-export type { HydrationWriter, HydrationValue } from "./server.js";
+export type { HydrationWriter, HydrationValue, LinkClaimHandler } from "./server.js";
 
 export interface RequestEvent {
   request: Request;
@@ -289,6 +294,31 @@ export function takeHydrationValue(key) {
     return { status: "pending", promise: v };
   }
   return { status: "resolved", value: v };
+}
+
+/**
+ * Client stub — a render's link handler is set during server rendering
+ * (see the server entry's `setLinkClaim`). Always `false` here, so a router
+ * can call it unguarded from isomorphic setup code.
+ * @experimental
+ */
+export function setLinkClaim(_handler: LinkClaimHandler | undefined): boolean {
+  return false;
+}
+
+/**
+ * Whether the server render that produced this document ran a link handler
+ * (`setLinkClaim`), so its anchors carry the server's link state
+ * (`aria-current="page"`, `data-active`) in the HTML. Reads the `links`
+ * hydration record the render wrote once; non-destructive, readable before
+ * and after hydration. `false` on a page rendered without the router — the
+ * absence of link state on an anchor then means nothing, and a link
+ * consumer must resolve it itself. Server: `false`.
+ * @experimental
+ */
+export function hasServerLinkState(): boolean {
+  const registry = globalThis._$HY && globalThis._$HY.r;
+  return !!registry && registry.links === 1;
 }
 /**
  * Client stub — the trace a request belongs to is a server-side reading
