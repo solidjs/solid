@@ -219,10 +219,10 @@ describe("@solidjs/compiler transform", () => {
     );
 
     expect(result.code).not.toMatch(/_\$template\(`<select value=/);
-    expect(result.code.match(/queueMicrotask/g)).toHaveLength(6);
-    expect(result.code.match(/\.value = (?:"2"|2)/g)).toHaveLength(10);
-    expect(result.code.match(/\.value = \["1", "2"\]/g)).toHaveLength(2);
-    expect(result.code.indexOf("queueMicrotask")).toBeLessThan(result.code.indexOf("_$insert("));
+    expect(result.code).not.toMatch(/queueMicrotask/);
+    expect(result.code.match(/_\$setProperty\(/g)).toHaveLength(6);
+    expect(result.code).toMatch(/_\$setProperty\([^)]*"value", \["1", "2"\]\)/);
+    expect(result.code.indexOf("_$setProperty")).toBeLessThan(result.code.indexOf("_$insert("));
   });
 
   it("compiles the supported simpleElements fixture subset from Babel sources", () => {

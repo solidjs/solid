@@ -413,8 +413,14 @@ export function setAttr(
     // Locked/stateful DOM properties (value/checked/...) must go through the
     // runtime in hydratable builds so the hydration claim pass can adopt
     // pre-hydration user state instead of overwriting it (#3182). setProperty
-    // carries the select-microtask and input/textarea nullish special cases.
-    if (config.hydratable && (isLocked || namespace !== "prop")) {
+    // carries the select-value retry and input/textarea nullish special cases.
+    // `<select value>` always goes through it: a microtask only sees options
+    // inserted in the same turn, so options that arrive later never get
+    // selected (#3928).
+    if (
+      (config.hydratable && (isLocked || namespace !== "prop")) ||
+      (name === "value" && tagName === "select")
+    ) {
       return t.callExpression(registerImportMethod(path, "setProperty"), [
         elem,
         t.stringLiteral(name),
@@ -427,17 +433,6 @@ export function setAttr(
       t.memberExpression(elem, t.identifier(name)),
       value
     );
-    // handle select/options... TODO: consider other ways in the future
-    // TODO: there may be a race condition here
-    if (name === "value" && tagName === "select") {
-      return t.logicalExpression(
-        "||",
-        t.callExpression(t.identifier("queueMicrotask"), [
-          t.arrowFunctionExpression([], assignment)
-        ]),
-        assignment
-      );
-    }
     if (
       (name === "value" || name === "defaultValue") &&
       (tagName === "input" || tagName === "textarea") &&

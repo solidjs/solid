@@ -2,6 +2,7 @@ import { template as _$template } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { applyRef as _$applyRef } from "r-dom";
+import { setProperty as _$setProperty } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
@@ -458,7 +459,7 @@ _$effect(
     a: Color.Blue
   }),
   ({ e, t, a }, _p$) => {
-    queueMicrotask(() => (_el$53.value = e)) || (_el$53.value = e);
+    _$setProperty(_el$53, "value", e);
     _el$54.value = t;
     _el$55.value = a;
   }

@@ -3,6 +3,7 @@ import { delegateEvents as _$delegateEvents } from "r-dom";
 import { createTextNode as _$createTextNode } from "r-custom";
 import { insertNode as _$insertNode } from "r-custom";
 import { createElement as _$createElement } from "r-custom";
+import { setProperty as _$setProperty } from "r-custom";
 import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-custom";
 import { addEvent as _$addEvent } from "r-dom";
@@ -448,7 +449,7 @@ _$effect(
     a: Color.Blue
   }),
   ({ e, t, a }, _p$) => {
-    queueMicrotask(() => (_el$53.value = e)) || (_el$53.value = e);
+    _$setProperty(_el$53, "value", e);
     _el$54.value = t;
     _el$55.value = a;
   }
