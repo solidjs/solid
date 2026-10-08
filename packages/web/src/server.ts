@@ -4992,9 +4992,11 @@ function slotMarker(position, entries) {
  * tier completes the element at the bind and replays (bind-tier.ts). Bare
  * (no key): the bootstrap tests presence, and no claim ever looks this
  * element up — the ambient `_hk` sweep skips frame interiors (`data-fid`
- * containment, client.ts `gatherHydratable`) and a prefix-scoped gather
- * (`[_hk^="sc-…"]`, a boundary id) cannot match the empty value, so the dev
- * completion sweep never reports it. Four bytes per element, document face
+ * containment, client.ts `gatherHydratable`), a prefix-scoped gather
+ * (`[_hk^="sc-…"]`, a boundary id) cannot match the empty value, and the
+ * adopted frame's own key index (frames/src/client.ts `claimScope`) buckets
+ * it under the empty prefix no window's id names, so the dev completion
+ * sweep never reports it. Four bytes per element, document face
  * only: the stream face arrives after hydration, when the bootstrap no
  * longer queues (its `events` buffer is gone with `_$HY.done`). Server
  * components render under NoHydration, so the element has no keyed `_hk`
