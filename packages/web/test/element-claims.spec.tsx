@@ -243,7 +243,7 @@ describe("element claims fire after initial attributes (#3923)", () => {
 
   test("a spread form is claimed after its action is applied", () => {
     const r = recorder();
-    const props = { action: "/post", method: "post" };
+    const props = { action: "/post", method: "post" as const };
     mount(() => <form {...props} />);
     expect(r.seen).toHaveLength(1);
     expect(r.seen[0].attrs.action).toBe("/post");
@@ -388,6 +388,10 @@ describe("consumer-declared re-claim attributes", () => {
     const r = recorder();
     const [x, setX] = createSignal("#a");
     mount(() => (
+      // `xlink:href` is not on AnchorHTMLAttributes. Adding it would be a JSX
+      // API change, so the namespaced write stays in the fixture and the
+      // excess property is suppressed here.
+      // @ts-expect-error xlink:href is a namespaced attribute the anchor JSX type does not list
       <a href="/svg" xlink:href={x()}>
         x
       </a>
