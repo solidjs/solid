@@ -22,35 +22,48 @@ const ENVELOPE = Symbol.for("solid.ResponseEnvelope");
  * payloads); the HTTP handler forwards `response`'s headers and
  * (non-redirect) status and encodes `value` as the body through the codec,
  * while client-only integrations read `value` directly — no reparse.
+ *
+ * The envelope IS a `Response` — the given response's body, status and
+ * headers — so a consumer that knows nothing of Solid (a filesystem
+ * router's API dispatch, any fetch-style handler) answers with it as-is.
+ * `response` is the envelope itself, or `undefined` when constructed
+ * without one.
  */
-// PURE-annotated factory (same convention as solid's MockPromise): the brand
-// lives on the prototype, but a bare top-level `C.prototype[X] = true` is a
-// module side effect that pins the class into every bundle including this
-// module — client bundles that never construct or brand-check an envelope
-// were retaining it. Wrapping the declaration and the brand assignment in one
-// pure expression lets the whole thing shake when unreferenced. (A `static {}`
-// block would NOT work: bundlers treat static blocks as side-effectful.)
-export interface ResponseEnvelope<T = unknown> {
+export interface ResponseEnvelope<T = unknown> extends Response {
   response: Response | undefined;
   value: T;
 }
 
+// Built on first construction: `extends Response` evaluated at module load
+// would throw wherever the global is missing, and a top-level class with a
+// prototype write is a side effect that pins it into every bundle importing
+// this module.
+let EnvelopeClass: any;
+
 export const ResponseEnvelope: {
   new <T>(response: Response | undefined, value: T): ResponseEnvelope<T>;
-} = /* @__PURE__ */ (() => {
-  class ResponseEnvelope {
-    response: Response | undefined;
-    value: unknown;
-    constructor(response: Response | undefined, value: unknown) {
-      this.response = response;
-      this.value = value;
-    }
+} = function ResponseEnvelope(response: Response | undefined, value: unknown) {
+  if (!EnvelopeClass) {
+    EnvelopeClass = class extends Response {
+      response: Response | undefined;
+      value: unknown;
+      constructor(response: Response | undefined, value: unknown) {
+        super(
+          response ? response.body : null,
+          response && {
+            status: response.status,
+            statusText: response.statusText,
+            headers: copyHeaders(response.headers)
+          }
+        );
+        this.response = response ? this : undefined;
+        this.value = value;
+      }
+    };
+    EnvelopeClass.prototype[ENVELOPE] = true;
   }
-  (ResponseEnvelope.prototype as any)[ENVELOPE] = true;
-  return ResponseEnvelope;
-})() as {
-  new <T>(response: Response | undefined, value: T): ResponseEnvelope<T>;
-};
+  return new EnvelopeClass(response, value);
+} as any;
 
 /** Whether `value` is a `ResponseEnvelope` (robust across module copies). */
 export function isResponseEnvelope(value: unknown): value is ResponseEnvelope {
@@ -167,25 +180,25 @@ export interface ResponseHelperInit extends ResponseInit {
 /** @internal */
 export const RESPONSE_HEADER_VALUE_LIMIT = 4096;
 
+// Copy preserving multiple Set-Cookie values: Headers-to-Headers copying
+// through the constructor folds them into one comma-joined entry on some
+// runtimes (a folded Set-Cookie is corrupt). Plain-object inits cannot
+// carry duplicates and pass through as-is.
+function copyHeaders(init: HeadersInit | undefined): Headers {
+  const source = init as Headers | undefined;
+  if (!source || !source.getSetCookie) return new Headers(init);
+  const headers = new Headers();
+  source.forEach((value, key) => {
+    if (key !== "set-cookie") headers.append(key, value);
+  });
+  for (const cookie of source.getSetCookie()) headers.append("Set-Cookie", cookie);
+  return headers;
+}
+
 function initWithRevalidate(init: number | ResponseHelperInit = {}) {
   const resolved: any = typeof init === "number" ? { status: init } : init;
   const { revalidate, ...responseInit } = resolved;
-  // Copy preserving multiple Set-Cookie values: Headers-to-Headers copying
-  // through the constructor folds them into one comma-joined entry on some
-  // runtimes (a folded Set-Cookie is corrupt). Plain-object inits cannot
-  // carry duplicates and pass through as-is.
-  let headers: Headers;
-  if (responseInit.headers && responseInit.headers.getSetCookie) {
-    headers = new Headers();
-    responseInit.headers.forEach((value: string, key: string) => {
-      if (key !== "set-cookie") headers.append(key, value);
-    });
-    for (const cookie of responseInit.headers.getSetCookie()) {
-      headers.append("Set-Cookie", cookie);
-    }
-  } else {
-    headers = new Headers(responseInit.headers);
-  }
+  const headers = copyHeaders(responseInit.headers);
   if (revalidate !== undefined) {
     const list = Array.isArray(revalidate) ? revalidate : [revalidate];
     if (list.length > 1 && list.includes(REVALIDATE_ALL)) {
@@ -213,8 +226,19 @@ function initWithRevalidate(init: number | ResponseHelperInit = {}) {
 /**
  * Response redirecting to `url` (default 302). `revalidate` names the
  * cache keys the mutation invalidated.
+ *
+ * Typed so it never shows up in the type of the function returning it: a
+ * redirect is control flow for the integration to act on, not a value.
+ * `T` defaults to `never`, which vanishes from the inferred return type's
+ * union; where the context expects a type (an annotated return, a
+ * `Response`-typed request handler) `T` takes it. A literal `never` return
+ * would also mark code after a bare call unreachable; a type parameter
+ * does not. At runtime it is a real `Response`.
  */
-export function redirect(url: string | Href, init: number | ResponseHelperInit = 302) {
+export function redirect<T = never>(
+  url: string | Href,
+  init: number | ResponseHelperInit = 302
+): T {
   if (typeof url !== "string" && !isHref(url)) {
     throw new TypeError(
       "redirect() expects a string URL or an Href-branded value (Symbol.for('solid.Href'))."
@@ -256,16 +280,19 @@ export function redirect(url: string | Href, init: number | ResponseHelperInit =
     );
   }
   headers.set("Location", encoded);
-  return new Response(null, { ...responseInit, headers });
+  return new Response(null, { ...responseInit, headers }) as T;
 }
 
 /**
  * Empty response requesting revalidation of the named cache keys (all of
  * them when omitted).
+ *
+ * Typed as `redirect` is, for the same reason: it never shows up in the
+ * type of the function returning it. At runtime it is a real `Response`.
  */
-export function reload(init: ResponseHelperInit = {}) {
+export function reload<T = never>(init: ResponseHelperInit = {}): T {
   const { responseInit, headers } = initWithRevalidate(init);
-  return new Response(null, { ...responseInit, headers });
+  return new Response(null, { ...responseInit, headers }) as T;
 }
 
 /**
@@ -284,8 +311,13 @@ export const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
  * stays invisible: the carried response holds a plain JSON body so
  * consumers without the client runtime (no-JS form posts, direct HTTP)
  * get real JSON, while integrations read `value` — no reparse.
+ *
+ * Typed as `value`'s type: every caller of the function returning it —
+ * over HTTP or in-process — receives the value, never the envelope. At
+ * runtime it is a `ResponseEnvelope`, a real `Response` that integrations
+ * recognize with `isResponseEnvelope()`.
  */
-export function respond<T>(value: T, init: ResponseHelperInit = {}) {
+export function respond<T>(value: T, init: ResponseHelperInit = {}): T {
   const { responseInit, headers } = initWithRevalidate(init);
   // A null-body status cannot carry the passthrough JSON body — building it
   // would throw right here, at 200, masking the author's intent (#3095).
@@ -296,11 +328,14 @@ export function respond<T>(value: T, init: ResponseHelperInit = {}) {
   // else — and on a null-body status there is no body at all (#3197).
   for (const header of COMPOSED_BODY_FRAMING) headers.delete(header);
   if (NULL_BODY_STATUSES.has(responseInit.status)) {
-    return new ResponseEnvelope(new Response(null, { ...responseInit, headers }), value);
+    return new ResponseEnvelope(
+      new Response(null, { ...responseInit, headers }),
+      value
+    ) as unknown as T;
   }
   headers.set("Content-Type", "application/json");
   return new ResponseEnvelope(
     new Response(JSON.stringify(value), { ...responseInit, headers }),
     value
-  );
+  ) as unknown as T;
 }

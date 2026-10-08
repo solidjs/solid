@@ -219,7 +219,7 @@ describe("the invalidation scope", () => {
     expect(() => reload({ revalidate: ["*", "orders"] })).toThrow(/stands alone/);
     expect(() => redirect("/", { revalidate: ["orders", "*"] })).toThrow(/stands alone/);
     expect(() => respond(1, { revalidate: ["*"] })).not.toThrow();
-    expect(reload({ revalidate: "*" }).headers.get("X-Revalidate")).toBe("*");
+    expect(reload<Response>({ revalidate: "*" }).headers.get("X-Revalidate")).toBe("*");
   });
 });
 
