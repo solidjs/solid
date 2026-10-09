@@ -2336,9 +2336,10 @@ module.exports = [
     // condition hello world stays under 10 KB.
     // #3892 (2026-10-08): measured at 29,252 B brotli / 92,410 B minified by CI
     // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
-    // #3884 landed at this cap. #3898 stacks on it; the combination is remeasured before merge.
-    limit: "29.26 KB",
-    capMinified: 92410,
+    // #3898 stacked on #3884 (2026-10-08): measured at 29,281 B brotli / 92,619 B minified
+    // by CI (Size run 37878629674). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "29.29 KB",
+    capMinified: 92619,
     alias
   },
   {
@@ -3411,7 +3412,7 @@ module.exports = [
     // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
     // #3884 stacked on next (2026-10-08): measured at 25,293 B brotli / 79,170 B minified
     // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
-    // #3898 stacks on this landed cap; the combination is remeasured before merge.
+    // #3898 stacked on this cap (Size run 37878629674) and stayed under it.
     limit: "25.30 KB",
     capMinified: 79170,
     alias
@@ -4441,6 +4442,10 @@ module.exports = [
     // eager note. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
     // by the maintainer (2026-10-08, "perf is important enough — it's the
     // point here"). The cap is frozen again at 37.94 KB.
+    // Size-Exception (#3898 stacked on #3884, 2026-10-08): 37.94 -> 37.98 KB
+    // (floor-caps.json), measured at 37,975 B brotli / 118,409 B minified by CI
+    // (Size run 37878629674). Cap set to that brotli size, rounded up to 0.01 KB.
+    // Hello world stays under 10 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -4615,7 +4620,7 @@ module.exports = [
     // (2026-10-08, "perf is important enough — it's the point here").
     // #3884 stacked on next (2026-10-08): measured at 41,057 B brotli / 123,713 B minified
     // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
-    // #3898 stacks on this landed cap; the combination is remeasured before merge.
+    // #3898 stacked on this cap (Size run 37878629674) and stayed under it.
     limit: "41.06 KB",
     capMinified: 123713,
     alias: pageAlias
