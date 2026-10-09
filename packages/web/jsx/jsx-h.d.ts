@@ -1128,20 +1128,11 @@ export namespace JSX {
     >;
     type?: FunctionMaybe<string | RemoveAttribute>;
 
-    // Client-side navigation contract. These attributes are inert markup on
-    // their own — a routing integration that delegates anchor clicks (e.g.
-    // @solidjs/router) reads them off the element at event time. Typed here
-    // so plain `<a>` elements participate without per-router augmentation.
+    // Client-side navigation contract. `link` is inert markup on its own —
+    // a routing integration that delegates anchor clicks (e.g. @solidjs/router)
+    // reads it off the element at event time.
     /** Marks the anchor as a client-navigation link when the integration requires explicit opt-in. */
     link?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    /** Serialized (JSON) history state pushed alongside the navigation. */
-    state?: FunctionMaybe<string | RemoveAttribute>;
-    /** Suppress scroll restoration/reset after the navigation. */
-    noscroll?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    /** Replace the current history entry instead of pushing a new one. */
-    replace?: FunctionMaybe<BooleanAttribute | RemoveAttribute>;
-    /** Route preload intent; `"false"` disables the integration's default eager preload. */
-    preload?: FunctionMaybe<boolean | "false" | RemoveAttribute>;
 
     /** @experimental */
     attributionsrc?: FunctionMaybe<string | RemoveAttribute>;
