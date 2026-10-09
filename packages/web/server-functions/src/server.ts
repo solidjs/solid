@@ -30,6 +30,7 @@ import {
   BODY_FORMAT_HEADER,
   BodyFormat,
   ERROR_HEADER,
+  FAILED_VALUE_HEADER,
   LIVE_SOURCE,
   REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
@@ -4650,47 +4651,59 @@ function ownResponse(response) {
  *   WIRE the way the docs describe it in prose. Without the default, CDN
  *   zones with override-TTL or "cache everything" rules store per-user RPC
  *   responses (#3071).
+ * - A value that failed while it was produced (`FAILED_VALUE_HEADER`, a
+ *   server component that threw during its synchronous render) is not
+ *   stored, even when the author set `Cache-Control`. Those headers
+ *   described the success; the throw happened after `respond()` returned.
+ *   The mark is stripped here, before CORS, so it never leaves. A returned
+ *   `{ error }` value is not this: the author chose that value and the
+ *   headers that travel with it.
  * - HEAD responses drop their body, as HTTP requires — the function still
  *   ran (HEAD is gated identically to GET), so status and headers are those
  *   of the equivalent GET (#3069).
  */
 function finalizeTransportResponse(response, method) {
   const stripBody = method === "HEAD" && response.body !== null;
-  // Never onto a 304: a 304 is not a stored response, it is an UPDATE to
-  // one — RFC 9111 §4.3.4 has the cache freshen its stored entry with the
-  // header fields the 304 carries. `no-store` here would not decline to
-  // store this answer; it would instruct the cache to DROP the entry the
-  // conditional request was sent to keep alive, leaving the read worse off
-  // than uncached — a conditional round trip and then a full refetch,
-  // every other read, forever (#3134). An author who echoes Cache-Control
-  // on the 304 (RFC 9110 §15.4.5) was always untouched; this covers the
-  // minimal correct 304 the dev warning's own advice leads to. 204/205 are
-  // ordinary answers, not cache updates, and keep the default.
-  const defaultsCache = !response.headers.has("Cache-Control") && response.status !== 304;
-  if (stripBody || defaultsCache) {
-    try {
-      if (defaultsCache) {
-        response.headers.set("Cache-Control", "no-store");
-      }
-      if (!stripBody) return response;
-      // discard, don't leak: the encoded body may be a live codec stream
-      response.body.cancel().catch(() => {});
-      return new Response(null, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers
-      });
-    } catch {
-      // immutable headers (e.g. a raw fetch() Response passed through)
-      const headers = new Headers(response.headers);
-      if (defaultsCache && !headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
-      if (stripBody) response.body.cancel().catch(() => {});
-      return new Response(stripBody ? null : response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers
-      });
+  const failedValue = response.headers.has(FAILED_VALUE_HEADER);
+  // Never `no-store` onto a 304: a 304 is not a stored response, it is an
+  // UPDATE to one — RFC 9111 §4.3.4 has the cache freshen its stored entry
+  // with the header fields the 304 carries. `no-store` here would not
+  // decline to store this answer; it would instruct the cache to DROP the
+  // entry the conditional request was sent to keep alive, leaving the read
+  // worse off than uncached — a conditional round trip and then a full
+  // refetch, every other read, forever (#3134). An author who echoes
+  // Cache-Control on the 304 (RFC 9110 §15.4.5) was always untouched; this
+  // covers the minimal correct 304 the dev warning's own advice leads to.
+  // 204/205 are ordinary answers, not cache updates, and keep the default.
+  const settle = headers => {
+    if (failedValue) {
+      headers.delete(FAILED_VALUE_HEADER);
+      if (response.status !== 304) headers.set("Cache-Control", "no-store");
+      return;
     }
+    if (!headers.has("Cache-Control") && response.status !== 304) {
+      headers.set("Cache-Control", "no-store");
+    }
+  };
+  try {
+    settle(response.headers);
+    if (!stripBody) return response;
+    // discard, don't leak: the encoded body may be a live codec stream
+    response.body.cancel().catch(() => {});
+    return new Response(null, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+  } catch {
+    // immutable headers (e.g. a raw fetch() Response passed through)
+    const headers = new Headers(response.headers);
+    settle(headers);
+    if (stripBody) response.body.cancel().catch(() => {});
+    return new Response(stripBody ? null : response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
   }
-  return response;
 }

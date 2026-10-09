@@ -203,6 +203,7 @@ import { isContainerTraced, toBorderForm } from "./frame-container-plugin.js";
 import { DESCEND, rewriteTree } from "./tree-rewrite.js";
 import {
   ChunkReader,
+  FAILED_VALUE_HEADER,
   createChunk,
   createEventChunk,
   frameAddress,
@@ -380,6 +381,9 @@ function withHoles(chunk, holes) {
  * `hooks.onYield` is called after every sweep that emitted something — the
  * visible effect of one commit (a source yielding, a promise settling): the
  * producer's bound on a plain response counts these (see `frameStream`).
+ * `hooks.onError` is called when the frame itself fails (an unkeyed error):
+ * the render's own record of it, read by the response head. A keyed error
+ * is a fragment's diagnostic and is not the frame failing.
  *
  * @param {(chunk: object) => void} emit
  * @param {{ id: string, version: number }} frame
@@ -746,6 +750,9 @@ export function createFrameSink(write, frame, have, hooks) {
       emit(chunk);
     },
     error(errorId, error) {
+      // No key: the frame as one value failed. A keyed error names a
+      // fragment or a hole and is not that.
+      if (!errorId && hooks && hooks.onError) hooks.onError();
       emit({ type: "error", id, version, key: errorId, error });
     },
     // A named slot invocation from the slot props proxy: the client's
@@ -967,6 +974,10 @@ function frameStream(makeCode, options) {
   const bounded = !options.live;
   const maxYields = bounded ? (options.maxYields ?? DEFAULT_MAX_YIELDS) : 0;
   const maxDurationMs = bounded ? (options.maxDurationMs ?? DEFAULT_MAX_DURATION_MS) : 0;
+  // Set by the sink when this frame fails as one value (an unkeyed error).
+  // The response head reads it after the sync pass; a failure after the
+  // shell has flushed cannot change that head.
+  let failed = false;
   function stream(w) {
     // Observe tier: the server half of the `"frame"` record
     // (`OBSERVE.records`, see `FrameProducedEvent`) — start → complete, with
@@ -1026,18 +1037,18 @@ function frameStream(makeCode, options) {
           timer = setTimeout(() => cut("time"), maxDurationMs);
       }
     };
-    const sink = createFrameSink(
-      emit,
-      frame,
-      options.resume && options.resume.have,
-      bounded
-        ? {
-            onYield() {
-              if (flushed && maxYields > 0 && ++yields >= maxYields) cut("yields");
-            }
+    const sink = createFrameSink(emit, frame, options.resume && options.resume.have, {
+      // The frame itself failing, as opposed to a keyed fragment diagnostic.
+      // Read after this pass by the response head (`FAILED_VALUE_HEADER`).
+      onError() {
+        failed = true;
+      },
+      onYield: bounded
+        ? () => {
+            if (flushed && maxYields > 0 && ++yields >= maxYields) cut("yields");
           }
         : undefined
-    );
+    });
     // A `live` response is the wire tier's: the standing connection the
     // client holds after this answer is that tier's code.
     if (options.live) sink.needs("wire");
@@ -1089,6 +1100,9 @@ function frameStream(makeCode, options) {
   }
   return {
     pipe: stream,
+    get failed() {
+      return failed;
+    },
     then(onFulfilled, onRejected) {
       return new Promise((resolve, reject) => {
         const chunks = [];
@@ -2877,6 +2891,17 @@ export function serverComponentResponse(component, options = {}, init = {}) {
       teardown.abort({ [DISCONNECTED]: true });
     }
   });
+  // The author's Cache-Control arrived with the head (`respond()`) and
+  // describes the success. A sync render failure is a 200 whose body is
+  // the `:error` record; the render recorded it (`stream.failed`) before
+  // this head exists. Mark the response so the transport finalizer
+  // declines to store it — the framing pipe does not decide cache policy,
+  // and the mark itself never leaves (the finalizer strips it). Status
+  // stays 200: the client reads the frame stream, and a 4xx/5xx without
+  // the body-format header is a transport failure instead of the
+  // component's error. A failure after this, once a suspended shell has
+  // to leave, can no longer change the head.
+  if (stream.failed) headers.set(FAILED_VALUE_HEADER, "1");
   return new Response(body, { status: init.status || 200, headers });
 }
 
