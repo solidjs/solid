@@ -1,5 +1,29 @@
 # @solidjs/h
 
+## 2.0.0-rc.15
+
+### Patch Changes
+
+- a497d4b: Remove `state`, `noscroll`, `replace`, and `preload` from core anchor JSX types. They are not standard `<a>` attributes; a routing integration declares them by augmenting `AnchorHTMLAttributes`. `link` stays — it is the shared explicit-links opt-in, and the SSR claim bag already copies that name. Media and webview `preload` attributes are unchanged. Types only.
+- Updated dependencies [617d195]
+- Updated dependencies [a497d4b]
+- Updated dependencies [4afc662]
+- Updated dependencies [a14c18b]
+- Updated dependencies [469733e]
+- Updated dependencies [43570f8]
+- Updated dependencies [abe12fc]
+- Updated dependencies [f64fcfe]
+- Updated dependencies [3173a14]
+- Updated dependencies [5d75ed8]
+- Updated dependencies [86ac6da]
+- Updated dependencies [49bed5c]
+- Updated dependencies [43570f8]
+- Updated dependencies [b749474]
+- Updated dependencies [234cfc9]
+- Updated dependencies [22f942d]
+- Updated dependencies [234cfc9]
+  - @solidjs/web@2.0.0-rc.15
+
 ## 2.0.0-rc.14
 
 ### Patch Changes

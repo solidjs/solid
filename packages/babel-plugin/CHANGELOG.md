@@ -1,5 +1,20 @@
 # @solidjs/babel-plugin
 
+## 2.0.0-rc.15
+
+### Patch Changes
+
+- 617d195: Emit element claims after the element's initial attributes are applied (#3923), at parity across both compilers.
+
+  A fully static `a[href]` / `form[action]` is claimed at the end of its creation statements (after static writes and refs). An element with dynamic bindings captures its owner at creation (`var _o$ = _$getOwner()`) and is claimed as the last statement of its binding effect's callback — `_$claimElement(_el$, _o$)` — in both the single-binding and the multi-binding shapes, so the claim observes the applied values on the first run whether that run is synchronous or lands from a held flush. An element carrying a spread emits no compiled claim: the `spread` runtime claims it after the first application.
+
+- 43570f8: Reapply a select's bound value when its options arrive after the value was written.
+- 22f942d: SSR: a router can mark links in server HTML (#3878). Element claims never fire during SSR, so plain anchors arrived without `aria-current="page"` / `data-active` — late on hydrated pages, never on pages that do not hydrate. Both compilers now give every candidate `<a href>` in SSR output one hole after its attributes, `ssrLinkClaim(attrs)`, where a render's **link handler** writes the anchor's link state and `""` otherwise. A static anchor's hole is one eager call over a hoisted attributes object (no allocation per render); a dynamic anchor's joins the element's attribute group and reuses the raw value its `href` hole evaluated. Anchors the compiler can rule out — a static non-empty `target`, a `download`, a `rel` naming `external`, an author-written `aria-current`, an empty href or a non-HTTP scheme — get no hole at all. The hole creates no owner and takes no hydration id. A spread anchor's link attributes are collected by `ssrElement` from its winning sources (an anchor's trailing link attributes stay a source instead of baked tail markup).
+
+  New server API (`@experimental`): `setLinkClaim(handler)` sets the handler of the render the caller belongs to — found through the owner chain like `getHydrationWriter()`, so concurrent renders never share one — and returns `false` outside a render; `undefined` clears it. The handler, `(attrs) => string`, receives the anchor's link-relevant attributes (`href`, `target`, `rel`, `download`, `link`, `aria-current`, raw values as written) and returns its attribute markup. An author-written `aria-current` always wins. Server components inline in the document render under the page's handler; a server component's own frame stream has none unless its render sets one.
+
+  Trust marker: the first `setLinkClaim` of a render writes the `links` hydration record once (`_$HY.r.links = 1`, with the shell's hydration script on the document face, a data record on a frame stream). `hasServerLinkState()` (client; `false` on the server) reads it non-destructively, so a link consumer can tell "this page's anchors carry the server's link state" from "no handler ran" and trust the HTML at hydration instead of resolving every anchor's URL at claim. Without a handler the HTML and the hydration ids are byte-for-byte what they were.
+
 ## 2.0.0-rc.14
 
 ### Patch Changes
