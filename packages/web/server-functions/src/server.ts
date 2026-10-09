@@ -71,6 +71,7 @@ export {
   // building blocks, not for hand-written code.
   ChunkReader,
   ERROR_HEADER,
+  FAILED_VALUE_HEADER,
   FLASH_COOKIE,
   REDIRECT_HEADER,
   SERVER_FUNCTION_INVOKE,
