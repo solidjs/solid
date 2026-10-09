@@ -3869,8 +3869,10 @@ module.exports = [
     // boundary's resume at page level, so the index is additive. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-08, "perf is important enough — it's the point here").
-    limit: "11.39 KB",
-    capMinified: 34112,
+    // #3889 (2026-10-08): measured at 11,406 B brotli / 34,172 B minified by CI
+    // (Size run 37873449521). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "11.41 KB",
+    capMinified: 34172,
     alias: framesAlias,
     external: framesExternal
   },
