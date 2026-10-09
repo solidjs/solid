@@ -1280,8 +1280,10 @@ module.exports = [
     // it is live (`liveTx`, `holdNode`). Cap set at measured + 10 B rounded up
     // to 0.01 KB. Accepted by the maintainer 2026-10-07 on the condition hello
     // world stays under 10 KB.
-    limit: "9.65 KB",
-    capMinified: 27155,
+    // #3892 (2026-10-08): measured at 9,672 B brotli / 27,234 B minified by CI
+    // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "9.68 KB",
+    capMinified: 27234,
     alias
   },
   {
@@ -2321,8 +2323,10 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "29.19 KB",
-    capMinified: 92263,
+    // #3892 (2026-10-08): measured at 29,252 B brotli / 92,410 B minified by CI
+    // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "29.26 KB",
+    capMinified: 92410,
     alias
   },
   {
@@ -3389,8 +3393,10 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "25.24 KB",
-    capMinified: 79085,
+    // #3892 (2026-10-08): measured at 25,263 B brotli / 79,149 B minified by CI
+    // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "25.27 KB",
+    capMinified: 79149,
     alias
   },
   {
@@ -3869,8 +3875,10 @@ module.exports = [
     // boundary's resume at page level, so the index is additive. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-08, "perf is important enough — it's the point here").
-    limit: "11.39 KB",
-    capMinified: 34112,
+    // #3889 (2026-10-08): measured at 11,406 B brotli / 34,172 B minified by CI
+    // (Size run 37873449521). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "11.41 KB",
+    capMinified: 34172,
     alias: framesAlias,
     external: framesExternal
   },

@@ -1013,9 +1013,9 @@ function boundaryComponent(host: any, fnId: string) {
  * function id so post-load streams (remapped onto the same id) morph the
  * adopted content.
  */
-// Boundaries the page carried that a component has already bound to —
-// intercepted calls consume them exactly once, so post-load navigations go
-// to the network like any other call.
+// Boundary ids the page carried that a mount has already bound to. The first
+// site of a function keeps that id; each later site (#3889) is `<id>~n`.
+// A further mount, past the last element, goes to the network.
 const claimedBoundaries = new Set<string>();
 
 // ---- the document live-hole channel (Stage 4) --------------------------
@@ -1087,7 +1087,11 @@ function findBoundaryElement(id: string): Element | undefined {
     boundaryIndex = new Map();
     if (typeof document !== "undefined" && document.body) indexBoundaries(document.body);
   }
-  return boundaryIndex.get(id);
+  // Later sites of one factory (#3889) are `<id>~n`, probed in mint order.
+  for (let n = 0; ; n++) {
+    const key = n ? id + "~" + (n + 1) : id;
+    if (!claimedBoundaries.has(key)) return boundaryIndex.get(key);
+  }
 }
 
 // The one deferred answer for "the page may still deliver this boundary":
@@ -1218,8 +1222,7 @@ function documentBoundary(
   // client entry's installServerComponents() call — re-attempt here, where
   // hydration is necessarily live (idempotent via the $sc flag).
   installRevealHook();
-  const claimed = claimedBoundaries.has(id);
-  const el = !claimed ? findBoundaryElement(id) : undefined;
+  const el = findBoundaryElement(id);
   if (el) return adoptBoundary(host, id, el, props, binding);
   // Not in the page (yet). While the page can still deliver it (the document is
   // streaming, or a deferred fragment is still holding its markup — see
@@ -1233,12 +1236,14 @@ function documentBoundary(
   // document is displaying.
   //
   // The wait is the intercept's deferred answer (`awaitBoundary`): one
-  // promise per id, settled by the reveal hook when the element lands or
+  // promise per id, settled by the reveal hook when an element lands or
   // when the page has nothing left to deliver it. Every mount asking during
-  // the wait shares it; at the answer the first to resume adopts and any
-  // other finds the id claimed and mounts fresh (only one frame may adopt an
-  // element). A mount disposed during the wait resumes nothing.
-  if (!claimed && boundaryMayArrive()) {
+  // the wait shares it; at the answer each resume takes the next unclaimed
+  // site, and a resume that finds none mounts fresh (an element is adopted
+  // by one frame). A function that already adopted a site does not wait —
+  // a further mount is a fresh one. A mount disposed during the wait
+  // resumes nothing.
+  if (!claimedBoundaries.has(id) && boundaryMayArrive()) {
     const owner = getOwner();
     let live = true;
     onCleanup(() => (live = false));
@@ -1247,7 +1252,7 @@ function documentBoundary(
         () =>
           live &&
           runWithOwner(owner, () => {
-            const node = claimedBoundaries.has(id) ? undefined : findBoundaryElement(id);
+            const node = findBoundaryElement(id);
             // No element after all (the page ran out of reveals, or another
             // mount took it): mount fresh, exactly as an unwaited miss would.
             return node
@@ -1270,11 +1275,13 @@ function adoptBoundary(
   props: Record<string, any>,
   binding?: () => string
 ) {
-  claimedBoundaries.add(id);
+  // `data-fid` is the site scope: the function id on the first mount, `<id>~n` later.
+  const siteId = el.getAttribute(FRAME_ID_ATTR)!;
+  claimedBoundaries.add(siteId);
   // Content is keyed by the CALL's address (the identity split): the frame
-  // binds the address's resident store, while `id` — the function id, the
-  // document's wire name — stays the key records and region ids on the page
-  // are written under. The address comes with the binding — every reference
+  // binds the address's resident store, while the site scope (`data-fid`) is
+  // the key records and region ids on the page are written under. The address
+  // comes with the binding — every reference
   // the document serializes resolves to the call's binding, and a `dynamic`
   // mount is called with the live accessor. A mount with no binding (the
   // per-function placeholder rendered directly, `_$SC.r(id)` — a page with
@@ -1342,7 +1349,7 @@ function adoptBoundary(
     // drain normally starts the pump; attempted on every re-drain anyway —
     // idempotent, and a defensive catch for a record that lands late.
     pumpLiveChannel();
-    const slotPrefix = `sc:slot:${id}:`;
+    const slotPrefix = `sc:slot:${siteId}:`;
     for (const key of Object.keys(hy.r)) {
       if (appliedRecords.has(key)) continue;
       if (key.startsWith(slotPrefix)) {
@@ -1370,7 +1377,7 @@ function adoptBoundary(
         } else apply(value);
       } else if (key.startsWith("sc:region:")) {
         const childId = key.slice("sc:region:".length);
-        if (childId.startsWith(id + ".")) {
+        if (childId.startsWith(siteId + ".")) {
           appliedRecords.add(key);
           // Async-occluded regions arrive as promises (the producer held
           // the stream on them); regions keep their producer-relative ids
@@ -1438,7 +1445,7 @@ function adoptBoundary(
   // failure that escaped the server component (its `:error`, the outward
   // face; frames-rulings 3.3); hole-keyed errors stay geometry-routed.
   const applyLiveOp = (op: any) => {
-    if (op.fid && op.fid !== id) return;
+    if (op.fid && op.fid !== siteId) return;
     host.apply({ ...op, id: address, version: 0 });
   };
   liveAppliers.add(applyLiveOp);
@@ -1485,16 +1492,18 @@ function adoptBoundary(
     // component's.
     hold: () =>
       sc.isHydrationInProgress?.()
-        ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + id)))
+        ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + siteId)))
         : () => {},
     // The identity split binds the frame to the call ADDRESS (id + args
     // hash), but the document producer stamped `_hk` keys and region fids
-    // under the wire name — the bare function id. Hydration-claim prefixes
-    // must derive from what the producer wrote, so thread the wire id down
-    // as the claim scope; without it every adopted claim misses and the
-    // occurrence re-renders fresh clones that cannibalize the server DOM.
+    // under the site scope — the bare function id for a single mount, a
+    // distinct scope for each later site of that function (#3889).
+    // Hydration-claim prefixes must derive from what the producer wrote, so
+    // thread that scope down as the claim scope; without it every adopted
+    // claim misses and the occurrence re-renders fresh clones that
+    // cannibalize the server DOM.
     // Spread-cast: the published FrameOptions predates this seam.
-    ...({ claimScope: id } as {})
+    ...({ claimScope: siteId } as {})
   });
   // Follow the live address binding (see boundaryComponent and
   // followAddress): a kept resolution delivers the new call's address, or a
@@ -1644,9 +1653,11 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
     // to deliver it; the caller fetches). Fetching instead would render on
     // the wire what the document is already streaming.
     intercept: ({ id }: { id: string }) => {
-      if (claimedBoundaries.has(id)) return undefined;
       if (findBoundaryElement(id)) return true;
-      if (!boundaryMayArrive()) return undefined;
+      // A function that already adopted a site has nothing local left: a
+      // further call fetches. One that has not appeared yet, while the page
+      // can still deliver it, is a local answer that has not landed.
+      if (claimedBoundaries.has(id) || !boundaryMayArrive()) return undefined;
       installRevealHook();
       return awaitBoundary(id);
     }
