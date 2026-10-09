@@ -4587,8 +4587,10 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-08, "perf is important enough — it's the point here").
     // #3924's claim-after-attributes growth is remeasured on this cap.
-    limit: "40.95 KB",
-    capMinified: 123628,
+    // #3923 (2026-10-08): measured at 40,934 B brotli / 123,574 B minified by CI
+    // (Size run 37873448792). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "40.94 KB",
+    capMinified: 123574,
     alias: pageAlias
   },
   {
@@ -4708,8 +4710,10 @@ module.exports = [
     // Re-derived onto #3913's post-#3909 cap (41,386 / 129,509) by that same
     // delta: 41,548 B / 129,869 minified. Cap at that sum + 10 B rounded up
     // to 0.01 KB.
-    limit: "41.56 KB",
-    capMinified: 129869,
+    // #3923 (2026-10-08): measured at 41,536 B brotli / 129,943 B minified by CI
+    // (Size run 37873448792). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "41.54 KB",
+    capMinified: 129943,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -4794,8 +4798,10 @@ module.exports = [
     // 47,281 B / 143,158 minified (+197 B brotli / +354 B minified over
     // #3913's 47,084 / 142,804). Cap at measured + 10 B rounded up to 0.01 KB.
     // #3924's claim-after-attributes growth is remeasured on this cap.
-    limit: "47.30 KB",
-    capMinified: 143158,
+    // #3923 (2026-10-08): measured at 47,287 B brotli / 143,229 B minified by CI
+    // (Size run 37873448792). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "47.29 KB",
+    capMinified: 143229,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
