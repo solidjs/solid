@@ -325,9 +325,11 @@ describe("#3928 multiple select value when options arrive later", () => {
     let select!: HTMLSelectElement;
     const root = document.createElement("div");
     document.body.appendChild(root);
+    // `<select value>` arrays are `string[]`. The numbers stay numbers at runtime (`"1" == 1`).
+    const values = [1, 3] as unknown as string[];
     const dispose = render(
       () => (
-        <select ref={select} multiple value={[1, 3]}>
+        <select ref={select} multiple value={values}>
           <For each={options()}>{item => <option value={item}>{item}</option>}</For>
         </select>
       ),
@@ -374,9 +376,11 @@ describe("#3928 multiple select value when options arrive later", () => {
     let select!: HTMLSelectElement;
     const root = document.createElement("div");
     document.body.appendChild(root);
+    // Same boundary: the array entries are numbers; the type is `string[]`.
+    const values = [id(1), id(2)] as unknown as string[];
     const dispose = render(
       () => (
-        <select ref={select} multiple value={[id(1), id(2)]}>
+        <select ref={select} multiple value={values}>
           <option value={id(1)}>One</option>
           <option value={id(2)}>Two</option>
         </select>
