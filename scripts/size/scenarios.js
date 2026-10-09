@@ -2341,8 +2341,14 @@ module.exports = [
     // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
     // #3898 stacked on #3884 (2026-10-08): measured at 29,281 B brotli / 92,619 B minified
     // by CI (Size run 37878629674). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "29.29 KB",
-    capMinified: 92619,
+    // Size-Exception (#3928, 2026-10-09): 29.29 -> 29.274 KB. Against next @
+    // 0c7090761 this measured 29,336 B brotli / 92,649 B minified (Size run
+    // 37912369653), 46 B over 29.29 KB, and the recorded 92,619 B already held
+    // next's +13 B so this PR's +17 B minified failed the 20 B allowance.
+    // Merged with next @ b083833f (#3948) it measures 29,274 B brotli / 92,655 B
+    // minified. Cap and recorded minified set to those bytes, not above them.
+    limit: "29.274 KB",
+    capMinified: 92655,
     alias
   },
   {
