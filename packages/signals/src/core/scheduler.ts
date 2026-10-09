@@ -6,7 +6,7 @@ import {
   CONFIG_OVERRIDE,
   CONFIG_REDERIVE,
   CONFIG_STAGED,
-  CONFIG_VERDICT,
+  CONFIG_VERDICT_REDERIVE,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -816,7 +816,7 @@ export class GlobalQueue implements IQueue {
       for (let i = 0; i < zombies.length; i++)
         if (
           (zombies[i]._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE)) === REACTIVE_ZOMBIE &&
-          zombies[i]._config & CONFIG_VERDICT
+          zombies[i]._config & CONFIG_VERDICT_REDERIVE
         )
           recompute(zombies[i]);
       // The unchanged passes' tails stay linked (A30, #3469): their inputs

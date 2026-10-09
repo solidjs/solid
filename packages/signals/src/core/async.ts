@@ -6,6 +6,7 @@ import {
   CONFIG_HELD,
   CONFIG_SYNC,
   CONFIG_VERDICT,
+  CONFIG_VERDICT_REDERIVE,
   EFFECT_TRACKED,
   EFFECT_USER,
   NOT_PENDING,
@@ -266,7 +267,7 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // when the source went pending, `propagateStatus`), and a landing
       // equal to the committed value notifies nobody — the source settling
       // is its verdict changing: it runs again.
-      return node._config & CONFIG_VERDICT && enqueueSub(node);
+      return node._config & CONFIG_VERDICT_REDERIVE && enqueueSub(node);
     visited.add(node);
     node._time = clock;
     const remaining = node._x?._pendingSources?.values().next().value;
@@ -882,9 +883,12 @@ export function propagateStatus(
     // answering an errored source (`isPending` false; `latest` throws it).
     // Inheriting the error would make a probe's reader errored. A boundary's
     // output (CONFIG_REDERIVE, boundaries.ts) the same: content or fallback
-    // is its pass's call.
+    // is its pass's call. Re-deriving on pending is a tracked verdict's
+    // (CONFIG_VERDICT_REDERIVE); an untracked probe's reader still re-derives
+    // on an error rather than inheriting it.
     if (
-      sub._config & (CONFIG_REDERIVE | CONFIG_VERDICT) ||
+      sub._config & (CONFIG_REDERIVE | CONFIG_VERDICT_REDERIVE) ||
+      (status !== STATUS_PENDING && sub._config & CONFIG_VERDICT) ||
       (status === STATUS_PENDING && link._gen !== sub._depGen)
     ) {
       enqueueSub(sub);

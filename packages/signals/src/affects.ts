@@ -27,7 +27,7 @@ import {
   STATUS_ERROR,
   STATUS_PENDING,
   CONFIG_SLOT_NODE,
-  CONFIG_VERDICT,
+  CONFIG_VERDICT_REDERIVE,
   $REFRESH
 } from "./core/constants.js";
 import { ext } from "./core/core.js";
@@ -54,7 +54,7 @@ function repoll(node: Marked, seen = new Set<Computed<any>>()): void {
     const sub = s._sub;
     if (seen.has(sub)) continue;
     seen.add(sub);
-    if (sub._config & CONFIG_VERDICT) enqueueSub(sub);
+    if (sub._config & CONFIG_VERDICT_REDERIVE) enqueueSub(sub);
     if (!(sub as any)._type) repoll(sub, seen);
   }
 }

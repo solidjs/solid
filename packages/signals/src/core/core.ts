@@ -14,6 +14,7 @@ import {
   CONFIG_FRESH_READ,
   CONFIG_GUESS,
   CONFIG_VERDICT,
+  CONFIG_VERDICT_REDERIVE,
   CONFIG_HELD,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_INPUTS_PUBLISHED,
@@ -314,7 +315,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // committed screen, settle the flight and drop the hold — a superseding
     // write's verdict would depend on that probe. Cleared for this pass; a
     // probe in the body re-stamps it after the plain reads.
-    if (el._statusFlags & STATUS_PENDING) el._config &= ~CONFIG_VERDICT;
+    if (el._statusFlags & STATUS_PENDING) el._config &= ~(CONFIG_VERDICT | CONFIG_VERDICT_REDERIVE);
     if (el._config & CONFIG_HELD) {
       const tx = txOf(el);
       // Held by a blocked lane: the frame joins nothing — a lane never holds
@@ -373,6 +374,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // live writes until the commit that disposes it, so every per-pass wipe
   // — here, the finally below, updateIfNecessary — carries it (#3543).
   el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & REACTIVE_ZOMBIE);
+  // Re-deriving on a dependency's pending is this pass's call: only a tracked
+  // verdict read in the body sets it again (`markVerdictReader`).
+  el._config &= ~CONFIG_VERDICT_REDERIVE;
   el._time = clock;
   // The pass's previous value: its staging, else the lane's value for a
   // lane's node (lanes.ts), else the committed one.
@@ -466,7 +470,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     joined = (el._flags & REACTIVE_JOINED) !== 0;
     // A verdict reader is one for as long as it probes: a pass that entered
     // no window (REACTIVE_PROBED) is an ordinary derivation again.
-    if (!(el._flags & REACTIVE_PROBED)) el._config &= ~CONFIG_VERDICT;
+    if (!(el._flags & REACTIVE_PROBED)) el._config &= ~(CONFIG_VERDICT | CONFIG_VERDICT_REDERIVE);
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
     // own owner (a memo calling its root's `dispose()`, a cleanup doing so
     // #3601/#3606), and `disposeChildren` set the flag on this node

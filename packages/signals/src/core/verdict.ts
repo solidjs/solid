@@ -16,6 +16,7 @@ import {
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_VERDICT,
+  CONFIG_VERDICT_REDERIVE,
   EFFECT_RENDER,
   NOT_PENDING,
   REACTIVE_DISPOSED,
@@ -224,7 +225,7 @@ function markVerdictReader(window: number): void {
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
   if (c !== null) {
-    c._config |= CONFIG_VERDICT;
+    c._config |= tracking ? CONFIG_VERDICT | CONFIG_VERDICT_REDERIVE : CONFIG_VERDICT;
     (c as Computed<any>)._flags |= REACTIVE_PROBED;
     // Observe tier: which windows this pass entered (1 `isPending`, 2
     // `latest`) — the hold census names the affordance (attribution.ts).
