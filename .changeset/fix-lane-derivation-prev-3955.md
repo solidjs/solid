@@ -2,4 +2,4 @@
 "@solidjs/signals": patch
 ---
 
-A derivation re-running under a lane whose first pass was equal receives its committed value as `prev` instead of the empty `NOT_PENDING` marker.
+A `createSignal(fn)` or `createMemo(fn)` derivation that reads `latest()` or `isPending()` of a signal an in-flight async memo is holding receives its previous value as `prev` on every re-run under the hold. When its first pass under the hold was equal to the previous value, the next pass received an empty internal marker instead, so `(prev = []) => [...prev]` threw `prev is not iterable` and halted the reactive system.
