@@ -957,7 +957,10 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
           // the adopted object (shared ownership — never cloned).
           t.pb = null;
           t.wk = null;
-        } else if (t.ovl && (t.v !== old || !overlayRebuilds(t, pb))) {
+        } else if (
+          t.ovl &&
+          (t.v !== old || (!overlayRebuilds(t, pb) && k?._x?._snapshotValue !== old))
+        ) {
           // Overlay flatten (#3044): the backing keeps its identity, so the
           // `t.v === old` gate below skips path copying (the parent slot
           // already points here) and the adopted-notify (setter

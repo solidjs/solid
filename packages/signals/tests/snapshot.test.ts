@@ -797,6 +797,51 @@ describe("store snapshot support", () => {
     expect(runs).toBe(2);
     clearSnapshots();
   });
+
+  it("a key added to a wide owned record during capture is held for scoped readers", () => {
+    const initial: Record<string, number> = {};
+    for (let i = 0; i < 40; i++) initial["k" + i] = i;
+    let owner!: any;
+    let state!: Record<string, number>;
+    let setState!: (fn: (s: Record<string, number>) => void) => void;
+    createRoot(() => {
+      owner = getOwner()!;
+      [state, setState] = createStore(initial);
+    });
+    setState(s => {
+      s.k0 = 100;
+    });
+    flush();
+
+    let keys!: () => string[];
+    let late!: () => string[];
+    runWithOwner(owner, () => {
+      setSnapshotCapture(true);
+      markSnapshotScope(owner);
+      keys = createMemo(() => Object.keys(state));
+      expect(keys()).toHaveLength(40);
+      onSettled(() => {
+        setState(s => {
+          s.extra = 1;
+        });
+      });
+    });
+    flush();
+    runWithOwner(owner, () => {
+      late = createMemo(() => Object.keys(state));
+    });
+
+    expect(keys()).toHaveLength(40);
+    expect(late()).toHaveLength(40);
+    expect(state.extra).toBe(1);
+
+    releaseSnapshotScope(owner);
+    flush();
+
+    expect(keys()).toContain("extra");
+    expect(late()).toContain("extra");
+    clearSnapshots();
+  });
 });
 
 describe("pending projection skips snapshot capture", () => {

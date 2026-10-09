@@ -49,24 +49,26 @@ describe("store write from onSettled during hydration of a <For> (#3950)", () =>
       document.body.appendChild(container);
       const rows = () => [...container.querySelectorAll("li")].map(li => li.textContent);
 
-      applyChunk(container, shell, true);
-      for (const c of chunks) applyChunk(container, c, false);
-      expect(rows()).toEqual(["remove", "keep"]);
-      const kept = container.querySelectorAll("li")[1];
+      let dispose: (() => void) | undefined;
+      try {
+        applyChunk(container, shell, true);
+        for (const c of chunks) applyChunk(container, c, false);
+        expect(rows()).toEqual(["remove", "keep"]);
+        const kept = container.querySelectorAll("li")[1];
 
-      const dispose = hydrate(() => <variant.App />, container);
-      await vi.waitFor(() => {
-        flush();
-        expect(rows()).toEqual(["keep"]);
-      });
-      expect(container.querySelector("li")).toBe(kept);
-
-      const diagnostics = [...warn.mock.calls, ...error.mock.calls].map(c => String(c[0]));
-      dispose();
-      container.remove();
-      warn.mockRestore();
-      error.mockRestore();
-      expect(diagnostics).toEqual([]);
+        dispose = hydrate(() => <variant.App />, container);
+        await vi.waitFor(() => {
+          flush();
+          expect(rows()).toEqual(["keep"]);
+        });
+        expect(container.querySelector("li")).toBe(kept);
+        expect([...warn.mock.calls, ...error.mock.calls].map(c => String(c[0]))).toEqual([]);
+      } finally {
+        dispose?.();
+        container.remove();
+        warn.mockRestore();
+        error.mockRestore();
+      }
     });
   }
 });
