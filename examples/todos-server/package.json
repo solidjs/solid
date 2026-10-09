@@ -1,6 +1,6 @@
 {
   "name": "todos-server-example",
-  "description": "TodoMVC as a Solid Server Component — the list is server markup, and every optimistic behavior (toggle, remove, pending/error/retry, counts, filters) is a client fill over slot args and createOptimisticStore state: binding slots the server template reads at positions, a shared TodoRow on both sides, one markup slot for pending adds",
+  "description": "TodoMVC as a Solid Server Component — the list is server markup whose every control is a form that works without JavaScript; with it, binding slots add the optimism a form cannot express (toggle-all, clear-completed, the live count) and typed errors come back through useSubmissions",
   "version": "0.0.1-rc.2",
   "private": true,
   "author": "Ryan Carniato",
@@ -13,12 +13,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@solidjs/router": "2.0.0-next.38",
     "@solidjs/web": "workspace:*",
     "solid-js": "workspace:*",
     "unstorage": "^1.17.5"
   },
   "devDependencies": {
-    "@solidjs/vite-plugin": "3.0.0-next.35",
+    "@solidjs/vite-plugin": "3.0.0-next.49",
     "vite": "^8.0.0"
   }
 }

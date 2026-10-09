@@ -1,8 +1,10 @@
 # HackerNews — Solid Server Components
 
-A real HackerNews client built with **Solid Server Components**: the story
-lists, threads, and user pages are rendered on the server and arrive as HTML,
-while the browser gets the router and the one component that owns state.
+A real HackerNews client where the server owns the markup: story lists,
+threads, and user pages are server components that arrive as HTML, and the
+browser gets the router and nothing else. It is
+the reads half of the server-owned, request/response corner of the examples
+(`todos-server` is the writes half).
 
 Its twin, [../hackernews-spa](../hackernews-spa), is the *same application* —
 same routes, same markup, same data layer — built the conventional way, with
@@ -18,26 +20,37 @@ pnpm build && pnpm start  # http://localhost:3004
 
 A `"use server"` function that **returns a function** is a server component.
 The function's arguments are the server's inputs; the returned component's
-props are client positions — holes the client fills, which never travel to the
-server. From [src/lib/views.tsx](./src/lib/views.tsx):
+props are the slots a client would fill, which never travel to the server (this
+app has none). Each route file holds its screen's server component as a `GET`
+server function, with `respond()` marking the response cacheable for a
+minute, and exports it as a server route:
 
 ```tsx
-export async function storyView(id: string) {
-  const story = await getStory(id);
-  return (props: { toggle: Slot }) => <div class="item-view">…</div>;
-}
+const getStory = GET(async ({ params }: ServerRouteArgs<RouteParams<"/stories/:id">>) => {
+  "use server";
+  const story = await hn.getStory(params.id);
+  return respond(() => <div class="item-view">…</div>, cacheable);
+});
+
+export default serverRouteComponent(getStory);
 ```
 
-On the client side there is no server-component API at all. `dynamic()` over
-the call is the entire surface ([src/routes/story.tsx](./src/routes/story.tsx)):
+`respond()` is typed as the value it wraps, so the call is still typed as
+returning the component.
 
-```tsx
-const View = dynamic(() => storyView(props.params.id));
-return <View toggle={p => <Toggle>{p.children}</Toggle>} />;
-```
+There is no route component and no `preload` to write. The router makes the
+call from the match (the route's params, and the feeds' `page` through the
+route's search schema) on navigation and on link hover alike. Navigating to
+another story or feed re-calls it, and the response morphs that boundary in
+place, with no remount and no fallback re-flash.
 
-The source is tracked, so navigating to another story re-calls it and the
-response morphs that boundary in place — no remount, no fallback re-flash.
+## The collapse is HTML
+
+Collapsing a comment's replies is a native `<details>`, so the thread needs no
+client code at all: `Comment` is recursive server markup, and the browser owns
+the open state ([src/routes/story.tsx](./src/routes/story.tsx)). The SPA twin
+renders the same `<details>`, so the markup is identical and the only
+difference between the apps is what else ships.
 
 ## What to look at
 
@@ -47,21 +60,21 @@ render to feed. Compare with the same view in the SPA twin, where each comment
 is present twice: once as the HTML the server painted, and again as the JSON
 that produced it.
 
-**The single client component in a 1,406-comment thread.**
-[src/components/toggle.tsx](./src/components/toggle.tsx) owns collapse state
-and nothing else. The server calls `props.toggle` for each comment that has
-replies, and the replies inside it are server markup again — so a subtree
-streams as HTML once at any depth, with client behavior interleaved. Collapse
-state is client state: it never appears in a request, and `$key` keeps it
-attached to its comment across refetches.
-
 **The client bundle.** No story, comment, or list templates reach the browser:
-grep `dist/client/` for `item-view-comments-header` and it isn't there, because
-[src/lib/views.tsx](./src/lib/views.tsx) is a `"use server"` module and the
-client build strips it. What *is* there is the router, the loading fallbacks,
-and `Toggle` — which is why `comment-children` still appears, since the client
-owns the replies list it wraps. (The 1,406-comment capture stays on the server
-in both apps; `hn.ts` is server-only either way.)
+grep the client JavaScript (`dist/client/assets/*.js`) for
+`item-view-comments-header` or `comment-children` and neither is there. The
+server component bodies, `Comment`, and the `hn` data layer they use are
+removed from the client build; what ships is the router, the loading
+boundary, and the runtime that mounts server components. (The 1,406-comment
+capture stays on the server in both apps.)
+
+**Navigation.** Hover a link and the router makes its call ahead of the
+click. The response is cacheable ([src/server/cache.ts](./src/server/cache.ts)),
+so the click's identical `GET` reads it from the browser's HTTP cache and
+the navigation lands at once. The SPA twin shares the call in memory through
+`query` instead. When a navigation has to wait (click the big thread without
+hovering, or tab to a link and press Enter), the current page stays up until
+the next is ready, instead of going blank.
 
 **The nav is a server component too.** It is static chrome with no reactive
 input, so it renders inline at t=0, the client adopts it, and navigation
@@ -73,18 +86,22 @@ JSON, and the boundary morphs as they arrive.
 
 ## How it's wired
 
-- [src/lib/hn.ts](./src/lib/hn.ts) — the data source, server-only. Live HN API,
-  except story `30186326` ("Facebook loses users for the first time", 1,406
-  comments, 14 levels deep), which is served from a capture so the big thread
-  is deterministic.
-- [src/lib/views.tsx](./src/lib/views.tsx) — the server components. Every view
-  here renders the exact markup its SPA counterpart renders in the browser.
-- [src/routes/](./src/routes) — one `dynamic()` call each, no templates.
-- [src/app.tsx](./src/app.tsx) — the router, the loading boundaries, and
-  nothing else. There are no story, comment, or list templates on this side.
+- [src/routes/](./src/routes) — one file per screen, each exporting its server
+  component (a `GET` server function) as a server route. The feeds also
+  export their `?page` search schema, and the thread's file holds the
+  recursive `Comment`.
+- [src/server/cache.ts](./src/server/cache.ts) — the one cache policy every
+  screen's response carries: public, for a minute.
+- [src/server/hn.ts](./src/server/hn.ts) — the data source. Live HN API, except
+  story `30186326` ("Facebook loses users for the first time", 1,406 comments,
+  14 levels deep), which is served from a capture so the big thread is
+  deterministic. It begins `import "server-only"`, which fails the build if it
+  is ever imported from client code.
+- [src/app.tsx](./src/app.tsx) — the route table (the same as the SPA twin's),
+  the loading boundary, and the nav's server component.
 - [vite.config.ts](./vite.config.ts) — identical to the SPA twin's but for one
   flag: `serverFunctions: { components: true }`. That flag is the entire wiring
-  difference between the two apps. The turnkey `ssr` object generates the
+  difference between the two apps. The turnkey `start` object generates the
   entries, the render plugin, and the document bootstrap, so nothing in `src/`
   imports the frames runtime.
 - [server.js](./server.js) — a plain node server: static assets, the SSR
