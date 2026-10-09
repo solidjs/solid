@@ -125,8 +125,8 @@ importers:
         version: link:../../packages/solid
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
@@ -138,8 +138,8 @@ importers:
         version: 3.22.1
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -169,8 +169,8 @@ importers:
         version: link:../../packages/solid
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
@@ -188,8 +188,8 @@ importers:
         version: link:../../packages/solid
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
@@ -197,8 +197,8 @@ importers:
   examples/migrating-element:
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -237,8 +237,8 @@ importers:
         version: 1.17.5
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
@@ -246,8 +246,8 @@ importers:
   examples/rendering:
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -280,8 +280,8 @@ importers:
         version: link:../../packages/solid
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       '@vitejs/plugin-basic-ssl':
         specifier: ^2.3.0
         version: 2.3.0(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
@@ -292,8 +292,8 @@ importers:
   examples/sierpinski:
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -313,8 +313,8 @@ importers:
   examples/todos:
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -347,8 +347,8 @@ importers:
         version: 1.17.5
     devDependencies:
       '@solidjs/vite-plugin':
-        specifier: 3.0.0-next.48
-        version: 3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+        specifier: 3.0.0-next.49
+        version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
@@ -2392,8 +2392,8 @@ packages:
       '@testing-library/jest-dom':
         optional: true
 
-  '@solidjs/vite-plugin@3.0.0-next.48':
-    resolution: {integrity: sha512-eB5jXAvt725OdbzbmKynIWhODrrOhj8JEl30FgqYbsi0KQxF8514j2k935c4TgvA9emjvGsNmIstMThhq/qfbA==}
+  '@solidjs/vite-plugin@3.0.0-next.49':
+    resolution: {integrity: sha512-s50Tz24Nh061/lTSvG6VyVIAraQ4gYnnwjUCe2XfDAHY2jD85vYIckJiH1XV4ZnF4I79PaOsSoa7HhzZGO99+w==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@solidjs/start-devtools': ^1.0.0-next.2
@@ -6051,7 +6051,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@solidjs/vite-plugin@3.0.0-next.48(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))':
+  '@solidjs/vite-plugin@3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@babel/core': 7.29.0
