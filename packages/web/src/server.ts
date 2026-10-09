@@ -27,6 +27,7 @@ import {
   ssrSanitizeError,
   reportServerError
 } from "solid-js/internal";
+import type { Owner } from "solid-js";
 import type { ServerErrorSite } from "solid-js/internal";
 import { effect, memo } from "./render.js";
 import { setRequestErrorHook } from "./request-error-hook.js";
@@ -7278,11 +7279,24 @@ export function composeMiddleware(middlewares) {
     }
     return dispatch(0, request);
   };
-} /**
+}
+
+/** Options for `registerElementClaim` (see the client entry); inert on the server. */
+export type ElementClaimOptions = {
+  /**
+   * Attribute names whose compiler-owned writes re-claim an already claimed
+   * element, as plain names (`href` covers `prop:href` and `xlink:href`).
+   * Defaults to `["href", "action"]`.
+   */
+  attributes?: readonly string[];
+}; /**
  * Server no-op: element claims are a client-only concern, but consumers may
  * register isomorphically. Returns a no-op unregister function.
  */
-export function registerElementClaim(handler: (element: Element) => void): () => void;
+export function registerElementClaim(
+  handler: (element: Element) => void,
+  options?: ElementClaimOptions
+): () => void;
 
 // Element claims are a client-only concern (compiled DOM output claims
 // navigation-relevant elements for consumers like a router's link-state
@@ -7292,7 +7306,7 @@ export function registerElementClaim() {
   return noopCleanup;
 }
 function noopCleanup() {} /** Server no-op: returns `node` unchanged. Claims never fire during SSR. */
-export function claimElement<T extends Element>(node: T): T;
+export function claimElement<T extends Element>(node: T, owner?: Owner | null): T;
 
 export function claimElement(node) {
   return node;

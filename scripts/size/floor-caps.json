@@ -4,20 +4,20 @@
     "minified": 20316
   },
   "app: render + one signal (the simple-app floor)": {
-    "cap": "9.938 KB",
-    "minified": 27891
+    "cap": "9.94 KB",
+    "minified": 27895
   },
   "app: hydrating (no stores) with Show/For/Loading/Errored/lazy": {
-    "cap": "17.91 KB",
-    "minified": 52977
+    "cap": "17.93 KB",
+    "minified": 52998
   },
   "page: base server components (hydrating + dynamic + frames + sf reference)": {
-    "cap": "34.283 KB",
-    "minified": 106687
+    "cap": "34.334 KB",
+    "minified": 106704
   },
   "page: live server components (base + live/GET + action + isPending/latest)": {
-    "cap": "38.044 KB",
-    "minified": 118724
+    "cap": "38.146 KB",
+    "minified": 118990
   },
   "server: floor (getRequestEvent + isServer)": {
     "cap": "1.34 KB",

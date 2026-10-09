@@ -200,6 +200,13 @@ function rowSame(a: any, b: any, keyFn: ((item: any) => any) | null): boolean {
   if (keyFn === null || !isWrappable(a) || !isWrappable(b)) return false;
   const ka = keyFn(unwrapValue(a));
   const kb = keyFn(unwrapValue(b));
+  // Keyless rows are identified by position — reconcile's fallback when the
+  // key is missing. The caller already paired these by index, so two keyless
+  // rows are the same row and the landing confirms the arrangement instead of
+  // dissolving it. Dissolving held an external echo under the action, and a
+  // mainline `until` then timed out on a source that already contained it
+  // (#3898). Keyed rows still match only on the key.
+  if (ka === undefined && kb === undefined) return true;
   return ka !== undefined && sameKey(ka, kb);
 }
 

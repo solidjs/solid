@@ -207,6 +207,7 @@ export function transformElement(
       declarations: [],
       exprs: [],
       dynamics: [],
+      claims: [],
       postExprs: [],
       isImportNode,
       isWrapped,
@@ -284,23 +285,34 @@ export function transformElement(
   if (!info.skipId) {
     results.id = path.scope.generateUidIdentifier("el$");
   }
-  // Claim contract: a[href] / form[action] elements are claimed at creation
-  // so registered consumers (e.g. a router's link-state layer) see them.
-  // detectExpressions forces the id chain, so claim targets always have one.
-  // Emitted ahead of the attribute expressions — writes to the claimed
-  // attribute recheck through the runtime's setAttribute, so order stays
-  // correct either way, but "claim at creation" reads first.
-  if (results.id && isClaimTarget(path.node)) {
-    results.exprs.push(
-      t.expressionStatement(
-        t.callExpression(
-          registerImportMethod(path, "claimElement", getRendererConfig(path, "dom").moduleName),
-          [results.id]
-        )
-      )
-    );
-  }
+  // Claim contract (#3923): a[href] / form[action] elements are claimed ONCE,
+  // after their initial attributes are applied, so registered consumers
+  // (e.g. a router's link-state layer) see the element they will manage.
+  // Decided before the attributes are lowered — processSpreads folds a
+  // spread's attributes away — and emitted after: a fully static element
+  // (attributes in the template, writes at creation) is claimed at creation,
+  // after those writes and its refs; an element with dynamic bindings at the
+  // tail of the template root's binding effect, whose first run applies
+  // them (wrapDynamics); a spread element by the spread runtime after the
+  // spread's first application — no compiled claim. detectExpressions forces
+  // the id chain, so claim targets always have one.
+  const claimTarget =
+    !!results.id &&
+    isClaimTarget(path.node) &&
+    !path.node.openingElement.attributes.some(attr => t.isJSXSpreadAttribute(attr));
   transformAttributes(path, results);
+  if (claimTarget) {
+    if (results.dynamics.length) results.claims.push(results.id!);
+    else
+      results.exprs.push(
+        t.expressionStatement(
+          t.callExpression(
+            registerImportMethod(path, "claimElement", getRendererConfig(path, "dom").moduleName),
+            [results.id!]
+          )
+        )
+      );
+  }
   if (config.contextToCustomElements && (tagName === "slot" || hasCustomElement)) {
     contextToCustomElement(path, results);
   }
@@ -1393,6 +1405,7 @@ function transformChildren(
       results.declarations.push(...(child.declarations as babelTypes.VariableDeclarator[]));
       results.exprs.push(...(child.exprs as babelTypes.Statement[]));
       results.dynamics.push(...child.dynamics);
+      if (child.claims) results.claims.push(...child.claims);
       childPostExprs.push(...(child.postExprs || []));
       results.hasHydratableEvent =
         results.hasHydratableEvent || (child as DOMTransformResult).hasHydratableEvent;

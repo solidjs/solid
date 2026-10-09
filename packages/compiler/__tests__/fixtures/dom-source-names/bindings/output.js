@@ -1,4 +1,5 @@
 import { template as _$template } from "r-dom";
+import { getOwner as _$getOwner } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
@@ -16,6 +17,7 @@ var _tmpl$5 = /* @__PURE__ */ _$template(`<div>Hello <!>!<p></p><!>`);
 var _tmpl$6 = /* @__PURE__ */ _$template(`<div>text`);
 var _tmpl$7 = /* @__PURE__ */ _$template(`<section>`);
 var _tmpl$8 = /* @__PURE__ */ _$template(`<a>`);
+var _tmpl$9 = /* @__PURE__ */ _$template(`<a>Link`);
 var _el$ = _tmpl$();
 var _el$2 = _el$.firstChild;
 _$effect(() => label(), (_v$) => {
@@ -105,7 +107,6 @@ _$spread(_el$21, props, true, undefined, "section");
 _$insert(_el$21, children, undefined, undefined, { name: "section.children" });
 const spreadWithChildren = _el$21;
 var _el$22 = _tmpl$8();
-_$claimElement(_el$22);
 _$spread(_el$22, [
 	{ get href() {
 		return href();
@@ -114,3 +115,17 @@ _$spread(_el$22, [
 	{ title: "static" }
 ], false, undefined, "a");
 const spreadMixed = _el$22;
+var _el$23 = _tmpl$9();
+var _o$ = _$getOwner();
+_$effect(() => {
+	return {
+		e: href(),
+		t: target()
+	};
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$23, "href", e);
+	t !== _p$?.t && _$setAttribute(_el$23, "target", t);
+	_$claimElement(_el$23, _o$);
+}, { name: "a.href, a.target" });
+// A claim target with bindings → its claim is the tail of the named effect.
+const link = _el$23;

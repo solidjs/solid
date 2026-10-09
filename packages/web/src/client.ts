@@ -19,7 +19,7 @@ import {
   ROOT_ERROR_HOOK,
   OBSERVE
 } from "solid-js";
-import type { ClientErrorHook } from "solid-js";
+import type { ClientErrorHook, Owner } from "solid-js";
 import {
   sharedConfig,
   viewOf,
@@ -658,55 +658,118 @@ export function setProperty(node, name, value) {
   )
     node[name] = value ?? "";
   else node[name] = value;
+  reclaimAttribute(node, name);
 }
 
 // === Element claims ===
 //
 // Compiled DOM output claims navigation-relevant elements (`a[href]`,
-// `form[action]`) at creation via `claimElement`, and the write sites the
-// compiler owns (binding effects and spread assigns, which both land in
-// `setAttribute`) re-invoke the same handlers when an `href`/`action`
-// attribute changes — handlers must be idempotent. Dormant by design: with
-// no handler registered every hook is a null check, so apps without a
-// consumer (e.g. a router's link-state layer) pay nothing at runtime.
+// `form[action]`) once, at mount, via `claimElement` — AFTER the element's
+// initial attributes are applied, so a handler sees the anchor it will
+// manage (#3923): a fully static element is claimed as soon as it is
+// created, an element with dynamic bindings at the tail of the render
+// effect that applies them (its first run — synchronous at creation, or the
+// landing's when the mount is held), an element carrying a spread after the
+// spread's first application. Afterwards the write sites the compiler owns
+// (binding effects and spread assigns — `setAttribute`, `setAttributeNS`,
+// `setProperty`, the spread's property path) re-invoke the same handlers when
+// an attribute a consumer declared (`registerElementClaim`'s `attributes`,
+// `href`/`action` by default) is written — handlers must be idempotent.
+// Writes before the mount claim never re-claim: the claim that follows sees
+// them, so one mount is one claim. Dormant by design: with no handler
+// registered every hook is a null check, so apps without a consumer (e.g. a
+// router's link-state layer) pay nothing at runtime.
 //
-// Handlers run during element creation, under whatever reactive owner is
-// current — consumers scope their per-element state and cleanup through
-// their own reactive system (e.g. onCleanup), not through this hook.
+// Handlers run under the reactive owner the element was created with —
+// consumers scope their per-element state and cleanup through their own
+// reactive system (e.g. onCleanup), not through this hook. A claim that
+// trails a render effect's first run receives that owner explicitly
+// (compiled output captures it at creation), since the effect's callback
+// runs ownerless when the mount lands from a held flush.
 let claimHandlers = null;
+// Per registered handler, the attribute names whose writes re-claim — the
+// write sites consult their union (a handful of names across one or two
+// consumers; scanned, not indexed).
+const claimAttributeSets = [];
 
 // The live handler list is mirrored onto a registered symbol so the frame
 // runtime — deliberately importless in both directions, like the FRAME
 // brand — sweeps serialized server content against the SAME registry, even
 // when the two land in separately bundled copies of this module.
-const CLAIM_SEAM = Symbol.for("solid.element-claims"); /**
+const CLAIM_SEAM = Symbol.for("solid.element-claims");
+
+/** Options for `registerElementClaim`. */
+export type ElementClaimOptions = {
+  /**
+   * Attribute names whose compiler-owned writes re-claim an already claimed
+   * element, as plain names: `href` covers the `href` attribute, the
+   * `prop:href` property path and the `xlink:href` namespaced path alike.
+   * Defaults to `["href", "action"]`. The write sites consult the union of
+   * every registered consumer's set.
+   */
+  attributes?: readonly string[];
+}; /**
  * Register a consumer for compiler-emitted element claims. Compiled DOM
- * output claims navigation-relevant elements (`a[href]`, `form[action]`) at
- * creation, and compiler-owned writes to `href`/`action` re-invoke the same
- * handlers — so handlers must be idempotent and must check the element's
- * relevance themselves (rechecks can fire for any element whose
- * `href`/`action` is written, e.g. `<link href>`). Handlers run under the
- * reactive owner current at element creation; scope per-element state and
- * cleanup through your own reactive system. Dormant until registered —
- * without a handler the emitted claims are null checks. Returns an
- * unregister function.
+ * output claims navigation-relevant elements (`a[href]`, `form[action]`)
+ * once at mount, after their initial attributes are applied — so a handler
+ * sees the element's final initial attributes and is told about one mount
+ * exactly once. Afterwards compiler-owned writes to an attribute in the
+ * consumer's declared set (`options.attributes`, default `href`/`action`;
+ * `prop:href` and `xlink:href` map to `href`) re-invoke the handlers — so
+ * handlers must be idempotent and must check the element's relevance
+ * themselves. Handlers run under the reactive owner the element was created
+ * with; scope per-element state and cleanup through your own reactive
+ * system. Dormant until registered — without a handler the emitted claims
+ * are null checks. Returns an unregister function.
  *
  * Integration plumbing (routers register the consumer); not meant for
  * application code.
  * @internal
  */
-export function registerElementClaim(handler: (element: Element) => void): () => void;
+export function registerElementClaim(
+  handler: (element: Element) => void,
+  options?: ElementClaimOptions
+): () => void;
 
 /**
  * Register a consumer for compiler-emitted element claims. Returns an
  * unregister function.
  */
-export function registerElementClaim(handler) {
+export function registerElementClaim(handler, options) {
   (claimHandlers || (claimHandlers = globalThis[CLAIM_SEAM] = [])).push(handler);
+  claimAttributeSets.push(options?.attributes || ["href", "action"]);
   return () => {
     const index = claimHandlers.indexOf(handler);
-    index > -1 && claimHandlers.splice(index, 1);
+    if (index > -1) {
+      claimHandlers.splice(index, 1);
+      claimAttributeSets.splice(index, 1);
+    }
   };
+}
+
+/** Fire every handler in `handlers` on `node`. */
+function runClaimHandlers(handlers, node) {
+  for (let i = 0; i < handlers.length; i++) handlers[i](node);
+}
+
+// Compiler-owned attribute writes land here after the DOM write: once an
+// element has had its mount claim (`_$claimed`), a write to a declared
+// attribute re-claims it. `name` is the name as the write site has it —
+// plain, `prop:` stripped on the property path, qualified on the namespaced
+// path — and the declared names are plain, so a qualified name is looked up
+// by its local part (`xlink:href` re-claims as `href`; a plain name slices
+// from 0, which hands back the same string). The registry check comes first
+// on purpose: `claimHandlers` is only ever assigned by `registerElementClaim`,
+// so an app without a consumer (the registration tree-shaken) has the bundler
+// fold this — and `claimElement` — to nothing; the dormant path costs no
+// bytes and no reads.
+function reclaimAttribute(node, name) {
+  if (
+    claimHandlers !== null &&
+    node._$claimed &&
+    claimAttributeSets.some(set => set.includes(name.slice(name.indexOf(":") + 1)))
+  )
+    runClaimHandlers(claimHandlers, node);
 }
 
 // Elements the claim contract covers, and the subtree sweep over them.
@@ -741,28 +804,40 @@ export function claimElementTree(root) {
   if (handlers === undefined || handlers.length === 0) return root;
   const isElement = root.nodeType === 1;
   if (!isElement && root.nodeType !== 11) return root;
+  // A sweep is an explicit (re-)claim, never deduped against the mount mark —
+  // it marks so later compiler-owned writes to a swept element re-claim.
   if (isElement && root.matches(CLAIMED_ELEMENTS)) {
-    for (let i = 0; i < handlers.length; i++) handlers[i](root);
+    root._$claimed = true;
+    runClaimHandlers(handlers, root);
   }
   const found = root.querySelectorAll(CLAIMED_ELEMENTS);
   for (let i = 0; i < found.length; i++) {
-    for (let j = 0; j < handlers.length; j++) handlers[j](found[i]);
+    found[i]._$claimed = true;
+    runClaimHandlers(handlers, found[i]);
   }
   return root;
 } /**
- * Claim `node` for registered consumers (see `registerElementClaim`).
- * Emitted by the compiler at element creation; idempotent by contract.
+ * Claim `node` for registered consumers (see `registerElementClaim`): the
+ * element's mount claim, once per element — a second call is a no-op.
+ * Emitted by the compiler after the element's initial attributes are
+ * applied: at creation for a static element, at the tail of its binding
+ * effect otherwise, where `owner` is the reactive owner captured at
+ * creation (the effect's callback runs ownerless when a held mount lands)
+ * and the handlers run under it.
  * @internal
  */
-export function claimElement<T extends Element>(node: T): T;
+export function claimElement<T extends Element>(node: T, owner?: Owner | null): T;
 
 /**
- * Claim `node` for registered consumers. Emitted by the compiler at element
- * creation and re-invoked (idempotently) from claimed-attribute writes.
+ * Claim `node` for registered consumers, once. Emitted by the compiler
+ * after the element's initial attributes are applied; the spread runtime
+ * calls it after a spread's first application.
  */
-export function claimElement(node) {
-  if (claimHandlers !== null) {
-    for (let i = 0; i < claimHandlers.length; i++) claimHandlers[i](node);
+export function claimElement(node, owner) {
+  if (claimHandlers !== null && !node._$claimed) {
+    node._$claimed = true;
+    if (owner === undefined) runClaimHandlers(claimHandlers, node);
+    else runWithOwner(owner, () => runClaimHandlers(claimHandlers, node));
   }
   return node;
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
@@ -793,10 +868,10 @@ export function setAttribute(node, name, value) {
     }
   }
   if (selectMultiple) node._$multiple = true;
-  // Frozen contract with compiled output: `href`/`action` can only change
-  // through compiler-owned write paths, which all land here — so one recheck
-  // at this site keeps claim consumers fresh with no observers.
-  if (claimHandlers !== null && (name === "href" || name === "action")) claimElement(node);
+  // Frozen contract with compiled output: a claimed element's attributes can
+  // only change through compiler-owned write paths, which land here — so
+  // one recheck at this site keeps claim consumers fresh with no observers.
+  reclaimAttribute(node, name);
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function setAttributeNS(node: Element, namespace: string, name: string, value: string): void;
 
@@ -807,6 +882,10 @@ export function setAttributeNS(node, namespace, name, value) {
   if (value == null || value === false)
     node.removeAttributeNS(namespace, name.indexOf(":") > -1 ? name.split(":").pop() : name);
   else node.setAttributeNS(namespace, name, value === true ? "" : value);
+  // The qualified name: the declared set carries each name's namespaced
+  // forms too (`xlink:href` re-claims as `href`), so this site stays as
+  // cheap as the plain one.
+  reclaimAttribute(node, name);
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function className(node: Element, value: JSX.ClassValue, prev?: JSX.ClassValue): void;
 
@@ -1064,10 +1143,22 @@ export function spread(node, props, skipChildren, skip, name) {
     }
   }
   const prevProps = {};
+  // Claim contract: an `a`/`form` carrying a spread is a claim target (the
+  // spread may carry its `href`/`action`), claimed after the first
+  // application under the owner it is created with — `claimElement` is
+  // once-per-element, so a rerun costs one check. The compiler emits no
+  // claim for a spread element; this is its mount claim. Registry check
+  // first so an app without a consumer folds this away (see
+  // `reclaimAttribute`).
+  const owner =
+    claimHandlers !== null && (node.localName === "a" || node.localName === "form")
+      ? getOwner()
+      : undefined;
   const apply = newProps => {
     const r = newProps.ref;
     if (r !== prevProps.ref && (typeof r === "function" || Array.isArray(r))) ref(() => r, node);
     assign(node, newProps, true, prevProps, true);
+    if (owner !== undefined) claimElement(node, owner);
   };
   if (Array.isArray(props)) {
     effect(() => collectSources({}, props, undefined, skip), apply);
@@ -2678,6 +2769,8 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
       // input/textarea — nullish must clear the field, not stringify (#2957).
       node[prop] = value ?? "";
     else node[prop] = value;
+    // The claim contract is in plain names: `prop:href` re-claims as `href`.
+    reclaimAttribute(node, prop);
   } else {
     const ns = hasNamespace && Namespaces[prop.split(":")[0]];
     if (ns) setAttributeNS(node, ns, prop, value);

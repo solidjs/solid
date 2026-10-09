@@ -22,6 +22,17 @@ pub(crate) struct DynamicSlot<'a> {
     pub(crate) class_property: bool,
 }
 
+/// What one template root folds into its single binding effect
+/// (`wrap_dynamics_statement`): the deferred attribute bindings (Babel's
+/// `results.dynamics`) and the claim targets whose mount claim trails them
+/// at the effect's tail (Babel's `results.claims`) — `a[href]` /
+/// `form[action]` elements with a binding in `slots`, in document order.
+#[derive(Default)]
+pub(crate) struct DynamicsBatch<'a> {
+    pub(crate) slots: std::vec::Vec<DynamicSlot<'a>>,
+    pub(crate) claims: std::vec::Vec<String>,
+}
+
 impl<'a> AstDomTransform<'a, '_> {
     /// Port of Babel's `wrapReadShallow` (dom/template.ts): a non-inline
     /// object-valued `style` / `class` binding is read in the TRACKED half of
@@ -63,14 +74,28 @@ impl<'a> AstDomTransform<'a, '_> {
 
     /// Port of Babel's `wrapDynamics` (dom/template.ts): one dynamic binding
     /// gets its own effect; multiple bindings share a single keyed effect
-    /// with a previous-values object.
+    /// with a previous-values object. The batch's claim targets are claimed
+    /// at the tail of the effect body — the first run claims after it
+    /// applied the initial attributes (`claimElement` is once-per-element, so
+    /// reruns cost one check) — under `owner`, the owner the template root
+    /// captured at creation (the callback runs ownerless when a held mount
+    /// lands).
     pub(crate) fn wrap_dynamics_statement(
         &mut self,
-        mut dynamics: std::vec::Vec<DynamicSlot<'a>>,
+        batch: DynamicsBatch<'a>,
+        owner: Option<&str>,
     ) -> Option<Statement<'a>> {
+        let DynamicsBatch {
+            slots: mut dynamics,
+            claims,
+        } = batch;
         if dynamics.is_empty() {
             return None;
         }
+        let claim_statements: std::vec::Vec<Statement<'a>> = claims
+            .iter()
+            .map(|element_id| self.claim_element_statement(element_id, owner))
+            .collect();
         self.template_state.uses_effect = true;
         // `sourceNames.bindings`: the effect is named by what it writes — each
         // binding's `<tag>.<attribute>` as written (undoing the `prop:` the
@@ -130,7 +155,9 @@ impl<'a> AstDomTransform<'a, '_> {
             } else {
                 vec!["_v$"]
             };
-            let setter = self.arrow_with_statements(span, params, self.ast().vec1(statement));
+            let mut body = self.ast().vec1(statement);
+            body.extend(claim_statements);
+            let setter = self.arrow_with_statements(span, params, body);
             let effect_local = self.effect_wrapper_local();
             let mut args = vec![getter, setter];
             if let Some(label) = label {
@@ -244,6 +271,7 @@ impl<'a> AstDomTransform<'a, '_> {
             }
             param_names.push(prop_name);
         }
+        statements.extend(claim_statements);
 
         let values_object = self.ast().expression_object(span, value_props);
         let getter = self.arrow_with_return(span, std::vec::Vec::new(), values_object);

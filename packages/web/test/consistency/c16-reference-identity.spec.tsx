@@ -16,7 +16,7 @@
  * binding, `settled`, `showing`, `resolveServerComponent`),
  * frames/src/client.ts `installServerComponents` (`_$SC.r` and its `c`/`b`
  * tables; `component: fnId => _$SC.r(fnId)` makes the transport's component
- * THE document placeholder), web/src/index.ts `dynamic` (`bindingOf`,
+ * THE document placeholder), `solid-js` `dynamicCore` (`bindingOf`,
  * `resolveBinding`, `sameInstance`, `deliveredAddress`).
  *
  * Identity is read two ways: `COMPONENT_BINDING.component` on every
