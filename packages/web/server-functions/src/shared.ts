@@ -221,7 +221,10 @@ export type BodyFormatValue = (typeof BodyFormat)[keyof typeof BodyFormat];
 const codecConfig = { codec: undefined }; /**
  * Configures the codec options for the server function wire format (extra
  * Seroval plugins, feature policy, depth limit). Both peers must configure
- * identical options or payloads will not round-trip. Usually called
+ * identical options or payloads will not round-trip. The argument leg
+ * (client → server) narrows the set on top of whatever is configured here:
+ * arguments are client input and never decode `Response` or `Request`
+ * values; results and hydration keep the full set. Usually called
  * indirectly through `configureServerFunctionsClient` /
  * `configureServerFunctionsServer` (their `codec` option writes through to
  * here); call it directly only from universal code configuring both sides
