@@ -1280,8 +1280,10 @@ module.exports = [
     // it is live (`liveTx`, `holdNode`). Cap set at measured + 10 B rounded up
     // to 0.01 KB. Accepted by the maintainer 2026-10-07 on the condition hello
     // world stays under 10 KB.
-    limit: "9.65 KB",
-    capMinified: 27155,
+    // #3898 (2026-10-08): measured at 9,680 B brotli / 27,315 B minified by CI
+    // (Size run 37873455948). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "9.68 KB",
+    capMinified: 27315,
     alias
   },
   {
@@ -2321,8 +2323,10 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "29.19 KB",
-    capMinified: 92263,
+    // #3898 (2026-10-08): measured at 29,238 B brotli / 92,514 B minified by CI
+    // (Size run 37873455948). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "29.24 KB",
+    capMinified: 92514,
     alias
   },
   {
@@ -3389,8 +3393,10 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "25.24 KB",
-    capMinified: 79085,
+    // #3898 (2026-10-08): measured at 25,245 B brotli / 79,149 B minified by CI
+    // (Size run 37873455948). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "25.25 KB",
+    capMinified: 79149,
     alias
   },
   {
@@ -4586,8 +4592,10 @@ module.exports = [
     // adoption-time claim index from the frames eager note. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-08, "perf is important enough — it's the point here").
-    limit: "40.95 KB",
-    capMinified: 123628,
+    // #3898 (2026-10-08): measured at 41,019 B brotli / 123,728 B minified by CI
+    // (Size run 37873455948). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "41.02 KB",
+    capMinified: 123728,
     alias: pageAlias
   },
   {
