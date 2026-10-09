@@ -1,5 +1,7 @@
 # Async/Pending/Transition Semantics — Spec Propositions
 
+> **Archive (2026-10-07).** This file is the ruling log: every A-rule, amendment and dated re-ruling stays here as written, append-only. The standing statement of the rules is in three tiers — [`RULES-FUNDAMENTALS.md`](./RULES-FUNDAMENTALS.md) (immutable basics, `F-<n>`), [`RULES-DERIVED.md`](./RULES-DERIVED.md) (how each applies to a shape, `D-<n>`; each derived rule links the entries here it collapses) and [`SCENARIOS.md`](./SCENARIOS.md) (the screens, `S-<n>`) — with the unresolved disagreements in [`OPEN-QUESTIONS.md`](./OPEN-QUESTIONS.md). A fundamental beats a derived rule; a derived rule beats this archive. Cite A-ids from code as before; they resolve through `RULES-INDEX.md`.
+
 > **Index:** every rule ID cited from `src/` or `tests/` — this file's A/B/C/V ids, the INV/RUL/R/§ vocabularies of the internals and rules-mining docs — is listed with status, definition and citations in [`RULES-INDEX.md`](./RULES-INDEX.md) (generated; `node scripts/rules-index.mjs`). IDs are never renumbered.
 
 Companion to `INTERNALS-ASYNC-STATE.md`. Each proposition is a testable,
