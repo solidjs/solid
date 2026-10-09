@@ -159,8 +159,9 @@ function errorFamily(fam: StoreFamily): void {
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
     forEachDependent(n as unknown as Computed<any>, sub => {
-      // The re-derive meets the stored error, including a follow-up pass of
-      // the same reader. A fresh subscriber has no mark and still retries (#3945).
+      // `pullFamily` drops this reader onto the untracked pull: the re-derive
+      // meets the stored error, including a follow-up pass. A fresh subscriber
+      // has no mark and still retries (#3945).
       (sub as any)._errorMeet = true;
       enqueueSub(sub);
     });

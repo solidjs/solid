@@ -1755,7 +1755,15 @@ function pullFamily(target: StoreTarget): void {
   // reader of a memo would — linked, so it re-runs at the landing (the
   // next settled pass pulls without linking and the stale link trims), a
   // verdict reader registered, a tracked pass suspended.
-  if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR)) {
+  // A reader queued by the rejection (`errorFamily`) throws the stored error
+  // and does not retry, including a follow-up pass (#3945). The mark drops
+  // STATUS_ERROR out of this mask, so the pull is the untracked one below —
+  // core's retry stays the fresh-subscriber path, and a bundle with no store
+  // does not carry it. Pending pulls keep the bit.
+  if (
+    fw._statusFlags &
+    ((context as any)?._errorMeet ? STATUS_PENDING : STATUS_PENDING | STATUS_ERROR)
+  ) {
     // A render effect outside the flight's own flush is the frame, not a
     // derivation: it keeps what it shows and learns of the landing from the
     // leaves the landing changes (unchanged leaves say nothing — it is not a
