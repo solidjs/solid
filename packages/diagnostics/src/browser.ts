@@ -57,14 +57,16 @@ export interface DiagnosticsBridge {
  * fail after a capture succeeded.
  */
 function toSerializable<T>(value: T): T {
-  const seen = new WeakSet<object>();
+  // Only the ancestors of the current value: a shared reference is not a cycle.
+  const ancestors: object[] = [];
   return JSON.parse(
-    JSON.stringify(value, (_key, entry) => {
+    JSON.stringify(value, function (this: object, _key, entry) {
       if (typeof entry === "function" || typeof entry === "symbol") return undefined;
       if (typeof entry === "bigint") return String(entry);
       if (typeof entry === "object" && entry !== null) {
-        if (seen.has(entry)) return undefined;
-        seen.add(entry);
+        while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) ancestors.pop();
+        if (ancestors.includes(entry)) return undefined;
+        ancestors.push(entry);
       }
       return entry;
     })
