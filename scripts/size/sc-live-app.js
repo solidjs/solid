@@ -5,8 +5,16 @@
 // stores: the store engine on this page, if any, is the frames client's
 // container-trace materializer, which is exactly what this scenario keeps
 // honest.
-import { hydrate, Show, For, Loading, Errored, dynamicComponent } from "@solidjs/web";
-import { createSignal, createMemo, action, isPending, latest, lazy } from "solid-js";
+import { hydrate, Show, For, Loading, Errored } from "@solidjs/web";
+import {
+  createSignal,
+  createMemo,
+  action,
+  isPending,
+  latest,
+  lazy,
+  dynamicComponent
+} from "solid-js";
 import { installServerComponents } from "@solidjs/web/frames";
 import { createServerReference, live, GET } from "@solidjs/web/server-functions/client";
 

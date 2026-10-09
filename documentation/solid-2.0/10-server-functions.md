@@ -245,6 +245,7 @@ export const feed = live(
 );
 
 // client
+import { dynamicComponent } from "solid-js";
 const Feed = dynamicComponent(() => feed(props.room));
 ```
 

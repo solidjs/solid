@@ -135,7 +135,7 @@ component-only form of `dynamic`, the same utility you'd use to swap any
 component — is the whole surface:
 
 ```tsx
-import { dynamicComponent } from "@solidjs/web";
+import { dynamicComponent } from "solid-js";
 
 function StoryPage(props) {
   const [collapsedAll, setCollapsedAll] = createSignal(false);
