@@ -90,6 +90,8 @@ import type { Computed, Signal } from "./types.js";
 
 /** Live lanes (parented). Scanned at every seam while non-empty. */
 const lanes: Transaction[] = [];
+/** A pass left a shown slot the equality gate can no longer see (#3892). */
+const LEFT_SHOWN = 1 << 20;
 function newLane(parent: Transaction): Transaction {
   const l = newTransaction(true, parent);
   lanes.push(l);
@@ -313,9 +315,14 @@ export function laneStage(
   errored: boolean | Computed<any>
 ): boolean {
   if (!(create || errored || el._flags & REACTIVE_LANE_READ || el._config & CONFIG_GUESS)) {
-    if (el._x !== null) {
-      if (el._x._transaction?._lane) el._x._transaction = null;
-      el._x._lane = NOT_PENDING;
+    const x = el._x;
+    if (x !== null) {
+      const tx = x._transaction;
+      // Cleared before equality, so a return to the committed value notifies
+      // nobody. The seam wakes it unless the frame is still held (#3892).
+      if (tx?._shown && !blocked(resolveTx(tx!._parent!))) el._flags |= LEFT_SHOWN;
+      if (tx?._lane) x._transaction = null;
+      x._lane = NOT_PENDING;
     }
     el._config &= ~(CONFIG_OVERRIDE | CONFIG_HELD);
     return false;
@@ -674,6 +681,10 @@ function laneSeam(l: Transaction, leaked: boolean): void {
   reruns(l);
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i] as Computed<any>;
+    if (n._flags & LEFT_SHOWN) {
+      n._flags ^= LEFT_SHOWN;
+      insertSubs(n);
+    }
     const x = n._x!;
     if (x._transaction !== l) continue;
     if (!(n._config & CONFIG_GUESS) && !(n as any)._type && n._pendingValue !== NOT_PENDING) {

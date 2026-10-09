@@ -1280,10 +1280,11 @@ module.exports = [
     // it is live (`liveTx`, `holdNode`). Cap set at measured + 10 B rounded up
     // to 0.01 KB. Accepted by the maintainer 2026-10-07 on the condition hello
     // world stays under 10 KB.
-    // #3898 (2026-10-08): measured at 9,680 B brotli / 27,315 B minified by CI
-    // (Size run 37873455948). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3892 (2026-10-08): measured at 9,672 B brotli / 27,234 B minified by CI
+    // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3898 stacks on this; its combined size is remeasured before merge.
     limit: "9.68 KB",
-    capMinified: 27315,
+    capMinified: 27234,
     alias
   },
   {
@@ -2323,10 +2324,11 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    // #3898 (2026-10-08): measured at 29,238 B brotli / 92,514 B minified by CI
-    // (Size run 37873455948). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "29.24 KB",
-    capMinified: 92514,
+    // #3892 (2026-10-08): measured at 29,252 B brotli / 92,410 B minified by CI
+    // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3898 stacks on this; its combined size is remeasured before merge.
+    limit: "29.26 KB",
+    capMinified: 92410,
     alias
   },
   {
@@ -3393,9 +3395,10 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    // #3898 (2026-10-08): measured at 25,245 B brotli / 79,149 B minified by CI
-    // (Size run 37873455948). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "25.25 KB",
+    // #3892 (2026-10-08): measured at 25,263 B brotli / 79,149 B minified by CI
+    // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3898 stacks on this; its combined size is remeasured before merge.
+    limit: "25.27 KB",
     capMinified: 79149,
     alias
   },
@@ -3875,8 +3878,10 @@ module.exports = [
     // boundary's resume at page level, so the index is additive. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-08, "perf is important enough — it's the point here").
-    limit: "11.39 KB",
-    capMinified: 34112,
+    // #3889 (2026-10-08): measured at 11,406 B brotli / 34,172 B minified by CI
+    // (Size run 37873449521). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "11.41 KB",
+    capMinified: 34172,
     alias: framesAlias,
     external: framesExternal
   },
