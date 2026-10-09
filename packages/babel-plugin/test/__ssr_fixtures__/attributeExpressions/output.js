@@ -10,8 +10,9 @@ import { escape as _$escape } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
 import { ssrElementAttribute as _$ssrElementAttribute } from "r-server";
 import { ssr as _$ssr } from "r-server";
+import { ssrLinkClaim as _$ssrLinkClaim } from "r-server";
 var _ref$, _v$, _v$2, _v$26, _v$28, _v$48, _v$49, _v$50, _v$51, _v$52;
-var _tmpl$ = ['<a href="/" class="', '">Welcome</a>'],
+var _tmpl$ = ['<a href="/" class="', '"', ">Welcome</a>"],
   _tmpl$2 = ["<div>", "</div>"],
   _tmpl$3 = "<div><div/></div>",
   _tmpl$4 = ["<div foo", ' style="', '"', ">", "</div>"],
@@ -80,6 +81,9 @@ var _tmpl$ = ['<a href="/" class="', '">Welcome</a>'],
   _tmpl$55 = "a &lt; b",
   _tmpl$56 = ["<div", "", "", "></div>"],
   _tmpl$57 = "<div class></div>";
+var _lk$ = {
+  href: "/"
+};
 var _sk$ = k => k === "foo" || k === "disabled" || k === "title" || k === "style" || k === "class",
   _sk$2 = k => k === "class" || k === "style",
   _sk$3 = k => k === "something",
@@ -112,7 +116,7 @@ const template = _$ssrElement(
       },
       results
     ],
-    ((_ref$ = link), _$ssr(_tmpl$, "ccc ddd")),
+    ((_ref$ = link), _$ssr(_tmpl$, "ccc ddd", _$ssrLinkClaim(_lk$))),
     false,
     _sk$,
     () =>

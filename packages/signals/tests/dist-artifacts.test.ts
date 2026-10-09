@@ -232,6 +232,89 @@ describe("@solidjs/signals cleanup order per tier", () => {
   }
 });
 
+describe("@solidjs/signals bundled under `sideEffects: false`", () => {
+  // #3891: the store half of `affects()` was installed by a bare
+  // `import "./affects.js"`, which a bundler honouring `sideEffects: false`
+  // drops — `affects(store)` then crashed in prod and observe. `affects()`
+  // now installs it on its first store target, and it never imports the
+  // store engine. The fixture imports the package by name (self-reference)
+  // so the bundler reads package.json.
+  const pkg = fileURLToPath(new URL("..", import.meta.url));
+  async function bundle(contents: string, conditions: string[]) {
+    const { build } = await import("esbuild");
+    const result = await build({
+      stdin: { contents, resolveDir: pkg, loader: "js" },
+      bundle: true,
+      write: false,
+      format: "esm",
+      platform: "browser",
+      minify: true,
+      metafile: true,
+      conditions,
+      logLevel: "silent"
+    });
+    const inputs = Object.values(result.metafile.outputs)[0].inputs;
+    return {
+      code: result.outputFiles[0].text,
+      retained: Object.keys(inputs).filter(f => inputs[f].bytesInOutput > 0)
+    };
+  }
+  const run = (code: string) =>
+    execFileSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8" });
+  const REPORT = `.then(() => process.stdout.write("ok"), e => process.stdout.write(String(e)))`;
+  const STORE_APP = `
+    import { action, affects, createStore } from "@solidjs/signals";
+    const [store] = createStore({ n: 1, row: { m: 2 } });
+    action(function* () { affects(store, "n"); affects(store.row); })()${REPORT};
+  `;
+  const AFFECTS_APP = `
+    import { action, affects, createEffect, createRoot, createSignal } from "@solidjs/signals";
+    const n = createRoot(() => {
+      const [n] = createSignal(1);
+      createEffect(n, () => {});
+      return n;
+    });
+    action(function* () { affects(n); })()${REPORT};
+  `;
+  const SIGNALS_APP = `
+    import { createEffect, createRoot, createSignal } from "@solidjs/signals";
+    createRoot(() => {
+      const [n] = createSignal(1);
+      createEffect(n, v => { console.log(v); });
+    });
+  `;
+  // Store modules a bundle keeps besides `store/types.js` (`$TARGET`, which
+  // `affects()` reads to tell a store apart).
+  const storeModules = (retained: string[]) =>
+    retained.filter(f => f.includes("/store/") && !f.endsWith("/store/types.js"));
+  const BUILDS = { prod: [], observe: ["observe"], dev: ["development"] } as const;
+  for (const [tier, conditions] of Object.entries(BUILDS)) {
+    test(`${tier}: a bundle calling affects(store) runs`, async () => {
+      expect(run((await bundle(STORE_APP, [...conditions])).code)).toBe("ok");
+    });
+    test(`${tier}: a bundle calling affects() without stores runs`, async () => {
+      expect(run((await bundle(AFFECTS_APP, [...conditions])).code)).toBe("ok");
+    });
+  }
+  for (const tier of ["prod", "observe"] as const) {
+    test(`${tier}: the store half ships with affects(store) only`, async () => {
+      expect((await bundle(STORE_APP, [...BUILDS[tier]])).retained).toContain(
+        `dist/${tier}/store/affects.js`
+      );
+      // A store app that never declares a mark carries none of it.
+      const plain = `import { createStore } from "@solidjs/signals"; console.log(createStore({ n: 1 }));`;
+      expect((await bundle(plain, [...BUILDS[tier]])).retained).not.toContain(
+        `dist/${tier}/store/affects.js`
+      );
+      // `affects()` without stores never reaches the store engine.
+      expect(storeModules((await bundle(AFFECTS_APP, [...BUILDS[tier]])).retained)).not.toContain(
+        `dist/${tier}/store/store.js`
+      );
+      expect(storeModules((await bundle(SIGNALS_APP, [...BUILDS[tier]])).retained)).toEqual([]);
+    });
+  }
+});
+
 describe("@solidjs/signals awaited refresh per tier", () => {
   // #3888: the waiter `refresh()` returns is the same node in every tier, but
   // prod once built it without a root, and an unowned waiter was released by

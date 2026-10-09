@@ -17,16 +17,8 @@
 // router's navigation core reads `isPending` / `latest`; this page does not
 // opt in — it measures a router whose app renders no pending state (the
 // scenario's ledger note has the opt-in's cost).
-import {
-  hydrate,
-  Show,
-  For,
-  Loading,
-  Errored,
-  dynamicComponent,
-  createComponent
-} from "@solidjs/web";
-import { createSignal, createMemo, lazy } from "solid-js";
+import { hydrate, Show, For, Loading, Errored, createComponent } from "@solidjs/web";
+import { createSignal, createMemo, lazy, dynamicComponent } from "solid-js";
 import { installServerComponents } from "@solidjs/web/frames";
 import { createServerReference } from "@solidjs/web/server-functions/client";
 import { createRouter, useNavigate } from "@solidjs/router";

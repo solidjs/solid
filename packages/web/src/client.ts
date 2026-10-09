@@ -38,7 +38,12 @@ import { effect, memo, setSpreadName, spreadName, tagElement } from "./render.js
 
 import { JSX } from "../jsx/jsx.js";
 
-import type { RequestEventLocals, HydrationWriter, HydrationValue } from "./server.js";
+import type {
+  RequestEventLocals,
+  HydrationWriter,
+  HydrationValue,
+  LinkClaimHandler
+} from "./server.js";
 import type { TraceContext } from "./trace.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
@@ -109,7 +114,7 @@ export interface ResponseStub {
  * `locals`, whichever entry typed the event.
  */
 export type { RequestEventLocals } from "./server.js";
-export type { HydrationWriter, HydrationValue } from "./server.js";
+export type { HydrationWriter, HydrationValue, LinkClaimHandler } from "./server.js";
 
 export interface RequestEvent {
   request: Request;
@@ -289,6 +294,31 @@ export function takeHydrationValue(key) {
     return { status: "pending", promise: v };
   }
   return { status: "resolved", value: v };
+}
+
+/**
+ * Client stub — a render's link handler is set during server rendering
+ * (see the server entry's `setLinkClaim`). Always `false` here, so a router
+ * can call it unguarded from isomorphic setup code.
+ * @experimental
+ */
+export function setLinkClaim(_handler: LinkClaimHandler | undefined): boolean {
+  return false;
+}
+
+/**
+ * Whether the server render that produced this document ran a link handler
+ * (`setLinkClaim`), so its anchors carry the server's link state
+ * (`aria-current="page"`, `data-active`) in the HTML. Reads the `links`
+ * hydration record the render wrote once; non-destructive, readable before
+ * and after hydration. `false` on a page rendered without the router — the
+ * absence of link state on an anchor then means nothing, and a link
+ * consumer must resolve it itself. Server: `false`.
+ * @experimental
+ */
+export function hasServerLinkState(): boolean {
+  const registry = globalThis._$HY && globalThis._$HY.r;
+  return !!registry && registry.links === 1;
 }
 /**
  * Client stub — the trace a request belongs to is a server-side reading
@@ -3098,13 +3128,17 @@ function cleanChildren(parent, current, marker, replacement) {
 }
 
 function gatherHydratable(element, root) {
-  // A prefix-scoped gather (a boundary's late resume; an adopted frame
-  // occurrence's claim window) names exactly what it owns — collect wherever
-  // the keys sit, frame interiors included: keys are namespaced by their
-  // producer chain, so a nested frame's content can never match a foreign
-  // prefix. Selected natively: it runs once per resume or per occurrence,
-  // and a full `_hk` sweep filtered in JS each time is a cost per
-  // occurrence on the whole page.
+  // A prefix-scoped gather (a streamed boundary's late resume) names exactly
+  // what it owns — collect wherever the keys sit, frame interiors included:
+  // keys are namespaced by their producer chain, so a nested frame's content
+  // can never match a foreign prefix. Selected natively: it runs once per
+  // resume, and a full `_hk` sweep filtered in JS each time is a cost per
+  // resume on the whole page. An adopted frame's occurrences do NOT gather
+  // here: a scan of the root per occurrence is a cost per occurrence on the
+  // whole page (37 ms on a 652-occurrence thread), so the frames client
+  // indexes its element's keys once at adoption and serves its windows from
+  // that (`claimScope` in frames/src/client.ts) — only a window a frame
+  // opens with no root gathered yet falls through to this gather.
   const templates = element.querySelectorAll(
     root ? `[_hk^="${root.replace(/["\\]/g, "\\$&")}"]` : `*[_hk]`
   );

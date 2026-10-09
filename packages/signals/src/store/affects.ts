@@ -15,14 +15,19 @@
  * the verdict. A mark declared on a draft (inside a setter) or over an
  * optimistic family walks the view the writer sees.
  *
- * Installed by `store/index.ts`: a program with stores carries it; one
- * without pays nothing (affects.ts asks `GlobalQueue._storeMarks`).
+ * Imported by `affects()`, which installs it on its first store target
+ * (#3891, after #3912): a program with stores that never declares a mark
+ * carries none of it. It never imports store.ts — the engine's top level —
+ * so a program declaring marks without stores carries this module alone:
+ * the store's nodes and its wrappability test come through `GlobalQueue`
+ * (`_storeNode`, `_storeWrappable`), and node birth and the untracked traps
+ * reach back through `affectsHooks` (hooks.ts).
  */
 import { GlobalQueue } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
-import { getNode, installAffectsHooks, optHooks } from "./store.js";
+import { installAffectsHooks, optHooks, type AffectsHooks } from "./hooks.js";
 import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
-import { $TARGET, isWrappable } from "./types.js";
+import { $TARGET } from "./types.js";
 
 type Marked = Signal<any> | Computed<any>;
 
@@ -34,28 +39,31 @@ const $AFFECTS: unique symbol = Symbol(__DEV__ ? "STORE_AFFECTS" : 0);
  * inside its window that inherited it, and — keyed — the one key. Dies with
  * the carrier's last registration. */
 interface Scope {
-  scope: Set<object>;
-  inherited: Marked[];
-  key?: PropertyKey;
+  _scope: Set<object>;
+  _inherited: Marked[];
+  _key: PropertyKey | undefined;
 }
 const scopes = new Map<Marked, Scope>();
 
+function scopeOf(carrier: Marked, key: PropertyKey | undefined): Scope {
+  let entry = scopes.get(carrier);
+  if (entry === undefined)
+    scopes.set(carrier, (entry = { _scope: new Set(), _inherited: [], _key: key }));
+  return entry;
+}
+
 /** The nodes an `affects(store[, key])` declaration marks (affects.ts
  * registers each). */
-function storeMarks(t: StoreTarget, key: PropertyKey | undefined): Marked[] {
+export function storeMarks(t: StoreTarget, key: PropertyKey | undefined): Marked[] {
+  const node = GlobalQueue._storeNode!(t, key === undefined ? $AFFECTS : key);
+  const entry = scopeOf(node, key);
   if (key === undefined) {
-    const carrier = getNode(t, $AFFECTS);
-    let entry = scopes.get(carrier);
-    if (entry === undefined) scopes.set(carrier, (entry = { scope: new Set(), inherited: [] }));
-    const found: Marked[] = [carrier];
+    const found: Marked[] = [node];
     walk(t.px, entry, found, t.fam, new Set());
     return found;
   }
-  const node = t.n?.[key as any] ?? getNode(t, key);
-  let entry = scopes.get(node);
-  if (entry === undefined) scopes.set(node, (entry = { scope: new Set(), inherited: [], key }));
-  entry.scope.add(t.v);
-  if (t.pb !== null) entry.scope.add(t.pb);
+  entry._scope.add(t.v);
+  if (t.pb !== null) entry._scope.add(t.pb);
   return [node];
 }
 
@@ -70,14 +78,14 @@ function walk(
   fam: StoreFamily | null,
   visited: Set<object>
 ): void {
-  if (!isWrappable(value)) return;
+  if (!GlobalQueue._storeWrappable!(value)) return;
   const t: StoreTarget | undefined = value[$TARGET] ?? lookupTarget(value, fam);
   let raw: Record<PropertyKey, any> = t !== undefined ? (t.pb ?? t.v) : value;
   if (visited.has(raw)) return;
   visited.add(raw);
-  entry.scope.add(raw);
+  entry._scope.add(raw);
   if (t !== undefined) {
-    if (t.pb !== null) entry.scope.add(t.v);
+    if (t.pb !== null) entry._scope.add(t.v);
     // The writer's view: the tick's own unflushed guesses are in motion too.
     if (t.fam?.opt === true) raw = optHooks!.view(t, raw, true);
     const nodes = t.n;
@@ -92,12 +100,11 @@ function walk(
     if (t.dk !== null) found.push(t.dk);
     fam = t.fam ?? fam;
   }
-  for (const k of Reflect.ownKeys(raw)) {
-    if (k === $OWNER) continue;
-    const d = Object.getOwnPropertyDescriptor(raw, k);
-    if (d === undefined || d.get !== undefined) continue;
-    walk(d.value, entry, found, fam, visited);
-  }
+  for (const k of Reflect.ownKeys(raw))
+    if (k !== $OWNER) {
+      const d = Object.getOwnPropertyDescriptor(raw, k)!;
+      if (d.get === undefined) walk(d.value, entry, found, fam, visited);
+    }
 }
 
 /** A live scope covering `t`'s identity (keyed: for `key`). Chained
@@ -105,9 +112,9 @@ function walk(
  * the BASE raw, so every identity along the chain is checked. */
 function covering(t: StoreTarget, key: PropertyKey | undefined, skip?: Marked): Marked | null {
   for (const [carrier, entry] of scopes) {
-    if (carrier === skip || (entry.key !== undefined && entry.key !== key)) continue;
-    for (let r: any = t.v; ; ) {
-      if (entry.scope.has(r)) return carrier;
+    if (carrier === skip || (entry._key !== undefined && entry._key !== key)) continue;
+    for (let r: any = t.v; ;) {
+      if (entry._scope.has(r)) return carrier;
       const inner: StoreTarget | undefined = r?.[$TARGET];
       if (inner === undefined) break;
       const backing = inner.pb ?? inner.v;
@@ -118,32 +125,37 @@ function covering(t: StoreTarget, key: PropertyKey | undefined, skip?: Marked): 
   return null;
 }
 
-installAffectsHooks({
+/** The store's side: node birth and the untracked traps call it (store.ts,
+ * through `affectsHooks`) — with no live mark too: an empty scope map is
+ * no work. */
+const hooks: AffectsHooks = {
   // A node born on a record a live mark covers inherits it (released with
   // the carrier's last registration).
-  born(t, node, key) {
-    if (key === $AFFECTS) return;
+  _born(t, node, key) {
+    if (scopes.size === 0 || key === $AFFECTS) return;
     const carrier = covering(t, key, node);
-    if (carrier === null) return;
+    if (!carrier) return;
     GlobalQueue._mark!(node);
-    scopes.get(carrier)!.inherited.push(node);
+    scopes.get(carrier)!._inherited.push(node);
   },
   // An untracked probe (`isPending(() => s.x)` with no observer) reading a
   // record a live mark covers: no node carries the mark for it — the
   // verdict is told directly.
-  witness(t, key) {
-    const own = t.n?.[$AFFECTS as any];
-    if ((own !== undefined && own._x !== null && own._x._marks !== 0) || covering(t, key) !== null)
-      GlobalQueue._witnessMark!();
+  _witness(t, key) {
+    if (t.n?.[$AFFECTS as any]?._x?._marks || covering(t, key)) GlobalQueue._witnessMark!();
   }
-});
+};
 
-GlobalQueue._storeMarks = storeMarks;
+/** `affects()` calls it before a store-targeted declaration (idempotent). */
+export function installStoreAffects(): void {
+  installAffectsHooks(hooks);
+}
+
 /** The carrier's last mark released (affects.ts): its scope dies, and the
  * nodes that inherited the mark release theirs. */
-GlobalQueue._releaseMarkScope = carrier => {
+export function releaseMarkScope(carrier: Marked): void {
   const entry = scopes.get(carrier);
   if (entry === undefined) return;
   scopes.delete(carrier);
-  GlobalQueue._releaseMarks!(entry.inherited);
-};
+  GlobalQueue._releaseMarks!(entry._inherited);
+}
