@@ -19,6 +19,14 @@ import {
   Switch
 } from "../src/index.js";
 
+/**
+ * `Show` / `Switch` return `JSX.Element`. Called as functions they are memos,
+ * which the element union (numbers, booleans, nodes, null) does not reflect.
+ */
+function mount(view: unknown): unknown {
+  return (view as () => unknown)();
+}
+
 afterEach(() => {
   resetErrorHalt();
   vi.restoreAllMocks();
@@ -55,7 +63,7 @@ describe("non-keyed Show when={latest(async)} (#3948)", () => {
         }
       });
       const boundary = createLoadingBoundary(
-        () => show(),
+        () => mount(show),
         () => "loading"
       );
       createRenderEffect(
@@ -100,7 +108,7 @@ describe("non-keyed Show when={latest(async)} (#3948)", () => {
         }
       });
       createRenderEffect(
-        () => view(),
+        () => mount(view),
         () => {}
       );
     });

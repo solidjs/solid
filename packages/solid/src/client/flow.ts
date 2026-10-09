@@ -6,7 +6,6 @@ import {
   repeat,
   createRevealOrder,
   getOwner,
-  latest,
   runWithOwner
 } from "@solidjs/signals";
 import { createErrorBoundary, createLoadingBoundary, sharedConfig } from "./hydration.js";
@@ -228,13 +227,13 @@ export function Show<T>(props: {
             : untrack(
                 () =>
                   (child as any)(() => {
-                    // The branch was chosen from this condition, which may be
-                    // `latest` of an async source. An ownerless `latest` sees
-                    // that same arrived value. A plain untrack still serves
-                    // the committed frame, so the first mount throws stale
-                    // (#3948). Null owner: `latest` must not mark the child
-                    // binding as a verdict reader.
-                    if (!runWithOwner(null, () => latest(condition))) throw narrowedError("Show");
+                    // The branch was chosen by a memo read, which carries the
+                    // arrived value. This accessor runs from a binding, and
+                    // `untrack` there still serves the committed frame —
+                    // undefined on the first mount of `when={latest(x)}`
+                    // (#3948). A null owner reads that same memo without
+                    // marking the binding as a verdict reader.
+                    if (!runWithOwner(null, condition)) throw narrowedError("Show");
                     return conditionValue();
                   }),
                 IS_DEV && "<Show>"
