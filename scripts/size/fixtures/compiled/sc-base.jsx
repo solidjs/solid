@@ -8,7 +8,8 @@
 // The delta against the hand-written page is what the compiled templates
 // retain of @solidjs/web — the attribute runtime and the hydratable walk
 // helpers — plus the compiled app's own bytes (the `app` package).
-import { hydrate, dynamicComponent } from "@solidjs/web";
+import { hydrate } from "@solidjs/web";
+import { dynamicComponent } from "solid-js";
 import { installServerComponents } from "@solidjs/web/frames";
 import { createServerReference } from "@solidjs/web/server-functions/client";
 import Shell from "./sc-shell.jsx";

@@ -7,6 +7,7 @@ import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_FRESH_READ,
+  CONFIG_GUESS,
   createRoot,
   dispose,
   effect,
@@ -36,7 +37,7 @@ import {
   staleReader,
   type Transaction
 } from "./core/scheduler.js";
-import { REACTIVE_JOINED } from "./core/constants.js";
+import { NOT_PENDING, REACTIVE_JOINED, STATUS_ERROR, STATUS_PENDING } from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
 import { optimisticWrite } from "./core/lanes.js";
 
@@ -918,7 +919,13 @@ export function refresh<T>(
         watch(
           () => {
             if (waiter === null) waiter = getOwner() as Computed<unknown>;
-            return read(node);
+            // A guessed node's flight is not this answer (#3895). Park, then
+            // serve the truth staged beneath the guess. until() is not this path.
+            const n = node!;
+            const v = read(n);
+            const g = n._config & CONFIG_GUESS;
+            if (g && n._statusFlags & (STATUS_PENDING | STATUS_ERROR)) throw n._x?._error;
+            return g && n._pendingValue !== NOT_PENDING ? n._pendingValue : v;
           },
           value => {
             res(typeof target === "function" ? value : target);
