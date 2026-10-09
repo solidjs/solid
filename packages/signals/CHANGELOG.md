@@ -1,5 +1,21 @@
 # @solidjs/signals
 
+## 2.0.0-rc.15
+
+### Patch Changes
+
+- 0c70907: The errored-store refetch guard lives on the store pull, so a bundle that never reads a store does not carry it
+- 5a26ebe: Fix an awaited `refresh()` never settling in production builds: the waiter is always created under a root, so it re-runs when the refetch lands instead of being released as an unobserved node. `yield refresh(x)` in an action now finishes, and the refetched value reaches the UI.
+- c189013: Derived-store landings finalize their attribution flight
+- a963ec1: Fix a derived store (`createStore(fn)`) whose re-fetch rejects never reaching `Errored`: a render effect outside the flight's flush kept showing the last value instead of throwing the derive's error, for sync-to-async and async-to-async derives alike. Memos were unaffected.
+- 0c70907: A row that reads an errored store field and isPending does not refetch the source
+- 39051bf: Tracked store reads keep a data value that replaced an own getter
+- ef1c297: Fix `affects(store)` / `affects(store, key)` throwing `TypeError: _.O is not a function` in tree-shaken production and observe bundles (#3891). The store half of `affects()` was installed by a side-effect-only import that bundlers drop under `"sideEffects": false`; `affects()` now installs it on its first store-targeted call, and the store half reaches the store engine through hook slots instead of importing it — so a store app that never calls `affects()` carries none of it, and an app without stores never pulls in the store engine. Thanks to @nickshiro, whose #3912 proposed installing it from `affects()`.
+- 20db6a2: A Loading boundary armed by latest() leaves its fallback once the shared source settles.
+- 1c14992: An async-generator action's `until` resolves when an external source echoes the optimistic row after `await`, instead of timing out on an acknowledgement the source already contains.
+- c689a9a: Awaited refresh of an optimistic accessor returns the source answer, not the caller's override.
+- f6905dc: isPending and latest on a superseded write do not depend on reads inside the parked computation.
+
 ## 2.0.0-rc.14
 
 ### Patch Changes
