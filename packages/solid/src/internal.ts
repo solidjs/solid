@@ -227,6 +227,20 @@ interface SharedConfig {
 export const sharedConfig: SharedConfig = core.sharedConfig;
 
 /**
+ * Client: installs the server-component half of hydration on `sharedConfig`
+ * and the page's `_$HY` — `holdBoundary` (a client hold on adopted markup
+ * counted as a pending boundary, frames-rulings 3.1), `hydrateWindow` (the
+ * claim window an adopted occurrence re-enters hydration through), fragment
+ * ownership by rendering (the `_$HY.fa` term of the reveal policy) and the
+ * ledger's published answer `_$HY.fr` ({ pending, subscribe }). For the
+ * integration that owns server-rendered markup wholesale (`@solidjs/web/frames`'
+ * `installServerComponents`), which calls it where it installs its reveal
+ * hook; idempotent, before or after `hydrate()`. A page without server
+ * components never calls it and carries none of it. Server: no-op.
+ */
+export const enableServerComponentHydration: () => void = core.enableServerComponentHydration;
+
+/**
  * Dev builds: the brand the component wrapper sets on every component it
  * runs (`Comp[$DEVCOMP] === true`), read by the refresh runtime and
  * devtools. Other builds: a symbol nothing sets.

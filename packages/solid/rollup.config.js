@@ -38,12 +38,32 @@ const replaceFlags = (isDev, isObserve) =>
 
 // ESM only: Node >= 22.12 (the `engines` floor) `require()`s ESM natively, so
 // CJS hosts resolve these same files through the same export conditions.
-const build = (input, name, external, isDev, isObserve) => ({
+const build = (input, name, external, isDev, isObserve, extraPlugins = []) => ({
   input,
   output: { file: `dist/${name}.js`, format: "es" },
   external,
-  plugins: [replaceFlags(isDev, isObserve)].concat(plugins)
+  plugins: [replaceFlags(isDev, isObserve), ...extraPlugins].concat(plugins)
 });
+
+// The container-trace entry bundles its OWN copy of the store hydration
+// adapter (src/client/store-hydration.ts) — see that module's comment: read
+// through the main entry's slot, the adapter is pinned into every
+// server-component page's eager chunk. The copy must still share the one
+// `solid-js` instance's hydration state, so the adapter's import of its
+// helpers (`./hydration.js`, bundled in the main build) resolves here to the
+// external `solid-js` — the same instance-identity arrangement
+// @solidjs/web's rollup config uses for the frames client's transport
+// imports. Scoped to that one importer: nothing else in this entry imports
+// hydration.ts relatively. A helper the main entry stops exporting fails at
+// link time in the app, never silently.
+const externalizeAdapterHelpers = {
+  name: "externalize-store-hydration-helpers",
+  resolveId(source, importer) {
+    if (!importer || !/[\\/]store-hydration\.ts$/.test(importer)) return null;
+    if (source === "./hydration.js") return { id: "solid-js", external: true };
+    return null;
+  }
+};
 
 const client = ["@solidjs/signals"];
 const server = ["@solidjs/signals", "stream"];
@@ -90,15 +110,18 @@ export default [
   // its own entry because the main build is one flat module — any binding in
   // it that reaches the store engine welds the engine to whoever imports the
   // binding. This entry reaches `createProjection` through `@solidjs/signals`
-  // (external, per-module files) and reads the hydration dispatch and the
-  // patch protocol back from "solid-js" (external), so an app bundler can
-  // give the engine to the lazy chunk `@solidjs/web/frames`' traces tier
-  // loads it in. No tier-specific code of its own, so one build.
+  // (external, per-module files), bundles its own copy of the store hydration
+  // adapter (externalizeAdapterHelpers above), and reads the patch protocol
+  // and the adapter's helpers back from "solid-js" (external), so an app
+  // bundler can give the engine — and the adapter — to the lazy chunk
+  // `@solidjs/web/frames`' traces tier loads it in. No tier-specific code of
+  // its own, so one build.
   build(
     "src/client/container-trace.ts",
     "container-trace",
     ["solid-js", "@solidjs/signals"],
     false,
-    false
+    false,
+    [externalizeAdapterHelpers]
   )
 ];

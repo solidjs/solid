@@ -491,6 +491,16 @@ Pages (br; the whole page, lazy chunks not counted):
 | compiled hydrating        | 30,943 (at its 30.93 cap) | **≈ 30,990** (the same +≈ 45)                                                                                                                                    | 31,075 (+52 — Phase A's)                                                                                    | unchanged                            | +45                  | **cap raise needed — the maintainer's**                            |
 | frames eager              | 13,770                    | ≈ 7,600 (7.8 reading; the C6 gate is 8.5 before the residual R / D cuts land) / ≈ 8,150 (8.0)                                                                    | **13,083** (40,000 min; **−704 br**; chunks `trace.js` 8,176 / `regions.js` 805 / `assets.js` 783 br, lazy) | **≈ 7,250 / ≈ 7,800**                | **−6.5 KB (−47 %)**  | ≈ 10,500                                                           |
 
+The hydration pass (2026-10-07, `size/hydration-pass`;
+`hydration-split-measured.md`) returned the Phase A bytes to the plain
+hydrating pages and more — `app: hydrating (no stores)` 17,894 → 17,689 br
+and `compiled hydrating` 31,155 → 30,991 against `next` @ `d231b9911` — by
+moving the server-component half of hydration (the hold, the claim window,
+fragment ownership, `_$HY.fr`, the claim-roots walk and the frame exclusion
+of the root sweep) behind `installServerComponents()`, and took `page:
+compiled base SC` 35,146 → 34,321 br with the store hydration adapters as
+the trace chunk's own copy and `readShallow` off the view walkers.
+
 ### 4.1 Measured (2026-10-06)
 
 The Phase D estimates above, turned into numbers by a measurement pass on
