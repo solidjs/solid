@@ -3916,8 +3916,14 @@ module.exports = [
     // (2026-10-08, "perf is important enough — it's the point here").
     // #3889 (2026-10-08): measured at 11,406 B brotli / 34,172 B minified by CI
     // (Size run 37873449521). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "11.41 KB",
-    capMinified: 34172,
+    // #3904 (2026-10-09): measured at 11,426 B brotli / 34,211 B minified by CI
+    // (Size run 37980542815) against the 11.41 KB / 34,172 B cap — 16 B over
+    // the brotli cap, +39 B minified (19 B past the 20 B allowance), +44 B
+    // minified over the PR base. The frames client calls
+    // installServerComponentHydration from installRevealHook. Cap set to that
+    // measurement, not above it.
+    limit: "11.426 KB",
+    capMinified: 34211,
     alias: framesAlias,
     external: framesExternal
   },
