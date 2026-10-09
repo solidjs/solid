@@ -1283,8 +1283,10 @@ module.exports = [
     // #3892 (2026-10-08): measured at 9,672 B brotli / 27,234 B minified by CI
     // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
     // #3898 stacks on this; its combined size is remeasured before merge.
-    limit: "9.68 KB",
-    capMinified: 27234,
+    // #3898 stacked on next (2026-10-08): measured at 9,727 B brotli / 27,398 B minified
+    // by CI (Size run 37877131816). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "9.73 KB",
+    capMinified: 27398,
     alias
   },
   {
@@ -4599,8 +4601,10 @@ module.exports = [
     // (2026-10-08, "perf is important enough — it's the point here").
     // #3898 (2026-10-08): measured at 41,019 B brotli / 123,728 B minified by CI
     // (Size run 37873455948). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "41.02 KB",
-    capMinified: 123728,
+    // #3898 stacked on next (2026-10-08): measured at 41,023 B brotli / 123,856 B minified
+    // by CI (Size run 37877131816). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "41.03 KB",
+    capMinified: 123856,
     alias: pageAlias
   },
   {
