@@ -7,8 +7,8 @@
 // and the server-function transport — with the seroval codec left lazy as
 // it is in production. Unlike the "frames: eager client consumer" scenario,
 // nothing is external here: this measures the page, not the package.
-import { hydrate, Show, For, Loading, Errored, dynamicComponent } from "@solidjs/web";
-import { createSignal, createMemo, lazy } from "solid-js";
+import { hydrate, Show, For, Loading, Errored } from "@solidjs/web";
+import { createSignal, createMemo, lazy, dynamicComponent } from "solid-js";
 import { installServerComponents } from "@solidjs/web/frames";
 import { createServerReference } from "@solidjs/web/server-functions/client";
 

@@ -198,6 +198,65 @@ export function lazy<T extends Component<any>>(
   return wrap as T & { preload: () => Promise<{ default: T }>; moduleUrl?: string };
 }
 
+/**
+ * A cached dynamic import the server can preload before hydration, for a
+ * module that is not itself a component. `lazy()` is the component-shaped
+ * sibling and is unchanged.
+ *
+ * Call the result (or `.preload()`) to start the import. Both share one
+ * promise. `.peek()` reads it synchronously: the settled module, or
+ * `undefined` when it has not landed. During hydration `.peek()` reads
+ * `_$HY.modules[moduleUrl]` and returns `undefined` on a miss — it does not
+ * throw. The bundler pass appends `moduleUrl` for a literal `import()`.
+ *
+ * @example
+ * ```ts
+ * const admin = lazyModule(() => import("./admin/routes"));
+ * admin();          // Promise<Module>, cached
+ * admin.preload();  // same promise
+ * admin.peek();     // Module | undefined
+ * ```
+ */
+export function lazyModule<T extends Record<string, any>>(
+  fn: () => Promise<T>,
+  moduleUrl?: string
+): (() => Promise<T>) & {
+  preload: () => Promise<T>;
+  peek: () => T | undefined;
+  moduleUrl?: string;
+} {
+  let p: Promise<T> | undefined;
+  let mod: T | undefined;
+  const load = () => {
+    if (p) return p;
+    const cur = (p = fn());
+    cur.then(
+      m => {
+        mod = m;
+      },
+      () => {
+        if (p === cur) p = undefined;
+      }
+    );
+    return cur;
+  };
+  const read = load as typeof load & {
+    preload: typeof load;
+    peek: () => T | undefined;
+    moduleUrl?: string;
+  };
+  read.preload = load;
+  read.peek = () => {
+    if (!sharedConfig.hydrating) return mod;
+    // Module ids, not hydration ids. A miss is today's late load, not a throw.
+    const cached = moduleUrl ? (globalThis as any)._$HY?.modules?.[moduleUrl] : undefined;
+    if (cached) mod = cached;
+    return cached;
+  };
+  read.moduleUrl = moduleUrl;
+  return read;
+}
+
 let counter = 0;
 /**
  * Returns a stable id string that matches between server-rendered and

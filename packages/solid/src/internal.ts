@@ -33,7 +33,14 @@
  * weld the engine back into the main chunk.
  */
 import * as core from "solid-js";
-import type { Accessor, RevealOrder, ServerErrorHook, ServerErrorSite } from "solid-js";
+import type {
+  Accessor,
+  Component,
+  DynamicOptions,
+  RevealOrder,
+  ServerErrorHook,
+  ServerErrorSite
+} from "solid-js";
 import type { HydrationContext } from "./server/shared.js";
 
 export {
@@ -145,6 +152,18 @@ export const createRevealOrder: <T>(
   fn: () => T,
   options?: { order?: () => RevealOrder; collapsed?: () => boolean }
 ) => T = core.createRevealOrder;
+
+/**
+ * The core behind `dynamicComponent` and `@solidjs/web`'s `dynamic`. `tagArm`
+ * is the renderer's string-tag path (`staticElement` on the client,
+ * `ssrElement` on the server); omit it and a string resolution renders
+ * nothing. Not application API.
+ */
+export const dynamicCore: (
+  source: () => any,
+  options?: DynamicOptions,
+  tagArm?: (tag: string, props: any) => any
+) => Component<any> = core.dynamicCore;
 
 /**
  * The shape `sharedConfig` has on either entry. The two objects share the

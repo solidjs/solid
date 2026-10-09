@@ -407,16 +407,98 @@ export function getFrameHost() {
  * its occurrences' claims (which may run long after, under the frame's hold
  * or at a fragment's reveal) gather against the root that holds the frame
  * and not whichever `hydrate()` root replaced the live pair since (#2917).
+ * The gather is the boundary's own (`claimScope`): an index of the keys
+ * under its element, built once, not the root's scan of the whole page.
  */
 type ClaimScope = { registry?: Map<string, object>; gather?: (key: string) => void };
+
+/**
+ * The claim scope of an adopted boundary: the registry the page's root
+ * gathered into, read now, and a gather over the keys under `el` served from
+ * an index built ONCE here — the root's `gather` selects
+ * `[_hk^="<prefix>"]` over the whole hydration root, which an adoption with
+ * hundreds of occurrences (a comment thread: 652 on the HN story page) paid
+ * once PER occurrence's window, more than the rest of its hydration put
+ * together. One `[_hk]` pass over the element buckets every keyed node by
+ * the occurrence it belongs to; a window's gather is a lookup.
+ *
+ * The bucket of a key is its producer prefix, `sc-<fid>-<occurrence>-`: the
+ * fid and the occurrence may carry dashes, the child path after the prefix
+ * never does (`formatId` spells it in `[0-9a-zA-Z]`), so it ends at the
+ * key's LAST dash. A window's id names the same bucket by the same rule —
+ * an occurrence's prefix is its own bucket; a streamed `<Loading>` inside a
+ * fill resumes under a boundary id (the prefix plus a child path), whose
+ * bucket is the occurrence's, narrowed to the keys under the id. Ids are
+ * prefix-closed (a child's id extends its owner's), so `startsWith` is
+ * containment, as the selector's `^=` was. A bare `_hk` (an event-slot
+ * consumer's replay stamp) lands in the empty bucket no id ever names.
+ *
+ * `gather` hands a bucket's keys to the registry as the root's gather did:
+ * each node under the id that the registry does not hold — so a key the
+ * window already claimed (gone from the registry) IS put back, exactly as
+ * the selector put it back; `claimRender`'s `bound` is still what keeps a
+ * fill's second window from gathering — and only nodes still in the
+ * document, which is what a live selector over the root saw. The last
+ * matters: a `<Loading>` the server left pending inside a fill renders its
+ * fallback under the SAME id as its content, so the fallback's keys and the
+ * content's collide by design; the swap removes the fallback before the
+ * content's claim gathers, and a removed node must not shadow the one that
+ * replaced it.
+ *
+ * The index is a snapshot; `index(root)` extends it with what a fragment's
+ * reveal landed under `root` (the parent `$dfr` announces — the adoption's
+ * `fr.subscribe`, before the reveal's re-sync mounts anything). That is how
+ * keyed nodes enter an adopted element after adoption: a stream's re-call
+ * ships bare marker pairs (no keys; it renders fresh), an occluded region
+ * materializes from data (never claimed). (A reveal group's fallback
+ * materialization, `$dfl`, announces nothing; a fill's keyed fallback it
+ * lands between the adoption and a held window is not indexed — the
+ * content that replaces it is, at its reveal.) A reveal AFTER
+ * hydration-done (a server `<Loading>`'s content under corollary 4) finds
+ * the index where the registry was cleared, so the late window claims from
+ * it. Nodes indexed twice (the reveal's parent re-scanned) dedupe at the
+ * gather, by key.
+ *
+ * Without a registry (no `hydrate()` pass has run — a client render
+ * adopting server markup) there is nothing to index for and nothing to
+ * gather into: the index stays empty and a window gathers nothing. (A
+ * window opened under such a scope has no registry to claim against either
+ * way; `claimRender` renders fresh while no root has gathered.)
+ */
+function claimScope(el: Element): ClaimScope & { index(root: ParentNode): void } {
+  const registry: Map<string, object> | undefined = sharedConfig.registry;
+  const buckets = new Map<string, Element[]>();
+  const bucketOf = (key: string) => key.slice(0, key.lastIndexOf("-") + 1);
+  const index = (root: ParentNode) => {
+    if (registry)
+      for (const n of root.querySelectorAll("[_hk]")) {
+        const p = bucketOf(n.getAttribute("_hk")!);
+        const b = buckets.get(p);
+        b ? b.push(n) : buckets.set(p, [n]);
+      }
+  };
+  index(el);
+  return {
+    registry,
+    gather(id) {
+      for (const n of buckets.get(bucketOf(id)) || []) {
+        const k = n.getAttribute("_hk")!;
+        if (k.startsWith(id) && n.isConnected && !registry!.has(k)) registry!.set(k, n);
+      }
+    },
+    index
+  };
+}
 
 /**
  * Hydration re-entry for one adopted slot range: the fill renders inside a
  * claim window — `sharedConfig.hydrateWindow`, the same window a streamed
  * boundary's resume opens — under an owner whose id chain reproduces the
  * document producer's keys (`sc-<fid>-<occurrence>-`). The window gathers
- * the range's keys by that prefix, so the fill's components take the
- * server-rendered nodes by key; the range is declared as the window's claim
+ * the range's keys by that prefix — from the boundary's index of its
+ * element's keys (`scope`, see `claimScope`), not a scan of the page — so
+ * the fill's components take the server-rendered nodes by key; the range
+ * is declared as the window's claim
  * roots because it may be DETACHED right now (an async slot fill renders
  * before its boundary re-inserts it) and the runtime's hydration guards
  * read connectivity to tell claimed SSR nodes from fresh clones. A fill
@@ -1303,6 +1385,11 @@ function adoptBoundary(
     }
   };
   IS_DEV && reportRegionFragments(el);
+  // The root this boundary adopts under (see ClaimScope / claimScope): its
+  // occurrences claim against this registry however late they mount, from
+  // an index of this element's keys built now — one pass, not one per
+  // occurrence.
+  const scope = claimScope(el);
   const fr = (globalThis as any)._$HY?.fr;
   // The adopting frame, bound below; the reveal cascade syncs it.
   let frame: ReturnType<typeof createFrame> | undefined;
@@ -1312,6 +1399,10 @@ function adoptBoundary(
         // (nested server async). Scoped to the revealed parent, so each
         // sweep is proportional to what just landed.
         const inside = !!parent && el.contains(parent as Node);
+        // What the reveal landed joins the claim index first: the re-sync
+        // below mounts the occurrences it carried, and their windows gather
+        // from the index.
+        inside && scope.index(parent!);
         IS_DEV && inside && reportRegionFragments(parent!);
         // A revealed fragment also brings its occurrences' ARGS RECORDS: a
         // slot invoked inside a server `<Loading>` ships its `sc:slot:`
@@ -1368,8 +1459,6 @@ function adoptBoundary(
   // streamed morphs — bind consumer cleanup to this boundary's owner (see
   // boundaryScope for the ambient-preserving rule).
   const owner = getOwner();
-  // The root this boundary adopts under (see ClaimScope): its occurrences
-  // claim against this pair however late they mount.
   const sc: any = sharedConfig;
   // The frame's error, announced to the address source below (`landing`).
   const [failed, onApply] = failing();
@@ -1377,7 +1466,7 @@ function adoptBoundary(
     adopt: true,
     host,
     id: address,
-    slots: slotsFor(props, { registry: sc.registry, gather: sc.gather }),
+    slots: slotsFor(props, scope),
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
     onApply,

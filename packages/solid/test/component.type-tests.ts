@@ -1,4 +1,4 @@
-import { lazy, merge, omit, type Component } from "../src/index.js";
+import { lazy, lazyModule, merge, omit, type Component } from "../src/index.js";
 
 type Assert<T extends true> = never;
 // from: https://github.com/Microsoft/TypeScript/issues/27024#issuecomment-421529650
@@ -210,4 +210,19 @@ type TestS1 = Assert<IsExact<S1, { b: number }>>;
   // l4: moduleUrl no longer fits in the second slot
   // @ts-expect-error moduleUrl moved to the third argument
   lazy(() => mod, "./Home.tsx");
+}
+
+// lm1: lazyModule() is a cached module thunk, not a component
+{
+  const routes = Promise.resolve({ routes: [] as string[] });
+  const admin = lazyModule(() => routes);
+  const asThunk: () => Promise<{ routes: string[] }> = admin;
+  type Mod = Awaited<ReturnType<typeof admin>>;
+  type TestMod = Assert<IsExact<Mod, { routes: string[] }>>;
+  type TestPeek = Assert<IsExact<ReturnType<typeof admin.peek>, { routes: string[] } | undefined>>;
+  type TestPreload = Assert<
+    IsExact<ReturnType<typeof admin.preload>, Promise<{ routes: string[] }>>
+  >;
+  void asThunk;
+  void admin.moduleUrl;
 }

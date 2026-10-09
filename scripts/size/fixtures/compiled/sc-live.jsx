@@ -8,7 +8,8 @@
 // splits this page's eager graph in two (the shared runtime in a chunk the
 // entry imports statically — the scenario's ledger note in scenarios.js);
 // bundle.mjs counts both.
-import { hydrate, dynamicComponent } from "@solidjs/web";
+import { hydrate } from "@solidjs/web";
+import { dynamicComponent } from "solid-js";
 import { action, createSignal, isPending, latest } from "solid-js";
 import { installServerComponents } from "@solidjs/web/frames";
 import { createServerReference, live, GET } from "@solidjs/web/server-functions/client";
