@@ -1176,16 +1176,19 @@ function notifyWrites(t: StoreTarget): void {
       ) {
         // Accessor keys: the node is linked for shape-change notification,
         // its value is never served (the getter runs with the proxy
-        // receiver on read) — FORCE wakes the readers.
+        // receiver on read) — FORCE wakes the readers. A data descriptor
+        // falls through so the cleared-acc hot read serves it (#3949);
+        // an own getter's descriptor has no `value`, so the compare below
+        // would otherwise keep the getter's result (or FORCE) for `undefined`.
         (node as any).acc = isOwnAccessor(pb, key);
         const od = Object.getOwnPropertyDescriptor(old, key);
         const nd = Object.getOwnPropertyDescriptor(pb, key);
-        if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
+        if (!nd || nd.get || nd.set) {
           if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
             setSignal(node, () => FORCE as any);
           continue;
         }
-        if (!isEqual(od?.value, nd?.value)) setSignal(node, () => nd?.value);
+        if (od?.get || od?.set || !isEqual(od?.value, nd.value)) setSignal(node, () => nd.value);
         continue;
       }
       const nv = t.del !== null && t.del.has(key) ? undefined : pb[key as any];
@@ -1297,14 +1300,15 @@ export function notifyKeyDiff(
     (node as any).acc = isOwnAccessor(neu, key);
     const od = Object.getOwnPropertyDescriptor(old, key);
     const nd = Object.getOwnPropertyDescriptor(neu, key);
-    if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
+    // Data descriptors fall through, as in notifyWrites (#3949).
+    if (!nd || nd.get || nd.set) {
       if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
         setSignal(node, () => FORCE as any);
       return;
     }
     const ov = od?.value;
     const nv = nd?.value;
-    if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
+    if (od?.get || od?.set || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
       setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
   } else {
     const ov = old[key as any];
@@ -1717,7 +1721,15 @@ function pullFamily(target: StoreTarget): void {
   // reader of a memo would — linked, so it re-runs at the landing (the
   // next settled pass pulls without linking and the stale link trims), a
   // verdict reader registered, a tracked pass suspended.
-  if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR)) {
+  // A reader queued by the rejection (`errorFamily`) throws the stored error
+  // and does not retry, including a follow-up pass (#3945). The mark drops
+  // STATUS_ERROR out of this mask, so the pull is the untracked one below —
+  // core's retry stays the fresh-subscriber path, and a bundle with no store
+  // does not carry it. Pending pulls keep the bit.
+  if (
+    fw._statusFlags &
+    ((context as any)?._errorMeet ? STATUS_PENDING : STATUS_PENDING | STATUS_ERROR)
+  ) {
     // A render effect outside the flight's own flush is the frame, not a
     // derivation: it keeps what it shows and learns of the landing from the
     // leaves the landing changes (unchanged leaves say nothing — it is not a
