@@ -209,6 +209,79 @@ describe("multi-boundary Vite HMR flow (solid-refresh#85 / vite-plugin-solid#202
     flush();
   }
 
+  test.each([undefined, -1])(
+    "a consumer reads its provider before context acceptance (default: %s)",
+    defaultValue => {
+      const sim = new ViteSim();
+      container = document.createElement("div");
+      document.body.appendChild(container);
+
+      sim.define("context", hot => {
+        const registry = $$registry();
+        const Ctx = $$component(registry, "Ctx", createContext<number>(defaultValue));
+        const Provider = $$component(
+          registry,
+          "Provider",
+          (props: { children?: any }) => (<Ctx value={42}>{props.children}</Ctx>) as any,
+          { signature: "provider", dependencies: () => ({}) }
+        );
+        function useValue() {
+          return useContext(Ctx as ReturnType<typeof createContext<number>>);
+        }
+        $$refresh("vite", hot as any, registry);
+        return { Provider, useValue };
+      });
+
+      sim.define("consumer", hot => {
+        const { useValue } = sim.import("context");
+        const registry = $$registry();
+        const Consumer = $$component(registry, "Consumer", () => (<p>{useValue()}</p>) as any, {
+          signature: "consumer",
+          dependencies: () => ({ useValue })
+        });
+        $$refresh("vite", hot as any, registry);
+        return { Consumer };
+      });
+
+      let dispose!: () => void;
+      sim.define("main", hot => {
+        const { Provider } = sim.import("context");
+        const { Consumer } = sim.import("consumer");
+        dispose = render(
+          () => (
+            <Provider>
+              <Consumer />
+            </Provider>
+          ),
+          container
+        );
+        hot.dispose(dispose);
+        hot.accept();
+        return {};
+      });
+      sim.import("main");
+      try {
+        expect(container.textContent).toBe("42");
+
+        // Importing the updated consumer evaluates its new context dependency,
+        // but that dependency's accept callback can arrive in a later update.
+        sim.update(["context", "consumer"], ["consumer"]);
+        expect(container.textContent).toBe("42");
+        sim.update([], ["context"]);
+        expect(container.textContent).toBe("42");
+
+        // A subsequent entry update disposes the old provider before evaluating
+        // the context module. Its fresh context must remain usable after accept.
+        sim.update(["context", "consumer", "main"], ["main", "consumer", "context"]);
+        expect(container.textContent).toBe("42");
+        expect(container.querySelectorAll("p")).toHaveLength(1);
+        expect(sim.invalidateCalls).toEqual([]);
+      } finally {
+        dispose();
+      }
+    }
+  );
+
   test("editing a shared non-component module keeps one tree and live delegation", () => {
     const sim = new ViteSim();
     container = document.createElement("div");

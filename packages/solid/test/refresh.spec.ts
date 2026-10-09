@@ -9,6 +9,7 @@ import {
   OBSERVE
 } from "../src/index.js";
 import { attribution } from "../src/attribution.js";
+import { sharedConfig } from "../src/client/hydration.js";
 import {
   $$component,
   $$decline,
@@ -268,7 +269,7 @@ describe("$$component proxy swapping (vite mode)", () => {
     expect(out().version).toBe(2);
   });
 
-  test("context identity: symbol id is carried over while the old provider is mounted", () => {
+  test("context identity is carried over before accept while the old provider is mounted", () => {
     const { hot, fireAccept } = createViteHot();
     const id = Symbol("ctx");
     const oldContext = Object.assign(() => null, { id, defaultValue: undefined });
@@ -280,6 +281,8 @@ describe("$$component proxy swapping (vite mode)", () => {
     // must adopt it.
     render(first.proxies.Ctx);
     executeModule(hot, { Ctx: { impl: newContext } });
+    // Consumers in another module can refresh before this module is accepted.
+    expect(newContext.id).toBe(id);
     fireAccept({});
 
     expect(newContext.id).toBe(id);
@@ -298,6 +301,7 @@ describe("$$component proxy swapping (vite mode)", () => {
     // the old symbol over it would orphan those live consumers.
     executeModule(hot, { Ctx: { impl: oldContext } });
     executeModule(hot, { Ctx: { impl: newContext } });
+    expect(newContext.id).toBe(freshId);
     fireAccept({});
 
     expect(newContext.id).toBe(freshId);
@@ -401,6 +405,51 @@ describe("$$refresh registration bookkeeping (vite mode)", () => {
     });
     fireAccept(undefined);
     expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("standard-mode context identity", () => {
+  test("context identity is preserved before a hydration-deferred patch", () => {
+    const registry = $$registry();
+    const id = Symbol("ctx");
+    const oldContext = Object.assign(() => null, { id });
+    const Ctx = $$component(registry, "Ctx", oldContext);
+    const { dispose } = renderDisposable(Ctx);
+    const nextRegistry = $$registry();
+    const nextContext = Object.assign(() => null, { id: Symbol("ctx") });
+    $$component(nextRegistry, "Ctx", nextContext);
+
+    const inProgress = sharedConfig.isHydrationInProgress;
+    const onEnd = sharedConfig.onHydrationEnd;
+    let finishHydration!: () => void;
+    sharedConfig.isHydrationInProgress = () => true;
+    sharedConfig.onHydrationEnd = callback => {
+      finishHydration = callback;
+    };
+
+    try {
+      $$refresh(
+        "standard",
+        {
+          data: { "solid-refresh": registry, "solid-refresh-prev": registry },
+          accept: vi.fn(),
+          dispose: vi.fn(),
+          invalidate: vi.fn()
+        },
+        nextRegistry
+      );
+
+      // The component swap is deferred, but new consumers already use this ID.
+      expect(nextContext.id).toBe(id);
+      expect(finishHydration).toBeTypeOf("function");
+      sharedConfig.isHydrationInProgress = () => false;
+      finishHydration();
+      expect(nextContext.id).toBe(id);
+    } finally {
+      sharedConfig.isHydrationInProgress = inProgress;
+      sharedConfig.onHydrationEnd = onEnd;
+      dispose();
+    }
   });
 });
 
