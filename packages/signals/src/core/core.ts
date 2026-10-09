@@ -1778,7 +1778,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // Only a genuine reactive re-read may retry an errored async source:
     // - tracking: owned/tracked scope only (never events / `untrack` / effect side-effect phase)
     // - owner._time < clock: only on a later cycle than the one the error was found
-    if (tracking && (owner as Computed<any>)._time < clock) {
+    // A reader queued to meet this error keeps throwing it, including a
+    // follow-up pass. A reader without the mark still retries (#3945).
+    if (tracking && (owner as Computed<any>)._time < clock && !(context as any)?._errorMeet) {
       recompute(owner as Computed<unknown>);
       return read(el);
     } else throw (owner as Computed<any>)._x?._error;
