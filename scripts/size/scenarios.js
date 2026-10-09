@@ -4597,8 +4597,10 @@ module.exports = [
     // #3924's claim-after-attributes growth is remeasured on this cap.
     // #3923 (2026-10-08): measured at 40,934 B brotli / 123,574 B minified by CI
     // (Size run 37873448792). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "40.94 KB",
-    capMinified: 123574,
+    // #3923 stacked on next (2026-10-08): measured at 41,009 B brotli / 123,702 B minified
+    // by CI (Size run 37877141123). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "41.01 KB",
+    capMinified: 123702,
     alias: pageAlias
   },
   {
@@ -4808,8 +4810,10 @@ module.exports = [
     // #3924's claim-after-attributes growth is remeasured on this cap.
     // #3923 (2026-10-08): measured at 47,287 B brotli / 143,229 B minified by CI
     // (Size run 37873448792). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "47.29 KB",
-    capMinified: 143229,
+    // #3923 stacked on next (2026-10-08): measured at 47,358 B brotli / 143,360 B minified
+    // by CI (Size run 37877141123). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "47.36 KB",
+    capMinified: 143360,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
