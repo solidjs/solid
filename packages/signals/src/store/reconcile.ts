@@ -31,12 +31,12 @@ import {
   notifyFoldTail,
   notifyKeyDiff,
   notifyKeyValue,
-  optHooks,
   sameKey,
   targetsEqual,
   unwrapValue,
   userWriting
 } from "./store.js";
+import { optHooks } from "./hooks.js";
 import { $TARGET, isRawValue, isWrappable, markRawIngest, rawValuesUsed } from "./types.js";
 
 type KeyFn = (item: any) => any;

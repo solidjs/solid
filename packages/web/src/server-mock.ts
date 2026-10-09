@@ -389,6 +389,13 @@ export function ssrElement(
  */
 export function ssrElementAttribute(key: string, value: any): string {}
 /**
+ * Compiler primitive — the hole after a candidate anchor's attributes in SSR
+ * output, the render's link handler's markup (see the server entry's
+ * `setLinkClaim`). Not meant for hand-written code.
+ * @internal
+ */
+export function ssrLinkClaim(attrs: Readonly<Record<string, unknown>>): string {}
+/**
  * Compiler primitive — serializes a class value (string, object map, or
  * array) for SSR output. Not meant for hand-written code.
  * @internal

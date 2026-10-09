@@ -636,12 +636,11 @@ export class GlobalQueue implements IQueue {
    * link's refreshed from the inner store, whose commits it never learned
    * while the guess served the reads (store/store.ts, §7b). */
   declare static _slotCovered: ((n: Signal<any>) => unknown) | undefined;
-  /** `affects()` on a store (store/affects.ts ↔ affects.ts): the nodes a
-   * declaration marks; a carrier's scope released with its last mark; a
-   * bare registration (birth inheritance); a witnessed mark on an untracked
-   * probe (verdict.ts). */
-  declare static _storeMarks: ((t: any, key: PropertyKey | undefined) => Signal<any>[]) | undefined;
-  declare static _releaseMarkScope: ((carrier: Signal<any> | Computed<any>) => void) | undefined;
+  /** `affects()` on a store (store/affects.ts): a store's node for a key
+   * (store/store.ts `getNode`); a bare registration (birth inheritance); a
+   * witnessed mark on an untracked probe (verdict.ts). */
+  declare static _storeNode: ((t: any, key: PropertyKey) => Signal<any>) | undefined;
+  declare static _storeWrappable: ((v: unknown) => boolean) | undefined;
   declare static _mark: ((node: Signal<any> | Computed<any>) => void) | undefined;
   declare static _witnessMark: (() => void) | undefined;
   /** An older question's truth was held beneath a guess (lanes.ts

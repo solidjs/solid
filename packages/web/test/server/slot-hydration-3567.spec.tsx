@@ -15,15 +15,10 @@
  * `children()` accessor and `<For>` rows are pinned as silent.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { Errored, renderToString } from "@solidjs/web";
 import { createSignal, OBSERVE } from "solid-js";
 import { scenarios } from "../harness/slot-hydration-3567.jsx";
-
-const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
-mkdirSync(artifactsDir, { recursive: true });
+import { writeArtifact } from "./artifact-recorder.js";
 
 const visibleText = (html: string) =>
   html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]*>/g, "");
@@ -53,10 +48,7 @@ describe("JSX through a non-children prop (#3567) — server render", () => {
       }
       expect(visibleText(html)).toBe(scenario.expectedText);
       const keys = [...html.matchAll(/<(\w+) _hk=([\w-]+)/g)].map(m => `${m[1]}:${m[2]}`);
-      writeFileSync(
-        resolve(artifactsDir, `slot-hydration-3567-${scenario.name}.json`),
-        JSON.stringify({ name: scenario.name, html, keys }, null, 2)
-      );
+      writeArtifact(`slot-hydration-3567-${scenario.name}`, { name: scenario.name, html, keys });
 
       const events = capture.events.filter(e => e.code === "UNSCOPED_HOLE_ALLOCATED_IDS");
       if (scenario.diagnostic) {

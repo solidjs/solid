@@ -10,8 +10,13 @@ import { ssrStyleProperties as _$ssrStyleProperties } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
 import { ssrElementAttribute as _$ssrElementAttribute } from "r-server";
+import { ssrLinkClaim as _$ssrLinkClaim } from "r-server";
 var _ref$, _v$, _v$2, _v$28, _v$30, _v$50, _v$51, _v$52, _v$53, _v$54;
-var _tmpl$ = ["<a href=\"/\" class=\"", "\">Welcome</a>"];
+var _tmpl$ = [
+	"<a href=\"/\" class=\"",
+	"\"",
+	">Welcome</a>"
+];
 var _tmpl$2 = ["<div>", "</div>"];
 var _tmpl$3 = "<div><div/></div>";
 var _tmpl$4 = [
@@ -137,6 +142,7 @@ var _tmpl$58 = [
 	"></div>"
 ];
 var _tmpl$59 = "<div class></div>";
+var _lk$ = { href: "/" };
 var _sk$ = (k) => k === "foo" || k === "disabled" || k === "title" || k === "style" || k === "class";
 var _sk$2 = (k) => k === "class" || k === "style";
 var _sk$3 = (k) => k === "something";
@@ -153,7 +159,7 @@ const refConst = null;
 const selected = true;
 let id = "my-h1";
 let link;
-const template = _$ssrElement("div", [{ id: "main" }, results], _$ssrElement("h1", [{ id }, results], (_ref$ = link, _$ssr(_tmpl$, "ccc ddd")), false, _sk$, () => " foo disabled" + _$ssrElementAttribute("title", welcoming()) + _$ssrElementAttribute("style", {
+const template = _$ssrElement("div", [{ id: "main" }, results], _$ssrElement("h1", [{ id }, results], (_ref$ = link, _$ssr(_tmpl$, "ccc ddd", _$ssrLinkClaim(_lk$))), false, _sk$, () => " foo disabled" + _$ssrElementAttribute("title", welcoming()) + _$ssrElementAttribute("style", {
 	"background-color": color(),
 	"margin-right": "40px"
 }) + _$ssrElementAttribute("class", ["base", {
