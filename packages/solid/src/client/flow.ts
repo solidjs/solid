@@ -6,6 +6,7 @@ import {
   repeat,
   createRevealOrder,
   getOwner,
+  latest,
   runWithOwner
 } from "@solidjs/signals";
 import { createErrorBoundary, createLoadingBoundary, sharedConfig } from "./hydration.js";
@@ -227,7 +228,13 @@ export function Show<T>(props: {
             : untrack(
                 () =>
                   (child as any)(() => {
-                    if (!untrack(condition)) throw narrowedError("Show");
+                    // The branch was chosen from this condition, which may be
+                    // `latest` of an async source. An ownerless `latest` sees
+                    // that same arrived value. A plain untrack still serves
+                    // the committed frame, so the first mount throws stale
+                    // (#3948). Null owner: `latest` must not mark the child
+                    // binding as a verdict reader.
+                    if (!runWithOwner(null, () => latest(condition))) throw narrowedError("Show");
                     return conditionValue();
                   }),
                 IS_DEV && "<Show>"
