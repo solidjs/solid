@@ -158,4 +158,236 @@ describe("#3928 select value when options arrive later", () => {
     dispose();
     root.remove();
   });
+
+  test("selects a same-turn option whose value is assigned without another insert", async () => {
+    const id = (value: string) => value;
+    let select!: HTMLSelectElement;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select ref={select} value={id("b")}>
+          <option value={id("b")}>Label</option>
+        </select>
+      ),
+      root
+    );
+
+    flush();
+    await Promise.resolve();
+    expect(select.value).toBe("b");
+    dispose();
+    root.remove();
+  });
+});
+
+describe("#3928 multiple select value when options arrive later", () => {
+  const picked = (select: HTMLSelectElement) =>
+    Array.from(select.options, option => (option.selected ? option.value : "")).filter(Boolean);
+
+  test("selects options that arrive separately and clears the pending value only after both", async () => {
+    const wanted = ["a", "c"];
+    const [options, setOptions] = createSignal<string[]>([]);
+    let select!: HTMLSelectElement & { _$v?: unknown };
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select ref={select} multiple value={wanted}>
+          <option value="b">b</option>
+          <For each={options()}>{item => <option value={item}>{item}</option>}</For>
+        </select>
+      ),
+      root
+    );
+
+    await Promise.resolve();
+    expect(picked(select)).toEqual([]);
+    expect(select._$v).toEqual(wanted);
+
+    setOptions(["a"]);
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["a"]);
+    expect(select._$v).toEqual(wanted);
+
+    setOptions(["a", "c"]);
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["a", "c"]);
+    expect(select._$v).toBeNull();
+    dispose();
+    root.remove();
+  });
+
+  test("a later insert after completion does not clobber a user change", async () => {
+    const [options, setOptions] = createSignal<string[]>([]);
+    let select!: HTMLSelectElement;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select ref={select} multiple value={["a", "c"]}>
+          <For each={options()}>{item => <option value={item}>{item}</option>}</For>
+        </select>
+      ),
+      root
+    );
+
+    setOptions(["a", "c"]);
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["a", "c"]);
+
+    select.options[1].selected = false;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    setOptions(["a", "c", "d"]);
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["a"]);
+    dispose();
+    root.remove();
+  });
+
+  test("a user change while still pending is not overwritten by the next option", async () => {
+    const [options, setOptions] = createSignal<string[]>([]);
+    let select!: HTMLSelectElement & { _$v?: unknown };
+    let seen = 0;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select
+          ref={select}
+          multiple
+          value={["a", "c"]}
+          onChange={() => {
+            seen++;
+          }}
+        >
+          <For each={options()}>{item => <option value={item}>{item}</option>}</For>
+        </select>
+      ),
+      root
+    );
+
+    setOptions(["a"]);
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["a"]);
+    expect(select._$v).toEqual(["a", "c"]);
+
+    select.options[0].selected = false;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(seen).toBe(1);
+    expect(select._$v).toBeNull();
+
+    setOptions(["a", "c"]);
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual([]);
+    dispose();
+    root.remove();
+  });
+
+  test("selects values inside an optgroup as those options arrive", async () => {
+    const [options, setOptions] = createSignal<string[]>([]);
+    let select!: HTMLSelectElement;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select ref={select} multiple value={["a", "c"]}>
+          <optgroup label="g">
+            <For each={options()}>{item => <option value={item}>{item}</option>}</For>
+          </optgroup>
+        </select>
+      ),
+      root
+    );
+
+    setOptions(["a"]);
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["a"]);
+
+    setOptions(["a", "c"]);
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["a", "c"]);
+    expect(select.selectedIndex).toBe(0);
+    dispose();
+    root.remove();
+  });
+
+  test("numeric entries match string option values", async () => {
+    const [options, setOptions] = createSignal<number[]>([]);
+    let select!: HTMLSelectElement;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select ref={select} multiple value={[1, 3]}>
+          <For each={options()}>{item => <option value={item}>{item}</option>}</For>
+        </select>
+      ),
+      root
+    );
+
+    setOptions([1, 2, 3]);
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["1", "3"]);
+    dispose();
+    root.remove();
+  });
+
+  test("a later array write replaces the previous selection", async () => {
+    const [value, setValue] = createSignal(["a", "b"]);
+    let select!: HTMLSelectElement;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select ref={select} multiple value={value()}>
+          <option value="a">a</option>
+          <option value="b">b</option>
+          <option value="c">c</option>
+        </select>
+      ),
+      root
+    );
+
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["a", "b"]);
+
+    setValue(["c"]);
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["c"]);
+    dispose();
+    root.remove();
+  });
+
+  test("selects a same-turn option whose numeric value is assigned without another insert", async () => {
+    const id = (value: number) => value;
+    let select!: HTMLSelectElement;
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const dispose = render(
+      () => (
+        <select ref={select} multiple value={[id(1), id(2)]}>
+          <option value={id(1)}>One</option>
+          <option value={id(2)}>Two</option>
+        </select>
+      ),
+      root
+    );
+
+    flush();
+    await Promise.resolve();
+    expect(picked(select)).toEqual(["1", "2"]);
+    dispose();
+    root.remove();
+  });
 });

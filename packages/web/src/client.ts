@@ -2916,21 +2916,40 @@ function insertExpression(parent, value, current, marker) {
   return value;
 }
 
-// Pending `<select value>` (#3928). Microtask: option `.value` writes later
-// in the same turn. Inserts (async options, including under an optgroup):
-// `selectInsert`. Cleared once a selected option matches, so a later list
-// update does not clobber a user selection. Arrays keep the historical
-// sync-plus-microtask write (`select.value = array` stringifies).
+// Pending `<select value>` (#3928). `_$v` holds a scalar or a multi-select
+// array until the matching option(s) are selected. Assigning an array to
+// `.value` stringifies it and selects one option, so arrays select by walking
+// `options` (`option.value == entry`, so `"1"` matches `1`). One `parentNode`
+// step covers an optgroup. The array stays pending until every entry is
+// selected; a capture `change` listener clears it first so a later insert
+// cannot restore a selection the user changed. The microtask covers
+// `<option value={expr}>`, assigned later in the same turn with no insert.
+// Nullish values still go through the historical `.value` write.
 let selectInsert;
+function selectChange(e) {
+  (e = e.currentTarget || e)._$v = null;
+  e.removeEventListener("change", selectChange, true);
+}
 function writeSelectValue(node, value) {
-  if (value == null || Array.isArray(value))
+  // `.map` is only on arrays — strings and numbers fall through to the scalar path.
+  const had = node._$v && node._$v.map,
+    has = value != null && value.map;
+  if (has) had || node.addEventListener("change", selectChange, true);
+  else had && node.removeEventListener("change", selectChange, true);
+  if (value == null) {
+    node._$v = null;
     return queueMicrotask(() => (node.value = value)) || (node.value = value);
+  }
   node._$v = value;
   (selectInsert ||= p => {
     p && p._$v == null && (p = p.parentNode);
-    p &&
-      p._$v != null &&
-      ((p.value = p._$v), p.selectedIndex > -1 && p.value == p._$v && (p._$v = null));
+    const v = p && p._$v;
+    if (v == null) return;
+    if (v.map) {
+      const o = [...p.options];
+      for (let i = 0; i < o.length; i++) o[i].selected = v.some(x => x == o[i].value);
+      v.every(x => o.some(el => el.value == x)) && selectChange(p);
+    } else ((p.value = v), p.selectedIndex > -1 && p.value == v && (p._$v = null));
   })(node);
   queueMicrotask(() => selectInsert(node));
 }
