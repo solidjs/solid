@@ -379,7 +379,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let value =
     el._pendingValue !== NOT_PENDING
       ? el._pendingValue
-      : el._config & CONFIG_OVERRIDE
+      : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
         ? el._x!._lane
         : el._value;
   let oldHeight = el._height;
