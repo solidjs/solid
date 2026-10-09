@@ -102,49 +102,7 @@ import {
   type StoreFamily,
   type StoreTarget
 } from "./target.js";
-/** The optimistic machinery (optimistic.ts, S4), installed when it loads
- * — a plain store pays nothing for it (#2883): the plain paths reach it
- * only through a family with `opt` set, which only `createOptimisticStore`
- * sets. */
-export interface OptHooks {
-  /** A user setter's draft on an optimistic family: a clone of the
-   * writer's view (a staging already on the target is set aside). */
-  draft(t: StoreTarget): Record<PropertyKey, any>;
-  /** The setter's exit: the draft becomes guesses; returns the staging the
-   * draft set aside (`null`: none). */
-  writes(t: StoreTarget, pb: Record<PropertyKey, any>): Record<PropertyKey, any> | null;
-  /** `src` with the lanes' values over it (`writer`: the next write's base
-   * — the unflushed guesses too). */
-  view(t: StoreTarget, src: Record<PropertyKey, any>, writer?: boolean): Record<PropertyKey, any>;
-  /** An untracked `key in store`: the presence guess, or `undefined`. */
-  has(t: StoreTarget, key: PropertyKey): boolean | undefined;
-  /** A guessed key's descriptor (`null`: removed; `undefined`: no guess). */
-  descriptor(t: StoreTarget, key: PropertyKey): PropertyDescriptor | null | undefined;
-  /** The flush's commit: targets no lane holds leave `overlaid`. */
-  sweep(): void;
-  /** The container comparator's lane arm: an arrangement guess against a
-   * landing (or another arrangement), by row identity. */
-  arrangement(t: StoreTarget, a: any, b: any): boolean;
-  /** A user's `reconcile` on an optimistic family: the keyed diff written
-   * into the draft. */
-  reconcile(draft: any, incoming: any, keyFn: ((item: any) => any) | null): void;
-}
-export let optHooks: OptHooks | null = null;
-export function installOptHooks(hooks: OptHooks): void {
-  optHooks = hooks;
-}
-
-/** The store half of `affects()` (store/affects.ts), installed with the
- * stores: a node born on a covered record inherits the live mark; an
- * untracked verdict probe through a record with no node is witnessed. */
-export interface AffectsHooks {
-  born(t: StoreTarget, node: Signal<any>, key: PropertyKey): void;
-  witness(t: StoreTarget, key: PropertyKey | undefined): void;
-}
-export let affectsHooks: AffectsHooks | null = null;
-export function installAffectsHooks(hooks: AffectsHooks): void {
-  affectsHooks = hooks;
-}
+import { affectsHooks, optHooks } from "./hooks.js";
 import {
   $PROXY,
   $RECORD,
@@ -371,7 +329,7 @@ function releaseSlot(node: any): void {
 function noteNode(target: StoreTarget, node: Signal<any>, key: PropertyKey): void {
   if (target.fam !== null) target.fam.live.add(target);
   markDescendants(target);
-  if (affectsHooks !== null) affectsHooks.born(target, node, key);
+  if (affectsHooks !== null) affectsHooks._born(target, node, key);
 }
 
 // Shared slot-node release handler: registered once; the core sweep
@@ -964,6 +922,10 @@ GlobalQueue._storeCommit = () => {
   drainFolds();
   optHooks?.sweep();
 };
+/** The store half of `affects()` (store/affects.ts) makes its marks' nodes
+ * and walks records through these: it never imports the engine. */
+GlobalQueue._storeNode = getNode;
+GlobalQueue._storeWrappable = isWrappable;
 
 /** A projection's creation run commits directly (a memo's first value is
  * its `_value`, not a staging): the draft still writes a clone of the seed,
@@ -1214,16 +1176,19 @@ function notifyWrites(t: StoreTarget): void {
       ) {
         // Accessor keys: the node is linked for shape-change notification,
         // its value is never served (the getter runs with the proxy
-        // receiver on read) — FORCE wakes the readers.
+        // receiver on read) — FORCE wakes the readers. A data descriptor
+        // falls through so the cleared-acc hot read serves it (#3949);
+        // an own getter's descriptor has no `value`, so the compare below
+        // would otherwise keep the getter's result (or FORCE) for `undefined`.
         (node as any).acc = isOwnAccessor(pb, key);
         const od = Object.getOwnPropertyDescriptor(old, key);
         const nd = Object.getOwnPropertyDescriptor(pb, key);
-        if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
+        if (!nd || nd.get || nd.set) {
           if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
             setSignal(node, () => FORCE as any);
           continue;
         }
-        if (!isEqual(od?.value, nd?.value)) setSignal(node, () => nd?.value);
+        if (od?.get || od?.set || !isEqual(od?.value, nd.value)) setSignal(node, () => nd.value);
         continue;
       }
       const nv = t.del !== null && t.del.has(key) ? undefined : pb[key as any];
@@ -1335,14 +1300,15 @@ export function notifyKeyDiff(
     (node as any).acc = isOwnAccessor(neu, key);
     const od = Object.getOwnPropertyDescriptor(old, key);
     const nd = Object.getOwnPropertyDescriptor(neu, key);
-    if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
+    // Data descriptors fall through, as in notifyWrites (#3949).
+    if (!nd || nd.get || nd.set) {
       if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
         setSignal(node, () => FORCE as any);
       return;
     }
     const ov = od?.value;
     const nv = nd?.value;
-    if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
+    if (od?.get || od?.set || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
       setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
   } else {
     const ov = old[key as any];
@@ -1896,7 +1862,7 @@ const traps: ProxyHandler<StoreTarget> = {
     // (The witness before the pull: a mark on an uninitialized derived
     // store is witnessed, then the pull throws — loading, declared pending.)
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
-      affectsHooks.witness(target, key);
+      affectsHooks._witness(target, key);
     if (target.fam !== null) pullFamily(target);
     // Hot inline case: existing PLAIN node (non-accessor) read outside any
     // draft — the dbmon/uibench effect re-read shape. Core's `read()` serves
@@ -2044,7 +2010,7 @@ const traps: ProxyHandler<StoreTarget> = {
     // (The witness before the pull: a mark on an uninitialized derived
     // store is witnessed, then the pull throws — loading, declared pending.)
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
-      affectsHooks.witness(target, key);
+      affectsHooks._witness(target, key);
     if (target.fam !== null) pullFamily(target);
     const src = readSource(target, key);
     // A tracked reader's presence node answers (born from the two frames;
@@ -2070,7 +2036,7 @@ const traps: ProxyHandler<StoreTarget> = {
 
   ownKeys(target) {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
-      affectsHooks.witness(target, undefined);
+      affectsHooks._witness(target, undefined);
     if (target.fam !== null) pullFamily(target);
     return visibleKeys(target, enumerationSource(target));
   },
@@ -2079,7 +2045,7 @@ const traps: ProxyHandler<StoreTarget> = {
     if (key === $OWNER || key === $RECORD) return undefined;
     const obs = getObserver();
     if (verdict !== null && affectsHooks !== null && obs === null)
-      affectsHooks.witness(target, key);
+      affectsHooks._witness(target, key);
     if (target.fam !== null) pullFamily(target);
     // An enumerator (spread, Object.entries) already holds the container
     // node and reads its frame; a descriptor read on its own tracks
@@ -2430,7 +2396,7 @@ export function deep<T>(value: T): T {
     readNode(getDeepNode(t));
     // Through a chain (#3323): every inner record's container AND deep
     // witness — base writes bump the inner witnesses.
-    for (let it = t; it.ch; ) {
+    for (let it = t; it.ch;) {
       it = (it.v as any)[$TARGET];
       readNode(getContainerNode(it));
       readNode(getDeepNode(it));

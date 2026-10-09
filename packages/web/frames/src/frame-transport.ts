@@ -900,7 +900,18 @@ export function createServerComponentHandler({ host, component, intercept }) {
       const entry = showing(address) ? stage(address, binding, version) : undefined;
       if (!entry) begin(address, version);
       const target = entry || host;
-      const applied = applyFrameResponse(response, target, { as: address, version }).catch(err =>
+      // The root shares this call's version (`begin` already opened its
+      // store on it). A nested region is its own frame: the element
+      // persists across parent address changes — identity is (occurrence,
+      // arg), and a direct response's wire id is the function id — so it
+      // has its own version history. Stamping it with the parent address's
+      // counter drops a later argument's region as stale once a
+      // same-argument refetch has bumped that counter (#3894). Same rule
+      // as a single-flight region: one bump per frame, once per response.
+      const applied = applyFrameResponse(response, target, {
+        as: address,
+        version: frameId => (frameId === address ? version : bump(frameId))
+      }).catch(err =>
         target.apply({
           type: "error",
           id: address,

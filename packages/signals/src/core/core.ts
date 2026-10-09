@@ -309,6 +309,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // landing). A frame born into the transaction (uninitialized: never run,
     // A29) keeps staging: live writes keep it current, it effects at the
     // swap (ruling A).
+    // A pending flight is the transition's own work (#3884). A probe on an
+    // earlier pass left CONFIG_VERDICT, and a frame read here would serve the
+    // committed screen, settle the flight and drop the hold — a superseding
+    // write's verdict would depend on that probe. Cleared for this pass; a
+    // probe in the body re-stamps it after the plain reads.
+    if (el._statusFlags & STATUS_PENDING) el._config &= ~CONFIG_VERDICT;
     if (el._config & CONFIG_HELD) {
       const tx = txOf(el);
       // Held by a blocked lane: the frame joins nothing — a lane never holds

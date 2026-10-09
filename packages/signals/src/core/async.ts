@@ -463,6 +463,16 @@ export function handleAsync<T>(
         return;
       }
       if (wasUninitialized) landStatus(el, true);
+      // Attribution hook: this path landed through the setter (derived
+      // stores, projections), which does not go through setSignal, so the
+      // plain branch's asyncEnd never ran and the flight stayed open — the
+      // next flight counted a committed answer as abandoned (#3947).
+      // direct=true: asyncEnd finalizes either way and stamps an async write
+      // only if the commit moved `_value`/`_time` or parked `_pendingValue`.
+      // A store setter does not move this node's `_value`, so no stamp is
+      // recorded and waterfall chaining through derived stores stays
+      // unmeasured. Outside the try (#2883 — see attribution-hooks.ts).
+      if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
     } else {
       // CARVE 2: the override-covered landing (hold + A18 supersession) and the
       // lane-routed landing (derived override, lane effect queue) went with

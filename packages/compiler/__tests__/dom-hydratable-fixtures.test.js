@@ -16,6 +16,7 @@ const fixtureParity = {
   conditionalExpressions: "subset",
   customElements: "subset",
   document: "subset",
+  elementClaims: "subset",
   eventExpressions: "subset",
   flags: "subset",
   fragments: "subset",

@@ -2156,6 +2156,7 @@ const toggleAll = action(function* (ids: string[], completed: boolean) {
   yield toggleAllTodos(ids, completed);
 });
 
+// `dynamicComponent` is imported from `solid-js`.
 const Todos = dynamicComponent(() => getTodos(filter()));
 
 <Todos

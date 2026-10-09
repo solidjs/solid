@@ -243,9 +243,7 @@ export interface NoJSHandlerOptions {
 }
 
 export type ServerFunctionOriginMatcher =
-  | string
-  | readonly string[]
-  | ((origin: string, request: Request) => boolean | Promise<boolean>);
+  string | readonly string[] | ((origin: string, request: Request) => boolean | Promise<boolean>);
 
 /** Same-origin validation options for server function requests. */
 export interface ServerFunctionCSRFOptions {
@@ -1364,20 +1362,34 @@ export function createServerReference({ id, fn, name }) {
       // provideEventOnce): a broken hook used to double-commit or skip the
       // body silently during a render, where there is no status line to
       // notice it by.
-      let result = provideEventOnce(provideEvent, evt, () => {
-        const run = () => fn.apply(thisArg, args);
-        // The wrapper must return run()'s value (this path stays
-        // synchronous for synchronous functions). Observed as a whole —
-        // policy included — as the `"invocation"` record on `OBSERVE.records`;
-        // a no-op with no listener and outside observe builds.
-        return observeInvocation({ id, direct: true, event: evt, args }, () =>
-          reportDirectFailure(
-            () => (wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()),
-            id,
-            hook
-          )
-        );
-      });
+      let result;
+      try {
+        result = provideEventOnce(provideEvent, evt, () => {
+          const run = () => fn.apply(thisArg, args);
+          // The wrapper must return run()'s value (this path stays
+          // synchronous for synchronous functions). Observed as a whole —
+          // policy included — as the `"invocation"` record on `OBSERVE.records`;
+          // a no-op with no listener and outside observe builds.
+          return observeInvocation({ id, direct: true, event: evt, args }, () =>
+            reportDirectFailure(
+              () => (wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()),
+              id,
+              hook
+            )
+          );
+        });
+      } catch (error) {
+        throw directEnvelopeValue(error, evt);
+      }
+      result =
+        result && typeof result.then === "function"
+          ? result.then(
+              value => directEnvelopeValue(value, evt),
+              error => {
+                throw directEnvelopeValue(error, evt);
+              }
+            )
+          : directEnvelopeValue(result, evt);
       // A generator or stream body runs when the caller pulls it, after the
       // call-time scope above has gone. Bind the WRAPPER'S result (not merely
       // fn's) so a deferred wrapInvocation keeps the same semantics.
@@ -3214,7 +3226,16 @@ function encodeResult(value, headers, status, codec, signal, scope) {
   // where a throw would escape the handler entirely.
   if (NULL_BODY_STATUSES.has(status)) {
     if (value === undefined || value === null) {
-      headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
+      // 204/205 are the stored answer, so the void tag is how the client
+      // tells a runtime-encoded empty body from an untagged peer. A 304 is
+      // not a stored response (#3134): RFC 9111 §3.2 freshens the cached
+      // entry with the header fields the 304 carries, and the body stays
+      // the one already stored. Stamping a format here replaces the cached
+      // representation's tag — the replay is still the original payload,
+      // decoded under Void, which is `undefined` (#3897). An author who
+      // echoes the stored tag on the 304 is left alone; the runtime simply
+      // does not invent one.
+      if (status !== 304) headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
       return new Response(null, { status, headers });
     }
     const error = new Error(
@@ -3444,6 +3465,28 @@ function reportDirectFailure(run, id, hook) {
     report(error);
   }
   return result && typeof result.then === "function" ? result.then(undefined, report) : result;
+}
+
+/**
+ * A `respond()` envelope a direct call returned or threw, as its caller
+ * receives it: the value, exactly as an HTTP caller decodes it — the
+ * in-process leg has no Response to hand over. Of the metadata, only
+ * `Set-Cookie` reaches the render's response head: a cookie is state the
+ * function established, and the browser must receive it whichever leg ran
+ * the call. The rest describes the function's own address (a GET's
+ * `Cache-Control` is about that url, not the page composed from it) and the
+ * status is the page's, so neither is applied to the document.
+ */
+function directEnvelopeValue(result, event) {
+  if (!isResponseEnvelope(result)) return result;
+  const { response, value } = result;
+  const stub = event.response;
+  if (response && stub && stub.headers && response.headers.getSetCookie) {
+    for (const cookie of response.headers.getSetCookie()) {
+      stub.headers.append("Set-Cookie", cookie);
+    }
+  }
+  return value;
 }
 
 export function sanitizeServerError(value) {

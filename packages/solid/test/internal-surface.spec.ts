@@ -42,7 +42,9 @@ const INTERNAL = [
   "createRevealOrder",
   // hydration/SSR coordination object and the dev component brand
   "sharedConfig",
-  "$DEVCOMP"
+  "$DEVCOMP",
+  // tag-arm core behind dynamicComponent / @solidjs/web dynamic (#3907)
+  "dynamicCore"
 ];
 
 // The container-trace materializer's seams: exported from the client entry at

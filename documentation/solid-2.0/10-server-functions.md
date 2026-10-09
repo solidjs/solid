@@ -94,7 +94,9 @@ return reload({ revalidate: "todos" });
 return respond(item, { status: 201, revalidate: "items" });
 ```
 
-`respond()` produces a `ResponseEnvelope` — HTTP metadata paired with an in-memory value. The handler forwards the envelope’s headers and status and encodes the value as the body, while scripted callers receive the value transparently. Crucially, the carried response holds a **real JSON body**, so progressive-enhancement consumers (no-JS form posts, direct HTTP) get real JSON while scripted calls get the in-memory value — no reparse. Thrown envelopes ride the same path with an error tag (`X-Server-Function-Error`) and their status forwarded. Check with `isResponseEnvelope()` (a registered-symbol brand, correct across duplicated bundles — always prefer it over `instanceof`).
+`respond()` produces a `ResponseEnvelope` — HTTP metadata paired with an in-memory value. The handler forwards the envelope’s headers and status and encodes the value as the body, while scripted callers receive the value transparently. Crucially, the envelope **is a real `Response`** with a JSON body, so progressive-enhancement consumers (no-JS form posts, direct HTTP) get real JSON while scripted calls get the in-memory value — no reparse — and a consumer that knows nothing of Solid (a filesystem router's API dispatch, any fetch-style handler) answers with it as-is. Thrown envelopes ride the same path with an error tag (`X-Server-Function-Error`) and their status forwarded. Check with `isResponseEnvelope()` (a registered-symbol brand, correct across duplicated bundles — always prefer it over `instanceof`).
+
+The helpers are typed by what they mean to the caller, not as the objects they build: `respond(value)` is typed as `value`, and `redirect()`/`reload()` — control flow for the integration, not values — never show up in the returning function's type (`<T = never>(…): T`: the `never` vanishes from the inferred union, and where the context names a type, such as an annotated return or a `Response`-typed request handler, `T` takes it). So a bare `"use server"` function returning `respond(item)` on one branch and `redirect("/login")` on another is typed `Promise<Item>`, with no wrapper needed to narrow it. A direct call during SSR receives `respond()`'s value too (a thrown envelope rejects with it), and the envelope's `Set-Cookie` headers reach the page's response; its other headers and its status describe the function's own address and are not applied to the document.
 
 **Redirects to scripted callers ride a dedicated carrier.** fetch follows the redirect statuses (301/302/303/307/308) before the transport can read them, so a scripted answer masks the 3xx to 200 and carries the redirect in `X-Server-Function-Redirect`: the author’s status plus the target **resolved against the request URL** — exactly the meaning HTTP assigns the `Location` a form post would have received. Resolving server-side means `redirect("/")` and `redirect(new URL("/", url).href)` arrive identical, so an integration compares origins on a real URL instead of guessing navigation strategy from how the author spelled the target (#3102, #3107); decode with `decodeRedirectHeaderValue`. `Location` itself never rides a masked answer — on a 200 it has no HTTP meaning, and an authored `Location` on a forwarding status (a 201’s created-at) stays what it is: data. Unscripted callers get the real 3xx, and the non-followable 3xx band (304) forwards untouched for everyone.
 
@@ -243,6 +245,7 @@ export const feed = live(
 );
 
 // client
+import { dynamicComponent } from "solid-js";
 const Feed = dynamicComponent(() => feed(props.room));
 ```
 

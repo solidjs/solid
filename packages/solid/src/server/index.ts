@@ -123,6 +123,9 @@ export type {
 
 // Component helpers and types
 export * from "./component.js";
+export { dynamicComponent, type DynamicOptions } from "./dynamic.js";
+/** @internal — tag-arm core behind `dynamicComponent` and `@solidjs/web`'s `dynamic`. */
+export { dynamicCore } from "./dynamic.js";
 
 // Flow controls
 export * from "./flow.js";

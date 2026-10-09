@@ -25,7 +25,6 @@ export type {
   ArrayFilterFn
 } from "./storePath.js";
 
-import "./affects.js";
 import { createOptimisticStore } from "./optimistic.js";
 import { createProjection, createStoreDerived } from "./projection.js";
 import { reconcileState } from "./reconcile.js";

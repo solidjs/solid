@@ -44,7 +44,8 @@ runFixtures({
           "noscript",
           "select",
           "option",
-          "video"
+          "video",
+          "form"
         ],
         moduleName: "r-dom"
       }

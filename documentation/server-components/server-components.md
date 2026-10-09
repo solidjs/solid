@@ -135,7 +135,7 @@ component-only form of `dynamic`, the same utility you'd use to swap any
 component — is the whole surface:
 
 ```tsx
-import { dynamicComponent } from "@solidjs/web";
+import { dynamicComponent } from "solid-js";
 
 function StoryPage(props) {
   const [collapsedAll, setCollapsedAll] = createSignal(false);
@@ -395,6 +395,35 @@ indiscriminately per the attribute contract — filtering (external links,
 `download`, `target`, base paths) belongs to the consumer — and the whole
 mechanism is dormant (one property read per apply) without a registered
 consumer.
+
+**The server half: link state in the HTML (#3878).** Claims never fire
+during SSR, so compiled SSR output gives every candidate `<a href>` one
+hole after its attributes, `ssrLinkClaim(attrs)`, where the render's
+**link handler** writes the anchor's link state — the router sets one from
+its server render with `setLinkClaim(attrs => markup)`, scoped to that
+render through the owner chain (`getHydrationWriter()`'s lookup), so
+concurrent requests never share one. `attrs` is the anchor's link-relevant
+attributes (`href`, `target`, `rel`, `download`, `link`, `aria-current`;
+raw values as written), a hoisted object for a static anchor, the values
+the attribute holes evaluated for a dynamic one; `ssrElement` collects the
+same set from a spread anchor's winning sources. Anchors the compiler can
+rule out — a static non-empty `target`, a `download`, a `rel` naming
+`external`, an author-written `aria-current`, an empty href or a non-HTTP
+scheme — get no hole; without a handler every hole is `""`, so an app
+without a router pays one property read per anchor and zero bytes, and the
+hydration ids are untouched either way. Server components inline in the
+document render under the page's handler (the document-face scope derives
+from the page's context); a server component's own frame stream has none
+unless its render sets one, so refetched content arrives unmarked and the
+client's re-claim after the morph reasserts the state, as before.
+
+The render that sets a handler writes the `links` hydration record once
+(`_$HY.r.links = 1`; `hasServerLinkState()` on the client). It is the
+router's contract: with the record, an anchor claimed while the document
+hydrates (a server node — `isHydrating()`, connected) carries the server's
+link state and can be registered without resolving its URL, deferring the
+resolution to the first routing change; without it, or for an anchor
+created after hydration, the consumer resolves at claim as it does today.
 
 ## What it costs
 

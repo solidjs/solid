@@ -407,16 +407,98 @@ export function getFrameHost() {
  * its occurrences' claims (which may run long after, under the frame's hold
  * or at a fragment's reveal) gather against the root that holds the frame
  * and not whichever `hydrate()` root replaced the live pair since (#2917).
+ * The gather is the boundary's own (`claimScope`): an index of the keys
+ * under its element, built once, not the root's scan of the whole page.
  */
 type ClaimScope = { registry?: Map<string, object>; gather?: (key: string) => void };
+
+/**
+ * The claim scope of an adopted boundary: the registry the page's root
+ * gathered into, read now, and a gather over the keys under `el` served from
+ * an index built ONCE here — the root's `gather` selects
+ * `[_hk^="<prefix>"]` over the whole hydration root, which an adoption with
+ * hundreds of occurrences (a comment thread: 652 on the HN story page) paid
+ * once PER occurrence's window, more than the rest of its hydration put
+ * together. One `[_hk]` pass over the element buckets every keyed node by
+ * the occurrence it belongs to; a window's gather is a lookup.
+ *
+ * The bucket of a key is its producer prefix, `sc-<fid>-<occurrence>-`: the
+ * fid and the occurrence may carry dashes, the child path after the prefix
+ * never does (`formatId` spells it in `[0-9a-zA-Z]`), so it ends at the
+ * key's LAST dash. A window's id names the same bucket by the same rule —
+ * an occurrence's prefix is its own bucket; a streamed `<Loading>` inside a
+ * fill resumes under a boundary id (the prefix plus a child path), whose
+ * bucket is the occurrence's, narrowed to the keys under the id. Ids are
+ * prefix-closed (a child's id extends its owner's), so `startsWith` is
+ * containment, as the selector's `^=` was. A bare `_hk` (an event-slot
+ * consumer's replay stamp) lands in the empty bucket no id ever names.
+ *
+ * `gather` hands a bucket's keys to the registry as the root's gather did:
+ * each node under the id that the registry does not hold — so a key the
+ * window already claimed (gone from the registry) IS put back, exactly as
+ * the selector put it back; `claimRender`'s `bound` is still what keeps a
+ * fill's second window from gathering — and only nodes still in the
+ * document, which is what a live selector over the root saw. The last
+ * matters: a `<Loading>` the server left pending inside a fill renders its
+ * fallback under the SAME id as its content, so the fallback's keys and the
+ * content's collide by design; the swap removes the fallback before the
+ * content's claim gathers, and a removed node must not shadow the one that
+ * replaced it.
+ *
+ * The index is a snapshot; `index(root)` extends it with what a fragment's
+ * reveal landed under `root` (the parent `$dfr` announces — the adoption's
+ * `fr.subscribe`, before the reveal's re-sync mounts anything). That is how
+ * keyed nodes enter an adopted element after adoption: a stream's re-call
+ * ships bare marker pairs (no keys; it renders fresh), an occluded region
+ * materializes from data (never claimed). (A reveal group's fallback
+ * materialization, `$dfl`, announces nothing; a fill's keyed fallback it
+ * lands between the adoption and a held window is not indexed — the
+ * content that replaces it is, at its reveal.) A reveal AFTER
+ * hydration-done (a server `<Loading>`'s content under corollary 4) finds
+ * the index where the registry was cleared, so the late window claims from
+ * it. Nodes indexed twice (the reveal's parent re-scanned) dedupe at the
+ * gather, by key.
+ *
+ * Without a registry (no `hydrate()` pass has run — a client render
+ * adopting server markup) there is nothing to index for and nothing to
+ * gather into: the index stays empty and a window gathers nothing. (A
+ * window opened under such a scope has no registry to claim against either
+ * way; `claimRender` renders fresh while no root has gathered.)
+ */
+function claimScope(el: Element): ClaimScope & { index(root: ParentNode): void } {
+  const registry: Map<string, object> | undefined = sharedConfig.registry;
+  const buckets = new Map<string, Element[]>();
+  const bucketOf = (key: string) => key.slice(0, key.lastIndexOf("-") + 1);
+  const index = (root: ParentNode) => {
+    if (registry)
+      for (const n of root.querySelectorAll("[_hk]")) {
+        const p = bucketOf(n.getAttribute("_hk")!);
+        const b = buckets.get(p);
+        b ? b.push(n) : buckets.set(p, [n]);
+      }
+  };
+  index(el);
+  return {
+    registry,
+    gather(id) {
+      for (const n of buckets.get(bucketOf(id)) || []) {
+        const k = n.getAttribute("_hk")!;
+        if (k.startsWith(id) && n.isConnected && !registry!.has(k)) registry!.set(k, n);
+      }
+    },
+    index
+  };
+}
 
 /**
  * Hydration re-entry for one adopted slot range: the fill renders inside a
  * claim window — `sharedConfig.hydrateWindow`, the same window a streamed
  * boundary's resume opens — under an owner whose id chain reproduces the
  * document producer's keys (`sc-<fid>-<occurrence>-`). The window gathers
- * the range's keys by that prefix, so the fill's components take the
- * server-rendered nodes by key; the range is declared as the window's claim
+ * the range's keys by that prefix — from the boundary's index of its
+ * element's keys (`scope`, see `claimScope`), not a scan of the page — so
+ * the fill's components take the server-rendered nodes by key; the range
+ * is declared as the window's claim
  * roots because it may be DETACHED right now (an async slot fill renders
  * before its boundary re-inserts it) and the runtime's hydration guards
  * read connectivity to tell claimed SSR nodes from fresh clones. A fill
@@ -931,9 +1013,9 @@ function boundaryComponent(host: any, fnId: string) {
  * function id so post-load streams (remapped onto the same id) morph the
  * adopted content.
  */
-// Boundaries the page carried that a component has already bound to —
-// intercepted calls consume them exactly once, so post-load navigations go
-// to the network like any other call.
+// Boundary ids the page carried that a mount has already bound to. The first
+// site of a function keeps that id; each later site (#3889) is `<id>~n`.
+// A further mount, past the last element, goes to the network.
 const claimedBoundaries = new Set<string>();
 
 // ---- the document live-hole channel (Stage 4) --------------------------
@@ -1005,7 +1087,11 @@ function findBoundaryElement(id: string): Element | undefined {
     boundaryIndex = new Map();
     if (typeof document !== "undefined" && document.body) indexBoundaries(document.body);
   }
-  return boundaryIndex.get(id);
+  // Later sites of one factory (#3889) are `<id>~n`, probed in mint order.
+  for (let n = 0; ; n++) {
+    const key = n ? id + "~" + (n + 1) : id;
+    if (!claimedBoundaries.has(key)) return boundaryIndex.get(key);
+  }
 }
 
 // The one deferred answer for "the page may still deliver this boundary":
@@ -1136,8 +1222,7 @@ function documentBoundary(
   // client entry's installServerComponents() call — re-attempt here, where
   // hydration is necessarily live (idempotent via the $sc flag).
   installRevealHook();
-  const claimed = claimedBoundaries.has(id);
-  const el = !claimed ? findBoundaryElement(id) : undefined;
+  const el = findBoundaryElement(id);
   if (el) return adoptBoundary(host, id, el, props, binding);
   // Not in the page (yet). While the page can still deliver it (the document is
   // streaming, or a deferred fragment is still holding its markup — see
@@ -1151,12 +1236,14 @@ function documentBoundary(
   // document is displaying.
   //
   // The wait is the intercept's deferred answer (`awaitBoundary`): one
-  // promise per id, settled by the reveal hook when the element lands or
+  // promise per id, settled by the reveal hook when an element lands or
   // when the page has nothing left to deliver it. Every mount asking during
-  // the wait shares it; at the answer the first to resume adopts and any
-  // other finds the id claimed and mounts fresh (only one frame may adopt an
-  // element). A mount disposed during the wait resumes nothing.
-  if (!claimed && boundaryMayArrive()) {
+  // the wait shares it; at the answer each resume takes the next unclaimed
+  // site, and a resume that finds none mounts fresh (an element is adopted
+  // by one frame). A function that already adopted a site does not wait —
+  // a further mount is a fresh one. A mount disposed during the wait
+  // resumes nothing.
+  if (!claimedBoundaries.has(id) && boundaryMayArrive()) {
     const owner = getOwner();
     let live = true;
     onCleanup(() => (live = false));
@@ -1165,7 +1252,7 @@ function documentBoundary(
         () =>
           live &&
           runWithOwner(owner, () => {
-            const node = claimedBoundaries.has(id) ? undefined : findBoundaryElement(id);
+            const node = findBoundaryElement(id);
             // No element after all (the page ran out of reveals, or another
             // mount took it): mount fresh, exactly as an unwaited miss would.
             return node
@@ -1188,11 +1275,13 @@ function adoptBoundary(
   props: Record<string, any>,
   binding?: () => string
 ) {
-  claimedBoundaries.add(id);
+  // `data-fid` is the site scope: the function id on the first mount, `<id>~n` later.
+  const siteId = el.getAttribute(FRAME_ID_ATTR)!;
+  claimedBoundaries.add(siteId);
   // Content is keyed by the CALL's address (the identity split): the frame
-  // binds the address's resident store, while `id` — the function id, the
-  // document's wire name — stays the key records and region ids on the page
-  // are written under. The address comes with the binding — every reference
+  // binds the address's resident store, while the site scope (`data-fid`) is
+  // the key records and region ids on the page are written under. The address
+  // comes with the binding — every reference
   // the document serializes resolves to the call's binding, and a `dynamic`
   // mount is called with the live accessor. A mount with no binding (the
   // per-function placeholder rendered directly, `_$SC.r(id)` — a page with
@@ -1260,7 +1349,7 @@ function adoptBoundary(
     // drain normally starts the pump; attempted on every re-drain anyway —
     // idempotent, and a defensive catch for a record that lands late.
     pumpLiveChannel();
-    const slotPrefix = `sc:slot:${id}:`;
+    const slotPrefix = `sc:slot:${siteId}:`;
     for (const key of Object.keys(hy.r)) {
       if (appliedRecords.has(key)) continue;
       if (key.startsWith(slotPrefix)) {
@@ -1288,7 +1377,7 @@ function adoptBoundary(
         } else apply(value);
       } else if (key.startsWith("sc:region:")) {
         const childId = key.slice("sc:region:".length);
-        if (childId.startsWith(id + ".")) {
+        if (childId.startsWith(siteId + ".")) {
           appliedRecords.add(key);
           // Async-occluded regions arrive as promises (the producer held
           // the stream on them); regions keep their producer-relative ids
@@ -1303,6 +1392,11 @@ function adoptBoundary(
     }
   };
   IS_DEV && reportRegionFragments(el);
+  // The root this boundary adopts under (see ClaimScope / claimScope): its
+  // occurrences claim against this registry however late they mount, from
+  // an index of this element's keys built now — one pass, not one per
+  // occurrence.
+  const scope = claimScope(el);
   const fr = (globalThis as any)._$HY?.fr;
   // The adopting frame, bound below; the reveal cascade syncs it.
   let frame: ReturnType<typeof createFrame> | undefined;
@@ -1312,6 +1406,10 @@ function adoptBoundary(
         // (nested server async). Scoped to the revealed parent, so each
         // sweep is proportional to what just landed.
         const inside = !!parent && el.contains(parent as Node);
+        // What the reveal landed joins the claim index first: the re-sync
+        // below mounts the occurrences it carried, and their windows gather
+        // from the index.
+        inside && scope.index(parent!);
         IS_DEV && inside && reportRegionFragments(parent!);
         // A revealed fragment also brings its occurrences' ARGS RECORDS: a
         // slot invoked inside a server `<Loading>` ships its `sc:slot:`
@@ -1347,7 +1445,7 @@ function adoptBoundary(
   // failure that escaped the server component (its `:error`, the outward
   // face; frames-rulings 3.3); hole-keyed errors stay geometry-routed.
   const applyLiveOp = (op: any) => {
-    if (op.fid && op.fid !== id) return;
+    if (op.fid && op.fid !== siteId) return;
     host.apply({ ...op, id: address, version: 0 });
   };
   liveAppliers.add(applyLiveOp);
@@ -1368,8 +1466,6 @@ function adoptBoundary(
   // streamed morphs — bind consumer cleanup to this boundary's owner (see
   // boundaryScope for the ambient-preserving rule).
   const owner = getOwner();
-  // The root this boundary adopts under (see ClaimScope): its occurrences
-  // claim against this pair however late they mount.
   const sc: any = sharedConfig;
   // The frame's error, announced to the address source below (`landing`).
   const [failed, onApply] = failing();
@@ -1377,7 +1473,7 @@ function adoptBoundary(
     adopt: true,
     host,
     id: address,
-    slots: slotsFor(props, { registry: sc.registry, gather: sc.gather }),
+    slots: slotsFor(props, scope),
     ownerScope: boundaryScope(owner),
     reveal: revealSeam(owner),
     onApply,
@@ -1396,16 +1492,18 @@ function adoptBoundary(
     // component's.
     hold: () =>
       sc.isHydrationInProgress?.()
-        ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + id)))
+        ? runWithOwner(owner, () => untrack(() => sc.holdBoundary("sc:" + siteId)))
         : () => {},
     // The identity split binds the frame to the call ADDRESS (id + args
     // hash), but the document producer stamped `_hk` keys and region fids
-    // under the wire name — the bare function id. Hydration-claim prefixes
-    // must derive from what the producer wrote, so thread the wire id down
-    // as the claim scope; without it every adopted claim misses and the
-    // occurrence re-renders fresh clones that cannibalize the server DOM.
+    // under the site scope — the bare function id for a single mount, a
+    // distinct scope for each later site of that function (#3889).
+    // Hydration-claim prefixes must derive from what the producer wrote, so
+    // thread that scope down as the claim scope; without it every adopted
+    // claim misses and the occurrence re-renders fresh clones that
+    // cannibalize the server DOM.
     // Spread-cast: the published FrameOptions predates this seam.
-    ...({ claimScope: id } as {})
+    ...({ claimScope: siteId } as {})
   });
   // Follow the live address binding (see boundaryComponent and
   // followAddress): a kept resolution delivers the new call's address, or a
@@ -1555,9 +1653,11 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
     // to deliver it; the caller fetches). Fetching instead would render on
     // the wire what the document is already streaming.
     intercept: ({ id }: { id: string }) => {
-      if (claimedBoundaries.has(id)) return undefined;
       if (findBoundaryElement(id)) return true;
-      if (!boundaryMayArrive()) return undefined;
+      // A function that already adopted a site has nothing local left: a
+      // further call fetches. One that has not appeared yet, while the page
+      // can still deliver it, is a local answer that has not landed.
+      if (claimedBoundaries.has(id) || !boundaryMayArrive()) return undefined;
       installRevealHook();
       return awaitBoundary(id);
     }
