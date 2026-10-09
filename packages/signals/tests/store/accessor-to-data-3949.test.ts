@@ -93,6 +93,37 @@ describe("#3949 accessor key replaced by data", () => {
     expect(snapshot(store).x).toBe(2);
   });
 
+  test("a getter replaced by the same data value keeps that value", () => {
+    const [store, setStore] = createStore(withGetter());
+    const seen = trackX(store);
+
+    setStore(reconcile({ x: 1 }, null));
+    flush();
+
+    expect(seen.at(-1)).toBe(1);
+    expect(store.x).toBe(1);
+    expect(snapshot(store).x).toBe(1);
+  });
+
+  test("a getter replaced by an undefined data value reads undefined", () => {
+    const [store, setStore] = createStore<{ x?: number }>(withGetter());
+    const seen = trackX(store);
+
+    setStore(s => {
+      Object.defineProperty(s, "x", {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: undefined
+      });
+    });
+    flush();
+
+    expect(seen).toEqual([1, undefined]);
+    expect(store.x).toBeUndefined();
+    expect(snapshot(store).x).toBeUndefined();
+  });
+
   test("getter to deleted still reads undefined for a tracked reader", () => {
     const [store, setStore] = createStore<{ x?: number }>(withGetter());
     const seen = trackX(store);

@@ -1214,23 +1214,19 @@ function notifyWrites(t: StoreTarget): void {
       ) {
         // Accessor keys: the node is linked for shape-change notification,
         // its value is never served (the getter runs with the proxy
-        // receiver on read) — FORCE wakes the readers. A transition to a
-        // data descriptor clears `acc`, and the hot read then serves the
-        // node (#3949): store the data value. Accessor→accessor and
-        // accessor→deleted still wake with FORCE (deleted serves undefined).
+        // receiver on read) — FORCE wakes the readers. A data descriptor
+        // falls through so the cleared-acc hot read serves it (#3949);
+        // an own getter's descriptor has no `value`, so the compare below
+        // would otherwise keep the getter's result (or FORCE) for `undefined`.
         (node as any).acc = isOwnAccessor(pb, key);
         const od = Object.getOwnPropertyDescriptor(old, key);
         const nd = Object.getOwnPropertyDescriptor(pb, key);
-        if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
-          if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value) {
-            if (nd && !(nd.get || nd.set)) {
-              const nv = nd.value;
-              setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
-            } else setSignal(node, () => FORCE as any);
-          }
+        if (!nd || nd.get || nd.set) {
+          if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
+            setSignal(node, () => FORCE as any);
           continue;
         }
-        if (!isEqual(od?.value, nd?.value)) setSignal(node, () => nd?.value);
+        if (od?.get || od?.set || !isEqual(od?.value, nd.value)) setSignal(node, () => nd.value);
         continue;
       }
       const nv = t.del !== null && t.del.has(key) ? undefined : pb[key as any];
@@ -1342,21 +1338,15 @@ export function notifyKeyDiff(
     (node as any).acc = isOwnAccessor(neu, key);
     const od = Object.getOwnPropertyDescriptor(old, key);
     const nd = Object.getOwnPropertyDescriptor(neu, key);
-    if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
-      // Same as notifyWrites (#3949): a data descriptor is the value the
-      // cleared-acc hot read will serve. FORCE stays for accessor→accessor
-      // and accessor→deleted.
-      if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value) {
-        if (nd && !(nd.get || nd.set)) {
-          const nv = nd.value;
-          setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
-        } else setSignal(node, () => FORCE as any);
-      }
+    // Data descriptors fall through, as in notifyWrites (#3949).
+    if (!nd || nd.get || nd.set) {
+      if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
+        setSignal(node, () => FORCE as any);
       return;
     }
     const ov = od?.value;
     const nv = nd?.value;
-    if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
+    if (od?.get || od?.set || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
       setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
   } else {
     const ov = old[key as any];
