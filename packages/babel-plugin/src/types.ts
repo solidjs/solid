@@ -80,7 +80,11 @@ export type ResultTemplateValue = t.Expression;
 export type ResultPostDeclaration = t.VariableDeclarator;
 export type ResultPostExpression = t.Statement;
 export type JSXNode =
-  t.JSXElement | t.JSXFragment | t.JSXText | t.JSXExpressionContainer | t.JSXSpreadChild;
+  | t.JSXElement
+  | t.JSXFragment
+  | t.JSXText
+  | t.JSXExpressionContainer
+  | t.JSXSpreadChild;
 
 export interface TransformResult {
   template: TemplateResult;

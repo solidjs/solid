@@ -646,12 +646,12 @@ export function setProperty(node, name, value) {
   // Stateful DOM properties (DOMWithState) route through here in hydratable
   // builds so the claim pass adopts pre-hydration user state instead of
   // clobbering it (#3182). Mirror the special cases the compiler emits for
-  // the direct-assignment path: <select value> defers a microtask so options
-  // rendered later in the same pass are selectable, and input/textarea
-  // value/defaultValue clear on nullish instead of stringifying (#2957).
+  // the direct-assignment path: <select value> remembers the value and
+  // reapplies it when options arrive (a microtask only covers the same
+  // turn — #3928), and input/textarea value/defaultValue clear on nullish
+  // instead of stringifying (#2957).
   const nodeName = node.nodeName;
-  if (name === "value" && nodeName === "SELECT")
-    queueMicrotask(() => (node.value = value)) || (node.value = value);
+  if (name === "value" && nodeName === "SELECT") writeSelectValue(node, value);
   else if (
     (name === "value" || name === "defaultValue") &&
     (nodeName === "INPUT" || nodeName === "TEXTAREA")
@@ -2760,8 +2760,7 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
   ) {
     if (hasNamespace) prop = prop.slice(5);
     else if (isHydrating(node)) return value; // TODO IS this correct?
-    if (prop === "value" && nodeName === "SELECT")
-      queueMicrotask(() => (node.value = value)) || (node.value = value);
+    if (prop === "value" && nodeName === "SELECT") writeSelectValue(node, value);
     else if (
       (prop === "value" || prop === "defaultValue") &&
       (nodeName === "INPUT" || nodeName === "TEXTAREA")
@@ -3004,7 +3003,48 @@ function insertExpression(parent, value, current, marker) {
       message: `[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (${typeof value}).`,
       data: { type: typeof value, value }
     });
+  // Installed by `writeSelectValue` (#3928). Absent until a select value
+  // misses, so apps that never bind one keep a null check here.
+  selectInsert && selectInsert(parent);
   return value;
+}
+
+// Pending `<select value>` (#3928). `_$v` holds a scalar or a multi-select
+// array until the matching option(s) are selected. Assigning an array to
+// `.value` stringifies it and selects one option, so arrays select by walking
+// `options` (`option.value == entry`, so `"1"` matches `1`). One `parentNode`
+// step covers an optgroup. The array stays pending until every entry is
+// selected; a capture `change` listener clears it first so a later insert
+// cannot restore a selection the user changed. The microtask covers
+// `<option value={expr}>`, assigned later in the same turn with no insert.
+// Nullish values still go through the historical `.value` write.
+let selectInsert;
+function selectChange(e) {
+  (e = e.currentTarget || e)._$v = null;
+  e.removeEventListener("change", selectChange, true);
+}
+function writeSelectValue(node, value) {
+  // `.map` is only on arrays — strings and numbers fall through to the scalar path.
+  const had = node._$v && node._$v.map,
+    has = value != null && value.map;
+  if (has) had || node.addEventListener("change", selectChange, true);
+  else had && node.removeEventListener("change", selectChange, true);
+  if (value == null) {
+    node._$v = null;
+    return queueMicrotask(() => (node.value = value)) || (node.value = value);
+  }
+  node._$v = value;
+  (selectInsert ||= p => {
+    p && p._$v == null && (p = p.parentNode);
+    const v = p && p._$v;
+    if (v == null) return;
+    if (v.map) {
+      const o = [...p.options];
+      for (let i = 0; i < o.length; i++) o[i].selected = v.some(x => x == o[i].value);
+      v.every(x => o.some(el => el.value == x)) && selectChange(p);
+    } else ((p.value = v), p.selectedIndex > -1 && p.value == v && (p._$v = null));
+  })(node);
+  queueMicrotask(() => selectInsert(node));
 }
 
 function normalize(value, current, multi, doNotUnwrap) {

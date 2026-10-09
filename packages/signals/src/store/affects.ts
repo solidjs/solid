@@ -113,7 +113,7 @@ function walk(
 function covering(t: StoreTarget, key: PropertyKey | undefined, skip?: Marked): Marked | null {
   for (const [carrier, entry] of scopes) {
     if (carrier === skip || (entry._key !== undefined && entry._key !== key)) continue;
-    for (let r: any = t.v; ;) {
+    for (let r: any = t.v; ; ) {
       if (entry._scope.has(r)) return carrier;
       const inner: StoreTarget | undefined = r?.[$TARGET];
       if (inner === undefined) break;

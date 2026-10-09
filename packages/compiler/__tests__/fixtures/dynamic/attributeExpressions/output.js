@@ -13,6 +13,7 @@ import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-custom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { claimElement as _$claimElement } from "r-dom";
+import { setProperty as _$setProperty } from "r-custom";
 import { addEvent as _$addEvent } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div><h1><a href=/>Welcome`);
@@ -358,9 +359,7 @@ _$effect(() => {
 		a: Color.Blue
 	};
 }, ({ e, t, a }, _p$) => {
-	queueMicrotask(() => {
-		return _el$55.value = e;
-	}) || (_el$55.value = e);
+	_$setProperty(_el$55, "value", e);
 	_el$56.value = t;
 	_el$57.value = a;
 });

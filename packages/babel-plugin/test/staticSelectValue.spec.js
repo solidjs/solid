@@ -21,8 +21,8 @@ test("assigns static select values through the DOM property", () => {
   `);
 
   expect(code).not.toMatch(/_\$template\(`<select value=/);
-  expect(code.match(/queueMicrotask/g)).toHaveLength(6);
-  expect(code.match(/\.value = (?:"2"|2)/g)).toHaveLength(10);
-  expect(code.match(/\.value = \["1", "2"\]/g)).toHaveLength(2);
-  expect(code.indexOf("queueMicrotask")).toBeLessThan(code.indexOf("_$insert("));
+  expect(code).not.toMatch(/queueMicrotask/);
+  expect(code.match(/_\$setProperty\(/g)).toHaveLength(6);
+  expect(code).toMatch(/_\$setProperty\([^)]*"value", \["1", "2"\]\)/);
+  expect(code.indexOf("_$setProperty")).toBeLessThan(code.indexOf("_$insert("));
 });

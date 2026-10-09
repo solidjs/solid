@@ -1505,6 +1505,9 @@ module.exports = [
     // Size-Exception (#3884, 2026-10-08): 9.93 -> 9.94 KB, measured at 9,936 B
     // brotli / 27,895 B minified by CI (Size run 37873447222). Cap set to that
     // brotli size, rounded up to 0.01 KB. Hello world stays under 10 KB.
+    // #3928 (2026-10-09): the select-value retry, including multiple, measured
+    // 9,938 B / 27,891 B on the pre-merge branch and does not move this floor
+    // past #3884's 9.94 KB.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -2338,8 +2341,14 @@ module.exports = [
     // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
     // #3898 stacked on #3884 (2026-10-08): measured at 29,281 B brotli / 92,619 B minified
     // by CI (Size run 37878629674). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "29.29 KB",
-    capMinified: 92619,
+    // Size-Exception (#3928, 2026-10-09): 29.29 -> 29.274 KB. Against next @
+    // 0c7090761 this measured 29,336 B brotli / 92,649 B minified (Size run
+    // 37912369653), 46 B over 29.29 KB, and the recorded 92,619 B already held
+    // next's +13 B so this PR's +17 B minified failed the 20 B allowance.
+    // Merged with next @ b083833f (#3948) it measures 29,274 B brotli / 92,655 B
+    // minified. Cap and recorded minified set to those bytes, not above them.
+    limit: "29.274 KB",
+    capMinified: 92655,
     alias
   },
   {
@@ -2583,8 +2592,10 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "12.96 KB",
-    capMinified: 36755,
+    // #3928 merged with next @ 617d19511 (2026-10-09): measured at 12,976 B
+    // (36,793 B minified). Cap set to that brotli, not above it.
+    limit: "12.976 KB",
+    capMinified: 36793,
     alias
   },
   {
@@ -3349,8 +3360,10 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "10.13 KB",
-    capMinified: 28403,
+    // #3928 merged with next @ 617d19511 (2026-10-09): measured at 10,134 B
+    // (28,443 B minified). Cap set to that brotli, not above it.
+    limit: "10.134 KB",
+    capMinified: 28443,
     alias
   },
   {
@@ -3413,8 +3426,11 @@ module.exports = [
     // #3884 stacked on next (2026-10-08): measured at 25,293 B brotli / 79,170 B minified
     // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
     // #3898 stacked on this cap (Size run 37878629674) and stayed under it.
-    limit: "25.30 KB",
-    capMinified: 79170,
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 25,465 B brotli
+    // (79,753 B minified). Cap set to that brotli, not above it.
+    limit: "25.465 KB",
+    capMinified: 79753,
     alias
   },
   {
@@ -3493,8 +3509,11 @@ module.exports = [
     // 2026-10-07: store scenarios only, hello world unchanged.
     // #3884 (2026-10-08): measured at 31,195 B brotli / 99,702 B minified by CI
     // (Size run 37873447222). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "31.20 KB",
-    capMinified: 99702,
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 31,386 B brotli
+    // (100,248 B minified). Cap set to that brotli, not above it.
+    limit: "31.386 KB",
+    capMinified: 100248,
     alias
   },
   {
@@ -4195,6 +4214,11 @@ module.exports = [
     // (2026-10-08, "perf is important enough — it's the point here"): total
     // hydration ≈ 77 -> ≈ 42 ms on the HN twins' story page. The cap is
     // frozen again at 34.22 KB.
+    // Size-Exception (#3928, 2026-10-09): 34.22 -> 34.334 KB (floor-caps.json),
+    // merged with next @ 617d19511 and measured at 34,334 B (106,704 B
+    // minified). A select value is reapplied when its options arrive,
+    // including multiple. Cap set to that brotli, not above it. Hello world
+    // on this merge is 9,939 B, under the 9.94 KB floor and under 10 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -4446,6 +4470,10 @@ module.exports = [
     // (floor-caps.json), measured at 37,975 B brotli / 118,409 B minified by CI
     // (Size run 37878629674). Cap set to that brotli size, rounded up to 0.01 KB.
     // Hello world stays under 10 KB.
+    // Size-Exception (#3928, 2026-10-09): 37.98 -> 38.146 KB (floor-caps.json),
+    // merged with next @ 617d19511 and measured at 38,146 B (118,990 B
+    // minified). A select value is reapplied when its options arrive,
+    // including multiple. Cap set to that brotli, not above it.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -4549,8 +4577,11 @@ module.exports = [
     // adoption-time claim index from the frames eager note. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-08, "perf is important enough — it's the point here").
-    limit: "35.47 KB",
-    capMinified: 110155,
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 35,660 B brotli
+    // (110,717 B minified). Cap set to that brotli, not above it.
+    limit: "35.660 KB",
+    capMinified: 110717,
     alias: pageAlias
   },
   {
@@ -4622,8 +4653,11 @@ module.exports = [
     // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
     // #3898 stacked on this cap (Size run 37878629674) and stayed under it.
     // #3923 stacked on #3898 (Size run 37879895994) and stayed under it.
-    limit: "41.06 KB",
-    capMinified: 123713,
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 41,214 B brotli
+    // (124,433 B minified). Cap set to that brotli, not above it.
+    limit: "41.214 KB",
+    capMinified: 124433,
     alias: pageAlias
   },
   {
@@ -4747,8 +4781,11 @@ module.exports = [
     // (Size run 37873448792). Cap set to that brotli size, rounded up to 0.01 KB.
     // #3923 stacked on #3884 (2026-10-08): measured at 41,562 B brotli / 130,010 B minified
     // by CI (Size run 37878630604). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "41.57 KB",
-    capMinified: 130010,
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 41,794 B brotli
+    // (130,591 B minified). Cap set to that brotli, not above it.
+    limit: "41.794 KB",
+    capMinified: 130591,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -4838,8 +4875,11 @@ module.exports = [
     // by CI (Size run 37878630604). Cap set to that brotli size, rounded up to 0.01 KB.
     // #3923 stacked on #3898 (2026-10-08): measured at 47,337 B brotli / 143,543 B minified
     // by CI (Size run 37879895994). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "47.34 KB",
-    capMinified: 143543,
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 47,493 B brotli
+    // (144,124 B minified). Cap set to that brotli, not above it.
+    limit: "47.493 KB",
+    capMinified: 144124,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
