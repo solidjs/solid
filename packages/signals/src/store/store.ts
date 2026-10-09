@@ -43,6 +43,7 @@ import {
   REACTIVE_DIRTY,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
+  CONFIG_COMMITTED_ERROR,
   STATUS_ERROR,
   STATUS_PENDING
 } from "../core/constants.js";
@@ -1717,7 +1718,7 @@ function pullFamily(target: StoreTarget): void {
   // reader of a memo would — linked, so it re-runs at the landing (the
   // next settled pass pulls without linking and the stale link trims), a
   // verdict reader registered, a tracked pass suspended.
-  if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR)) {
+  if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR) || fw._config & CONFIG_COMMITTED_ERROR) {
     // A render effect outside the flight's own flush is the frame, not a
     // derivation: it keeps what it shows and learns of the landing from the
     // leaves the landing changes (unchanged leaves say nothing — it is not a

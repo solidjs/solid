@@ -4,9 +4,14 @@ import {
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
   CONFIG_HELD,
+  CONFIG_COMMITTED_ERROR,
+  CONFIG_HAS_SNAPSHOT,
+  CONFIG_IN_SNAPSHOT_SCOPE,
+  REACTIVE_SNAPSHOT_STALE,
   CONFIG_SYNC,
   CONFIG_VERDICT,
   EFFECT_TRACKED,
+  EFFECT_RENDER,
   EFFECT_USER,
   NOT_PENDING,
   REACTIVE_DIRTY,
@@ -17,7 +22,14 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
+import {
+  context,
+  setSignal,
+  untrack,
+  ext,
+  statusNotifierOf,
+  snapshotCaptureActive
+} from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { emitDiagnostic, reportDiagnostic, watchAsyncTail } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
@@ -137,51 +149,28 @@ function releaseIfSettledUnobserved(node: Computed<any>): void {
     unobserved(node);
 }
 
-// Error-path sweep: notifyStatus(STATUS_ERROR) clears dependents' pending
-// sources through its own recursion (no per-node settle callback), so after
-// the propagation completes, walk the same graph for stranded lazy nodes.
-// Collect-then-release so unobserved() never unlinks under the walk.
-export function releaseSettledDependents(el: Computed<any>): void {
+// The error-release and unchanged-payload recovery sweeps share the same
+// deduplicated graph. `error` is the stored wrapper, never the raw user cause;
+// even a thrown undefined has a truthy StatusError. No error means release.
+// Identity holders retry even below an intermediate that has cleared its error.
+// Collect before release so unobserved() never unlinks under the walk.
+export function settleDependents(el: Computed<any>, error?: unknown): void {
   let candidates: Computed<any>[] | undefined;
-  const visited = new Set<Computed<any>>();
-  const visit = (node: Computed<any>) => {
-    if (visited.has(node)) return;
-    visited.add(node);
-    if (!node._subs && node._config & CONFIG_AUTO_DISPOSE) (candidates ??= []).push(node);
-    forEachDependent(node, visit);
-  };
-  forEachDependent(el, visit);
-  if (candidates) for (const node of candidates) releaseIfSettledUnobserved(node);
-}
-
-// Error-dimension twin of settlePendingSource's blocked re-enqueue (#2949):
-// a node in STATUS_ERROR that recovers by recomputing to an UNCHANGED value
-// fires no value notification — the recovery is completely silent. But a
-// dependent that re-ran during the error window consumed its dirty flag and
-// committed nothing (the fresh sibling values it read were absorbed into an
-// errored run), so its committed value is stale. The propagated error is one
-// object identity down the whole dependent tree, and holding it is exactly
-// the "blocked on this error" marker — re-enqueue those holders so they
-// re-run: fresh values commit and flow, and a dependent with another
-// still-broken source simply re-errors. Pending recovery uses
-// settlePendingSource to clear inherited status and retry blocked readers.
-// Walks the full dependent graph
-// (releaseSettledDependents shape): identity holders can sit below an
-// intermediate whose own error state has since been scrubbed or replaced
-// (e.g. an error boundary's tree node).
-export function settleErroredDependents(el: Computed<any>, error: any): void {
   let scheduled = false;
   const visited = new Set<Computed<any>>();
   const visit = (node: Computed<any>) => {
     if (visited.has(node)) return;
     visited.add(node);
-    if (node._x?._error === error) {
-      enqueueSub(node);
-      scheduled = true;
-    }
+    if (error) {
+      if (node._x?._error === error) {
+        enqueueSub(node);
+        scheduled = true;
+      }
+    } else if (!node._subs && node._config & CONFIG_AUTO_DISPOSE) (candidates ??= []).push(node);
     forEachDependent(node, visit);
   };
   forEachDependent(el, visit);
+  if (candidates) for (const node of candidates) releaseIfSettledUnobserved(node);
   if (scheduled) schedule();
 }
 
@@ -326,6 +315,13 @@ export function releaseFlightTeardown(el: Computed<any>): void {
   }
 }
 
+/** A terminal first answer joins its birth frame only while that frame lives. */
+function landFirstOutcome(el: Computed<any>, uninitialized: number | boolean): void {
+  let t = el._x!._bornIn;
+  el._x!._bornIn = null;
+  if (uninitialized && t && (t = liveTx(t))) holdNode(el, t);
+}
+
 export function handleAsync<T>(
   el: Computed<T>,
   result: T | PromiseLike<T> | AsyncIterable<T>,
@@ -430,6 +426,10 @@ export function handleAsync<T>(
       el._time = clock;
       return;
     }
+    // A failed first answer follows #3800's successful-landing rule: join
+    // the birth frame if it is still live, without having held that frame
+    // open while this first request was pending.
+    if (!stillPending) landFirstOutcome(el, el._statusFlags & STATUS_UNINITIALIZED);
     notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
     // A NotReady rejection is a landing into another pending source. The
     // rejected flight will never settle its self entry, so transfer ownership
@@ -439,7 +439,7 @@ export function handleAsync<T>(
     // A real error settles derivatively-pending dependents (notifyStatus
     // cleared their pending sources), so stranded lazy ones release here —
     // the error twin of settlePendingSource's release (#2934).
-    if (!stillPending) releaseSettledDependents(el);
+    if (!stillPending) settleDependents(el);
     onError?.(error, stillPending);
   };
 
@@ -468,15 +468,15 @@ export function handleAsync<T>(
       // lane-routed landing (derived override, lane effect queue) went with
       // the optimistic engine; every landing is the plain setSignal. A first
       // answer born into a hold still live lands into it (A29, #3800).
-      let t = el._x!._bornIn;
-      el._x!._bornIn = null;
-      if (wasUninitialized && t && (t = liveTx(t))) holdNode(el, t);
+      landFirstOutcome(el, wasUninitialized);
       try {
         setSignal(el, () => value);
       } catch (e) {
         // Same containment as above: setSignal's comparator throw is the only
         // pre-commit failure here, and there is no user callsite to throw to.
-        notifyStatus(el, STATUS_ERROR, e);
+        // Release stranded lazy readers exactly as for a rejected flight;
+        // status propagation already removed their pending-source entries.
+        handleError(e);
       }
       // Attribution hook: this path landed through setSignal, whose write
       // hook already saw any committed change — direct=false lets the engine
@@ -745,6 +745,7 @@ export function handleAsync<T>(
 }
 
 export function clearStatus(el: Computed<any>, clearUninitialized: boolean = false): void {
+  if (el._config & CONFIG_COMMITTED_ERROR) queuePendingNode(el);
   if (el._x?._pendingSources) clearPendingSources(el);
   if (el._x?._blocked) if (el._x !== null) el._x._blocked = false;
   el._statusFlags = clearUninitialized ? 0 : el._statusFlags & STATUS_UNINITIALIZED;
@@ -807,7 +808,21 @@ export function notifyStatus(
   // (CARVE 2: the lane assignment went with the engine.)
 
   if (!blockStatus) {
+    // An error is a settled answer of the held computation, just like a
+    // fulfilled value. Resume its frame before queuing the effect's error
+    // arm; clearing pending sources otherwise loses the settle walk's join.
+    if (
+      status === STATUS_ERROR &&
+      passLane === null &&
+      (el._config & (CONFIG_HELD | CONFIG_OVERRIDE | CONFIG_VERDICT)) === CONFIG_HELD &&
+      (el as any)._type !== EFFECT_RENDER
+    )
+      joinFuture(txOf(el));
     if (status === STATUS_PENDING && pendingSource) {
+      // Recovering to the last good value still changes the outcome from
+      // error to value. Retry readers at settlement even if equality skips
+      // the value notification and propagation prevented a pending read.
+      if (el._statusFlags & STATUS_ERROR) ext(el)._blocked = true;
       addPendingSource(el, pendingSource);
       el._statusFlags = STATUS_PENDING | (el._statusFlags & STATUS_UNINITIALIZED);
       // Preserve the current source on this propagation so readers park on
@@ -815,9 +830,12 @@ export function notifyStatus(
       setPendingError(el, pendingSource, error);
     } else {
       clearPendingSources(el);
-      el._statusFlags =
-        status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
+      el._statusFlags = status | (el._statusFlags & STATUS_UNINITIALIZED);
       ext(el)._error = error;
+      if (status === STATUS_ERROR) {
+        queuePendingNode(el);
+        schedule();
+      }
     }
   }
 
@@ -863,6 +881,17 @@ export function propagateStatus(
   const pendingSource =
     status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
   forEachDependent(el, (sub, link) => {
+    // Snapshot readers derive from the captured outcome, not a live status
+    // propagation. Outcome changes replay when their scope is released.
+    if (
+      snapshotCaptureActive &&
+      el._config & CONFIG_HAS_SNAPSHOT &&
+      el._x?._snapshotValue !== undefined &&
+      sub._config & CONFIG_IN_SNAPSHOT_SCOPE
+    ) {
+      sub._flags |= REACTIVE_SNAPSHOT_STALE;
+      return;
+    }
     sub._time = clock;
     // A pending mark on a kept-tail link re-derives the subscriber instead of
     // marking it (A30, #3494 review; fuzzer latest-1 #2141; #3519 review).

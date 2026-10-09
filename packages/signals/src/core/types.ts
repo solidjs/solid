@@ -53,7 +53,9 @@ export interface NodeOptions<T> {
    * Loading boundaries, transitions are never held, and the window is
    * verdict-quiet (`isPending` stays false — commit #0 answers the question
    * by declaration; first-load affordances live in the value itself). After
-   * the first real answer lands, normal refetch/pending semantics apply.
+   * the first successful or failed answer reveals, normal refetch/pending
+   * semantics apply. A failure retains this successful payload for memo prev,
+   * but accessor reads throw the published failure through a pending retry.
    */
   loadingValue?: T;
 }
@@ -77,6 +79,10 @@ export interface NodeExtension {
    * plain promise flights (no cancellation hook exists). */
   _flightTeardown: (() => void) | null;
   _error: unknown;
+  /** Error of the last published outcome, retained through pending/recovery. */
+  _committedError: unknown;
+  /** Failure last revealed by an optimistic/derived lane. */
+  _laneError: unknown;
   _blocked: boolean | undefined;
   _pendingSources: Set<Computed<any>> | undefined;
   _unobserved: (() => void) | undefined;

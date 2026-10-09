@@ -41,6 +41,8 @@
  */
 import {
   CONFIG_REDERIVE,
+  CONFIG_IN_SNAPSHOT_SCOPE,
+  CONFIG_SNAPSHOT_ERROR,
   CONFIG_HELD,
   CONFIG_OVERRIDE,
   CONFIG_VERDICT,
@@ -55,7 +57,15 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./core/constants.js";
-import { computed, read, recompute, runWithOwner, setSignal, signal } from "./core/core.js";
+import {
+  computed,
+  read,
+  recompute,
+  runWithOwner,
+  setSignal,
+  signal,
+  snapshotCaptureActive
+} from "./core/core.js";
 import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
 import { NotReadyError, unwrapStatusError } from "./core/error.js";
 import { reportClientError } from "./core/error-hooks.js";
@@ -124,6 +134,7 @@ interface Boundary {
 
 /** Context key: the nearest boundary of a node, inherited at creation. */
 const BOUNDARY = Symbol(__DEV__ ? "boundary" : "");
+const BOUNDARY_OPTIONS = { _noSnapshot: true };
 /** Context key: the reveal controller a Loading boundary created here is a
  * slot of (reveal.ts); a boundary clears it for its content — only direct
  * children are slots. */
@@ -215,7 +226,7 @@ function catchStatus(node: Computed<any>, flags: number, error?: unknown): boole
     if (collecting.size !== 0)
       for (let b = boundaryOf(node); b !== undefined; b = b._parent ?? undefined)
         if (
-          !(node._statusFlags & unsettled(b)) &&
+          !(readerStatus(b, node) & unsettled(b)) &&
           b._readers.delete(node) &&
           b._readers.size === 0
         ) {
@@ -292,11 +303,22 @@ function release(b: Boundary): void {
 const unsettled = (b: Boundary): number =>
   b._type === STATUS_ERROR ? STATUS_ERROR | STATUS_PENDING : STATUS_PENDING;
 
+/** A frozen reader waits on its captured outcome, not the live source. */
+function readerStatus(b: Boundary, node: Computed<any>): number {
+  if (
+    snapshotCaptureActive &&
+    b._tree?._config & CONFIG_IN_SNAPSHOT_SCOPE &&
+    node._x?._snapshotValue !== undefined
+  )
+    return node._config & CONFIG_SNAPSHOT_ERROR ? STATUS_ERROR : 0;
+  return node._statusFlags;
+}
+
 export function prune(b: Boundary, pass: boolean): number {
   const mask = unsettled(b);
   for (const r of b._readers) {
     if (r._flags & REACTIVE_DISPOSED) b._readers.delete(r);
-    else if (!(r._statusFlags & mask)) {
+    else if (!(readerStatus(b, r) & mask)) {
       if (r !== b._tree && (r._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD) {
         // Landed, held: the content is that transaction's — the output's
         // pass enters it and the reveal lands with the reader's run. The
@@ -539,10 +561,15 @@ function createBoundary<T>(
   if (revealHooks !== null) context[REVEAL] = null;
   owner._context = context;
   const tree = runWithOwner(owner, () => {
-    const c = __OBSERVE__ ? computed(fn, { name: "children" }) : computed(fn);
+    // Like the output below, these are boundary structure: a nested Loading
+    // fallback can resume during hydration. Freeze the source outcomes they
+    // read, not an intermediate fallback returned by boundary plumbing.
+    const c = __OBSERVE__
+      ? computed(fn, { name: "children", _noSnapshot: true })
+      : computed(fn, BOUNDARY_OPTIONS);
     return __OBSERVE__
-      ? computed(() => flatten(read(c)), { name: "boundary" })
-      : computed(() => flatten(read(c)));
+      ? computed(() => flatten(read(c)), { name: "boundary", _noSnapshot: true })
+      : computed(() => flatten(read(c)), BOUNDARY_OPTIONS);
   });
   b._tree = tree;
   // A slot of the reveal order in its context (reveal.ts): gated until the
@@ -615,7 +642,13 @@ function createBoundary<T>(
           return fallback(b);
         // Readers under it still unready: the fallback, the tree untouched.
         // The seam re-derives this pass when they settle.
-        if (prune(b, true) !== 0) return fallback(b);
+        if (prune(b, true) !== 0) {
+          // The fallback still waits for this tree. Retain its subscription
+          // when a pending retry produced a successful inner Loading fallback;
+          // a later rejection must update the displayed error too.
+          if (type === STATUS_ERROR) link(tree, self);
+          return fallback(b);
+        }
       }
       let value: T;
       try {
@@ -656,7 +689,7 @@ function createBoundary<T>(
     // Boundary structure, not a user source: its value is fallback-or-content
     // and legitimately swaps mid-hydration (resume), so it must never be
     // frozen by snapshot capture.
-    __OBSERVE__ ? { name: "value", _noSnapshot: true } : { _noSnapshot: true }
+    __OBSERVE__ ? { name: "value", _noSnapshot: true } : BOUNDARY_OPTIONS
   );
   output._config |= CONFIG_REDERIVE;
   b._output = output;

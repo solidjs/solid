@@ -265,7 +265,7 @@ describe("createMemo with loadingValue", () => {
     expect(isPending(user)).toBe(false);
   });
 
-  it("serves the loading value again on a retry after an error", async () => {
+  it("retains the published error while a retry after the seed window is pending", async () => {
     const d1 = deferred<string>();
     const d2 = deferred<string>();
     let attempt = 0;
@@ -293,16 +293,16 @@ describe("createMemo with loadingValue", () => {
     flush();
     expect(errors.length).toBe(1);
 
-    // A tracked re-read on a later cycle retries the errored source; the
-    // retry re-opens serving of commit #0 (the answer still hasn't landed).
-    let observed: string | undefined;
+    // The revealed error is a real answer. A tracked re-read retries, but
+    // the initial seed is now prev history rather than a replacement answer.
+    let probe!: () => string;
     createRoot(() => {
-      const probe = createMemo(() => user());
-      observed = probe();
+      probe = createMemo(() => user());
+      expect(() => probe()).toThrow(NotReadyError);
     });
     flush();
-    expect(observed).toBe("placeholder");
-    expect(isPending(user)).toBe(false);
+    expect(() => untrackedRead(user)).toThrow("boom");
+    expect(isPending(user)).toBe(true);
 
     d2.resolve("recovered");
     await tick();
@@ -1007,8 +1007,8 @@ describe("errored loading window: a parked retry keeps the settled error (#2989)
     }
     expect(thrown instanceof NotReadyError).toBe(false);
     expect((thrown as Error).message).toBe("boom");
-    // The park stays verdict-quiet.
-    expect(isPending(user)).toBe(false);
+    // The published failure stays visible, while a retry is now pending.
+    expect(isPending(user)).toBe(true);
 
     // No wedge: the source settles, the retry runs, the answer lands.
     dDep.resolve(7);

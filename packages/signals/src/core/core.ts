@@ -4,7 +4,7 @@ import {
   notifyStatus,
   parkLoadingWindow,
   releaseFlightTeardown,
-  settleErroredDependents,
+  settleDependents,
   settlePendingSource
 } from "./async.js";
 import {
@@ -15,6 +15,8 @@ import {
   CONFIG_GUESS,
   CONFIG_VERDICT,
   CONFIG_HELD,
+  CONFIG_COMMITTED_ERROR,
+  CONFIG_SNAPSHOT_ERROR,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
@@ -89,6 +91,7 @@ import { cleanup, disposeChildren, inheritId, linkChild, markDisposal } from "./
 import {
   notifyEpoch,
   bumpNotifyEpoch,
+  commitStatus,
   clock,
   deferZombie,
   dirtyQueue,
@@ -243,6 +246,7 @@ export function clearSnapshots(): void {
       // object to dictionary mode for every later read of every field.
       const x = source._x;
       if (x != null) x._snapshotValue = undefined;
+      source._config &= ~CONFIG_SNAPSHOT_ERROR;
     }
     snapshotSources = null;
   }
@@ -555,6 +559,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     try {
       valueChanged =
         (!isEffect && wasUninitialized) || !el._equals || !el._equals(compareValue, value);
+      // Recovery changes the outcome even when its successful payload matches
+      // the last good value. Give readers a proposal to derive from.
+      valueChanged ||= !!(el._config & CONFIG_COMMITTED_ERROR) && el._pendingValue === NOT_PENDING;
     } catch (e) {
       // A throwing user comparator is an error of this node's computation.
       // Route it through the same status path as a compute-phase throw so
@@ -677,7 +684,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           // (`commitPendingNode` initializes it) — every reader of it
           // derives from the future (`read`), an untracked one throws
           // (A19 exc. 1).
-          el._statusFlags |= STATUS_UNINITIALIZED;
+          if (wasUninitialized) el._statusFlags |= STATUS_UNINITIALIZED;
         }
         if (__DEV__) devTrackHeldPending(el);
       }
@@ -699,7 +706,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // recoveries ride insertSubs above; a comparator throw re-errored the node
     // (el._x?._error re-set), so this only runs on a genuinely clean recovery.
     if (!valueChanged && !el._x?._error) {
-      if (outgoingError !== undefined) settleErroredDependents(el, outgoingError);
+      if (outgoingError !== undefined) settleDependents(el, outgoingError);
       // Self-registration (this node's own superseded flight) is the #3181
       // sweep's business below — retiring it here too would walk twice.
       if (outgoingPendingSources)
@@ -757,6 +764,19 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       flushTransaction !== null || passTx !== null || (el._config & CONFIG_HELD) !== 0,
       el._pendingValue !== NOT_PENDING
     );
+  // An initial failed outcome has the same publication posture as an
+  // initial successful answer: direct unless born into a held frame.
+  if (create && el._statusFlags & STATUS_ERROR) {
+    if (
+      (flushTransaction !== null || passTx !== null) &&
+      (joined ||
+        (prevLane && el._flags & REACTIVE_STAGED_READ) ||
+        (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_JOINED)
+    ) {
+      holdNode(el, (flushTransaction ?? passTx)!);
+      if (wasUninitialized) el._statusFlags |= STATUS_UNINITIALIZED;
+    } else commitStatus(el);
+  }
   // A staged value, a parked frame (L2: the commit retires it), or status the
   // commit sweep must settle (a pending or uninitialized pass), queues the
   // node for this flush's commit. A first pass queues only when pending or
@@ -765,7 +785,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   if (
     el._pendingValue !== NOT_PENDING ||
     (el._x !== null && (el._x._pendingFirstChild !== null || el._x._pendingDisposal !== null)) ||
-    ((el._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) !== 0 &&
+    ((el._statusFlags & (STATUS_PENDING | STATUS_ERROR | STATUS_UNINITIALIZED)) !== 0 &&
       (!create || (el._statusFlags & STATUS_PENDING) !== 0))
   ) {
     el._config |= CONFIG_STAGED;
@@ -955,6 +975,8 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _inFlight: null,
     _flightTeardown: null,
     _error: undefined,
+    _committedError: undefined,
+    _laneError: undefined,
     _blocked: undefined,
     _pendingSources: undefined,
     _unobserved: undefined,
@@ -1233,8 +1255,14 @@ function setupComputedNode<T>(self: Computed<T>, options: NodeOptions<T> | undef
   GlobalQueue._wireExternalSource?.(self);
   !options?.lazy && recompute(self, true);
   if (snapshotCaptureActive && !options?.lazy) {
-    if (!(self._statusFlags & STATUS_PENDING) && !(self._config & CONFIG_NO_SNAPSHOT)) {
-      ext(self)._snapshotValue = self._value === undefined ? NO_SNAPSHOT : self._value;
+    if (
+      !(self._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) &&
+      !(self._config & CONFIG_NO_SNAPSHOT)
+    ) {
+      if (self._config & CONFIG_COMMITTED_ERROR) {
+        ext(self)._snapshotValue = self._x!._committedError;
+        self._config |= CONFIG_SNAPSHOT_ERROR;
+      } else ext(self)._snapshotValue = self._value === undefined ? NO_SNAPSHOT : self._value;
       self._config |= CONFIG_HAS_SNAPSHOT;
       snapshotSources!.add(self);
     }
@@ -1522,21 +1550,10 @@ export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void
 // (enterStagedRead, stagedEntry / born held, underFreshLoadingBoundary) went
 // with the transactions.
 
-/**
- * Rule 1 (value selection): does this reader see a STAGED node's COMMITTED
- * value? One implementation of the rule the fast paths (read's fast block)
- * carry as their trivial ternary. In order:
- * - no reader at all (an untracked read) — the committed frame;
- * - nothing staged;
- * - a children-forbidden reader (createTrackedEffect / onSettled: the frame,
- *   never the graph — A32).
- * False means the reader derives from the staged value.
- */
-export function readerSeesCommitted(
-  el: Signal<any> | Computed<any>,
-  c: Computed<any> | null
-): boolean {
-  return !!(!c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN);
+/** Interpret the selected published frame without consulting proposed status. */
+export function readCommitted(el: Signal<any> | Computed<any>): unknown {
+  if (el._config & CONFIG_COMMITTED_ERROR) throw el._x!._committedError;
+  return el._value;
 }
 
 /** A28 — set when a node is staged (queuePendingNode) OUTSIDE a flush;
@@ -1715,6 +1732,38 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (v !== NOT_PENDING) return v as T;
   }
 
+  // Select snapshot outcomes before interpreting live proposed status.
+  if (snapshotCaptureActive && c && c._config & CONFIG_IN_SNAPSHOT_SCOPE) {
+    const sv = el._x?._snapshotValue;
+    if (sv !== undefined) {
+      if (__DEV__ && strictRead)
+        warnStrictReadUntracked(strictRead, {
+          ownerId: c.id,
+          ownerName: (c as any)._name,
+          nodeName: (owner as any)?._name
+        });
+      const snapshotError = el._config & CONFIG_SNAPSHOT_ERROR;
+      const currentError = owner._statusFlags & STATUS_ERROR ? el._x!._error : undefined;
+      const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+      const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
+      if (snapshotError ? currentError !== sv : currentError !== undefined || current !== snapshot)
+        (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
+      if (snapshotError) throw sv;
+      return snapshot as T;
+    }
+  }
+
+  // Outside and children-forbidden reads observe the published outcome.
+  // A derivation still observes the proposed outcome, including failures.
+  const committedOutcome = committed || !c || !!(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  if (committedOutcome && el._config & CONFIG_COMMITTED_ERROR) readCommitted(el);
+  if (
+    committedOutcome &&
+    owner._statusFlags & STATUS_UNINITIALIZED &&
+    owner._statusFlags & STATUS_ERROR
+  )
+    throw new NotReadyError(owner);
+
   // A stale reader of a held flight (rule 3, A15's reveal corollary) is served
   // the committed value — coherent with the frame, whose inputs are the
   // committed ones too — and does not go pending on it. So is lane work
@@ -1780,7 +1829,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
   // An errored derive throws for every late reader instead of silently
   // serving node values (memo parity, #2897 ruling).
-  if ((owner as Computed<any>)._fn && (owner as Computed<any>)._statusFlags & STATUS_ERROR) {
+  if (computed._fn && owner._statusFlags & STATUS_ERROR && !committedOutcome) {
     // Only a genuine reactive re-read may retry an errored async source:
     // - tracking: owned/tracked scope only (never events / `untrack` / effect side-effect phase)
     // - owner._time < clock: only on a later cycle than the one the error was found
@@ -1790,9 +1839,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     } else throw (owner as Computed<any>)._x?._error;
   }
 
-  // Ahead of the snapshot serve below: a component body's direct read is
-  // wrong in the same way whether the pass is hydrating or not, and the
-  // hydration pass is the console nobody is watching (#3675).
+  // A component body's direct read needs the same strict-read diagnostic
+  // during hydration as in an ordinary pass (#3675).
   if (__DEV__ && strictRead)
     warnStrictReadUntracked(strictRead, {
       ownerId: c?.id,
@@ -1800,19 +1848,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       nodeName: (owner as any)?._name
     });
 
-  if (snapshotCaptureActive && c && (c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) {
-    const sv = el._x?._snapshotValue;
-    if (sv !== undefined) {
-      const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
-      const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
-      if (current !== snapshot) (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
-      return snapshot as T;
-    }
-  }
-
-  if (committed) return el._value as T;
-  const value = serve(el, c as Computed<any> | null) as T;
+  const value = serve(el, c as Computed<any> | null, committed) as T;
   if (
+    !committed &&
     !c &&
     typeof computed._fn === "function" &&
     el._config & CONFIG_AUTO_DISPOSE &&
@@ -1831,41 +1869,46 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   return value;
 }
 
-/**
- * Rule 1, the one slow implementation (DESIGN-CONSOLIDATION move 3b, step
- * 6c): the value a reader `c` (null = untracked, no pass) is served from
- * `el`. Called by read()'s slow tail; the fast path (read's fast block) keeps
- * its trivial ternary by design (perf, see the doc). Arms, in order:
- * - a node born staged has nothing for an untracked reader (A19 exception 1);
- * - an unflushed write serves committed and re-runs the reader in the
- *   carrying flush (A28);
- * - readerSeesCommitted, else the staged value.
- */
-export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
+/** Select and interpret the final truth-frame read. An observer explicitly
+ * served its published frame cannot fall through to unflushed or proposed
+ * state. Other readers retain the ordinary staged/committed rules; the
+ * fast signal path keeps its own trivial selection. */
+export function serve(
+  el: Signal<any> | Computed<any>,
+  c: Computed<any> | null,
+  committed: boolean
+): unknown {
   // A node born staged (recompute) has a staged value and no committed one:
   // an untracked reader has nothing to serve and holds (A19 exception 1) — a
   // bookkeeping read (`spectate`) likewise, and a children-forbidden reader
-  // (A32: the frame, which has nothing here).
+  // (A32: the frame, which has nothing here). An observer served the
+  // published frame likewise cannot use an unborn node's proposed value.
   if (
-    el._pendingValue !== NOT_PENDING &&
+    (committed || el._pendingValue !== NOT_PENDING) &&
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED &&
-    (!c || spectating || c._config & CONFIG_CHILDREN_FORBIDDEN)
+    (committed || !c || spectating || c._config & CONFIG_CHILDREN_FORBIDDEN)
   )
     throw new NotReadyError(null);
-  const u = c && unflushedStaged ? unflushedValue(el) : NOT_PENDING;
+  const u = !committed && c && unflushedStaged ? unflushedValue(el) : NOT_PENDING;
   if (u !== NOT_PENDING) {
     markLateLinker(c!);
     return u;
   }
-  if (readerSeesCommitted(el, c)) return el._value;
   if (
-    c!._config & CONFIG_VERDICT &&
-    !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
-    stagedScreen(c!)
+    committed ||
+    !c ||
+    c._config & CONFIG_CHILDREN_FORBIDDEN ||
+    (el._pendingValue === NOT_PENDING &&
+      !(
+        el._config & CONFIG_COMMITTED_ERROR && !((el as Computed<any>)._statusFlags & STATUS_ERROR)
+      )) ||
+    (c._config & CONFIG_VERDICT &&
+      !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
+      stagedScreen(c))
   )
-    return el._value;
+    return readCommitted(el);
   stagedRead(c!, el);
-  return el._pendingValue;
+  return el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
 }
 
 /** A pass read a staging of this flush: it derives from what the flush may
@@ -1976,7 +2019,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
     !el._equals ||
     !el._equals(currentValue, v);
-  if (!valueChanged) return v;
+  if (!valueChanged && !(el._config & CONFIG_COMMITTED_ERROR)) return v;
 
   // Attribution hook: this committed write is where a re-run chain begins.
   if (__OBSERVE__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
@@ -2050,7 +2093,13 @@ export function setMemo<T>(el: Computed<T>, v: T | ((prev: T) => T)): T {
     el._flags = (el._flags & ~REACTIVE_CHECK) | REACTIVE_DIRTY;
     insertIntoHeap(el, dirtyQueue);
     schedule();
-  } else if (el._pendingValue !== NOT_PENDING) el._flags |= REACTIVE_MANUAL_WRITE;
+  } else if (el._pendingValue !== NOT_PENDING) {
+    el._flags |= REACTIVE_MANUAL_WRITE;
+    // The proposal is a success, even when the last derivation failed.
+    // Keep the published failure until this write's frame commits; a held
+    // derivation above still re-runs over the write instead of being replaced.
+    if (el._statusFlags & STATUS_ERROR) clearStatus(el);
+  }
   return result;
 }
 

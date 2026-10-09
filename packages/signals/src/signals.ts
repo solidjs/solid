@@ -772,13 +772,15 @@ function watch<T>(
   // after: the first pass's own error is the promise's rejection.)
   computed(
     () => {
-      let v: T;
+      let v!: T;
+      let error: unknown;
+      let failed = false;
       try {
         v = fn();
       } catch (e) {
         if (e instanceof NotReadyError) throw e;
-        queueMicrotask(() => onError(unwrapStatusError(e)));
-        return;
+        error = e;
+        failed = true;
       }
       const c = getOwner() as Computed<any>;
       // (Outside a flush a mainline pass joins through `passTx`.)
@@ -791,8 +793,11 @@ function watch<T>(
         staleReader(c, resolveTx(joined));
         return;
       }
-      inPass?.(v);
-      queueMicrotask(() => onValue(v));
+      if (failed) queueMicrotask(() => onError(unwrapStatusError(error)));
+      else {
+        inPass?.(v);
+        queueMicrotask(() => onValue(v));
+      }
     },
     { _extraConfig: config }
   )._config |= CONFIG_REDERIVE;

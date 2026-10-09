@@ -2,12 +2,14 @@ import { NOT_PENDING } from "./constants.js";
 import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_HELD,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
   REACTIVE_DISPOSED,
   STATUS_ERROR,
-  STATUS_PENDING
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED
 } from "./constants.js";
 import {
   computed,
@@ -33,7 +35,8 @@ import {
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
-  setEffectCallback
+  setEffectCallback,
+  txOf
 } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
@@ -75,7 +78,7 @@ export function effect<T>(
     !node._x?._transaction?._lane &&
     (node._type === EFFECT_USER || options?.schedule
       ? globalQueue.enqueue(node._type, runEffect.bind(null, node))
-      : runEffect(node, node._type));
+      : runEffect(node));
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
@@ -149,7 +152,7 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
   }
 }
 
-function runEffect(node: Effect<any>, type: number): void {
+function runEffect(node: Effect<any>): void {
   if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
   // A queued run behind a fallback (boundaries.ts) waits for the reveal: a
   // user effect's, which would read a DOM that is not attached, and a render
@@ -160,36 +163,27 @@ function runEffect(node: Effect<any>, type: number): void {
   // run and goes through. `_modified` stays set; the boundary re-queues the
   // run (`release`).
   if (GlobalQueue._heldRun && GlobalQueue._heldRun(node)) return;
-  // Error arm (#2840), user effects only: a compute-phase error that is still
-  // the node's settled state at effect time runs the bundle's error handler in
-  // this same imperative, writable scope. Unwrap the StatusError used for
-  // source tracking — user code gets the error it threw, as boundaries do. No
-  // handler: log and keep the system alive (the run was skipped). A handler
-  // (or logging) consumes the error; a handler throw falls to the shared
-  // catch below and escalates boundary-or-halt like any effect-phase throw.
-  // Render effects bypass: their errors route to boundaries synchronously in
-  // notifyEffectStatus, and a runner queued by an earlier valueChanged in the
-  // same flush must not be hijacked by a later-arriving error status.
-  if (node._statusFlags & STATUS_ERROR && node._type === EFFECT_USER) {
-    const err = unwrapStatusError(node._x?._error);
-    node._prevValue = node._value;
-    node._modified = false;
-    try {
-      node._errorFn
-        ? node._errorFn(err, () => {
-            const prevCleanup = node._cleanup;
-            node._cleanup = undefined;
-            prevCleanup?.();
-          })
-        : console.error(err);
-    } catch (error) {
-      if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
-        haltReactivity(error);
-        throw error;
-      }
-    }
+  // A first failure can queue before its creation pass acquires membership.
+  // Hand an unpublished user's first run to its frame, even if it recovered
+  // before this run. An initialized node may instead owe a revealed lane's
+  // callback while its ordinary truth frame remains held.
+  // Mount-time render work retains its separate DOM-construction rules.
+  if (
+    node._statusFlags & STATUS_UNINITIALIZED &&
+    node._config & CONFIG_HELD &&
+    node._type === EFFECT_USER
+  ) {
+    globalQueue.enqueue(
+      node._type,
+      (node._boundRunEffect ??= runEffect.bind(null, node)),
+      txOf(node)
+    );
     return;
   }
+  // Both user-effect arms publish a settled outcome in the same scope.
+  // Render errors route to boundaries during computation; their old queued
+  // runner must not become a user error callback.
+  const errorArm = node._statusFlags & STATUS_ERROR && node._type === EFFECT_USER;
   // Captured before the callback: its own throw errors the node below, but
   // the compute pass that produced `_value` was clean, so its tail still goes.
   const cleanPass = node._x?._error == null;
@@ -204,18 +198,31 @@ function runEffect(node: Effect<any>, type: number): void {
   // cascade an observer reports) and what times the callback (the `effect`
   // record) — facts a production observer needs, not only a dev console.
   if (__OBSERVE__ && attrHooks !== null) attrHooks.effectRunStart(node);
-  const prevCleanup = node._cleanup;
-  node._cleanup = undefined;
   try {
-    prevCleanup?.();
-    const nextCleanup = node._effectFn(node._value, node._prevValue);
-    if (__DEV__ && nextCleanup !== undefined && typeof nextCleanup !== "function") {
-      throw new Error(
-        `${node._name || "effect"} callback returned an invalid cleanup value. Return a cleanup function or undefined.`
-      );
+    if (errorArm) {
+      const error = unwrapStatusError(node._x?._error);
+      // Error handlers choose whether to retire the previous success arm's
+      // cleanup. Recovery or disposal otherwise retires it as usual.
+      node._errorFn
+        ? node._errorFn(error, () => {
+            const cleanup = node._cleanup;
+            node._cleanup = undefined;
+            cleanup?.();
+          })
+        : console.error(error);
+    } else {
+      const prevCleanup = node._cleanup;
+      node._cleanup = undefined;
+      prevCleanup?.();
+      const nextCleanup = node._effectFn(node._value, node._prevValue);
+      if (__DEV__ && nextCleanup !== undefined && typeof nextCleanup !== "function") {
+        throw new Error(
+          `${node._name || "effect"} callback returned an invalid cleanup value. Return a cleanup function or undefined.`
+        );
+      }
+      // The final cleanup is invoked by disposeChildren at true disposal.
+      node._cleanup = nextCleanup as (() => void) | undefined;
     }
-    // The final cleanup is invoked by disposeChildren at true disposal.
-    node._cleanup = nextCleanup as (() => void) | undefined;
   } catch (error) {
     ext(node)._error = new StatusError(node, error);
     node._statusFlags |= STATUS_ERROR;

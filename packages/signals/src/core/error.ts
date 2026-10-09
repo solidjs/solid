@@ -51,9 +51,13 @@ export class StatusError extends Error {
     public source: any,
     original: any
   ) {
-    super(original instanceof Error ? original.message : String(original), {
-      cause: original
-    });
+    // Diagnostic formatting cannot replace the outcome being propagated.
+    // Arbitrary thrown values may have a throwing coercion or message getter.
+    let message: string | undefined;
+    try {
+      message = String(original instanceof Error ? original.message : original);
+    } catch {}
+    super(message, { cause: original });
   }
 }
 
