@@ -224,6 +224,19 @@ export function $$component<P extends Record<string, any>>(
   return proxy;
 }
 
+function preserveContextIds(oldRegistry: Registry, newRegistry: Registry): void {
+  for (const [key, newData] of newRegistry.components) {
+    const oldData = oldRegistry.components.get(key);
+    // Consumers can refresh before this module's accept callback. Preserve
+    // mounted providers' lookup keys as soon as the new module is evaluated.
+    // Unmounted registrations keep their fresh IDs for entry-module remounts.
+    if (oldData?.instances.count) {
+      const id = (oldData.component as any).id;
+      if (typeof id === "symbol") (newData.component as any).id = id;
+    }
+  }
+}
+
 function patchComponent<P>(
   oldData: ComponentRegistrationData<P>,
   newData: ComponentRegistrationData<P>
@@ -239,22 +252,11 @@ function patchComponent<P>(
     // old component in place resurrects the previous execution's module
     // scope (dead createContext instances, prior sibling imports) when the
     // redirect below routes the live render through the canonical proxy.
-    // Swap unconditionally to the fresh component and skip the context
-    // symbol carry-over: everything alive was rendered against the new
-    // context's own symbol.
+    // Swap unconditionally to the fresh component.
     oldData.dependencies = newData.dependencies;
     oldData.signature = newData.signature;
     oldData.update(() => newData.component);
   } else {
-    // Preserve context identity: contexts (createContext) are components in
-    // Solid 2.0, but useContext looks values up by the context's stable
-    // symbol `.id` — carry the old symbol onto the re-evaluated context so
-    // consumers of the still-mounted provider keep resolving.
-    const oldComp = oldData.component as any;
-    const newComp = newData.component as any;
-    if (oldComp.id != null && typeof oldComp.id === "symbol") {
-      newComp.id = oldComp.id;
-    }
     if (newData.signature) {
       const oldDeps = oldData.dependencies?.call(oldData);
       const newDeps = newData.dependencies?.call(newData);
@@ -474,6 +476,7 @@ function $$refreshESM(hot: ESMHot, registry: Registry): void {
   if (shouldWarnAndDecline()) {
     $$decline("vite", hot);
   } else if (hot.data) {
+    if (hot.data[SOLID_REFRESH]) preserveContextIds(hot.data[SOLID_REFRESH], registry);
     hot.data[SOLID_REFRESH] = hot.data[SOLID_REFRESH] || registry;
     hot.data[SOLID_REFRESH_PREV] = registry;
     hot.accept(mod => {
@@ -502,6 +505,7 @@ function $$refreshStandard(hot: StandardHot, registry: Registry): void {
   } else {
     const current = hot.data;
     if (current && current[SOLID_REFRESH]) {
+      preserveContextIds(current[SOLID_REFRESH], registry);
       runAfterHydration(() => {
         if (patchRegistry(current[SOLID_REFRESH], registry)) {
           $$decline("standard", hot, true);
