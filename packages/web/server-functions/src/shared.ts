@@ -735,6 +735,18 @@ export function serverFunctionUrlFor(endpoint, fn, args) {
  */
 export const ERROR_HEADER = "X-Server-Function-Error";
 
+/**
+ * Internal mark that a response's value failed while it was being produced
+ * — a server component that threw during its synchronous render — as
+ * distinct from a thrown call (`ERROR_HEADER`). The call itself succeeded:
+ * the status stays 200 and the error rides in the body. The handler's
+ * transport finalizer consumes the mark on the way out (the author's
+ * `Cache-Control` described the success and does not apply) and the header
+ * never leaves.
+ * @internal
+ */
+export const FAILED_VALUE_HEADER = "X-Solid-Failed-Value";
+
 // HTTP header values are ByteStrings (latin1): Headers.set throws on code
 // points above U+00FF (or corrupts them, per platform), which used to turn a
 // thrown error with a CJK/emoji message into a bare 500 with nothing for the
