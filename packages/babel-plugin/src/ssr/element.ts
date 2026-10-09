@@ -313,11 +313,7 @@ function setAttr(
 function escapeExpression(
   path: BabelPath,
   expression:
-    | babelTypes.Expression
-    | babelTypes.JSXElement
-    | babelTypes.JSXFragment
-    | null
-    | undefined,
+    babelTypes.Expression | babelTypes.JSXElement | babelTypes.JSXFragment | null | undefined,
   attr?: boolean,
   escapeLiterals?: boolean
 ): babelTypes.Expression | babelTypes.JSXElement | babelTypes.JSXFragment | null | undefined {
@@ -348,8 +344,7 @@ function escapeExpression(
       });
     } else
       expression.body = escapeExpression(path, expression.body, attr, escapeLiterals) as
-        | babelTypes.Expression
-        | babelTypes.BlockStatement;
+        babelTypes.Expression | babelTypes.BlockStatement;
     return expression;
   } else if (t.isTemplateLiteral(expression)) {
     // Interpolations are escaped recursively. The static quasis are not —
@@ -1265,14 +1260,12 @@ function createElement(
           if (serverComponents && t.isJSXExpressionContainer(value)) {
             const expression = value.expression;
             const pos = key === "ref" ? "ref" : toEventName(key);
-            if (
-              !(
-                t.isJSXEmptyExpression(expression) ||
-                t.isStringLiteral(expression) ||
-                t.isNumericLiteral(expression) ||
-                t.isBooleanLiteral(expression)
-              )
-            ) {
+            if (!(
+              t.isJSXEmptyExpression(expression) ||
+              t.isStringLiteral(expression) ||
+              t.isNumericLiteral(expression) ||
+              t.isBooleanLiteral(expression)
+            )) {
               // The index of the source this attribute sits before: the
               // sources pushed so far, plus the running literal if it will
               // be pushed ahead of the next spread. The literal never

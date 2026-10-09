@@ -2384,7 +2384,7 @@ export function deep<T>(value: T): T {
     readNode(getDeepNode(t));
     // Through a chain (#3323): every inner record's container AND deep
     // witness — base writes bump the inner witnesses.
-    for (let it = t; it.ch; ) {
+    for (let it = t; it.ch;) {
       it = (it.v as any)[$TARGET];
       readNode(getContainerNode(it));
       readNode(getDeepNode(it));

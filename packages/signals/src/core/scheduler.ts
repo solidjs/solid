@@ -615,8 +615,7 @@ export class GlobalQueue implements IQueue {
   // imported; null otherwise, and every call site is behind a bit or a
   // `passLane` that nothing else sets).
   declare static _laneRead:
-    | ((c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown)
-    | undefined;
+    ((c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown) | undefined;
   declare static _laneStage:
     | ((
         el: Computed<any>,
@@ -626,8 +625,7 @@ export class GlobalQueue implements IQueue {
       ) => boolean)
     | undefined;
   declare static _laneOutcome:
-    | ((el: Computed<any>, value: unknown, errored: boolean) => boolean)
-    | undefined;
+    ((el: Computed<any>, value: unknown, errored: boolean) => boolean) | undefined;
   declare static _laneWrite: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | undefined;
   declare static _applyGuesses: ((parent: Transaction | null) => void) | undefined;
   /** A slot node's truth is in flight (its family's derive — store/store.ts). */
@@ -678,8 +676,7 @@ export class GlobalQueue implements IQueue {
   // screen and holds nothing; `_boundarySeam` — the seam's sweep (readers
   // gone or settled without a pass reveal; an `on` re-arm resolves).
   declare static _catch:
-    | ((node: Computed<any>, flags: number, error: unknown) => boolean)
-    | undefined;
+    ((node: Computed<any>, flags: number, error: unknown) => boolean) | undefined;
   declare static _fresh: ((node: Computed<any>) => unknown) | undefined;
   declare static _hidden: ((r: Computed<any>) => boolean) | undefined;
   declare static _boundarySeam: (() => void) | undefined;

@@ -80,11 +80,7 @@ export type ResultTemplateValue = t.Expression;
 export type ResultPostDeclaration = t.VariableDeclarator;
 export type ResultPostExpression = t.Statement;
 export type JSXNode =
-  | t.JSXElement
-  | t.JSXFragment
-  | t.JSXText
-  | t.JSXExpressionContainer
-  | t.JSXSpreadChild;
+  t.JSXElement | t.JSXFragment | t.JSXText | t.JSXExpressionContainer | t.JSXSpreadChild;
 
 export interface TransformResult {
   template: TemplateResult;
@@ -93,6 +89,7 @@ export interface TransformResult {
   postDeclarations?: ResultPostDeclaration[];
   exprs: ResultExpression[];
   dynamics: DynamicBinding[];
+  claims?: t.Identifier[];
   postExprs?: ResultPostExpression[];
   decl?: t.VariableDeclaration;
   id?: t.Identifier;
@@ -131,6 +128,12 @@ export interface DOMTransformResult extends TransformResult {
   declarations: t.VariableDeclarator[];
   exprs: t.Statement[];
   dynamics: DynamicBinding[];
+  /**
+   * Claim targets (`a[href]` / `form[action]`) with dynamic bindings in
+   * `dynamics`: claimed at the tail of the template root's binding effect,
+   * after its first run applies them (see `wrapDynamics`).
+   */
+  claims: t.Identifier[];
   postExprs: t.Statement[];
   toBeClosed?: Set<string>;
   hasHydratableEvent?: boolean;

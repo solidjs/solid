@@ -3,7 +3,7 @@ use oxc_allocator::CloneIn;
 use oxc_ast::ast::{Expression, FormalParameterKind, JSXAttributeItem, Statement};
 use oxc_span::Span;
 
-use crate::dom::dynamics::DynamicSlot;
+use crate::dom::dynamics::{DynamicSlot, DynamicsBatch};
 use crate::dom::element::AstDomTransform;
 use crate::dom::set_attr::SetAttrOptions;
 use crate::shared::attr_plan::{AttrPlan, AttrPlanOutcome, AttrPlanner, ConfidentValue, PlanValue};
@@ -95,12 +95,18 @@ impl<'a> AstDomTransform<'a, '_> {
         template: &mut String,
         declarations: &mut std::vec::Vec<Statement<'a>>,
         operations: &mut std::vec::Vec<Statement<'a>>,
-        dynamics: &mut std::vec::Vec<DynamicSlot<'a>>,
+        dynamics: &mut DynamicsBatch<'a>,
     ) -> Result<AttrsLowering<'a>> {
-        // Claim contract: a[href] / form[action] elements are claimed at
-        // creation so registered consumers (e.g. a router's link-state layer)
-        // see them. Babel pushes the claim ahead of the attribute
-        // expressions (events still unshift in front of it).
+        // Claim contract (#3923): a[href] / form[action] elements are claimed
+        // ONCE, after their initial attributes are applied, so registered
+        // consumers (e.g. a router's link-state layer) see the element they
+        // will manage. A fully static element (attributes in the template,
+        // writes at creation) is claimed at creation, after those writes and
+        // its refs; an element with dynamic bindings at the tail of the
+        // template root's binding effect (`wrap_dynamics_statement`), whose
+        // first run applies them; a spread element by the spread runtime
+        // after the spread's first application — no compiled claim. Mirrors
+        // Babel's `transformElement`.
         let claim_target = crate::dom::element::is_claim_target(tag_name, attributes);
 
         if attributes
@@ -128,9 +134,6 @@ impl<'a> AstDomTransform<'a, '_> {
                     ref_groups.push(self.dom_ref_statements(attr.span, element_id, value));
                 }
             }
-            if claim_target {
-                operations.push(self.claim_element_statement(element_id));
-            }
             operations.push(self.spread_attribute_statement(
                 attributes,
                 tag_name,
@@ -151,12 +154,10 @@ impl<'a> AstDomTransform<'a, '_> {
             children_replacement,
         } = self.plan_attributes(attributes, tag_name)?;
         let mut exprs: std::vec::Vec<Statement<'a>> = std::vec::Vec::new();
-        if claim_target {
-            exprs.push(self.claim_element_statement(element_id));
-        }
         let mut front_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> = std::vec::Vec::new();
         let mut ref_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> = std::vec::Vec::new();
         let mut needs_placeholder = false;
+        let slots_before = dynamics.slots.len();
 
         for plan in plans {
             // Explicit JSX children are the final content source. Suppress a
@@ -195,6 +196,13 @@ impl<'a> AstDomTransform<'a, '_> {
         }
         for group in ref_groups {
             exprs.extend(group);
+        }
+        if claim_target {
+            if dynamics.slots.len() > slots_before {
+                dynamics.claims.push(element_id.to_string());
+            } else {
+                exprs.push(self.claim_element_statement(element_id, None));
+            }
         }
         operations.extend(exprs);
         Ok(AttrsLowering {
@@ -281,7 +289,7 @@ impl<'a> AstDomTransform<'a, '_> {
         exprs: &mut std::vec::Vec<Statement<'a>>,
         front_groups: &mut std::vec::Vec<std::vec::Vec<Statement<'a>>>,
         ref_groups: &mut std::vec::Vec<std::vec::Vec<Statement<'a>>>,
-        dynamics: &mut std::vec::Vec<DynamicSlot<'a>>,
+        dynamics: &mut DynamicsBatch<'a>,
         needs_placeholder: &mut bool,
     ) -> Result<()> {
         let span = plan.span;
@@ -334,7 +342,7 @@ impl<'a> AstDomTransform<'a, '_> {
             } else {
                 element_id.to_string()
             };
-            dynamics.push(DynamicSlot {
+            dynamics.slots.push(DynamicSlot {
                 span,
                 elem,
                 key: plan.key,
