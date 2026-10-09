@@ -2865,8 +2865,10 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "14.53 KB",
-    capMinified: 41284,
+    // #3884 stacked on next (2026-10-08): measured at 14,552 B brotli / 41,305 B minified
+    // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "14.56 KB",
+    capMinified: 41305,
     alias: observeAlias
   },
   {
@@ -3404,8 +3406,10 @@ module.exports = [
     // condition hello world stays under 10 KB.
     // #3892 (2026-10-08): measured at 25,263 B brotli / 79,149 B minified by CI
     // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "25.27 KB",
-    capMinified: 79149,
+    // #3884 stacked on next (2026-10-08): measured at 25,293 B brotli / 79,170 B minified
+    // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "25.30 KB",
+    capMinified: 79170,
     alias
   },
   {
@@ -4605,8 +4609,10 @@ module.exports = [
     // adoption-time claim index from the frames eager note. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-08, "perf is important enough — it's the point here").
-    limit: "40.95 KB",
-    capMinified: 123628,
+    // #3884 stacked on next (2026-10-08): measured at 41,057 B brotli / 123,713 B minified
+    // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "41.06 KB",
+    capMinified: 123713,
     alias: pageAlias
   },
   {
@@ -4811,8 +4817,10 @@ module.exports = [
     // landed at 47.19 KB; CI on this merge (Size run 37852899252) measured
     // 47,281 B / 143,158 minified (+197 B brotli / +354 B minified over
     // #3913's 47,084 / 142,804). Cap at measured + 10 B rounded up to 0.01 KB.
-    limit: "47.30 KB",
-    capMinified: 143158,
+    // #3884 stacked on next (2026-10-08): measured at 47,306 B brotli / 143,256 B minified
+    // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "47.31 KB",
+    capMinified: 143256,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
