@@ -4,12 +4,12 @@
     "minified": 20316
   },
   "app: render + one signal (the simple-app floor)": {
-    "cap": "9.93 KB",
-    "minified": 27872
+    "cap": "9.94 KB",
+    "minified": 27895
   },
   "app: hydrating (no stores) with Show/For/Loading/Errored/lazy": {
-    "cap": "17.91 KB",
-    "minified": 52977
+    "cap": "17.93 KB",
+    "minified": 52998
   },
   "page: base server components (hydrating + dynamic + frames + sf reference)": {
     "cap": "34.22 KB",
