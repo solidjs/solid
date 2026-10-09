@@ -1925,7 +1925,7 @@ export function notePromotedWrite(el: Signal<any> | Computed<any>): void {
  * REVEALS — the creation-time arm skips pending computeds for the same
  * reason. Firewall leaves belong to a projection whose compute is the tree's
  * own work, captured (or deliberately not) at creation. */
-function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T): void {
+export function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T): void {
   if (
     el._config & CONFIG_NO_SNAPSHOT ||
     (el as Computed<T>)._fn !== undefined ||
