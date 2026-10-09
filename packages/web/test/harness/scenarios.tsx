@@ -1557,6 +1557,40 @@ function ErroredThunkFallbackInElement() {
     </Errored>
   );
 }
+// #3920: a shared children slot retries after the following async sibling
+// settles. Its already-rendered error fallback must keep the original ids.
+function RetriedFallbackLayout(props: { children: JSX.Element }) {
+  return <div data-retried-fallback>{props.children}</div>;
+}
+function RetriedFallbackAsyncContent() {
+  const value = createMemo(async () => {
+    await sleep(5);
+    return "ready";
+  });
+  return <p>{value()}</p>;
+}
+function RetriedFallbackWithAsyncContent() {
+  return (
+    <>
+      <ThunkFallback />
+      <RetriedFallbackAsyncContent />
+    </>
+  );
+}
+function ErroredFallbackInRetriedSlot(props: { asyncFallback?: boolean }) {
+  return (
+    <RetriedFallbackLayout>
+      <Errored
+        fallback={() =>
+          props.asyncFallback ? <RetriedFallbackWithAsyncContent /> : <ThunkFallback />
+        }
+      >
+        <ThrowsSync />
+      </Errored>
+      <RetriedFallbackAsyncContent />
+    </RetriedFallbackLayout>
+  );
+}
 // Same consumer shape with a different producer: Show hands back its
 // fallback thunk unresolved too. (`fallback` is typed as an element; the
 // thunk is a runtime-accepted shape, hence the cast.)
@@ -2800,6 +2834,26 @@ export const scenarios: Scenario[] = [
     update: () => setErroredFallbackCount(1),
     expectedTextAfterUpdate: "fellCount: 1tail",
     stableSelector: "section, main, b, button, span"
+  },
+  {
+    name: "errored-fallback-in-retried-slot",
+    App: () => <ErroredFallbackInRetriedSlot />,
+    async: true,
+    expectedText: "fellCount: 0ready",
+    update: () =>
+      document.querySelector<HTMLButtonElement>("[data-retried-fallback] button")!.click(),
+    expectedTextAfterUpdate: "fellCount: 1ready",
+    stableSelector: "main, b, button, p"
+  },
+  {
+    name: "errored-async-fallback-in-retried-slot",
+    App: () => <ErroredFallbackInRetriedSlot asyncFallback />,
+    async: true,
+    expectedText: "fellCount: 0readyready",
+    update: () =>
+      document.querySelector<HTMLButtonElement>("[data-retried-fallback] button")!.click(),
+    expectedTextAfterUpdate: "fellCount: 1readyready",
+    stableSelector: "main, b, button, p"
   },
   {
     name: "show-thunk-fallback-under-errored",
