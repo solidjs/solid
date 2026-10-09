@@ -4611,7 +4611,7 @@ module.exports = [
     // (2026-10-08, "perf is important enough — it's the point here").
     // #3884 stacked on next (2026-10-08): measured at 41,057 B brotli / 123,713 B minified
     // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
-    // #3923 stacks on this landed cap; the combination is remeasured before merge.
+    // #3923 stacked on this cap (Size run 37878630604) and stayed under it.
     limit: "41.06 KB",
     capMinified: 123713,
     alias: pageAlias
@@ -4735,8 +4735,10 @@ module.exports = [
     // to 0.01 KB.
     // #3923 (2026-10-08): measured at 41,536 B brotli / 129,943 B minified by CI
     // (Size run 37873448792). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "41.54 KB",
-    capMinified: 129943,
+    // #3923 stacked on #3884 (2026-10-08): measured at 41,562 B brotli / 130,010 B minified
+    // by CI (Size run 37878630604). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "41.57 KB",
+    capMinified: 130010,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -4822,9 +4824,10 @@ module.exports = [
     // #3913's 47,084 / 142,804). Cap at measured + 10 B rounded up to 0.01 KB.
     // #3884 stacked on next (2026-10-08): measured at 47,306 B brotli / 143,256 B minified
     // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
-    // #3923 stacks on this landed cap; the combination is remeasured before merge.
-    limit: "47.31 KB",
-    capMinified: 143256,
+    // #3923 stacked on #3884 (2026-10-08): measured at 47,329 B brotli / 143,381 B minified
+    // by CI (Size run 37878630604). Cap set to that brotli size, rounded up to 0.01 KB.
+    limit: "47.33 KB",
+    capMinified: 143381,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
