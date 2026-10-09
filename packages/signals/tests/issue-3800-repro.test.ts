@@ -104,7 +104,7 @@ describe("#3800", () => {
   });
 });
 
-describe("#3800: a node created over a hold waits for it; the hold never waits for the node", () => {
+describe("#3800: a node created over a hold waits for it, and the hold waits for a render effect that reads it outside a boundary (column 2)", () => {
   // `slow` holds count = 2 while its flight is out; `parent` shows both.
   function setup() {
     const [count, setCount] = createSignal(1);
@@ -187,7 +187,7 @@ describe("#3800: a node created over a hold waits for it; the hold never waits f
     expect(s.log).toEqual(["parent 1 1", "view fallback", "parent 2 2", "view content 2"]);
   });
 
-  it("the hold commits without a slower first load; the load lands after as its own commit", async () => {
+  it("a slower first load keeps the hold open; parent and child reveal together when it lands", async () => {
     const s = setup();
     await holdCount(s);
     const childGates: Array<() => void> = [];
@@ -210,14 +210,15 @@ describe("#3800: a node created over a hold waits for it; the hold never waits f
 
     s.slowGates.shift()!();
     await tick();
-    expect(s.log).toEqual(["parent 1 1", "parent 2 2"]);
+    expect(s.log).toEqual(["parent 1 1"]);
 
     childGates.shift()!();
     await tick();
-    expect(s.log).toEqual(["parent 1 1", "parent 2 2", "child 2"]);
+    expect(s.log.slice(0, 1)).toEqual(["parent 1 1"]);
+    expect([...s.log.slice(1)].sort()).toEqual(["child 2", "parent 2 2"]);
   });
 
-  it("an action's hold: the first load waits for the action, never the reverse", async () => {
+  it("an action's hold waits for the pages' first loads read outside a boundary", async () => {
     const [user, setUser] = createSignal("ann");
     const log: string[] = [];
     createRoot(() => {
@@ -251,10 +252,11 @@ describe("#3800: a node created over a hold waits for it; the hold never waits f
 
     release();
     await tick();
-    expect(log).toEqual(["header ann", "header bob", "page fast-bob"]);
+    expect(log).toEqual(["header ann"]);
 
     pageGates.shift()!();
     await tick();
-    expect(log).toEqual(["header ann", "header bob", "page fast-bob", "page slow-bob"]);
+    expect(log.slice(0, 1)).toEqual(["header ann"]);
+    expect([...log.slice(1)].sort()).toEqual(["header bob", "page fast-bob", "page slow-bob"]);
   });
 });
