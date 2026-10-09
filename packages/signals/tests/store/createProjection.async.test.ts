@@ -12,6 +12,7 @@ import {
   flush,
   isPending,
   latest,
+  mapArray,
   NotReadyError,
   refresh,
   untrack
@@ -1207,6 +1208,101 @@ describe("errored derive follows memo rules", () => {
     expect(views).toContain("recovered");
     expect(attempts).toBe(2);
     lateDispose();
+    dispose();
+  });
+
+  // #3945: a row binding that reads a derived-store field AND isPending in
+  // the same computation must not refetch after the refetch's rejection has
+  // already reached Errored. The verdict re-derive meets the stored error.
+  it("an errored derived store is not refetched by a row that also reads isPending (#3945)", async () => {
+    let reads = 0;
+    let screen: unknown = "init";
+    const inflight: PromiseWithResolvers<{ items: { id: number; done: boolean }[] }>[] = [];
+    const [page, setPage] = createSignal(1);
+    const [unrelated] = createSignal(false);
+    const [todos] = createStore(
+      async () => {
+        page();
+        reads++;
+        if (reads > 8) throw new Error("runaway");
+        const d = Promise.withResolvers<{ items: { id: number; done: boolean }[] }>();
+        inflight.push(d);
+        return d.promise;
+      },
+      { items: [] as { id: number; done: boolean }[] },
+      { key: "id", name: "todos" }
+    );
+    let retry!: () => void;
+    const dispose = createRoot(d => {
+      const boundary = createErrorBoundary(
+        () =>
+          createLoadingBoundary(
+            () => {
+              const rows = mapArray(
+                () => todos.items,
+                todo => {
+                  createRenderEffect(
+                    () => ({ a: todo().done, o: isPending(unrelated) }),
+                    () => {}
+                  );
+                  return todo().id;
+                },
+                { keyed: (t: { id: number }) => t.id }
+              );
+              return rows();
+            },
+            () => "loading"
+          ),
+        (_err, reset) => {
+          retry = reset;
+          return "retry";
+        }
+      );
+      createRenderEffect(boundary, v => {
+        screen = v;
+      });
+      return d;
+    });
+
+    const drain = async () => {
+      for (let i = 0; i < 6; i++) {
+        await new Promise(r => setTimeout(r, 0));
+        flush();
+      }
+    };
+
+    flush();
+    inflight[0].resolve({ items: [{ id: 1, done: false }] });
+    await drain();
+    expect(reads).toBe(1);
+    expect(screen).toEqual([1]);
+
+    setPage(2);
+    flush();
+    expect(reads).toBe(2);
+    inflight[1].resolve({ items: [{ id: 1, done: true }] });
+    await drain();
+    expect(reads).toBe(2);
+    expect(screen).toEqual([1]);
+
+    setPage(3);
+    flush();
+    expect(reads).toBe(3);
+    inflight[2].reject(new Error("nope"));
+    await drain();
+    expect(screen).toBe("retry");
+    expect(reads).toBe(3);
+
+    // Rejecting the would-be extra fetch must not start another.
+    if (inflight.length > 3) inflight[3].reject(new Error("extra"));
+    await drain();
+    expect(reads).toBe(3);
+
+    // Retry is an explicit re-read and starts one more fetch.
+    retry();
+    flush();
+    await drain();
+    expect(reads).toBe(4);
     dispose();
   });
 });
