@@ -8,7 +8,9 @@ import {
   createStore,
   flush,
   getOwner,
+  mapArray,
   markSnapshotScope,
+  onSettled,
   releaseSnapshotScope,
   runWithOwner,
   setSnapshotCapture,
@@ -755,6 +757,90 @@ describe("store snapshot support", () => {
     flush();
 
     expect(target.child?.[meta]).toBe("keep");
+  });
+
+  it("a structural write to a store array during capture is held for scoped readers", () => {
+    let labels!: () => string[];
+    let owner!: any;
+    let runs = 0;
+
+    createRoot(() => {
+      setSnapshotCapture(true);
+      owner = getOwner()!;
+      markSnapshotScope(owner);
+
+      const [state, setState] = createStore({ items: [{ label: "remove" }, { label: "keep" }] });
+      labels = mapArray(
+        () => state.items,
+        item => {
+          runs++;
+          return item.label;
+        }
+      );
+      expect(labels()).toEqual(["remove", "keep"]);
+
+      onSettled(() => {
+        setState(s => {
+          s.items.splice(0, 1);
+        });
+      });
+    });
+    flush();
+
+    expect(labels()).toEqual(["remove", "keep"]);
+    expect(runs).toBe(2);
+
+    releaseSnapshotScope(owner);
+    flush();
+
+    expect(labels()).toEqual(["keep"]);
+    expect(runs).toBe(2);
+    clearSnapshots();
+  });
+
+  it("a key added to a wide owned record during capture is held for scoped readers", () => {
+    const initial: Record<string, number> = {};
+    for (let i = 0; i < 40; i++) initial["k" + i] = i;
+    let owner!: any;
+    let state!: Record<string, number>;
+    let setState!: (fn: (s: Record<string, number>) => void) => void;
+    createRoot(() => {
+      owner = getOwner()!;
+      [state, setState] = createStore(initial);
+    });
+    setState(s => {
+      s.k0 = 100;
+    });
+    flush();
+
+    let keys!: () => string[];
+    let late!: () => string[];
+    runWithOwner(owner, () => {
+      setSnapshotCapture(true);
+      markSnapshotScope(owner);
+      keys = createMemo(() => Object.keys(state));
+      expect(keys()).toHaveLength(40);
+      onSettled(() => {
+        setState(s => {
+          s.extra = 1;
+        });
+      });
+    });
+    flush();
+    runWithOwner(owner, () => {
+      late = createMemo(() => Object.keys(state));
+    });
+
+    expect(keys()).toHaveLength(40);
+    expect(late()).toHaveLength(40);
+    expect(state.extra).toBe(1);
+
+    releaseSnapshotScope(owner);
+    flush();
+
+    expect(keys()).toContain("extra");
+    expect(late()).toContain("extra");
+    clearSnapshots();
   });
 });
 

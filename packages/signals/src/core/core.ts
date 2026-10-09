@@ -1918,14 +1918,15 @@ export function notePromotedWrite(el: Signal<any> | Computed<any>): void {
   promotedWrites.push(el);
 }
 
-/** Cold half of setSignal's snapshot arm (see there): first write during
- * capture to a plain signal without a live snapshot records the pre-write
- * value. Only plain user signals qualify. Computeds reach setSignal from an
+/** Cold half of setSignal's snapshot arm (see there), shared with a store
+ * container's structural notify: first write during capture to a plain
+ * signal without a live snapshot records the pre-write value. Only plain
+ * user signals qualify. Computeds reach setSignal from an
  * async landing (asyncWrite), and a value arriving from async during the pass
  * REVEALS — the creation-time arm skips pending computeds for the same
  * reason. Firewall leaves belong to a projection whose compute is the tree's
  * own work, captured (or deliberately not) at creation. */
-function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T): void {
+export function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T): void {
   if (
     el._config & CONFIG_NO_SNAPSHOT ||
     (el as Computed<T>)._fn !== undefined ||
