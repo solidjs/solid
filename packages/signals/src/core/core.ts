@@ -374,12 +374,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // — here, the finally below, updateIfNecessary — carries it (#3543).
   el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & REACTIVE_ZOMBIE);
   el._time = clock;
-  // The pass's previous value: its staging, else the lane's value for a
-  // lane's node (lanes.ts), else the committed one.
+  // The pass's previous value: its staging, else a lane node's lane value
+  // when it has one (lanes.ts), else the committed one.
   let value =
     el._pendingValue !== NOT_PENDING
       ? el._pendingValue
-      : el._config & CONFIG_OVERRIDE
+      : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
         ? el._x!._lane
         : el._value;
   let oldHeight = el._height;
