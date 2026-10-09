@@ -8,7 +8,9 @@ import {
   createStore,
   flush,
   getOwner,
+  mapArray,
   markSnapshotScope,
+  onSettled,
   releaseSnapshotScope,
   runWithOwner,
   setSnapshotCapture,
@@ -755,6 +757,45 @@ describe("store snapshot support", () => {
     flush();
 
     expect(target.child?.[meta]).toBe("keep");
+  });
+
+  it("a structural write to a store array during capture is held for scoped readers", () => {
+    let labels!: () => string[];
+    let owner!: any;
+    let runs = 0;
+
+    createRoot(() => {
+      setSnapshotCapture(true);
+      owner = getOwner()!;
+      markSnapshotScope(owner);
+
+      const [state, setState] = createStore({ items: [{ label: "remove" }, { label: "keep" }] });
+      labels = mapArray(
+        () => state.items,
+        item => {
+          runs++;
+          return item.label;
+        }
+      );
+      expect(labels()).toEqual(["remove", "keep"]);
+
+      onSettled(() => {
+        setState(s => {
+          s.items.splice(0, 1);
+        });
+      });
+    });
+    flush();
+
+    expect(labels()).toEqual(["remove", "keep"]);
+    expect(runs).toBe(2);
+
+    releaseSnapshotScope(owner);
+    flush();
+
+    expect(labels()).toEqual(["keep"]);
+    expect(runs).toBe(2);
+    clearSnapshots();
   });
 });
 
