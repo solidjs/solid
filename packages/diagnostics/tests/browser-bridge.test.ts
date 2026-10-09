@@ -150,6 +150,21 @@ describe("browser bridge + playwright adapter", () => {
     app.dispose();
   });
 
+  it("drops a cycle in a record without failing the capture", async () => {
+    const realm: Record<string, unknown> = {};
+    const bridge = installDiagnosticsBridge(realm);
+    const channel = OBSERVE!.records as unknown as {
+      emit(type: string, event: unknown, live: unknown): void;
+    };
+    const meta: Record<string, unknown> = {};
+    meta.self = meta;
+
+    bridge.begin({ attribution: false });
+    channel.emit("call", { id: "todos/list", at: 1, meta }, undefined);
+    const payload = bridge.end();
+    expect(payload.records.call).toEqual([{ id: "todos/list", at: 1, meta: {} }]);
+  });
+
   it("supports diagnostics-only captures", async () => {
     const realm: Record<string, unknown> = {};
     installDiagnosticsBridge(realm);

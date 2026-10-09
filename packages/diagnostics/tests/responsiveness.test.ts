@@ -18,6 +18,7 @@ import {
   isPending
 } from "@solidjs/signals";
 import {
+  ARTIFACT_FORMAT_VERSION,
   artifactToJSONL,
   assertBudget,
   captureArtifact,
@@ -252,5 +253,29 @@ describe("browser bridge", () => {
     expect(payload.attribution!.holds).toHaveLength(1);
     expect(payload.attribution!.feedback.sources).toHaveLength(1);
     feed.dispose();
+  });
+
+  it("keeps a long hold's blockers and acknowledgements beside its LONG_HOLD diagnostic", async () => {
+    const realm: Record<string, unknown> = {};
+    const bridge = installDiagnosticsBridge(realm);
+
+    const feed = pagedFeed(true);
+    await feed.load("a");
+    bridge.begin({ attribution: { ...attribution, longHolds: { infoMs: 10, warnMs: 60_000 } } });
+    feed.setPage(2);
+    flush();
+    await wait(30);
+    await feed.load("b");
+
+    const payload = bridge.end();
+    feed.dispose();
+    expect(payload.diagnostics.map(d => d.code)).toContain("LONG_HOLD");
+    expect(payload.attribution!.holds).toHaveLength(1);
+    expect(payload.attribution!.holds[0]).toMatchObject({
+      long: true,
+      blockers: ["posts"],
+      acknowledgements: [{ kind: "isPending", source: "posts" }]
+    });
+    expectNoSilentHolds({ formatVersion: ARTIFACT_FORMAT_VERSION, ...payload });
   });
 });
