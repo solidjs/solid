@@ -128,6 +128,9 @@ export const CONFIG_GUESS = 1 << 13;
  * link does, A30). Set at the window, never cleared: a reader that stopped
  * asking re-derives once and goes pending through its own read. */
 export const CONFIG_VERDICT = 1 << 14;
+/** The verdict was read tracked: a dependency going pending or settling re-derives the pass.
+ * An untracked verdict read keeps CONFIG_VERDICT (it reads the screen) without this. */
+export const CONFIG_VERDICT_REDERIVE = 1 << 19;
 /** A dependency's status is a question for this node's pass, not a fact
  * about its current one: the propagation re-derives it instead of marking
  * it, for errors as for pending (as CONFIG_VERDICT). A boundary's output
