@@ -57,6 +57,7 @@ pub(crate) fn component_ref_property<'a, C: RefPropertyContext<'a>>(
         )
     };
 
+    let value = unwrap_ts_ref_value(value);
     if let Expression::Identifier(id) = &value {
         let name = id.name.to_string();
         if ctx.is_const_ref_binding(&name) {
@@ -122,6 +123,19 @@ pub(crate) fn component_ref_property<'a, C: RefPropertyContext<'a>>(
     Some(crate::shared::ast::object_method_property(
         allocator, span, "ref", "r$", statements,
     ))
+}
+
+/// Babel's component ref branch normalizes `as`, `!` and `satisfies` away
+/// before classifying the target.
+pub(crate) fn unwrap_ts_ref_value<'a>(mut value: Expression<'a>) -> Expression<'a> {
+    loop {
+        value = match value {
+            Expression::TSAsExpression(cast) => cast.unbox().expression,
+            Expression::TSNonNullExpression(cast) => cast.unbox().expression,
+            Expression::TSSatisfiesExpression(cast) => cast.unbox().expression,
+            _ => return value,
+        };
+    }
 }
 
 pub(crate) fn ref_assignment_fallback<'a>(

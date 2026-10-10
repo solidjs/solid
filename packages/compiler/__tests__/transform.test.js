@@ -167,6 +167,34 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).toContain("_$createComponent(Child, {})");
   });
 
+  it("keeps component refs written behind TypeScript casts", () => {
+    const source = `
+      const setRef = el => {};
+      const a = <Comp ref={[setRef, props.ref] as any} role="x" />;
+      const b = <Comp ref={setRef as any} />;
+      const c = <Comp ref={props.ref!} />;
+      const d = <Comp ref={props.ref satisfies any} />;
+      const e = <Comp ref={factory() as any} />;
+      `;
+
+    for (const generate of ["dom", "ssr", "universal"]) {
+      const { code } = transform(source, {
+        filename: "cast-refs.tsx",
+        moduleName: "r-dom",
+        generate
+      });
+
+      expect(code).toContain("ref: [setRef, props.ref],");
+      expect(code).toContain("{ ref: setRef }");
+      expect(code).toContain("props.ref = r$");
+      expect(code.match(/var _ref\$\d* = props\.ref;/g)).toHaveLength(2);
+      expect(code).toContain("var _ref$3 = factory();");
+      expect(code).not.toContain(" as any");
+      expect(code).not.toContain("satisfies");
+      expect(code).not.toContain("props.ref!");
+    }
+  });
+
   it("covers the static subset of the Babel simpleElements fixture", () => {
     const result = transform(
       'const template = <div id="main"><style>{"div { color: red; }"}</style><h1>Welcome</h1><label for={"entry"}>Edit:</label><input id="entry" type="text" /></div>;',
