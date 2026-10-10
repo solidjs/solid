@@ -22,6 +22,7 @@ import {
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SNAPSHOT_STALE,
   REACTIVE_ZOMBIE,
+  STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
@@ -985,7 +986,10 @@ export class GlobalQueue implements IQueue {
 export function reruns(u: Transaction): void {
   for (let i = 0; i < u._reruns.length; i++) {
     const r = u._reruns[i];
-    if (r._flags & REACTIVE_DISPOSED) continue;
+    // An errored reader's display is its error (D-39): the landing gives it
+    // nothing to re-derive, and a re-run would be a read that retries the
+    // errored source (#3945).
+    if (r._flags & REACTIVE_DISPOSED || r._statusFlags & STATUS_ERROR) continue;
     if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
       r._flags &= ~REACTIVE_FRAME_READ;
       (r as any)._modified = false;
