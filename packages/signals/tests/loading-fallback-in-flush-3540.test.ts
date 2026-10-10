@@ -515,8 +515,10 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
   for (const shape of ["unrevealed", "rearmed outer", "revealed", "rearmed", "plain"] as Shape[])
     for (const source of ["held", "flight"] as Source[])
       for (const kind of ["memo", "bound"] as Content[])
-        // Re-arm over a held write: deferred to the re-arm change, pending its ruling.
-        (source === "held" && shape.startsWith("rearmed") ? it.fails : it)(
+        // Re-arm over a held write: content bound by a render effect is caught
+        // (a boundary that has not shown content keeps a held reader, #3540);
+        // content through a memo is still deferred to the re-arm change.
+        (source === "held" && shape.startsWith("rearmed") && kind === "memo" ? it.fails : it)(
           `${shape}, ${source}, content ${kind}`,
           async () => {
             const log: string[] = [];
