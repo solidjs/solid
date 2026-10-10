@@ -57,3 +57,63 @@ test("external source echo satisfies until after await in an async-generator act
   expect(rows.some(row => row.clientId === "c1")).toBe(true);
   dispose();
 });
+
+// The echo is judged as reconcile would judge it: the row by key (by
+// position when it has none), then leaf by leaf — key order and object
+// identity are not content.
+function echo(guessRow: Record<string, unknown>, sourceRow: Record<string, unknown>) {
+  const [source, setSource] = createSignal<Record<string, unknown>[]>([]);
+  let rows!: Record<string, unknown>[];
+  let setRows!: (fn: (draft: Record<string, unknown>[]) => void) => void;
+  let dispose!: () => void;
+  createRoot(d => {
+    dispose = d;
+    const [r, setR] = createOptimisticStore<Record<string, unknown>[]>(() => source(), []);
+    rows = r;
+    setRows = setR;
+  });
+  const save = action(async function* () {
+    setRows(draft => {
+      draft.push(guessRow);
+    });
+    await 0;
+    yield until(() => rows.some(row => row.clientId === "c1"), { timeout: 60 });
+  });
+  const done = save().then(
+    () => "confirmed" as const,
+    (error: unknown) => (error as Error).name
+  );
+  return {
+    done,
+    land: async () => {
+      await new Promise(r => setTimeout(r, 20));
+      setSource([sourceRow]);
+      flush();
+    },
+    dispose: () => dispose()
+  };
+}
+
+test("an echo with its keys in another order confirms (#3898)", async () => {
+  const e = echo({ clientId: "c1", text: "hi" }, { text: "hi", clientId: "c1" });
+  await e.land();
+  await expect(e.done).resolves.toBe("confirmed");
+  e.dispose();
+});
+
+test("an echo with nested rows confirms leaf by leaf (#3898)", async () => {
+  const e = echo(
+    { clientId: "c1", tags: [{ id: 1, n: "a" }] },
+    { clientId: "c1", tags: [{ n: "a", id: 1 }] }
+  );
+  await e.land();
+  await expect(e.done).resolves.toBe("confirmed");
+  e.dispose();
+});
+
+test("an answer whose content differs corrects: the mainline wait is the hold's (D-31, #3482)", async () => {
+  const e = echo({ clientId: "c1", text: "hi" }, { clientId: "c1", text: "edited" });
+  await e.land();
+  await expect(e.done).resolves.toBe("TimeoutError");
+  e.dispose();
+});

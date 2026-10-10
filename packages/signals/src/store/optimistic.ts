@@ -210,6 +210,22 @@ function rowSame(a: any, b: any, keyFn: ((item: any) => any) | null): boolean {
   return ka !== undefined && sameKey(ka, kb);
 }
 
+/** Whether reconcile would write anything into `a` from `b`: wrappable
+ * pairs descend, leaves compare as its writes do. A key mismatch is a
+ * replacement, which a content difference already says. Plain data — the
+ * server's echo of a guessed row is a new object with the same contents. */
+function echoes(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (!isWrappable(a) || !isWrappable(b)) return false;
+  a = unwrapValue(a);
+  b = unwrapValue(b);
+  const ak = Object.keys(a);
+  if (Array.isArray(a) !== Array.isArray(b) || ak.length !== Object.keys(b).length) return false;
+  for (const k of ak) if (!hasOwn.call(b, k) || !echoes(a[k], b[k])) return false;
+  return true;
+}
+GlobalQueue._echoes = echoes;
+
 function arrangementEqual(
   a: Record<PropertyKey, any>,
   b: Record<PropertyKey, any>,

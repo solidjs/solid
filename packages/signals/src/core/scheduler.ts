@@ -636,6 +636,9 @@ export class GlobalQueue implements IQueue {
    * link's refreshed from the inner store, whose commits it never learned
    * while the guess served the reads (store/store.ts, §7b). */
   declare static _slotCovered: ((n: Signal<any>) => unknown) | undefined;
+  /** The store's row judgment for a guessed slot (optimistic.ts): the truth
+   * is the guess's echo when reconcile would write nothing into it. */
+  declare static _echoes: ((guess: unknown, truth: unknown) => boolean) | undefined;
   /** `affects()` on a store (store/affects.ts): a store's node for a key
    * (store/store.ts `getNode`); a bare registration (birth inheritance); a
    * witnessed mark on an untracked probe (verdict.ts). */
