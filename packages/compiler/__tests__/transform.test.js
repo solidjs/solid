@@ -188,9 +188,30 @@ describe("@solidjs/compiler transform", () => {
       expect(code).toContain("{ ref: setRef }");
       expect(code).toContain("props.ref = r$");
       expect(code.match(/var _ref\$\d* = props\.ref;/g)).toHaveLength(2);
-      expect(code).toContain("var _ref$3 = factory();");
+      expect(code).toMatch(/var _ref\$\d* = factory\(\);/);
       expect(code).not.toContain(" as any");
       expect(code).not.toContain("satisfies");
+      expect(code).not.toContain("props.ref!");
+    }
+
+    const elements = `
+      let myRef;
+      const a = <view ref={myRef as any} />;
+      const b = <view ref={props.ref!} />;
+      `;
+
+    for (const generate of ["dom", "universal"]) {
+      const { code } = transform(elements, {
+        filename: "cast-refs.tsx",
+        moduleName: "r-dom",
+        generate
+      });
+
+      expect(code).toMatch(/var _ref\$\d* = myRef;/);
+      expect(code).toMatch(/var _ref\$\d* = props\.ref;/);
+      expect(code).toContain(": myRef = _el$;");
+      expect(code).toContain(": props.ref = _el$2;");
+      expect(code).not.toContain(" as any");
       expect(code).not.toContain("props.ref!");
     }
   });

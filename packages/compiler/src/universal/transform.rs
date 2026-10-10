@@ -848,6 +848,13 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
         element_id: &str,
         mut value: Expression<'a>,
     ) -> std::vec::Vec<Statement<'a>> {
+        loop {
+            value = match value {
+                Expression::TSAsExpression(cast) => cast.unbox().expression,
+                Expression::TSNonNullExpression(cast) => cast.unbox().expression,
+                _ => break,
+            };
+        }
         self.visit_expression(&mut value);
         let elem = self.identifier_expression(span, element_id);
         let is_constant = matches!(&value, Expression::Identifier(identifier)

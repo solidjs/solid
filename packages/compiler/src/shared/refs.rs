@@ -125,8 +125,7 @@ pub(crate) fn component_ref_property<'a, C: RefPropertyContext<'a>>(
     ))
 }
 
-/// Babel's component ref branch normalizes `as`, `!` and `satisfies` away
-/// before classifying the target.
+/// Strips the `as`, `!` and `satisfies` wrappers Babel's component ref branch drops.
 pub(crate) fn unwrap_ts_ref_value<'a>(mut value: Expression<'a>) -> Expression<'a> {
     loop {
         value = match value {
