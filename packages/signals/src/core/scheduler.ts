@@ -873,7 +873,8 @@ export class GlobalQueue implements IQueue {
     // parked (something async below) — the window is the frame's, the marks
     // are its transaction's; else they release at the seam, verdict-only,
     // nothing to show (affects.ts).
-    GlobalQueue._releaseAmbientMarks?.(t !== null && transactions.indexOf(t) !== -1 ? t : null);
+    const live = t && liveTx(t);
+    GlobalQueue._releaseAmbientMarks?.(live);
     // The effect phase: lane work first (displayed ahead of the frame), then
     // this flush's runs, then the runs the landings held from earlier
     // flushes — as one pass would have queued them (#3540: a shell
@@ -881,18 +882,17 @@ export class GlobalQueue implements IQueue {
     // write; #3528: a display-ahead swap before the count it is shown
     // beside). A parked frame's runs wait with its transaction instead: the
     // effect phase applies a committed frame.
-    const u = t && liveTx(t);
-    const parked = u !== null;
+    const parked = live !== null;
     // Attribution hook: this flush found its transaction incomplete — its
     // writes stay staged, its runs are stashed below. Before the effect
     // phase (the lanes' display-ahead runs are the visible acknowledgers);
     // `holdEnd` fires after it (`flush`).
     if (__OBSERVE__ && parked && attrHooks !== null) {
-      attrHooks.holdStart(u!);
+      attrHooks.holdStart(live!);
       holding = true;
     }
     for (let i = 0; i < 2; i++) {
-      if (parked) append(u!._queues[i], own[i]);
+      if (parked) append(live!._queues[i], own[i]);
       // The plain flush — no reveal, no landing, not parked — has nothing to
       // order around its own runs: they are the queue as they stand (the
       // same array, not a copy; `run` takes it whole). Every other seam

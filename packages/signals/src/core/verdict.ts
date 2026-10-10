@@ -310,7 +310,8 @@ function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): u
  * - an errored derivation throws for every reader (#2897). */
 function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const owner = el as Computed<any>;
-  const tracked = c !== null && tracking && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  const owned = c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  const tracked = owned && tracking;
   if (c !== null && tracking) {
     link(el, c);
     if (owner._fn !== undefined) {
@@ -394,7 +395,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // the owner joins the hold (held with it, or caught by a boundary that
     // has not shown content) and answers for the commit, where it is final.
     if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
-      if (probing && c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN)) joinPass(c, el);
+      if (probing && owned) joinPass(c!, el);
       return el._pendingValue;
     }
   } else if (el._pendingValue !== NOT_PENDING) {
