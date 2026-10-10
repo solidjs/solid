@@ -37,7 +37,7 @@ import {
   staleReader,
   type Transaction
 } from "./core/scheduler.js";
-import { NOT_PENDING, REACTIVE_JOINED, STATUS_ERROR, STATUS_PENDING } from "./core/constants.js";
+import { REACTIVE_JOINED, STATUS_ERROR, STATUS_PENDING } from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
 import { optimisticWrite } from "./core/lanes.js";
 
@@ -919,13 +919,16 @@ export function refresh<T>(
         watch(
           () => {
             if (waiter === null) waiter = getOwner() as Computed<unknown>;
-            // A guessed node's flight is not this answer (#3895). Park, then
-            // serve the truth staged beneath the guess. until() is not this path.
-            const n = node!;
-            const v = read(n);
-            const g = n._config & CONFIG_GUESS;
-            if (g && n._statusFlags & (STATUS_PENDING | STATUS_ERROR)) throw n._x?._error;
-            return g && n._pendingValue !== NOT_PENDING ? n._pendingValue : v;
+            // Authoritative: the truth beneath a guess (`until`'s view). A
+            // guessed node's own re-ask is not answered by it (#3895): park
+            // on that flight, or reject with its error.
+            const v = read(node!);
+            if (
+              node!._config & CONFIG_GUESS &&
+              node!._statusFlags & (STATUS_PENDING | STATUS_ERROR)
+            )
+              throw node!._x?._error;
+            return v;
           },
           value => {
             res(typeof target === "function" ? value : target);
@@ -935,7 +938,7 @@ export function refresh<T>(
             rej(err);
             dispose(waiter!);
           },
-          CONFIG_FRESH_READ,
+          CONFIG_FRESH_READ | CONFIG_AUTHORITATIVE,
           undefined,
           own
         );
