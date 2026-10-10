@@ -129,9 +129,10 @@ let probeFound = false;
  * reader re-derives there. `latest` shows the proposal that lands — a
  * rewrite or a landing reaches its reader through the link it holds — so a
  * re-run would only repeat the frame. */
-function verdictRead(c: Computed<any>, t: Transaction, rerun = probing): void {
+function verdictRead(c: Computed<any>, t: Transaction, plain?: boolean): void {
   route(c, t);
-  if (rerun) staleReader(c, t);
+  if (plain) staleReader(c, t);
+  else if (probing && t._reruns[t._reruns.length - 1] !== c) t._reruns.push(c);
 }
 
 /** A verdict read of a node staged or in flight but not held yet: whether it

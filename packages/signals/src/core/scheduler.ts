@@ -331,7 +331,7 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
       // shows nothing — a mount the frame has not revealed — and holds
       // nothing.
       if (
-        ((r as any)._type === EFFECT_RENDER ||
+        (((r as any)._type === EFFECT_RENDER && r._statusFlags & STATUS_PENDING) ||
           r._flags & REACTIVE_FRAME_READ ||
           (r._config & CONFIG_REDERIVE && r._statusFlags === STATUS_PENDING)) &&
         (s._gen === r._depGen || r._x?._error != null) &&
@@ -983,7 +983,7 @@ export function reruns(u: Transaction): void {
   for (let i = 0; i < u._reruns.length; i++) {
     const r = u._reruns[i];
     if (r._flags & REACTIVE_DISPOSED) continue;
-    if (r._flags & REACTIVE_FRAME_READ) {
+    if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
       r._flags &= ~REACTIVE_FRAME_READ;
       (r as any)._modified = false;
       // Its frame is replaced by the re-derivation: a run one of its
