@@ -31,6 +31,7 @@ import {
 } from "./constants.js";
 import {
   context,
+  joinPass,
   markLateLinker,
   pullComputed,
   setVerdict,
@@ -388,9 +389,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       }
       return el._value;
     }
-    // Born into the future: its staging is its only value.
-    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING))
+    // Born into the future: its staging is its only value. It has no
+    // committed value, so no verdict: `isPending` reads it as its read does —
+    // the owner joins the hold (held with it, or caught by a boundary that
+    // has not shown content) and answers for the commit, where it is final.
+    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
+      if (probing && c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN)) joinPass(c, el);
       return el._pendingValue;
+    }
   } else if (el._pendingValue !== NOT_PENDING) {
     if (owner._statusFlags & STATUS_PENDING && !uninitialized)
       pendingVerdict(tracked ? c : null, owner);

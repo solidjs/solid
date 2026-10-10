@@ -988,7 +988,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * something not ready under a loading boundary that has not shown content:
  * the boundary collects it and shows its fallback, and the pass is the
  * boundary's, not the tick's (A29's boundary exemption, #3540). */
-function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
+export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
   c._flags |= REACTIVE_JOINED;
   // A new memo's first pass is the hold's work (born held) but not the
   // tick's: a render effect that reads it decides — under a boundary that
