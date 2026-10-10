@@ -90,9 +90,8 @@ describe("a verdict reader mounts a fresh Loading under an action hold", () => {
       });
 
       // A29: a fresh, never-shown Loading over held data shows its fallback
-      // now. Pre-#3869 behavior, still open (MH1): the content shows the held
-      // value beside the committed `x = 0`.
-      test.fails("while held, the fresh boundary shows its fallback (A29)", async () => {
+      // now (#3540: a reader born held under it is caught at its staging).
+      test("while held, the fresh boundary shows its fallback (A29)", async () => {
         const m = mount(anchor);
         m.hold();
         flush();

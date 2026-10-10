@@ -678,6 +678,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           // derives from the future (`read`), an untracked one throws
           // (A19 exc. 1).
           el._statusFlags |= STATUS_UNINITIALIZED;
+          // A boundary that has not shown content catches it: its fallback
+          // waits for the commit (#3540). (The pass's own status clear above
+          // dropped what the read recorded.)
+          GlobalQueue._fresh?.(el);
         }
         if (__DEV__) devTrackHeldPending(el);
       }
@@ -986,11 +990,19 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * boundary's, not the tick's (A29's boundary exemption, #3540). */
 function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
   c._flags |= REACTIVE_JOINED;
+  // A new memo's first pass is the hold's work (born held) but not the
+  // tick's: a render effect that reads it decides — under a boundary that
+  // catches it, the boundary's; otherwise the tick joins the hold (#3540:
+  // the reader's position, not where the memo was created). Its catch, if
+  // any, is at its staging.
   if (
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ||
     (c as any)._type !== EFFECT_RENDER
   )
-    joinPassTx(txOf(el), GlobalQueue._fresh?.(c));
+    joinPassTx(
+      txOf(el),
+      (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || GlobalQueue._fresh?.(c)
+    );
 }
 
 /** A15's stale reader (shared-hole and reveal corollaries): a render effect
