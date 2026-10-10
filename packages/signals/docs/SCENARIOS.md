@@ -127,7 +127,7 @@ const mountB = () => createRoot(() => <p>{createMemo(() => b())()}</p>);
 
 ### S-6. A new async memo a render effect consumes waits with the hold — D-2, F-2 (#3800)
 
-_The value half is ruled 2026-10-09 and not built (U-1): the child does not show beside the parent still on the old value. The hold also waits for the child, because a render effect outside a boundary consumes it (F-2). Row E1 was F-8 and is rejected._
+_The value half is ruled 2026-10-09 and built on `carve/born-in-col2` (U-1): the child does not show beside the parent still on the old value. The hold also waits for the child, because a render effect outside a boundary consumes it (F-2). Row E1 was F-8 and is rejected._
 
 ```ts
 const [count, setCount] = createSignal(1);
