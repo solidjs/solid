@@ -279,7 +279,9 @@ export function runProjectionComputed<T extends object>(
     // A flight went up (NotReady out of the pass — the derive's own, with
     // the derive as its source): the leaves' readers learn it from here —
     // they do not subscribe to the derive.
-    if (e instanceof NotReadyError && !first) wakeFamily(fam, e);
+    // A synchronous error the same way (#3956: a rerun that finds the
+    // entry failed throws): every live reader re-derives and meets it.
+    if (!first) e instanceof NotReadyError ? wakeFamily(fam, e) : errorFamily(fam);
     throw e;
   }
   // A pass that returned with a flight up (an iterator's sync first yield):
