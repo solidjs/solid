@@ -409,9 +409,24 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     n._pendingValue = value;
     n._config |= CONFIG_HELD;
     joinFuture(parent);
-    for (let s = n._subs; s !== null; s = s._nextSub)
-      if (s._sub._config & CONFIG_AUTHORITATIVE) enqueueSub(s._sub);
+    // A confirmation is silent (A17); only truth readers are told — of the
+    // lane's derivations too, which are the truth once every guess is
+    // confirmed (#3943).
+    for (let i = 0; i < l._nodes.length; i++)
+      for (let s = l._nodes[i]._subs; s !== null; s = s._nextSub)
+        if (s._sub._config & CONFIG_AUTHORITATIVE) enqueueSub(s._sub);
   }
+}
+
+/** Every guess `l` holds has had its own source confirm it: the truth is
+ * staged beneath each, equal to it (a different truth dissolves the lane). */
+function confirmed(l: Transaction): boolean {
+  for (let i = 0; i < l._nodes.length; i++) {
+    const n = l._nodes[i];
+    if (n._config & CONFIG_GUESS && n._x!._transaction === l && n._pendingValue === NOT_PENDING)
+      return false;
+  }
+  return true;
 }
 
 /** A lane's end, two ways. `into === null`: the parent landed — the lane's
@@ -548,8 +563,16 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
  * member throws like any. */
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
+  // A truth reader (`until`): the truth staged beneath a guess, else the
+  // committed value — or, for a derivation of guesses every one of which
+  // its own source has confirmed, the lane's value: same inputs, so the
+  // truth (#3943).
   if (c !== null && c._config & CONFIG_AUTHORITATIVE)
-    return guess && el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+    return !guess && confirmed(txOf(el))
+      ? laneValueOf(el)
+      : guess && el._pendingValue !== NOT_PENDING
+        ? el._pendingValue
+        : el._value;
   if (c === null) return laneValueOf(el);
   const l = txOf(el);
   const status = (el as Computed<any>)._statusFlags;
