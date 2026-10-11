@@ -1,6 +1,7 @@
 # Bitwise Operations in the Reactive System
 
 ## Overview
+
 `@solidjs/signals` uses bitmasks in a few different places:
 
 - reactive node dirtiness and lifecycle flags
@@ -13,6 +14,7 @@ The definitions live in `src/core/constants.ts`. The old `ERROR_BIT` / `LOADING_
 ## Current Flag Groups
 
 ### Reactive flags
+
 These track scheduler and node lifecycle state:
 
 ```typescript
@@ -31,6 +33,7 @@ export const REACTIVE_LAZY = 1 << 9;
 These flags are mostly used by the scheduler and heap-driven recomputation logic.
 
 ### Status flags
+
 These track async and error state on computations:
 
 ```typescript
@@ -43,6 +46,7 @@ export const STATUS_UNINITIALIZED = 1 << 2;
 These are the flags boundary queues and async propagation care about.
 
 ### Configuration flags
+
 These describe a node's static identity (mostly fixed at creation) and are packed into a single `_config` field on every Owner / Computed / Signal:
 
 ```typescript
@@ -61,6 +65,7 @@ Most bits are immutable once set. The exceptions:
 - `CONFIG_AUTO_DISPOSE` is set at creation when the node has no parent (unowned) **or** when `lazy: true`. Infrastructure factories (`effect`, `trackedEffect`, `boundaryComputed`, `mapArray`, `repeat`, `createSignal(fn)`, `createOptimistic(fn)`, projection nodes) clear it after creation so they live for their owner's lifetime instead of being torn down when their subscriber count hits zero. Both autodispose paths — the `unlinkSubs` zero-subscriber path and the `read()` no-observer tail — gate on this single bit.
 
 ### Effect kinds
+
 These are numeric tags, not bitmasks:
 
 ```typescript
@@ -97,6 +102,7 @@ node._statusFlags &= ~STATUS_UNINITIALIZED;
 ## Where Status Masks Are Used
 
 ### Boundary propagation
+
 Boundary-wrapped computeds remember which statuses should continue propagating upward:
 
 ```typescript
@@ -107,6 +113,7 @@ node._queue.notify(node, node._propagationMask, flags, actualError);
 For example, loading boundaries are built around `STATUS_PENDING`, while error boundaries are built around `STATUS_ERROR`.
 
 ### Queue notification
+
 Queue notification takes both:
 
 - `mask`: which statuses this queue cares about
@@ -119,6 +126,7 @@ notify(node, mask, flags, error?)
 That allows a boundary queue to intercept one status, strip it from further propagation, and optionally forward the remaining ones.
 
 ### Reactive scheduling
+
 Reactive flags are used to decide whether a node goes into the dirty heap, zombie heap, or needs optimistic-lane handling:
 
 ```typescript
@@ -127,12 +135,12 @@ const queue = sub._flags & REACTIVE_ZOMBIE ? zombieQueue : dirtyQueue;
 
 ## Typical Combinations
 
-| Combination | Meaning |
-| --- | --- |
-| `STATUS_PENDING` | async work is still unresolved |
-| `STATUS_ERROR` | computation is in an error state |
-| `STATUS_PENDING | STATUS_ERROR` | queue code is examining both async and error propagation |
-| `REACTIVE_DIRTY | REACTIVE_OPTIMISTIC_DIRTY` | node needs recomputation and carries optimistic-lane semantics |
+| Combination      | Meaning                          |
+| ---------------- | -------------------------------- | -------------------------------------------------------------- |
+| `STATUS_PENDING` | async work is still unresolved   |
+| `STATUS_ERROR`   | computation is in an error state |
+| `STATUS_PENDING  | STATUS_ERROR`                    | queue code is examining both async and error propagation       |
+| `REACTIVE_DIRTY  | REACTIVE_OPTIMISTIC_DIRTY`       | node needs recomputation and carries optimistic-lane semantics |
 
 ## Notes
 
