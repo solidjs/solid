@@ -401,14 +401,10 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     if (l._shown) n._value = n._x!._lane;
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     n._x!._lane = NOT_PENDING;
-    n._pendingValue = value;
     holdNode(n, parent);
-    joinFuture(parent);
     if (n._subs !== null) insertSubs(n);
   } else {
-    n._pendingValue = value;
     n._config |= CONFIG_HELD;
-    joinFuture(parent);
     // A confirmation is silent (A17); only truth readers are told — of the
     // lane's derivations too, which are the truth once every guess is
     // confirmed (#3943).
@@ -416,6 +412,8 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
       for (let s = l._nodes[i]._subs; s !== null; s = s._nextSub)
         if (s._sub._config & CONFIG_AUTHORITATIVE) enqueueSub(s._sub);
   }
+  n._pendingValue = value;
+  joinFuture(parent);
 }
 
 /** A lane's end, two ways. `into === null`: the parent landed — the lane's
@@ -552,19 +550,18 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
  * member throws like any. */
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
+  const l = txOf(el);
   // A truth reader (`until`): the truth staged beneath a guess, else the
   // committed value — or, for a derivation of guesses every one of which
   // its own source has confirmed, the lane's value: same inputs, so the
   // truth (#3943).
-  if (c !== null && c._config & CONFIG_AUTHORITATIVE)
-    return !guess &&
-      txOf(el)._nodes.every(n => !(n._config & CONFIG_GUESS) || n._pendingValue !== NOT_PENDING)
+  if (c === null) return laneValueOf(el);
+  if (c._config & CONFIG_AUTHORITATIVE)
+    return l._nodes.every(n => !(n._config & CONFIG_GUESS) || n._pendingValue !== NOT_PENDING)
       ? laneValueOf(el)
       : guess && el._pendingValue !== NOT_PENDING
         ? el._pendingValue
         : el._value;
-  if (c === null) return laneValueOf(el);
-  const l = txOf(el);
   const status = (el as Computed<any>)._statusFlags;
   if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) {
     // An untracked read inside lane work derives from the lane like a

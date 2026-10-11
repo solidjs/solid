@@ -1287,8 +1287,11 @@ module.exports = [
     // #3898 stacks on this; its combined size is remeasured before merge.
     // #3898 stacked on next (2026-10-08): measured at 9,727 B brotli / 27,398 B minified
     // by CI (Size run 37877131816). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "9.73 KB",
-    capMinified: 27398,
+    // #3943 (2026-10-11), stacked on #3977 (which took this scenario to 9,714 B /
+    // 27,356 B): until() reads a derivation of confirmed guesses as the truth —
+    // 9,733 B / 27,411 B locally, +6 B brotli over next. Cap rounded up to 0.01 KB.
+    limit: "9.74 KB",
+    capMinified: 27411,
     alias
   },
   {
