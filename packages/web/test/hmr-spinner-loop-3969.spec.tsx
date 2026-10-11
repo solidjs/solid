@@ -19,10 +19,9 @@ import {
   createSignal,
   flush,
   isPending,
-  untrack,
-  type JSX
+  untrack
 } from "solid-js";
-import { render } from "../src/index.js";
+import { render, type JSX } from "../src/index.js";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -41,7 +40,7 @@ for (const wrapped of ["none", "spinner", "app", "both"] as const)
       if (String(m).includes("Infinite Loop")) loops.push(String(m));
       return Reflect.construct(E, [m, o], new.target || W);
     } as unknown as ErrorConstructor;
-    W.prototype = E.prototype;
+    Object.defineProperty(W, "prototype", { value: E.prototype });
     Object.setPrototypeOf(W, E);
     globalThis.Error = W;
     try {
