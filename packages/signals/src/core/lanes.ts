@@ -52,6 +52,7 @@ import {
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SCREEN_READ,
+  REACTIVE_STAGED_READ,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
@@ -232,8 +233,10 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // The pass read a held write before its first lane read (it joined the
     // frame's future as mainline would): lane work sees the screen — the
     // seam re-derives it on the committed world next round (`stagedReaders`,
-    // the park's repair), as it does a lane pass that read a staging.
-    if (c._flags & REACTIVE_JOINED) stagedRead(c);
+    // the park's repair), as it does a lane pass that read a staging. Not a
+    // pass whose held reads were all of nodes born held (no staged read,
+    // `stagedRead`): it has no committed world to re-derive on (#3969).
+    if (c._flags & REACTIVE_JOINED && c._flags & REACTIVE_STAGED_READ) stagedRead(c);
     return;
   }
   if (sameLane(p, l)) return setPassLane(l);
