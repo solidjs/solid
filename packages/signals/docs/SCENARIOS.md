@@ -60,7 +60,7 @@ const panel = createMemo(() => (show() ? count() : "hidden"));
 
 ### S-3. A mount during a hold: a derivation born held holds the mount; the branch appears whole at the commit — D-2, D-3 (A29)
 
-_Pinned: `tests/born-held.test.ts`._
+_Pinned: `tests/born-held.test.ts`, for a direct mount (see the note under the table); the click-mounted branch below is not pinned yet._
 
 ```tsx
 const [x, setX] = createSignal(0);
@@ -72,16 +72,18 @@ const m = createMemo(() => x() * 10);
 <p>{m()}</p> <span>{x()}</span>
 ```
 
-| #   | Action                                                 | Screen                                                                                           | `latest` / `isPending`                                     | Effects ran                |
-| --- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------- |
-| 0   | primed                                                 | `h1 0 \| i 0`                                                                                    |                                                            | h1, i                      |
-| 1   | `save(); flush()`                                      | — (held on `slow(1)`)                                                                            | `latest(x)` 1 · `isPending(x)` true                        | —                          |
-| 2   | mount `m`, `<p>`, `<span>`; `flush()`                  | `h1 0 \| i 0` — `<p>{m()}</p>` throws, so it holds the mount; the branch is not attached          | `untrack(m)` throws · `latest(m)` 10 · `isPending(m)` throws (owned), false (unowned) | —                          |
-| 3   | `setTitle("t"); flush()` — an unrelated mainline write | `… \| title t` at once (not swallowed into the action)                                           |                                                            | title                      |
-| 4   | `gate` releases, `slow(1)` lands, body returns         | `h1 1 \| i 1 \| p 10 \| span 1`                                                                  | `isPending(x)` false · `isPending(m)` false                | h1, i, p, span (first runs) |
-| ✗   |                                                        | after 2: `p 10` beside `h1 0` (the published future); `p 0` (a committed value `m` never had); or `p (empty) \| span 0` (the branch attached around an empty slot) |                                                            |                            |
+| #   | Action                                                 | Screen                                                                                                                                                             | `latest` / `isPending`                                                                | Effects ran                 |
+| --- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- | --------------------------- |
+| 0   | primed                                                 | `h1 0 \| i 0`                                                                                                                                                      |                                                                                       | h1, i                       |
+| 1   | `save(); flush()`                                      | — (held on `slow(1)`)                                                                                                                                              | `latest(x)` 1 · `isPending(x)` true                                                   | —                           |
+| 2   | mount `m`, `<p>`, `<span>`; `flush()`                  | `h1 0 \| i 0` — `<p>{m()}</p>` throws, so it holds the mount; the branch is not attached                                                                           | `untrack(m)` throws · `latest(m)` 10 · `isPending(m)` throws (owned), false (unowned) | —                           |
+| 3   | `setTitle("t"); flush()` — an unrelated mainline write | `… \| title t` at once (not swallowed into the action)                                                                                                             |                                                                                       | title                       |
+| 4   | `gate` releases, `slow(1)` lands, body returns         | `h1 1 \| i 1 \| p 10 \| span 1`                                                                                                                                    | `isPending(x)` false · `isPending(m)` false                                           | h1, i, p, span (first runs) |
+| ✗   |                                                        | after 2: `p 10` beside `h1 0` (the published future); `p 0` (a committed value `m` never had); or `p (empty) \| span 0` (the branch attached around an empty slot) |                                                                                       |                             |
 
 The `p 0` row is the N1 reading (reverted 2026-10-02). The `p 10` row beside `h1 0` is the published future. Both are rejected (ruled 2026-10-09, D-2). The empty slot is rejected the same day: a born-held read with no boundary to catch it holds the change that mounted it (F-2). Inside a fresh `<Loading>` the read is caught instead and the branch attaches on its fallback (D-12). `latest(m)` is its pending value; `isPending(m)` has no verdict until the commit, because `m` has nothing committed to judge — it throws like the read inside an owner (F-9, D-23).
+
+Mounted directly instead of by a click-opened branch — the shape the pin covers — nothing gates the bindings: `<span>{x()}</span>` shows the committed `0` now and `1` at the commit (D-3), and only `<p>{m()}</p>` waits for the commit. Effects ran at row 2: span (`0`); at row 4: h1, i, p (first run), span (`1`).
 
 ### S-4. One hole, two sources: an unrelated sync write passes through — D-3 (A15 shared hole)
 
@@ -116,18 +118,18 @@ const mountA = () => createRoot(() => <p>{createMemo(() => a())()}</p>);
 const mountB = () => createRoot(() => <p>{createMemo(() => b())()}</p>);
 ```
 
-| #   | Action                                 | Screen                                                     | `isPending`                                | Effects ran |
-| --- | -------------------------------------- | ---------------------------------------------------------- | ------------------------------------------ | ----------- |
+| #   | Action                                 | Screen                                                            | `isPending`                                | Effects ran |
+| --- | -------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------ | ----------- |
 | 1   | `mountA(); mountB(); flush()`          | neither root attached — one frame over two holds; the holds merge | `isPending(a)`, `isPending(b)` true        | —           |
-| 2   | `slowA` lands                          | — (merged hold waits on `slowB`)                           | both true                                  | —           |
-| 3   | `slowB` lands                          | `pA 1 \| pB 1`                                             | both false                                 | pA, pB      |
-| 1′  | `mountA(); flush(); mountB(); flush()` | neither root attached; two frames, independent holds       |                                            | —           |
-| 2′  | `slowA` lands                          | `pA 1`; `pB`'s root not attached                           | `isPending(a)` false · `isPending(b)` true | pA          |
-| 3′  | `slowB` lands                          | `pA 1 \| pB 1`                                             |                                            | pB          |
+| 2   | `slowA` lands                          | — (merged hold waits on `slowB`)                                  | both true                                  | —           |
+| 3   | `slowB` lands                          | `pA 1 \| pB 1`                                                    | both false                                 | pA, pB      |
+| 1′  | `mountA(); flush(); mountB(); flush()` | neither root attached; two frames, independent holds              |                                            | —           |
+| 2′  | `slowA` lands                          | `pA 1`; `pB`'s root not attached                                  | `isPending(a)` false · `isPending(b)` true | pA          |
+| 3′  | `slowB` lands                          | `pA 1 \| pB 1`                                                    |                                            | pB          |
 
 ### S-6. A new async memo a render effect consumes waits with the hold — D-2, F-2 (#3800)
 
-_The value half is ruled 2026-10-09 and built on `carve/born-in-col2` (U-1): the child does not show beside the parent still on the old value. The hold also waits for the child, because a render effect outside a boundary consumes it (F-2). Row E1 was F-8 and is rejected._
+_The value half is ruled 2026-10-09 and built in #3977 (U-1): the child does not show beside the parent still on the old value. The hold also waits for the child, because a render effect outside a boundary consumes it (F-2). Row E1 was F-8 and is rejected._
 
 ```ts
 const [count, setCount] = createSignal(1);
@@ -138,14 +140,14 @@ const fast = createMemo(() => Promise.resolve(count())); // created during the h
 <p>child {fast()}</p>
 ```
 
-| #   | Action                                                     | Screen                                                                    | `isPending`             | Effects ran   |
-| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------- | ------------- |
-| 0   | `setCount(2); flush()`, mount `child`                      | `parent 1 1` — `child` throws, so it holds its mount; it is not attached  | `isPending(count)` true | —             |
-| 1   | `fast`'s promise resolves (the hold is live)               | — (`slow` is still out, so the hold waits; the answer does not show)      | —                       | —             |
-| 2   | `slow(2)` lands                                            | `parent 2 2 \| child 2`                                                   | false                   | parent, child |
-| E1  | variant — `fast` slower than `slow`: `slow(2)` lands first | — (`fast` is still out; the parent does not show yet)                     |                         | —             |
-| E1′ | then `fast` lands                                          | `parent 2 2 \| child 2`                                                   |                         | parent, child |
-| ✗   |                                                            | after 1: `parent 1 1 \| child 2`; at 0 or E1: `child (empty)` on screen   |                         |               |
+| #   | Action                                                     | Screen                                                                   | `isPending`             | Effects ran   |
+| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------- | ------------- |
+| 0   | `setCount(2); flush()`, mount `child`                      | `parent 1 1` — `child` throws, so it holds its mount; it is not attached | `isPending(count)` true | —             |
+| 1   | `fast`'s promise resolves (the hold is live)               | — (`slow` is still out, so the hold waits; the answer does not show)     | —                       | —             |
+| 2   | `slow(2)` lands                                            | `parent 2 2 \| child 2`                                                  | false                   | parent, child |
+| E1  | variant — `fast` slower than `slow`: `slow(2)` lands first | — (`fast` is still out; the parent does not show yet)                    |                         | —             |
+| E1′ | then `fast` lands                                          | `parent 2 2 \| child 2`                                                  |                         | parent, child |
+| ✗   |                                                            | after 1: `parent 1 1 \| child 2`; at 0 or E1: `child (empty)` on screen  |                         |               |
 
 The sync twin (`createMemo(() => count())`) already waits (S-3); the asymmetry is the bug.
 
@@ -312,15 +314,15 @@ const save = action(function* () { setCount(1); yield gate; });
 </Show>
 ```
 
-| #   | Action                                                                     | Screen                                                                                                                                       | `latest` / `isPending`                                                                  | Effects ran |
-| --- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------- |
-| 0   | primed                                                                     | `Count 0 \| Slow 0`                                                                                                                          |                                                                                         |             |
-| 1   | `save(); flush()`                                                          | — (held on `slow(1)`)                                                                                                                        | `isPending(count)` true                                                                 | —           |
-| 2   | `setOpen(true); flush()`                                                   | `Count 0 \| Slow 0 \| [fallback]` — `m`'s read is caught, so it holds nothing; `setOpen` never entangles with `save`, and its frame shows now | `isPending(count)` true · `isPending(view)` false · `isPending(m)` throws (no committed value) · `latest(m)` 1 | view        |
-| 3   | `gate`, `slow(1)` lands                                                    | `Count 1 \| Slow 1 \| count 1` — the content arrives with `save`'s commit                                                                    | all false                                                                               | all         |
-| 2b  | at 2, plus `<span>{m()}</span>` beside the boundary in the same branch     | `Count 0 \| Slow 0` — the span throws and holds `setOpen`'s frame (F-2); at 3 the branch appears with `count 1`, and the fallback is never seen |                                                                                         | —           |
-| 2c  | at 2, plus `<span>{isPending(m) ? "updating" : ""}</span>` beside the boundary | as 2b — `isPending(m)` throws like the read and holds. Inside the boundary instead (the recommended place, D-23), it is caught with the content: `Count 0 \| Slow 0 \| [fallback]`, then `count 1` and an empty span at 3 |                                                                                         | —           |
-| ✗   |                                                                            | after 2: `Count 0 \| Slow 0` with the fallback kept off screen for `Count` and `Slow` (a draft of 2026-10-09, withdrawn); a slot showing neither fallback nor content; or `count 1` beside `Count 0` |                                                                                         |             |
+| #   | Action                                                                         | Screen                                                                                                                                                                                                                    | `latest` / `isPending`                                                                                         | Effects ran |
+| --- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------- |
+| 0   | primed                                                                         | `Count 0 \| Slow 0`                                                                                                                                                                                                       |                                                                                                                |             |
+| 1   | `save(); flush()`                                                              | — (held on `slow(1)`)                                                                                                                                                                                                     | `isPending(count)` true                                                                                        | —           |
+| 2   | `setOpen(true); flush()`                                                       | `Count 0 \| Slow 0 \| [fallback]` — `m`'s read is caught, so it holds nothing; `setOpen` never entangles with `save`, and its frame shows now                                                                             | `isPending(count)` true · `isPending(view)` false · `isPending(m)` throws (no committed value) · `latest(m)` 1 | view        |
+| 3   | `gate`, `slow(1)` lands                                                        | `Count 1 \| Slow 1 \| count 1` — the content arrives with `save`'s commit                                                                                                                                                 | all false                                                                                                      | all         |
+| 2b  | at 2, plus `<span>{m()}</span>` beside the boundary in the same branch         | `Count 0 \| Slow 0` — the span throws and holds `setOpen`'s frame (F-2); at 3 the branch appears with `count 1`, and the fallback is never seen                                                                           |                                                                                                                | —           |
+| 2c  | at 2, plus `<span>{isPending(m) ? "updating" : ""}</span>` beside the boundary | as 2b — `isPending(m)` throws like the read and holds. Inside the boundary instead (the recommended place, D-23), it is caught with the content: `Count 0 \| Slow 0 \| [fallback]`, then `count 1` and an empty span at 3 |                                                                                                                | —           |
+| ✗   |                                                                                | after 2: `Count 0 \| Slow 0` with the fallback kept off screen for `Count` and `Slow` (a draft of 2026-10-09, withdrawn); a slot showing neither fallback nor content; or `count 1` beside `Count 0`                      |                                                                                                                |             |
 
 ### S-15. A boundary whose own mount is held appears at that hold's commit — D-13
 
@@ -528,16 +530,16 @@ const user = createMemo(() => fetchUser(id()));
 </Loading>;
 ```
 
-| #   | Action                                                             | Screen                                                               | `isPending(user)` | Why                                                                      |
-| --- | ------------------------------------------------------------------ | -------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------ |
-| 0   | first load                                                         | `[fallback]` (the probe's own read suspends; nothing observable yet) | no verdict — throws here (owned), `false` unowned | a first load is loading, not pending (D-24) |
-| 1   | `user(1)` lands                                                    | `Ann \| `                                                            | false             | final                                                                    |
-| 2   | `setId(2); flush()`                                                | `Ann \| updating`                                                    | true              | an input changed — a new question                                        |
-| 3   | `user(2)` lands                                                    | `Bob \| `                                                            | false             |                                                                          |
-| 4   | `refresh(user); flush()`                                           | `Bob \| `                                                            | false             | a re-ask of the same question is quiet; the fresh value reveals silently |
-| 5   | `action(function* () { affects(user); refresh(user); yield … })()` | `Bob \| updating`                                                    | true              | a declared reload                                                        |
-| 6   | the action's refetch lands and it ends                             | `Bob′ \| `                                                           | false             |                                                                          |
-| 7   | an optimistic write to a `createOptimistic` over `user`            | shows the guess                                                      | false             | verdict-inert                                                            |
+| #   | Action                                                             | Screen                                                               | `isPending(user)`                                 | Why                                                                      |
+| --- | ------------------------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------ |
+| 0   | first load                                                         | `[fallback]` (the probe's own read suspends; nothing observable yet) | no verdict — throws here (owned), `false` unowned | a first load is loading, not pending (D-24)                              |
+| 1   | `user(1)` lands                                                    | `Ann \| `                                                            | false                                             | final                                                                    |
+| 2   | `setId(2); flush()`                                                | `Ann \| updating`                                                    | true                                              | an input changed — a new question                                        |
+| 3   | `user(2)` lands                                                    | `Bob \| `                                                            | false                                             |                                                                          |
+| 4   | `refresh(user); flush()`                                           | `Bob \| `                                                            | false                                             | a re-ask of the same question is quiet; the fresh value reveals silently |
+| 5   | `action(function* () { affects(user); refresh(user); yield … })()` | `Bob \| updating`                                                    | true                                              | a declared reload                                                        |
+| 6   | the action's refetch lands and it ends                             | `Bob′ \| `                                                           | false                                             |                                                                          |
+| 7   | an optimistic write to a `createOptimistic` over `user`            | shows the guess                                                      | false                                             | verdict-inert                                                            |
 
 ### S-27. `[isPending(x), x()]` is atomic; the `latest` form follows x's own async only — D-23 (A10, A8)
 
