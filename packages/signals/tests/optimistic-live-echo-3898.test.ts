@@ -14,6 +14,7 @@
 import { expect, test } from "vitest";
 import {
   action,
+  createOptimistic,
   createOptimisticStore,
   createRoot,
   createSignal,
@@ -147,3 +148,35 @@ test("a row that references itself is not an echo: the landing corrects, the sto
   expect(rows[0].clientId).toBe("c1");
   dispose();
 });
+
+// A signal is not reconciled: an optimistic signal's echo is judged by the
+// signal's own `equals` (F-11 — the slot's comparator). A server's new array
+// is a correction unless `equals` says otherwise.
+for (const deep of [false, true])
+  test(`createOptimistic (signal) judges an echo by its equals — ${deep ? "deep equals: confirms" : "default: corrects"}`, async () => {
+    const [source, setSource] = createSignal<{ clientId: string }[]>([]);
+    let rows!: () => { clientId: string }[];
+    let guess!: (v: { clientId: string }[]) => void;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      [rows, guess] = createOptimistic(
+        () => source(),
+        deep ? { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) } : undefined
+      );
+    });
+    flush();
+    const done = action(async function* () {
+      guess([...rows(), { clientId: "c1" }]);
+      await 0;
+      yield until(() => rows().some(r => r.clientId === "c1"), { timeout: 60 });
+    })().then(
+      () => "confirmed",
+      (e: Error) => e.name
+    );
+    await new Promise(r => setTimeout(r, 20));
+    setSource([{ clientId: "c1" }]);
+    flush();
+    await expect(done).resolves.toBe(deep ? "confirmed" : "TimeoutError");
+    dispose();
+  });

@@ -11,3 +11,4 @@ Async holds follow the reader, and are shorter:
 - An optimistic store row's server echo is judged as reconcile would (key order free, a self-referencing row is a correction) instead of by `JSON.stringify`.
 - An errored reader is not re-run when a transaction lands, so an errored derived store is not refetched by a row that also reads `isPending` (#3945, #3962).
 - `refresh()`'s promise reads the truth beneath a guess the same way `until()` does (#3895).
+- An optimistic **signal** (`createOptimistic`) judges its source's answer with its own `equals`, as signals do: a server's new array or object is a correction unless `equals` says it is the same. (`next` compared every optimistic answer with `JSON.stringify`.) Store rows follow reconcile: equal `Date` objects, or `{ t: undefined }` against a missing key, are corrections.
