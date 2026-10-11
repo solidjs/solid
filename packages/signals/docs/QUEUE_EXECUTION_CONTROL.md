@@ -1,7 +1,6 @@
 # Queue System: Execution Control
 
 ## Overview
-
 The current scheduler is split across several layers:
 
 - dirty and zombie heaps for recomputation work
@@ -14,7 +13,6 @@ This means the queue system is no longer just "three effect queues". Pure recomp
 ## The Main Pieces
 
 ### Dirty and zombie heaps
-
 Recomputations are driven by two heaps in `src/core/scheduler.ts`:
 
 - `dirtyQueue` for normal invalidation work
@@ -23,7 +21,6 @@ Recomputations are driven by two heaps in `src/core/scheduler.ts`:
 These heaps are drained before normal effect queues.
 
 ### Queue and GlobalQueue
-
 `Queue` stores two callback arrays:
 
 ```typescript
@@ -41,7 +38,6 @@ Index `0` is render effects, index `1` is user effects. `Queue.run(type)` drains
 - running regular user effects
 
 ### Lanes
-
 When an effect is enqueued while `currentOptimisticLane` is active, it does not go into the queue's local arrays. Instead it is routed to the lane's effect queues:
 
 ```typescript

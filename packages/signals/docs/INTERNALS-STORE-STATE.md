@@ -16,12 +16,12 @@ graph size, not walk speed (1.1ms vs 0.3ms with right-sized graph). Harnesses:
 (vs ivi). Targets: octane + ivi (VDOM adversaries), vapor (sibling reference).
 
 Note on what these workloads measure: they are reconcile-only and never
-_populate_ override layers, yet they pay layer **presence** on every
+*populate* override layers, yet they pay layer **presence** on every
 operation — `getOverlayLayer` per read, layer slots in every target
 allocation, override-gated path selection in reconcile, READ_SLOW gating on
 the node fast path. The measured tax is empty-layer tax; the layer deletion
 targets exactly it. Conversely they validate nothing about the replacement:
-node-lane performance under _populated_ layers needs its own harness scenario
+node-lane performance under *populated* layers needs its own harness scenario
 (optimistic write storm) — correctness rides the optimism/transition suites.
 
 ## 1. Storage model (the single-home rule)
@@ -59,7 +59,7 @@ Proposed homes for a property value, replacing the current four:
   `STORE_VALUE` behind a stable proxy. Ownership tracking, first cut: a WeakSet of
   store-owned raws — one structure serving both production checks and the
   `__TEST__` no-mutation oracle. Symbol tags on raw are ruled out permanently:
-  stamping a symbol _is_ a mutation of the passed-in source (visible via
+  stamping a symbol *is* a mutation of the passed-in source (visible via
   `getOwnPropertySymbols`, rejected by frozen objects — the 1.x `$PROXY` stamp
   was part of the original complaint class). Cheaper carriers (`target._owned`
   field — every consulting path resolves the target anyway) are recorded as
@@ -82,14 +82,14 @@ in-flight lane values on top.
 
 Every read goes node-first when a node exists, raw otherwise:
 
-| path                          | committed                     | during transition lane                                  | during optimistic lane |
-| ----------------------------- | ----------------------------- | ------------------------------------------------------- | ---------------------- |
-| tracked proxy read            | raw (subscribes)              | lane value if lane-visible, else raw                    | optimistic value       |
-| untracked proxy read          | raw                           | same-lane rules as tracked                              | optimistic value       |
-| `snapshot` (non-tracking)     | raw identity, zero copy       | CoW: copy lane-touched subtrees only — **confirm (O1)** | same as transition     |
-| `deep` (tracking snapshot)    | raw identity + deep subscribe | same CoW as `snapshot`                                  | same                   |
-| internal `$RAW`/`$TARGET`     | raw                           | raw (committed)                                         | raw (committed)        |
-| `ownKeys` / `has` / iteration | raw keys                      | key-set node overlay                                    | key-set node overlay   |
+| path | committed | during transition lane | during optimistic lane |
+|---|---|---|---|
+| tracked proxy read | raw (subscribes) | lane value if lane-visible, else raw | optimistic value |
+| untracked proxy read | raw | same-lane rules as tracked | optimistic value |
+| `snapshot` (non-tracking) | raw identity, zero copy | CoW: copy lane-touched subtrees only — **confirm (O1)** | same as transition |
+| `deep` (tracking snapshot) | raw identity + deep subscribe | same CoW as `snapshot` | same |
+| internal `$RAW`/`$TARGET` | raw | raw (committed) | raw (committed) |
+| `ownKeys` / `has` / iteration | raw keys | key-set node overlay | key-set node overlay |
 
 Rule R1 (load-bearing): **node existence must be unobservable.** For any
 program, behavior is identical whether or not a node happens to be
@@ -108,8 +108,8 @@ Corollary R2a (Ryan, 2026-08-17): **take no responsibility for mutation
 outside reactivity.** Input to a store is immutable by convention, same as
 signals; the store defends reactivity's own contract, never the user's
 discipline. Spending mechanism to detect or survive external mutation is
-where perf is lost. (Applied: reconcile's diff baseline is the _current
-view_ — signal parity; the identity skip is sound when keyed on the current
+where perf is lost. (Applied: reconcile's diff baseline is the *current
+view* — signal parity; the identity skip is sound when keyed on the current
 backing, because same-reference input plus the immutability convention proves
 there is nothing to diff.)
 
@@ -190,7 +190,7 @@ there is nothing to diff.)
   backing raw may change identity via exactly two mechanisms (setter
   privatization → owned clone; reconcile adoption → incoming object), both
   unobservable through the proxy.
-- Reconcile/projection preserve _logical_ identity for key-matched branches
+- Reconcile/projection preserve *logical* identity for key-matched branches
   (same proxy, keyed flows compare proxy identity); reference-equal unowned
   branches additionally keep raw identity (the skip path).
 - New objects introduced under a pending lane are wrapped on read like any
@@ -201,7 +201,7 @@ there is nothing to diff.)
 - **(high)** No write path ever mutates a user-provided (non-owned) object.
   First cut: the ownership WeakSet serves both the production check and the
   `__TEST__` oracle — assert every raw mutation's target is in the owned set.
-- **(high)** No _permanent_ node is created by: proxy creation, untracked
+- **(high)** No *permanent* node is created by: proxy creation, untracked
   reads, urgent writes with no observers, or reconcile writes to unobserved
   properties. (Observer-less writes may hold a transient per-target pending
   record until flush commit — carries no subscriptions, discarded at fold.)
@@ -219,7 +219,7 @@ there is nothing to diff.)
 Creation tax decomposed, with the phase-1 budget per unit:
 
 - **Per store**: zero extras — no projection internals, no firewall unless the
-  store _is_ a projection (today every `createStore` pays
+  store *is* a projection (today every `createStore` pays
   `createProjectionInternal`).
 - **Per adopted-but-unread object**: zero allocations. Adoption links by
   reference; nothing wraps until read. Creation is O(rendered), not O(data).
@@ -249,9 +249,9 @@ Side-by-side at three levels; the worktree split makes both dists coexist:
   thermal variance, direction unstable across runs). Treat sub-30%
   single-sweep deltas as noise; real claims need ABBA-interleaved sweeps or
   effect sizes beyond the floor. Baseline: `octane-dbmon-local/baselines/
-2026-08-17-shipped-rebaseline.txt`.
+  2026-08-17-shipped-rebaseline.txt`.
 - **Correctness**: old suites run unmodified against the rewrite (hard gate).
-  Rule-derived `__TEST__` assertions run against _both_ implementations —
+  Rule-derived `__TEST__` assertions run against *both* implementations —
   shipped first, to record which rules it already violates (findings-log
   baseline); each violation gets a deliberate ruling (bug being fixed vs rule
   written wrong) before the rewrite is built to satisfy it.
@@ -279,7 +279,7 @@ Side-by-side at three levels; the worktree split makes both dists coexist:
   the profile loop resumes post-functionality.
   Target: NOT 1.9 scale — optimism and projections are new capability
   1.9 never had (and 1.9 carried `createMutable`, since deleted). The target
-  is 1.9's mechanism cost + the _honest_ cost of the new features built on
+  is 1.9's mechanism cost + the *honest* cost of the new features built on
   core lanes — what gets deleted is duplication (override layers re-creating
   lane machinery, projection internals taxed on every plain store), not
   capability.
@@ -322,9 +322,9 @@ Adoption inside a lane is lane-scoped end to end:
   lane's node values together — restoring prior backing AND prior ownership
   state (the passing half of `adoption-lane-rollback.test.ts` pins this).
 - **Diff baselines during in-lane reconcile** (opt R28/R29, both required):
-  _previous-arrangement_ reads — prev length, key matching, including rows
-  that exist only optimistically — consult the **lane view**; _entity
-  identity_ probes (root key-mismatch checks against incoming data) read
+  *previous-arrangement* reads — prev length, key matching, including rows
+  that exist only optimistically — consult the **lane view**; *entity
+  identity* probes (root key-mismatch checks against incoming data) read
   **committed base**. A raw-only diff is unsound against optimistic rows
   (the #2864/#2899-adjacent regression class).
 - Divergence note (R2): signals carry one lane value per node; a store's
@@ -334,7 +334,7 @@ Adoption inside a lane is lane-scoped end to end:
 ## 6c. Store-wide status gating (RUL-7)
 
 Derived-store status (UNINITIALIZED / ERRORED) is **one field on the root
-target**, checked before backing fallthrough in _every_ trap — get, has,
+target**, checked before backing fallthrough in *every* trap — get, has,
 ownKeys, descriptors, spread paths. Uninitialized → NotReady (prod) or the
 `[PENDING_ASYNC_UNTRACKED_READ]` dev escalation per the strict-read matrix
 (opt R30–R34, including the isPending-probe prod-path rule); errored → the
@@ -374,7 +374,7 @@ raw object. Mechanics:
 
 - **Read-through**: reads on the outer target resolve through the inner proxy,
   firing the inner store's traps in the outer reader's tracking context —
-  so subscriptions land on the _inner_ nodes naturally. This is the entire
+  so subscriptions land on the *inner* nodes naturally. This is the entire
   "live chaining" mechanism: no re-derive, no notification forwarding, no
   bridge machinery. Updates flow because consumers are literally subscribed
   to the source (proj R17, R18, R20).
@@ -396,7 +396,7 @@ raw object. Mechanics:
   action lives in `h`/`n`, so its record was never walked and `deep()` was
   deaf to every write on it until settle). Parity is now structural.
 - **Chained pending backings keep identity** (#3323): `ensurePB` on a
-  chained target clones the inner _proxy_, whose descriptors yield the
+  chained target clones the inner *proxy*, whose descriptors yield the
   inner store's raws. Two rules keep the overlay serving the same chained
   targets as the settled state: (1) `serveDataKey` (and the walk) pass a
   raw the inner family owns — already served, or held by the inner backing
@@ -404,7 +404,7 @@ raw object. Mechanics:
   wrapping; a raw the inner does not own is a draft's replacement object and
   stays view-owned/non-chained. (2) `notifyOptimisticWrites` diffs
   `unwrapValue`d values on both sides — `old = t.v` is the inner proxy whose
-  reads return inner child _proxies_, and comparing those to the clone's
+  reads return inner child *proxies*, and comparing those to the clone's
   raws marked every untouched row changed, so the overlay served each from
   an override as a fresh non-chained target (row identities churned for the
   life of the action and snapped back at settle). `snapshotWalk`, entering a
@@ -413,7 +413,7 @@ raw object. Mechanics:
 - **Lane masking = shadow + dynamic dependencies** (core R36 zero-churn): a
   lane value on an outer property node shadows read-through. Subscribers
   re-run once on the hold write, rebuild dependencies against the lane value
-  (no longer reaching inner nodes), and therefore receive _zero_
+  (no longer reaching inner nodes), and therefore receive *zero*
   notifications from mid-hold inner changes. The reveal re-runs them and
   re-subscribes through the chain. No suppression mechanism exists — the
   mask falls out of standard fine-grained dependency rebuilding.
@@ -421,7 +421,7 @@ raw object. Mechanics:
   channel backing swap; subscribers re-read, re-subscribe to the new backing,
   and the old chain drops via dependency rebuild. The displaced backing's
   `storeLookup` registration is superseded at swap (proj R10 — proxy keeps
-  its backing; the _raw→proxy_ entry moves).
+  its backing; the *raw→proxy* entry moves).
 - **Snapshot through a chain** unwraps backing pointers to the base raw.
   Snapshot identity rule (resolves proj R22 + recon-snap R24/R25 jointly):
   **source identity for unowned subtrees; cached copy for owned subtrees**
@@ -432,7 +432,7 @@ raw object. Mechanics:
   chained-projection snapshot detached from future in-place owned-raw writes.
 - **Cross-store ownership**: an owned object belongs to exactly one store
   family; the identity-skip guard (`incoming === backing && !owned(backing)`)
-  consults the owning family. Raw→proxy dedupe is keyed by _current_ backing
+  consults the owning family. Raw→proxy dedupe is keyed by *current* backing
   registration — privatization and adoption move the registration, resolving
   core R2's divergent-backing question: dedupe follows the registration, not
   stale raw identity.
@@ -443,7 +443,7 @@ raw object. Mechanics:
   through the proxy (optimistic values included) with CoW identity
   preservation. Proposal: keep that observable behavior; raw-as-truth makes it
   free when settled and sparse (lane-touched subtrees only) when pending.
-  Confirm no consumer depends on snapshot meaning _committed_ state
+  Confirm no consumer depends on snapshot meaning *committed* state
   (persistence use cases might want a committed variant — decide if that's a
   new API or out of scope).
 - **O2 (RESOLVED 2026-08-17)**: key-set node spec in §6 — per-transaction
@@ -596,8 +596,8 @@ implementation, deduplicated across reports.
       (superseding the keep-first "early satisfaction" verdict, which was
       the one carve-out in that lifetime rule). Dedupe (still forced — a
       keyed store cannot hold two rows under one key, via `fam.key`,
-      projection resolution, "id" default) resolves _structure from the
-      landing, value from the intent_: the first occurrence keeps the slot,
+      projection resolution, "id" default) resolves *structure from the
+      landing, value from the intent*: the first occurrence keeps the slot,
       the later statement's value masks it until settle. The echo thereby
       converts the edit's structural optimism into plain value optimism —
       the lifetime every value override already has, so the collision case
@@ -619,13 +619,13 @@ implementation, deduplicated across reports.
     - **Settle is the second reckoning point:** when a retaining
       transaction dies, survivors' materializations were computed against a
       base that included the dead transaction's rows — the settle drain
-      (post-revert, \_clearOptimisticStores) wipes and re-executes remaining
+      (post-revert, _clearOptimisticStores) wipes and re-executes remaining
       live edits (rederiveAtSettle). No dead entry → no-op.
-      The 2026-08-31 entry's post-RC "keyed satisfaction rule" open design is
-      CLOSED by this ruling (the replay satisfaction rule above is it).
-      Cost: +1,228 B min / +433 B gz on the optimistic-only bundle, core
-      floor untouched (all machinery in store/next/optimistic.ts +
-      runAsTransitionBatch, tree-shaken from plain-store bundles).
+    The 2026-08-31 entry's post-RC "keyed satisfaction rule" open design is
+    CLOSED by this ruling (the replay satisfaction rule above is it).
+    Cost: +1,228 B min / +433 B gz on the optimistic-only bundle, core
+    floor untouched (all machinery in store/next/optimistic.ts +
+    runAsTransitionBatch, tree-shaken from plain-store bundles).
 - **RUL-3 — RESOLVED (verified 2026-08-16).** Ownership already lives
   per-node in core (`_overrideOwner` in `core/types.ts`, `lanes.ts`,
   `core/optimistic.ts`); the store-side `STORE_OPTIMISTIC_OWNERS` map exists
@@ -637,9 +637,9 @@ implementation, deduplicated across reports.
   New test `optimistic-signal-refetch-hold.test.ts` proves the signal form
   already holds bare writes through an in-flight refetch and flashes with
   settled truth (2/2 passing) — #2951 was the store failing to reproduce
-  signal behavior, not a distinct semantic. One rule: _an ephemeral
+  signal behavior, not a distinct semantic. One rule: *an ephemeral
   optimistic lane collapses into the transition owning the node's in-flight
-  question; no in-flight question → completes at flush (flash)._ R2
+  question; no in-flight question → completes at flush (flash).* R2
   granularity bridge, documented: a store property's "question" lives on the
   derive's firewall computed, not the written node — the ephemeral lane must
   consult it (settle = actions empty AND async reporters empty, per opt R14).
@@ -681,51 +681,51 @@ implementation, deduplicated across reports.
 - **RUL-12 — Smaller rulings, each with a proposed default** (proceeding on
   the proposals unless overruled; the four marked ⚑ genuinely change or add
   observable behavior and warrant Ryan's eyes):
-  - _Multi-parent (DAG) privatization_ (recon-snap R37) — proposal: keep
+  - *Multi-parent (DAG) privatization* (recon-snap R37) — proposal: keep
     today's per-object registration-resolved traversal in snapshot/diff
     (already `value[$TARGET] || lookupTarget(value)`), so shared children
     resolve to their owned backing through any parent; no new mechanism.
-  - _Snapshot-capture for node-less writes_ (recon-snap R31) — proposal:
+  - *Snapshot-capture for node-less writes* (recon-snap R31) — proposal:
     capture-window writes materialize the node and use the signal
     `_snapshotValue` path (pure parity; R1 keeps it unobservable).
-  - _Sticky cross-store raw-marking_ (core R41) — **RULED KEEP
-    (2026-08-17)**: stickiness is one half of a single invariant — _an object
-    is never both deep-wrapped and raw_. Shallow-first order: the record
+  - *Sticky cross-store raw-marking* (core R41) — **RULED KEEP
+    (2026-08-17)**: stickiness is one half of a single invariant — *an object
+    is never both deep-wrapped and raw*. Shallow-first order: the record
     stays a leaf everywhere (no second truth can form). Deep-first order: the
     R44 dev-throw refuses the shallow ingest. Dropping stickiness would allow
     a deep store to privatize its view of a record while the shallow store
     keeps serving the stale source by identity — one entity, two truths.
     Reconcile mechanics would survive; entity coherence would not.
-  - _Dev-throw on deep-tracked ingest_ (core R44) — keep as the deep-first
+  - *Dev-throw on deep-tracked ingest* (core R44) — keep as the deep-first
     half of the never-both-wrapped-and-raw invariant; best-effort dev
-    _diagnostic_, documented as materialization-dependent (R1 governs
+    *diagnostic*, documented as materialization-dependent (R1 governs
     semantics, not dev-error coverage).
-  - _Unkeyed nested-object replace-vs-merge in async yields_ (proj pin 1) —
+  - *Unkeyed nested-object replace-vs-merge in async yields* (proj pin 1) —
     **RULED MERGE (2026-08-17)**: consistent with reconcile/positional
     semantics; the yield-path replace was an accident. Rewrite the two async
     identity assertions at port time.
-  - _Throwing-reconcile atomicity_ (recon-snap pin 6) — proposal: key
+  - *Throwing-reconcile atomicity* (recon-snap pin 6) — proposal: key
     mismatch is a root precondition checked before any mutation → failed
     reconcile is atomic by construction; assert it.
-  - _Snapshot identity mid-overlay_ (opt pin 2) — proposal: fresh copy per
+  - *Snapshot identity mid-overlay* (opt pin 2) — proposal: fresh copy per
     call during pending windows (matches the pinned `not.toBe`), cached copy
     when settled (§7b rule).
-  - _Writes into frozen subtrees under CoW_ — **RULED ALLOW (2026-08-17)**:
+  - *Writes into frozen subtrees under CoW* — **RULED ALLOW (2026-08-17)**:
     the clone is unfrozen and the frozen source is never mutated (freezing
-    protects _their_ object, which we honor). New capability, documented.
-  - _Platform-object draft mutations_ (core R47) — already deliberate;
+    protects *their* object, which we honor). New capability, documented.
+  - *Platform-object draft mutations* (core R47) — already deliberate;
     encode as an exemption in the `__TEST__` no-mutation oracle.
-  - _Host-object detection_ (core pin 8) — proposal: structural tag check
+  - *Host-object detection* (core pin 8) — proposal: structural tag check
     (NC's mechanism) is the rule; the global-`Node`-mock test retires.
-  - _`markRaw` API status_ (core pin 2) — **RULED KEEP INTERNAL
+  - *`markRaw` API status* (core pin 2) — **RULED KEEP INTERNAL
     (2026-08-17)**: no demonstrated public need (nesting-shallow-in-deep is
     handled by stickiness without API; platform objects are auto-raw); was
     previously proposed public and rejected. Revisit only on post-rewrite
     evidence of demand.
-  - _Un-actioned double-notify `[v, opt, v]`_ (lanes R5, from RUL-4) —
+  - *Un-actioned double-notify `[v, opt, v]`* (lanes R5, from RUL-4) —
     resolved by R2 parity: it is pinned signal behavior; keep.
 - **RUL-13 — RESOLVED (verified 2026-08-16)**: `optimistic-lane-transaction-
-ownership` passes against shipped (2/2) — the "FAILS today" comment is
+  ownership` passes against shipped (2/2) — the "FAILS today" comment is
   stale. R15/R16 per-node ownership + entanglement is shipped behavior and
   therefore hard contract for RUL-3. Delete the stale comment when porting.
 
@@ -766,12 +766,12 @@ ownership` passes against shipped (2/2) — the "FAILS today" comment is
 - **2026-08-18a**: Projection port COMPLETE — next-native `createProjection`
   is the default build; all projection suites green on both configs (58/58
   gate, 91/91 default files). Three mechanisms closed the last nine failures:
-  (1) the §6c firewall gate must _link_ tracked readers when throwing NotReady
+  (1) the §6c firewall gate must *link* tracked readers when throwing NotReady
   (settle wakes them; the dependency drops on the post-settle re-run via
   dynamic deps, so proj R12 isolation holds) — one line cleared the whole
   isPending/transition cluster; (2) write scope is per-store, extended through
   draft reads (legacy `Writing` semantics ported: reading another store's
-  proxy through a draft admits it for writes; reads of _dependency_ stores
+  proxy through a draft admits it for writes; reads of *dependency* stores
   inside a derive track normally — chained projections require this); (3) the
   parent-slot fix on fold is compare-and-swap (only replace a slot still
   holding the folded-away backing) — stale wrap-time indices after draft
@@ -1116,7 +1116,7 @@ ownership` passes against shipped (2/2) — the "FAILS today" comment is
   same-day entry that misapplied the ruling at global visibility and wrongly
   re-ruled the rapid-toggle preserve leg.)
 - **2026-08-16f**: RUL-1 adopted after verification (Ryan's instruction:
-  mirror signals _if verified_ — verified against `core.ts` read/write paths:
+  mirror signals *if verified* — verified against `core.ts` read/write paths:
   context-free reads → committed; owner-context reads → pending;
   drafts/`snapshot` read pending explicitly; transient per-target pending
   record for node-less writes; adoption = one pending backing swap;
@@ -1130,7 +1130,7 @@ ownership` passes against shipped (2/2) — the "FAILS today" comment is
   the addressing model. Core (target shape, traps, write paths, ownership,
   node lifecycle) is written fresh from this doc: nothing exists until a rule
   requires it. Diff mechanics (reconcile key-matching, array reconciliation)
-  are _ported_, not re-derived — their contract is unchanged and
+  are *ported*, not re-derived — their contract is unchanged and
   edge-case-hardened. The old suites + rule-derived `__TEST__` assertions are
   the contract both halves answer to. Convergence with already-correct parts
   of the shipped code (indirection, adoption) is the expected outcome of a

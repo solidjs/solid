@@ -1,7 +1,6 @@
 # Queue System: Notification System
 
 ## Overview
-
 The notification side of the queue system is about status propagation, not normal recomputation scheduling.
 
 In the current implementation, notifications are mainly used to move `STATUS_PENDING` and `STATUS_ERROR` information through boundary queues and, at the root, into transition bookkeeping.
@@ -9,7 +8,6 @@ In the current implementation, notifications are mainly used to move `STATUS_PEN
 ## The Main Participants
 
 ### `Queue`
-
 The base queue does almost nothing by itself:
 
 ```typescript
@@ -22,7 +20,6 @@ notify(node, mask, flags, error?) {
 Its job is just to forward notifications upward through the queue tree.
 
 ### `GlobalQueue`
-
 The root queue handles uncaught pending propagation:
 
 ```typescript
@@ -37,7 +34,6 @@ if (mask & STATUS_PENDING) {
 This is where the scheduler tracks async reporters during transitions and where dev-only "unhandled async" detection is triggered.
 
 ### `CollectionQueue`
-
 This is the important specialized queue for boundaries. It is used by:
 
 - `createLoadingBoundary()`

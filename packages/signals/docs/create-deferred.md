@@ -30,12 +30,12 @@ new-period data beside old-period data. But it means there is no way to say
 "this subtree is an independent visual unit; let it fall behind rather than
 hold everyone." Today's escape hatches each miss:
 
-| Hatch                                 | What it does                                                                                                                                           | Why it doesn't answer the report                                                                                                                                                                                            |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `latest(() => x())`                   | Per-read: never suspends, serves staged/committed                                                                                                      | Per read-site — impractical at scale; one non-`latest` read of the chain re-entangles everything; **leads** the clock (§4.2)                                                                                                |
-| `<Show when={!isPending(() => x())}>` | Unmounts the panel while pending; `transitionComplete` prunes its dead reporters                                                                       | Works, but is fallback-shaped (loses DOM/state) and incidental — the user rediscovered "show a fallback on refetch" through a side door                                                                                     |
-| `<Loading on={key}>`                  | Resets the boundary on key change; collects pending locally instead of joining the hold                                                                | The designed fallback affordance — right answer when a skeleton is acceptable, no answer when old content must stay visible                                                                                                 |
-| `createEffect(x, v => setMirror(v))`  | User effects don't report pending (`notifyEffectStatus` only notifies for `EFFECT_RENDER`), so the transition completes without the mirror's consumers | Amputates the node: `isPending(mirror)` is always false, `refresh` can't reach the query, errors route to the effect's owner, laziness is lost (always-on subscriber), lands one flush late, first load must be hand-rolled |
+| Hatch | What it does | Why it doesn't answer the report |
+| --- | --- | --- |
+| `latest(() => x())` | Per-read: never suspends, serves staged/committed | Per read-site — impractical at scale; one non-`latest` read of the chain re-entangles everything; **leads** the clock (§4.2) |
+| `<Show when={!isPending(() => x())}>` | Unmounts the panel while pending; `transitionComplete` prunes its dead reporters | Works, but is fallback-shaped (loses DOM/state) and incidental — the user rediscovered "show a fallback on refetch" through a side door |
+| `<Loading on={key}>` | Resets the boundary on key change; collects pending locally instead of joining the hold | The designed fallback affordance — right answer when a skeleton is acceptable, no answer when old content must stay visible |
+| `createEffect(x, v => setMirror(v))` | User effects don't report pending (`notifyEffectStatus` only notifies for `EFFECT_RENDER`), so the transition completes without the mirror's consumers | Amputates the node: `isPending(mirror)` is always false, `refresh` can't reach the query, errors route to the effect's owner, laziness is lost (always-on subscriber), lands one flush late, first load must be hand-rolled |
 
 The missing primitive is the effect-write-back's decoupling with the graph
 edge kept intact. The only edge property that causes the hold is _outward
@@ -144,13 +144,13 @@ which is why it needs no component.
 
 The differences are in the panel's timing relative to everything else:
 
-|                               | Hold (default async memo)                                                            | `createDeferred`                                                                                                                                            |
-| ----------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| When the data swaps           | At the group's commit (slowest reporter lands)                                       | At _this_ fetch's landing                                                                                                                                   |
-| How long `isPending` is true  | Until the group commits — the fast panel shows "refreshing" for the slow panel's 10s | Until _this_ fetch lands — 200ms                                                                                                                            |
-| Selector label vs. panel data | Flip together                                                                        | Label flips at once (nobody holds the write); data follows when it lands. The interval is the tear (§4.3) — `isPending` being loud is what makes it legible |
-| Held sync writes (theme)      | Flip at commit                                                                       | Flip at commit — same as hold; `latest` is the one that would flip early                                                                                    |
-| In-flight future              | Peekable via `latest`                                                                | Not visible through this node; `latest(() => d())` is a no-op. Overrides on _other_ nodes still show (A17)                                                  |
+| | Hold (default async memo) | `createDeferred` |
+| --- | --- | --- |
+| When the data swaps | At the group's commit (slowest reporter lands) | At _this_ fetch's landing |
+| How long `isPending` is true | Until the group commits — the fast panel shows "refreshing" for the slow panel's 10s | Until _this_ fetch lands — 200ms |
+| Selector label vs. panel data | Flip together | Label flips at once (nobody holds the write); data follows when it lands. The interval is the tear (§4.3) — `isPending` being loud is what makes it legible |
+| Held sync writes (theme) | Flip at commit | Flip at commit — same as hold; `latest` is the one that would flip early |
+| In-flight future | Peekable via `latest` | Not visible through this node; `latest(() => d())` is a no-op. Overrides on _other_ nodes still show (A17) |
 
 The removed option is exactly one: peeking at the in-flight future of this
 node. Everything else the user could do before, they can do after.
@@ -162,12 +162,12 @@ a decision. Teach a UX question the reader can already answer:
 
 > **When this data is being refetched, what should the user see?**
 
-| The user should see…                                    | Use                                                                               |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Nothing change until everything related is ready        | default `createMemo(async …)`                                                     |
-| …but the control I just touched reflects my input _now_ | `latest()` on the control, `isPending` to dim the held content                    |
-| A placeholder                                           | `<Loading>` (first load); `<Loading on={key}>` (refetch when the subject changed) |
-| The previous answer with a "refreshing" indicator       | `createDeferred` + `isPending`                                                    |
+| The user should see… | Use |
+| --- | --- |
+| Nothing change until everything related is ready | default `createMemo(async …)` |
+| …but the control I just touched reflects my input _now_ | `latest()` on the control, `isPending` to dim the held content |
+| A placeholder | `<Loading>` (first load); `<Loading on={key}>` (refetch when the subject changed) |
+| The previous answer with a "refreshing" indicator | `createDeferred` + `isPending` |
 
 Rows one and two are the same view: the standard held interaction is _tab
 highlights immediately, content waits, content dims while it waits_ — `latest`
@@ -283,13 +283,13 @@ lands, landings commit ambiently.
 So `latest` and `createDeferred` share "never suspend, never report" and
 differ on two axes:
 
-|                      | `latest(fn)`                                        | `createDeferred(fn)`             |
-| -------------------- | --------------------------------------------------- | -------------------------------- |
-| Grain                | Read-site lens; leaves no node                      | Graph node with identity         |
-| Staged (held) values | Served — **leads**                                  | Never served — **lags only**     |
-| Own async in flight  | Serves committed stale                              | Serves committed stale           |
-| Machinery            | `optimisticComputed` shadow per read source         | One node; no per-read companions |
-| Analog               | `createOptimistic` for reads (unconfirmed frontier) | Confirmed-only counterpart       |
+| | `latest(fn)` | `createDeferred(fn)` |
+| --- | --- | --- |
+| Grain | Read-site lens; leaves no node | Graph node with identity |
+| Staged (held) values | Served — **leads** | Never served — **lags only** |
+| Own async in flight | Serves committed stale | Serves committed stale |
+| Machinery | `optimisticComputed` shadow per read source | One node; no per-read companions |
+| Analog | `createOptimistic` for reads (unconfirmed frontier) | Confirmed-only counterpart |
 
 Committed-only is also cheaper: the companion-per-source machinery exists to
 expose in-flight staged values, which this never does.
@@ -402,16 +402,16 @@ heavy chart lags) is real but narrow. Not forbidden, not advertised.
 
 ## 5. Interaction table
 
-| With                          | Behavior                                                                                                                                                                                                                                                                             | Note                                                                                                                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `<Loading>`                   | Owns first load (node transparent while uninitialized). Never sees refetch pending from a deferred node.                                                                                                                                                                             | Nesting order irrelevant. Inside a deferred consumer, Loading collapses to a pure first-paint concern and `isPending` is _the_ refetch affordance.                                                                 |
-| `<Loading on={key}>`          | Reset re-shows fallback only when refetch pending _arrives_ — a deferred node's refetch never arrives.                                                                                                                                                                               | Inert for deferred sources; documented, not warned (the boundary cannot cheaply know it covers one). A "hard reset re-opens the uninitialized path" upgrade remains available (§8.0).                              |
-| `<Errored>`                   | Rejections propagate normally.                                                                                                                                                                                                                                                       | Deferred defers pending, not errors.                                                                                                                                                                               |
-| `<Reveal>`                    | Untouched — coordinates first reveals only.                                                                                                                                                                                                                                          |                                                                                                                                                                                                                    |
-| `createOptimistic` / `action` | Overrides visible to all ordinary readers (A17), so optimistic UI inside a deferred consumer works. A deferred panel does not hold an action's transition open.                                                                                                                      | The latter is the point.                                                                                                                                                                                           |
-| `isPending`                   | Verdict-loud (§2.4): the latest-form verdict (A8), made the only form.                                                                                                                                                                                                               | Pending does not propagate through sync derivations of a deferred node (they never re-run), so the probe needs a reachability walk for derived reads including store leaves (§8.1). In the initial implementation. |
-| `latest`                      | Complementary, not competing: `latest` is the input-side affordance (show my change while its consequences load), `createDeferred` the data-side one (show the previous result while the next loads). `latest(() => deferred())` is legal and a no-op (nothing staged to lead with). | In a held view they compose: `latest` on the control, `isPending` dimming the content.                                                                                                                             |
-| `until` / `refresh`           | Edges intact, so both reach the node. Authoritative readers bypass the clamp (D9): `refresh(deferred)` parks and resolves on the landing; `until(() => deferred())` sees only settled truth.                                                                                         | Without the bypass `refresh` resolves with the stale value — a real bug (§6.3a).                                                                                                                                   |
+| With | Behavior | Note |
+| --- | --- | --- |
+| `<Loading>` | Owns first load (node transparent while uninitialized). Never sees refetch pending from a deferred node. | Nesting order irrelevant. Inside a deferred consumer, Loading collapses to a pure first-paint concern and `isPending` is _the_ refetch affordance. |
+| `<Loading on={key}>` | Reset re-shows fallback only when refetch pending _arrives_ — a deferred node's refetch never arrives. | Inert for deferred sources; documented, not warned (the boundary cannot cheaply know it covers one). A "hard reset re-opens the uninitialized path" upgrade remains available (§8.0). |
+| `<Errored>` | Rejections propagate normally. | Deferred defers pending, not errors. |
+| `<Reveal>` | Untouched — coordinates first reveals only. | |
+| `createOptimistic` / `action` | Overrides visible to all ordinary readers (A17), so optimistic UI inside a deferred consumer works. A deferred panel does not hold an action's transition open. | The latter is the point. |
+| `isPending` | Verdict-loud (§2.4): the latest-form verdict (A8), made the only form. | Pending does not propagate through sync derivations of a deferred node (they never re-run), so the probe needs a reachability walk for derived reads including store leaves (§8.1). In the initial implementation. |
+| `latest` | Complementary, not competing: `latest` is the input-side affordance (show my change while its consequences load), `createDeferred` the data-side one (show the previous result while the next loads). `latest(() => deferred())` is legal and a no-op (nothing staged to lead with). | In a held view they compose: `latest` on the control, `isPending` dimming the content. |
+| `until` / `refresh` | Edges intact, so both reach the node. Authoritative readers bypass the clamp (D9): `refresh(deferred)` parks and resolves on the landing; `until(() => deferred())` sees only settled truth. | Without the bypass `refresh` resolves with the stale value — a real bug (§6.3a). |
 
 ## 6. Implementation sketch
 
@@ -423,12 +423,12 @@ The loading window already implements the read side exactly:
 
 ```ts
 // core/async.ts — handleAsync
-if (el._loading) return el._value; // serve committed, no transition
+if (el._loading) return el._value;                 // serve committed, no transition
 globalQueue.initTransition(resolveTransition(el));
 throw new NotReadyError(context!);
 
 // core/core.ts — recompute catch
-if (notReady && el._loading) parkLoadingWindow(el, e); // register for settle,
+if (notReady && el._loading) parkLoadingWindow(el, e);   // register for settle,
 // "NO read-visible pending status, no downstream propagation, no transition,
 //  no lane registration — the committed loading value keeps serving."
 ```
