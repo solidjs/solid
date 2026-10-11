@@ -3,8 +3,9 @@
 // render's context, not whichever concurrent render set it last — or the
 // slot content it creates takes the other render's ids. Repro by ibniss.
 import { expect, test } from "vitest";
-import { renderToStream } from "@solidjs/web";
-import { children, createMemo, sharedConfig, Show, type JSX } from "solid-js";
+import { renderToStream, type JSX } from "@solidjs/web";
+import { children, createMemo, Show } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 
 const render = (code: () => any) => renderToStream(code).pipeTo(new WritableStream({ write() {} }));
 
