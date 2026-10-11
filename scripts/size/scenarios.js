@@ -3304,8 +3304,18 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "28.89 KB",
-    capMinified: 86911,
+    // Re-base (until() through a derivation of confirmed guesses, #3943,
+    // 2026-10-11): 28.89 KB -> 28.91 KB, measured at 28,897 B by CI (Size run
+    // 38127091137) against the PR's base, `next` @ c51c5c95c's 28,841 (+56 B;
+    // 7 B over the cap; +0 B minified, 86,937 -> 86,937; recorded 86,911 ->
+    // 86,937). The PR adds nothing minified here — the truth read sits behind
+    // GlobalQueue hooks the first `until`/`refresh` installs — and the brotli
+    // move is layout. The 26 B over the recorded minified was already on
+    // `next` (+12 B before #3977, +14 B from it), which had used up the 20 B
+    // allowance. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
+    // by the maintainer 2026-10-11.
+    limit: "28.91 KB",
+    capMinified: 86937,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
