@@ -31,6 +31,7 @@ import {
 } from "./constants.js";
 import {
   context,
+  joinPass,
   markLateLinker,
   pullComputed,
   setVerdict,
@@ -129,9 +130,10 @@ let probeFound = false;
  * reader re-derives there. `latest` shows the proposal that lands — a
  * rewrite or a landing reaches its reader through the link it holds — so a
  * re-run would only repeat the frame. */
-function verdictRead(c: Computed<any>, t: Transaction, rerun = probing): void {
+function verdictRead(c: Computed<any>, t: Transaction, plain?: boolean): void {
   route(c, t);
-  if (rerun) staleReader(c, t);
+  if (plain) staleReader(c, t);
+  else if (probing && t._reruns[t._reruns.length - 1] !== c) t._reruns.push(c);
 }
 
 /** A verdict read of a node staged or in flight but not held yet: whether it
@@ -308,7 +310,8 @@ function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): u
  * - an errored derivation throws for every reader (#2897). */
 function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const owner = el as Computed<any>;
-  const tracked = c !== null && tracking && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  const owned = c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  const tracked = owned && tracking;
   if (c !== null && tracking) {
     link(el, c);
     if (owner._fn !== undefined) {
@@ -387,9 +390,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       }
       return el._value;
     }
-    // Born into the future: its staging is its only value.
-    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING))
+    // Born into the future: its staging is its only value. It has no
+    // committed value, so no verdict: `isPending` reads it as its read does —
+    // the owner joins the hold (held with it, or caught by a boundary that
+    // has not shown content) and answers for the commit, where it is final.
+    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
+      if (probing && owned) joinPass(c!, el);
       return el._pendingValue;
+    }
   } else if (el._pendingValue !== NOT_PENDING) {
     if (owner._statusFlags & STATUS_PENDING && !uninitialized)
       pendingVerdict(tracked ? c : null, owner);

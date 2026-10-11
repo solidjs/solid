@@ -1305,6 +1305,76 @@ describe("errored derive follows memo rules", () => {
     expect(reads).toBe(4);
     dispose();
   });
+
+  // The landing's re-derive is not a re-read: an errored reader's display is
+  // its error (D-39), so it is not re-run (#3945). A re-run its own inputs
+  // cause is a genuine reactive re-read and retries, as for a memo.
+  it("an errored row re-run by its own input retries the derived store (#3945)", async () => {
+    let reads = 0;
+    let screen: unknown = "init";
+    const inflight: PromiseWithResolvers<{ items: { id: number }[] }>[] = [];
+    const [page, setPage] = createSignal(1);
+    const [tick, setTick] = createSignal(0);
+    const [todos] = createStore(
+      async () => {
+        page();
+        reads++;
+        if (reads > 8) throw new Error("runaway");
+        const d = Promise.withResolvers<{ items: { id: number }[] }>();
+        inflight.push(d);
+        return d.promise;
+      },
+      { items: [] as { id: number }[] },
+      { key: "id" }
+    );
+    const dispose = createRoot(d => {
+      const boundary = createErrorBoundary(
+        () =>
+          createLoadingBoundary(
+            () => {
+              const rows = mapArray(
+                () => todos.items,
+                todo => {
+                  createRenderEffect(
+                    () => [todo().id, tick(), isPending(tick)],
+                    () => {}
+                  );
+                  return todo().id;
+                },
+                { keyed: (t: { id: number }) => t.id }
+              );
+              return rows();
+            },
+            () => "loading"
+          ),
+        () => "retry"
+      );
+      createRenderEffect(boundary, v => {
+        screen = v;
+      });
+      return d;
+    });
+    const drain = async () => {
+      for (let i = 0; i < 6; i++) {
+        await new Promise(r => setTimeout(r, 0));
+        flush();
+      }
+    };
+    flush();
+    inflight[0].resolve({ items: [{ id: 1 }] });
+    await drain();
+    setPage(2);
+    flush();
+    inflight[1].reject(new Error("nope"));
+    await drain();
+    expect(screen).toBe("retry");
+    expect(reads).toBe(2);
+    setTick(1);
+    flush();
+    await drain();
+    expect(reads).toBe(3);
+    dispose();
+  });
 });
 
 describe("a flight superseded by a synchronous settle wakes pending dependents (#3181)", () => {

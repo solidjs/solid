@@ -301,8 +301,11 @@ export function prune(b: Boundary, pass: boolean): number {
         // Landed, held: the content is that transaction's — the output's
         // pass enters it and the reveal lands with the reader's run. The
         // seam, past its park decision, waits for the commit instead. (A
-        // lane's reader reveals with the lane, this round.)
-        if (!pass) continue;
+        // lane's reader reveals with the lane, this round.) A boundary that
+        // has not shown content catches it instead: the fallback stays until
+        // the reader is committed (#3540: what a fresh boundary catches holds
+        // nothing outside it).
+        if (!pass || !b._initialized) continue;
         joinFuture(txOf(r));
       }
       b._readers.delete(r);

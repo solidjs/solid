@@ -22,6 +22,7 @@ import {
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SNAPSHOT_STALE,
   REACTIVE_ZOMBIE,
+  STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
@@ -331,7 +332,7 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
       // shows nothing — a mount the frame has not revealed — and holds
       // nothing.
       if (
-        ((r as any)._type === EFFECT_RENDER ||
+        (((r as any)._type === EFFECT_RENDER && r._statusFlags & STATUS_PENDING) ||
           r._flags & REACTIVE_FRAME_READ ||
           (r._config & CONFIG_REDERIVE && r._statusFlags === STATUS_PENDING)) &&
         (s._gen === r._depGen || r._x?._error != null) &&
@@ -636,6 +637,9 @@ export class GlobalQueue implements IQueue {
    * link's refreshed from the inner store, whose commits it never learned
    * while the guess served the reads (store/store.ts, §7b). */
   declare static _slotCovered: ((n: Signal<any>) => unknown) | undefined;
+  /** The store's row judgment for a guessed slot (optimistic.ts): the truth
+   * is the guess's echo when reconcile would write nothing into it. */
+  declare static _echoes: ((guess: unknown, truth: unknown) => boolean) | undefined;
   /** `affects()` on a store (store/affects.ts): a store's node for a key
    * (store/store.ts `getNode`); a bare registration (birth inheritance); a
    * witnessed mark on an untracked probe (verdict.ts). */
@@ -873,7 +877,8 @@ export class GlobalQueue implements IQueue {
     // parked (something async below) — the window is the frame's, the marks
     // are its transaction's; else they release at the seam, verdict-only,
     // nothing to show (affects.ts).
-    GlobalQueue._releaseAmbientMarks?.(t !== null && transactions.indexOf(t) !== -1 ? t : null);
+    const live = t && liveTx(t);
+    GlobalQueue._releaseAmbientMarks?.(live);
     // The effect phase: lane work first (displayed ahead of the frame), then
     // this flush's runs, then the runs the landings held from earlier
     // flushes — as one pass would have queued them (#3540: a shell
@@ -881,18 +886,17 @@ export class GlobalQueue implements IQueue {
     // write; #3528: a display-ahead swap before the count it is shown
     // beside). A parked frame's runs wait with its transaction instead: the
     // effect phase applies a committed frame.
-    const u = t && liveTx(t);
-    const parked = u !== null;
+    const parked = live !== null;
     // Attribution hook: this flush found its transaction incomplete — its
     // writes stay staged, its runs are stashed below. Before the effect
     // phase (the lanes' display-ahead runs are the visible acknowledgers);
     // `holdEnd` fires after it (`flush`).
     if (__OBSERVE__ && parked && attrHooks !== null) {
-      attrHooks.holdStart(u!);
+      attrHooks.holdStart(live!);
       holding = true;
     }
     for (let i = 0; i < 2; i++) {
-      if (parked) append(u!._queues[i], own[i]);
+      if (parked) append(live!._queues[i], own[i]);
       // The plain flush — no reveal, no landing, not parked — has nothing to
       // order around its own runs: they are the queue as they stand (the
       // same array, not a copy; `run` takes it whole). Every other seam
@@ -982,8 +986,11 @@ export class GlobalQueue implements IQueue {
 export function reruns(u: Transaction): void {
   for (let i = 0; i < u._reruns.length; i++) {
     const r = u._reruns[i];
-    if (r._flags & REACTIVE_DISPOSED) continue;
-    if (r._flags & REACTIVE_FRAME_READ) {
+    // An errored reader's display is its error (D-39): the landing gives it
+    // nothing to re-derive, and a re-run would be a read that retries the
+    // errored source (#3945).
+    if (r._flags & REACTIVE_DISPOSED || r._statusFlags & STATUS_ERROR) continue;
+    if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
       r._flags &= ~REACTIVE_FRAME_READ;
       (r as any)._modified = false;
       // Its frame is replaced by the re-derivation: a run one of its

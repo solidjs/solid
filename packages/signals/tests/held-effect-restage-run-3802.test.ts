@@ -1,5 +1,12 @@
 // #3802: a render effect born held under an action, re-run by a write to a
 // committed source, ran its callback with no committed value.
+//
+// A memo created in the mounted branch that no render effect reads holds
+// nothing (holds are render-effect reads): its first pass does not pull the
+// mount into the action. The render effect reads the held signal directly —
+// a stale reader of its committed value — so the branch mounts now with
+// `false`, updates on the title write, and takes `true` at the commit. Never
+// a run with no committed value.
 
 import { afterEach, expect, it, vi } from "vitest";
 import {
@@ -19,7 +26,7 @@ async function settle() {
   flush();
 }
 
-it("a re-staging pass of a born-held effect does not run it before the commit", async () => {
+it("a mount beside an unread memo born in a hold runs on committed values", async () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   const [value, setValue] = createSignal(false);
   const [mounted, setMounted] = createSignal(false);
@@ -56,14 +63,21 @@ it("a re-staging pass of a born-held effect does not run it before the commit", 
   await settle();
 
   expect(error).not.toHaveBeenCalled();
-  expect(runs).toEqual([]);
+  expect(runs).toEqual([
+    [false, ""],
+    [false, "Updated"]
+  ]);
 
   resolve();
   await pending;
   await settle();
 
   expect(error).not.toHaveBeenCalled();
-  expect(runs).toEqual([[true, "Updated"]]);
+  expect(runs).toEqual([
+    [false, ""],
+    [false, "Updated"],
+    [true, "Updated"]
+  ]);
 });
 
 // The same effect re-derived by an optimistic write's lane rather than a

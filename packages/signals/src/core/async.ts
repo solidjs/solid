@@ -29,9 +29,7 @@ import {
   flush,
   globalQueue,
   GlobalQueue,
-  holdNode,
   joinFuture,
-  liveTx,
   MAINLINE_QUESTION,
   passLane,
   question,
@@ -476,11 +474,8 @@ export function handleAsync<T>(
     } else {
       // CARVE 2: the override-covered landing (hold + A18 supersession) and the
       // lane-routed landing (derived override, lane effect queue) went with
-      // the optimistic engine; every landing is the plain setSignal. A first
-      // answer born into a hold still live lands into it (A29, #3800).
-      let t = el._x!._bornIn;
-      el._x!._bornIn = null;
-      if (wasUninitialized && t && (t = liveTx(t))) holdNode(el, t);
+      // the optimistic engine; every landing is the plain setSignal. A node
+      // already held stages its answer into that hold (`setSignal`).
       try {
         setSignal(el, () => value);
       } catch (e) {
