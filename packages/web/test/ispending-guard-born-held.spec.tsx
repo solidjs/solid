@@ -31,7 +31,7 @@ for (const shape of ["show", "show+loading", "direct"] as const)
           {shape === "direct" ? (
             <Show when={direct()}>{(() => <Form />) as any}</Show>
           ) : (
-            <Show when={open() && shape !== "direct"}>
+            <Show when={open()}>
               {
                 (() =>
                   shape === "show+loading" ? (
