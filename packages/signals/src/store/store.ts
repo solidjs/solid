@@ -1580,7 +1580,45 @@ function readSource(
 /** Did the HELD staging (the container node's, not a mainline layer above
  * it) change `key`? */
 function heldKeyChanged(target: StoreTarget, key: PropertyKey, shape = true): boolean {
-  return changedBetween(target, target.k!._value, target.k!._pendingValue, key, shape);
+  return (
+    changedBetween(target, target.k!._value, target.k!._pendingValue, key, shape) &&
+    !adoptChild(target, key)
+  );
+}
+
+/** A key of a held adoption whose old and new values are the same row — a
+ * key-matched pair (the family's key, else the slot) — that nothing had
+ * proxied when the adoption ran, so `descend` never paired them: paired
+ * now, as it would have been (#3712). One target, the old raw its committed
+ * frame, the new raw its staging, held by the same transaction; both raws
+ * resolve to it, so the slot reads as unchanged and the row's own leaves
+ * decide — `id` the same in both frames holds no one, `version` holds. */
+function adoptChild(target: StoreTarget, key: PropertyKey): boolean {
+  const k = target.k!;
+  const old = asBacking(k._value);
+  const ov = old[key as any];
+  const nv = (k._pendingValue as any)[key];
+  if (
+    target.s ||
+    !isWrappable(ov) ||
+    !isWrappable(nv) ||
+    Array.isArray(ov) !== Array.isArray(nv) ||
+    (rawValuesUsed && (isRawValue(ov) || isRawValue(nv))) ||
+    lookupTarget(ov, target.fam) !== undefined ||
+    lookupTarget(nv, target.fam) !== undefined
+  )
+    return false;
+  // Rows pair as the adoption paired them: by the family's key, positionally
+  // for an unkeyed family (`key: null`); without a family the pairing is not
+  // known here, and the hold stands. A record's keys pair by name.
+  if (Array.isArray(old)) {
+    const keyFn = target.fam?.key;
+    if (keyFn === undefined || (keyFn !== null && !sameKey(keyFn(ov), keyFn(nv)))) return false;
+  }
+  const ct: StoreTarget = (wrap(ov, target, key) as any)[$TARGET];
+  adoptPB(ct, nv, false);
+  holdNode(getContainerNode(ct), txOf(k));
+  return true;
 }
 
 /** A family target's unheld staging, read with no pass (a handler). */
