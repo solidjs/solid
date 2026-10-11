@@ -418,17 +418,6 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
   }
 }
 
-/** Every guess `l` holds has had its own source confirm it: the truth is
- * staged beneath each, equal to it (a different truth dissolves the lane). */
-function confirmed(l: Transaction): boolean {
-  for (let i = 0; i < l._nodes.length; i++) {
-    const n = l._nodes[i];
-    if (n._config & CONFIG_GUESS && n._x!._transaction === l && n._pendingValue === NOT_PENDING)
-      return false;
-  }
-  return true;
-}
-
 /** A lane's end, two ways. `into === null`: the parent landed — the lane's
  * values are the truth now: a guess lands the truth staged beneath it or
  * reverts to the one it covered (`_value`, untouched by the guess); a
@@ -568,7 +557,8 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   // its own source has confirmed, the lane's value: same inputs, so the
   // truth (#3943).
   if (c !== null && c._config & CONFIG_AUTHORITATIVE)
-    return !guess && confirmed(txOf(el))
+    return !guess &&
+      txOf(el)._nodes.every(n => !(n._config & CONFIG_GUESS) || n._pendingValue !== NOT_PENDING)
       ? laneValueOf(el)
       : guess && el._pendingValue !== NOT_PENDING
         ? el._pendingValue
