@@ -224,7 +224,15 @@ function echoes(a: any, b: any): boolean {
   for (const k of ak) if (!hasOwn.call(b, k) || !echoes(a[k], b[k])) return false;
   return true;
 }
-GlobalQueue._echoes = echoes;
+// A cycle (a row that references itself) is not plain data: no match, so
+// the landing stays a correction.
+GlobalQueue._echoes = (a, b) => {
+  try {
+    return echoes(a, b);
+  } catch {
+    return false;
+  }
+};
 
 function arrangementEqual(
   a: Record<PropertyKey, any>,

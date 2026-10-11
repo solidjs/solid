@@ -117,3 +117,33 @@ test("an answer whose content differs corrects: the mainline wait is the hold's 
   await expect(e.done).resolves.toBe("TimeoutError");
   e.dispose();
 });
+
+test("a row that references itself is not an echo: the landing corrects, the store stays readable", async () => {
+  const g: any = { clientId: "c1" };
+  g.self = g;
+  const s: any = { clientId: "c1" };
+  s.self = s;
+  const [source, setSource] = createSignal<any[]>([]);
+  let rows!: any[], setRows!: (fn: (d: any[]) => void) => void;
+  let dispose!: () => void;
+  createRoot(d => {
+    dispose = d;
+    [rows, setRows] = createOptimisticStore<any[]>(() => source(), []);
+  });
+  flush();
+  const done = action(async function* () {
+    setRows(d => {
+      d.push(g);
+    });
+    await 0;
+    yield until(() => rows.some(r => r.clientId === "c1"), { timeout: 60 });
+  })();
+  await new Promise(r => setTimeout(r, 20));
+  setSource([s]);
+  flush();
+  await done.catch(() => {});
+  flush();
+  expect(rows.length).toBe(1);
+  expect(rows[0].clientId).toBe("c1");
+  dispose();
+});

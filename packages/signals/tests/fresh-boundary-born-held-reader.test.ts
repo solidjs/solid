@@ -37,8 +37,6 @@ it("a fresh boundary catches its reader of a memo born held outside it", async (
         },
         () => "fallback"
       );
-      if (after) createRenderEffect(spinner, v => void log.push(`spinner ${v}`));
-      return b;
     });
     createRenderEffect(
       () => {

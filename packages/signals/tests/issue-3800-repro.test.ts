@@ -187,6 +187,37 @@ describe("#3800: a node created over a hold waits for it, and the hold waits for
     expect(s.log).toEqual(["parent 1 1", "view fallback", "parent 2 2", "view content 2"]);
   });
 
+  // The same memo created INSIDE the boundary: content that derives from the
+  // hold appears at the hold's commit (D-12), whatever position the memo was
+  // created in. Today its first answer lands on its own, beside the held
+  // parent — the boundary's catch at creation (`_fresh`) keys on where it
+  // was created (#3977 review, item 5).
+  it.fails(
+    "created inside a fresh boundary: the content still waits for the hold's commit",
+    async () => {
+      const s = setup();
+      await holdCount(s);
+      createRoot(() => {
+        const view = createLoadingBoundary(
+          () => {
+            const child = createMemo(() => Promise.resolve(s.count()));
+            createRenderEffect(child, v => void s.log.push(`child ${v}`));
+            return "content";
+          },
+          () => "fallback"
+        );
+        createRenderEffect(view, v => void s.log.push(`view ${v}`), undefined, { schedule: true });
+      });
+      flush();
+      await tick();
+      expect(s.log).toEqual(["parent 1 1", "view fallback"]);
+
+      s.slowGates.shift()!();
+      await tick();
+      expect(s.log.slice(0, 3)).toEqual(["parent 1 1", "view fallback", "parent 2 2"]);
+    }
+  );
+
   it("a slower first load keeps the hold open; parent and child reveal together when it lands", async () => {
     const s = setup();
     await holdCount(s);
