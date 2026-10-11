@@ -1890,15 +1890,14 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * write never shows through the lane. A verdict lane's work likewise: the
  * lane holds verdicts, not the frame's other stagings (#3851) — except a
  * verdict reader, which answered for itself (the lane seam, lanes.ts). Not
- * a read of a node born staged: it has no committed value to re-derive on,
- * and a re-run would read the same staging and re-queue every round. */
+ * a read of a node born staged at all: it has no committed value to
+ * re-derive on, and a re-run would read the same staging and re-queue every
+ * round (#3969: nor does it make a later lane read a re-derive, `enterLane`). */
 export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): void {
-  c._flags |= REACTIVE_STAGED_READ;
-  if (
-    passLane !== null &&
-    !((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)
-  )
-    stagedReaders.push(c);
+  if (!((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)) {
+    c._flags |= REACTIVE_STAGED_READ;
+    if (passLane !== null) stagedReaders.push(c);
+  }
 }
 
 /** A10 for a staged node: a verdict reader (the pass entered a window) that
