@@ -40,7 +40,7 @@ describe("Show with an untracked pending probe in its child", () => {
             children: t => {
               builds++;
               untrack(() => isPending(() => {}));
-              return () => `n=${t().n}`;
+              return (() => `n=${t().n}`) as any;
             }
           });
         }
