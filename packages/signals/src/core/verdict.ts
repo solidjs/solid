@@ -221,11 +221,14 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
 }
 
 /** The pass entering a verdict window is a verdict reader (CONFIG_VERDICT):
- * a dependency going pending re-derives it, the verdict having changed. */
+ * a dependency going pending re-derives it, the verdict having changed. Not
+ * an untracked window: that is a snapshot, like any untracked read (#3946 —
+ * a router's link claim probing inside the computation that creates the
+ * anchor). A throw still reaches the pass through `untrack`. */
 function markVerdictReader(window: number): void {
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
-  if (c !== null) {
+  if (c !== null && tracking) {
     c._config |= CONFIG_VERDICT;
     (c as Computed<any>)._flags |= REACTIVE_PROBED;
     // Observe tier: which windows this pass entered (1 `isPending`, 2
