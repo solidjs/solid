@@ -18,7 +18,6 @@ for (const shape of ["show", "show+loading", "direct"] as const)
     const container = document.createElement("div");
     const [x, setX] = createSignal(0);
     const [open, setOpen] = createSignal(shape === "direct");
-    let mountDirect!: () => void;
     const [direct, setDirect] = createSignal(false);
     const Form = () => {
       const data = createMemo(() => x());

@@ -31,6 +31,7 @@ import {
   dirtyQueue,
   flushTransaction,
   globalQueue,
+  GlobalQueue,
   joinFuture,
   passTx,
   resolveTx,
@@ -39,7 +40,7 @@ import {
 } from "./core/scheduler.js";
 import { REACTIVE_JOINED, STATUS_ERROR, STATUS_PENDING } from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
-import { optimisticWrite } from "./core/lanes.js";
+import { optimisticWrite, truthConfirmed, truthRead } from "./core/lanes.js";
 
 /**
  * Low-level reactive-cleanup primitive. Registers a callback that runs when
@@ -766,6 +767,10 @@ function watch<T>(
   inPass?: (v: T) => void,
   own: Transaction | null = flushTransaction
 ): void {
+  if (config & CONFIG_AUTHORITATIVE) {
+    GlobalQueue._truth = truthRead;
+    GlobalQueue._confirmed = truthConfirmed;
+  }
   // `config` is on the node for its first pass too (the pass runs inside
   // `computed()`): `until`'s predicate is authoritative from its first read,
   // or an already-displayed guess would satisfy it in a later slice. (REDERIVE
