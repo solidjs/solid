@@ -405,15 +405,43 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     if (n._subs !== null) insertSubs(n);
   } else {
     n._config |= CONFIG_HELD;
-    // A confirmation is silent (A17); only truth readers are told — of the
-    // lane's derivations too, which are the truth once every guess is
-    // confirmed (#3943).
-    for (let i = 0; i < l._nodes.length; i++)
-      for (let s = l._nodes[i]._subs; s !== null; s = s._nextSub)
-        if (s._sub._config & CONFIG_AUTHORITATIVE) enqueueSub(s._sub);
+    // A confirmation is silent (A17); only truth readers are told.
+    GlobalQueue._confirmed?.(l);
   }
   n._pendingValue = value;
   joinFuture(parent);
+}
+
+/** Truth readers (`until`, `refresh`; CONFIG_AUTHORITATIVE) — pay-for-use:
+ * the first one installs these on GlobalQueue (signals.ts `watch`).
+ *
+ * A truth reader's read of a lane node: the lane's value when it is the
+ * truth (#3943), else the truth staged beneath a guess, else the committed
+ * value. */
+export function truthRead(el: Signal<any> | Computed<any>): unknown {
+  return truth(el)
+    ? laneValueOf(el)
+    : el._config & CONFIG_GUESS && el._pendingValue !== NOT_PENDING
+      ? el._pendingValue
+      : el._value;
+}
+/** A guess confirmed: its lane's truth readers re-read — of the lane's
+ * derivations too, which may be the truth now (#3943). */
+export function truthConfirmed(l: Transaction): void {
+  for (let i = 0; i < l._nodes.length; i++)
+    for (let s = l._nodes[i]._subs; s !== null; s = s._nextSub)
+      if (s._sub._config & CONFIG_AUTHORITATIVE) enqueueSub(s._sub);
+}
+/** A lane node's value is the truth when every guess beneath it is
+ * confirmed — its source staged a value equal to the guess — and nothing
+ * beneath it is held in the parent: same inputs, same value. */
+function truth(n: Signal<any> | Computed<any>): unknown {
+  if (n._config & CONFIG_GUESS)
+    return n._pendingValue !== NOT_PENDING && n._equals && n._equals(n._x!._lane, n._pendingValue);
+  if (n._pendingValue !== NOT_PENDING) return;
+  if (n._config & CONFIG_OVERRIDE)
+    for (let d = (n as Computed<any>)._deps; d; d = d._nextDep) if (!truth(d._dep)) return;
+  return 1;
 }
 
 /** A lane's end, two ways. `into === null`: the parent landed — the lane's
@@ -550,18 +578,9 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
  * member throws like any. */
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
-  const l = txOf(el);
-  // A truth reader (`until`): the truth staged beneath a guess, else the
-  // committed value — or, for a derivation of guesses every one of which
-  // its own source has confirmed, the lane's value: same inputs, so the
-  // truth (#3943).
+  if (c !== null && c._config & CONFIG_AUTHORITATIVE) return GlobalQueue._truth!(el);
   if (c === null) return laneValueOf(el);
-  if (c._config & CONFIG_AUTHORITATIVE)
-    return l._nodes.every(n => !(n._config & CONFIG_GUESS) || n._pendingValue !== NOT_PENDING)
-      ? laneValueOf(el)
-      : guess && el._pendingValue !== NOT_PENDING
-        ? el._pendingValue
-        : el._value;
+  const l = txOf(el);
   const status = (el as Computed<any>)._statusFlags;
   if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) {
     // An untracked read inside lane work derives from the lane like a

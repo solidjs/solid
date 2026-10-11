@@ -640,6 +640,10 @@ export class GlobalQueue implements IQueue {
   /** The store's row judgment for a guessed slot (optimistic.ts): the truth
    * is the guess's echo when reconcile would write nothing into it. */
   declare static _echoes: ((guess: unknown, truth: unknown) => boolean) | undefined;
+  /** Truth readers (lanes.ts `truthRead`/`truthConfirmed`), installed by the
+   * first `until`/`refresh` (signals.ts `watch`). */
+  declare static _truth: ((el: any) => unknown) | undefined;
+  declare static _confirmed: ((l: Transaction) => void) | undefined;
   /** `affects()` on a store (store/affects.ts): a store's node for a key
    * (store/store.ts `getNode`); a bare registration (birth inheritance); a
    * witnessed mark on an untracked probe (verdict.ts). */
