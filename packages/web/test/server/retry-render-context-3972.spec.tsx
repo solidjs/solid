@@ -4,7 +4,16 @@
 // slot content it creates takes the other render's ids. Repro by ibniss.
 import { expect, test } from "vitest";
 import { renderToStream, type JSX } from "@solidjs/web";
-import { children, createMemo, Show } from "solid-js";
+import {
+  children,
+  createMemo,
+  createOptimisticStore,
+  createProjection,
+  createRenderEffect,
+  createSignal,
+  createStore,
+  Show
+} from "solid-js";
 import { sharedConfig } from "solid-js/internal";
 
 const render = (code: () => any) => renderToStream(code).pipeTo(new WritableStream({ write() {} }));
@@ -51,3 +60,67 @@ test("a slot resolved by children() is created under its own render's context", 
   expect(seenBy.A).toBe(contexts.A);
   expect(seenBy.B).toBe(contexts.B);
 });
+
+// The other retry paths: a compute that read a pending source re-runs when the
+// source settles — a render effect's retry, a projection's re-derive (also
+// `createStore(fn)` and `createOptimisticStore(fn)`). Each pass, the first and
+// the retry, runs under the render that created the primitive.
+const primitives: Record<
+  string,
+  (note: () => void, data: () => string) => () => string | undefined
+> = {
+  createMemo: (note, data) => {
+    const m = createMemo(() => (note(), data()));
+    return m;
+  },
+  "createSignal(fn)": (note, data) => createSignal(() => (note(), data()))[0],
+  createRenderEffect: (note, data) => {
+    createRenderEffect(
+      () => (note(), data()),
+      () => {}
+    );
+    return () => "";
+  },
+  createProjection: (note, data) => {
+    const p = createProjection<{ v?: string }>(draft => {
+      note();
+      draft.v = data();
+    }, {});
+    return () => p.v;
+  },
+  "createStore(fn)": (note, data) => {
+    const [s] = createStore<{ v?: string }>(draft => {
+      note();
+      draft.v = data();
+    }, {});
+    return () => s.v;
+  },
+  "createOptimisticStore(fn)": (note, data) => {
+    const [s] = createOptimisticStore<{ v?: string }>(draft => {
+      note();
+      draft.v = data();
+    }, {});
+    return () => s.v;
+  }
+};
+
+for (const [kind, create] of Object.entries(primitives))
+  test(`${kind}: a retry runs under its own render's context`, async () => {
+    const contexts: Record<string, unknown> = {};
+    const passes: Record<string, unknown[]> = { A: [], B: [] };
+    const page = (name: string, ms: number) =>
+      render(() => {
+        contexts[name] = sharedConfig.context;
+        const data = createMemo(() => later(name, ms));
+        const read = create(() => passes[name].push(sharedConfig.context), data);
+        return <div>{read()}</div>;
+      });
+
+    await Promise.all([page("A", 5), page("B", 10)]);
+
+    // The first pass threw on the pending source; the retry ran when it settled.
+    expect(passes.A.length).toBeGreaterThan(1);
+    expect(passes.B.length).toBeGreaterThan(1);
+    for (const name of ["A", "B"])
+      for (const seen of passes[name]) expect(seen).toBe(contexts[name]);
+  });
