@@ -1027,8 +1027,14 @@ module.exports = [
     // hold's unit goes from the key to the leaf; the end of the
     // container -> key -> leaf series. Cap set at measured + 10 B rounded up
     // to 0.01 KB. Accepted by the maintainer 2026-10-12.
-    limit: "14.89 KB",
-    capMinified: 45276,
+    // Same PR, the swapped-raw rule moved into the pairing both paths share
+    // (`ownRow`, checked by the eager `descend` as well as the held
+    // `adoptChild`; the eager record swap aliased too): 14,879 -> 14,884 B
+    // brotli, 45,276 -> 45,281 B minified (+5 B each; `descend` became a
+    // closure of `applyAdopt`, which paid for the two frames it now reads).
+    // Cap set at measured + 10 B rounded up to 0.01 KB.
+    limit: "14.90 KB",
+    capMinified: 45281,
     alias
   },
   {
@@ -2359,9 +2365,10 @@ module.exports = [
     // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): 29.274 KB
     // -> 29.36 KB, measured locally at 29,350 B against `next` @ 49a765cc's
     // 29,205 (+145 B; +587 B minified, 92,291 -> 92,878). Cap set at measured
-    // + 10 B rounded up to 0.01 KB.
+    // + 10 B rounded up to 0.01 KB. The shared `ownRow` rule (the createStore
+    // note) measures 29,336 B brotli / 92,883 B minified: the cap holds.
     limit: "29.36 KB",
-    capMinified: 92878,
+    capMinified: 92883,
     alias
   },
   {
@@ -3482,7 +3489,8 @@ module.exports = [
     // app's store pays the held-read pairing — 25.51 KB -> 25.65 KB, measured
     // locally at 25,637 B against `next` @ 49a765cc's 25,492 (+145 B; +586 B
     // minified, 79,919 -> 80,505). Cap set at measured + 10 B rounded up to
-    // 0.01 KB.
+    // 0.01 KB. The shared `ownRow` rule (the createStore note) adds ~5 B
+    // minified here too, within the 20 B allowance; CI's run records it.
     limit: "25.65 KB",
     capMinified: 80505,
     alias
@@ -3569,7 +3577,9 @@ module.exports = [
     // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): 31.386 KB
     // -> 31.48 KB, measured locally at 31,466 B against `next` @ 49a765cc's
     // 31,215 (+251 B; +587 B minified, 99,808 -> 100,395). Cap set at measured
-    // + 10 B rounded up to 0.01 KB.
+    // + 10 B rounded up to 0.01 KB. The shared `ownRow` rule (the createStore
+    // note) adds ~5 B minified here too, within the 20 B allowance; CI's run
+    // records it.
     limit: "31.48 KB",
     capMinified: 100395,
     alias

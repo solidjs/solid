@@ -364,3 +364,77 @@ describe("#3712 edges: the same raws swapped under a hold stay distinct rows", (
     dispose();
   });
 });
+
+describe("#3712 edges: the same raws swapped with both rows already proxied (the eager pairing)", () => {
+  for (const held of [false, true]) {
+    it(`a record swap, rows read before the write (held: ${held})`, async () => {
+      const A = { name: "a" };
+      const B = { name: "b" };
+      const [server, setServer] = createSignal<Record<string, { name: string }>>({ x: A, y: B });
+      let store!: Record<string, { name: string }>;
+      let dispose!: () => void;
+      createRoot(d => {
+        dispose = d;
+        [store] = createStore(() => server(), {});
+        createRenderEffect(
+          createMemo(() => store.x.name + store.y.name),
+          () => {}
+        );
+      });
+      flush();
+      expect([store.x.name, store.y.name]).toEqual(["a", "b"]);
+      if (held) {
+        const gate = deferred();
+        const p = action(function* () {
+          setServer({ x: B, y: A });
+          yield gate.promise;
+        })();
+        flush();
+        expect([store.x.name, store.y.name]).toEqual(["a", "b"]);
+        gate.resolve();
+        await p;
+        flush();
+      } else {
+        setServer({ x: B, y: A });
+        flush();
+      }
+      expect([store.x.name, store.y.name]).toEqual(["b", "a"]);
+      expect(store.x).not.toBe(store.y);
+      dispose();
+    });
+
+    it(`an unkeyed array reorder, rows read before the write (held: ${held})`, async () => {
+      const A = { id: "a" };
+      const B = { id: "b" };
+      const [server, setServer] = createSignal([A, B]);
+      let store!: { id: string }[];
+      let dispose!: () => void;
+      createRoot(d => {
+        dispose = d;
+        [store] = createStore(() => server(), []);
+        createRenderEffect(
+          createMemo(() => store[0].id + store[1].id),
+          () => {}
+        );
+      });
+      flush();
+      if (held) {
+        const gate = deferred();
+        const p = action(function* () {
+          setServer([B, A]);
+          yield gate.promise;
+        })();
+        flush();
+        gate.resolve();
+        await p;
+        flush();
+      } else {
+        setServer([B, A]);
+        flush();
+      }
+      expect([store[0].id, store[1].id]).toEqual(["b", "a"]);
+      expect(store[0]).not.toBe(store[1]);
+      dispose();
+    });
+  }
+});

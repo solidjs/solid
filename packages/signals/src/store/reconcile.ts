@@ -31,6 +31,7 @@ import {
   notifyFoldTail,
   notifyKeyDiff,
   notifyKeyValue,
+  ownRow,
   sameKey,
   sameRow,
   targetsEqual,
@@ -104,6 +105,27 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // — key matching from the arrangement the guesses made (R28), so a row
   // the guess added keeps its proxy when the server returns it.
   const prevView = fam?.opt === true ? optHooks!.view(t, prev) : prev;
+  // Descend into a changed child pair — only where something is proxied
+  // below (§6d), never into a raw-marked leaf, never across array/object or
+  // a key mismatch (that is a replacement, handled by the parent's slot),
+  // never into a raw of both frames (it moved: its own row, #3712).
+  const descend = (pv: any, nv: any): void => {
+    if (pv === null || typeof pv !== "object" || nv === null || typeof nv !== "object") return;
+    const ct = lookupTarget(pv, fam);
+    if (ct === undefined) return; // nothing proxied below this pair
+    if (!isWrappable(nv)) return;
+    if (rawValuesUsed && isRawValue(nv)) return;
+    nv = unwrapValue(nv);
+    if (Array.isArray(pv) !== Array.isArray(nv)) return;
+    if (keyFn) {
+      const pk = keyFn(pv);
+      const nk = keyFn(nv);
+      if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return;
+    }
+    if (!proj && keyFn !== null && !ct.d) return;
+    if (ownRow(prevView, incoming, pv, nv)) return;
+    applyAdopt(ct, nv, keyFn, proj);
+  };
   const nextArr = Array.isArray(incoming);
   const shallow = t.s === true;
   const old = prev;
@@ -133,7 +155,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           nv !== null &&
           typeof nv === "object"
         )
-          descend(unwrapValue(pvRaw), nv, keyFn, fam, proj);
+          descend(unwrapValue(pvRaw), nv);
         if (
           t.dk !== null &&
           !dkBumpedA &&
@@ -185,7 +207,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           } else {
             pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
           }
-          descend(pv, nv, keyFn, fam, proj);
+          descend(pv, nv);
         }
         if (nodes !== null) {
           const node = nodes[i];
@@ -202,7 +224,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       for (let i = 0; i < nlen; i++) {
         const nvP = nextRows[i];
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
-          descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
+          descend(unwrapValue(prevRows[i]), nvP);
         if (
           t.dk !== null &&
           !dkBumpedP &&
@@ -248,7 +270,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       if (nodes !== null && nodes[k] !== undefined) nodesHit++;
       continue;
     }
-    if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
+    if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv);
     if (t.dk !== null && !dkBumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
       bumpDeep(t);
       dkBumped = true;
@@ -267,7 +289,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
     if (k === $OWNER) continue;
     const nv = (incoming as any)[k];
     if (!shallow && nv !== null && typeof nv === "object")
-      descend(unwrapValue((old as any)[k]), nv, keyFn, fam, proj);
+      descend(unwrapValue((old as any)[k]), nv);
     if (nodes !== null) {
       const node = nodes[k as any];
       if (node !== undefined) {
@@ -286,29 +308,3 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
 }
 
 const hasOwnP = Object.prototype.hasOwnProperty;
-
-/** Descend into a changed child pair — only where something is proxied
- * below (§6d), never into a raw-marked leaf, never across array/object or a
- * key mismatch (that is a replacement, handled by the parent's slot). */
-function descend(
-  pv: any,
-  nv: any,
-  keyFn: KeyFn | null,
-  fam: StoreFamily | null,
-  proj = false
-): void {
-  if (pv === null || typeof pv !== "object" || nv === null || typeof nv !== "object") return;
-  const ct = lookupTarget(pv, fam);
-  if (ct === undefined) return; // nothing proxied below this pair
-  if (!isWrappable(nv)) return;
-  if (rawValuesUsed && isRawValue(nv)) return;
-  nv = unwrapValue(nv);
-  if (Array.isArray(pv) !== Array.isArray(nv)) return;
-  if (keyFn) {
-    const pk = keyFn(pv);
-    const nk = keyFn(nv);
-    if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return;
-  }
-  if (!proj && keyFn !== null && !ct.d) return;
-  applyAdopt(ct, nv, keyFn, proj);
-}

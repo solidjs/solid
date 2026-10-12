@@ -1592,14 +1592,26 @@ function heldKeyChanged(target: StoreTarget, key: PropertyKey, shape = true): bo
   );
 }
 
-/** The values of a held frame, built once per frame: neither the committed
- * frame nor the held staging changes while the hold stands (a draft writes a
- * clone), so the set stays true for every first read of the hold. */
+/** The values of a frame, built once per frame: an adoption's two frames
+ * do not change while it pairs their rows (a held one stands until its
+ * commit; a draft writes a clone), so the set stays true for every pairing
+ * the frame takes part in. */
 const frameRaws = new WeakMap<object, Set<unknown>>();
 function rawsOf(frame: object): Set<unknown> {
   let raws = frameRaws.get(frame);
   if (raws === undefined) frameRaws.set(frame, (raws = new Set(Object.values(frame))));
   return raws;
+}
+
+/** A raw present in both frames is its own row (#3712): the same objects
+ * swapped or reordered — `[A, B]` to `[B, A]`, `{x: A, y: B}` to
+ * `{x: B, y: A}` — moved, they did not change. Pairing `pv`'s target with
+ * `nv` would alias the two after the commit (both slots reading one of
+ * them); unpaired, each raw keeps its target and the slots change. Checked
+ * where rows are paired, eagerly (`descend`) and at a held first read
+ * (`adoptChild`). */
+export function ownRow(prev: object, next: object, pv: object, nv: object): boolean {
+  return rawsOf(prev).has(nv) || rawsOf(next).has(pv);
 }
 
 /** The same row at a slot, as the adoption pairs rows (reconcile.ts): two
@@ -1637,10 +1649,7 @@ function adoptChild(target: StoreTarget, key: PropertyKey): boolean {
     Array.isArray(ov) !== Array.isArray(nv) ||
     lookupTarget(ov, target.fam) !== undefined ||
     lookupTarget(nv, target.fam) !== undefined ||
-    // A raw in both frames (the same objects swapped or reordered) is its
-    // own row: pairing it with another would alias the two after the commit.
-    rawsOf(old).has(nv) ||
-    rawsOf(k._pendingValue as object).has(ov)
+    ownRow(old, k._pendingValue as object, ov, nv)
   )
     return false;
   // A raw-marked value wraps to itself, a proxy to its own target: neither
