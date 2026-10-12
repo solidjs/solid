@@ -70,6 +70,13 @@ const ready = (async () => {
   state = (await storage.getItem("board")) ?? seed();
 })();
 
+// A dev knob, like CHAOS_EVERY: BOARD_SLOW=<ms> delays every write by that
+// long before it commits, so the gap between a write showing in the tab that
+// made it and landing on the board is wide enough to see.
+const slow = Number(process.env.BOARD_SLOW || 0);
+const settled = () =>
+  slow > 0 ? new Promise<void>(resolve => setTimeout(resolve, slow)).then(() => ready) : ready;
+
 let saving: Promise<unknown> = Promise.resolve();
 function save() {
   const snapshot = structuredClone(state);
@@ -205,7 +212,7 @@ function committed() {
  * nothing.
  */
 async function apply(client: string, mutation: string, write: () => void): Promise<void> {
-  await ready;
+  await settled();
   checkId(client, "client");
   checkId(mutation, "mutation");
   const mine = state.applied[client] ?? [];
@@ -227,7 +234,7 @@ async function apply(client: string, mutation: string, write: () => void): Promi
 // that landed does nothing.
 
 export async function createList(id: string, title: string, pos: string): Promise<void> {
-  await ready;
+  await settled();
   checkId(id, "list");
   checkPos(pos);
   const named = titleOf(title);
@@ -242,7 +249,7 @@ export async function createCard(
   title: string,
   pos: string
 ): Promise<void> {
-  await ready;
+  await settled();
   checkId(id, "card");
   checkPos(pos);
   const named = titleOf(title);

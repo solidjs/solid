@@ -44,6 +44,20 @@ function midpoint(a: string, b: string | undefined): string {
   return DIGITS[low] + midpoint(a.slice(1), undefined);
 }
 
+/**
+ * The key for a row placed at `index` among `rows` (already in order, and
+ * without the row being placed). Where two tabs minted the same key there is
+ * no room between the two rows, so the row lands just after the tie.
+ */
+export function keyAt(rows: readonly { pos: string }[], index: number): string {
+  const before = rows[index - 1]?.pos;
+  let after = rows[index]?.pos;
+  for (let i = index; before !== undefined && after !== undefined && after <= before; ) {
+    after = rows[++i]?.pos;
+  }
+  return between(before, after);
+}
+
 /** Rows in display order: by key, then by id where two tabs minted the same key. */
 export function byPos<T extends { pos: string; id: string }>(a: T, b: T): number {
   return a.pos < b.pos ? -1 : a.pos > b.pos ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;

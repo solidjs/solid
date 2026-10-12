@@ -29,7 +29,7 @@ registerHooks({
   }
 });
 
-const { between, byPos, isKey } = await import("../src/order.ts");
+const { between, byPos, isKey, keyAt } = await import("../src/order.ts");
 const db = await import("../src/server/db.ts");
 const presence = await import("../src/server/presence.ts");
 
@@ -104,6 +104,17 @@ await check("no room between equal keys is an error, and ties order by id", () =
     rows.sort(byPos).map(r => r.id),
     ["c", "a", "b"]
   );
+});
+await check("keyAt places a row at an index, and after a tie where there is no room", () => {
+  const rows = [{ pos: "F" }, { pos: "V" }, { pos: "V" }, { pos: "k" }];
+  assert.ok(keyAt(rows, 0) < "F");
+  assert.ok("F" < keyAt(rows, 1) && keyAt(rows, 1) < "V");
+  assert.ok(
+    "V" < keyAt(rows, 2) && keyAt(rows, 2) < "k",
+    "between the tied rows lands after the tie"
+  );
+  assert.ok(keyAt(rows, 4) > "k");
+  assert.ok(isKey(keyAt([], 0)));
 });
 await check("isKey refuses what between cannot produce", () => {
   for (const bad of ["", "V0", "a-b", "é", 3, null, "x".repeat(65)])
