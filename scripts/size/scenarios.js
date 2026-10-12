@@ -2594,8 +2594,15 @@ module.exports = [
     // condition hello world stays under 10 KB.
     // #3928 merged with next @ 617d19511 (2026-10-09): measured at 12,976 B
     // (36,793 B minified). Cap set to that brotli, not above it.
-    limit: "12.976 KB",
-    capMinified: 36793,
+    // Size-Exception (a boundary's fallback is instantiated once per show,
+    // #3991, 2026-10-12): 12.976 KB -> 12.99 KB, measured locally at 12,977 B
+    // against `next`'s 12,946 (+31 B; +146 B minified, 36,746 -> 36,892) —
+    // boundaries.ts: the fallback is built in a computed of its own beside
+    // the output and kept across the output's re-derives while it shows
+    // (`_fb`; disposed when content shows). Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer 2026-10-12.
+    limit: "12.99 KB",
+    capMinified: 36892,
     alias
   },
   {
@@ -2882,8 +2889,12 @@ module.exports = [
     // condition hello world stays under 10 KB.
     // #3884 stacked on next (2026-10-08): measured at 14,552 B brotli / 41,305 B minified
     // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "14.56 KB",
-    capMinified: 41305,
+    // Size-Exception (#3991, 2026-10-12; the CSR note): 14.56 KB -> 14.59 KB,
+    // measured locally at 14,579 B against `next`'s 14,565 (+14 B; +146 B
+    // minified, 41,274 -> 41,420). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-12.
+    limit: "14.59 KB",
+    capMinified: 41420,
     alias: observeAlias
   },
   {
@@ -3439,8 +3450,13 @@ module.exports = [
     // #3928 (2026-10-09): a select value is reapplied when its options arrive,
     // including multiple. Merged with next @ 617d19511: 25,465 B brotli
     // (79,753 B minified). Cap set to that brotli, not above it.
-    limit: "25.465 KB",
-    capMinified: 79753,
+    // Size-Exception (#3991, 2026-10-12; the CSR note): the todo app's
+    // Loading pays the once-per-show fallback — 25.465 KB -> 25.49 KB,
+    // measured locally at 25,479 B against `next`'s 25,424 (+55 B; +146 B
+    // minified, 79,719 -> 79,865). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-12.
+    limit: "25.49 KB",
+    capMinified: 79865,
     alias
   },
   {

@@ -328,9 +328,9 @@ The optimistic world is the screen plus the action's guesses: derivations of a g
 
 **From:** F-12, F-3, F-1. **Scenarios:** S-38.
 
-An `<Errored>` flipping to its fallback is a boundary going back to its fallback: the nodes behind it stop holding (unless read elsewhere, where they error too), and non-errored nodes that lose their only visible consumer that way stop holding as well. The error stays on screen until a new answer replaces the errored one — a pending is not a value: over `Errored > Loading(never shown)`, a write publishes beside the old error (`0 | Fetch error for 0` → `1 | Fetch error for 0` → `1 | Fetch error for 1`); the inner fallback is hidden behind the error. `Errored` builds its function fallback in its own scope, like `Show`.
+An `<Errored>` flipping to its fallback is a boundary going back to its fallback: the nodes behind it stop holding (unless read elsewhere, where they error too), and non-errored nodes that lose their only visible consumer that way stop holding as well. The error stays on screen until a new answer replaces the errored one — a pending is not a value: over `Errored > Loading(never shown)`, a write publishes beside the old error (`0 | Fetch error for 0` → `1 | Fetch error for 0` → `1 | Fetch error for 1`); the inner fallback is hidden behind the error. `Errored` builds its function fallback in its own scope, like `Show`, once per show: a re-derive of the boundary while the fallback shows — a second reader caught, the same error propagated again, a retry pending after `reset()`, a later error — keeps the built fallback, its DOM and focus with it; a later error reaches it through the error accessor (#3991).
 
-**Collapses:** §23.1 items 2–3, §27 7b (2026-10-02; the top-level `isPending(count)` affordance was lost by this ruling, knowingly), recovery 9.1–9.3. **Status:** standing.
+**Collapses:** §23.1 items 2–3, §27 7b (2026-10-02; the top-level `isPending(count)` affordance was lost by this ruling, knowingly), recovery 9.1–9.3. **Status:** standing. Once per show: `tests/createErrorBoundary.test.ts` ("instantiates the fallback once per show"), `packages/web/test/errored-show-retry-3991.spec.tsx`.
 
 ---
 

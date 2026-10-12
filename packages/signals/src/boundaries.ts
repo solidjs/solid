@@ -61,7 +61,7 @@ import { NotReadyError, unwrapStatusError } from "./core/error.js";
 import { reportClientError } from "./core/error-hooks.js";
 import { link } from "./core/graph.js";
 import { enqueueSub } from "./core/heap.js";
-import { cleanup, createOwner, getOwner } from "./core/owner.js";
+import { cleanup, createOwner, dispose, getOwner } from "./core/owner.js";
 import {
   flushTransaction,
   GlobalQueue,
@@ -120,6 +120,10 @@ interface Boundary {
   _collapsed: boolean;
   _error: Signal<unknown> | null;
   _show: (b: Boundary) => unknown;
+  /** The fallback's own computed, in its own scope like `Show`'s function
+   * child: instantiated once per show and kept across the output's
+   * re-derives while it shows (#3991). */
+  _fb: Computed<unknown> | null;
 }
 
 /** Context key: the nearest boundary of a node, inherited at creation. */
@@ -505,7 +509,8 @@ function createBoundary<T>(
     _gated: false,
     _collapsed: false,
     _error: type === STATUS_ERROR ? signal<unknown>(undefined, ERROR_SIGNAL) : null,
-    _show: show
+    _show: show,
+    _fb: null
   };
   const controller = type === STATUS_PENDING ? (owner._context[REVEAL] as object | null) : null;
   if (getOwner())
@@ -646,6 +651,10 @@ function createBoundary<T>(
       if (__OBSERVE__ && b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
         attrHooks.boundaryFallback(b, b._tree, false);
       b._fallback = false;
+      if (b._fb !== null) {
+        dispose(b._fb);
+        b._fb = null;
+      }
       release(b);
       // Shown: the slot leaves its reveal order (a later re-arm gates nobody
       // else; the frontier moves on).
@@ -689,7 +698,22 @@ function fallback<T>(b: Boundary): T {
     if (!globalQueue._running) schedule();
   }
   b._fallback = true;
-  return b._show(b) as T;
+  // Built in its own scope, like `Show`'s function child, once per show
+  // (D-39: the fallback is the display until a new answer replaces the
+  // error): a re-derive of the output while it shows — a second reader
+  // caught, the same error propagated again through a sibling's re-run, a
+  // retry pending after `reset()`, a later error — keeps the built
+  // fallback, its DOM and focus with it (#3991). A later error reaches it
+  // through the error accessor; only a fallback reading the accessor at its
+  // top level is rebuilt by it. Created beside the output — in its owner,
+  // outside the boundary, as the output is: its errors and runs are the
+  // enclosing boundary's — with the output's id, so what it builds gets the
+  // ids a build under the output would; disposed when content shows.
+  if (b._fb === null) {
+    const out = getOwner() as Computed<any>;
+    b._fb = runWithOwner(out._parent, () => computed(() => b._show(b), { id: out.id }))!;
+  }
+  return read(b._fb) as T;
 }
 
 const ERROR_SIGNAL = { ownedWrite: true, _noSnapshot: true } as const;
