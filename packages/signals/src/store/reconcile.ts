@@ -108,7 +108,11 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // Descend into a changed child pair — only where something is proxied
   // below (§6d), never into a raw-marked leaf, never across array/object or
   // a key mismatch (that is a replacement, handled by the parent's slot),
-  // never into a raw of both frames (it moved: its own row, #3712).
+  // never into a raw of both frames (it moved: its own row, #3712). That
+  // last rule costs a raw set per frame, so it runs only on a frame that
+  // carries a row already (`hasRow`, one lookup per value, decided once):
+  // a frame of fresh raws, the common one, pairs by slot.
+  let moved: boolean | undefined;
   const descend = (pv: any, nv: any): void => {
     if (pv === null || typeof pv !== "object" || nv === null || typeof nv !== "object") return;
     const ct = lookupTarget(pv, fam);
@@ -123,7 +127,12 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return;
     }
     if (!proj && keyFn !== null && !ct.d) return;
-    if (ownRow(prevView, incoming, pv, nv)) return;
+    // A raw that is a row already keeps it (its own, re-sent, is `ct`).
+    if (
+      (moved ??= hasRow(prevView, incoming, fam)) &&
+      ((lookupTarget(nv, fam) ?? ct) !== ct || ownRow(prevView, incoming, pv, nv))
+    )
+      return;
     applyAdopt(ct, nv, keyFn, proj);
   };
   const nextArr = Array.isArray(incoming);
@@ -308,3 +317,16 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
 }
 
 const hasOwnP = Object.prototype.hasOwnProperty;
+
+/** Does `next` carry a row of `fam` already at a slot `prev` did not — a
+ * proxied raw that changed slot? That is the signature of a move within
+ * the family (#3712); a frame of fresh raws has none, and an unchanged
+ * subtree kept at its slot (an immutable update) is no move. */
+function hasRow(prev: any, next: any, fam: StoreFamily | null): boolean {
+  for (const k in next) {
+    const v = next[k];
+    if (v !== prev[k] && v !== null && typeof v === "object" && lookupTarget(v, fam) !== undefined)
+      return true;
+  }
+  return false;
+}

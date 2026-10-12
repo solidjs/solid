@@ -438,3 +438,62 @@ describe("#3712 edges: the same raws swapped with both rows already proxied (the
     });
   }
 });
+
+describe("#3712 edges: the same raws swapped with one row proxied (the eager pairing's slot scan)", () => {
+  it("the proxied row follows its raw to the new slot; the other slot gets its own row", () => {
+    const A = { name: "a" };
+    const B = { name: "b" };
+    const [server, setServer] = createSignal<Record<string, { name: string }>>({ x: A, y: B });
+    let store!: Record<string, { name: string }>;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      [store] = createStore(() => server(), {});
+      // Only x is read, so only A is a row before the swap.
+      createRenderEffect(
+        createMemo(() => store.x.name),
+        () => {}
+      );
+    });
+    flush();
+    const xBefore = store.x;
+    expect(xBefore.name).toBe("a");
+    setServer({ x: B, y: A });
+    flush();
+    expect([store.x.name, store.y.name]).toEqual(["b", "a"]);
+    expect(store.x).not.toBe(store.y);
+    // A's row moved with A: the proxy read at x before the swap is y's now.
+    expect(store.y).toBe(xBefore);
+    expect(xBefore.name).toBe("a");
+    dispose();
+  });
+
+  it("an unchanged subtree kept at its slot pairs as before (no move)", () => {
+    const A = { name: "a", n: 1 };
+    const B = { name: "b", n: 1 };
+    const [server, setServer] = createSignal<Record<string, { name: string; n: number }>>({
+      x: A,
+      y: B
+    });
+    let store!: Record<string, { name: string; n: number }>;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      [store] = createStore(() => server(), {});
+      createRenderEffect(
+        createMemo(() => store.x.n + store.y.n),
+        () => {}
+      );
+    });
+    flush();
+    const xBefore = store.x;
+    const yBefore = store.y;
+    // An immutable update: x is a fresh raw, y is the same raw at its slot.
+    setServer({ x: { name: "a", n: 2 }, y: B });
+    flush();
+    expect([store.x.n, store.y.n]).toEqual([2, 1]);
+    expect(store.x).toBe(xBefore);
+    expect(store.y).toBe(yBefore);
+    dispose();
+  });
+});

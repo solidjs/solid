@@ -199,7 +199,13 @@ there is nothing to diff.)
   same objects swapped or reordered (`{x: A, y: B}` to `{x: B, y: A}`): it
   moved, it did not change, and it is its own row (`ownRow`, the one rule
   `descend` and `adoptChild` share). Paired, the two would alias after the
-  commit; unpaired, each raw keeps its target and the slots change.
+  commit; unpaired, each raw keeps its target and the slots change. The rule
+  reads a raw set per frame, so the eager pairing asks it only of a frame
+  that carries a row already at a changed slot (`hasRow`: one lookup per
+  value, decided once per frame); a frame of fresh raws, the common one,
+  pairs by slot and builds nothing, and an unchanged subtree kept at its
+  slot is no move. A raw that is a row of the family already keeps it there
+  too, unless that row is the slot's own (its raw re-sent).
 
 ## 4. Identity rules
 
