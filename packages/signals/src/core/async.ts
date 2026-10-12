@@ -4,6 +4,8 @@ import {
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
   CONFIG_HELD,
+  CONFIG_STAGED,
+  CONFIG_STAGED_ERROR,
   CONFIG_SYNC,
   CONFIG_VERDICT,
   EFFECT_TRACKED,
@@ -11,6 +13,7 @@ import {
   NOT_PENDING,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
+  REACTIVE_STAGED_READ,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
@@ -29,6 +32,7 @@ import {
   flush,
   globalQueue,
   GlobalQueue,
+  holdNode,
   joinFuture,
   MAINLINE_QUESTION,
   passLane,
@@ -167,6 +171,54 @@ export function releaseSettledDependents(el: Computed<any>): void {
 // (releaseSettledDependents shape): identity holders can sit below an
 // intermediate whose own error state has since been scrubbed or replaced
 // (e.g. an error boundary's tree node).
+/** D-40 (proposed): an error a pass of a held node found is an answer of
+ * that frame — it ends the wait like a value and shows when a value would.
+ * Staged like one: `_pendingValue` carries it (CONFIG_STAGED_ERROR), readers
+ * in the hold derive from it (`serve` throws it), and the landing publishes
+ * it (`commitPendingNode` → `notifyStatus`). Not for a lane pass, nor a node
+ * with no shown value (born held — its error has no frame to wait behind):
+ * those publish now, as before. Returns whether the error was staged. */
+export function stageError(el: Computed<any>, error: any, inPass?: boolean): boolean {
+  // Held, or — for a pass's own throw — derived from a staging of this flush
+  // (REACTIVE_STAGED_READ is this pass's; a landing after the pass cannot
+  // read it, the flush it read a staging of has committed or parked since).
+  if (
+    !(el._config & CONFIG_HELD || (inPass && el._flags & REACTIVE_STAGED_READ)) ||
+    el._statusFlags & STATUS_UNINITIALIZED ||
+    passLane !== null
+  )
+    return false;
+  if (!(error instanceof StatusError)) error = new StatusError(el, error);
+  const wasSource = !!el._x?._pendingSources?.has(el);
+  stageErrorOn(el, error);
+  // Dependents inherit it as a staging of their own (one identity down the
+  // tree, as a published error propagates) and commit it with this node.
+  propagateStatus(el, STATUS_ERROR, error, undefined, true);
+  if (wasSource) settlePendingSource(el);
+  return true;
+}
+
+/** The staging itself: the node answered (an error ends the wait — no
+ * longer pending, nor blocked), a shown error stays its display until the
+ * commit, and `_pendingValue` carries the new one. */
+function stageErrorOn(el: Computed<any>, error: any): void {
+  clearPendingSources(el);
+  if (el._x !== null) el._x._blocked = false;
+  if (!(el._statusFlags &= STATUS_ERROR)) setPendingError(el);
+  el._pendingValue = error;
+  el._config |= CONFIG_STAGED | CONFIG_STAGED_ERROR;
+}
+
+/** The commit of a staged error (`stageError`): the node's own status — no
+ * propagation, its dependents staged the same error and commit their own. */
+export function publishError(el: Computed<any>, error: any): void {
+  clearPendingSources(el);
+  el._statusFlags = STATUS_ERROR;
+  ext(el)._error = error;
+  const notify = statusNotifierOf(el);
+  if (notify) notify.call(el);
+}
+
 export function settleErroredDependents(el: Computed<any>, error: any): void {
   let scheduled = false;
   const visited = new Set<Computed<any>>();
@@ -428,6 +480,14 @@ export function handleAsync<T>(
       el._time = clock;
       return;
     }
+    // (A derived store's readers learn an error through its family, not the
+    // derive's dependents: it publishes now — residual, prototype.)
+    if (!stillPending && !setter && stageError(el, error)) {
+      el._time = clock;
+      onError?.(error, false);
+      schedule();
+      return;
+    }
     notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
     // A NotReady rejection is a landing into another pending source. The
     // rejected flight will never settle its self entry, so transfer ownership
@@ -448,7 +508,13 @@ export function handleAsync<T>(
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & REACTIVE_DIRTY) return;
     const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
-    landStatus(el);
+    // D-40 (proposed): a held node's shown error stays shown until the
+    // landing commits the recovery (`commitPendingNode` clears it there); an
+    // unheld one clears now. Either way the dependents holding the error
+    // re-run, a same-value recovery included (#3886).
+    const published = el._statusFlags & STATUS_ERROR ? el._x!._error : undefined;
+    const keep = published !== undefined && (el._config & CONFIG_HELD) !== 0 && !wasUninitialized;
+    if (!keep) landStatus(el);
     // Attribution hook: lets the engine snapshot state before the landing
     // branches, so it can tell whether the plain path's setSignal committed a
     // change (and only then classify it as an async landing).
@@ -483,6 +549,8 @@ export function handleAsync<T>(
         // pre-commit failure here, and there is no user callsite to throw to.
         notifyStatus(el, STATUS_ERROR, e);
       }
+      if (!keep && published !== undefined && el._pendingValue === NOT_PENDING)
+        settleErroredDependents(el, published);
       // Attribution hook: this path landed through setSignal, whose write
       // hook already saw any committed change — direct=false lets the engine
       // reclassify that write as an async landing iff it actually committed.
@@ -783,7 +851,7 @@ export function clearStatus(el: Computed<any>, clearUninitialized: boolean = fal
  * reader thrown NotReady(self) would park on a retired entry. Companions
  * keep their verdict (pending before and after; the write re-syncs them).
  */
-function landStatus(el: Computed<any>, clearUninitialized: boolean = false): void {
+export function landStatus(el: Computed<any>, clearUninitialized: boolean = false): void {
   const sources = el._x?._pendingSources;
   // (The full clear below drops the set whether or not self was retired first.)
   if (sources && (sources.delete(el), sources.size)) {
@@ -797,7 +865,8 @@ export function notifyStatus(
   el: Computed<any>,
   status: number,
   error: any,
-  blockStatus?: boolean
+  blockStatus?: boolean,
+  staged?: boolean
 ): void {
   // Wrap regular errors to track source node
   if (
@@ -818,6 +887,10 @@ export function notifyStatus(
       // Preserve the current source on this propagation so readers park on
       // the distinct pending source.
       setPendingError(el, pendingSource, error);
+    } else if (staged) {
+      // D-40 (proposed): a dependent of a staged error stages it too; its
+      // status is the commit's (`publishError`), its display unchanged.
+      stageErrorOn(el, error);
     } else {
       clearPendingSources(el);
       el._statusFlags =
@@ -841,6 +914,7 @@ export function notifyStatus(
 
   const elNotify = statusNotifierOf(el);
   if (elNotify) {
+    if (staged) return;
     if (blockStatus && status === STATUS_PENDING) {
       return;
     }
@@ -851,7 +925,7 @@ export function notifyStatus(
     }
     return;
   }
-  propagateStatus(el, status, error, downstreamBlockStatus);
+  propagateStatus(el, status, error, downstreamBlockStatus, staged);
 }
 
 /** The dependents' half of `notifyStatus`: `el`'s status reaches each
@@ -863,7 +937,8 @@ export function propagateStatus(
   el: Computed<any>,
   status: number,
   error: any,
-  downstreamBlockStatus?: boolean
+  downstreamBlockStatus?: boolean,
+  staged?: boolean
 ): void {
   const pendingSource =
     status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
@@ -938,7 +1013,21 @@ export function propagateStatus(
             joinFuture(txOf(sub));
         }
       }
-      notifyStatus(sub, status, error, downstreamBlockStatus);
+      // A re-ask of the source whose error this node shows: whatever its
+      // settle lands on is a new answer here (the error was the display,
+      // D-40) — re-run on it (`settlePendingSource`), a landing equal to the
+      // last good value included (#3886).
+      if (
+        status === STATUS_PENDING &&
+        sub._statusFlags & STATUS_ERROR &&
+        (sub._x!._error as StatusError).source === pendingSource
+      )
+        ext(sub)._blocked = true;
+      // A staged error from a held node: the dependent's staging is held
+      // with it (committed at the landing, as the park would list it).
+      if (staged && el._config & CONFIG_HELD && !(sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)))
+        holdNode(sub, txOf(el));
+      notifyStatus(sub, status, error, downstreamBlockStatus, staged);
     }
   });
 }
