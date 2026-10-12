@@ -1,0 +1,96 @@
+:root {
+  --bg: #1d2125;
+  --list: #101204;
+  --card: #22272b;
+  --text: #b6c2cf;
+  --strong: #dee4ea;
+  --muted: #8c9bab;
+  --accent: #579dff;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.4 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+.board {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.board-loading {
+  margin: 24px;
+  color: var(--muted);
+}
+
+.board-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.board-head h1 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--strong);
+}
+
+.lists {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 16px 16px;
+  overflow-x: auto;
+}
+
+.list {
+  flex: 0 0 272px;
+  background: var(--list);
+  border-radius: 12px;
+  padding: 8px;
+}
+
+.list-title {
+  margin: 0;
+  padding: 6px 8px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--strong);
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-height: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 40%);
+  color: var(--text);
+}

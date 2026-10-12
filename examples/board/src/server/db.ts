@@ -55,7 +55,11 @@ function seed(): State {
       cards.push({ id: `${id}card${i}`, listId: id, title: cardTitle, pos: (pos = between(pos)) });
     });
   };
-  list("seedtodo", "To do", ["Drag me to another list", "Open this page in a second tab", "Rename a card"]);
+  list("seedtodo", "To do", [
+    "Drag me to another list",
+    "Open this page in a second tab",
+    "Rename a card"
+  ]);
   list("seeddoing", "Doing", ["Add a card below"]);
   list("seeddone", "Done", []);
   return { title: "Board", lists, cards, applied: {} };

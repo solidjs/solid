@@ -20,7 +20,9 @@ registerHooks({
     if (specifier === "server-only") return { url: "data:text/javascript,", shortCircuit: true };
     if (specifier.startsWith("~/")) specifier = new URL(specifier.slice(2), src).href;
     if (/^(\.|file:)/.test(specifier) && !/\.[a-z]+$/.test(specifier)) {
-      const base = specifier.startsWith("file:") ? specifier : new URL(specifier, context.parentURL).href;
+      const base = specifier.startsWith("file:")
+        ? specifier
+        : new URL(specifier, context.parentURL).href;
       if (existsSync(fileURLToPath(base + ".ts"))) specifier = base + ".ts";
     }
     return next(specifier, context);
@@ -40,8 +42,15 @@ if (phase === "write") {
 }
 if (phase === "read") {
   const board = (await db.watchBoard("clienta1").next()).value;
-  assert.ok(board.cards.some(c => c.id === "restart1"), "created card persisted");
-  assert.equal(board.cards.find(c => c.id === "seedtodocard0").listId, "seeddone", "move persisted");
+  assert.ok(
+    board.cards.some(c => c.id === "restart1"),
+    "created card persisted"
+  );
+  assert.equal(
+    board.cards.find(c => c.id === "seedtodocard0").listId,
+    "seeddone",
+    "move persisted"
+  );
   assert.deepEqual(board.applied, ["mutrestart"], "applied ids persisted with the board");
   process.exit(0);
 }
@@ -67,7 +76,14 @@ await check("keys stay sorted and well-formed under random inserts", () => {
     for (let i = 0; i < 400; i++) {
       // Biased toward the ends and toward one gap, the cases that grow keys.
       const r = Math.random();
-      const at = r < 0.2 ? 0 : r < 0.4 ? keys.length : r < 0.6 ? Math.min(1, keys.length) : Math.floor(Math.random() * (keys.length + 1));
+      const at =
+        r < 0.2
+          ? 0
+          : r < 0.4
+            ? keys.length
+            : r < 0.6
+              ? Math.min(1, keys.length)
+              : Math.floor(Math.random() * (keys.length + 1));
       const key = between(keys[at - 1], keys[at]);
       assert.ok(isKey(key), `well-formed: ${key}`);
       if (at > 0) assert.ok(keys[at - 1] < key, `${keys[at - 1]} < ${key}`);
@@ -79,17 +95,28 @@ await check("keys stay sorted and well-formed under random inserts", () => {
 await check("no room between equal keys is an error, and ties order by id", () => {
   assert.throws(() => between("V", "V"), RangeError);
   assert.throws(() => between("b", "a"), RangeError);
-  const rows = [{ id: "b", pos: "V" }, { id: "a", pos: "V" }, { id: "c", pos: "F" }];
-  assert.deepEqual(rows.sort(byPos).map(r => r.id), ["c", "a", "b"]);
+  const rows = [
+    { id: "b", pos: "V" },
+    { id: "a", pos: "V" },
+    { id: "c", pos: "F" }
+  ];
+  assert.deepEqual(
+    rows.sort(byPos).map(r => r.id),
+    ["c", "a", "b"]
+  );
 });
 await check("isKey refuses what between cannot produce", () => {
-  for (const bad of ["", "V0", "a-b", "é", 3, null, "x".repeat(65)]) assert.equal(isKey(bad), false);
+  for (const bad of ["", "V0", "a-b", "é", 3, null, "x".repeat(65)])
+    assert.equal(isKey(bad), false);
 });
 
 console.log("board");
 await check("first value is the seed, lists and cards in order, nothing acknowledged", async () => {
   const board = await now(null);
-  assert.deepEqual(board.lists.map(l => l.title), ["To do", "Doing", "Done"]);
+  assert.deepEqual(
+    board.lists.map(l => l.title),
+    ["To do", "Doing", "Done"]
+  );
   assert.equal(board.cards.length, 4);
   assert.deepEqual(board.applied, []);
 });
@@ -124,19 +151,22 @@ await check("a retried create does nothing", async () => {
   await settle();
   assert.equal(tabA.seen.length, before);
 });
-await check("a move lands with its id in the sender's applied, in the same value, and nobody else's", async () => {
-  const m = mid();
-  const before = tabA.seen.length;
-  await db.moveCard(A, m, "seedtodocard0", "seeddone", between());
-  await settle();
-  assert.equal(tabA.seen.length, before + 1, "one yield carries both");
-  const mine = tabA.last();
-  assert.equal(mine.cards.find(c => c.id === "seedtodocard0").listId, "seeddone");
-  assert.ok(mine.applied.includes(m));
-  assert.equal(tabB.last().cards.find(c => c.id === "seedtodocard0").listId, "seeddone");
-  assert.deepEqual(tabB.last().applied, []);
-  assert.deepEqual((await now(null)).applied, []);
-});
+await check(
+  "a move lands with its id in the sender's applied, in the same value, and nobody else's",
+  async () => {
+    const m = mid();
+    const before = tabA.seen.length;
+    await db.moveCard(A, m, "seedtodocard0", "seeddone", between());
+    await settle();
+    assert.equal(tabA.seen.length, before + 1, "one yield carries both");
+    const mine = tabA.last();
+    assert.equal(mine.cards.find(c => c.id === "seedtodocard0").listId, "seeddone");
+    assert.ok(mine.applied.includes(m));
+    assert.equal(tabB.last().cards.find(c => c.id === "seedtodocard0").listId, "seeddone");
+    assert.deepEqual(tabB.last().applied, []);
+    assert.deepEqual((await now(null)).applied, []);
+  }
+);
 await check("a retried mutation id does nothing", async () => {
   const m = mid();
   await db.renameCard(A, m, "cardnew1", "Renamed");
@@ -157,43 +187,58 @@ await check("ids applied out of order are each acknowledged", async () => {
   await settle();
   assert.ok(tabA.last().applied.includes(first) && tabA.last().applied.includes(second));
 });
-await check("another tab overwriting the same card does not unacknowledge the first write", async () => {
-  const mine = mid();
-  await db.moveCard(A, mine, "cardnew1", "seedtodo", "z");
-  await db.moveCard(B, mid(), "cardnew1", "seeddone", "z");
-  await settle();
-  assert.ok(tabA.last().applied.includes(mine));
-  assert.equal(tabA.last().cards.find(c => c.id === "cardnew1").listId, "seeddone");
-});
-await check("a full list rejects a create and a move in, changes nothing, remembers nothing", async () => {
-  await db.createList("listfull1", "Full", between("z"));
-  let pos;
-  for (let i = 0; i < db.LIST_LIMIT; i++) {
-    await db.createCard(`fullcard${i}`, "listfull1", `Card ${i}`, (pos = between(pos)));
+await check(
+  "another tab overwriting the same card does not unacknowledge the first write",
+  async () => {
+    const mine = mid();
+    await db.moveCard(A, mine, "cardnew1", "seedtodo", "z");
+    await db.moveCard(B, mid(), "cardnew1", "seeddone", "z");
+    await settle();
+    assert.ok(tabA.last().applied.includes(mine));
+    assert.equal(tabA.last().cards.find(c => c.id === "cardnew1").listId, "seeddone");
   }
-  await settle();
-  const before = tabA.seen.length;
-  await rejects(db.createCard("fullcard9", "listfull1", "One too many", between(pos)), /is full/);
-  const m = mid();
-  await rejects(db.moveCard(A, m, "cardnew1", "listfull1", between(pos)), /is full/);
-  await settle();
-  assert.equal(tabA.seen.length, before, "no yield");
-  assert.ok(!tabA.last().applied.includes(m));
-  assert.equal(tabA.last().cards.filter(c => c.listId === "listfull1").length, db.LIST_LIMIT);
-});
+);
+await check(
+  "a full list rejects a create and a move in, changes nothing, remembers nothing",
+  async () => {
+    await db.createList("listfull1", "Full", between("z"));
+    let pos;
+    for (let i = 0; i < db.LIST_LIMIT; i++) {
+      await db.createCard(`fullcard${i}`, "listfull1", `Card ${i}`, (pos = between(pos)));
+    }
+    await settle();
+    const before = tabA.seen.length;
+    await rejects(db.createCard("fullcard9", "listfull1", "One too many", between(pos)), /is full/);
+    const m = mid();
+    await rejects(db.moveCard(A, m, "cardnew1", "listfull1", between(pos)), /is full/);
+    await settle();
+    assert.equal(tabA.seen.length, before, "no yield");
+    assert.ok(!tabA.last().applied.includes(m));
+    assert.equal(tabA.last().cards.filter(c => c.listId === "listfull1").length, db.LIST_LIMIT);
+  }
+);
 await check("a reorder inside a full list is allowed", async () => {
   await db.moveCard(A, mid(), "fullcard0", "listfull1", "zz");
   await settle();
-  assert.equal(tabA.last().cards.filter(c => c.listId === "listfull1").at(-1).id, "fullcard0");
+  assert.equal(
+    tabA
+      .last()
+      .cards.filter(c => c.listId === "listfull1")
+      .at(-1).id,
+    "fullcard0"
+  );
 });
-await check("archiving a list takes its cards out of the value; moving into it is rejected", async () => {
-  await db.archiveList(B, mid(), "listfull1");
-  await settle();
-  assert.ok(!tabA.last().lists.some(l => l.id === "listfull1"));
-  assert.ok(!tabA.last().cards.some(c => c.listId === "listfull1"));
-  await rejects(db.moveCard(A, mid(), "cardnew1", "listfull1", "V"), /archived/);
-  await rejects(db.renameCard(A, mid(), "fullcard1", "Too late"), /archived/);
-});
+await check(
+  "archiving a list takes its cards out of the value; moving into it is rejected",
+  async () => {
+    await db.archiveList(B, mid(), "listfull1");
+    await settle();
+    assert.ok(!tabA.last().lists.some(l => l.id === "listfull1"));
+    assert.ok(!tabA.last().cards.some(c => c.listId === "listfull1"));
+    await rejects(db.moveCard(A, mid(), "cardnew1", "listfull1", "V"), /archived/);
+    await rejects(db.renameCard(A, mid(), "fullcard1", "Too late"), /archived/);
+  }
+);
 await check("archiving what is already archived is acknowledged, not rejected", async () => {
   const m = mid();
   await db.archiveList(A, m, "listfull1");
@@ -222,7 +267,8 @@ await check("join and leave yield; a late leave removes only what it joined", as
   const seen = [];
   const end = new AbortController();
   const done = (async () => {
-    for await (const members of presence.watchMembers(end.signal)) seen.push(members.map(m => m.id));
+    for await (const members of presence.watchMembers(end.signal))
+      seen.push(members.map(m => m.id));
   })();
   await settle();
   const leaveFirst = presence.join({ id: "tab1", name: "one" });
