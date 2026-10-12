@@ -18,7 +18,7 @@ use crate::shared::condition::{
     ConditionBuilder, is_condition_shape, memo_wrap_thunk, transform_condition,
     transform_condition_inline, zero_arg_call_thunk,
 };
-use crate::shared::refs::{assignment_fallback, callable_test};
+use crate::shared::refs::{assignment_fallback, callable_test, unwrap_ts_ref_value};
 use crate::shared::utils::{
     decode_html_entities, element_name, get_numbered_id, is_component_name, static_jsx_expression,
     trim_jsx_text,
@@ -848,6 +848,13 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
         element_id: &str,
         mut value: Expression<'a>,
     ) -> std::vec::Vec<Statement<'a>> {
+        loop {
+            value = match value {
+                Expression::TSAsExpression(cast) => cast.unbox().expression,
+                Expression::TSNonNullExpression(cast) => cast.unbox().expression,
+                _ => break,
+            };
+        }
         self.visit_expression(&mut value);
         let elem = self.identifier_expression(span, element_id);
         let is_constant = matches!(&value, Expression::Identifier(identifier)
@@ -1370,6 +1377,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
         value: Expression<'a>,
         setup: &mut std::vec::Vec<Statement<'a>>,
     ) -> Option<ObjectPropertyKind<'a>> {
+        let value = unwrap_ts_ref_value(value);
         if let Expression::Identifier(identifier) = &value {
             let name = identifier.name.to_string();
             if self.bindings.is_const(&name) {
@@ -1378,7 +1386,9 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
         }
         if matches!(
             value,
-            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+            Expression::ArrowFunctionExpression(_)
+                | Expression::FunctionExpression(_)
+                | Expression::ArrayExpression(_)
         ) {
             return Some(self.object_property(span, "ref", value));
         }
