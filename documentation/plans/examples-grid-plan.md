@@ -161,8 +161,8 @@ Kept, with no further pass:
 Handed off, in this order:
 
 1. `chat-flagship.md`, then the rebuild. Absorbs `room`'s `/`.
-2. `board-flagship.md`, then `board`. Absorbs `room`'s `/live`. There is
-   no `board` today.
+2. `board-flagship.md`, then `board`. Absorbs `room`'s `/live`. _Taken
+   first (2026-10-12) and built; see the `board` entry below._
 3. Delete `room` once both exist.
 4. V5, then the `migrating-element` decision.
 5. G1 and G2, if a later example needs text positions or the binding-slot
@@ -349,7 +349,17 @@ retry. Absorbs `room`'s `/` page. The `usage` projection goes (token usage
 is a number on the finished message), which removes the container tier's
 only example — flagged, consistent with principles §10.5.
 
-### `board` — top-right FLAGSHIP. HANDED OFF (not built)
+### `board` — top-right FLAGSHIP. BUILT 2026-10-12
+
+Plan and build record: `documentation/plans/board-flagship.md`. As built:
+one live data source into a flat optimistic store, every write held with
+`until` for its acknowledgement in the value itself (a client-minted row id
+for a create, a per-client list of applied mutation ids for the rest;
+mutations return nothing), card elements created once at board level, one
+slide for local, remote and refused moves, pointer drag, presence. The
+second identity moment below is half met: an editor keeps its draft and
+selection through another tab's move, and loses focus, which waits on the
+runtime (#3997). The brief as handed off:
 
 Plan: `documentation/plans/board-flagship.md` (to write first). Pure data
 tier, no frames: one board of lists and cards as a `live` source, reconciled
@@ -520,7 +530,7 @@ are unreleased, so the flagships carry no deadline._
 5. `todos-server` reshape. Landed as forms, binding slots, and
    `aria-busy`. The optimistic toggle was not built.
 6. `chat-flagship.md`, then `chat`. Handed off. The streaming demo stays.
-7. `board-flagship.md`, then `board`. Handed off. Nothing exists yet.
+7. `board-flagship.md`, then `board`. Built 2026-10-12, ahead of 6.
 8. Retire `room`. Handed off; it stays until 6 and 7 exist.
 9. V5, then the `migrating-element` decision. Handed off. The canvas stays.
 
