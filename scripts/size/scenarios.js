@@ -1027,18 +1027,8 @@ module.exports = [
     // hold's unit goes from the key to the leaf; the end of the
     // container -> key -> leaf series. Cap set at measured + 10 B rounded up
     // to 0.01 KB. Accepted by the maintainer 2026-10-12.
-    // Same PR, the swapped-raw rule moved into the pairing both paths share
-    // (`ownRow`, checked by the eager `descend` as well as the held
-    // `adoptChild`; the eager record swap aliased too). Asked of every pair
-    // it cost +5 B and a raw set per frame (CodSpeed: -13% to -25% on the
-    // saturated reconcile benches), so the eager pairing asks it only of a
-    // frame that carries a row at a changed slot (`hasRow`, one lookup per
-    // value, once per frame): 14,879 -> 14,957 B brotli, 45,276 -> 45,435 B
-    // minified (+78 B / +159 B; the scan, the gate, and `descend` as a
-    // closure of `applyAdopt` for the two frames it reads). Cap set at
-    // measured + 10 B rounded up to 0.01 KB.
-    limit: "14.97 KB",
-    capMinified: 45435,
+    limit: "14.89 KB",
+    capMinified: 45276,
     alias
   },
   {
@@ -2369,12 +2359,9 @@ module.exports = [
     // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): 29.274 KB
     // -> 29.36 KB, measured locally at 29,350 B against `next` @ 49a765cc's
     // 29,205 (+145 B; +587 B minified, 92,291 -> 92,878). Cap set at measured
-    // + 10 B rounded up to 0.01 KB. The shared `ownRow` rule behind its slot
-    // scan (the createStore note): 29.36 KB -> 29.39 KB, measured locally at
-    // 29,371 B brotli / 93,038 B minified. Cap set at measured + 10 B rounded
-    // up to 0.01 KB.
-    limit: "29.39 KB",
-    capMinified: 93038,
+    // + 10 B rounded up to 0.01 KB.
+    limit: "29.36 KB",
+    capMinified: 92878,
     alias
   },
   {
@@ -3495,12 +3482,9 @@ module.exports = [
     // app's store pays the held-read pairing — 25.51 KB -> 25.65 KB, measured
     // locally at 25,637 B against `next` @ 49a765cc's 25,492 (+145 B; +586 B
     // minified, 79,919 -> 80,505). Cap set at measured + 10 B rounded up to
-    // 0.01 KB. The shared `ownRow` rule behind its slot scan (the createStore
-    // note) adds ~80 B brotli here too; the compiled scenarios do not build
-    // in the authoring container, so CI's run records the exact bytes and
-    // the cap takes them.
-    limit: "25.73 KB",
-    capMinified: 80670,
+    // 0.01 KB.
+    limit: "25.65 KB",
+    capMinified: 80505,
     alias
   },
   {
@@ -3585,12 +3569,9 @@ module.exports = [
     // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): 31.386 KB
     // -> 31.48 KB, measured locally at 31,466 B against `next` @ 49a765cc's
     // 31,215 (+251 B; +587 B minified, 99,808 -> 100,395). Cap set at measured
-    // + 10 B rounded up to 0.01 KB. The shared `ownRow` rule behind its slot
-    // scan (the createStore note) adds ~80 B brotli here too; the compiled
-    // scenarios do not build in the authoring container, so CI's run records
-    // the exact bytes and the cap takes them.
-    limit: "31.56 KB",
-    capMinified: 100560,
+    // + 10 B rounded up to 0.01 KB.
+    limit: "31.48 KB",
+    capMinified: 100395,
     alias
   },
   {

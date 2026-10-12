@@ -195,17 +195,7 @@ there is nothing to diff.)
   is asked. Container → key → leaf is the end of this series; there is no
   finer unit. Not paired (the hold stands): a shallow family, a reorder (the
   keys differ), and a `reconcile()` in a plain setter, whose key the target
-  does not carry. Nor, in either pairing, a raw present in both frames — the
-  same objects swapped or reordered (`{x: A, y: B}` to `{x: B, y: A}`): it
-  moved, it did not change, and it is its own row (`ownRow`, the one rule
-  `descend` and `adoptChild` share). Paired, the two would alias after the
-  commit; unpaired, each raw keeps its target and the slots change. The rule
-  reads a raw set per frame, so the eager pairing asks it only of a frame
-  that carries a row already at a changed slot (`hasRow`: one lookup per
-  value, decided once per frame); a frame of fresh raws, the common one,
-  pairs by slot and builds nothing, and an unchanged subtree kept at its
-  slot is no move. A raw that is a row of the family already keeps it there
-  too, unless that row is the slot's own (its raw re-sent).
+  does not carry.
 
 ## 4. Identity rules
 

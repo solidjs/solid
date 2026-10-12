@@ -31,7 +31,6 @@ import {
   notifyFoldTail,
   notifyKeyDiff,
   notifyKeyValue,
-  ownRow,
   sameKey,
   sameRow,
   targetsEqual,
@@ -105,36 +104,6 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // — key matching from the arrangement the guesses made (R28), so a row
   // the guess added keeps its proxy when the server returns it.
   const prevView = fam?.opt === true ? optHooks!.view(t, prev) : prev;
-  // Descend into a changed child pair — only where something is proxied
-  // below (§6d), never into a raw-marked leaf, never across array/object or
-  // a key mismatch (that is a replacement, handled by the parent's slot),
-  // never into a raw of both frames (it moved: its own row, #3712). That
-  // last rule costs a raw set per frame, so it runs only on a frame that
-  // carries a row already (`hasRow`, one lookup per value, decided once):
-  // a frame of fresh raws, the common one, pairs by slot.
-  let moved: boolean | undefined;
-  const descend = (pv: any, nv: any): void => {
-    if (pv === null || typeof pv !== "object" || nv === null || typeof nv !== "object") return;
-    const ct = lookupTarget(pv, fam);
-    if (ct === undefined) return; // nothing proxied below this pair
-    if (!isWrappable(nv)) return;
-    if (rawValuesUsed && isRawValue(nv)) return;
-    nv = unwrapValue(nv);
-    if (Array.isArray(pv) !== Array.isArray(nv)) return;
-    if (keyFn) {
-      const pk = keyFn(pv);
-      const nk = keyFn(nv);
-      if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return;
-    }
-    if (!proj && keyFn !== null && !ct.d) return;
-    // A raw that is a row already keeps it (its own, re-sent, is `ct`).
-    if (
-      (moved ??= hasRow(prevView, incoming, fam)) &&
-      ((lookupTarget(nv, fam) ?? ct) !== ct || ownRow(prevView, incoming, pv, nv))
-    )
-      return;
-    applyAdopt(ct, nv, keyFn, proj);
-  };
   const nextArr = Array.isArray(incoming);
   const shallow = t.s === true;
   const old = prev;
@@ -164,7 +133,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           nv !== null &&
           typeof nv === "object"
         )
-          descend(unwrapValue(pvRaw), nv);
+          descend(unwrapValue(pvRaw), nv, keyFn, fam, proj);
         if (
           t.dk !== null &&
           !dkBumpedA &&
@@ -216,7 +185,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           } else {
             pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
           }
-          descend(pv, nv);
+          descend(pv, nv, keyFn, fam, proj);
         }
         if (nodes !== null) {
           const node = nodes[i];
@@ -233,7 +202,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       for (let i = 0; i < nlen; i++) {
         const nvP = nextRows[i];
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
-          descend(unwrapValue(prevRows[i]), nvP);
+          descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
         if (
           t.dk !== null &&
           !dkBumpedP &&
@@ -279,7 +248,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       if (nodes !== null && nodes[k] !== undefined) nodesHit++;
       continue;
     }
-    if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv);
+    if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
     if (t.dk !== null && !dkBumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
       bumpDeep(t);
       dkBumped = true;
@@ -298,7 +267,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
     if (k === $OWNER) continue;
     const nv = (incoming as any)[k];
     if (!shallow && nv !== null && typeof nv === "object")
-      descend(unwrapValue((old as any)[k]), nv);
+      descend(unwrapValue((old as any)[k]), nv, keyFn, fam, proj);
     if (nodes !== null) {
       const node = nodes[k as any];
       if (node !== undefined) {
@@ -318,15 +287,28 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
 
 const hasOwnP = Object.prototype.hasOwnProperty;
 
-/** Does `next` carry a row of `fam` already at a slot `prev` did not — a
- * proxied raw that changed slot? That is the signature of a move within
- * the family (#3712); a frame of fresh raws has none, and an unchanged
- * subtree kept at its slot (an immutable update) is no move. */
-function hasRow(prev: any, next: any, fam: StoreFamily | null): boolean {
-  for (const k in next) {
-    const v = next[k];
-    if (v !== prev[k] && v !== null && typeof v === "object" && lookupTarget(v, fam) !== undefined)
-      return true;
+/** Descend into a changed child pair — only where something is proxied
+ * below (§6d), never into a raw-marked leaf, never across array/object or a
+ * key mismatch (that is a replacement, handled by the parent's slot). */
+function descend(
+  pv: any,
+  nv: any,
+  keyFn: KeyFn | null,
+  fam: StoreFamily | null,
+  proj = false
+): void {
+  if (pv === null || typeof pv !== "object" || nv === null || typeof nv !== "object") return;
+  const ct = lookupTarget(pv, fam);
+  if (ct === undefined) return; // nothing proxied below this pair
+  if (!isWrappable(nv)) return;
+  if (rawValuesUsed && isRawValue(nv)) return;
+  nv = unwrapValue(nv);
+  if (Array.isArray(pv) !== Array.isArray(nv)) return;
+  if (keyFn) {
+    const pk = keyFn(pv);
+    const nk = keyFn(nv);
+    if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return;
   }
-  return false;
+  if (!proj && keyFn !== null && !ct.d) return;
+  applyAdopt(ct, nv, keyFn, proj);
 }
