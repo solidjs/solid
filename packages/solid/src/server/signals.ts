@@ -1310,10 +1310,20 @@ export function createMemo<T>(
     else o._disposal = [o._disposal, flag];
   }
 
-  // Hoisted once — previously re-allocated per update() invocation.
+  // Hoisted once — previously re-allocated per update() invocation. Runs
+  // under the creating render's context: a retry (a source settling) runs
+  // after another request may have set its own, and everything the pass
+  // creates — a sync memo it pulls, a slot's content — would take that
+  // render's ids (#3972).
   const run = () => {
     resetOwnerForRerun(owner);
-    return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
+    const prev = sharedConfig.context;
+    sharedConfig.context = ctx;
+    try {
+      return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
+    } finally {
+      sharedConfig.context = prev;
+    }
   };
 
   function update() {
