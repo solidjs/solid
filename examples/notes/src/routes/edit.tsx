@@ -1,9 +1,23 @@
 import type { RouteProps } from "@solidjs/router";
-import { dynamic } from "@solidjs/web";
+import { createMemo, Show } from "solid-js";
 import NoteEditor from "~/components/NoteEditor";
-import { getNoteEdit } from "~/lib/api";
+import { getNoteEdit } from "~/routes/note";
 
 export default function EditNote(props: RouteProps<"/notes/:id/edit">) {
-  const View = dynamic(() => getNoteEdit(+props.params.id));
-  return <View editor={p => <NoteEditor {...p} />} />;
+  const note = createMemo(() => getNoteEdit(+props.params.id));
+  // Keyed: the editor seeds its draft from the note once, so another note
+  // (edit/1 -> edit/2 reuses this route) must mount a fresh editor.
+  return (
+    <Show
+      when={note()}
+      keyed
+      fallback={
+        <div class="note--empty-state">
+          <span class="note-text--empty-state">Couldn't find note with id {props.params.id}.</span>
+        </div>
+      }
+    >
+      {note => <NoteEditor noteId={note.id} initialTitle={note.title} initialBody={note.body} />}
+    </Show>
+  );
 }

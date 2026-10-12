@@ -292,9 +292,9 @@ the scope as described under [HUGE_FAN_IN](#huge_fan_in).
 
 ### GRAPH_GROWTH
 
-The live graph got bigger on every one of the last `data.history.length`
-visits to `data.route`, and it did not shrink on the visits in between —
-something each visit creates is never disposed. This is the leak a heap
+The live graph, counted when each navigation settles, got bigger on every
+one of the last `data.history.length` visits to `data.route` — something
+each visit creates is never disposed. This is the leak a heap
 snapshot finds; the engine finds it by measuring the reactive graph at each
 navigation's settle. `data.grew` says which measure climbed, and that names
 the leak: `owners` is an undisposed root or a Portal mounted per visit;

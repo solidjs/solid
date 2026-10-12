@@ -1019,15 +1019,16 @@ module.exports = [
     // #3884 (2026-10-08): measured at 14,707 B brotli / 44,669 B minified by CI
     // (Size run 37873447222). Cap set to that brotli size, rounded up to 0.01 KB.
     // Size-Exception (a row first read under a held adoption is paired with
-    // its old row, #3712, 2026-10-12): 14.71 KB -> 14.85 KB, measured locally
-    // at 14,835 B against `next`'s 14,706 (+129 B; +426 B minified, 44,678 ->
-    // 45,104) — `adoptChild` and the shared `sameRow` predicate on the held
-    // read path, and the derived store's family recording its row key. The
+    // its old row, #3712, 2026-10-12): 14.71 KB -> 14.89 KB, measured locally
+    // at 14,879 B against `next` @ 49a765cc's 14,702 (+177 B; +584 B minified,
+    // 44,692 -> 45,276) — `adoptChild` and the shared `sameRow` predicate on
+    // the held read path, the per-frame raw sets that keep a swapped raw its
+    // own row, and the derived store's family recording its row key. The
     // hold's unit goes from the key to the leaf; the end of the
     // container -> key -> leaf series. Cap set at measured + 10 B rounded up
     // to 0.01 KB. Accepted by the maintainer 2026-10-12.
-    limit: "14.85 KB",
-    capMinified: 45104,
+    limit: "14.89 KB",
+    capMinified: 45276,
     alias
   },
   {
@@ -2355,8 +2356,12 @@ module.exports = [
     // next's +13 B so this PR's +17 B minified failed the 20 B allowance.
     // Merged with next @ b083833f (#3948) it measures 29,274 B brotli / 92,655 B
     // minified. Cap and recorded minified set to those bytes, not above them.
-    limit: "29.274 KB",
-    capMinified: 92655,
+    // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): 29.274 KB
+    // -> 29.36 KB, measured locally at 29,350 B against `next` @ 49a765cc's
+    // 29,205 (+145 B; +587 B minified, 92,291 -> 92,878). Cap set at measured
+    // + 10 B rounded up to 0.01 KB.
+    limit: "29.36 KB",
+    capMinified: 92878,
     alias
   },
   {
@@ -2602,8 +2607,16 @@ module.exports = [
     // condition hello world stays under 10 KB.
     // #3928 merged with next @ 617d19511 (2026-10-09): measured at 12,976 B
     // (36,793 B minified). Cap set to that brotli, not above it.
-    limit: "12.976 KB",
-    capMinified: 36793,
+    // Size-Exception (a boundary's fallback is instantiated once per show,
+    // #3991, 2026-10-12): 12.976 KB -> 13.03 KB, measured locally at 13,020 B
+    // against `next`'s 12,946 (+74 B; +186 B minified, 36,746 -> 36,932) —
+    // boundaries.ts: the fallback is built in a computed of its own beside
+    // the output and kept across the output's re-derives while it shows
+    // (`_fb`), disposed by a queued run once the content that replaces it is
+    // on screen. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
+    // by the maintainer 2026-10-12.
+    limit: "13.03 KB",
+    capMinified: 36932,
     alias
   },
   {
@@ -2890,8 +2903,12 @@ module.exports = [
     // condition hello world stays under 10 KB.
     // #3884 stacked on next (2026-10-08): measured at 14,552 B brotli / 41,305 B minified
     // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "14.56 KB",
-    capMinified: 41305,
+    // Size-Exception (#3991, 2026-10-12; the CSR note): 14.56 KB -> 14.59 KB,
+    // measured locally at 14,573 B against `next`'s 14,565 (+8 B; +186 B
+    // minified, 41,274 -> 41,460). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-12.
+    limit: "14.59 KB",
+    capMinified: 41460,
     alias: observeAlias
   },
   {
@@ -3447,13 +3464,18 @@ module.exports = [
     // #3928 (2026-10-09): a select value is reapplied when its options arrive,
     // including multiple. Merged with next @ 617d19511: 25,465 B brotli
     // (79,753 B minified). Cap set to that brotli, not above it.
-    // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): the todo
-    // app's store pays the held-read pairing — 25.465 KB -> 25.51 KB,
-    // measured locally at 25,503 B against `next`'s 25,424 (+79 B; +426 B
-    // minified, 79,719 -> 80,145). Cap set at measured + 10 B rounded up to
+    // Size-Exception (#3991, 2026-10-12; the CSR note): the todo app's
+    // Loading pays the once-per-show fallback — 25.465 KB -> 25.51 KB,
+    // measured locally at 25,491 B against `next`'s 25,424 (+67 B; +186 B
+    // minified, 79,719 -> 79,905). Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-12.
-    limit: "25.51 KB",
-    capMinified: 80145,
+    // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): the todo
+    // app's store pays the held-read pairing — 25.51 KB -> 25.65 KB, measured
+    // locally at 25,637 B against `next` @ 49a765cc's 25,492 (+145 B; +586 B
+    // minified, 79,919 -> 80,505). Cap set at measured + 10 B rounded up to
+    // 0.01 KB.
+    limit: "25.65 KB",
+    capMinified: 80505,
     alias
   },
   {
@@ -3535,8 +3557,12 @@ module.exports = [
     // #3928 (2026-10-09): a select value is reapplied when its options arrive,
     // including multiple. Merged with next @ 617d19511: 31,386 B brotli
     // (100,248 B minified). Cap set to that brotli, not above it.
-    limit: "31.386 KB",
-    capMinified: 100248,
+    // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): 31.386 KB
+    // -> 31.48 KB, measured locally at 31,466 B against `next` @ 49a765cc's
+    // 31,215 (+251 B; +587 B minified, 99,808 -> 100,395). Cap set at measured
+    // + 10 B rounded up to 0.01 KB.
+    limit: "31.48 KB",
+    capMinified: 100395,
     alias
   },
   {

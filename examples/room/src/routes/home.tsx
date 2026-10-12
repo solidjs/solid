@@ -15,7 +15,7 @@
 // new call's stream in place (that connection is the one that joins the
 // room). Kill every connection and the loop reconnects from wherever it is.
 import { action, createSignal, latest, Loading, Show } from "solid-js";
-import { dynamic } from "@solidjs/web";
+import { dynamicComponent } from "@solidjs/web";
 import type { RouteSectionProps } from "@solidjs/router";
 import { useIdentity } from "~/lib/identity";
 import { roomPanel } from "~/lib/room-panel";
@@ -63,16 +63,17 @@ export default function Home(props: RouteSectionProps) {
   );
 }
 
-// `roomPanel(room, me)` is the reconnecting iterable itself, and `dynamic`
-// is a memo: it pumps the iterable as it pumps any async source, and its
-// value is the component the server answered with. A reconnect re-yields
-// the SAME binding — the memo stays quiet, nothing re-mounts, and the
-// reconnected render's markup lands as one morph. At t=0 the document's
-// markup IS the value: the memo adopts it during hydration, and the first
-// connection is the standing render's — here the call with the tab's
-// identity, which `dynamic` delivers into the adopted instance.
+// `roomPanel(room, me)` is the reconnecting iterable itself, and
+// `dynamicComponent` is a memo: it pumps the iterable as it pumps any async
+// source, and its value is the component the server answered with. A
+// reconnect re-yields the SAME binding — the memo stays quiet, nothing
+// re-mounts, and the reconnected render's markup lands as one morph. At t=0
+// the document's markup IS the value: the memo adopts it during hydration,
+// and the first connection is the standing render's — here the call with
+// the tab's identity, which `dynamicComponent` delivers into the adopted
+// instance.
 function Panel(props: { room: string; me: Identity | null; wire: Wire }) {
-  const Room = dynamic(() => props.wire.watch(roomPanel(props.room, props.me)));
+  const Room = dynamicComponent(() => props.wire.watch(roomPanel(props.room, props.me)));
   return (
     <Loading fallback={<p class="muted">Rendering the room on the server…</p>}>
       <Room composer={p => <Composer room={p.room} />} />

@@ -47,6 +47,7 @@ import {
   STATUS_PENDING
 } from "../core/constants.js";
 import {
+  captureWriteSnapshot,
   context,
   isEqual,
   notePromotedWrite,
@@ -55,6 +56,7 @@ import {
   REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
   setSignal,
   slotSignal,
+  snapshotCaptureActive,
   stagedRead,
   stagedScreen,
   strictRead,
@@ -516,6 +518,7 @@ function notifyContainer(k: Signal<any>, pb: Record<PropertyKey, any>): void {
   if (k._config & CONFIG_OVERRIDE) setSignal(k, pb);
   else {
     if (k._config & CONFIG_HELD) joinFuture(txOf(k));
+    if (snapshotCaptureActive) captureWriteSnapshot(k, k._value);
     insertSubs(k);
     schedule();
   }
@@ -954,7 +957,10 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
           // the adopted object (shared ownership — never cloned).
           t.pb = null;
           t.wk = null;
-        } else if (t.ovl && (t.v !== old || !overlayRebuilds(t, pb))) {
+        } else if (
+          t.ovl &&
+          (t.v !== old || (!overlayRebuilds(t, pb) && k?._x?._snapshotValue !== old))
+        ) {
           // Overlay flatten (#3044): the backing keeps its identity, so the
           // `t.v === old` gate below skips path copying (the parent slot
           // already points here) and the adopted-notify (setter
