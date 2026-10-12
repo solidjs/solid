@@ -6,7 +6,8 @@
  * the fix the hook was always awaited, so the read reached the network.
  */
 import { afterEach, expect, test, vi } from "vitest";
-import { createMemo, createRoot, enableHydration, flush, sharedConfig } from "solid-js";
+import { createMemo, createRoot, enableHydration, flush } from "solid-js";
+import { sharedConfig } from "solid-js/internal";
 import {
   configureServerFunctionsClient,
   createServerReference
