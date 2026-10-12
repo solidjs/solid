@@ -201,3 +201,38 @@ input.editable {
 .board-head h1 .editable {
   width: auto;
 }
+
+/* Dragging. The lifted row leaves the flow and follows the pointer; the
+   row it would land in front of makes room. */
+.card,
+.list-head {
+  touch-action: none;
+}
+
+.card {
+  cursor: grab;
+}
+
+.dragging,
+.dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.lifted {
+  rotate: 2deg;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 50%);
+}
+
+.card.gap-before {
+  margin-top: var(--gap);
+}
+
+.cards.gap-end {
+  padding-bottom: var(--gap);
+}
+
+.list.gap-before,
+.add-list.gap-before {
+  margin-left: var(--gap);
+}

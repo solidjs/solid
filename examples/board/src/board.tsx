@@ -31,6 +31,7 @@ import {
 import type { JSX } from "@solidjs/web";
 import { getRequestEvent, markSafeError, respond } from "@solidjs/web";
 import { GET, live } from "@solidjs/web/server-functions";
+import { createDrag, type Over } from "~/drag";
 import { createFlip } from "~/flip";
 import { mintId, useIdentity } from "~/identity";
 import { byPos, keyAt } from "~/order";
@@ -91,6 +92,11 @@ async function renameList(client: string, mutation: string, id: string, title: s
 async function renameCard(client: string, mutation: string, id: string, title: string) {
   "use server";
   await committing(db.renameCard(client, mutation, id, title));
+}
+
+async function moveList(client: string, mutation: string, id: string, pos: string) {
+  "use server";
+  await committing(db.moveList(client, mutation, id, pos));
 }
 
 async function moveCard(client: string, mutation: string, id: string, listId: string, pos: string) {
@@ -255,6 +261,23 @@ function createBoard() {
       }
     }),
 
+    moveList: action(function* (id: string, pos: string) {
+      const client = me();
+      if (!client) return;
+      const mutation = mintId();
+      starting(BOARD);
+      setBoard(b => {
+        const list = b.lists.find(l => l.id === id);
+        if (list) list.pos = pos;
+      });
+      try {
+        yield moveList(client.id, mutation, id, pos);
+        yield applied(mutation);
+      } catch (err) {
+        failed(BOARD, err);
+      }
+    }),
+
     archiveList: action(function* (id: string) {
       const client = me();
       if (!client) return;
@@ -302,7 +325,53 @@ function createBoard() {
     write.moveCard(card.id, target.id, keyAt(rows, to));
   };
 
-  return { board, lists, cardsOf, errors, write, nudge };
+  // A drop is the same write, placed by the pointer. Letting go where the
+  // row already was is not a write.
+  let root: HTMLElement | undefined;
+  const drag = createDrag({
+    root: () => root,
+    onDrop(over: Over) {
+      if (over.kind === "list") {
+        const rows = lists();
+        const from = rows.findIndex(l => l.id === over.id);
+        if (from === over.index) return;
+        write.moveList(
+          over.id,
+          keyAt(
+            rows.filter(l => l.id !== over.id),
+            over.index
+          )
+        );
+        return;
+      }
+      const card = board.cards.find(c => c.id === over.id);
+      if (!card || !over.listId) return;
+      const from = cardsOf(card.listId).findIndex(c => c.id === card.id);
+      if (card.listId === over.listId && from === over.index) return;
+      const rows = cardsOf(over.listId).filter(c => c.id !== card.id);
+      write.moveCard(card.id, over.listId, keyAt(rows, over.index));
+    }
+  });
+  // Where a dragged row would land, as each row asks it.
+  const landsBefore = (kind: Over["kind"], id: string | null, listId?: string) => {
+    const over = drag.over();
+    return (
+      !!over && over.kind === kind && over.beforeId === id && (!listId || over.listId === listId)
+    );
+  };
+
+  return {
+    board,
+    lists,
+    cardsOf,
+    errors,
+    write,
+    nudge,
+    grab: drag.grab,
+    landsBefore,
+    root: () => root,
+    setRoot: (el: HTMLElement) => void (root = el)
+  };
 }
 
 const BoardContext = createContext<ReturnType<typeof createBoard>>();
@@ -326,7 +395,7 @@ export default function BoardScreen() {
 }
 
 function BoardView() {
-  const { board, lists, errors, write } = useBoard();
+  const { board, lists, errors, write, landsBefore, root, setRoot } = useBoard();
 
   // One component, and so one element, per card for as long as the card
   // exists — created here, at board level, not inside a list. A list only
@@ -341,17 +410,16 @@ function BoardView() {
 
   // Where everything is: each list's place, and each card's list and place.
   // One string, so the slide's effect follows one value.
-  let root: HTMLDivElement | undefined;
   const arrangement = createMemo(
     () =>
       board.lists.map(l => `${l.id}@${l.pos}`).join() +
       "|" +
       board.cards.map(c => `${c.id}@${c.listId}@${c.pos}`).join()
   );
-  createFlip(() => root, arrangement);
+  createFlip(root, arrangement);
 
   return (
-    <div class="board" ref={root}>
+    <div class="board" ref={setRoot}>
       <Loading fallback={<p class="board-loading">Loading the board…</p>}>
         <header class="board-head">
           <h1>
@@ -367,7 +435,9 @@ function BoardView() {
           <For each={lists()}>
             {list => <ListView list={list}>{card => <>{cardElements().get(card.id)}</>}</ListView>}
           </For>
-          <AddForm class="add-list" label="Add a list" onAdd={write.createList} />
+          <div class={{ "add-list": true, "gap-before": landsBefore("list", null) }}>
+            <AddForm label="Add a list" onAdd={write.createList} />
+          </div>
         </main>
       </Loading>
     </div>
@@ -375,10 +445,16 @@ function BoardView() {
 }
 
 function ListView(props: { list: List; children: (card: Card) => JSX.Element }) {
-  const { cardsOf, errors, write } = useBoard();
+  const { cardsOf, errors, write, grab, landsBefore } = useBoard();
   return (
-    <section class="list" data-list={props.list.id}>
-      <header class="list-head">
+    <section
+      class={{ list: true, "gap-before": landsBefore("list", props.list.id) }}
+      data-list={props.list.id}
+    >
+      <header
+        class="list-head"
+        onPointerDown={e => grab("list", e.currentTarget.parentElement!, e)}
+      >
         <h2>
           <Editable
             label="List title"
@@ -395,7 +471,7 @@ function ListView(props: { list: List; children: (card: Card) => JSX.Element }) 
           ×
         </button>
       </header>
-      <ol class="cards">
+      <ol class={{ cards: true, "gap-end": landsBefore("card", null, props.list.id) }}>
         <For each={cardsOf(props.list.id)}>{props.children}</For>
       </ol>
       <Show when={errors[props.list.id]}>
@@ -416,7 +492,7 @@ const ARROWS: Record<string, [across: number, down: number]> = {
 };
 
 function CardView(props: { card: Card }) {
-  const { write, nudge } = useBoard();
+  const { write, nudge, grab, landsBefore } = useBoard();
   const onKeyDown = (e: KeyboardEvent & { currentTarget: HTMLLIElement }) => {
     const step = e.altKey && e.target === e.currentTarget && ARROWS[e.key];
     if (!step) return;
@@ -428,7 +504,13 @@ function CardView(props: { card: Card }) {
     queueMicrotask(() => el.focus());
   };
   return (
-    <li class="card" data-card={props.card.id} tabindex="0" onKeyDown={onKeyDown}>
+    <li
+      class={{ card: true, "gap-before": landsBefore("card", props.card.id) }}
+      data-card={props.card.id}
+      tabindex="0"
+      onKeyDown={onKeyDown}
+      onPointerDown={e => grab("card", e.currentTarget, e)}
+    >
       <Editable
         label="Card title"
         value={props.card.title}
@@ -490,7 +572,7 @@ function Editable(props: { label: string; value: string; onCommit: (title: strin
   );
 }
 
-function AddForm(props: { label: string; class?: string; onAdd: (title: string) => void }) {
+function AddForm(props: { label: string; onAdd: (title: string) => void }) {
   const submit = (e: SubmitEvent & { currentTarget: HTMLFormElement }) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -500,7 +582,7 @@ function AddForm(props: { label: string; class?: string; onAdd: (title: string) 
     form.reset();
   };
   return (
-    <form class={`add ${props.class ?? ""}`} onSubmit={submit}>
+    <form class="add" onSubmit={submit}>
       <input
         name="title"
         aria-label={props.label}
