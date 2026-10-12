@@ -46,7 +46,7 @@ function Comment(props: { comment: CommentDefinition }) {
   return (
     <li class="comment">
       <div class="by">
-        {c.user ? <a href={`/users/${c.user}`}>{c.user}</a> : null} {c.time_ago}
+        <a href={`/users/${c.user}`}>{c.user}</a> {c.time_ago}
       </div>
       <div class="text" innerHTML={c.content} />
       {c.comments.length ? (

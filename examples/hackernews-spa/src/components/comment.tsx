@@ -5,10 +5,7 @@ const Comment: Component<{ comment: CommentDefinition }> = props => {
   return (
     <li class="comment">
       <div class="by">
-        <Show when={props.comment.user}>
-          <a href={`/users/${props.comment.user}`}>{props.comment.user}</a>
-        </Show>{" "}
-        {props.comment.time_ago}
+        <a href={`/users/${props.comment.user}`}>{props.comment.user}</a> {props.comment.time_ago}
       </div>
       <div class="text" innerHTML={props.comment.content} />
       <Show when={props.comment.comments.length}>
