@@ -29,7 +29,7 @@ import {
   useContext
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { getRequestEvent, markSafeError } from "@solidjs/web";
+import { getRequestEvent, markSafeError, respond } from "@solidjs/web";
 import { GET, live } from "@solidjs/web/server-functions";
 import { createFlip } from "~/flip";
 import { mintId, useIdentity } from "~/identity";
@@ -59,7 +59,8 @@ async function committing(write: Promise<void>): Promise<void> {
   try {
     await write;
   } catch (err) {
-    throw err instanceof db.Rejected ? markSafeError(err) : err;
+    // 409: the request was fine, the board's state refused it.
+    throw err instanceof db.Rejected ? respond(markSafeError(err), { status: 409 }) : err;
   }
 }
 
