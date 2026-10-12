@@ -312,11 +312,20 @@ function descend(
   if (rawValuesUsed && isRawValue(nv)) return;
   nv = unwrapValue(nv);
   if (Array.isArray(pv) !== Array.isArray(nv)) return;
-  // An array row pairs by its key or not at all (a keyless row is a value);
-  // a record's child pairs by its name.
-  if (row) {
-    const pk = keyFn!(pv);
-    if (pk === undefined || !sameKey(pk, keyFn!(nv))) return;
+  // An array row pairs by its key or not at all (a keyless row is a value).
+  // A record's child pairs by its name — unless both are entities with
+  // different keys: `selectedUser` moving to another user is a replacement,
+  // never an adoption into the first user's target (which `users[i]` may
+  // share).
+  if (keyFn) {
+    const pk = keyFn(pv);
+    const nk = keyFn(nv);
+    if (
+      row
+        ? pk === undefined || !sameKey(pk, nk)
+        : pk !== undefined && nk !== undefined && !sameKey(pk, nk)
+    )
+      return;
   }
   if (!proj && keyFn !== null && !ct.d) return;
   applyAdopt(ct, nv, keyFn, proj);
