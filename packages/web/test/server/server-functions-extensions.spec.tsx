@@ -258,6 +258,39 @@ describe("server-function extension surface (built bundles)", () => {
     }
   });
 
+  it("sends in the calling tick when prepareRequest returns synchronously", async () => {
+    registerServerFunction("ext-fetch-8", async (n?: number) => n ?? 0);
+    const restore = connectTransport();
+    const send = globalThis.fetch;
+    let sends = 0;
+    // hydration swaps the global fetch only for one synchronous compute (#3959)
+    globalThis.fetch = ((address: any, init?: RequestInit) => {
+      sends++;
+      return send(address, init);
+    }) as typeof fetch;
+    configureServerFunctionsClient({ prepareRequest: init => init });
+    const calls: Promise<unknown>[] = [];
+    try {
+      const plain = createServerReference("ext-fetch-8")();
+      const withArg = createServerReference("ext-fetch-8")(5);
+      calls.push(plain, withArg);
+      expect(sends).toBe(2);
+      expect(await plain).toBe(0);
+      expect(await withArg).toBe(5);
+
+      configureServerFunctionsClient({ prepareRequest: async init => init });
+      const deferred = createServerReference("ext-fetch-8")(7);
+      calls.push(deferred);
+      expect(sends).toBe(2);
+      expect(await deferred).toBe(7);
+      expect(sends).toBe(3);
+    } finally {
+      await Promise.allSettled(calls);
+      configureServerFunctionsClient({ prepareRequest: null as any });
+      restore();
+    }
+  });
+
   it("sends a GET-declared read through the configured fetch too", async () => {
     serverGET(
       createServerSideReference(registerServerReference("ext-fetch-5", async (n: number) => n * 2))
