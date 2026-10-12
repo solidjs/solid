@@ -11,6 +11,12 @@ Where the HackerNews twin ([../hackernews](../hackernews)) shows markup that
 changing after it arrives** — one generation streaming through live markup
 holes, live slot arguments, and a live store, all crossing the same border.
 
+This stands in the persistent, server-owned corner as the demo the runtime
+can show today: one generation, a fake model, no threads. The product —
+durable threads, a generation that outlives the tab — is handed off in
+[`examples-grid-plan.md`](../../documentation/plans/examples-grid-plan.md).
+It is not built here.
+
 ```sh
 pnpm dev                  # http://localhost:3009
 pnpm build && pnpm start  # http://localhost:3009

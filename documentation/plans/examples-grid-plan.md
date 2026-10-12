@@ -2,10 +2,12 @@
 
 _Drafted 2026-09-28, from the fit conversation that produced principles §10
 and §9.6, with Stages 1–8 built and #3704 (attribute slots, second form)
-the last heavy feature. Status: DIRECTION AGREED in conversation; nothing
-here is built. This page is the checklist for the example set as a whole;
-the two flagships get their own plans (linked below) and this page does not
-design them. Design record:
+the last heavy feature. Status: the apps that already exist are as far as
+they go (Handoff, 2026-10-12). The left column landed on #3717 in the
+shapes review accepted. The flagship rebuilds, `board`, retiring `room`,
+and the V5 decision are handed off. This page is the checklist for the
+example set as a whole; the two flagships get their own plans (not written)
+and this page does not design them. Design record:
 `documentation/server-components/server-components-principles.md` §10 (fit)
 and §9.6 (live mutations seed). The grid is the one in
 ["The Grand Unifying Architecture of Frontend"](https://dev.to/playfulprogramming/the-grand-unifying-architecture-of-frontend-bhk)
@@ -131,17 +133,55 @@ on the left (`hackernews`, `notes`), and is its own comparison: the same
 primitives with the client owning the markup (`board`) and with the server
 owning it (`chat`).
 
+## Handoff (2026-10-12)
+
+The examples that exist are finished to what the runtime can do today. No
+new product, and no example waiting on G1, G2, or V1–V5. #3717 is that set.
+
+Landed, in the shape review accepted rather than the shape first written
+here:
+
+- `hackernews` / `hackernews-spa` — authoring layout, server routes,
+  cacheable GETs. Comment collapse is native `<details>`, not a binding
+  slot.
+- `notes` — React's split, single-flight mutations, occlusion specs.
+- `todos` — the SPA control. The README names the coordinate.
+- `todos-server` — forms, binding slots, server-rendered errors. Intent is
+  `aria-busy`, not an optimistic store.
+
+Kept, with no further pass:
+
+- `rendering`, `effect`, `sierpinski` — off-grid on purpose.
+- `chat` — the streaming demo that stands in the bottom-right corner. One
+  generation, a fake model, no threads. Not the flagship.
+- `room` — the live-declaration test bed, data and markup from one
+  declaration. It stays until the flagships exist.
+- `migrating-element` — the canvas. A mini-player waits on V5.
+
+Handed off, in this order:
+
+1. `chat-flagship.md`, then the rebuild. Absorbs `room`'s `/`.
+2. `board-flagship.md`, then `board`. Absorbs `room`'s `/live`. There is
+   no `board` today.
+3. Delete `room` once both exist.
+4. V5, then the `migrating-element` decision.
+5. G1 and G2, if a later example needs text positions or the binding-slot
+   execution model. Nothing landed here does.
+6. V1–V4, if `todos-server` is later brought to the optimistic toggle.
+   The landed example does not use that shape.
+
 ## Per-example disposition
 
-### `hackernews` — bottom-left, reads. KEEP; collapse → `<details>`, server routes, layout, README. Built 2026-09-29
+### `hackernews` — bottom-left, reads. LANDED (#3717). Built 2026-09-29, revised
 
 The front door: the simplest server component, navigation over server
 markup, and no client code. Revised in review (2026-09-29): the collapse only
 hides replies, which is native `<details>`, so a binding slot there was a
 heavier way to do what the browser already does. Both twins now render the
 same `<details>`, every route in this twin is a server route, and the client
-ships the router, the loading boundary, and a navigation dim
-(`useIsRouting()`) that both twins share. The binding-slot demos are
+ships the router and the loading boundary. A later revision dropped the
+navigation dim: the current page stays up until the next is ready. The
+binding-slot demos are
 `todos-server` and `chat`'s copy button (`notes`' search field was one until
 its shell moved to the client; see `notes` below).
 
@@ -198,7 +238,7 @@ page: it sent a schema-less route's args as `{ params, search: undefined }`,
 which the JSON argument check rejects, and nothing was logged. next.30
 (#615) fixed that, so every example that uses the router moved to next.31.
 
-### `hackernews-spa` — top-left. KEEP; layout only. Built 2026-09-29
+### `hackernews-spa` — top-left. LANDED (#3717). Built 2026-09-29
 
 The twin; exists only as the comparison. README names the coordinate. Takes
 the authoring layout: each route file's `query` carries its server function
@@ -207,7 +247,7 @@ module-level `"use server"` file). Diffing the twins then shows the thesis
 at the route file: the same `getStory`, returning JSON in one and markup in
 the other, and client components in one only.
 
-### `notes` — middle-left, the RSC coordinate. KEEP; authoring layout + README. Built 2026-09-30
+### `notes` — middle-left, the RSC coordinate. LANDED (#3717). Built 2026-09-30
 
 React's own server-components demo ported: client islands whose state
 survives server updates around them, and single-flight mutations by
@@ -239,7 +279,7 @@ Revised in review (2026-09-30), toward React's own shape:
   because not every app uses Solid Router; each router template does this
   wiring itself.
 
-### `todos` — top-left. KEEP; README + small cleanups. Built 2026-09-30
+### `todos` — top-left. LANDED (#3717). Built 2026-09-30
 
 The SPA control: optimistic store over `refresh`, client-held API mock.
 Twin of `todos-server`; also the pedagogical control for `board`. No server
@@ -250,7 +290,12 @@ checkboxes use `onChange`. The `todos.ts` header keeps its instruction (read
 it for the layering, not the syntax), which exists because agents reading
 the example missed the layering, but it is no longer phrased as a rebuke.
 
-### `todos-server` — bottom-left, writes. RESHAPE
+### `todos-server` — bottom-left, writes. LANDED (#3717), revised
+
+Shipped as forms with binding slots and server-rendered errors. A
+submitting row shows intent with `aria-busy`, not an optimistic store.
+The optimistic-toggle target below was not built, and V1–V4 do not block
+the example that shipped.
 
 Today: the §9.2.3 acceptance gate — seven client-owned positions per row, an
 intent record, a client error map, multi-flight `refresh`. Principles §10
@@ -289,7 +334,7 @@ the same question; the no-JS path reads the same list from the router's
 flash cookie. Add is not optimistic (a busy form, the error with a retry).
 The pending-row template slot is gone.
 
-### `chat` — bottom-right FLAGSHIP. REBUILD (own plan)
+### `chat` — bottom-right FLAGSHIP. STANDING DEMO; rebuild handed off
 
 Plan: `documentation/plans/chat-flagship.md` (to write first). Realistic
 AI chat: threads durable and addressable; generation as a job that outlives
@@ -304,7 +349,7 @@ retry. Absorbs `room`'s `/` page. The `usage` projection goes (token usage
 is a number on the finished message), which removes the container tier's
 only example — flagged, consistent with principles §10.5.
 
-### `board` — top-right FLAGSHIP. NEW (own plan)
+### `board` — top-right FLAGSHIP. HANDED OFF (not built)
 
 Plan: `documentation/plans/board-flagship.md` (to write first). Pure data
 tier, no frames: one board of lists and cards as a `live` source, reconciled
@@ -321,14 +366,14 @@ it). `board` is also the top-right form of `chat`: a live thread read by
 client components into an optimistic store is this architecture with a
 transcript instead of lists, which is why no separate `chat-spa` exists.
 
-### `room` — RETIRE
+### `room` — STAYS; retirement handed off with the flagships
 
 Stage 8's test bed. `/` becomes `chat`'s thread; `/live` becomes `board`.
 The chaos switch and status pills were apparatus; connection state stays
 visible in both flagships through `onstatus`, as an affordance the apps
 would have anyway. Delete once both flagships exist.
 
-### `migrating-element` — CONDITIONAL on V5
+### `migrating-element` — STAYS as the canvas; the decision is handed off with V5
 
 Today a canvas, because the README records that `<video>` pauses on
 migration. The spec and MDN say native media survives a same-task
@@ -460,26 +505,24 @@ value to branch on, and a stand-in is always truthy.
 
 ## Order
 
-_Revised 2026-09-29, #3704 merged: least work to most, one example per
-PR, and each example's exact code is proposed and reviewed before it is
-written — the shape and its details are the deliverable. Server
-components are unreleased, so the flagships carry no deadline; the
-examples that are already right carry the most value per hour._
+_Revised 2026-10-12. The list below is the record of the original sequence.
+What remains is the Handoff section: items 3–5 landed on #3717 in revised
+shapes (`<details>` rather than a binding slot; `aria-busy` rather than
+waiting on V1–V4). Items 1, 2, and 6–9 are handed off. Server components
+are unreleased, so the flagships carry no deadline._
 
-1. G2 (binding-slot execution), design then code.
-2. G1 (text positions), design then code.
-3. `hackernews` in the reviewed shape, with `hackernews-spa`'s layout
-   (built 2026-09-29).
-4. README and authoring-layout pass: `notes`, `todos` (and anything left
-   of `hackernews-spa`).
-5. `todos-server` reshape (V1–V4 first). Target decided 2026-09-29: the
-   Q5 shape above — single-flight, server-rendered rejections, one
-   binding slot with one position — not the Q4 wrap. Revised and built
-   2026-09-30 (see the section above).
-6. `chat-flagship.md`, then `chat`.
-7. `board-flagship.md`, then `board`.
-8. Retire `room`.
-9. V5, then the `migrating-element` decision.
+1. G2 (binding-slot execution), design then code. Handed off. Nothing
+   landed here needs it.
+2. G1 (text positions), design then code. Handed off.
+3. `hackernews` in the reviewed shape, with `hackernews-spa`'s layout.
+   Landed, as `<details>` (built 2026-09-29).
+4. README and authoring-layout pass: `notes`, `todos`. Landed.
+5. `todos-server` reshape. Landed as forms, binding slots, and
+   `aria-busy`. The optimistic toggle was not built.
+6. `chat-flagship.md`, then `chat`. Handed off. The streaming demo stays.
+7. `board-flagship.md`, then `board`. Handed off. Nothing exists yet.
+8. Retire `room`. Handed off; it stays until 6 and 7 exist.
+9. V5, then the `migrating-element` decision. Handed off. The canvas stays.
 
 ## Follow-ups this plan creates
 

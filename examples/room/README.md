@@ -15,6 +15,11 @@ both. Where [../chat](../chat) shows server-rendered markup that keeps
 changing after it arrives, this example is about liveness having **one
 declaration, one loop, and one status surface** across data and markup.
 
+It stays as the live-declaration test bed. The persistent-corner products
+(a real chat, a board) are handed off in
+[`examples-grid-plan.md`](../../documentation/plans/examples-grid-plan.md);
+this example is retired when they exist.
+
 ```sh
 pnpm dev                       # https://localhost:3010/  (self-signed cert)
 HTTPS=0 pnpm dev               # http://localhost:3010/   (HTTP/1.1 — see below)

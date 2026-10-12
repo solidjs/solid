@@ -5,6 +5,12 @@ element can be **referenced from multiple JSX slots** and the runtime will
 migrate the node — preserving its identity and every piece of state attached
 to it — instead of destroying and re-creating it.
 
+This example sits off the examples grid. The idiomatic case would be a
+mini-player with a `<video>`, and that waits on whether playback survives
+the move (V5 in
+[`examples-grid-plan.md`](../../documentation/plans/examples-grid-plan.md)).
+Until then the example is this canvas.
+
 ## What you'll see
 
 The page renders a `<canvas>` and three layout slots: a hero stage, a
