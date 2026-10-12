@@ -22,54 +22,28 @@ import {
   until
 } from "../src/index.js";
 
-test("external source echo satisfies until after await in an async-generator action (#3898)", async () => {
-  const [source, setSource] = createSignal<{ clientId: string }[]>([]);
-  let rows!: { clientId: string }[];
-  let setRows!: (fn: (draft: { clientId: string }[]) => void) => void;
-  let dispose!: () => void;
-
-  createRoot(d => {
-    dispose = d;
-    const [r, setR] = createOptimisticStore<{ clientId: string }[]>(() => source(), []);
-    rows = r;
-    setRows = setR;
-  });
-
-  const save = action(async function* () {
-    setRows(draft => {
-      draft.push({ clientId: "c1" });
-    });
-    await 0; // continuation resumes outside the action context
-    yield until(() => rows.some(row => row.clientId === "c1"), { timeout: 100 });
-  });
-
-  const done = save().then(
-    () => "confirmed" as const,
-    (error: unknown) => error
-  );
-
-  // The await-0 continuation installs until() before the outside echo lands.
-  await new Promise(r => setTimeout(r, 20));
-  setSource([{ clientId: "c1" }]);
-  flush();
-
-  await expect(done).resolves.toBe("confirmed");
-  flush();
-  expect(rows.some(row => row.clientId === "c1")).toBe(true);
-  dispose();
-});
-
-// The echo is judged as reconcile would judge it: the row by key (by
-// position when it has none), then leaf by leaf — key order and object
-// identity are not content.
-function echo(guessRow: Record<string, unknown>, sourceRow: Record<string, unknown>) {
+// The echo is judged as reconcile would judge it: the row by its key, then
+// leaf by leaf — key order and object identity are not content. A row
+// without a key is never an echo (position is not an identity): the landing
+// corrects, and a wait inside the hold still resolves on the corrected
+// truth; one created outside it (after an `await` with no `yield`) delivers
+// at the hold's commit, which the action is waiting on (D-31, #3482).
+function echo(
+  guessRow: Record<string, unknown>,
+  sourceRow: Record<string, unknown>,
+  options: { key?: string; inside?: boolean } = {}
+) {
   const [source, setSource] = createSignal<Record<string, unknown>[]>([]);
   let rows!: Record<string, unknown>[];
   let setRows!: (fn: (draft: Record<string, unknown>[]) => void) => void;
   let dispose!: () => void;
   createRoot(d => {
     dispose = d;
-    const [r, setR] = createOptimisticStore<Record<string, unknown>[]>(() => source(), []);
+    const [r, setR] = createOptimisticStore<Record<string, unknown>[]>(
+      () => source(),
+      [],
+      options.key === undefined ? undefined : { key: options.key }
+    );
     rows = r;
     setRows = setR;
   });
@@ -77,7 +51,8 @@ function echo(guessRow: Record<string, unknown>, sourceRow: Record<string, unkno
     setRows(draft => {
       draft.push(guessRow);
     });
-    await 0;
+    await 0; // the continuation resumes outside the action context
+    if (options.inside) yield; // re-enter it before creating a reader
     yield until(() => rows.some(row => row.clientId === "c1"), { timeout: 60 });
   });
   const done = save().then(
@@ -86,6 +61,7 @@ function echo(guessRow: Record<string, unknown>, sourceRow: Record<string, unkno
   );
   return {
     done,
+    rowBefore: () => rows[0],
     land: async () => {
       await new Promise(r => setTimeout(r, 20));
       setSource([sourceRow]);
@@ -95,8 +71,19 @@ function echo(guessRow: Record<string, unknown>, sourceRow: Record<string, unkno
   };
 }
 
+test("external source echo satisfies until after await in an async-generator action (#3898)", async () => {
+  const e = echo({ clientId: "c1" }, { clientId: "c1" }, { key: "clientId" });
+  await e.land();
+  await expect(e.done).resolves.toBe("confirmed");
+  e.dispose();
+});
+
 test("an echo with its keys in another order confirms (#3898)", async () => {
-  const e = echo({ clientId: "c1", text: "hi" }, { text: "hi", clientId: "c1" });
+  const e = echo(
+    { clientId: "c1", text: "hi" },
+    { text: "hi", clientId: "c1" },
+    { key: "clientId" }
+  );
   await e.land();
   await expect(e.done).resolves.toBe("confirmed");
   e.dispose();
@@ -105,48 +92,33 @@ test("an echo with its keys in another order confirms (#3898)", async () => {
 test("an echo with nested rows confirms leaf by leaf (#3898)", async () => {
   const e = echo(
     { clientId: "c1", tags: [{ id: 1, n: "a" }] },
-    { clientId: "c1", tags: [{ n: "a", id: 1 }] }
+    { clientId: "c1", tags: [{ n: "a", id: 1 }] },
+    { key: "clientId" }
   );
   await e.land();
   await expect(e.done).resolves.toBe("confirmed");
   e.dispose();
 });
 
-test("an answer whose content differs corrects: the mainline wait is the hold's (D-31, #3482)", async () => {
-  const e = echo({ clientId: "c1", text: "hi" }, { clientId: "c1", text: "edited" });
+test("a row without a key is never an echo: the landing corrects, and the wait inside the hold resolves on it", async () => {
+  const e = echo({ clientId: "c1", text: "hi" }, { text: "hi", clientId: "c1" }, { inside: true });
+  const before = e.rowBefore();
   await e.land();
-  await expect(e.done).resolves.toBe("TimeoutError");
+  await expect(e.done).resolves.toBe("confirmed");
+  flush();
+  expect(e.rowBefore()).not.toBe(before); // corrected: the truth's row replaced the guess
   e.dispose();
 });
 
-test("a row that references itself is not an echo: the landing corrects, the store stays readable", async () => {
-  const g: any = { clientId: "c1" };
-  g.self = g;
-  const s: any = { clientId: "c1" };
-  s.self = s;
-  const [source, setSource] = createSignal<any[]>([]);
-  let rows!: any[], setRows!: (fn: (d: any[]) => void) => void;
-  let dispose!: () => void;
-  createRoot(d => {
-    dispose = d;
-    [rows, setRows] = createOptimisticStore<any[]>(() => source(), []);
-  });
-  flush();
-  const done = action(async function* () {
-    setRows(d => {
-      d.push(g);
-    });
-    await 0;
-    yield until(() => rows.some(r => r.clientId === "c1"), { timeout: 60 });
-  })();
-  await new Promise(r => setTimeout(r, 20));
-  setSource([s]);
-  flush();
-  await done.catch(() => {});
-  flush();
-  expect(rows.length).toBe(1);
-  expect(rows[0].clientId).toBe("c1");
-  dispose();
+test("an answer whose content differs corrects: the mainline wait is the hold's (D-31, #3482)", async () => {
+  const e = echo(
+    { clientId: "c1", text: "hi" },
+    { clientId: "c1", text: "edited" },
+    { key: "clientId" }
+  );
+  await e.land();
+  await expect(e.done).resolves.toBe("TimeoutError");
+  e.dispose();
 });
 
 // A signal is not reconciled: an optimistic signal's echo is judged by the
