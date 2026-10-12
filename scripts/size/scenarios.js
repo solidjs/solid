@@ -1018,8 +1018,16 @@ module.exports = [
     // 2026-10-07: store scenarios only, hello world unchanged.
     // #3884 (2026-10-08): measured at 14,707 B brotli / 44,669 B minified by CI
     // (Size run 37873447222). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "14.71 KB",
-    capMinified: 44669,
+    // Size-Exception (a row first read under a held adoption is paired with
+    // its old row, #3712, 2026-10-12): 14.71 KB -> 14.85 KB, measured locally
+    // at 14,835 B against `next`'s 14,706 (+129 B; +426 B minified, 44,678 ->
+    // 45,104) — `adoptChild` and the shared `sameRow` predicate on the held
+    // read path, and the derived store's family recording its row key. The
+    // hold's unit goes from the key to the leaf; the end of the
+    // container -> key -> leaf series. Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-12.
+    limit: "14.85 KB",
+    capMinified: 45104,
     alias
   },
   {
@@ -3439,8 +3447,13 @@ module.exports = [
     // #3928 (2026-10-09): a select value is reapplied when its options arrive,
     // including multiple. Merged with next @ 617d19511: 25,465 B brotli
     // (79,753 B minified). Cap set to that brotli, not above it.
-    limit: "25.465 KB",
-    capMinified: 79753,
+    // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): the todo
+    // app's store pays the held-read pairing — 25.465 KB -> 25.51 KB,
+    // measured locally at 25,503 B against `next`'s 25,424 (+79 B; +426 B
+    // minified, 79,719 -> 80,145). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-12.
+    limit: "25.51 KB",
+    capMinified: 80145,
     alias
   },
   {

@@ -26,12 +26,12 @@ const tick = () => new Promise<void>(r => setTimeout(r, 0));
 
 describe("#3706 lazily mounted Show preview over an adopted row", () => {
   // `find` reads the row for the first time after the adoption inside the
-  // inner Show's `when` memo; the container hold stands there (design call,
-  // #3712; see the signals pin). `index` reads it from the
+  // inner Show's `when` memo; the row is paired with its old row at that
+  // read (#3712; see the signals pin) and `id` holds no one. `index` reads it from the
   // insert's render effect, a stale reader that keeps the committed frame
   // and publishes.
   for (const preview of ["find", "index", "none"] as const) {
-    (preview === "find" ? test.fails : test)(`preview=${preview}`, async () => {
+    test(`preview=${preview}`, async () => {
       const container = document.createElement("div");
       document.body.appendChild(container);
       let release!: () => void;
