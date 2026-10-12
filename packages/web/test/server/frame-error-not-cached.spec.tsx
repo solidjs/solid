@@ -52,7 +52,7 @@ async function chunksOf(response: Response) {
 describe("a thrown server component is not cached behind respond() headers", () => {
   it("a sync throw answers 200, no-store, with the error record still in the body", async () => {
     declare("frame-error-cache-throw", async () => {
-      const user = null;
+      const user: { id: string } | null = null;
       return respond(() => <h1>User : {user!.id}</h1>, cacheable);
     });
     const response = await handle(get("frame-error-cache-throw"));
