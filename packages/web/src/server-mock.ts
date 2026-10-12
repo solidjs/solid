@@ -144,6 +144,10 @@ export type AssetResolverFn = (
  * CSP nonce for the tags a server render emits. A string applies to both
  * nonce-aware destinations; a `{ script, style }` pair routes each tag to
  * its destination's nonce, with `false` leaving that destination un-nonced.
+ *
+ * Only `renderToString` / `renderToStream` take this shape. Surfaces that
+ * emit one script (`HydrationScript`, `generateHydrationScript`,
+ * `createSSRResponse`) take a string; project with `scriptNonce`.
  */
 export type CSPNonce = string | { script: string | false; style: string | false };
 

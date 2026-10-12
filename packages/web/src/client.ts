@@ -335,6 +335,9 @@ export const getTraceContext: () => TraceContext | undefined = voidFn;
 // it, so it costs a bundle exactly what user code asks for and
 // tree-shakes away otherwise (guarded in scripts/size-guard.mjs).
 export { parseCookieHeader, serializeCookie } from "./cookies.js";
+// The CSP nonce projection (see nonce.js): the REAL implementation, shared
+// with the server entry, so a document rendered on both sides can call it.
+export { scriptNonce, styleNonce } from "./nonce.js";
 // The flash cookie's isomorphic half (name/detection/clearing — cookie
 // utilities, see cookies.js) and the codec-free server-function layer
 // (detection + the late-bound RPC seam, see server-functions/registry.js).

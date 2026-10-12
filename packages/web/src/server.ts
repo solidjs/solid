@@ -73,6 +73,9 @@ export {
   getServerFunctionRPC,
   isServerFunction
 } from "../server-functions/src/registry.js";
+// The CSP nonce projection, shared with the client entry (see nonce.js).
+import { scriptNonce } from "./nonce.js";
+export { scriptNonce, styleNonce } from "./nonce.js";
 import {
   HEAD_ELIGIBLE_TAGS,
   HEAD_ATTR_NAME,
@@ -1423,25 +1426,6 @@ function normalizeNonce(nonce) {
     scriptAttr: typeof script === "string" && script ? ` nonce="${escape(script, true)}"` : "",
     styleAttr: typeof style === "string" && style ? ` nonce="${escape(style, true)}"` : ""
   };
-}
-
-function destinationNonce(nonce, destination) {
-  if (nonce == null) return undefined;
-  if (typeof nonce === "string") return nonce || undefined;
-  const value = nonce[destination];
-  return typeof value === "string" && value ? value : undefined;
-} /** The script-destination half of a render `nonce`. */
-export function scriptNonce(nonce?: CSPNonce): string | undefined;
-
-/** The script-destination half of a render `nonce`. */
-export function scriptNonce(nonce) {
-  return destinationNonce(nonce, "script");
-} /** The style-destination half of a render `nonce`. */
-export function styleNonce(nonce?: CSPNonce): string | undefined;
-
-/** The style-destination half of a render `nonce`. */
-export function styleNonce(nonce) {
-  return destinationNonce(nonce, "style");
 }
 
 // Attribute names are ASCII case-insensitive, so a caller-supplied `Nonce`
