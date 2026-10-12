@@ -77,7 +77,8 @@ function scene(boundary: boolean) {
     try {
       return data();
     } catch (e) {
-      return e;
+      // The engine throws its status wrapper; the user's error is its cause.
+      return (e as Error).cause ?? e;
     }
   };
   return {
