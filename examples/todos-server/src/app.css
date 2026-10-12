@@ -115,26 +115,20 @@ body {
   border-top: 1px solid #e6e6e6;
 }
 
+/* The toggles are submit buttons in forms (they work without JavaScript),
+   so the checkbox styling keys off `aria-pressed` and the row's class
+   instead of `:checked`. */
 .toggle-all {
-  width: 1px;
-  height: 1px;
-  border: none;
-  opacity: 0;
-  position: absolute;
-  right: 100%;
-  bottom: 100%;
-}
-
-.toggle-all + label {
   width: 45px;
   height: 65px;
   font-size: 0;
   position: absolute;
   top: -65px;
-  left: -0;
+  left: 0;
+  cursor: pointer;
 }
 
-.toggle-all + label:before {
+.toggle-all:before {
   content: "❯";
   display: inline-block;
   font-size: 22px;
@@ -144,7 +138,7 @@ body {
   transform: rotate(90deg);
 }
 
-.toggle-all:checked + label:before {
+.toggle-all[aria-pressed="true"]:before {
   color: #484848;
 }
 
@@ -181,30 +175,21 @@ body {
 }
 
 .todo-list li .toggle {
-  text-align: center;
   width: 40px;
-  /* auto, since non-WebKit browsers doesn't support input styling */
-  height: auto;
+  height: 100%;
   position: absolute;
   top: 0;
-  bottom: 0;
-  margin: auto 0;
-  border: none; /* Mobile Safari */
-  -webkit-appearance: none;
-  appearance: none;
+  left: 0;
+  cursor: pointer;
 }
 
-.todo-list li .toggle {
-  opacity: 0;
-}
-
-.todo-list li .toggle + label {
+.todo-list li label {
   background-image: url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%22-10%20-18%20100%20135%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2250%22%20fill%3D%22none%22%20stroke%3D%22%23949494%22%20stroke-width%3D%223%22%2F%3E%3C%2Fsvg%3E");
   background-repeat: no-repeat;
   background-position: center left;
 }
 
-.todo-list li .toggle:checked + label {
+.todo-list li.completed label {
   background-image: url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2240%22%20height%3D%2240%22%20viewBox%3D%22-10%20-18%20100%20135%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2250%22%20fill%3D%22none%22%20stroke%3D%22%2359A193%22%20stroke-width%3D%223%22%2F%3E%3Cpath%20fill%3D%22%233EA390%22%20d%3D%22M72%2025L42%2071%2027%2056l-4%204%2020%2020%2034-52z%22%2F%3E%3C%2Fsvg%3E");
 }
 
@@ -359,7 +344,12 @@ html .clear-completed:active {
   text-decoration: underline;
 }
 
-/* Optimistic / saving / errored affordances */
+/* Instant intent. The router marks a form `aria-busy` while its submission
+   is in flight; these rules show what was asked for from that alone, and
+   never what the answer will be. A toggle presses down rather than checking
+   itself; a row being deleted or cleared dims rather than disappearing.
+   `:has()` carries the bulk forms to every row they touch. If the answer
+   takes longer than a couple of seconds, the mark starts to pulse. */
 
 .loading {
   padding: 20px;
@@ -368,49 +358,61 @@ html .clear-completed:active {
   color: #949494;
 }
 
-.todo.pending label {
-  opacity: 0.5;
-  font-style: italic;
+.todo-list li:has(.toggle-form[aria-busy]) label,
+.todoapp:has(.toggle-all-form[aria-busy]) .todo-list li label {
+  outline: 2px dashed #b83f45;
+  outline-offset: -6px;
+  opacity: 0.6;
+  animation: waiting 0.8s ease-in-out 2s infinite;
 }
 
-.todo.errored label {
-  color: #c91524;
+.todoapp:has(.toggle-all-form[aria-busy]) .toggle-all:before {
+  color: #b83f45;
 }
 
-.todo-list li .retry {
-  display: none;
-  position: absolute;
-  top: 0;
-  right: 10px;
-  bottom: 0;
-  width: 40px;
-  height: 40px;
-  margin: auto 0;
-  font-size: 24px;
+.todo-list li:has(.destroy-form[aria-busy]),
+.todoapp:has(.clear-completed-form[aria-busy]) .todo-list li.completed {
+  opacity: 0.35;
+  animation: waiting 0.8s ease-in-out 2s infinite;
+}
+
+.header form[aria-busy] .new-todo {
+  color: #949494;
+  animation: waiting 0.8s ease-in-out 2s infinite;
+}
+
+@keyframes waiting {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+/* Answers: the server's words for a failed save, each with a retry.
+   Positioned so the footer's stacked-paper shadow (`.footer:before`,
+   anchored to the bottom of `.todoapp`) stays under it, not over it. */
+
+.add-error,
+.failures {
+  position: relative;
+  margin: 0;
+  padding: 10px 15px;
+  font-size: 15px;
   color: #c91524;
+  border-top: 1px solid #e6e6e6;
+}
+
+.failures {
+  list-style: none;
+}
+
+.failures li + li {
+  margin-top: 6px;
+}
+
+.add-error button,
+.failures button {
+  text-decoration: underline;
   cursor: pointer;
-  transition: color 0.2s ease-out;
-}
-
-.todo-list li .retry:after {
-  content: "\21bb";
-  display: block;
-  height: 100%;
-  line-height: 1.4;
-}
-
-.todo-list li .retry:hover,
-.todo-list li .retry:focus {
-  color: #8e0e1a;
-}
-
-.todo-list li.errored .retry {
-  display: block;
-}
-
-.todo-list li.errored .destroy,
-.todo-list li.errored:hover .destroy {
-  display: none;
 }
 
 .app-error {

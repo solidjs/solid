@@ -236,7 +236,7 @@ a {
   position: relative;
 }
 
-.comment .by, .comment .text, .comment .toggle {
+.comment .by, .comment .text, .comment .toggle > summary {
   font-size: 0.9em;
   margin: 1em 0;
 }
@@ -262,21 +262,28 @@ a {
   white-space: pre-wrap;
 }
 
-.comment .toggle {
+.comment .toggle > summary {
   background-color: #fffbf2;
   padding: 0.3em 0.5em;
   border-radius: 4px;
-}
-
-.comment .toggle a {
   color: #626262;
   cursor: pointer;
+  list-style: none;
 }
 
-.comment .toggle.open {
+.comment .toggle > summary::-webkit-details-marker {
+  display: none;
+}
+
+.comment .toggle[open] > summary {
   padding: 0;
   background-color: transparent;
   margin-bottom: -0.5em;
+}
+
+.comment .toggle[open] > summary > .closed-label,
+.comment .toggle:not([open]) > summary > .open-label {
+  display: none;
 }
 
 .user-view {
