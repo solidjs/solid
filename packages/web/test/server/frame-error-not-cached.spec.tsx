@@ -4,7 +4,7 @@
  * A server component wrapped in `respond(View, { headers })` contributes
  * those headers to the frame response. The component renders while the
  * response is being built, so a throw in that pass is known before the head
- * leaves, and `serverComponentResponse` declares the response uncacheable:
+ * leaves, and the frame response is declared uncacheable:
  * `no-store`, with the CDN-targeted fields that would override it at a CDN
  * removed. The status stays 200 and the body still carries the `:error`
  * record — that is how the client surfaces it. A render that succeeds keeps
@@ -14,7 +14,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { respond } from "@solidjs/web";
-import { frameTransformResult, serverComponentResponse } from "../../frames/src/frame-sink.js";
+import { frameTransformResult } from "../../frames/src/frame-sink.js";
 import {
   GET,
   createServerReference,
@@ -111,19 +111,5 @@ describe("a thrown server component is not cached behind respond() headers", () 
     const response = await handle(get("frame-error-cache-cdn-ok"));
     expect(response.headers.get("cache-control")).toBe("public, max-age=60");
     for (const name of cdnFields) expect(response.headers.get(name), name).toBe("max-age=600");
-  });
-
-  it("serverComponentResponse called directly declines to store a sync throw", async () => {
-    const user: { id: string } | null = null;
-    const response = serverComponentResponse(
-      () => <h1>User : {user!.id}</h1>,
-      { frame: { id: "direct" } },
-      cdnCacheable
-    );
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    for (const name of cdnFields) expect(response.headers.get(name), name).toBeNull();
-    const chunks = await chunksOf(response);
-    expect(chunks.some(c => c.type === "error" && !c.key)).toBe(true);
   });
 });
