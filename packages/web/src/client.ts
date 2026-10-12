@@ -2342,6 +2342,50 @@ export function hydrate(
 export function hydrate(code, element, options = {}) {
   enableHydration();
   installHydrationRuntime();
+  const hy = globalThis._$HY;
+  const id = options.renderId || "";
+  // #3971: an `async` entry runs as soon as it loads, which can be while the
+  // parser is still inside the server shell; the claim walk would gather only
+  // the `_hk` nodes parsed so far and leave the rest of the shell dead beside
+  // fresh client copies. The server ends each render's shell with a marker
+  // script (`_$HY.s[renderId] = 1`, see shellEndMarker); scripts run in parse
+  // order, so once it has run every shell node is in the DOM. Without it yet
+  // and mid-parse, park the start on the marker (or DOMContentLoaded, should
+  // no marker come). Streamed fragments land after the shell and are claimed
+  // on their own resume, so nothing waits for the stream. A root render's
+  // marker ("") also releases ids re-entered inside it (<Hydration id>). `s`
+  // is set by the server bootstrap only: a hand-built `_$HY` never parks.
+  if (hy.s && !hy.s[id] && !hy.s[""] && !hy.done && document.readyState === "loading") {
+    let started, disposer;
+    const start = () => {
+      if (started) return;
+      started = true;
+      document.removeEventListener("DOMContentLoaded", start);
+      disposer = hydrateRoot(code, element, options);
+    };
+    // The marker calls `_$HY.sw(renderId)`; the start rides a microtask so
+    // it runs once the marker script has finished, before parsing resumes.
+    const parked = hy.sp || (hy.sp = {});
+    (parked[id] || (parked[id] = [])).push(start);
+    // A root render's ("") shell covers every id re-entered inside it.
+    hy.sw = key => {
+      for (const k in parked) {
+        if (key && k !== key) continue;
+        for (const f of parked[k]) queueMicrotask(f);
+        delete parked[k];
+      }
+    };
+    document.addEventListener("DOMContentLoaded", start);
+    return () => {
+      started = true;
+      document.removeEventListener("DOMContentLoaded", start);
+      disposer && disposer();
+    };
+  }
+  return hydrateRoot(code, element, options);
+}
+
+function hydrateRoot(code, element, options) {
   if (globalThis._$HY.done) return render(code, element, [...element.childNodes], options);
   // #3081: the server splices useHead's charset/base prelude immediately
   // after the <head> open tag — a byte-placement constraint (charset within
