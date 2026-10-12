@@ -422,6 +422,10 @@ function CardView(props: { card: Card }) {
     if (!step) return;
     e.preventDefault();
     nudge(props.card, ...step);
+    // Moving an element takes focus off it today, and the next Alt+arrow
+    // needs it. This line comes out when the runtime keeps focus on a move.
+    const el = e.currentTarget;
+    queueMicrotask(() => el.focus());
   };
   return (
     <li class="card" data-card={props.card.id} tabindex="0" onKeyDown={onKeyDown}>
