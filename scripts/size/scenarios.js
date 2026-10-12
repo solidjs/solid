@@ -3304,8 +3304,18 @@ module.exports = [
     // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
     // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
     // condition hello world stays under 10 KB.
-    limit: "28.89 KB",
-    capMinified: 86911,
+    // Re-base (until() through a derivation of confirmed guesses, #3943,
+    // 2026-10-11): 28.89 KB -> 28.91 KB, measured at 28,897 B by CI (Size run
+    // 38127091137) against the PR's base, `next` @ c51c5c95c's 28,841 (+56 B;
+    // 7 B over the cap; +0 B minified, 86,937 -> 86,937; recorded 86,911 ->
+    // 86,937). The PR adds nothing minified here — the truth read sits behind
+    // GlobalQueue hooks the first `until`/`refresh` installs — and the brotli
+    // move is layout. The 26 B over the recorded minified was already on
+    // `next` (+12 B before #3977, +14 B from it), which had used up the 20 B
+    // allowance. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
+    // by the maintainer 2026-10-11.
+    limit: "28.91 KB",
+    capMinified: 86937,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -3916,8 +3926,14 @@ module.exports = [
     // (2026-10-08, "perf is important enough — it's the point here").
     // #3889 (2026-10-08): measured at 11,406 B brotli / 34,172 B minified by CI
     // (Size run 37873449521). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "11.41 KB",
-    capMinified: 34172,
+    // #3904 (2026-10-09): measured at 11,426 B brotli / 34,211 B minified by CI
+    // (Size run 37980542815) against the 11.41 KB / 34,172 B cap — 16 B over
+    // the brotli cap, +39 B minified (19 B past the 20 B allowance), +44 B
+    // minified over the PR base. The frames client calls
+    // installServerComponentHydration from installRevealHook. Cap set to that
+    // measurement, not above it.
+    limit: "11.426 KB",
+    capMinified: 34211,
     alias: framesAlias,
     external: framesExternal
   },

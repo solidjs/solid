@@ -11,6 +11,12 @@ Where the HackerNews twin ([../hackernews](../hackernews)) shows markup that
 changing after it arrives** — one generation streaming through live markup
 holes, live slot arguments, and a live store, all crossing the same border.
 
+This stands in the persistent, server-owned corner as the demo the runtime
+can show today: one generation, a fake model, no threads. The product —
+durable threads, a generation that outlives the tab — is handed off in
+[`examples-grid-plan.md`](../../documentation/plans/examples-grid-plan.md).
+It is not built here.
+
 ```sh
 pnpm dev                  # http://localhost:3009
 pnpm build && pnpm start  # http://localhost:3009
@@ -87,7 +93,7 @@ bottom.
   for each message, `welcome()` for the t=0 face, `<Message>` for the live
   hole, and the projection that becomes the client's usage store.
 - [src/app.tsx](./src/app.tsx) — the whole client app: transcript state, the
-  composer, autoscroll, and one `dynamic()` per reply.
+  composer, autoscroll, and one `dynamicComponent()` per reply.
 - [src/components/status.tsx](./src/components/status.tsx) — the client fill
   reading all three tiers: expression args, the pending promise read, and the
   materialized store.

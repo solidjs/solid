@@ -374,12 +374,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // — here, the finally below, updateIfNecessary — carries it (#3543).
   el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & REACTIVE_ZOMBIE);
   el._time = clock;
-  // The pass's previous value: its staging, else the lane's value for a
-  // lane's node (lanes.ts), else the committed one.
+  // The pass's previous value: its staging, else a lane node's lane value
+  // when it has one (lanes.ts), else the committed one.
   let value =
     el._pendingValue !== NOT_PENDING
       ? el._pendingValue
-      : el._config & CONFIG_OVERRIDE
+      : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
         ? el._x!._lane
         : el._value;
   let oldHeight = el._height;
@@ -678,6 +678,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           // derives from the future (`read`), an untracked one throws
           // (A19 exc. 1).
           el._statusFlags |= STATUS_UNINITIALIZED;
+          // A boundary that has not shown content catches it: its fallback
+          // waits for the commit (#3540). (The pass's own status clear above
+          // dropped what the read recorded.)
+          GlobalQueue._fresh?.(el);
         }
         if (__DEV__) devTrackHeldPending(el);
       }
@@ -715,16 +719,18 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
   // A first pass that went pending where the born-held arm would have held
   // its value (it read a held node, or a verdict lane's mount read a staging,
-  // #3851) is born into that transaction without holding it: the hold never
-  // waits for a first load (the direction rule), but the answer lands into it
-  // while it is live (A29, #3800).
+  // #3851) is held like it: its answer is the hold's, and the hold waits
+  // for it (A29, #3800) — unless a boundary that has not shown content
+  // catches it: then it is the boundary's, and the hold does not wait (#3540).
   if (
     create &&
     lane === null &&
     (joined || (prevLane && el._flags & REACTIVE_STAGED_READ)) &&
     el._statusFlags & STATUS_PENDING
-  )
-    ext(el)._bornIn = flushTransaction ?? passTx;
+  ) {
+    const t = flushTransaction ?? passTx;
+    if (t !== null && !t._lane && !GlobalQueue._fresh?.(el)) holdNode(el, t);
+  }
   // Dependencies are the committed frame's until it is replaced (A30, #3410):
   // a pass that staged its value leaves the previous pass's tail linked for
   // `commitPendingNode` to trim, so a write to a dependency the committed
@@ -962,7 +968,6 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _pendingFirstChild: null,
     _pendingDisposal: null,
     _transaction: null,
-    _bornIn: null,
     _reask: false,
     _flushed: NOT_PENDING,
     _flushedAt: -1,
@@ -983,13 +988,21 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * something not ready under a loading boundary that has not shown content:
  * the boundary collects it and shows its fallback, and the pass is the
  * boundary's, not the tick's (A29's boundary exemption, #3540). */
-function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
+export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
   c._flags |= REACTIVE_JOINED;
+  // A new memo's first pass is the hold's work (born held) but not the
+  // tick's: a render effect that reads it decides — under a boundary that
+  // catches it, the boundary's; otherwise the tick joins the hold (#3540:
+  // the reader's position, not where the memo was created). Its catch, if
+  // any, is at its staging.
   if (
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ||
     (c as any)._type !== EFFECT_RENDER
   )
-    joinPassTx(txOf(el), GlobalQueue._fresh?.(c));
+    joinPassTx(
+      txOf(el),
+      (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || GlobalQueue._fresh?.(c)
+    );
 }
 
 /** A15's stale reader (shared-hole and reveal corollaries): a render effect
@@ -1877,15 +1890,14 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * write never shows through the lane. A verdict lane's work likewise: the
  * lane holds verdicts, not the frame's other stagings (#3851) — except a
  * verdict reader, which answered for itself (the lane seam, lanes.ts). Not
- * a read of a node born staged: it has no committed value to re-derive on,
- * and a re-run would read the same staging and re-queue every round. */
+ * a read of a node born staged at all: it has no committed value to
+ * re-derive on, and a re-run would read the same staging and re-queue every
+ * round (#3969: nor does it make a later lane read a re-derive, `enterLane`). */
 export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): void {
-  c._flags |= REACTIVE_STAGED_READ;
-  if (
-    passLane !== null &&
-    !((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)
-  )
-    stagedReaders.push(c);
+  if (!((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)) {
+    c._flags |= REACTIVE_STAGED_READ;
+    if (passLane !== null) stagedReaders.push(c);
+  }
 }
 
 /** A10 for a staged node: a verdict reader (the pass entered a window) that
@@ -1918,14 +1930,15 @@ export function notePromotedWrite(el: Signal<any> | Computed<any>): void {
   promotedWrites.push(el);
 }
 
-/** Cold half of setSignal's snapshot arm (see there): first write during
- * capture to a plain signal without a live snapshot records the pre-write
- * value. Only plain user signals qualify. Computeds reach setSignal from an
+/** Cold half of setSignal's snapshot arm (see there), shared with a store
+ * container's structural notify: first write during capture to a plain
+ * signal without a live snapshot records the pre-write value. Only plain
+ * user signals qualify. Computeds reach setSignal from an
  * async landing (asyncWrite), and a value arriving from async during the pass
  * REVEALS — the creation-time arm skips pending computeds for the same
  * reason. Firewall leaves belong to a projection whose compute is the tree's
  * own work, captured (or deliberately not) at creation. */
-function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T): void {
+export function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T): void {
   if (
     el._config & CONFIG_NO_SNAPSHOT ||
     (el as Computed<T>)._fn !== undefined ||

@@ -159,10 +159,6 @@ function errorFamily(fam: StoreFamily): void {
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
     forEachDependent(n as unknown as Computed<any>, sub => {
-      // `pullFamily` drops this reader onto the untracked pull: the re-derive
-      // meets the stored error, including a follow-up pass. A fresh subscriber
-      // has no mark and still retries (#3945).
-      (sub as any)._errorMeet = true;
       enqueueSub(sub);
     });
   });
@@ -283,7 +279,9 @@ export function runProjectionComputed<T extends object>(
     // A flight went up (NotReady out of the pass — the derive's own, with
     // the derive as its source): the leaves' readers learn it from here —
     // they do not subscribe to the derive.
-    if (e instanceof NotReadyError && !first) wakeFamily(fam, e);
+    // A synchronous error the same way (#3956: a rerun that finds the
+    // entry failed throws): every live reader re-derives and meets it.
+    if (!first) e instanceof NotReadyError ? wakeFamily(fam, e) : errorFamily(fam);
     throw e;
   }
   // A pass that returned with a flight up (an iterator's sync first yield):

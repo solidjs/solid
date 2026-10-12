@@ -1,14 +1,13 @@
 /**
- * The direction rule (SPEC "The hold model — L2", amendment 2026-10-06): a
- * hold never waits on work that has never committed. Each shape below
- * mounts a first load (`page`, an async memo over `user`) while an action
- * holds `user = "bob"`; the hold's own reader (`header`) must show "bob" at
- * the action's release, never waiting on the pages' first loads.
+ * The hold waits for a first load a render effect consumes outside a
+ * boundary (F-2, D-6; the direction rule's time half — "a hold never waits
+ * on work that has never committed", 2026-10-06 — is withdrawn, 2026-10-09).
+ * Each shape mounts a first load (`page`, an async memo over `user`) while an
+ * action holds `user = "bob"`: the header stays on "ann" until the pages
+ * land, then "bob" and the pages appear together.
  *
- * The same-tick and in-flush shapes are recorded by the amendment as not yet
- * one-way — the frame of a tick is one transaction, so the hold waits with
- * the mount — and are pinned `it.fails` until a ruling makes them one-way.
- * The boundary shape is one-way today (#3540's boundary scope).
+ * Under a fresh Loading the boundary catches the page: the hold does not
+ * wait for it, and the boundary shows its fallback meanwhile (#3540).
  */
 import { expect, it } from "vitest";
 import {
@@ -87,32 +86,23 @@ async function run(shape: Shape) {
   return { log, atRelease };
 }
 
-it.fails(
-  "same tick, two mounts outside a flush: the hold lands at its release, before the pages' first loads",
-  async () => {
-    const r = await run("two-mounts-outside");
-    expect(r.atRelease).toEqual(["header bob"]);
-    expect(r.log).toEqual(expect.arrayContaining(["page1 page-bob", "page2 page-bob"]));
-  }
-);
+it("same tick, two mounts outside a flush: the hold waits for both pages", async () => {
+  const r = await run("two-mounts-outside");
+  expect(r.atRelease).toEqual([]);
+  expect(r.log).toEqual(expect.arrayContaining(["header bob", "page1 page-bob", "page2 page-bob"]));
+});
 
-it.fails(
-  "same tick, a mount then a sync reader: the hold lands at its release, before the page's first load",
-  async () => {
-    const r = await run("one-mount-then-sync-reader");
-    expect(r.atRelease).toEqual(["header bob"]);
-    expect(r.log).toEqual(expect.arrayContaining(["page page-bob", "sync BOB"]));
-  }
-);
+it("same tick, a mount then a sync reader: the hold waits for the page", async () => {
+  const r = await run("one-mount-then-sync-reader");
+  expect(r.atRelease).toEqual([]);
+  expect(r.log).toEqual(expect.arrayContaining(["header bob", "page page-bob", "sync BOB"]));
+});
 
-it.fails(
-  "in a flush that joined the hold: the hold lands at its release, before the mount's first load",
-  async () => {
-    const r = await run("in-flush");
-    expect(r.atRelease).toEqual(["header bob"]);
-    expect(r.log).toEqual(expect.arrayContaining(["page page-bob"]));
-  }
-);
+it("in a flush that joined the hold: the hold waits for the mount's first load", async () => {
+  const r = await run("in-flush");
+  expect(r.atRelease).toEqual([]);
+  expect(r.log).toEqual(expect.arrayContaining(["header bob", "page page-bob"]));
+});
 
 it("in a flush, under a Loading that has not shown content: the hold lands at its release; the boundary shows its fallback meanwhile", async () => {
   const r = await run("in-flush-boundary");

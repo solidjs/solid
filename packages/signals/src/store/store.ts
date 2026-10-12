@@ -47,6 +47,7 @@ import {
   STATUS_PENDING
 } from "../core/constants.js";
 import {
+  captureWriteSnapshot,
   context,
   isEqual,
   notePromotedWrite,
@@ -55,6 +56,7 @@ import {
   REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
   setSignal,
   slotSignal,
+  snapshotCaptureActive,
   stagedRead,
   stagedScreen,
   strictRead,
@@ -516,6 +518,7 @@ function notifyContainer(k: Signal<any>, pb: Record<PropertyKey, any>): void {
   if (k._config & CONFIG_OVERRIDE) setSignal(k, pb);
   else {
     if (k._config & CONFIG_HELD) joinFuture(txOf(k));
+    if (snapshotCaptureActive) captureWriteSnapshot(k, k._value);
     insertSubs(k);
     schedule();
   }
@@ -954,7 +957,10 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
           // the adopted object (shared ownership — never cloned).
           t.pb = null;
           t.wk = null;
-        } else if (t.ovl && (t.v !== old || !overlayRebuilds(t, pb))) {
+        } else if (
+          t.ovl &&
+          (t.v !== old || (!overlayRebuilds(t, pb) && k?._x?._snapshotValue !== old))
+        ) {
           // Overlay flatten (#3044): the backing keeps its identity, so the
           // `t.v === old` gate below skips path copying (the parent slot
           // already points here) and the adopted-notify (setter
@@ -1721,15 +1727,7 @@ function pullFamily(target: StoreTarget): void {
   // reader of a memo would — linked, so it re-runs at the landing (the
   // next settled pass pulls without linking and the stale link trims), a
   // verdict reader registered, a tracked pass suspended.
-  // A reader queued by the rejection (`errorFamily`) throws the stored error
-  // and does not retry, including a follow-up pass (#3945). The mark drops
-  // STATUS_ERROR out of this mask, so the pull is the untracked one below —
-  // core's retry stays the fresh-subscriber path, and a bundle with no store
-  // does not carry it. Pending pulls keep the bit.
-  if (
-    fw._statusFlags &
-    ((context as any)?._errorMeet ? STATUS_PENDING : STATUS_PENDING | STATUS_ERROR)
-  ) {
+  if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR)) {
     // A render effect outside the flight's own flush is the frame, not a
     // derivation: it keeps what it shows and learns of the landing from the
     // leaves the landing changes (unchanged leaves say nothing — it is not a

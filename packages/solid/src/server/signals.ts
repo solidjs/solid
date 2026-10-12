@@ -1310,10 +1310,20 @@ export function createMemo<T>(
     else o._disposal = [o._disposal, flag];
   }
 
-  // Hoisted once — previously re-allocated per update() invocation.
+  // Hoisted once — previously re-allocated per update() invocation. Runs
+  // under the creating render's context: a retry (a source settling) runs
+  // after another request may have set its own, and everything the pass
+  // creates — a sync memo it pulls, a slot's content — would take that
+  // render's ids (#3972).
   const run = () => {
     resetOwnerForRerun(owner);
-    return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
+    const prev = sharedConfig.context;
+    sharedConfig.context = ctx;
+    try {
+      return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
+    } finally {
+      sharedConfig.context = prev;
+    }
   };
 
   function update() {
@@ -2248,8 +2258,12 @@ function serverEffect<T>(
         // discovery pass — the read throws loudly anywhere else) escalates
         // the suspension to the boundary, which hands off to the client.
         if (isClientHole(source)) throw err;
+        // The retry runs after another request may have set its own context:
+        // run it, and the effect, under this render's (#3972, as the memo's).
         const retry = () => {
           if (comp.disposed) return;
+          const prev = sharedConfig.context;
+          sharedConfig.context = ctx;
           try {
             resetOwnerForRerun(owner);
             const result = runWithOwner(owner, () =>
@@ -2270,6 +2284,8 @@ function serverEffect<T>(
             const handler = getContext(ErrorContext, owner);
             if (handler) handler(retryErr);
             else throw retryErr;
+          } finally {
+            sharedConfig.context = prev;
           }
         };
         ctx.block(source.then(retry, () => {}));
@@ -2764,9 +2780,18 @@ export function createProjection<T extends object = {}>(
   const seedLoading = !!options?.seedLoadingValue;
   const frozenSeed = seedLoading ? cloneState(state, options?.shallow) : undefined;
 
+  // Under the creating render's context: a re-derive after a pending source
+  // settles runs after another request may have set its own (#3972, as the
+  // memo's `run`).
   const runProjection = () => {
     resetOwnerForRerun(owner);
-    return runWithOwner(owner, () => fn(draft));
+    const prev = sharedConfig.context;
+    sharedConfig.context = ctx;
+    try {
+      return runWithOwner(owner, () => fn(draft));
+    } finally {
+      sharedConfig.context = prev;
+    }
   };
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   try {
@@ -3621,6 +3646,8 @@ export function createErrorBoundary<T, U>(
       // the outer Loading boundary must see the tag to hand off instead of
       // awaiting it (see CLIENT_HOLE).
       const all: any = Promise.all(pending.p);
+      // A slot retry can drop this aggregate; the boundary still handles the rejection.
+      all.catch(() => {});
       if (pending.p.some(p => (p as any).$clientHole)) all.$clientHole = true;
       throw new NotReadyError(all);
     }

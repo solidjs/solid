@@ -33,7 +33,12 @@ import type { Element as SolidElement } from "solid-js";
 // already has). Kept external in rollup.config.js for the same reason the
 // server-functions/client import below is. (`assign` — a binding slot's
 // position writer — is the bind tier's import, not this entry's.)
-import { insert } from "@solidjs/web";
+// `installServerComponentHydration` is the server-component half of
+// hydration — solid's hold, claim window, fragment ownership and ledger
+// answer, and the DOM runtime's declared claim roots and frame exclusion of
+// the root sweep — installed from here (see installRevealHook) so a page
+// without server components never carries it.
+import { installServerComponentHydration, insert } from "@solidjs/web";
 import {
   createFrame,
   createFrameElement,
@@ -292,8 +297,9 @@ function followAddress(host: any, frame: { rebind(address: string): void }, bind
  * error). The error is announced to this node by the mount's frame
  * (`failed`, a tick written from its `onApply`); the node reads the record
  * off the frame bound to the address and surfaces each record once — the
- * applied state of 2.1, keyed by record identity, so a re-read of an error
- * this node already surfaced is not a re-throw but a RE-ASK.
+ * applied state of 2.1, keyed by the response version that carried it, so
+ * a re-read of an error this node already surfaced is not a re-throw but a
+ * RE-ASK, and a re-asked flight's error is a new one however alike.
  *
  * `reset` re-asks: the `<Errored>`'s `reset` recomputes the node that
  * threw — this one — and an errored landing is not a landing for a fresh
@@ -318,22 +324,27 @@ function followAddress(host: any, frame: { rebind(address: string): void }, bind
  * never sees the node go async.
  */
 function landing<T>(host: any, address: string, value: T, failed: () => unknown): () => T {
-  // What the address's store holds at creation is applied: a fresh
-  // consumer of an errored address re-asks, it does not re-throw.
-  let thrown = host.get(address)?.error;
+  // A record is its response's: the version that carried the error names
+  // it, not the payload — the server's is a message string, and two flights
+  // that fail alike carry equal ones. `errored` reads the address: false
+  // when it holds no error, 1 for the error already surfaced, 2 for a new
+  // one (now marked surfaced). What the address's store holds at creation
+  // is applied: a fresh consumer of an errored address re-asks, it does not
+  // re-throw.
+  let frame: any, thrown: number | undefined;
+  const errored = () =>
+    (frame = host.get(address))?.error !== undefined &&
+    (thrown === (thrown = frame.version) ? 1 : 2);
+  errored();
   return createMemo(() => {
     failed();
-    const error = host.get(address)?.error;
-    if (error !== undefined && error !== thrown) {
-      thrown = error;
-      throw error;
-    }
+    const state = errored();
+    if ((state as number) > 1) throw frame.error;
     const wait = host.landing(address);
     if (!wait) return value;
     // An errored address with no flight open (a flight's `start` clears
     // the mounts' error): this read is the re-ask.
-    const asked = error !== undefined ? reask(address) : undefined;
-    return (asked ? asked.then(() => wait) : wait).then(() => value);
+    return (state ? reask(address, wait) : wait).then(() => value);
   });
 }
 
@@ -343,18 +354,18 @@ function landing<T>(host: any, address: string, value: T, failed: () => unknown)
  * server-function client hands its response handler the call it dispatched
  * (or answered locally) as a thunk: the same reference, arguments, declared
  * shape and per-call options, so a `GET`-declared read stays a GET by
- * construction. Resolves when the call's response has been handled: the
- * flight is open and lands through the host. `undefined` for an address no
- * call is recorded for.
+ * construction. Resolves to `wait` (the address's next landing) once the
+ * call's response has been handled: the flight is open and lands through
+ * the host. `wait` itself for an address no call is recorded for.
  */
-function reask(address: string): Promise<unknown> | undefined {
+function reask<T>(address: string, wait: Promise<T>): Promise<T> {
   const call = callFor(address);
   if (IS_DEV && !call)
     console.error(
       `Server component boundary "${address}" errored, but no call is recorded for it; ` +
         `reset() cannot re-ask the server. (The address was written by hand, not by a call.)`
     );
-  return call && call.retry();
+  return call ? call.retry().then(() => wait) : wait;
 }
 
 /**
@@ -1178,8 +1189,21 @@ function boundaryMayArrive() {
  *   can no longer answer re-evaluate. Scoping the rescan to the revealed
  *   fragment's parent (rather than the document) keeps this proportional
  *   to what just arrived.
+ *
+ * First, the server-component half of hydration itself
+ * (`installServerComponentHydration`, `@solidjs/web`): the hold and the
+ * claim window this client registers and claims through, the ownership term
+ * the ledger asks `_$HY.fa` for, the ledger's answer — `_$HY.fr`, which the
+ * hooks below subscribe to and the arrival wait reads — and the DOM
+ * runtime's declared claim roots and frame exclusion of the root sweep.
+ * Installed from the integration rather than `hydrate()`, so a page without
+ * server components carries none of it; idempotent, and the ledger's answer
+ * needs only the page's `_$HY`, which is why this re-attempts wherever it is
+ * called (the entry call may precede the page's bootstrap in a test; the
+ * first document boundary cannot).
  */
 function installRevealHook() {
+  installServerComponentHydration();
   const hy = (globalThis as any)._$HY;
   if (!hy || hy.$sc || !hy.fr) return;
   hy.$sc = true;
@@ -1629,9 +1653,11 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
   }
   g._$SC.impl = (id: string, props: any, binding?: () => string) =>
     documentBoundary(host, id, props, binding);
-  // Late boundaries arrive with the reveals, so subscribe as early as the
-  // ledger allows (it installs with enableHydration; when this entry call
-  // precedes it, the first documentBoundary re-attempts).
+  // The server-component half of hydration (solid's and the DOM runtime's —
+  // see installRevealHook), ahead of the page's `hydrate()` and its root
+  // sweep, which this entry call precedes; and the reveal subscription, as
+  // early as the page's `_$HY` allows (when this call precedes the page's
+  // bootstrap, the first documentBoundary re-attempts).
   installRevealHook();
   const handler = createServerComponentHandler({
     host,

@@ -44,14 +44,36 @@ const INTERNAL = [
   "sharedConfig",
   "$DEVCOMP",
   // tag-arm core behind dynamicComponent / @solidjs/web dynamic (#3907)
-  "dynamicCore"
+  "dynamicCore",
+  // the server-component half of client hydration (real on the client
+  // entry, a no-op on the server), installed by @solidjs/web/frames' client
+  "enableServerComponentHydration"
 ];
 
 // The container-trace materializer's seams: exported from the client entry at
 // runtime (so `solid-js/internal/container-trace` shares this module's
 // state), `@internal`, and declared NOWHERE public — that entry types them
-// itself. Checked against the main declarations only.
-const CONTAINER_TRACE_SEAMS = ["withStoreHydration", "applyPatches", "forwardIteratorReturn"];
+// itself. The patch protocol, and the hydration helpers the store adapter
+// module that entry bundles its own copy of (client/store-hydration.ts)
+// reads back from the one `solid-js` instance. Checked against the main
+// declarations only.
+const CONTAINER_TRACE_SEAMS = [
+  "applyPatches",
+  "forwardIteratorReturn",
+  "readSerializedOrCompute",
+  "subFetch",
+  "readHydratedValue",
+  "wrapFirstYield",
+  "adoptedAnswerStream",
+  "withHydrationGate",
+  "onHydrationEnd",
+  "noHydrationId",
+  "markTopLevelSnapshotScope",
+  "hasLoadingWindow",
+  "isAsyncIterable",
+  "syncThenable",
+  "UNASKED"
+];
 
 const typesDir = resolve(import.meta.dirname, "../types");
 const read = (file: string) => readFileSync(resolve(typesDir, file), "utf8");

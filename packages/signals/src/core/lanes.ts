@@ -52,6 +52,7 @@ import {
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SCREEN_READ,
+  REACTIVE_STAGED_READ,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
@@ -232,8 +233,10 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // The pass read a held write before its first lane read (it joined the
     // frame's future as mainline would): lane work sees the screen — the
     // seam re-derives it on the committed world next round (`stagedReaders`,
-    // the park's repair), as it does a lane pass that read a staging.
-    if (c._flags & REACTIVE_JOINED) stagedRead(c);
+    // the park's repair), as it does a lane pass that read a staging. Not a
+    // pass whose held reads were all of nodes born held (no staged read,
+    // `stagedRead`): it has no committed world to re-derive on (#3969).
+    if (c._flags & REACTIVE_JOINED && c._flags & REACTIVE_STAGED_READ) stagedRead(c);
     return;
   }
   if (sameLane(p, l)) return setPassLane(l);
@@ -378,33 +381,17 @@ export function laneStage(
  * covered (no landing beneath it) — `optimisticReverted`'s "reverted". */
 let reverting = false;
 
-/** Plain data with the same contents: an optimistic row and the source
- * object that echoes it. Not reference equality. A throw (a cycle, a
- * throwing accessor) is not a match, so that landing stays a correction. */
-function sameContents(a: unknown, b: unknown): boolean {
-  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return false;
-  try {
-    return JSON.stringify(a) === JSON.stringify(b);
-  } catch {
-    return false;
-  }
-}
-
 export function supersede(n: Signal<any> | Computed<any>, value: unknown, changed: boolean): void {
   const l = txOf(n);
   // Resolved: the parent may have merged into another transaction since the
   // lane opened (two actions guessing one slot entangle, A34 (1)) — the
   // truth is held by the transaction that lands, not the merged-away one.
   const parent = resolveTx(l._parent ?? l);
-  // A different object with the same plain contents is the guess's echo, not
-  // a correction (#3898). Reference inequality dissolved the lane and held
-  // the echo under the open action, so a mainline `until` (after `await`)
-  // dropped a source that already contained the acknowledgement. Confirming
-  // stages the truth beneath the guess: the screen keeps the guess, and an
-  // authoritative reader sees the echo without the pass joining the hold.
-  // A real content change still corrects. A held broadcast of a different row
-  // (#3482) is not this landing.
-  if (changed && sameContents(n._x!._lane, value)) changed = false;
+  // A store row answered by a new object the store would reconcile into
+  // the guessed one unchanged is an echo, not a correction (#3898): the
+  // server's object never matches the guess by reference.
+  if (changed && n._config & CONFIG_SLOT_NODE && GlobalQueue._echoes?.(n._x!._lane, value))
+    changed = false;
   if (changed) {
     // Observe: a displayed guess is being replaced by a differing truth — a
     // landing's (superseded), or the value it covered (reverted: the body
@@ -417,17 +404,47 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     if (l._shown) n._value = n._x!._lane;
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     n._x!._lane = NOT_PENDING;
-    n._pendingValue = value;
     holdNode(n, parent);
-    joinFuture(parent);
     if (n._subs !== null) insertSubs(n);
   } else {
-    n._pendingValue = value;
     n._config |= CONFIG_HELD;
-    joinFuture(parent);
-    for (let s = n._subs; s !== null; s = s._nextSub)
-      if (s._sub._config & CONFIG_AUTHORITATIVE) enqueueSub(s._sub);
+    // A confirmation is silent (A17); only truth readers are told.
+    GlobalQueue._confirmed?.(l);
   }
+  n._pendingValue = value;
+  joinFuture(parent);
+}
+
+/** Truth readers (`until`, `refresh`; CONFIG_AUTHORITATIVE) — pay-for-use:
+ * the first one installs these on GlobalQueue (signals.ts `watch`).
+ *
+ * A truth reader's read of a lane node: the lane's value when it is the
+ * truth (#3943), else the truth staged beneath a guess, else the committed
+ * value. */
+export function truthRead(el: Signal<any> | Computed<any>): unknown {
+  return truth(el)
+    ? laneValueOf(el)
+    : el._config & CONFIG_GUESS && el._pendingValue !== NOT_PENDING
+      ? el._pendingValue
+      : el._value;
+}
+/** A guess confirmed: its lane's truth readers re-read — of the lane's
+ * derivations too, which may be the truth now (#3943). */
+export function truthConfirmed(l: Transaction): void {
+  for (let i = 0; i < l._nodes.length; i++)
+    for (let s = l._nodes[i]._subs; s !== null; s = s._nextSub)
+      if (s._sub._config & CONFIG_AUTHORITATIVE) enqueueSub(s._sub);
+}
+/** A lane node's value is the truth when every guess beneath it is
+ * confirmed — its source staged a value equal to the guess — and nothing
+ * beneath it is held in the parent: same inputs, same value. */
+function truth(n: Signal<any> | Computed<any>): unknown {
+  if (n._config & CONFIG_GUESS)
+    return n._pendingValue !== NOT_PENDING && n._equals && n._equals(n._x!._lane, n._pendingValue);
+  if (n._pendingValue !== NOT_PENDING) return;
+  if (n._config & CONFIG_OVERRIDE)
+    for (let d = (n as Computed<any>)._deps; d; d = d._nextDep) if (!truth(d._dep)) return;
+  return 1;
 }
 
 /** A lane's end, two ways. `into === null`: the parent landed — the lane's
@@ -564,8 +581,7 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
  * member throws like any. */
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
-  if (c !== null && c._config & CONFIG_AUTHORITATIVE)
-    return guess && el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+  if (c !== null && c._config & CONFIG_AUTHORITATIVE) return GlobalQueue._truth!(el);
   if (c === null) return laneValueOf(el);
   const l = txOf(el);
   const status = (el as Computed<any>)._statusFlags;

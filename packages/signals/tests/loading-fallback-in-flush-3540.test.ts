@@ -409,7 +409,9 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
   // The fresh pass's own catch walk (`_fresh`) records it on the revealed
   // boundaries it passes, as `catchStatus` records any pending read, and
   // its pending status is caught again by the normal path: one reader more
-  // than next on each boundary passed until the commit, none after it.
+  // than next on each boundary passed until the commit, none after it. A
+  // render effect born held (content bound) is recorded at its staging, as
+  // one in flight is: held or in flight alike.
   const expected: Record<string, string[]> = {
     // The ancestor catches, as pre-L2 (which also runs the binding behind
     // the fallback: `text fresh 0` — L2 holds a run behind a fallback,
@@ -422,7 +424,7 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
       "gate gate · open fresh 1 · outer outer"
     ],
     "unrevealed held bound": [
-      " | o2 i1",
+      " | o3 i2",
       "x 1 | o1 i0",
       " | o1 i0",
       "gate gate · open p · outer outer · text fresh 1"
@@ -452,7 +454,7 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
       ""
     ],
     "rearmed outer held bound": [
-      "outer outer fallback | o1 i1",
+      "outer outer fallback | o2 i2",
       "open p · outer outer · text fresh 1 · x 1 | o0 i0",
       " | o0 i0",
       ""
@@ -478,7 +480,7 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
       ""
     ],
     "rearmed held bound": [
-      "inner inner fallback | i1",
+      "inner inner fallback | i2",
       "inner inner · open p · text fresh 1 · x 1 | i0",
       " | i0",
       ""
@@ -499,11 +501,11 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
     // for its commit, as on next. Pre-L2 shows the committed value now; L2
     // joins the hold (A29).
     "plain held memo": [" | i1", "open fresh 1 · x 1 | i0", " | i0", ""],
-    "plain held bound": [" | i1", "open p · text fresh 1 · x 1 | i0", " | i0", ""],
+    "plain held bound": [" | i2", "open p · text fresh 1 · x 1 | i0", " | i0", ""],
     "plain flight memo": [" | i2", "holder 1 · open fresh 1 | i0", " | i0", ""],
     "plain flight bound": [" | i2", "holder 1 · open p · text fresh 1 | i0", " | i0", ""],
     "revealed held memo": [" | o1 i1", "open fresh 1 · x 1 | o0 i0", " | o0 i0", ""],
-    "revealed held bound": [" | o1 i1", "open p · text fresh 1 · x 1 | o0 i0", " | o0 i0", ""],
+    "revealed held bound": [" | o2 i2", "open p · text fresh 1 · x 1 | o0 i0", " | o0 i0", ""],
     "revealed flight memo": [" | o2 i2", "holder 1 · open fresh 1 | o0 i0", " | o0 i0", ""],
     "revealed flight bound": [
       " | o2 i2",
@@ -515,8 +517,10 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
   for (const shape of ["unrevealed", "rearmed outer", "revealed", "rearmed", "plain"] as Shape[])
     for (const source of ["held", "flight"] as Source[])
       for (const kind of ["memo", "bound"] as Content[])
-        // Re-arm over a held write: deferred to the re-arm change, pending its ruling.
-        (source === "held" && shape.startsWith("rearmed") ? it.fails : it)(
+        // Re-arm over a held write: content bound by a render effect is caught
+        // (a boundary that has not shown content keeps a held reader, #3540);
+        // content through a memo is still deferred to the re-arm change.
+        (source === "held" && shape.startsWith("rearmed") && kind === "memo" ? it.fails : it)(
           `${shape}, ${source}, content ${kind}`,
           async () => {
             const log: string[] = [];

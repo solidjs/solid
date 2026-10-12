@@ -12,6 +12,10 @@
 // flash animation fires when the title arg CHANGES on the same occurrence —
 // entity identity across single-flight morphs, courtesy of the `$key` the
 // server names each occurrence with.
+//
+// The excerpt mounts only while expanded, as in the demo. A collapsed note's
+// excerpt is never placed, so the server sends it once as a record rather than
+// as hidden markup, and expanding mounts it from that record with no request.
 import { useLocation } from "@solidjs/router";
 import { createEffect, createSignal, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
@@ -69,7 +73,7 @@ export default function SidebarNoteContent(props: {
           <img src="/chevron-up.svg" width="10px" height="10px" alt="Expand" />
         </Show>
       </button>
-      <div style={{ display: isExpanded() ? "block" : "none" }}>{props.expandedChildren}</div>
+      {isExpanded() && props.expandedChildren}
     </div>
   );
 }

@@ -5,23 +5,45 @@
  * LICENSE file in the root directory of this source tree.
  *
  */
-// The demo's NoteEditor.client.js. The forms post through the router's
-// actions: `saveNote` / `deleteNote` answer with a redirect, and because the
-// server registered a flight collector, that one response also carries the
-// fresh sidebar list and (for save) the fresh note view — submit to settled
-// UI in a single round trip. The live preview reuses the same NotePreview the
-// note's server component renders — the shared-module half of the demo.
+// The demo's NoteEditor.client.js, and the mutations it posts. Each action
+// answers with `redirect()` — and that redirect is what powers single-flight:
+// the server-function runtime hands the target URL to the router's flight
+// collector (see ../server-config.ts), which reruns the destination's server
+// route and preloads, so the response carries the redirect, the fresh sidebar
+// list, and (for save) the fresh note view — submit to settled UI in one round
+// trip. No revalidate keys are named, so everything the destination shows
+// refreshes: the original demo's "refetch the app" semantics, paid only for
+// the regions that actually show. The live preview reuses the same
+// NotePreview the note's server component renders — the shared-module half of
+// the demo.
+import { action } from "@solidjs/router";
 import { createSignal, untrack } from "solid-js";
-import { deleteNote, saveNote } from "~/lib/api";
+import { redirect } from "@solidjs/web";
+import * as db from "~/server/db";
 import NotePreview from "./NotePreview";
+
+const saveNote = action(async (id: number | undefined, formData: FormData) => {
+  "use server";
+  const saved = await db.saveNote(
+    id,
+    String(formData.get("title") ?? ""),
+    String(formData.get("body") ?? "")
+  );
+  return redirect(`/notes/${saved}`);
+});
+
+const deleteNote = action(async (id: number) => {
+  "use server";
+  await db.deleteNote(id);
+  return redirect("/");
+});
 
 export default function NoteEditor(props: {
   noteId?: number;
   initialTitle: string;
   initialBody: string;
 }) {
-  // Slot args are live — a server morph can push fresh values through these
-  // props. This editor seeds its own state from them ONCE by contract (the
+  // This editor seeds its own state from its props ONCE by contract (the
   // `initial*` names), so read them under `untrack` to declare that intent.
   const initial = untrack(() => ({
     noteId: props.noteId,
