@@ -11,7 +11,8 @@
     "build": "vite build",
     "start": "node server.js",
     "typecheck": "tsc --noEmit",
-    "check:server": "node scripts/check-server.mjs"
+    "check:server": "node scripts/check-server.mjs",
+    "check": "pnpm check:server && vite build && node scripts/check-bundle.mjs"
   },
   "dependencies": {
     "@solidjs/web": "workspace:*",
