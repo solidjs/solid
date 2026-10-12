@@ -7,6 +7,7 @@ import {
   CONFIG_OVERRIDE,
   CONFIG_REDERIVE,
   CONFIG_STAGED,
+  CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
   EFFECT_TRACKED,
@@ -28,6 +29,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
+import { landStatus, publishError, settleErroredDependents } from "./async.js";
 import { ext, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
@@ -1172,10 +1174,25 @@ export function commitPendingNode(n: Signal<any>): void {
   // commit beneath a flight publishes its inputs (A15 reveal corollary,
   // #3305): a reveal of it must observe, not show the pre-flight value.
   const inFlight = n._pendingValue === NOT_PENDING && (c._statusFlags! & STATUS_PENDING) !== 0;
+  const held = n._config & CONFIG_HELD;
   n._config = inFlight
     ? (n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_INPUTS_PUBLISHED
     : n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME | CONFIG_STAGED | CONFIG_INPUTS_PUBLISHED);
-  if (n._pendingValue !== NOT_PENDING) {
+  // D-40 (proposed): the staged answer is an error — published now, when a
+  // value would show (`stageError`).
+  if (n._config & CONFIG_STAGED_ERROR) {
+    const e = n._pendingValue;
+    n._pendingValue = NOT_PENDING;
+    n._config &= ~CONFIG_STAGED_ERROR;
+    publishError(c as Computed<unknown>, e);
+  } else if (n._pendingValue !== NOT_PENDING) {
+    // A held recovery: the shown error leaves with the value that replaces
+    // it, and the dependents holding it re-run (`asyncWrite` kept it).
+    if (held && c._statusFlags! & STATUS_ERROR) {
+      const e = c._x!._error;
+      landStatus(c as Computed<unknown>);
+      settleErroredDependents(c as Computed<unknown>, e);
+    }
     n._value = n._pendingValue as any;
     n._pendingValue = NOT_PENDING;
     // A node born staged (recompute) initializes at this commit.

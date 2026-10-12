@@ -5,7 +5,8 @@ import {
   parkLoadingWindow,
   releaseFlightTeardown,
   settleErroredDependents,
-  settlePendingSource
+  settlePendingSource,
+  stageError
 } from "./async.js";
 import {
   $REFRESH,
@@ -29,6 +30,7 @@ import {
   CONFIG_STAGED,
   CONFIG_HELD_FRAME,
   CAUGHT_REARMED,
+  CONFIG_STAGED_ERROR,
   CONFIG_SYNC,
   CONFIG_TRANSPARENT,
   defaultContext,
@@ -365,6 +367,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // settlePendingSource walk never runs for a landing that was preempted
   // (#3181).
   const wasPendingSource = el._x?._pendingSources?.has(el);
+  // D-40 (proposed): this pass's error is staged, not published (`stageError`).
+  let stagedErr = false;
   // A19 exc. 2: a `refresh()` re-asks the question already answered — quiet
   // for the verdict — unless the question in flight is a new one, which the
   // re-ask does not launder (a poll during a quiet confirm stays quiet).
@@ -442,6 +446,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // node is currently errored the error stays the answer until this
       // retry can actually run.
       parkLoadingWindow(el, e as NotReadyError);
+    } else if (!notReady && stageError(el, e, true)) {
+      stagedErr = true;
     } else {
       if (notReady) ext(el)._blocked = true;
       notifyStatus(el, notReady ? STATUS_PENDING : STATUS_ERROR, e);
@@ -527,13 +533,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let lane = passLane;
   // Listed before its staging, a pending pass included (the lane's own
   // flight is the lane's); false: the pass left the lane (lanes.ts).
-  const errored = !!el._x?._error;
+  const errored = !!el._x?._error || stagedErr;
   if (lane !== null) {
     if (GlobalQueue._laneStage!(el, lane, create, errored)) setPassLane(lane);
     else lane = null;
   }
 
-  if (!el._x?._error) {
+  if (!errored) {
     // Observe-tier fan-in (HUGE_FAN_IN): the validated prefix [_deps.._depsTail]
     // IS this pass's distinct sources — count it here rather than per link. A
     // begin/end bracket around the pass plus a per-link increment measured
@@ -1827,7 +1833,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
   // An errored derive throws for every late reader instead of silently
   // serving node values (memo parity, #2897 ruling).
-  if ((owner as Computed<any>)._fn && (owner as Computed<any>)._statusFlags & STATUS_ERROR) {
+  // D-40 (proposed): a reader in the hold of a recovery staged over the
+  // shown error derives from the recovery (`serve`), not the error.
+  if (
+    (owner as Computed<any>)._fn &&
+    (owner as Computed<any>)._statusFlags & STATUS_ERROR &&
+    readerSeesCommitted(el, c as Computed<any> | null)
+  ) {
     // Only a genuine reactive re-read may retry an errored async source:
     // - tracking: owned/tracked scope only (never events / `untrack` / effect side-effect phase)
     // - owner._time < clock: only on a later cycle than the one the error was found
@@ -1912,6 +1924,8 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   )
     return el._value;
   stagedRead(c!, el);
+  // D-40 (proposed): the staged answer is an error (`stageError`).
+  if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
   return el._pendingValue;
 }
 
@@ -2020,8 +2034,10 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (el._config & CONFIG_HELD) joinFuture(txOf(el));
   // Uninitialized check first: the first commit has no previous value, so the
   // user comparator must not run against `undefined` (matches recompute).
+  // D-40 (proposed): a write over a shown error is a change whatever the
+  // last good value was — the error leaves (`commitPendingNode`).
   const valueChanged =
-    !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
+    !!((el as Computed<T>)._statusFlags & (STATUS_UNINITIALIZED | STATUS_ERROR)) ||
     !el._equals ||
     !el._equals(currentValue, v);
   if (!valueChanged) return v;
