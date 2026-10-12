@@ -225,6 +225,10 @@ export interface ServerFunctionsClientConfig {
    *   }
    * });
    * ```
+   *
+   * Return synchronously when you can: hydration adopts a server-rendered
+   * read only if its request is sent in the same tick, so an async hook
+   * makes every hydrated read fetch again from the browser.
    */
   prepareRequest?: PrepareRequestHook;
   /**
@@ -608,7 +612,9 @@ async function createRequest(base, id, options, meta) {
   // RequestInit (transport headers included), so session policy can adjust
   // anything the transport is about to send.
   if (config.prepareRequest) {
-    const prepared = await config.prepareRequest(init, { id, meta });
+    let prepared = config.prepareRequest(init, { id, meta });
+    // A sync hook must send in this tick: hydration's fetch mock is only in place synchronously.
+    if (prepared && typeof prepared.then === "function") prepared = await prepared;
     // The hook's return is validated, not adopted wholesale (#3174): the
     // natural mistake — returning a fresh `{ headers }` instead of
     // spreading — used to silently drop the argument payload, the abort
