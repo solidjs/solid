@@ -651,10 +651,20 @@ function createBoundary<T>(
       if (__OBSERVE__ && b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
         attrHooks.boundaryFallback(b, b._tree, false);
       b._fallback = false;
-      if (b._fb !== null) {
-        dispose(b._fb);
-        b._fb = null;
-      }
+      // The fallback dies when the content that replaces it is on screen —
+      // with this flush's commits when the pass is the frame's, at the
+      // landing when the frame parks (the run is held with it, as the old
+      // children of a held pass are) — not now: a held swap keeps the
+      // fallback on screen, live, until it commits. A pass back to the
+      // fallback before then finds it still built and keeps it.
+      const fb = b._fb;
+      if (fb !== null)
+        globalQueue.enqueue(EFFECT_RENDER, () => {
+          if (!b._fallback && b._fb === fb) {
+            dispose(fb);
+            b._fb = null;
+          }
+        });
       release(b);
       // Shown: the slot leaves its reveal order (a later re-arm gates nobody
       // else; the frontier moves on).
@@ -708,7 +718,7 @@ function fallback<T>(b: Boundary): T {
   // top level is rebuilt by it. Created beside the output — in its owner,
   // outside the boundary, as the output is: its errors and runs are the
   // enclosing boundary's — with the output's id, so what it builds gets the
-  // ids a build under the output would; disposed when content shows.
+  // ids a build under the output would; disposed once content is on screen.
   if (b._fb === null) {
     const out = getOwner() as Computed<any>;
     b._fb = runWithOwner(out._parent, () => computed(() => b._show(b), { id: out.id }))!;
