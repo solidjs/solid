@@ -16,7 +16,14 @@ import {
   renderToString,
   ssr
 } from "@solidjs/web";
-import { renderServerComponent } from "@solidjs/web/frames/server";
+import { frameTransformResult } from "@solidjs/web/frames/server";
+import {
+  configureServerFunctionsServer,
+  createServerReference,
+  handleServerFunctionRequest,
+  registerServerReference
+} from "@solidjs/web/server-functions/server";
+import { provideRequestEvent } from "@solidjs/web/storage";
 import { OBSERVE, createMemo } from "solid-js";
 
 const delay = ms => new Promise(r => setTimeout(r, ms));
@@ -169,25 +176,50 @@ results.value = await withFindings(() =>
   })
 );
 
-// 6. Frame streams: a synchronous root failure's error chunk, and a failing
-//    fragment's keyed chunks — the fragment's, and the live hole's: a thunk
-//    hole (`() => escape(...)`, the compiled shape of a dynamic expression in
-//    a server component) whose re-evaluation throws.
+// 6. Frame streams, served as an app serves them (a server function returning
+//    a view, through the handler's frame transform): a synchronous root
+//    failure's error chunk, and a failing fragment's keyed chunks — the
+//    fragment's, and the live hole's: a thunk hole (`() => escape(...)`, the
+//    compiled shape of a dynamic expression in a server component) whose
+//    re-evaluation throws.
 {
-  const boom = databaseError();
-  results.frameRoot = await withFindings(async () => {
-    const chunks = await renderServerComponent(
-      () => {
-        throw boom;
-      },
-      { frame: { id: "f-err" } }
-    );
-    return chunks;
+  configureServerFunctionsServer({
+    provideEvent: provideRequestEvent,
+    transformResult: frameTransformResult
   });
+  const frameChunks = async id => {
+    const res = await handleServerFunctionRequest(
+      new Request(`http://localhost/_server/data/${id}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "http://localhost",
+          "sec-fetch-site": "same-origin",
+          "x-server-function-format": "3"
+        },
+        body: "[]"
+      })
+    );
+    // Length-prefixed frames: `;0x<8 hex>;` + JSON.
+    return (await res.text())
+      .split(/;0x[0-9a-f]{8};/)
+      .filter(Boolean)
+      .map(s => JSON.parse(s));
+  };
+
+  const boom = databaseError();
+  createServerReference(
+    registerServerReference("f-err", async () => () => {
+      throw boom;
+    })
+  );
+  results.frameRoot = await withFindings(() => frameChunks("f-err"));
+
   const boom2 = databaseError();
-  results.frameFragment = await withFindings(async () => {
-    const chunks = await renderServerComponent(
-      () =>
+  createServerReference(
+    registerServerReference(
+      "f-frag",
+      async () => () =>
         ssr(
           ["<section>", "</section>"],
           loading(() => {
@@ -197,11 +229,10 @@ results.value = await withFindings(() =>
             });
             return ssr(["<p>", "</p>"], () => escape(data()));
           })
-        ),
-      { frame: { id: "f-frag" } }
-    );
-    return chunks;
-  });
+        )
+    )
+  );
+  results.frameFragment = await withFindings(() => frameChunks("f-frag"));
 }
 
 // 7. The server error hook (C6): the ambient hook hears the <Errored>'s

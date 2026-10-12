@@ -2822,6 +2822,10 @@ export function serverComponentResponse(component, options = {}, init = {}) {
   // The live body's heartbeat and dev chaos (see armLiveBody); disarmed on
   // every road the body ends by.
   let stopLive = null;
+  // The frame itself failed as one value (an unkeyed `error` record; a keyed
+  // one is a fragment's diagnostic). Seen during the sync pass, it decides
+  // the head below.
+  let failed = false;
   const body = new ReadableStream({
     start(controller) {
       const end = () => {
@@ -2849,6 +2853,7 @@ export function serverComponentResponse(component, options = {}, init = {}) {
         });
       stream.pipe({
         write(chunk) {
+          if (chunk.type === "error" && !chunk.key) failed = true;
           if (closed) return;
           try {
             controller.enqueue(frame(JSON.stringify(chunk)));
@@ -2877,6 +2882,20 @@ export function serverComponentResponse(component, options = {}, init = {}) {
       teardown.abort({ [DISCONNECTED]: true });
     }
   });
+  // The author's cache headers arrived with the head (`respond()`) and
+  // describe a success. A sync render failure is a 200 whose body is the
+  // `:error` record, seen above before this head exists: declare it
+  // uncacheable, for every cache. A CDN-targeted field (`CDN-Cache-Control`,
+  // `<CDN>-CDN-Cache-Control`, RFC 9213) or `Surrogate-Control` overrides
+  // `Cache-Control` at the CDN, so those go too. Status stays 200: the client
+  // reads the frame stream, and a 4xx/5xx without the body-format header is
+  // a transport failure instead of the component's error. A failure after
+  // this, once a suspended shell has to leave, can no longer change the head.
+  if (failed) {
+    headers.set("Cache-Control", "no-store");
+    for (const name of [...headers.keys()])
+      if (name === "surrogate-control" || name.endsWith("cdn-cache-control")) headers.delete(name);
+  }
   return new Response(body, { status: init.status || 200, headers });
 }
 
