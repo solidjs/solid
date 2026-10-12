@@ -1586,6 +1586,16 @@ function heldKeyChanged(target: StoreTarget, key: PropertyKey, shape = true): bo
   );
 }
 
+/** The values of a held frame, built once per frame: neither the committed
+ * frame nor the held staging changes while the hold stands (a draft writes a
+ * clone), so the set stays true for every first read of the hold. */
+const frameRaws = new WeakMap<object, Set<unknown>>();
+function rawsOf(frame: object): Set<unknown> {
+  let raws = frameRaws.get(frame);
+  if (raws === undefined) frameRaws.set(frame, (raws = new Set(Object.values(frame))));
+  return raws;
+}
+
 /** The same row at a slot, as the adoption pairs rows (reconcile.ts): two
  * objects whose keys agree — positionally for an unkeyed family. */
 export function sameRow(pv: any, nv: any, keyFn: ((item: any) => any) | null): boolean {
@@ -1620,7 +1630,11 @@ function adoptChild(target: StoreTarget, key: PropertyKey): boolean {
     !isWrappable(nv) ||
     Array.isArray(ov) !== Array.isArray(nv) ||
     lookupTarget(ov, target.fam) !== undefined ||
-    lookupTarget(nv, target.fam) !== undefined
+    lookupTarget(nv, target.fam) !== undefined ||
+    // A raw in both frames (the same objects swapped or reordered) is its
+    // own row: pairing it with another would alias the two after the commit.
+    rawsOf(old).has(nv) ||
+    rawsOf(k._pendingValue as object).has(ov)
   )
     return false;
   // A raw-marked value wraps to itself, a proxy to its own target: neither

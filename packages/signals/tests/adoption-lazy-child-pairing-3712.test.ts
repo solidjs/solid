@@ -297,3 +297,70 @@ describe("#3712 edges: more", () => {
     dispose();
   });
 });
+
+describe("#3712 edges: the same raws swapped under a hold stay distinct rows", () => {
+  for (const key of [undefined, null] as const) {
+    it(`an array reorder of the same raws, read during the hold (key: ${key})`, async () => {
+      const gate = deferred();
+      const A = { id: "a", v: 0 };
+      const B = { id: "b", v: 0 };
+      const [server, setServer] = createSignal([A, B]);
+      let store!: { id: string; v: number }[];
+      let dispose!: () => void;
+      const [on, setOn] = createSignal(false);
+      createRoot(d => {
+        dispose = d;
+        [store] = createStore(() => server(), [], key === undefined ? undefined : { key });
+        createRenderEffect(
+          createMemo(() => on() && store[0].id),
+          () => {}
+        );
+      });
+      flush();
+      const p = action(function* () {
+        setServer([B, A]);
+        yield gate.promise;
+      })();
+      flush();
+      setOn(true);
+      flush();
+      gate.resolve();
+      await p;
+      flush();
+      expect([store[0].id, store[1].id]).toEqual(["b", "a"]);
+      expect(store[0]).not.toBe(store[1]);
+      dispose();
+    });
+  }
+
+  it("a record swap of the same raws, read during the hold", async () => {
+    const gate = deferred();
+    const A = { name: "a" };
+    const B = { name: "b" };
+    const [server, setServer] = createSignal<Record<string, { name: string }>>({ x: A, y: B });
+    let store!: Record<string, { name: string }>;
+    let dispose!: () => void;
+    const [on, setOn] = createSignal(false);
+    createRoot(d => {
+      dispose = d;
+      [store] = createStore(() => server(), {});
+      createRenderEffect(
+        createMemo(() => on() && store.x.name),
+        () => {}
+      );
+    });
+    flush();
+    const p = action(function* () {
+      setServer({ x: B, y: A });
+      yield gate.promise;
+    })();
+    flush();
+    setOn(true);
+    flush();
+    gate.resolve();
+    await p;
+    flush();
+    expect([store.x.name, store.y.name]).toEqual(["b", "a"]);
+    dispose();
+  });
+});
