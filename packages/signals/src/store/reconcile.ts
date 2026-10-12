@@ -9,9 +9,11 @@
  * listened path, not every cell). Reference-equal unowned pairs skip
  * outright (an owned backing is setter-diverged and must diff).
  *
- * Keyed arrays: the aligned prefix is walked positionally; from the first
- * misalignment rows match by key (surviving rows keep their proxy
- * identity), unkeyed items fall back to position.
+ * Array rows pair by key or not at all: the aligned prefix is walked by
+ * index and confirmed by key; from the first misalignment rows match by
+ * key (surviving rows keep their proxy identity). A keyless row, and every
+ * row of an unkeyed array, is a value — replaced, never paired. Position is
+ * not an identity (the store is reference-based, not path-based).
  */
 import { isEqual } from "../core/core.js";
 import {
@@ -142,7 +144,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           nv !== null &&
           typeof nv === "object"
         )
-          descend(unwrapValue(pvRaw), nv, keyFn, fam, proj);
+          descend(unwrapValue(pvRaw), nv, keyFn, fam, proj, true);
         if (
           t.dk !== null &&
           !dkBumpedA &&
@@ -191,10 +193,8 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
               pv = unwrapValue(prevRows[m]);
               prevByKey.delete(nk);
             }
-          } else {
-            pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
           }
-          descend(pv, nv, keyFn, fam, proj);
+          if (pv !== undefined) descend(pv, nv, keyFn, fam, proj, true);
         }
         if (nodes !== null) {
           const node = nodes[i];
@@ -210,8 +210,6 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       let dkBumpedP = false;
       for (let i = 0; i < nlen; i++) {
         const nvP = nextRows[i];
-        if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
-          descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
         if (
           t.dk !== null &&
           !dkBumpedP &&
@@ -304,7 +302,8 @@ function descend(
   nv: any,
   keyFn: KeyFn | null,
   fam: StoreFamily | null,
-  proj = false
+  proj = false,
+  row = false
 ): void {
   if (pv === null || typeof pv !== "object" || nv === null || typeof nv !== "object") return;
   const ct = lookupTarget(pv, fam);
@@ -313,10 +312,11 @@ function descend(
   if (rawValuesUsed && isRawValue(nv)) return;
   nv = unwrapValue(nv);
   if (Array.isArray(pv) !== Array.isArray(nv)) return;
-  if (keyFn) {
-    const pk = keyFn(pv);
-    const nk = keyFn(nv);
-    if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return;
+  // An array row pairs by its key or not at all (a keyless row is a value);
+  // a record's child pairs by its name.
+  if (row) {
+    const pk = keyFn!(pv);
+    if (pk === undefined || !sameKey(pk, keyFn!(nv))) return;
   }
   if (!proj && keyFn !== null && !ct.d) return;
   applyAdopt(ct, nv, keyFn, proj);
