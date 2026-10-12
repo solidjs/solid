@@ -3339,8 +3339,17 @@ module.exports = [
     // `next` (+12 B before #3977, +14 B from it), which had used up the 20 B
     // allowance. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
     // by the maintainer 2026-10-11.
-    limit: "28.91 KB",
-    capMinified: 86937,
+    // Re-base (#3994 and #3992 landing together, 2026-10-12): 28.91 KB ->
+    // 28.96 KB, measured at 28,942 B by CI (Size run on #3986 @ c0789ed6)
+    // against `next` @ 49a765cc, where the same 28,942 B left `next`'s own
+    // `check` red. #3994 counts a held navigation's graph after its landing
+    // (+92 B minified) and #3992 builds a boundary's fallback once per show
+    // (+186 B); each fit alone, and together they took the scenario 279 B over
+    // the recorded minified (86,937 -> 87,216). Both merged with the
+    // maintainer's go-ahead 2026-10-12. Cap set at measured + 10 B rounded up
+    // to 0.01 KB.
+    limit: "28.96 KB",
+    capMinified: 87216,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
