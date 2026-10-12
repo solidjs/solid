@@ -2258,8 +2258,12 @@ function serverEffect<T>(
         // discovery pass — the read throws loudly anywhere else) escalates
         // the suspension to the boundary, which hands off to the client.
         if (isClientHole(source)) throw err;
+        // The retry runs after another request may have set its own context:
+        // run it, and the effect, under this render's (#3972, as the memo's).
         const retry = () => {
           if (comp.disposed) return;
+          const prev = sharedConfig.context;
+          sharedConfig.context = ctx;
           try {
             resetOwnerForRerun(owner);
             const result = runWithOwner(owner, () =>
@@ -2280,6 +2284,8 @@ function serverEffect<T>(
             const handler = getContext(ErrorContext, owner);
             if (handler) handler(retryErr);
             else throw retryErr;
+          } finally {
+            sharedConfig.context = prev;
           }
         };
         ctx.block(source.then(retry, () => {}));
@@ -2774,9 +2780,18 @@ export function createProjection<T extends object = {}>(
   const seedLoading = !!options?.seedLoadingValue;
   const frozenSeed = seedLoading ? cloneState(state, options?.shallow) : undefined;
 
+  // Under the creating render's context: a re-derive after a pending source
+  // settles runs after another request may have set its own (#3972, as the
+  // memo's `run`).
   const runProjection = () => {
     resetOwnerForRerun(owner);
-    return runWithOwner(owner, () => fn(draft));
+    const prev = sharedConfig.context;
+    sharedConfig.context = ctx;
+    try {
+      return runWithOwner(owner, () => fn(draft));
+    } finally {
+      sharedConfig.context = prev;
+    }
   };
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   try {
