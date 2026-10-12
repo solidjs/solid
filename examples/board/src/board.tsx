@@ -31,6 +31,7 @@ import {
 import type { JSX } from "@solidjs/web";
 import { getRequestEvent, markSafeError } from "@solidjs/web";
 import { GET, live } from "@solidjs/web/server-functions";
+import { createFlip } from "~/flip";
 import { mintId, useIdentity } from "~/identity";
 import { byPos, keyAt } from "~/order";
 import * as db from "~/server/db";
@@ -337,8 +338,19 @@ function BoardView() {
   );
   const cardElements = createMemo(() => new Map<string, JSX.Element>(cardViews()));
 
+  // Where everything is: each list's place, and each card's list and place.
+  // One string, so the slide's effect follows one value.
+  let root: HTMLDivElement | undefined;
+  const arrangement = createMemo(
+    () =>
+      board.lists.map(l => `${l.id}@${l.pos}`).join() +
+      "|" +
+      board.cards.map(c => `${c.id}@${c.listId}@${c.pos}`).join()
+  );
+  createFlip(() => root, arrangement);
+
   return (
-    <div class="board">
+    <div class="board" ref={root}>
       <Loading fallback={<p class="board-loading">Loading the board…</p>}>
         <header class="board-head">
           <h1>
