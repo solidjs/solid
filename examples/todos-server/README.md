@@ -48,11 +48,11 @@ list's fresh markup.
 Without JavaScript the page also has to arrive whole. The server streams by
 default: content that settles before the first flush is inlined into the
 document, and anything later arrives as markup that a script swaps into
-place. This example's reads answer immediately, so the list lands before
-the flush — but that is timing, not a guarantee. An app that has to work
-without JavaScript renders in the vite plugin's `async` mode
-(`start.renderMode`), which waits for the whole page before sending it:
-either always, or only for crawlers, chosen per request from the user agent.
+place. A streamed list never appears without that script, so this example
+renders in the vite plugin's `async` mode (`start: { renderMode: "async" }`
+in [vite.config.ts](./vite.config.ts)), which waits for the whole page
+before sending it. The mode can also be chosen per request, for example
+only for crawlers, from the user agent.
 
 ## Intent is CSS
 
