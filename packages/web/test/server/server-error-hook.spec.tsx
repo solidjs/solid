@@ -15,9 +15,11 @@
  *    path, the request event);
  *  - the return is the wire value — rendered into the fallback, serialized
  *    for hydration, sent as the RPC error — `undefined` for the default;
- *  - a direct server-function call that throws during SSR is reported once
+ *  - a direct server-function call's plain failure during SSR is reported once
  *    as the FUNCTION's failure; the boundary that contains it reuses the
  *    verdict and does not report again;
+ *  - a thrown Response or envelope bypasses the direct call's report, as in
+ *    HTTP dispatch; a response caught by a boundary is reported by the render;
  *  - two tiers: ambient (`configureServerErrors`) and per request
  *    (`renderToStream`'s `onError` — which IS the hook — and the handler's),
  *    the latter winning;
@@ -41,9 +43,12 @@ import {
   Loading,
   configureServerErrors,
   createRequestEvent,
+  redirect,
+  reload,
   renderToStream,
   renderToString,
   reportRequestFailure,
+  respond,
   type ServerErrorContext
 } from "@solidjs/web";
 import { NotReadyError, createMemo } from "solid-js";
@@ -399,6 +404,118 @@ describe("server functions", () => {
     }
     expect(ambient).toHaveLength(0);
     expect(calls).toHaveLength(1);
+  });
+
+  describe.each(["sync", "async"])("%s direct calls", mode => {
+    test.each([
+      ["redirect", () => redirect<Response>("/login")],
+      ["reload", () => reload<Response>()],
+      ["Response", () => new Response("denied", { status: 403 })],
+      ["respond", (value: object) => respond(value, { status: 400 })]
+    ] as const)(
+      "a thrown %s handled by the caller bypasses the error hook",
+      async (name, control) => {
+        const value = { reason: "denied" };
+        const signal = control(value);
+        const expected = name === "respond" ? value : signal;
+        configureServerErrors({ onError: hook(() => new Error("unexpected mapping")) });
+        const run = () => {
+          throw signal;
+        };
+        const load = createServerReference(
+          registerServerReference(
+            `hook/control/${mode}/${name}`,
+            mode === "async" ? async () => run() : run
+          )
+        );
+        if (mode === "async") {
+          // Await outside renderToString, which only handles synchronous rendering.
+          await expect(underRequest(() => load())).rejects.toBe(expected);
+        } else {
+          let caught: unknown;
+          underRequest(() =>
+            renderToString(() => {
+              try {
+                load();
+              } catch (error) {
+                caught = error;
+              }
+              return "";
+            })
+          );
+          expect(caught).toBe(expected);
+        }
+        expect(calls).toHaveLength(0);
+      }
+    );
+  });
+
+  test("a thrown redirect caught by a boundary is reported once, by the render", () => {
+    configureServerErrors({ onError: hook() });
+    const signal = redirect<Response>("/login");
+    const load = createServerReference(
+      registerServerReference("hook/control/boundary", () => {
+        throw signal;
+      })
+    );
+    function Page(): JSX.Element {
+      load();
+      return <div />;
+    }
+    underRequest(() =>
+      renderToString(() => (
+        <Errored fallback={() => <p />}>
+          <Page />
+        </Errored>
+      ))
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].error).toBe(signal);
+    expect(calls[0].context).toMatchObject({ kind: "render", handling: "fallback" });
+    expect(calls[0].context).not.toHaveProperty("functionId");
+  });
+
+  test("a direct call's rejected Error is still reported and rethrown unchanged", async () => {
+    const boom = new Error("connect ECONNREFUSED");
+    configureServerErrors({ onError: hook(() => new Error("Data unavailable")) });
+    const load = createServerReference(
+      registerServerReference("hook/direct-async", async () => {
+        throw boom;
+      })
+    );
+    await expect(underRequest(() => load())).rejects.toBe(boom);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].error).toBe(boom);
+    expect(calls[0].context).toMatchObject({
+      kind: "server-function",
+      handling: "thrown",
+      functionId: "hook/direct-async",
+      direct: true
+    });
+  });
+
+  test("a thrown envelope reaches the hook only as the value its caller receives", () => {
+    const boom = new Error("denied");
+    configureServerErrors({ onError: hook() });
+    const load = createServerReference(
+      registerServerReference("hook/direct-envelope-error", () => {
+        throw respond(boom, { status: 403 });
+      })
+    );
+    function Page(): JSX.Element {
+      load();
+      return <div />;
+    }
+    underRequest(() =>
+      renderToString(() => (
+        <Errored fallback={Fallback}>
+          <Page />
+        </Errored>
+      ))
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].error).toBe(boom);
+    expect(calls[0].context).toMatchObject({ kind: "render", handling: "fallback" });
   });
 
   test("a direct call that throws during SSR is reported ONCE, as the function's failure; the boundary reuses the verdict", () => {
