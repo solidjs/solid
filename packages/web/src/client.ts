@@ -2357,36 +2357,21 @@ export function hydrate(code, element, options = {}) {
   // is set by the server bootstrap only: a hand-built `_$HY` never parks.
   if (hy.s && !hy.s[id] && !hy.s[""] && !hy.done && document.readyState === "loading") {
     let started, disposer;
-    const start = () => {
-      if (started) return;
-      started = true;
-      document.removeEventListener("DOMContentLoaded", start);
-      disposer = hydrateRoot(code, element, options);
-    };
-    // The marker calls `_$HY.sw(renderId)`; the start rides a microtask so
-    // it runs once the marker script has finished, before parsing resumes.
-    const parked = hy.sp || (hy.sp = {});
-    (parked[id] || (parked[id] = [])).push(start);
-    // A root render's ("") shell covers every id re-entered inside it.
-    hy.sw = key => {
-      for (const k in parked) {
-        if (key && k !== key) continue;
-        for (const f of parked[k]) queueMicrotask(f);
-        delete parked[k];
-      }
-    };
-    document.addEventListener("DOMContentLoaded", start);
+    // Re-entering hydrate() passes the gate: the marker has set its key, or
+    // the parser is done.
+    const start = () => started || ((started = true), (disposer = hydrate(code, element, options)));
+    // The marker calls `_$HY.sw(renderId)`; starts ride a microtask so they
+    // run once the marker script has finished, before parsing resumes. A
+    // root render's ("") marker covers every id re-entered inside it.
+    (hy.sp || (hy.sp = [])).push([id, start]);
+    hy.sw = key => hy.sp.forEach(([k, f]) => (!key || k === key) && queueMicrotask(f));
+    document.addEventListener("DOMContentLoaded", start, { once: true });
     return () => {
       started = true;
-      document.removeEventListener("DOMContentLoaded", start);
       disposer && disposer();
     };
   }
-  return hydrateRoot(code, element, options);
-}
-
-function hydrateRoot(code, element, options) {
-  if (globalThis._$HY.done) return render(code, element, [...element.childNodes], options);
+  if (hy.done) return render(code, element, [...element.childNodes], options);
   // #3081: the server splices useHead's charset/base prelude immediately
   // after the <head> open tag — a byte-placement constraint (charset within
   // the first 1024 bytes, base before URL-bearing tags) the parser has
