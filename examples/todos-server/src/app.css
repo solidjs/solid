@@ -409,6 +409,11 @@ html .clear-completed:active {
   margin-top: 6px;
 }
 
+.add-error form,
+.failures form {
+  display: inline;
+}
+
 .add-error button,
 .failures button {
   text-decoration: underline;

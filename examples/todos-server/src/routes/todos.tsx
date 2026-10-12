@@ -9,11 +9,12 @@
 // `useSubmissions(action)` lists a failed save's `{ error }` until the next
 // attempt at the same thing settles. After a form posted without JavaScript
 // the router seeds the same list from its flash cookie, so the failures
-// render on the server too.
+// render on the server too. A retry is the same form again, built from the
+// submission's own input, so it works there as well.
 import { useSubmissions, type RouteProps, type Submission } from "@solidjs/router";
 import { For } from "solid-js";
-import { dynamicComponent } from "@solidjs/web";
-import { clearCompleted, removeTodo, toggleAll, toggleTodo } from "~/actions";
+import { dynamicComponent, type JSX } from "@solidjs/web";
+import { clearCompleted, completedOf, removeTodo, toggleAll, toggleTodo } from "~/actions";
 import { getTodoList, parseFilter } from "~/todo-list";
 
 type Answer = Submission<any[], { error: string } | undefined>;
@@ -46,14 +47,43 @@ function Failures() {
   });
   clearCompleted.onSettled(supersede(clears));
 
-  const failed = () =>
-    [...toggles, ...removals, ...markAll, ...clears].filter(s => s.result?.error);
+  /** The form that asks again: the action bound to the same todo, and the
+   *  button carrying the same `completed` the first attempt submitted. */
+  const again = (subs: Answer[], retry: (s: Answer) => JSX.Element) =>
+    subs.filter(s => s.result?.error).map(s => ({ s, retry }));
+  const completed = (form: FormData) => (completedOf(form) ? "true" : "false");
+  const failed = () => [
+    ...again(toggles, s => (
+      <form action={toggleTodo.with(s.input[0])} method="post">
+        <button name="completed" value={completed(s.input[1])}>
+          Retry
+        </button>
+      </form>
+    )),
+    ...again(removals, s => (
+      <form action={removeTodo.with(s.input[0])} method="post">
+        <button>Retry</button>
+      </form>
+    )),
+    ...again(markAll, s => (
+      <form action={toggleAll} method="post">
+        <button name="completed" value={completed(s.input[0])}>
+          Retry
+        </button>
+      </form>
+    )),
+    ...again(clears, () => (
+      <form action={clearCompleted} method="post">
+        <button>Retry</button>
+      </form>
+    ))
+  ];
   return (
     <ul class="failures" hidden={failed().length === 0}>
       <For each={failed()}>
-        {s => (
+        {f => (
           <li>
-            {s.result!.error}. <button onClick={() => s.retry()}>Retry</button>
+            {f.s.result!.error}. {f.retry(f.s)}
           </li>
         )}
       </For>
