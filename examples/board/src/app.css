@@ -236,3 +236,43 @@ input.editable {
 .add-list.gap-before {
   margin-left: var(--gap);
 }
+
+/* Who is here, and the wire. */
+.people {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.people li {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--strong);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.people li.me {
+  outline: 2px solid var(--accent);
+}
+
+/* Said only once it has lasted: a reconnect that takes under a second is
+   not worth a word. */
+.wire {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  animation: wire-appears 0s 1s both;
+}
+
+@keyframes wire-appears {
+  from {
+    visibility: hidden;
+  }
+}

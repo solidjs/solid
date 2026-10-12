@@ -29,14 +29,15 @@ import {
   useContext
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { getRequestEvent, markSafeError, respond } from "@solidjs/web";
-import { GET, live } from "@solidjs/web/server-functions";
+import { getRequestEvent, isServer, markSafeError, respond } from "@solidjs/web";
+import { GET, live, type LiveSource } from "@solidjs/web/server-functions";
 import { createDrag, type Over } from "~/drag";
 import { createFlip } from "~/flip";
 import { mintId, useIdentity } from "~/identity";
 import { byPos, keyAt } from "~/order";
 import * as db from "~/server/db";
-import type { Board, Card, List } from "~/types";
+import * as presence from "~/server/presence";
+import type { Board, Card, Identity, List, Member } from "~/types";
 
 // ---------------------------------------------------------------------------
 // The wire. Each of these runs on the server; in the browser the compiler
@@ -50,6 +51,21 @@ const getBoard = live(
     // The response's lifetime: aborted when its client goes away, which ends
     // the watcher now rather than at the board's next change.
     yield* db.watchBoard(client, getRequestEvent()?.request.signal);
+  })
+);
+
+// Who has the board open. Joining is the connection: a tab is present while
+// this response is open, and the generator's `finally` is what leaving
+// means. The document's render has no identity and only watches.
+const getPresence = live(
+  GET(async function* (me: Identity | null): AsyncGenerator<Member[]> {
+    "use server";
+    const leave = me ? presence.join(me) : () => {};
+    try {
+      yield* presence.watchMembers(getRequestEvent()?.request.signal);
+    } finally {
+      leave();
+    }
   })
 );
 
@@ -125,12 +141,25 @@ const BOARD = "board";
 
 function createBoard() {
   const me = useIdentity();
-  const [board, setBoard] = createOptimisticStore<Board>(() => getBoard(me()?.id ?? null), {
-    title: "",
-    lists: [],
-    cards: [],
-    applied: []
-  });
+
+  // The wire. A live source reconnects by itself and its values never show
+  // it, so `onstatus` is the one place to learn that it is down.
+  const [reconnecting, setReconnecting] = createSignal(false);
+  const watched = <T,>(source: LiveSource<T>) => {
+    if (!isServer) source.onstatus = status => setReconnecting(status === "reconnecting");
+    return source;
+  };
+
+  const [board, setBoard] = createOptimisticStore<Board>(
+    () => watched(getBoard(me()?.id ?? null)),
+    {
+      title: "",
+      lists: [],
+      cards: [],
+      applied: []
+    }
+  );
+  const people = createMemo(() => getPresence(me()));
 
   // The board is flat, as it is stored; the nesting on screen is derived.
   const lists = () => [...board.lists].sort(byPos);
@@ -367,6 +396,9 @@ function createBoard() {
     errors,
     write,
     nudge,
+    me,
+    people,
+    reconnecting,
     grab: drag.grab,
     landsBefore,
     root: () => root,
@@ -395,7 +427,8 @@ export default function BoardScreen() {
 }
 
 function BoardView() {
-  const { board, lists, errors, write, landsBefore, root, setRoot } = useBoard();
+  const { board, lists, errors, write, landsBefore, root, setRoot, me, people, reconnecting } =
+    useBoard();
 
   // One component, and so one element, per card for as long as the card
   // exists — created here, at board level, not inside a list. A list only
@@ -430,6 +463,22 @@ function BoardView() {
               {errors[BOARD]}
             </p>
           </Show>
+          <Show when={reconnecting()}>
+            <p class="wire" role="status">
+              Reconnecting…
+            </p>
+          </Show>
+          <ul class="people" aria-label="Here now">
+            <Loading>
+              <For each={people()}>
+                {person => (
+                  <li class={{ me: person.id === me()?.id }} title={person.name}>
+                    {initials(person.name)}
+                  </li>
+                )}
+              </For>
+            </Loading>
+          </ul>
         </header>
         <main class="lists">
           <For each={lists()}>
@@ -443,6 +492,13 @@ function BoardView() {
     </div>
   );
 }
+
+// "quick-otter" → "QO"
+const initials = (name: string) =>
+  name
+    .split("-")
+    .map(part => part[0]?.toUpperCase())
+    .join("");
 
 function ListView(props: { list: List; children: (card: Card) => JSX.Element }) {
   const { cardsOf, errors, write, grab, landsBefore } = useBoard();
