@@ -11,6 +11,7 @@ import { describe, expect, test, vi } from "vitest";
 import { flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents } from "../../frames/src/client.js";
+import { prepareTier } from "../../frames/src/frame-client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost } from "../lifecycle-matrix/harness.js";
 import { ARGS, FID, ITEMS, makeApp } from "../harness/frame-occlusion-document.jsx";
@@ -44,6 +45,11 @@ describe("document face — occluded slot content — hydrate", () => {
     const App = makeApp(() => list(...ARGS));
 
     applyChunk(container, shell, true);
+    // The document announces the regions tier (`sc:tiers`): the slot args
+    // are `{$frame}` regions. Resident before hydrate, as a page whose
+    // modulepreload landed — a record naming a region waits for the tier.
+    expect((globalThis as any)._$HY.r["sc:tiers"]).toEqual(["regions"]);
+    await prepareTier("regions");
     const [a, b] = ITEMS;
     const excerptOf = (id: string) => container.querySelector(`#item-${id} .excerpt`);
     const toggle = async (id: string) => {
