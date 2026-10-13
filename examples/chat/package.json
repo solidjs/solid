@@ -24,7 +24,7 @@
     "unstorage": "^1.17.5"
   },
   "devDependencies": {
-    "@solidjs/vite-plugin": "3.0.0-next.49",
+    "@solidjs/vite-plugin": "3.0.0-next.50",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "vite": "^8.0.0"
   }
