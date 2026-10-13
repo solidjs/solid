@@ -2360,8 +2360,14 @@ module.exports = [
     // -> 29.36 KB, measured locally at 29,350 B against `next` @ 49a765cc's
     // 29,205 (+145 B; +587 B minified, 92,291 -> 92,878). Cap set at measured
     // + 10 B rounded up to 0.01 KB.
-    limit: "29.36 KB",
-    capMinified: 92878,
+    // Size-Exception (#4002, 2026-10-13): 29.36 -> 29.50 KB, measured by CI at
+    // 29,481 B against `next` @ 4f8daa2d (+131 B; 121 B over the cap; +298 B
+    // minified, 92,878 -> 93,176). The client cost of the #3971 park block in
+    // `hydrate()`: a hydrate() started mid-parse waits for the shell-end
+    // marker. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by
+    // the maintainer (2026-10-13) with the renderToString floor raise.
+    limit: "29.50 KB",
+    capMinified: 93176,
     alias
   },
   {
@@ -3570,8 +3576,13 @@ module.exports = [
     // -> 31.48 KB, measured locally at 31,466 B against `next` @ 49a765cc's
     // 31,215 (+251 B; +587 B minified, 99,808 -> 100,395). Cap set at measured
     // + 10 B rounded up to 0.01 KB.
-    limit: "31.48 KB",
-    capMinified: 100395,
+    // Size-Exception (#4002, 2026-10-13): 31.48 -> 31.53 KB, measured by CI at
+    // 31,511 B against `next` @ 4f8daa2d (+45 B; 31 B over the cap; +298 B
+    // minified, 100,395 -> 100,693). The same #3971 park block in `hydrate()`
+    // as the store-family note. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-13).
+    limit: "31.53 KB",
+    capMinified: 100693,
     alias
   },
   {
