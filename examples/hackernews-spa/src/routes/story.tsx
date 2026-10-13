@@ -1,11 +1,21 @@
-import { type RouteParams, type RoutePreloadFuncArgs, type RouteProps } from "@solidjs/router";
+import {
+  query,
+  type RouteParams,
+  type RoutePreloadFuncArgs,
+  type RouteProps
+} from "@solidjs/router";
 import { For, Show, createMemo } from "solid-js";
 import Comment from "~/components/comment";
-import { getStory } from "~/lib/api";
+import * as hn from "~/server/hn";
 
 // The route lives in app.tsx, so the component and preload here name the
 // pattern they belong to; `params.id` is then `string`, not `string | undefined`.
 type Path = "/stories/:id";
+
+const getStory = query(async (id: string) => {
+  "use server";
+  return hn.getStory(id);
+}, "story");
 
 export const preload = ({ params }: RoutePreloadFuncArgs<RouteParams<Path>>) => {
   void getStory(params.id);
@@ -24,7 +34,7 @@ export default function Story(props: RouteProps<Path>) {
         </Show>
         <p class="meta">
           {story().points} points | by <a href={`/users/${story().user}`}>{story().user}</a>{" "}
-          {story().time_ago} ago
+          {story().time_ago}
         </p>
       </div>
       <div class="item-view-comments">

@@ -2594,8 +2594,16 @@ module.exports = [
     // condition hello world stays under 10 KB.
     // #3928 merged with next @ 617d19511 (2026-10-09): measured at 12,976 B
     // (36,793 B minified). Cap set to that brotli, not above it.
-    limit: "12.976 KB",
-    capMinified: 36793,
+    // Size-Exception (a boundary's fallback is instantiated once per show,
+    // #3991, 2026-10-12): 12.976 KB -> 13.03 KB, measured locally at 13,020 B
+    // against `next`'s 12,946 (+74 B; +186 B minified, 36,746 -> 36,932) —
+    // boundaries.ts: the fallback is built in a computed of its own beside
+    // the output and kept across the output's re-derives while it shows
+    // (`_fb`), disposed by a queued run once the content that replaces it is
+    // on screen. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
+    // by the maintainer 2026-10-12.
+    limit: "13.03 KB",
+    capMinified: 36932,
     alias
   },
   {
@@ -2882,8 +2890,12 @@ module.exports = [
     // condition hello world stays under 10 KB.
     // #3884 stacked on next (2026-10-08): measured at 14,552 B brotli / 41,305 B minified
     // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "14.56 KB",
-    capMinified: 41305,
+    // Size-Exception (#3991, 2026-10-12; the CSR note): 14.56 KB -> 14.59 KB,
+    // measured locally at 14,573 B against `next`'s 14,565 (+8 B; +186 B
+    // minified, 41,274 -> 41,460). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-12.
+    limit: "14.59 KB",
+    capMinified: 41460,
     alias: observeAlias
   },
   {
@@ -3314,8 +3326,17 @@ module.exports = [
     // `next` (+12 B before #3977, +14 B from it), which had used up the 20 B
     // allowance. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
     // by the maintainer 2026-10-11.
-    limit: "28.91 KB",
-    capMinified: 86937,
+    // Re-base (#3994 and #3992 landing together, 2026-10-12): 28.91 KB ->
+    // 28.96 KB, measured at 28,942 B by CI (Size run on #3986 @ c0789ed6)
+    // against `next` @ 49a765cc, where the same 28,942 B left `next`'s own
+    // `check` red. #3994 counts a held navigation's graph after its landing
+    // (+92 B minified) and #3992 builds a boundary's fallback once per show
+    // (+186 B); each fit alone, and together they took the scenario 279 B over
+    // the recorded minified (86,937 -> 87,216). Both merged with the
+    // maintainer's go-ahead 2026-10-12. Cap set at measured + 10 B rounded up
+    // to 0.01 KB.
+    limit: "28.96 KB",
+    capMinified: 87216,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -3439,8 +3460,13 @@ module.exports = [
     // #3928 (2026-10-09): a select value is reapplied when its options arrive,
     // including multiple. Merged with next @ 617d19511: 25,465 B brotli
     // (79,753 B minified). Cap set to that brotli, not above it.
-    limit: "25.465 KB",
-    capMinified: 79753,
+    // Size-Exception (#3991, 2026-10-12; the CSR note): the todo app's
+    // Loading pays the once-per-show fallback — 25.465 KB -> 25.51 KB,
+    // measured locally at 25,491 B against `next`'s 25,424 (+67 B; +186 B
+    // minified, 79,719 -> 79,905). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-12.
+    limit: "25.51 KB",
+    capMinified: 79905,
     alias
   },
   {

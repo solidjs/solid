@@ -1,8 +1,18 @@
-import { type RouteParams, type RoutePreloadFuncArgs, type RouteProps } from "@solidjs/router";
+import {
+  query,
+  type RouteParams,
+  type RoutePreloadFuncArgs,
+  type RouteProps
+} from "@solidjs/router";
 import { Show, createMemo } from "solid-js";
-import { getUser } from "~/lib/api";
+import * as hn from "~/server/hn";
 
 type Path = "/users/:id";
+
+const getUser = query(async (id: string) => {
+  "use server";
+  return hn.getUser(id);
+}, "user");
 
 export const preload = ({ params }: RoutePreloadFuncArgs<RouteParams<Path>>) => {
   void getUser(params.id);

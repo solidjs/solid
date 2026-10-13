@@ -14,6 +14,7 @@ import type { GraphEvent, NavigationEvent } from "../src/attribution.js";
 import {
   createEffect,
   createMemo,
+  createRenderEffect,
   createRoot,
   createSignal,
   flush,
@@ -316,6 +317,79 @@ describe("GRAPH_GROWTH", () => {
     expect(findings).toHaveLength(0);
     dispose();
   });
+
+  it.each([false, true])(
+    "a navigation held for its data counts the graph after the landing disposes the page left (#3989, leak: %s)",
+    async leak => {
+      const { findings, graphs } = arm({ visits: 3, ratio: 1.25 });
+      const [shared] = createSignal(0, { name: "shared" });
+      const [location, setLocation] = createSignal("/", { name: "location" });
+      const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+      const detached: (() => void)[] = [];
+      // A big page: rows reading the long-lived signal, so its parked frame is
+      // reachable through `shared`'s subscribers until the landing disposes it.
+      const rows = (n: number) => () => {
+        const list = Array.from({ length: n }, () => createMemo(() => shared()));
+        return () => list.reduce((sum, row) => sum + row(), 0);
+      };
+      // The small page fetches on every visit, so its arrival is held.
+      const small = () => {
+        // The positive control: a detached root per visit that nobody disposes.
+        if (leak)
+          runWithOwner(null, () =>
+            createRoot(d => {
+              detached.push(d);
+              for (let i = 0; i < 10; i++) createMemo(() => shared());
+            })
+          );
+        const data = createMemo(async () => (await wait(2), 1));
+        return () => data() + shared();
+      };
+      const pages: Record<string, () => () => unknown> = { "/small": small };
+      for (const n of [20, 40, 80]) pages[`/rows-${n}`] = rows(n);
+      const dispose = createRoot(dispose => {
+        const page = createMemo(() => {
+          const mount = pages[location()];
+          return mount ? untrack(mount) : () => null;
+        });
+        createRenderEffect(
+          () => page()(),
+          () => {}
+        );
+        return dispose;
+      });
+      flush();
+      const go = async (to: string) => {
+        OBSERVE!.attribution.withOrigin({ kind: "navigation", name: to, to }, () =>
+          setLocation(to)
+        );
+        flush();
+        await wait(10);
+        flush();
+        return graphSize().computations;
+      };
+      const after: number[] = [];
+      for (const n of [20, 40, 80]) {
+        await go(`/rows-${n}`);
+        after.push(await go("/small"));
+      }
+      const settles = graphs.filter(g => g.route === "/small");
+      expect(settles.map(g => g.navigation.outcome)).toEqual(["held", "held", "held"]);
+      // The settle sees the graph the route settled into, not the page just left.
+      expect(settles.map(g => g.computations)).toEqual(after);
+      if (leak) {
+        expect(after.map(c => c - after[0])).toEqual([0, 10, 20]);
+        expect(findings).toHaveLength(1);
+        expect(findings[0].data).toMatchObject({ route: "/small" });
+      } else {
+        expect(new Set(after).size).toBe(1);
+        expect(findings).toHaveLength(0);
+      }
+      dispose();
+      for (const d of detached) d();
+      flush();
+    }
+  );
 
   it("`false` disables the check, and without a listener no walk is made", () => {
     const { findings, graphs } = arm(false);
