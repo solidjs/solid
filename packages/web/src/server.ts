@@ -2,6 +2,7 @@
 import {
   COMPOSED_BODY_FRAMING,
   ChildProperties,
+  DOMWithState,
   LinkAttributes,
   isEventName,
   isHttpNavigationTarget
@@ -1577,7 +1578,8 @@ const VOID_ELEMENTS =
 // What `ssrElement` needs to know about a tag name, fixed per name and asked
 // on every render of a spread element: its opening and closing markup, and
 // whether it is void, a textarea (its value is content), or raw text
-// (`script`/`style`, whose content is not escaped). One lookup per element in
+// (`script`/`style`, whose content is not escaped), plus the default/attribute
+// names for input and option. One lookup per element in
 // place of a regex run, four string compares per key, and — the part that
 // shows — building `<tag` and `</tag>` from the name on every call: three
 // string allocations per element, a third of the walk's cost over a writer
@@ -1590,6 +1592,8 @@ interface TagInfo {
   isVoid: boolean;
   textarea: boolean;
   raw: boolean;
+  formDefaults: Record<string, string> | undefined;
+  formAttributes: Record<string, string> | undefined;
 }
 // What ends a tag or attribute name in the HTML tokenizer (whitespace, `/`,
 // `>`, `=`), what it reports as an error inside one (quotes, `<`, NUL), and
@@ -1603,12 +1607,27 @@ function tagInfo(tag: string): TagInfo {
   if (info === undefined) {
     if (!TAG_START.test(tag) || NOT_NAME.test(tag))
       throw new Error(`"${tag}" is not a valid tag name`);
+    let formDefaults, formAttributes;
+    if (tag === "input" || tag === "option") {
+      formDefaults = Object.create(null);
+      formAttributes = Object.create(null);
+      const state = DOMWithState[tag.toUpperCase()];
+      for (const prop in state) {
+        if (state[prop] === 2) {
+          const attr = prop.slice(7).toLowerCase();
+          formDefaults[attr] = prop;
+          formAttributes[prop] = attr;
+        }
+      }
+    }
     info = {
       open: "<" + tag,
       close: "</" + tag + ">",
       isVoid: VOID_ELEMENTS.test(tag),
       textarea: tag === "textarea",
-      raw: tag === "script" || tag === "style"
+      raw: tag === "script" || tag === "style",
+      formDefaults,
+      formAttributes
     };
     if (tagInfos.size < 512) tagInfos.set(tag, info);
   }
@@ -4567,7 +4586,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
             : Object.keys(props);
     if (sources !== null) props = sources[s];
     nextKey: for (let i = 0; i < keys.length; i++) {
-      const prop = keys[i];
+      let prop = keys[i];
       if (typeof prop !== "string" || (skip !== undefined && skip(prop))) continue;
       // A view's key is read from the leaf that owns it (a plain leaf, or a
       // store proxy read through its trap).
@@ -4601,7 +4620,12 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
         }
         continue;
       }
-      const value = props[prop];
+      const key = prop;
+      if (info.formAttributes !== undefined) {
+        prop = spreadFormAttribute(prop, info, keys, keysOf, skip);
+        if (prop === undefined) continue;
+      }
+      const value = props[key];
       // Nullish is "not set" for every attribute, `style`/`class` included —
       // the client removes the attribute for `undefined`, and emitting
       // `style=""` here made the server disagree with it (#3382). A nullish
@@ -4716,6 +4740,27 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
     return { t: result + ">" + children.t + info.close };
   return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
 }
+
+// Keep form-default precedence outside the hot walk used by every spread tag.
+// Return the output attribute name, or undefined to skip the original key.
+function spreadFormAttribute(prop, info, keys, keysOf, skip) {
+  // Defaults supply the initial HTML; the bound property applies at
+  // hydration. Check presence across sources without reading getters.
+  const defaultProp = info.formDefaults[prop];
+  if (defaultProp !== undefined && (skip === undefined || !skip(defaultProp))) {
+    if (keysOf !== null) {
+      for (let j = 0; j < keysOf.length; j++) {
+        if (keysOf[j].includes(defaultProp)) return;
+      }
+    } else if (keys.includes(defaultProp)) return;
+  }
+  // A compiled attribute after the spread owns the output name, even
+  // when its value is false and the tail emits no markup for it.
+  const attr = info.formAttributes[prop];
+  if (attr !== undefined && skip !== undefined && skip(attr)) return;
+  return attr === undefined ? prop : attr;
+}
+
 export function ssrElementAttribute(key: string, value: any): string;
 
 export function ssrElementAttribute(key, value) {
