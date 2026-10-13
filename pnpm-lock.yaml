@@ -137,8 +137,8 @@ importers:
         specifier: ^0.133.0
         version: 0.133.0
       '@solidjs/router':
-        specifier: 2.0.0-next.38
-        version: 2.0.0-next.38(@solidjs/web@packages+web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.39
+        version: 2.0.0-next.39(@solidjs/web@packages+web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -193,8 +193,8 @@ importers:
   examples/hackernews:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.38
-        version: 2.0.0-next.38(@solidjs/web@packages+web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.39
+        version: 2.0.0-next.39(@solidjs/web@packages+web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -212,8 +212,8 @@ importers:
   examples/hackernews-spa:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.38
-        version: 2.0.0-next.38(@solidjs/web@packages+web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.39
+        version: 2.0.0-next.39(@solidjs/web@packages+web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -252,8 +252,8 @@ importers:
   examples/notes:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.38
-        version: 2.0.0-next.38(@solidjs/web@packages+web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.39
+        version: 2.0.0-next.39(@solidjs/web@packages+web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -346,8 +346,8 @@ importers:
   examples/todos-server:
     dependencies:
       '@solidjs/router':
-        specifier: 2.0.0-next.38
-        version: 2.0.0-next.38(@solidjs/web@packages+web)(solid-js@packages+solid)
+        specifier: 2.0.0-next.39
+        version: 2.0.0-next.39(@solidjs/web@packages+web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -2390,6 +2390,16 @@ packages:
 
   '@solidjs/router@2.0.0-next.38':
     resolution: {integrity: sha512-MGDqgWqSLthgYQKFB0lYoxSwG0RKKPKQu1G8qXhSFw5zKGUCuGpHHzPZQiiY3BBVFBhlFsbFoQpuIPAcC0FbmA==}
+    peerDependencies:
+      '@solidjs/web': workspace:*
+      filesystem-routing: '>=0.4.0'
+      solid-js: workspace:*
+    peerDependenciesMeta:
+      filesystem-routing:
+        optional: true
+
+  '@solidjs/router@2.0.0-next.39':
+    resolution: {integrity: sha512-yIGOKEVyD55okI38X3f5jiz7wShuoMxdLHZO69JPYVQdvkX7p5FKE/HC1nxF6XZVVCGfnHaCY0bScCFU0lP+8g==}
     peerDependencies:
       '@solidjs/web': workspace:*
       filesystem-routing: '>=0.4.0'
@@ -6073,6 +6083,11 @@ snapshots:
     optional: true
 
   '@solidjs/router@2.0.0-next.38(@solidjs/web@packages+web)(solid-js@packages+solid)':
+    dependencies:
+      '@solidjs/web': link:packages/web
+      solid-js: link:packages/solid
+
+  '@solidjs/router@2.0.0-next.39(@solidjs/web@packages+web)(solid-js@packages+solid)':
     dependencies:
       '@solidjs/web': link:packages/web
       solid-js: link:packages/solid
