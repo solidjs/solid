@@ -2135,10 +2135,21 @@ export function renderToStream(code, options = {}) {
     const sink = writable;
     buffer = { write() {} };
     writable = { end() {} };
+    // Contained (#4029): an `onCleanup` that throws here must not escape the
+    // teardown. On the `signal` path this runs inside an `abort` listener,
+    // where a throw becomes an uncaught exception that takes the process down;
+    // on the `failRender` path it would cut the wind-down short. It is the
+    // render's failure, so it goes to the hook as one (`handling: "failed"`),
+    // and with no hook anywhere it is never silent.
     if (dispose) {
       const d = dispose;
       dispose = () => {};
-      d();
+      try {
+        d();
+      } catch (err) {
+        reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
+        if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
+      }
     }
     // Close the serializer AFTER `dead` is set: seroval's `close()` runs
     // each pending write's cleanup — a serialized async iterator gets its
@@ -3759,6 +3770,39 @@ export function createLiveHoles(sink, scoped) {
   // sweep re-evaluations are mint-suppressed and produce neither — the
   // equality gate must not read that as a change.
   const stripMarkers = html => html.replace(/<!--lh:\/?\d+-->| data-lha="\d+"/g, "");
+  // Dev: a sweep's impurity gate closed a binding that was live (#4023). The
+  // first render escalated before the impure part ran, so the hole shipped
+  // its markers and then went quiet on its first re-evaluation — markup that
+  // silently stops updating. The usual cause is a compiler condition memo
+  // (`{m.usage && <b/>}` with a property condition), which a re-run would
+  // re-create. Once per binding: a closed binding never sweeps again.
+  const latched = !"_SOLID_DEV_"
+    ? null
+    : (owner, cause, hole) => {
+        // The hole's own expression (`ssrScope` keeps it on its wrapper in dev).
+        const expression =
+          typeof hole === "function"
+            ? String(hole.$source || hole)
+                .replace(/\s+/g, " ")
+                .slice(0, 160)
+            : undefined;
+        devCheck(
+          {
+            code: "SSR_LIVE_HOLE_LATCHED",
+            kind: "ssr",
+            severity: "warn",
+            message:
+              `[SSR_LIVE_HOLE_LATCHED] A live ${hole ? "markup hole" : "attribute"} stopped updating: ` +
+              `re-running it ${cause === "records" ? "emitted slot records" : "created reactive scopes (a component, a memo, or a compiler condition memo such as {m.usage && …})"}, ` +
+              `so it cannot re-run and keeps the markup it last sent.` +
+              (expression ? ` Expression: ${expression}.` : "") +
+              ` Read a property used in a condition into a local first (const usage = m.usage), ` +
+              `and keep components and memos out of markup that re-renders from a live source.`,
+            data: { cause, ...(expression ? { expression } : {}) }
+          },
+          owner
+        );
+      };
   // Sweeps re-evaluate under the mint-time render CONTEXT as well as the
   // owner. `runWithOwner` restores only the owner; everything a compiled
   // template reads off `sharedConfig.context` (the behavior-claims arming
@@ -3910,6 +3954,7 @@ export function createLiveHoles(sink, scoped) {
           // before its impure part ran): the hole is not re-runnable.
           // Close and latch what the retry path shipped.
           if (engine.gateHit || stamp() !== sweepOwnersBefore) {
+            if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", hole);
             b.closed = true;
             sink.closeBinding(b.key);
             return;
@@ -4105,6 +4150,7 @@ export function createLiveHoles(sink, scoped) {
             engine.sweeping = prevSweeping;
           }
           if (engine.gateHit || stamp() !== sweepOwnersBefore) {
+            if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", null);
             b.closed = true;
             sink.closeBinding(b.key);
             return;
