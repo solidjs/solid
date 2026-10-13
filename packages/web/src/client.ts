@@ -646,19 +646,21 @@ export function setProperty(node, name, value) {
   if (isHydrating(node)) return;
   // Stateful DOM properties (DOMWithState) route through here in hydratable
   // builds so the claim pass adopts pre-hydration user state instead of
-  // clobbering it (#3182). Mirror the special cases the compiler emits for
-  // the direct-assignment path: <select value> remembers the value and
+  // clobbering it (#3182). <select value> remembers the value and
   // reapplies it when options arrive (a microtask only covers the same
   // turn — #3928), and input/textarea value/defaultValue clear on nullish
-  // instead of stringifying (#2957).
+  // instead of stringifying (#2957). Checkbox/radio inputs need the value
+  // attribute removed to restore their default submission value of "on".
+  // Non-hydratable inline bindings still coalesce nullish values to "".
   const nodeName = node.nodeName;
   if (name === "value" && nodeName === "SELECT") writeSelectValue(node, value);
   else if (
     (name === "value" || name === "defaultValue") &&
     (nodeName === "INPUT" || nodeName === "TEXTAREA")
-  )
-    node[name] = value ?? "";
-  else node[name] = value;
+  ) {
+    if (value == null && /^(checkbox|radio)$/.test(node.type)) node.removeAttribute("value");
+    else node[name] = value ?? "";
+  } else node[name] = value;
   reclaimAttribute(node, name);
 }
 
@@ -2866,11 +2868,12 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
     else if (
       (prop === "value" || prop === "defaultValue") &&
       (nodeName === "INPUT" || nodeName === "TEXTAREA")
-    )
-      // Compiler parity: direct bindings emit `el.value = v ?? ""` for
-      // input/textarea — nullish must clear the field, not stringify (#2957).
-      node[prop] = value ?? "";
-    else node[prop] = value;
+    ) {
+      // Text controls clear nullish values rather than stringifying them (#2957);
+      // checkbox/radio inputs drop the attribute so they submit "on".
+      if (value == null && /^(checkbox|radio)$/.test(node.type)) node.removeAttribute("value");
+      else node[prop] = value ?? "";
+    } else node[prop] = value;
     // The claim contract is in plain names: `prop:href` re-claims as `href`.
     reclaimAttribute(node, prop);
   } else {
