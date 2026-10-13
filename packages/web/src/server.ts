@@ -1840,16 +1840,17 @@ export function renderToString(code, options = {}) {
       noScripts,
       traceMetaMarkup(context.trace)
     );
-    const document = assembleDocument(
-      resolveSSRSelectValues(html),
-      tracking.emittedAssets,
-      tracking.preloadLinks,
-      tracking.inlineStyles,
-      scripts.length ? scripts : "",
-      nonce,
-      head,
-      onHead
-    );
+    const document =
+      assembleDocument(
+        resolveSSRSelectValues(html),
+        tracking.emittedAssets,
+        tracking.preloadLinks,
+        tracking.inlineStyles,
+        scripts.length ? scripts : "",
+        nonce,
+        head,
+        onHead
+      ) + shellEndMarker(context, renderId, nonce, noScripts);
     // Head-freeze point: the request's response head commits right before
     // the render's final dispose — the same order as an awaited
     // `renderToStream`'s completion — so the `httpStatus`/`httpHeader`
@@ -2386,7 +2387,7 @@ export function renderToStream(code, options = {}) {
           nonce,
           meta.head,
           onHead
-        )
+        ) + shellEndMarker(context, renderId, nonce, noScripts)
       );
     },
     ...options.sink
@@ -3446,7 +3447,11 @@ export function HydrationScript(props: { nonce?: string; eventNames?: string[] }
 // components
 export function HydrationScript(props) {
   const nonce = scriptNonce(sharedConfig.context && sharedConfig.context.nonce);
-  return ssr(generateHydrationScript({ nonce, ...props }));
+  // The render owns its bootstrap, so its shell ends with the marker and the
+  // bootstrap declares the ledger hydrate() parks on (#3971).
+  if (sharedConfig.context) sharedConfig.context.bootstrap = true;
+  const { eventNames, nonce: n } = { nonce, ...props };
+  return ssr(hydrationBootstrap(eventNames, n, true));
 }
 export function ssrGroup<T extends () => any[]>(fn: T, n: number): T;
 
@@ -5812,12 +5817,21 @@ export function generateHydrationScript(options?: {
 // its fallback, or keyed outside any boundary — would otherwise raise
 // `unhandledrejection` from the inline script alone, and a handler attached
 // later only revokes the report. A consumer still meets the rejection.
-export function generateHydrationScript({ eventNames = ["click", "input"], nonce } = {}) {
+export function generateHydrationScript({ eventNames, nonce } = {}) {
+  return hydrationBootstrap(eventNames, nonce, false);
+}
+
+// `ledger` (#3971): only an in-render <HydrationScript /> declares `_$HY.s`,
+// because only that render writes the shell-end marker it records. A
+// host-placed bootstrap (generateHydrationScript: hand-built documents,
+// islands hosts like Astro, which await each island's children themselves)
+// declares none, so hydrate() never parks under it.
+function hydrationBootstrap(eventNames = ["click", "input"], nonce, ledger) {
   return `<script${
     nonce ? ` nonce="${escape(String(nonce), true)}"` : ""
   }>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute("_hk")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));["${eventNames.join(
     '","'
-  )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),fe(){}});</script><!--xs-->`;
+  )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),${ledger ? "s:{}," : ""}fe(){}});</script><!--xs-->`;
 }
 
 function queue(fn) {
@@ -5841,6 +5855,19 @@ function allSettled(promises) {
     if (promises.size !== size) return allSettled(promises);
     return size;
   });
+}
+
+// The shell-end marker (#3971): the last bytes of a render's shell, after
+// its records script. Scripts run in parse order, so once it has run every
+// node of the shell is in the DOM, and a `hydrate()` that started mid-parse
+// (an `async` entry) and parked on it may claim. Written only by a render
+// that emitted `<HydrationScript />`: that is the document whose entry may
+// be `async` (a hand-built document's entry must be deferred, see
+// 12-ssr-http.md), and it keeps every other render's bytes unchanged.
+function shellEndMarker(context, renderId, nonce, noScripts) {
+  if (noScripts || !context || !context.bootstrap) return "";
+  const id = JSON.stringify(renderId).replace(/</g, "\\u003C");
+  return `<script${nonceAttr(nonce, "script")}>_$HY.s[${id}]=1,_$HY.sw&&_$HY.sw(${id})</script>`;
 }
 
 // Single-pass document assembly. This replaced four sequential inject passes
