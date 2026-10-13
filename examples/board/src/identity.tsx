@@ -46,8 +46,4 @@ export const IdentityProvider: ParentComponent = props => {
 };
 
 /** This tab's identity — `null` on the server and until the browser mints it. */
-export function useIdentity(): Accessor<Identity | null> {
-  const me = useContext(IdentityContext);
-  if (!me) throw new Error("useIdentity() must be called under <IdentityProvider>");
-  return me;
-}
+export const useIdentity = () => useContext(IdentityContext);

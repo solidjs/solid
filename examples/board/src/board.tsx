@@ -408,19 +408,12 @@ function createBoard() {
 
 const BoardContext = createContext<ReturnType<typeof createBoard>>();
 
-function useBoard() {
-  const board = useContext(BoardContext);
-  if (!board) throw new Error("useBoard() must be called under <BoardScreen>");
-  return board;
-}
-
 // ---------------------------------------------------------------------------
 // The screen.
 
 export default function BoardScreen() {
-  const state = createBoard();
   return (
-    <BoardContext value={state}>
+    <BoardContext value={createBoard()}>
       <BoardView />
     </BoardContext>
   );
@@ -428,7 +421,7 @@ export default function BoardScreen() {
 
 function BoardView() {
   const { board, lists, errors, write, landsBefore, root, setRoot, me, people, reconnecting } =
-    useBoard();
+    useContext(BoardContext);
 
   // One component, and so one element, per card for as long as the card
   // exists — created here, at board level, not inside a list. A list only
@@ -459,9 +452,11 @@ function BoardView() {
             <Editable label="Board title" value={board.title} onCommit={write.renameBoard} />
           </h1>
           <Show when={errors[BOARD]}>
-            <p class="error" role="alert">
-              {errors[BOARD]}
-            </p>
+            {message => (
+              <p class="error" role="alert">
+                {message()}
+              </p>
+            )}
           </Show>
           <Show when={reconnecting()}>
             <p class="wire" role="status">
@@ -484,7 +479,7 @@ function BoardView() {
           <For each={lists()}>
             {list => <ListView list={list}>{card => <>{cardElements().get(card.id)}</>}</ListView>}
           </For>
-          <div class={{ "add-list": true, "gap-before": landsBefore("list", null) }}>
+          <div class={["add-list", { "gap-before": landsBefore("list", null) }]}>
             <AddForm label="Add a list" onAdd={write.createList} />
           </div>
         </main>
@@ -501,10 +496,10 @@ const initials = (name: string) =>
     .join("");
 
 function ListView(props: { list: List; children: (card: Card) => JSX.Element }) {
-  const { cardsOf, errors, write, grab, landsBefore } = useBoard();
+  const { cardsOf, errors, write, grab, landsBefore } = useContext(BoardContext);
   return (
     <section
-      class={{ list: true, "gap-before": landsBefore("list", props.list.id) }}
+      class={["list", { "gap-before": landsBefore("list", props.list.id) }]}
       data-list={props.list.id}
     >
       <header
@@ -527,13 +522,15 @@ function ListView(props: { list: List; children: (card: Card) => JSX.Element }) 
           ×
         </button>
       </header>
-      <ol class={{ cards: true, "gap-end": landsBefore("card", null, props.list.id) }}>
+      <ol class={["cards", { "gap-end": landsBefore("card", null, props.list.id) }]}>
         <For each={cardsOf(props.list.id)}>{props.children}</For>
       </ol>
       <Show when={errors[props.list.id]}>
-        <p class="error" role="alert">
-          {errors[props.list.id]}
-        </p>
+        {message => (
+          <p class="error" role="alert">
+            {message()}
+          </p>
+        )}
       </Show>
       <AddForm label="Add a card" onAdd={title => write.createCard(props.list.id, title)} />
     </section>
@@ -548,7 +545,7 @@ const ARROWS: Record<string, [across: number, down: number]> = {
 };
 
 function CardView(props: { card: Card }) {
-  const { write, nudge, grab, landsBefore } = useBoard();
+  const { write, nudge, grab, landsBefore } = useContext(BoardContext);
   const onKeyDown = (e: KeyboardEvent & { currentTarget: HTMLLIElement }) => {
     const step = e.altKey && e.target === e.currentTarget && ARROWS[e.key];
     if (!step) return;
@@ -561,7 +558,7 @@ function CardView(props: { card: Card }) {
   };
   return (
     <li
-      class={{ card: true, "gap-before": landsBefore("card", props.card.id) }}
+      class={["card", { "gap-before": landsBefore("card", props.card.id) }]}
       data-card={props.card.id}
       tabindex="0"
       onKeyDown={onKeyDown}
