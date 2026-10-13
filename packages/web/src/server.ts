@@ -4614,22 +4614,12 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
         }
         continue;
       }
-      // Defaults supply the initial HTML; the bound property applies at
-      // hydration. Check presence across sources without reading getters.
-      const defaultProp = info.formDefaults?.[prop];
-      if (defaultProp !== undefined && (skip === undefined || !skip(defaultProp))) {
-        if (keysOf !== null) {
-          for (let j = 0; j <= last; j++) {
-            if (keysOf[j].includes(defaultProp)) continue nextKey;
-          }
-        } else if (keys.includes(defaultProp)) continue;
+      const key = prop;
+      if (info.formAttributes !== undefined) {
+        prop = spreadFormAttribute(prop, info, keys, keysOf, skip);
+        if (prop === undefined) continue;
       }
-      // A compiled attribute after the spread owns the output name, even
-      // when its value is false and the tail emits no markup for it.
-      const attr = info.formAttributes?.[prop];
-      if (attr !== undefined && skip !== undefined && skip(attr)) continue;
-      const value = props[prop];
-      if (attr !== undefined) prop = attr;
+      const value = props[key];
       // Nullish is "not set" for every attribute, `style`/`class` included —
       // the client removes the attribute for `undefined`, and emitting
       // `style=""` here made the server disagree with it (#3382). A nullish
@@ -4744,6 +4734,27 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
     return { t: result + ">" + children.t + info.close };
   return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
 }
+
+// Keep form-default precedence outside the hot walk used by every spread tag.
+// Return the output attribute name, or undefined to skip the original key.
+function spreadFormAttribute(prop, info, keys, keysOf, skip) {
+  // Defaults supply the initial HTML; the bound property applies at
+  // hydration. Check presence across sources without reading getters.
+  const defaultProp = info.formDefaults[prop];
+  if (defaultProp !== undefined && (skip === undefined || !skip(defaultProp))) {
+    if (keysOf !== null) {
+      for (let j = 0; j < keysOf.length; j++) {
+        if (keysOf[j].includes(defaultProp)) return;
+      }
+    } else if (keys.includes(defaultProp)) return;
+  }
+  // A compiled attribute after the spread owns the output name, even
+  // when its value is false and the tail emits no markup for it.
+  const attr = info.formAttributes[prop];
+  if (attr !== undefined && skip !== undefined && skip(attr)) return;
+  return attr === undefined ? prop : attr;
+}
+
 export function ssrElementAttribute(key: string, value: any): string;
 
 export function ssrElementAttribute(key, value) {
