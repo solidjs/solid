@@ -185,6 +185,7 @@ import {
   classifyHeadTag,
   evalHeadProps,
   evalHeadValue,
+  headBodyText,
   resourceIdentity,
   replaceableIdentity,
   resolveHead,
@@ -2082,7 +2083,7 @@ function createHeadElement(tag, props) {
     if (v == null || v === false) continue;
     el.setAttribute(name, v === true ? "" : String(v));
   }
-  if (props.children != null) el.textContent = String(props.children);
+  if (props.children != null) el.textContent = headBodyText(tag, props, String(props.children));
   return el;
 }
 
@@ -2107,7 +2108,9 @@ function headElementMatches(el, t) {
     } else if (el.getAttribute(name) !== (v === true ? "" : String(v))) return false;
   }
   const children = t.props.children;
-  return (children == null ? "" : String(children)) === el.textContent;
+  return (
+    (children == null ? "" : headBodyText(t.tag, t.props, String(children))) === el.textContent
+  );
 }
 
 // Mount-once resources: hints (preload/preconnect/…) and scripts mount

@@ -81,6 +81,7 @@ import {
   evalHeadValue,
   resourceIdentity,
   asciiLowerCase,
+  headBodyText,
   replaceableIdentity,
   resolveHead,
   STYLESHEET_FETCH_META
@@ -1348,6 +1349,11 @@ function renderShellHead(registry, nonce, isPendingFragment, noScripts, traceMet
   };
 }
 
+// Installed by useHead, the only way tags reach the registry, so a render
+// that never imports it (the server-render size floor) does not carry the
+// JSON script body escape.
+let headBodyHook;
+
 // Fragment flush: commit the boundary's registrations, re-resolve, and diff
 // against the flushed snapshot. Returns patch ops (or null) for the client
 // `$dh` helper: `["t", text]` retitle, `["r", identity]` remove owned tags,
@@ -1400,7 +1406,19 @@ function flushHeadFragment(registry, boundary, nonce) {
         if (value) attrs.nonce = String(value);
       }
       const children = t.props.children;
-      ops.push(["a", identity, t.tag, attrs, children == null ? null : String(children)]);
+      // Ops exist only after useHead installed the hook; the check is for
+      // bundles without useHead, where it is never assigned.
+      ops.push([
+        "a",
+        identity,
+        t.tag,
+        attrs,
+        children == null
+          ? null
+          : headBodyHook
+            ? headBodyHook(t.tag, t.props, String(children))
+            : String(children)
+      ]);
     }
   }
   return ops.length ? ops : null;
@@ -1534,6 +1552,7 @@ function renderHeadTagMarkup(tag, props, identity, nonce) {
   if (nonce && !hasNonceProp(props)) attrs += nonceAttr(nonce, nonceDestination(tag, props));
   if (tag === "meta" || tag === "link" || tag === "base") return `<${tag}${attrs}>`;
   let body = props.children == null ? "" : String(props.children);
+  if (headBodyHook) body = headBodyHook(tag, props, body);
   if (tag === "script") body = body.replace(/<\/(script)/gi, "<\\/$1");
   else if (tag === "style") body = escapeStyleContent(body);
   else body = escape(body);
@@ -1568,6 +1587,7 @@ export function useHead(tags) {
       );
     return;
   }
+  headBodyHook = headBodyText;
   ctx.registerHeadTags(tags);
 }
 
