@@ -22,7 +22,6 @@
     "@solidjs/compiler": "2.0.0-rc.2",
     "@solidjs/diagnostics": "2.0.0-rc.2",
     "effect-example": "0.0.0",
-    "room-example": "0.0.0",
     "todos-server-example": "0.0.0",
     "board-example": "0.0.0"
   },
