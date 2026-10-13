@@ -1426,11 +1426,33 @@ function normalizeNonce(nonce) {
   };
 }
 
-// The script half of a `CSPNonce`, for the surfaces that emit one script.
-function scriptNonce(nonce) {
+function destinationNonce(nonce, destination) {
   if (nonce == null) return undefined;
-  const value = typeof nonce === "string" ? nonce : nonce.script;
+  const value = typeof nonce === "string" ? nonce : nonce[destination];
   return typeof value === "string" && value ? value : undefined;
+}
+
+/**
+ * The script half of a `CSPNonce`. The surfaces that emit one script take a
+ * `CSPNonce` and project it themselves; this stays exported only for
+ * `@solidjs/vite-plugin`'s generated handler, which still imports it.
+ * @internal
+ */
+export function scriptNonce(nonce?: CSPNonce): string | undefined;
+
+export function scriptNonce(nonce) {
+  return destinationNonce(nonce, "script");
+}
+
+/**
+ * The style half of a `CSPNonce`. Exported only for
+ * `@solidjs/vite-plugin`'s generated handler, which still imports it.
+ * @internal
+ */
+export function styleNonce(nonce?: CSPNonce): string | undefined;
+
+export function styleNonce(nonce) {
+  return destinationNonce(nonce, "style");
 }
 
 // Attribute names are ASCII case-insensitive, so a caller-supplied `Nonce`

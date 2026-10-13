@@ -6,7 +6,6 @@
 // script half, so an app passes `event.nonce` everywhere without projecting it.
 import { describe, expect, test } from "vitest";
 import { generateHydrationScript, HydrationScript, renderToString } from "@solidjs/web";
-import * as web from "@solidjs/web";
 
 const split = { script: "s-1", style: "t-1" };
 
@@ -33,10 +32,5 @@ describe("single-script surfaces take a CSPNonce", () => {
   test("HydrationScript falls back to the render's split nonce", () => {
     const html = renderToString(() => <HydrationScript />, { nonce: split });
     expect(html).toContain(`<script nonce="s-1">window._$HY`);
-  });
-
-  test("the projection helpers are not public exports", () => {
-    expect("scriptNonce" in web).toBe(false);
-    expect("styleNonce" in web).toBe(false);
   });
 });
