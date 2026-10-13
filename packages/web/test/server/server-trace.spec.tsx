@@ -24,6 +24,7 @@ import {
   createSSRResponse,
   getTraceContext,
   httpHeader,
+  respond,
   renderToStream,
   renderToString,
   useHead
@@ -42,8 +43,11 @@ import type {
 // `@solidjs/web` alias resolves through (index.server.ts re-exports it).
 import { commitResponseStub } from "../../src/server.js";
 import {
+  GET as serverGET,
+  createServerReference,
   handleServerFunctionRequest,
-  registerServerFunction
+  registerServerFunction,
+  registerServerReference
 } from "@solidjs/web/server-functions/server";
 import { OBSERVE } from "solid-js";
 
@@ -537,6 +541,176 @@ describe("Server-Timing at head commit", () => {
     inScope(stranger, () => commitResponseStub(foreign));
     expect(foreign.headers.has("server-timing")).toBe(false);
     expect(foreign.committed).toBe(true);
+  });
+});
+
+describe("Server-Timing on a shared-cacheable read (#3985)", () => {
+  // A `GET` server-function response whose `Cache-Control` lets a shared
+  // cache store it (`public`, `s-maxage`) is one answer replayed to every
+  // viewer: the request's trace must not ride it, or every viewer's browser
+  // parents its spans to the one request that filled the cache. A response
+  // only the caller's own cache may keep — and a `POST` — is unchanged.
+  const sampled = { traceparent: INCOMING };
+
+  function declareRead(id: string, cacheControl: string | undefined) {
+    serverGET(
+      createServerReference(
+        registerServerReference(id, async () =>
+          respond(
+            { ok: true },
+            cacheControl === undefined ? {} : { headers: { "Cache-Control": cacheControl } }
+          )
+        )
+      )
+    );
+  }
+
+  function read(
+    id: string,
+    method = "GET",
+    options?: Parameters<typeof handleServerFunctionRequest>[1]
+  ) {
+    return handleServerFunctionRequest(
+      new Request(`https://app.example/_server/${encodeURIComponent(id)}`, {
+        method,
+        headers: sampled
+      }),
+      options
+    );
+  }
+
+  test("a GET the function marked public or s-maxage carries no trace entry", async () => {
+    const policies = [
+      "public, max-age=60",
+      "max-age=0, s-maxage=300",
+      // directive names are case-insensitive; a value may be quoted
+      "Public",
+      'S-MaxAge="120"',
+      // `no-cache` still lets a shared cache store it (it only revalidates)
+      "public, no-cache",
+      // a qualified `private` keeps only the named fields out of a shared cache
+      'private="Set-Cookie", s-maxage=60'
+    ];
+    for (const [i, policy] of policies.entries()) {
+      const id = `trace#shared-${i}`;
+      declareRead(id, policy);
+      const response = await read(id);
+      expect(response.status, policy).toBe(200);
+      expect(response.headers.get("Cache-Control"), policy).toBe(policy);
+      expect(serverTiming(response.headers).size, policy).toBe(0);
+      expect(await response.json()).toEqual({ ok: true });
+    }
+  });
+
+  test("a Cache-Control written on the event's response stub counts — the policy the response leaves with", async () => {
+    declareRead("trace#shared-stub", undefined);
+    const response = await read("trace#shared-stub", "GET", {
+      createEvent: request => {
+        const evt = createRequestEvent(request);
+        evt.response.headers.set("Cache-Control", "public, max-age=60");
+        return evt;
+      }
+    });
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=60");
+    expect(serverTiming(response.headers).size).toBe(0);
+  });
+
+  test("HEAD answers with the equivalent GET's head — no trace entry either", async () => {
+    declareRead("trace#shared-head", "public, max-age=60");
+    const response = await read("trace#shared-head", "HEAD");
+    expect(response.status).toBe(200);
+    expect(response.body).toBeNull();
+    expect(serverTiming(response.headers).size).toBe(0);
+  });
+
+  test("a GET only the caller's own cache may keep still hands the trace on", async () => {
+    const policies = [
+      // no policy: the transport's `no-store` default
+      undefined,
+      "private, max-age=60",
+      // an unqualified `private` forbids a shared cache whatever else is said
+      "private, s-maxage=60",
+      "public, no-store",
+      "max-age=60",
+      // a directive is matched whole, never as a substring
+      "x-public, x-s-maxage=60"
+    ];
+    const entry = new RegExp(`^traceparent;desc="00-${TRACE_ID}-[0-9a-f]{16}-01"$`);
+    for (const [i, policy] of policies.entries()) {
+      const id = `trace#private-${i}`;
+      declareRead(id, policy);
+      const response = await read(id);
+      expect(response.status, policy).toBe(200);
+      expect(serverTiming(response.headers).get("traceparent"), policy).toMatch(entry);
+    }
+    // through a response stub too
+    declareRead("trace#private-stub", undefined);
+    const stubbed = await read("trace#private-stub", "GET", { createEvent: createRequestEvent });
+    expect(stubbed.headers.get("Cache-Control")).toBe("no-store");
+    expect(serverTiming(stubbed.headers).get("traceparent")).toMatch(entry);
+  });
+
+  test("a CDN-Cache-Control a CDN may store from counts as shared too (RFC 9213)", async () => {
+    const entry = new RegExp(`^traceparent;desc="00-${TRACE_ID}-[0-9a-f]{16}-01"$`);
+    const cases: [string, Record<string, string>, boolean][] = [
+      // the CDN keeps it even though the browser-facing policy is private
+      ["cdn-private", { "Cache-Control": "private", "CDN-Cache-Control": "max-age=60" }, true],
+      ["cdn-only", { "CDN-Cache-Control": "max-age=60" }, true],
+      ["cdn-no-store", { "Cache-Control": "private", "CDN-Cache-Control": "no-store" }, false],
+      ["cdn-private-directive", { "CDN-Cache-Control": "private" }, false]
+    ];
+    for (const [name, headers, shared] of cases) {
+      const id = `trace#${name}`;
+      serverGET(
+        createServerReference(
+          registerServerReference(id, async () => respond({ ok: true }, { headers }))
+        )
+      );
+      const response = await read(id);
+      expect(response.status, name).toBe(200);
+      if (shared) expect(serverTiming(response.headers).size, name).toBe(0);
+      else expect(serverTiming(response.headers).get("traceparent"), name).toMatch(entry);
+    }
+  });
+
+  test("a POST is unaffected, whatever Cache-Control the function set", async () => {
+    declareRead("trace#shared-post", "public, max-age=60");
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/data/trace%23shared-post", {
+        method: "POST",
+        headers: {
+          "Sec-Fetch-Site": "same-origin",
+          "content-type": "application/json",
+          "X-Server-Function-Format": "1",
+          ...sampled
+        },
+        body: "[]"
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=60");
+    expect(serverTiming(response.headers).has("traceparent")).toBe(true);
+  });
+
+  test("a provider's vendor entries are withheld with the traceparent; getTraceContext() still answers", async () => {
+    provide(() => ({ entries: { "sentry-trace": `${TRACE_ID}-${"c".repeat(16)}-1` } }));
+    let seen: TraceContext | undefined;
+    observeFns.GET(
+      observeFns.createServerReference(
+        observeFns.registerServerReference("trace#shared-provider", async () => {
+          seen = observeWeb.getTraceContext();
+          return observeWeb.respond("ok", { headers: { "Cache-Control": "public, max-age=60" } });
+        })
+      )
+    );
+    const response = await observeFns.handleServerFunctionRequest(
+      new Request("https://app.example/_server/trace%23shared-provider", { headers: sampled }),
+      { createEvent: createRequestEvent }
+    );
+    expect(response.status).toBe(200);
+    expect(serverTiming(response.headers).size).toBe(0);
+    expect(seen!.entries["sentry-trace"]).toBeDefined();
+    expect(seen!.traceId).toBe(TRACE_ID);
   });
 });
 
