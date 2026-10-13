@@ -4219,7 +4219,8 @@ export async function handleServerFunctionRequest(request, options = {}) {
   const commitResponse = raw => {
     if (
       (method === "GET" || method === "HEAD") &&
-      sharedCacheMayStore(departingCacheControl(raw, event))
+      (sharedCacheMayStore(departingHeader(raw, event, "Cache-Control")) ||
+        cdnMayStore(departingHeader(raw, event, "CDN-Cache-Control")))
     ) {
       withholdTrace(event);
     }
@@ -4644,15 +4645,23 @@ export async function handleServerFunctionRequest(request, options = {}) {
   return finish(protectsRequest ? withCSRFVary(response) : response);
 }
 
-// The `Cache-Control` a response leaves the handler with: its own, else the
-// event stub's — `commitEventResponse` gap-fills a stub header the response
-// does not answer, and an already-committed stub folds nothing. The
-// transport tail only ever adds `no-store` where neither said anything.
-function departingCacheControl(response, event) {
-  const own = response.headers.get("Cache-Control");
+// A header a response leaves the handler with: its own, else the event
+// stub's — `commitEventResponse` gap-fills a stub header the response does
+// not answer, and an already-committed stub folds nothing. The transport
+// tail only ever adds `Cache-Control: no-store` where neither said anything.
+function departingHeader(response, event, name) {
+  const own = response.headers.get(name);
   if (own !== null) return own;
   const stub = event.response;
-  return stub && stub.headers && !stub.committed ? stub.headers.get("Cache-Control") : null;
+  return stub && stub.headers && !stub.committed ? stub.headers.get(name) : null;
+}
+
+// A CDN that honours `CDN-Cache-Control` (RFC 9213) reads it in place of
+// `Cache-Control`, and a CDN is a shared cache: a present field it may store
+// under — anything but `no-store` or an unqualified `private` — lets it keep
+// the response whatever `Cache-Control` tells browsers.
+function cdnMayStore(cdnCacheControl) {
+  return cdnCacheControl !== null && !forbidsStoring(cdnCacheControl);
 }
 
 // Whether a shared cache may store a response under `cacheControl` — the
@@ -4666,12 +4675,29 @@ function departingCacheControl(response, event) {
 // cache, so the rest of the response — `Server-Timing` included — may still
 // be stored.
 function sharedCacheMayStore(cacheControl) {
-  if (!cacheControl) return false;
   let shared = false;
+  return (
+    !!cacheControl &&
+    !eachDirective(cacheControl, name => {
+      if (name === "public" || name === "s-maxage") shared = true;
+    }) &&
+    shared
+  );
+}
+
+// `no-store` or an unqualified `private`.
+function forbidsStoring(value) {
+  return eachDirective(value, () => {});
+}
+
+// Walks `value`'s directives (names matched whole and lower-cased, quoted
+// arguments may carry commas), handing each name to `visit`; true as soon
+// as one forbids storing — `no-store` or an unqualified `private`.
+function eachDirective(value, visit) {
   let start = 0;
   let quoted = false;
-  for (let i = 0; i <= cacheControl.length; i++) {
-    const c = cacheControl[i];
+  for (let i = 0; i <= value.length; i++) {
+    const c = value[i];
     if (quoted) {
       if (c === "\\") i++;
       else if (c === '"') quoted = false;
@@ -4681,15 +4707,15 @@ function sharedCacheMayStore(cacheControl) {
       quoted = true;
       continue;
     }
-    if (c !== "," && i < cacheControl.length) continue;
-    const directive = cacheControl.slice(start, i);
+    if (c !== "," && i < value.length) continue;
+    const directive = value.slice(start, i);
     start = i + 1;
     const eq = directive.indexOf("=");
     const name = (eq === -1 ? directive : directive.slice(0, eq)).trim().toLowerCase();
-    if (name === "no-store" || (name === "private" && eq === -1)) return false;
-    if (name === "public" || name === "s-maxage") shared = true;
+    if (name === "no-store" || (name === "private" && eq === -1)) return true;
+    visit(name);
   }
-  return shared;
+  return false;
 }
 
 // The request's trace stays off this response's head: the record's `emit`

@@ -388,7 +388,10 @@ viewer's browser spans. Resolved:
    so does its trace. A qualified `private="…"` does not, since the rest of
    the response may still be stored. The departing policy is the
    response's own, else the event stub's it gap-fills from; the
-   transport's `no-store` default never qualifies.
+   transport's `no-store` default never qualifies. A departing
+   `CDN-Cache-Control` (RFC 9213) qualifies on its own unless it says
+   `no-store` or an unqualified `private`: it is addressed only to shared
+   caches, so any storable value means a CDN replays the response.
 2. **Decided before the commit, not stripped after it.** The request's
    trace record stops emitting for that response, so no trace byte is
    written and an app's own `Server-Timing` entries are untouched. The

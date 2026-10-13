@@ -650,6 +650,29 @@ describe("Server-Timing on a shared-cacheable read (#3985)", () => {
     expect(serverTiming(stubbed.headers).get("traceparent")).toMatch(entry);
   });
 
+  test("a CDN-Cache-Control a CDN may store from counts as shared too (RFC 9213)", async () => {
+    const entry = new RegExp(`^traceparent;desc="00-${TRACE_ID}-[0-9a-f]{16}-01"$`);
+    const cases: [string, Record<string, string>, boolean][] = [
+      // the CDN keeps it even though the browser-facing policy is private
+      ["cdn-private", { "Cache-Control": "private", "CDN-Cache-Control": "max-age=60" }, true],
+      ["cdn-only", { "CDN-Cache-Control": "max-age=60" }, true],
+      ["cdn-no-store", { "Cache-Control": "private", "CDN-Cache-Control": "no-store" }, false],
+      ["cdn-private-directive", { "CDN-Cache-Control": "private" }, false]
+    ];
+    for (const [name, headers, shared] of cases) {
+      const id = `trace#${name}`;
+      serverGET(
+        createServerReference(
+          registerServerReference(id, async () => respond({ ok: true }, { headers }))
+        )
+      );
+      const response = await read(id);
+      expect(response.status, name).toBe(200);
+      if (shared) expect(serverTiming(response.headers).size, name).toBe(0);
+      else expect(serverTiming(response.headers).get("traceparent"), name).toMatch(entry);
+    }
+  });
+
   test("a POST is unaffected, whatever Cache-Control the function set", async () => {
     declareRead("trace#shared-post", "public, max-age=60");
     const response = await handleServerFunctionRequest(
