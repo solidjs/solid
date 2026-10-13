@@ -2355,7 +2355,7 @@ export function hydrate(code, element, options = {}) {
   // parser is still inside the server shell; the claim walk would gather only
   // the `_hk` nodes parsed so far and leave the rest of the shell dead beside
   // fresh client copies. The server ends each render's shell with a marker
-  // script (`_$HY.s[renderId] = 1`, see shellEndMarker); scripts run in parse
+  // script (`_$HY.s[renderId] = 1`, see withShellEnd); scripts run in parse
   // order, so once it has run every shell node is in the DOM. Without it yet
   // and mid-parse, park the start on the marker (or DOMContentLoaded, should
   // no marker come). Streamed fragments land after the shell and are claimed

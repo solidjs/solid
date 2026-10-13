@@ -1866,7 +1866,7 @@ export function renderToString(code, options = {}) {
       noScripts,
       traceMetaMarkup(context.trace)
     );
-    const document =
+    const document = withShellEnd(
       assembleDocument(
         resolveSSRSelectValues(html),
         tracking.emittedAssets,
@@ -1876,7 +1876,12 @@ export function renderToString(code, options = {}) {
         nonce,
         head,
         onHead
-      ) + shellEndMarker(context, renderId, nonce, noScripts);
+      ),
+      context,
+      renderId,
+      nonce,
+      noScripts
+    );
     // Head-freeze point: the request's response head commits right before
     // the render's final dispose — the same order as an awaited
     // `renderToStream`'s completion — so the `httpStatus`/`httpHeader`
@@ -2112,10 +2117,21 @@ export function renderToStream(code, options = {}) {
     const sink = writable;
     buffer = { write() {} };
     writable = { end() {} };
+    // Contained (#4029): an `onCleanup` that throws here must not escape the
+    // teardown. On the `signal` path this runs inside an `abort` listener,
+    // where a throw becomes an uncaught exception that takes the process down;
+    // on the `failRender` path it would cut the wind-down short. It is the
+    // render's failure, so it goes to the hook as one (`handling: "failed"`),
+    // and with no hook anywhere it is never silent.
     if (dispose) {
       const d = dispose;
       dispose = () => {};
-      d();
+      try {
+        d();
+      } catch (err) {
+        reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
+        if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
+      }
     }
     // Close the serializer AFTER `dead` is set: seroval's `close()` runs
     // each pending write's cleanup — a serialized async iterator gets its
@@ -2404,16 +2420,22 @@ export function renderToStream(code, options = {}) {
     // its head content before any body output it could flush.
     shell(shellHtml, meta) {
       buffer.write(
-        assembleDocument(
-          shellHtml,
-          meta.preloads,
-          meta.preloadLinks,
-          meta.inlineStyles,
-          meta.tasks.length ? meta.tasks : "",
+        withShellEnd(
+          assembleDocument(
+            shellHtml,
+            meta.preloads,
+            meta.preloadLinks,
+            meta.inlineStyles,
+            meta.tasks.length ? meta.tasks : "",
+            nonce,
+            meta.head,
+            onHead
+          ),
+          context,
+          renderId,
           nonce,
-          meta.head,
-          onHead
-        ) + shellEndMarker(context, renderId, nonce, noScripts)
+          noScripts
+        )
       );
     },
     ...options.sink
@@ -3736,6 +3758,34 @@ export function createLiveHoles(sink, scoped) {
   // sweep re-evaluations are mint-suppressed and produce neither — the
   // equality gate must not read that as a change.
   const stripMarkers = html => html.replace(/<!--lh:\/?\d+-->| data-lha="\d+"/g, "");
+  // Dev: a sweep's impurity gate closed a binding that was live (#4023). The
+  // first render escalated before the impure part ran, so the hole shipped
+  // its markers and then went quiet on its first re-evaluation — markup that
+  // silently stops updating. The usual cause is a compiler condition memo
+  // (`{m.usage && <b/>}` with a property condition), which a re-run would
+  // re-create. Once per binding: a closed binding never sweeps again. The
+  // finding is located by the hole's owner (its component path); the hole's
+  // expression is not named, because keeping it on every scoped hole costs
+  // the render even in dev.
+  const latched = !"_SOLID_DEV_"
+    ? null
+    : (owner, cause, content) => {
+        devCheck(
+          {
+            code: "SSR_LIVE_HOLE_LATCHED",
+            kind: "ssr",
+            severity: "warn",
+            message:
+              `[SSR_LIVE_HOLE_LATCHED] A live ${content ? "markup hole" : "attribute"} stopped updating: ` +
+              `re-running it ${cause === "records" ? "emitted slot records" : "created reactive scopes (a component, a memo, or a compiler condition memo such as {m.usage && …})"}, ` +
+              `so it cannot re-run and keeps the markup it last sent. ` +
+              `Read a property used in a condition into a local first (const usage = m.usage), ` +
+              `and keep components and memos out of markup that re-renders from a live source.`,
+            data: { cause }
+          },
+          owner
+        );
+      };
   // Sweeps re-evaluate under the mint-time render CONTEXT as well as the
   // owner. `runWithOwner` restores only the owner; everything a compiled
   // template reads off `sharedConfig.context` (the behavior-claims arming
@@ -3887,6 +3937,7 @@ export function createLiveHoles(sink, scoped) {
           // before its impure part ran): the hole is not re-runnable.
           // Close and latch what the retry path shipped.
           if (engine.gateHit || stamp() !== sweepOwnersBefore) {
+            if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", true);
             b.closed = true;
             sink.closeBinding(b.key);
             return;
@@ -4082,6 +4133,7 @@ export function createLiveHoles(sink, scoped) {
             engine.sweeping = prevSweeping;
           }
           if (engine.gateHit || stamp() !== sweepOwnersBefore) {
+            if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", false);
             b.closed = true;
             sink.closeBinding(b.key);
             return;
@@ -5918,10 +5970,19 @@ function allSettled(promises) {
 // that emitted `<HydrationScript />`: that is the document whose entry may
 // be `async` (a hand-built document's entry must be deferred, see
 // 12-ssr-http.md), and it keeps every other render's bytes unchanged.
-function shellEndMarker(context, renderId, nonce, noScripts) {
-  if (noScripts || !context || !context.bootstrap) return "";
+// Ends a shell with its marker (#4030): after every shell node, but inside
+// the document — spliced before `</body>` when the shell has one, appended
+// otherwise (a body-only or embedded render). Appended to a whole document it
+// landed after `</html>`, a parse error the browser repairs. Only the tail is
+// searched (a negative start reads as 0): at shell time nothing but `</html>`
+// and whitespace follows `</body>`, and a render without one (the embedded
+// case) must not pay a scan of the whole shell for a needle that isn't there.
+function withShellEnd(html, context, renderId, nonce, noScripts) {
+  if (noScripts || !context || !context.bootstrap) return html;
   const id = JSON.stringify(renderId).replace(/</g, "\\u003C");
-  return `<script${nonceAttr(nonce, "script")}>_$HY.s[${id}]=1,_$HY.sw&&_$HY.sw(${id})</script>`;
+  const marker = `<script${nonceAttr(nonce, "script")}>_$HY.s[${id}]=1,_$HY.sw&&_$HY.sw(${id})</script>`;
+  const at = html.indexOf("</body>", html.length - 512);
+  return at < 0 ? html + marker : html.slice(0, at) + marker + html.slice(at);
 }
 
 // Single-pass document assembly. This replaced four sequential inject passes

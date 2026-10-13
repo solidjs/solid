@@ -862,6 +862,19 @@ each source's first value and closes it, and the client connects for the
 rest after hydration — or bound the source. Frame-stream renders (a live
 connection) are never judged.
 
+### SSR_LIVE_HOLE_LATCHED
+
+A live markup hole (or attribute) in a server component shipped its markers
+and then stopped updating: re-running it would create reactive scopes
+(`data.cause: "owners"`) or emit slot records (`"records"`), so the runtime
+closed it and the client keeps the markup it last received. The usual cause
+is a condition on a property inside markup that re-renders from a live
+source, such as `{m.usage && <b>done</b>}`: the compiler wraps that condition
+in a memo, which a re-run would re-create. Read the property into a local
+first (`const usage = m.usage;` then `{usage && …}`), and keep components and
+memos out of markup that re-renders from a live source. The finding is
+located by the component the hole is in.
+
 ### LAZY_ASSET_UNMAPPED
 
 A `lazy()` component's client chunk could not be resolved for the page
