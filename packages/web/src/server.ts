@@ -1450,29 +1450,6 @@ function destinationNonce(nonce, destination) {
   return typeof value === "string" && value ? value : undefined;
 }
 
-/**
- * The script half of a `CSPNonce`. The surfaces that emit one script take a
- * `CSPNonce` and project it themselves; this stays exported only for
- * `@solidjs/vite-plugin`'s generated handler, which still imports it.
- * @internal
- */
-export function scriptNonce(nonce?: CSPNonce): string | undefined;
-
-export function scriptNonce(nonce) {
-  return destinationNonce(nonce, "script");
-}
-
-/**
- * The style half of a `CSPNonce`. Exported only for
- * `@solidjs/vite-plugin`'s generated handler, which still imports it.
- * @internal
- */
-export function styleNonce(nonce?: CSPNonce): string | undefined;
-
-export function styleNonce(nonce) {
-  return destinationNonce(nonce, "style");
-}
-
 // Attribute names are ASCII case-insensitive, so a caller-supplied `Nonce`
 // counts as one too.
 function hasNonceProp(props) {
@@ -3502,7 +3479,7 @@ export function HydrationScript(props) {
     nonce: sharedConfig.context && sharedConfig.context.nonce,
     ...props
   };
-  return ssr(hydrationBootstrap(eventNames, scriptNonce(nonce), true));
+  return ssr(hydrationBootstrap(eventNames, destinationNonce(nonce, "script"), true));
 }
 export function ssrGroup<T extends () => any[]>(fn: T, n: number): T;
 
@@ -5895,7 +5872,7 @@ export function generateHydrationScript(options?: {
 // `unhandledrejection` from the inline script alone, and a handler attached
 // later only revokes the report. A consumer still meets the rejection.
 export function generateHydrationScript({ eventNames, nonce } = {}) {
-  return hydrationBootstrap(eventNames, scriptNonce(nonce), false);
+  return hydrationBootstrap(eventNames, destinationNonce(nonce, "script"), false);
 }
 
 // `ledger` (#3971): only an in-render <HydrationScript /> declares `_$HY.s`,
