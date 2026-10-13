@@ -3581,8 +3581,14 @@ module.exports = [
     // minified, 100,395 -> 100,693). The same #3971 park block in `hydrate()`
     // as the store-family note. Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer (2026-10-13).
-    limit: "31.53 KB",
-    capMinified: 100693,
+    // Size-Exception (#4009, 2026-10-13): 31.53 -> 31.58 KB, measured by CI at
+    // 31,561 B on `next` @ d8ba741d after #4009 merged against an older cap
+    // (+50 B over #4002's 31,511; +145 B minified, 100,693 -> 100,838). The
+    // hydratable checkbox/radio `checked`/`value` runtime handling. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-13).
+    limit: "31.58 KB",
+    capMinified: 100838,
     alias
   },
   {
