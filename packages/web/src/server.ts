@@ -219,9 +219,9 @@ export type AssetResolverFn = (
  * fallback reaches `script-src`. A nonce on a `useHead` tag's own props
  * always wins.
  *
- * Only `renderToString` / `renderToStream` take this shape. Surfaces that
- * emit one script (`HydrationScript`, `generateHydrationScript`,
- * `createSSRResponse`) take a string — project with `scriptNonce`.
+ * Surfaces that emit one script (`HydrationScript`,
+ * `generateHydrationScript`, `createSSRResponse`) take either shape and use
+ * its script half.
  */
 export type CSPNonce = string | { script: string | false; style: string | false };
 
@@ -324,8 +324,8 @@ export type {
 export interface SSRResponseOptions {
   /** Base head; the stub's status/headers win over it. */
   responseInit?: ResponseInit;
-  /** Nonce carried by the post-flush `<script>` redirect fallback. */
-  nonce?: string;
+  /** Nonce carried by the post-flush `<script>` redirect fallback (its script half). */
+  nonce?: CSPNonce;
   /** Rewrites each outgoing HTML chunk (entry script injection, ...). */
   transformChunk?: (chunk: string) => string;
 }
@@ -1426,23 +1426,11 @@ function normalizeNonce(nonce) {
   };
 }
 
-function destinationNonce(nonce, destination) {
+// The script half of a `CSPNonce`, for the surfaces that emit one script.
+function scriptNonce(nonce) {
   if (nonce == null) return undefined;
-  if (typeof nonce === "string") return nonce || undefined;
-  const value = nonce[destination];
+  const value = typeof nonce === "string" ? nonce : nonce.script;
   return typeof value === "string" && value ? value : undefined;
-} /** The script-destination half of a render `nonce`. */
-export function scriptNonce(nonce?: CSPNonce): string | undefined;
-
-/** The script-destination half of a render `nonce`. */
-export function scriptNonce(nonce) {
-  return destinationNonce(nonce, "script");
-} /** The style-destination half of a render `nonce`. */
-export function styleNonce(nonce?: CSPNonce): string | undefined;
-
-/** The style-destination half of a render `nonce`. */
-export function styleNonce(nonce) {
-  return destinationNonce(nonce, "style");
 }
 
 // Attribute names are ASCII case-insensitive, so a caller-supplied `Nonce`
@@ -3461,16 +3449,18 @@ export function renderToStream(code, options = {}) {
     }
   };
 }
-export function HydrationScript(props: { nonce?: string; eventNames?: string[] }): JSX.Element;
+export function HydrationScript(props: { nonce?: CSPNonce; eventNames?: string[] }): JSX.Element;
 
 // components
 export function HydrationScript(props) {
-  const nonce = scriptNonce(sharedConfig.context && sharedConfig.context.nonce);
   // The render owns its bootstrap, so its shell ends with the marker and the
   // bootstrap declares the ledger hydrate() parks on (#3971).
   if (sharedConfig.context) sharedConfig.context.bootstrap = true;
-  const { eventNames, nonce: n } = { nonce, ...props };
-  return ssr(hydrationBootstrap(eventNames, n, true));
+  const { eventNames, nonce } = {
+    nonce: sharedConfig.context && sharedConfig.context.nonce,
+    ...props
+  };
+  return ssr(hydrationBootstrap(eventNames, scriptNonce(nonce), true));
 }
 export function ssrGroup<T extends () => any[]>(fn: T, n: number): T;
 
@@ -5853,7 +5843,7 @@ export function applyRef(r, element) {
   Array.isArray(r) ? r.flat(Infinity).forEach(f => f && f(element)) : r(element);
 }
 export function generateHydrationScript(options?: {
-  nonce?: string;
+  nonce?: CSPNonce;
   eventNames?: string[];
 }): string;
 
@@ -5863,7 +5853,7 @@ export function generateHydrationScript(options?: {
 // `unhandledrejection` from the inline script alone, and a handler attached
 // later only revokes the report. A consumer still meets the rejection.
 export function generateHydrationScript({ eventNames, nonce } = {}) {
-  return hydrationBootstrap(eventNames, nonce, false);
+  return hydrationBootstrap(eventNames, scriptNonce(nonce), false);
 }
 
 // `ledger` (#3971): only an in-render <HydrationScript /> declares `_$HY.s`,
