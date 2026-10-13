@@ -3448,10 +3448,12 @@ function currentEvent() {
  * Reports a direct call's failure as the function's (`direct: true`) through
  * `hook` (its request's render's) and rethrows the ORIGINAL: the render that
  * made the call contains it, and the wire policy there reuses the verdict
- * decided here.
+ * decided here. Thrown Responses and envelopes bypass this report, matching
+ * HTTP dispatch.
  */
 function reportDirectFailure(run, id, hook) {
   const report = error => {
+    if (error instanceof Response || isResponseEnvelope(error)) throw error;
     reportServerError(
       error,
       { kind: "server-function", handling: "thrown", functionId: id, direct: true },
