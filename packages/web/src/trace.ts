@@ -424,19 +424,23 @@ export function mergeServerTiming(target: Headers, value: string): void {
 }
 
 /**
- * Takes the trace entries `appendTraceServerTiming` told the browser about
- * back off `headers`' `Server-Timing` for the request keyed `key`, leaving
- * every other metric. For a response a shared cache may store: the entry
- * names ONE request's trace, and the cache would replay it to every later
- * viewer (#3985). Never derives a record — a request whose trace was not
- * emitted had nothing appended, so there is nothing to take back.
+ * Strips the request's trace from `headers`' `Server-Timing`, leaving every
+ * other metric — for a response a shared cache may store, where the trace
+ * names ONE request and the cache would replay it to every later viewer
+ * (#3985). Fails closed: `traceparent` always goes, whoever wrote it, and
+ * so does every entry name the event's record carries (a provider's vendor
+ * entries, which may be session-scoped). The record is found under the
+ * same key `traceForEvent` stores it by, and never derived here.
  */
-export function dropTraceServerTiming(headers: Headers, key: object): void {
-  const record = records().get(key);
-  if (!record || !record.emit) return;
+export function dropTraceServerTiming(
+  headers: Headers,
+  event: { request?: Request } | undefined
+): void {
   const value = headers.get("server-timing");
   if (value === null) return;
-  const names = new Set(Object.keys(record.context.entries).map(name => name.toLowerCase()));
+  const names = new Set(["traceparent"]);
+  const record = event ? records().get(event.request || event) : undefined;
+  if (record) for (const name in record.context.entries) names.add(name.toLowerCase());
   const kept: string[] = [];
   for (const entry of splitServerTiming(value)) {
     const trimmed = entry.trim();

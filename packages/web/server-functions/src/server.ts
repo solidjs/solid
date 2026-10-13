@@ -4008,8 +4008,11 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // answer for an admitted cross-origin caller (the identity for everyone
   // else), then the read's `Origin` variance where an allowlist makes the
   // answer depend on it (`withCORS` already named it for an admitted one).
+  // The request event, once one exists (created below): `finish` reads it
+  // to find the trace `commitEventResponse` appended under it (#3985).
+  let event;
   const finish = response => {
-    const finalized = withCORS(finalizeTransportResponse(response, method, request), cors);
+    const finalized = withCORS(finalizeTransportResponse(response, method, event), cors);
     return readVariesByOrigin && cors === null
       ? withHeaders(finalized, headers => appendVary(headers, ["Origin"]))
       : finalized;
@@ -4180,7 +4183,6 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // starved the event loop on a self-resolving one (#3199). A failure here
   // is answered rather than thrown: no event exists yet, so there is no stub
   // to fold and nothing downstream can report it.
-  let event;
   try {
     event = options.createEvent ? options.createEvent(request) : { request, locals: {} };
     const promised = nativePromise(event);
@@ -4659,7 +4661,7 @@ function ownResponse(response) {
  * - A read whose `Cache-Control` lets a shared cache store it leaves
  *   without the request's `Server-Timing` trace entries (#3985).
  */
-function finalizeTransportResponse(response, method, request) {
+function finalizeTransportResponse(response, method, event) {
   const stripBody = method === "HEAD" && response.body !== null;
   // Never onto a 304: a 304 is not a stored response, it is an UPDATE to
   // one — RFC 9111 §4.3.4 has the cache freshen its stored entry with the
@@ -4694,7 +4696,7 @@ function finalizeTransportResponse(response, method, request) {
       if (defaultsCache) {
         response.headers.set("Cache-Control", "no-store");
       }
-      if (dropsTrace) dropTraceServerTiming(response.headers, request);
+      if (dropsTrace) dropTraceServerTiming(response.headers, event);
       if (!stripBody) return response;
       // discard, don't leak: the encoded body may be a live codec stream
       response.body.cancel().catch(() => {});
@@ -4707,7 +4709,7 @@ function finalizeTransportResponse(response, method, request) {
       // immutable headers (e.g. a raw fetch() Response passed through)
       const headers = new Headers(response.headers);
       if (defaultsCache && !headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
-      if (dropsTrace) dropTraceServerTiming(headers, request);
+      if (dropsTrace) dropTraceServerTiming(headers, event);
       if (stripBody) response.body.cancel().catch(() => {});
       return new Response(stripBody ? null : response.body, {
         status: response.status,

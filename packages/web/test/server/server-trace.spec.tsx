@@ -645,7 +645,7 @@ describe("Server-Timing on a shared-cacheable server-function read (#3985)", () 
     expect(serverTiming(response.headers).has("traceparent")).toBe(true);
   });
 
-  test("an unsampled request had nothing appended — an app's own entry of that name stays", async () => {
+  test("fails closed: an app's own `traceparent` entry leaves a shared-cacheable read too", async () => {
     serverGET(
       createServerReference(
         registerServerReference(
@@ -654,7 +654,7 @@ describe("Server-Timing on a shared-cacheable server-function read (#3985)", () 
             new Response("ok", {
               headers: {
                 "Cache-Control": "public, s-maxage=60",
-                "Server-Timing": 'traceparent;desc="app"'
+                "Server-Timing": 'traceparent;desc="app", db;dur=5'
               }
             })
         )
@@ -665,7 +665,61 @@ describe("Server-Timing on a shared-cacheable server-function read (#3985)", () 
         headers: { "Sec-Fetch-Site": "same-origin" }
       })
     );
-    expect(serverTiming(response.headers).get("traceparent")).toBe('traceparent;desc="app"');
+    expect([...serverTiming(response.headers).keys()]).toEqual(["db"]);
+  });
+
+  test("an event whose request is not the handler's (a wrapped clone) still finds the trace", async () => {
+    declareRead("trace-shared-wrapped", "public, max-age=60");
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/trace-shared-wrapped", {
+        headers: { "Sec-Fetch-Site": "same-origin", traceparent: INCOMING }
+      }),
+      { createEvent: request => createRequestEvent(new Request(request)) }
+    );
+    expect(response.status).toBe(200);
+    expect([...serverTiming(response.headers).keys()]).toEqual(["db"]);
+  });
+
+  // A provider's vendor entries name the same request (`sentry-trace`) or
+  // may carry session-scoped values (`baggage`): they leave with the
+  // `traceparent`, including for an event without a `request`, whose
+  // record is keyed on the event itself.
+  test.each([
+    ["the request's event", createRequestEvent],
+    ["an event without a request", () => ({ locals: {} })]
+  ])("an observe-tier provider's entries leave too — %s", async (_, createEvent) => {
+    provide(() => ({
+      sampled: true,
+      entries: { "sentry-trace": `${TRACE_ID}-${PARENT_ID}-1`, baggage: "user=42" }
+    }));
+    const declare = (id: string, cc: string) =>
+      observeFns.GET(
+        observeFns.createServerReference(
+          observeFns.registerServerReference(
+            id,
+            () =>
+              new Response("ok", {
+                headers: { "Cache-Control": cc, "Server-Timing": "db;dur=5" }
+              })
+          )
+        )
+      );
+    const read = (id: string) =>
+      observeFns.handleServerFunctionRequest(
+        new Request(`https://app.example/_server/${id}`, {
+          headers: { "Sec-Fetch-Site": "same-origin" }
+        }),
+        { createEvent: createEvent as any }
+      );
+    const n = ++declared;
+    declare(`trace-provider-shared-${n}`, "public, max-age=60");
+    declare(`trace-provider-private-${n}`, "private");
+    const shared = await read(`trace-provider-shared-${n}`);
+    expect(shared.status).toBe(200);
+    expect([...serverTiming(shared.headers).keys()]).toEqual(["db"]);
+    // control: a private read carries all three as before
+    const kept = serverTiming((await read(`trace-provider-private-${n}`)).headers);
+    expect([...kept.keys()].sort()).toEqual(["baggage", "db", "sentry-trace", "traceparent"]);
   });
 });
 
