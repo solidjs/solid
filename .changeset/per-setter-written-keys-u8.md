@@ -2,4 +2,4 @@
 "@solidjs/signals": patch
 ---
 
-fix(signals): a later mainline store setter that does not write a held key publishes on the mainline tick — a written key carries the setter generation that wrote it, so a setter's notify visits only its own keys (D-8, U-8, #3743)
+fix(signals): a later mainline store setter that does not write a held key publishes on the mainline tick — a setter's written keys are its own set, so its notify visits only the keys it wrote (D-8, U-8, #3743)

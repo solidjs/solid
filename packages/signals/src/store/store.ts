@@ -102,7 +102,8 @@ import {
   storeLookup,
   storeOwners,
   type StoreFamily,
-  type StoreTarget
+  type StoreTarget,
+  type WrittenKeys
 } from "./target.js";
 import { affectsHooks, optHooks } from "./hooks.js";
 import {
@@ -627,7 +628,7 @@ function scanAccessorsOnce(target: StoreTarget): boolean {
 const OVERLAY_MIN_KEYS = 32;
 const OVERLAY_REBUILD_MAX_KEYS = 1024;
 const OVERLAY_REBUILD_MIN_ADDS = 16;
-const WK_ALL: Map<PropertyKey, number> = new Map();
+const WK_ALL = new Set() as WrittenKeys;
 
 const plainProto = (o: object): boolean => {
   const p = Object.getPrototypeOf(o);
@@ -640,7 +641,8 @@ function overlayRebuilds(t: StoreTarget, pb: Record<PropertyKey, any>): boolean 
   if (t.kc > OVERLAY_REBUILD_MAX_KEYS) return false;
   if (t.del !== null && t.del.size !== 0) return true;
   const wk = t.wk;
-  if (wk !== null && wk !== WK_ALL && wk.size <= OVERLAY_REBUILD_MIN_ADDS) return false;
+  if (wk !== null && wk !== WK_ALL && wk.u === null && wk.size <= OVERLAY_REBUILD_MIN_ADDS)
+    return false;
   const v = t.v;
   let adds = 0;
   for (const key of Reflect.ownKeys(pb))
@@ -974,10 +976,11 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
           const v = t.v;
           const wk = t.wk;
           if (wk !== null && wk !== WK_ALL) {
-            for (const key of wk.keys()) {
-              if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
-              else delete (v as any)[key];
-            }
+            for (let w: WrittenKeys | null = wk; w !== null; w = w.u)
+              for (const key of w) {
+                if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
+                else delete (v as any)[key];
+              }
           } else {
             for (const key of Reflect.ownKeys(pb)) {
               const d = Object.getOwnPropertyDescriptor(pb, key)!;
@@ -1165,11 +1168,8 @@ function notifyWrites(t: StoreTarget): void {
   // one did not is no second proposal — its node was told then, and telling
   // a held node its unchanged value again would join this tick to the hold.
   const wk0 = t.wk;
-  let writtenKeys: PropertyKey[] | null = null;
-  if (wk0 !== null && wk0 !== WK_ALL && t.a !== true && plainProto(t.ovl ? (t.v as object) : pb)) {
-    writtenKeys = [];
-    for (const [key, g] of wk0) if (g === wkGen) writtenKeys.push(key);
-  }
+  const writtenKeys =
+    wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
   if (__OBSERVE__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
   if (t.fam !== null && !heldDerivationHit && writtenKeys !== null)
     for (const key of writtenKeys)
@@ -1412,7 +1412,7 @@ export function notifyFold(
 // visibility
 
 let writing = 0;
-/** The outermost setter's generation: what `wk` stamps the keys it writes. */
+/** The outermost setter's generation: the `wk` it opens is its own. */
 let wkGen = 0;
 /** Roots of the stores with an open setter: reads of THEIR drafts are the
  * writer's (no tracking, pending backing served); every other store reads
@@ -1904,11 +1904,20 @@ const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor
 // ---------------------------------------------------------------------------
 // traps
 
-/** A trap write: the target is told at the setter's exit, the key stamped
- * with this setter's generation (`wk`). */
+/** A trap write: the target is told at the setter's exit, the key recorded
+ * in this setter's `wk` — a new setter's is its own (the notify visits it,
+ * D-8), the batch's earlier ones chained behind for the fold's union. */
 function touch(target: StoreTarget, key: PropertyKey): void {
   pendingNotify.add(target);
-  if (target.wk !== WK_ALL) (target.wk ??= new Map()).set(key, wkGen);
+  let wk = target.wk;
+  if (wk === WK_ALL) return;
+  if (wk === null || wk.g !== wkGen) {
+    const fresh = new Set() as WrittenKeys;
+    fresh.g = wkGen;
+    fresh.u = wk;
+    target.wk = wk = fresh;
+  }
+  wk.add(key);
 }
 
 const traps: ProxyHandler<StoreTarget> = {

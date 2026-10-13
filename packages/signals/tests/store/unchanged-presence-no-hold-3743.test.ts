@@ -485,9 +485,9 @@ describe("#3743 unchanged presence under an open action", () => {
   // `notifyWrites` visited were `t.wk`, retained for the pending fold and
   // cumulative across the batch's setters, so the later setter re-notified
   // the held `flag` node with its unchanged value and `setSignal` joined
-  // before the equality gate (the write is a proposal). The keys carry the
-  // setter generation that wrote them now (U-8): the notify visits the keys
-  // THIS setter wrote, the fold keeps the batch's union.
+  // before the equality gate (the write is a proposal). A setter's written
+  // keys are its own set now, the batch's earlier chained behind (U-8): the
+  // notify visits the keys THIS setter wrote, the fold keeps the union.
   it("a later mainline setter that does not write the held key publishes on the mainline tick", async () => {
     type State = { a: { value: number }; b: { value: number; flag: boolean } };
     const values: number[] = [];
