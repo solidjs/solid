@@ -132,7 +132,9 @@ Four corollaries, one per seam and one for the boundary the seams meet at:
    (`initBoundaryResume`), and there is no parallel accounting, no second
    "done", no SC consumer API. `onHydrationEnd` and `isHydrationInProgress()`
    mean the same thing with or without SC. Seam 3 (3.1, with 3.2 as its
-   mechanism).
+   mechanism). `onHydrationEnd` is the one public signal for it (`solid-js`,
+   `@experimental`, #4000; `isHydrationInProgress` stays internal), so SC
+   pages get the same channel, not one of their own.
 4. **A frame is one async value outward; its inner boundaries are the
    server's.** _"SCs participate in `<Loading>` until their first flush the
    same way, and can have their own internal loading states that the client

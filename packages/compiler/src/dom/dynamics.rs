@@ -20,6 +20,7 @@ pub(crate) struct DynamicSlot<'a> {
     pub(crate) tag_name: String,
     pub(crate) style_property: bool,
     pub(crate) class_property: bool,
+    pub(crate) checkable_input: bool,
 }
 
 /// What one template root folds into its single binding effect
@@ -147,6 +148,7 @@ impl<'a> AstDomTransform<'a, '_> {
                     tag_name: slot.tag_name,
                     style_property: slot.style_property,
                     class_property: slot.class_property,
+                    checkable_input: slot.checkable_input,
                 },
             );
             let statement = self.ast().statement_expression(span, set_attr);
@@ -210,6 +212,7 @@ impl<'a> AstDomTransform<'a, '_> {
                         tag_name: slot.tag_name,
                         style_property: false,
                         class_property: false,
+                        checkable_input: slot.checkable_input,
                     },
                 );
                 statements.push(self.ast().statement_expression(slot_span, set_attr));
@@ -257,6 +260,7 @@ impl<'a> AstDomTransform<'a, '_> {
                         tag_name: slot.tag_name,
                         style_property: slot.style_property,
                         class_property: slot.class_property,
+                        checkable_input: slot.checkable_input,
                     },
                 );
                 statements.push(self.ast().statement_expression(
