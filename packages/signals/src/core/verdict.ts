@@ -30,6 +30,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import {
+  bornInto,
   context,
   joinPass,
   markLateLinker,
@@ -102,9 +103,12 @@ function route(c: Computed<any>, t: Transaction): void {
  * every flush (fuzzer F12). True when the reader is served the committed
  * value — not over a flight committed beneath inputs already on screen (A15
  * reveal corollary, #3305): that value would tear against them, and the
- * reveal observes the flight. */
+ * reveal observes the flight. Nor for a reader born into the flight's
+ * transaction (`bornInto`, #4010): it has no screen — it waits on the flight
+ * with the rest of its frame. */
 function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
-  if (el._config & CONFIG_INPUTS_PUBLISHED) return false;
+  if (el._config & CONFIG_INPUTS_PUBLISHED || (el._config & CONFIG_HELD && bornInto(c, txOf(el))))
+    return false;
   if (globalQueue._running) {
     joinFuture(null);
     if (!(el._config & CONFIG_HELD)) queuePendingNode(el);

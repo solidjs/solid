@@ -34,6 +34,7 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_HELD,
+  CONFIG_HELD_FRAME,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
@@ -327,13 +328,13 @@ export function laneStage(
       if (tx?._lane) x._transaction = null;
       x._lane = NOT_PENDING;
     }
-    el._config &= ~(CONFIG_OVERRIDE | CONFIG_HELD);
+    el._config &= ~(CONFIG_OVERRIDE | CONFIG_HELD | CONFIG_HELD_FRAME);
     return false;
   }
   if (!(el as any)._type) {
     if (!(el._config & CONFIG_OVERRIDE)) {
       el._pendingValue = NOT_PENDING;
-      el._config = (el._config & ~CONFIG_HELD) | CONFIG_OVERRIDE;
+      el._config = (el._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_OVERRIDE;
       ext(el);
     }
     // A written guess whose own pass is the lane's work — its source is a
@@ -545,7 +546,7 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       } else {
         if (x._pendingFirstChild !== null || x._pendingDisposal !== null)
           GlobalQueue._dispose(n as Computed<any>, false, true);
-        n._config &= ~(CONFIG_STAGED | CONFIG_HELD);
+        n._config &= ~(CONFIG_STAGED | CONFIG_HELD | CONFIG_HELD_FRAME);
       }
     }
   }
