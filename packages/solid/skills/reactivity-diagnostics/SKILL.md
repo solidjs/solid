@@ -293,10 +293,16 @@ the scope as described under [HUGE_FAN_IN](#huge_fan_in).
 ### GRAPH_GROWTH
 
 The live graph, counted when each navigation settles, got bigger on every
-one of the last `data.history.length` visits to `data.route` — something
-each visit creates is never disposed. This is the leak a heap
-snapshot finds; the engine finds it by measuring the reactive graph at each
-navigation's settle. `data.grew` says which measure climbed, and that names
+one of the last `data.history.length` visits to `data.route`, and so did the
+part of it that outlived each of those navigations (`data.survived`, beside
+`data.history`: what was alive when the navigation began and still is) —
+something each visit creates is never disposed. A page that is merely bigger
+on one visit than the last does not report: its content is new at each
+arrival, so it is not in `data.survived`. Navigations that only change a
+route's params or query continue the visit and are not compared. This is the
+leak a heap snapshot finds; the engine finds it by measuring the reactive
+graph as each navigation opens and at its settle. `data.grew` says which
+measure climbed, and that names
 the leak: `owners` is an undisposed root or a Portal mounted per visit;
 `computations` with `owners` flat is an effect or memo created with no
 owner, kept alive only by the sources it reads; `edges` alone is a

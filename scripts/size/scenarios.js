@@ -3354,8 +3354,18 @@ module.exports = [
     // the recorded minified (86,937 -> 87,216). Both merged with the
     // maintainer's go-ahead 2026-10-12. Cap set at measured + 10 B rounded up
     // to 0.01 KB.
-    limit: "28.96 KB",
-    capMinified: 87216,
+    // Size-Exception (GRAPH_GROWTH also requires what outlived each
+    // navigation to climb, #4007, 2026-10-13): 28.96 KB -> 29.17 KB, measured
+    // locally at 29,160 B against `next` @ d8ba741d's 28,930 (+230 B; +594 B
+    // minified, 87,216 -> 87,810; recorded 87,216 -> 87,810). Engine-only:
+    // the navigation's snapshot walk (a WeakSet of what was alive as it
+    // opened), the settle walk's count of what survived it, the same-pattern
+    // visit rule, and the finding's `survived` series and message. Every
+    // prod artifact byte-identical; the observe tier scenario above did not
+    // move. Cap set at measured + 10 B rounded up to 0.01 KB. AWAITING the
+    // maintainer's acceptance — re-measure on CI before accepting.
+    limit: "29.17 KB",
+    capMinified: 87810,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above

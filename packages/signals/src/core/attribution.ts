@@ -537,9 +537,13 @@ export interface AttributionOptions {
   /**
    * Graph-growth warning: emit GRAPH_GROWTH when the live owner count at the
    * settle of the same route has climbed on `visits` consecutive visits
-   * (default 3) to `ratio` or more of the first (default 1.25) — a root or a
+   * (default 3) to `ratio` or more of the first (default 1.25), and so has
+   * the part of it that outlived each of those navigations — a root or a
    * subscription each visit leaves behind, the leak class a heap snapshot
-   * finds. The count is a walk at settle, never per node. `false` disables.
+   * finds, not content a visit owns and leaving disposes. The count is a walk
+   * when a navigation opens and at its settle, never per node. Navigations
+   * that stay on a route pattern continue its visit and are not compared.
+   * `false` disables.
    */
   graphGrowth?: { visits: number; ratio: number } | false;
   /**
@@ -3109,8 +3113,17 @@ function checkOptimisticRevert(
 
 // --- Graph growth -----------------------------------------------------------------
 
-/** Per route: the graph's size at its last `visits` settles, oldest first. */
-const routeCounts = new Map<string, GraphSize[]>();
+/**
+ * Per route: at its last `visits` compared settles, oldest first, the
+ * graph's size and the part of it that was already alive when that
+ * navigation opened.
+ */
+const routeCounts = new Map<string, { size: GraphSize; survived: GraphSize }[]>();
+/**
+ * The route the app last arrived on: a navigation that stays on it (only
+ * its params or query change) continues the visit and is not compared.
+ */
+let visitRoute: string | undefined;
 
 /**
  * The live graph's size — a walk, not a counter: nothing is charged at node
@@ -3126,26 +3139,43 @@ const routeCounts = new Map<string, GraphSize[]>();
  * counted unless a subscription still reaches them.
  */
 export function graphSize(): GraphSize {
+  return walkGraph();
+}
+
+/**
+ * The walk behind `graphSize()`. Given `before` alone, it adds every node it
+ * meets to that set: what is alive as a navigation opens. Given `before` and
+ * `survived`, it also counts into `survived` the nodes it meets that are in
+ * the set, and an edge when both its ends are: what outlived the navigation.
+ * Nothing is retained — the set is weak.
+ */
+function walkGraph(before?: WeakSet<object>, survived?: GraphSize): GraphSize {
   const roots = liveRootOwners();
-  const size: GraphSize = { roots: roots.length, owners: 0, computations: 0, signals: 0, edges: 0 };
+  const size: GraphSize = { roots: 0, owners: 0, computations: 0, signals: 0, edges: 0 };
   const seen = new Set<object>();
   // A worklist, not recursion: a subscriber chain can be thousands deep.
   const work: (Signal<any> | Computed<any>)[] = [];
   const stack: Owner[] = [];
+  const count = (node: object, key: keyof GraphSize): void => {
+    size[key]++;
+    if (survived !== undefined) {
+      if (before!.has(node)) survived[key]++;
+    } else if (before !== undefined) before.add(node);
+  };
   const meet = (node: Signal<any> | Computed<any>): void => {
     if (seen.has(node)) return;
     seen.add(node);
-    if (typeof (node as Computed<any>)._fn === "function") size.computations++;
-    else size.signals++;
+    count(node, typeof (node as Computed<any>)._fn === "function" ? "computations" : "signals");
     work.push(node);
   };
   for (const root of roots) {
-    size.owners++;
+    count(root, "roots");
+    count(root, "owners");
     // Iterative: a deep tree must not grow the call stack.
     let child = root._firstChild;
     for (;;) {
       while (child !== null) {
-        size.owners++;
+        count(child, "owners");
         if (typeof (child as Computed<any>)._fn === "function") meet(child as Computed<any>);
         if (child._firstChild !== null) stack.push(child);
         child = child._nextSibling;
@@ -3164,9 +3194,20 @@ export function graphSize(): GraphSize {
       for (let link = (node as Computed<any>)._deps; link !== null; link = link._nextDep) {
         size.edges++;
         meet(link._dep);
+        if (survived !== undefined && before!.has(node) && before!.has(link._dep)) survived.edges++;
       }
   }
   return size;
+}
+
+/**
+ * openNavigation, while the growth check is on: what is alive as a
+ * navigation opens, for its settle to tell apart from what it created.
+ */
+function snapshotGraph(): WeakSet<object> {
+  const before = new WeakSet<object>();
+  walkGraph(before);
+  return before;
 }
 
 /**
@@ -3177,47 +3218,78 @@ export function graphSize(): GraphSize {
  * `createRoot` in an effect with no dispose, a subscription a component
  * registered outside its owner. Nothing here runs per node; the walk is
  * the cost, at navigation cadence.
+ *
+ * A count taken at an arrival also holds everything the visit just created,
+ * so a page whose correctly owned content is bigger each visit climbs too.
+ * What tells the two apart is what outlived the navigation: the nodes alive
+ * when it opened (`NavState.before`) that are still alive at its settle. A
+ * visit's own content is not among them; what an earlier visit left behind
+ * is, whatever the content does. A series reports only when both climb.
  */
 const GRAPH_SERIES: (keyof GraphSize)[] = ["owners", "computations", "signals", "edges"];
 
-function trackGraph(navigation: NavigationEvent): void {
+function trackGraph(state: NavState): void {
+  const navigation = state.event;
+  const before = state.before;
+  state.before = undefined;
   const cfg = options.graphGrowth;
   if (cfg === false && !records.observed("graph")) return;
-  const size = graphSize();
+  const survived: GraphSize | undefined = before && {
+    roots: 0,
+    owners: 0,
+    computations: 0,
+    signals: 0,
+    edges: 0
+  };
+  const size = walkGraph(before, survived);
   const route = navigation.name ?? navigation.to;
   const event: GraphEvent = { at: now(), ...size, navigation };
   if (route !== undefined) event.route = route;
   records.emit("graph", event, undefined);
+  if (cfg === false || route === undefined) return;
+  // A navigation that stays on the route pattern continues the visit: the
+  // page it kept outlived the move by design, so comparing it would read the
+  // page itself as growth. Only arrivals that enter the route are compared —
+  // a leak made during a visit is still alive when the next one starts. A
+  // superseded navigation never showed, so the app is still where it was.
+  const left = visitRoute;
+  if (navigation.outcome !== "superseded") visitRoute = route;
   // The initial declaration is not a visit (it settles before route content
   // mounts — the same gate the feedback folds apply as `event.initial !== true`);
   // `initial` is `true | undefined`, set only by openNavigation, so truthiness is exact.
-  if (cfg === false || route === undefined || navigation.initial) return;
+  // A navigation opened before the check was on has no snapshot to compare.
+  if (navigation.initial || route === left || survived === undefined) return;
   let history = routeCounts.get(route);
   if (history === undefined) routeCounts.set(route, (history = []));
-  history.push(size);
+  history.push({ size, survived });
   if (history.length > cfg.visits) history.shift();
   if (history.length < cfg.visits) return;
-  // Any series climbing on every visit to the ratio is growth; which ones
-  // did says what leaked — computations with owners flat is an ownerless
-  // effect per visit, edges alone is a subscription per visit to something
-  // long-lived, owners is an undisposed root.
-  const grew = GRAPH_SERIES.filter(key => {
-    for (let i = 1; i < history!.length; i++)
-      if (history![i][key] <= history![i - 1][key]) return false;
-    return history![history!.length - 1][key] >= history![0][key] * cfg.ratio;
-  });
+  const totals = history.map(h => h.size);
+  const kept = history.map(h => h.survived);
+  const climbs = (series: GraphSize[], key: keyof GraphSize): boolean => {
+    for (let i = 1; i < series.length; i++) if (series[i][key] <= series[i - 1][key]) return false;
+    return series[series.length - 1][key] >= series[0][key] * cfg.ratio;
+  };
+  // Any series climbing on every visit to the ratio — in the totals and in
+  // what outlived each navigation — is growth; which ones did says what
+  // leaked — computations with owners flat is an ownerless effect per visit,
+  // edges alone is a subscription per visit to something long-lived, owners
+  // is an undisposed root.
+  const grew = GRAPH_SERIES.filter(key => climbs(totals, key) && climbs(kept, key));
   if (grew.length === 0) return;
   // The count is the whole graph's, so a leak shows at every route's settle;
   // the first route to complete its climb reports, naming the others seen.
   const routes = [...routeCounts.keys()];
-  const series = grew.map(key => `${key} ${history!.map(h => h[key]).join(" → ")}`).join("; ");
+  const join = (series: GraphSize[], key: keyof GraphSize) => series.map(h => h[key]).join(" → ");
+  const series = grew.map(key => `${key} ${join(kept, key)} (of ${join(totals, key)})`).join("; ");
   const shape = grew.includes("owners")
     ? "a createRoot() in an effect or handler with no dispose, or a Portal or panel mounted per visit"
     : grew.includes("computations")
       ? "an effect or memo created with no owner (a module-level or callback createEffect) that only its sources keep alive"
       : "a subscription per visit to something long-lived — a global store or signal read by a computation that outlives the visit";
   const message =
-    `[GRAPH_GROWTH] the live graph grew on ${cfg.visits} consecutive visits to ${route}: ${series} ` +
+    `[GRAPH_GROWTH] the live graph grew on ${cfg.visits} consecutive visits to ${route}, and so did ` +
+    `the part that outlived each navigation there: ${series} ` +
     `(${size.roots} roots)${routes.length > 1 ? `, across visits to ${routes.join(", ")}` : ""}. Each ` +
     `visit left something behind that the next did not reclaim — the shape says ${shape}. Dispose ` +
     `what a visit creates (onCleanup, or return the disposer from onSettled) and own it under the ` +
@@ -3225,7 +3297,8 @@ function trackGraph(navigation: NavigationEvent): void {
   const data: Record<string, unknown> = {
     route,
     grew,
-    history: history.map(h => ({ ...h })),
+    history: totals,
+    survived: kept,
     roots: size.roots,
     routes
   };
@@ -3473,6 +3546,11 @@ interface NavState {
   held: boolean;
   /** `drainSeq` at its last write — a later drain committed it. */
   writeDrain: number;
+  /**
+   * While `graphGrowth` is on: every node alive when it opened, weakly, for
+   * its settle's count of what outlived it (see `trackGraph`). Dropped there.
+   */
+  before?: WeakSet<object>;
 }
 const navStates = new WeakMap<ChangeOrigin, NavState>();
 /** Opened, not yet settled. */
@@ -3487,7 +3565,7 @@ let drainSeq = 0;
  * (#3989). `land()` runs only inside `flush()`'s drain, so `flushEnd` counts
  * them, after those commits — the instant a one-drain navigation is counted.
  */
-const landedGraphs: NavigationEvent[] = [];
+const landedGraphs: NavState[] = [];
 
 /**
  * Copy what the router currently says onto the frame (what writes stamped —
@@ -3524,6 +3602,8 @@ function openNavigation(frame: ChangeOrigin, ref: NavigationRef): void {
     held: false,
     writeDrain: drainSeq
   };
+  // The initial declaration is never compared (see `trackGraph`).
+  if (options.graphGrowth !== false && ref.initial !== true) state.before = snapshotGraph();
   syncNavigation(state);
   navStates.set(frame, state);
   openNavs.add(state);
@@ -3809,8 +3889,8 @@ function settleNavigation(
   // route's responsiveness in the feedback tables. Consumers get the record.
   if (event.initial !== true) for (const f of folds) f.navigation?.(event);
   records.emit("navigation", event, undefined);
-  if (landed) landedGraphs.push(event);
-  else trackGraph(event);
+  if (landed) landedGraphs.push(state);
+  else trackGraph(state);
   // The interaction that performed it may have been waiting only on this.
   const under = openInteractionOf(event.interaction);
   if (under !== undefined) maybeSettleInteraction(under);
@@ -4443,6 +4523,7 @@ function resetTracking(): void {
   landedGraphs.length = 0;
   openInteractions.clear();
   routeCounts.clear();
+  visitRoute = undefined;
   drainSeq = 0;
   originFrames.length = 0;
   effectStack.length = 0;
