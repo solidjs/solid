@@ -29,15 +29,15 @@ import {
   useContext
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { getRequestEvent, isServer, markSafeError, respond } from "@solidjs/web";
-import { GET, live, type LiveSource } from "@solidjs/web/server-functions";
+import { getRequestEvent, isServer } from "@solidjs/web";
+import { GET, live } from "@solidjs/web/server-functions";
 import { createDrag, type Over } from "~/drag";
 import { createFlip } from "~/flip";
-import { mintId, useIdentity } from "~/identity";
+import { IdentityContext, mintId } from "~/identity";
 import { byPos, keyAt } from "~/order";
 import * as db from "~/server/db";
 import * as presence from "~/server/presence";
-import type { Board, Card, Identity, List, Member } from "~/types";
+import type { Board, Card, Identity, Member } from "~/types";
 
 // ---------------------------------------------------------------------------
 // The wire. Each of these runs on the server; in the browser the compiler
@@ -69,65 +69,55 @@ const getPresence = live(
   })
 );
 
-// Only the functions below call this, so it stays on the server with them.
-// What the board refuses is worded for the person who asked, and is marked as
-// safe to send; any other failure crosses as a generic error.
-async function committing(write: Promise<void>): Promise<void> {
-  try {
-    await write;
-  } catch (err) {
-    // 409: the request was fine, the board's state refused it.
-    throw err instanceof db.Rejected ? respond(markSafeError(err), { status: 409 }) : err;
-  }
-}
-
 // The writes answer nothing: what they did arrives on `getBoard`'s stream. A
 // create names its row with an id the browser minted; a write to a row that
 // exists carries a mutation id, which the board lists back in `applied`.
+// What the board refuses is turned into an answer the browser may read in
+// one place, for all of them: server-config.ts.
 
 async function createList(id: string, title: string, pos: string) {
   "use server";
-  await committing(db.createList(id, title, pos));
+  await db.createList(id, title, pos);
 }
 
 async function createCard(id: string, listId: string, title: string, pos: string) {
   "use server";
-  await committing(db.createCard(id, listId, title, pos));
+  await db.createCard(id, listId, title, pos);
 }
 
 async function renameBoard(client: string, mutation: string, title: string) {
   "use server";
-  await committing(db.renameBoard(client, mutation, title));
+  await db.renameBoard(client, mutation, title);
 }
 
 async function renameList(client: string, mutation: string, id: string, title: string) {
   "use server";
-  await committing(db.renameList(client, mutation, id, title));
+  await db.renameList(client, mutation, id, title);
 }
 
 async function renameCard(client: string, mutation: string, id: string, title: string) {
   "use server";
-  await committing(db.renameCard(client, mutation, id, title));
+  await db.renameCard(client, mutation, id, title);
 }
 
 async function moveList(client: string, mutation: string, id: string, pos: string) {
   "use server";
-  await committing(db.moveList(client, mutation, id, pos));
+  await db.moveList(client, mutation, id, pos);
 }
 
 async function moveCard(client: string, mutation: string, id: string, listId: string, pos: string) {
   "use server";
-  await committing(db.moveCard(client, mutation, id, listId, pos));
+  await db.moveCard(client, mutation, id, listId, pos);
 }
 
 async function archiveList(client: string, mutation: string, id: string) {
   "use server";
-  await committing(db.archiveList(client, mutation, id));
+  await db.archiveList(client, mutation, id);
 }
 
 async function archiveCard(client: string, mutation: string, id: string) {
   "use server";
-  await committing(db.archiveCard(client, mutation, id));
+  await db.archiveCard(client, mutation, id);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,18 +130,18 @@ const CONFIRM_WITHIN = 10_000;
 const BOARD = "board";
 
 function createBoard() {
-  const me = useIdentity();
+  const me = useContext(IdentityContext);
 
   // The wire. A live source reconnects by itself and its values never show
   // it, so `onstatus` is the one place to learn that it is down.
   const [reconnecting, setReconnecting] = createSignal(false);
-  const watched = <T,>(source: LiveSource<T>) => {
-    if (!isServer) source.onstatus = status => setReconnecting(status === "reconnecting");
-    return source;
-  };
 
   const [board, setBoard] = createOptimisticStore<Board>(
-    () => watched(getBoard(me()?.id ?? null)),
+    () => {
+      const source = getBoard(me()?.id ?? null);
+      if (!isServer) source.onstatus = status => setReconnecting(status === "reconnecting");
+      return source;
+    },
     {
       title: "",
       lists: [],
@@ -420,8 +410,20 @@ export default function BoardScreen() {
 }
 
 function BoardView() {
-  const { board, lists, errors, write, landsBefore, root, setRoot, me, people, reconnecting } =
-    useContext(BoardContext);
+  const {
+    board,
+    lists,
+    cardsOf,
+    errors,
+    write,
+    grab,
+    landsBefore,
+    root,
+    setRoot,
+    me,
+    people,
+    reconnecting
+  } = useContext(BoardContext);
 
   // One component, and so one element, per card for as long as the card
   // exists — created here, at board level, not inside a list. A list only
@@ -477,7 +479,44 @@ function BoardView() {
         </header>
         <main class="lists">
           <For each={lists()}>
-            {list => <ListView list={list}>{card => <>{cardElements().get(card.id)}</>}</ListView>}
+            {list => (
+              <section
+                class={["list", { "gap-before": landsBefore("list", list.id) }]}
+                data-list={list.id}
+              >
+                <header
+                  class="list-head"
+                  onPointerDown={e => grab("list", e.currentTarget.parentElement!, e)}
+                >
+                  <h2>
+                    <Editable
+                      label="List title"
+                      value={list.title}
+                      onCommit={title => write.renameList(list.id, title)}
+                    />
+                  </h2>
+                  <button
+                    type="button"
+                    class="archive"
+                    aria-label={`Archive list ${list.title}`}
+                    onClick={() => write.archiveList(list.id)}
+                  >
+                    ×
+                  </button>
+                </header>
+                <ol class={["cards", { "gap-end": landsBefore("card", null, list.id) }]}>
+                  <For each={cardsOf(list.id)}>{card => <>{cardElements().get(card.id)}</>}</For>
+                </ol>
+                <Show when={errors[list.id]}>
+                  {message => (
+                    <p class="error" role="alert">
+                      {message()}
+                    </p>
+                  )}
+                </Show>
+                <AddForm label="Add a card" onAdd={title => write.createCard(list.id, title)} />
+              </section>
+            )}
           </For>
           <div class={["add-list", { "gap-before": landsBefore("list", null) }]}>
             <AddForm label="Add a list" onAdd={write.createList} />
@@ -494,48 +533,6 @@ const initials = (name: string) =>
     .split("-")
     .map(part => part[0]?.toUpperCase())
     .join("");
-
-function ListView(props: { list: List; children: (card: Card) => JSX.Element }) {
-  const { cardsOf, errors, write, grab, landsBefore } = useContext(BoardContext);
-  return (
-    <section
-      class={["list", { "gap-before": landsBefore("list", props.list.id) }]}
-      data-list={props.list.id}
-    >
-      <header
-        class="list-head"
-        onPointerDown={e => grab("list", e.currentTarget.parentElement!, e)}
-      >
-        <h2>
-          <Editable
-            label="List title"
-            value={props.list.title}
-            onCommit={title => write.renameList(props.list.id, title)}
-          />
-        </h2>
-        <button
-          type="button"
-          class="archive"
-          aria-label={`Archive list ${props.list.title}`}
-          onClick={() => write.archiveList(props.list.id)}
-        >
-          ×
-        </button>
-      </header>
-      <ol class={["cards", { "gap-end": landsBefore("card", null, props.list.id) }]}>
-        <For each={cardsOf(props.list.id)}>{props.children}</For>
-      </ol>
-      <Show when={errors[props.list.id]}>
-        {message => (
-          <p class="error" role="alert">
-            {message()}
-          </p>
-        )}
-      </Show>
-      <AddForm label="Add a card" onAdd={title => write.createCard(props.list.id, title)} />
-    </section>
-  );
-}
 
 const ARROWS: Record<string, [across: number, down: number]> = {
   ArrowUp: [0, -1],

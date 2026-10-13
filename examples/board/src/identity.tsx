@@ -11,7 +11,6 @@ import {
   createContext,
   createSignal,
   onSettled,
-  useContext,
   type Accessor,
   type ParentComponent
 } from "solid-js";
@@ -34,7 +33,8 @@ function mint(): Identity {
   return identity;
 }
 
-const IdentityContext = createContext<Accessor<Identity | null>>();
+/** This tab's identity — `null` on the server and until the browser mints it. */
+export const IdentityContext = createContext<Accessor<Identity | null>>();
 
 /** Holds this tab's identity for the tree below; mints it in the browser once settled. */
 export const IdentityProvider: ParentComponent = props => {
@@ -44,6 +44,3 @@ export const IdentityProvider: ParentComponent = props => {
   });
   return <IdentityContext value={me}>{props.children}</IdentityContext>;
 };
-
-/** This tab's identity — `null` on the server and until the browser mints it. */
-export const useIdentity = () => useContext(IdentityContext);
