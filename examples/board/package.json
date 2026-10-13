@@ -1,0 +1,27 @@
+{
+  "name": "board-example",
+  "description": "A shared board over one live data source: lists of cards that several tabs drag at once, read into an optimistic store, with every write acknowledged on the stream",
+  "version": "0.0.0",
+  "private": true,
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server.js",
+    "typecheck": "tsc --noEmit",
+    "check:server": "node scripts/check-server.mjs",
+    "check": "pnpm check:server && vite build && node scripts/check-bundle.mjs"
+  },
+  "dependencies": {
+    "@solidjs/web": "workspace:*",
+    "solid-js": "workspace:*",
+    "unstorage": "^1.17.5"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.49",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "vite": "^8.0.0"
+  }
+}
