@@ -658,12 +658,7 @@ export function setProperty(node, name, value) {
     (name === "value" || name === "defaultValue") &&
     (nodeName === "INPUT" || nodeName === "TEXTAREA")
   ) {
-    if (
-      value == null &&
-      nodeName === "INPUT" &&
-      (node.type === "checkbox" || node.type === "radio")
-    )
-      node.removeAttribute("value");
+    if (value == null && /^(checkbox|radio)$/.test(node.type)) node.removeAttribute("value");
     else node[name] = value ?? "";
   } else node[name] = value;
   reclaimAttribute(node, name);
@@ -2847,12 +2842,7 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
     ) {
       // Text controls clear nullish values rather than stringifying them (#2957);
       // checkbox/radio inputs drop the attribute so they submit "on".
-      if (
-        value == null &&
-        nodeName === "INPUT" &&
-        (node.type === "checkbox" || node.type === "radio")
-      )
-        node.removeAttribute("value");
+      if (value == null && /^(checkbox|radio)$/.test(node.type)) node.removeAttribute("value");
       else node[prop] = value ?? "";
     } else node[prop] = value;
     // The claim contract is in plain names: `prop:href` re-claims as `href`.
