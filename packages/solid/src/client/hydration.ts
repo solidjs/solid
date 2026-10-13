@@ -489,8 +489,8 @@ const MockPromise = /* @__PURE__ */ (() => {
 
 /**
  * @internal — subFetch's nesting depth. lazy()/lazyModule() read it so a
- * loader promise minted from the global Promise while it is the MockPromise
- * stub never becomes their cached module load (#4013).
+ * loader promise made during a trace (possibly from the MockPromise stub)
+ * never becomes their cached module load (#4013).
  */
 export let tracing = 0;
 
