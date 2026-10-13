@@ -1271,6 +1271,11 @@ export function createMemo<T>(
     options != null && typeof options === "object" && "loadingValue" in options
       ? { value: (options as any).loadingValue as T, served: false }
       : undefined;
+  // A loading value served ahead of its landing is a value a later commit
+  // replaces (server-owned renders advance past it). Told at creation —
+  // before the first read, lazy or not — so a document's live holes know
+  // the render is no longer settled before any hole can read it.
+  if (loadingState) ctx?.unsettled?.();
   const comp: ServerComputation<T> = {
     owner,
     value: undefined as any,
@@ -2153,6 +2158,7 @@ function pumpIterator<T>(
   iterator: () => AsyncIterator<T>,
   start: Promise<unknown>
 ) {
+  ctx.unsettled?.();
   const release = openPumpHold(ctx, comp.owner, () => !comp.disposed);
   const close = () => {
     closeAsyncIterator(iterator());
@@ -2713,8 +2719,11 @@ export function createProjection<T extends object = {}>(
   // rest pumps once that value has landed (`pendingPump`, fired by the
   // settle below — the pump must not race the first value's apply).
   let pendingPump: (() => void) | undefined;
-  const takeFirst = (source: AsyncIterable<void | T>, pumpRest: boolean) =>
-    Promise.resolve().then(() => {
+  const takeFirst = (source: AsyncIterable<void | T>, pumpRest: boolean) => {
+    // Before the first value lands: holes minted from here on may read
+    // what this pump keeps moving.
+    if (pumpRest) ctx?.unsettled?.();
+    return Promise.resolve().then(() => {
       const iter = source[Symbol.asyncIterator]();
       return Promise.resolve(iter.next()).then((first: IteratorResult<void | T>) => {
         if (first.done) return undefined;
@@ -2736,6 +2745,7 @@ export function createProjection<T extends object = {}>(
         return first.value;
       });
     });
+  };
   const normalizeAsync = (value: any) =>
     Promise.resolve(value).then(value =>
       // A bounded Promise→AsyncIterable on the document face needs the
@@ -2779,6 +2789,10 @@ export function createProjection<T extends object = {}>(
   // the same line, and hydration claims against the plain seed).
   const seedLoading = !!options?.seedLoadingValue;
   const frozenSeed = seedLoading ? cloneState(state, options?.shallow) : undefined;
+  // Under the frame pump a seeded read follows the live state once the
+  // landing applies, so the seed served until then is a value a later
+  // commit replaces.
+  if (seedLoading && pumps) ctx?.unsettled?.();
 
   // Under the creating render's context: a re-derive after a pending source
   // settles runs after another request may have set its own (#3972, as the
@@ -2981,6 +2995,7 @@ export function createProjection<T extends object = {}>(
       if (serializes) {
         ctx.serialize(id, subscribe(), options?.deferStream);
       } else if (pumps) {
+        ctx?.unsettled?.();
         // The frame pump (see `pumps`): drive the SHARED pump — a slot-border
         // trace subscriber may be pulling the same iterator — so the source
         // has one consumer; each batch applied is a commit. With no
