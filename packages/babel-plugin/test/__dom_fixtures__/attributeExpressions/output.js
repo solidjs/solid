@@ -74,7 +74,13 @@ var _tmpl$ = /*#__PURE__*/ _$template(`<div><h1><a href=/>Welcome`),
   ),
   _tmpl$50 = /*#__PURE__*/ _$template(`<video src=test.mp4 muted>`),
   _tmpl$51 = /*#__PURE__*/ _$template(`<div class=todo>`),
-  _tmpl$52 = /*#__PURE__*/ _$template(`<div class="todo item">`);
+  _tmpl$52 = /*#__PURE__*/ _$template(`<div class="todo item">`),
+  _tmpl$53 = /*#__PURE__*/ _$template(`<input type=checkbox name=agree checked>`),
+  _tmpl$54 = /*#__PURE__*/ _$template(`<input type=radio name=choice>`),
+  _tmpl$55 = /*#__PURE__*/ _$template(`<input type=text>`),
+  _tmpl$56 = /*#__PURE__*/ _$template(`<input>`),
+  _tmpl$57 = /*#__PURE__*/ _$template(`<input type=Checkbox>`),
+  _tmpl$58 = /*#__PURE__*/ _$template(`<input type=email>`);
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
 function refFn() {}
@@ -844,4 +850,78 @@ _$effect(
   }
 );
 const template99 = _el$123;
+
+// #4017: a nullish value/defaultValue on a checkbox or radio (or an input whose
+// type is not statically known) removes the attribute; text inputs clear to "".
+var _el$124 = _tmpl$53();
+_$effect(
+  () => value(),
+  _v$ => {
+    _$setProperty(_el$124, "value", _v$);
+  }
+);
+const template100 = _el$124;
+var _el$125 = _tmpl$54();
+_$effect(
+  () => value(),
+  _v$ => {
+    _$setProperty(_el$125, "defaultValue", _v$);
+  }
+);
+const template101 = _el$125;
+var _el$126 = _tmpl$55();
+_$effect(
+  () => value(),
+  _v$ => {
+    _el$126.value = _v$ ?? "";
+  }
+);
+const template102 = _el$126;
+var _el$127 = _tmpl$56();
+_$effect(
+  () => value(),
+  _v$ => {
+    _el$127.value = _v$ ?? "";
+  }
+);
+const template103 = _el$127;
+var _el$128 = _tmpl$56();
+_$effect(
+  () => ({
+    e: kind(),
+    t: value()
+  }),
+  ({ e, t }, _p$) => {
+    e !== _p$?.e && _$setAttribute(_el$128, "type", e);
+    _$setProperty(_el$128, "value", t);
+  }
+);
+const template104 = _el$128;
+var _el$129 = _tmpl$57();
+_$setProperty(_el$129, "value", value);
+const template105 = _el$129;
+var _el$130 = _tmpl$9();
+_$effect(
+  () => ({
+    e: value(),
+    t: other()
+  }),
+  ({ e, t }, _p$) => {
+    _$setProperty(_el$130, "value", e);
+    t !== _p$?.t && _$setProperty(_el$130, "defaultValue", t);
+  }
+);
+const template106 = _el$130;
+var _el$131 = _tmpl$58();
+_$effect(
+  () => ({
+    e: value(),
+    t: other()
+  }),
+  ({ e, t }, _p$) => {
+    _el$131.value = e ?? "";
+    t !== _p$?.t && (_el$131.defaultValue = t ?? "");
+  }
+);
+const template107 = _el$131;
 _$delegateEvents(["click", "input"]);

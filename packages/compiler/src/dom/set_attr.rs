@@ -15,6 +15,9 @@ pub(crate) struct SetAttrOptions<'a> {
     pub(crate) tag_name: String,
     pub(crate) style_property: bool,
     pub(crate) class_property: bool,
+    /// The element is an `<input>` that may be a checkbox or radio (see
+    /// `input_may_be_checkable`).
+    pub(crate) checkable_input: bool,
 }
 
 impl<'a> AstDomTransform<'a, '_> {
@@ -144,9 +147,19 @@ impl<'a> AstDomTransform<'a, '_> {
             // input/textarea nullish special cases.
             // `<select value>` always goes through it, hydratable or not: a
             // microtask only sees options inserted in the same turn, so
-            // options that arrive later never get selected (#3928).
+            // options that arrive later never get selected (#3928). So does a
+            // non-literal value/defaultValue on an input that may be a
+            // checkbox or radio: a nullish value must remove the attribute so
+            // the checked box submits its native "on" (#4009, #4017), and
+            // setProperty already tests the live `type` for that.
             if (self.hydratable && (is_locked || namespace != Some("prop")))
                 || (name == "value" && options.tag_name == "select")
+                || (options.checkable_input
+                    && (name == "value" || name == "defaultValue")
+                    && !matches!(
+                        value,
+                        Expression::StringLiteral(_) | Expression::NumericLiteral(_)
+                    ))
             {
                 self.template_state.uses_set_property = true;
                 return self.call_identifier(
@@ -167,7 +180,8 @@ impl<'a> AstDomTransform<'a, '_> {
                     Expression::StringLiteral(_) | Expression::NumericLiteral(_)
                 )
             {
-                // prevents undefined on input/textarea.value, fallback to ""
+                // prevents undefined on text input/textarea.value, fallback
+                // to "" (#2957)
                 let value = self.ast().expression_logical(
                     span,
                     value,
