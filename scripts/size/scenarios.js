@@ -5134,6 +5134,13 @@ module.exports = [
     // The cost is the marker helper, the bootstrap split and the ledger
     // flag, all retained by renderToString. Accepted by the maintainer
     // (2026-10-13). The cap is frozen again at 20.48 KB.
+    // Size-Exception (#4030, 2026-10-13): 20.48 -> 20.51 KB, measured at
+    // 20,497 B against `next` @ 9f4174b6's 20,473 (+24 B; 17 B over the cap;
+    // +75 B minified, 72,012 -> 72,087). The shell-end marker is spliced in
+    // before `</body>` instead of appended after `</html>`, so a whole
+    // document ends with `</html>` again; the cost is the tail search and
+    // splice in the marker helper, retained by renderToString. Accepted by
+    // the maintainer (2026-10-13). The cap is frozen again at 20.51 KB.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
     // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
