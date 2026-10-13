@@ -36,8 +36,17 @@ const Doc = (props: { children: any }) => (
 );
 
 describe("shell-end marker (#3971)", () => {
-  test("the bootstrap declares the shell ledger", () => {
-    expect(generateHydrationScript()).toContain("s:{},fe(){}");
+  test("only an in-render <HydrationScript /> declares the shell ledger", () => {
+    // Host-placed bootstraps (hand-built documents, islands hosts like Astro)
+    // get no ledger, so hydrate() never parks under them.
+    expect(generateHydrationScript()).not.toContain("s:{}");
+    expect(
+      renderToString(() => (
+        <Doc>
+          <p>x</p>
+        </Doc>
+      ))
+    ).toContain("s:{},fe(){}");
   });
 
   test("renderToString ends with the marker, after the records", () => {
