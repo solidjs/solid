@@ -860,6 +860,12 @@ GlobalQueue._laneSeams = leaks => {
             : !blocked(l._parent)))
       )
         continue;
+      // Seated in its lane from its first read: an effect carries no lane
+      // value (`laneStage`), so without this its re-derivation starts as
+      // mainline, joins the parked frame on its first held read and reads the
+      // staging, then re-enters the lane at its guess read and leaks again —
+      // every round (#4014).
+      if (l != null && l._lane) r._flags |= REACTIVE_LANE_DIRTY;
       enqueueSub(r);
       if (l != null && l._lane && leaked.indexOf(l) === -1) leaked.push(l);
     }
