@@ -36,6 +36,7 @@ import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
 import { setLookup, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
+  isWrappable,
   markRawIngest,
   setWriteOverride,
   type NoFn,
@@ -303,11 +304,20 @@ function createProjectionInternal<T extends object = {}>(
   seed: Partial<T>,
   options?: ProjectionOptions
 ) {
+  const keyOption = options?.key === undefined ? "id" : options.key;
   const fam: StoreFamily = {
     map: new WeakMap(),
     node: null,
     live: new Set(),
-    shallow: !!options?.shallow
+    shallow: !!options?.shallow,
+    // The row key, for a child paired after the adoption (store.ts
+    // `adoptChild`, #3712) as the adoption pairs them.
+    key:
+      typeof keyOption === "function"
+        ? keyOption
+        : keyOption === null
+          ? null
+          : (row: any) => (isWrappable(row) ? row[keyOption] : undefined)
   };
   const store = wrap(seed as any, null, null, fam) as Store<T>;
   if (fam.shallow) {
@@ -322,7 +332,7 @@ function createProjectionInternal<T extends object = {}>(
   }
   const node = computed(() => {
     if (!fam.node) fam.node = getOwner() as Computed<any>;
-    runProjectionComputed(store, fn, options?.key === undefined ? "id" : options.key);
+    runProjectionComputed(store, fn, keyOption);
   }, nodeOptions);
   node._config &= ~CONFIG_AUTO_DISPOSE;
   fam.node = node;
