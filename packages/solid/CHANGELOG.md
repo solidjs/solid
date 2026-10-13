@@ -1,5 +1,62 @@
 # solid-js
 
+## 2.0.0-rc.15
+
+### Patch Changes
+
+- 4afc662: Move `dynamicComponent` into `solid-js`. `@solidjs/web` keeps `dynamic` and re-exports `dynamicComponent`.
+- b460640: A rejection contained by `<Errored>` is no longer reported as unhandled when the boundary shares a `{props.children}` slot with an async sibling during SSR (#3973). While its holes were pending, the server boundary threw a combined promise that the slot retry could drop, so its rejection exited Node even though the fallback rendered. The combined promise is now marked handled where it is created; anything that awaits it still sees the rejection.
+- 39450e5: Keep an SSR Errored fallback's hydration ids when its children slot is retried.
+- cbd66e5: Preserve mounted context IDs during hot module evaluation, before another module can refresh a consumer. Previously a consumer refreshing before the context module's accept callback could throw `ContextNotFoundError` or read the context's default instead of the provided value. Unmounted context registrations retain fresh IDs for entry-module remounts.
+- b083833: Non-keyed Show judges staleness from the truthiness that selected the child, so a first mount of when={latest(x)} renders and a live update does not look stale
+- 5413c06: `lazy()` and `lazyModule()` no longer cache a loader promise created while hydration traces an adopted async compute. During the trace the global `Promise` is a never-settling stub, so a loader that builds its promise from it (as Vite's `__vitePreload` does) used to leave `.preload()` and later renders waiting forever (#4013). A load started during the trace is no longer cached, so the next call loads for real.
+- 0c4bff7: Add `lazyModule()` so a lazy module that is not a component can be preloaded and hydrated by module id.
+- 25935fe: `onHydrationEnd` is public API again, as `@experimental` (#4000), so end-to-end tests have a documented end-of-hydration signal instead of reading `_$HY` internals. It was already a runtime export of both entries; only its declarations change (it is no longer stripped as `@internal`), so it adds no runtime bytes. `sharedConfig` and `isHydrationInProgress` stay internal.
+  - `onHydrationEnd(callback)` (`solid-js`): runs `callback` once when the hydration phase ends — the root pass of `hydrate()` over and every streamed `<Loading>` boundary (and every hold an integration registers) resumed or cancelled. With no hydration in progress, and on the server, it runs in the next microtask.
+  - Register it after calling `hydrate()`: registered before hydration starts (or after a `hydrate()` parked mid-parse, #3971), it runs in the next microtask and does not wait for hydration work started afterward.
+  - It reports that the phase ended, not that hydration succeeded: a document root whose module preload fails ends the phase with the server markup kept and not interactive.
+  - It is not page-wide completion with several hydration roots: a root deferred behind its module preload is not counted (GH5).
+  - Intended for test tooling and markers, not for branching what the app renders.
+
+  This reverses the part of the earlier "Remove isHydrating/onHydrationEnd from public API" entry that covered `onHydrationEnd`, as #3718 did for `isHydrating`: hydration snapshots make timing transparent to code inside the app, not to a test reading the page from outside it.
+
+- b749474: Pin `seroval` and `seroval-plugins` to exactly `1.6.7`: 1.6.8 changed the stream representation in a patch release and grew bundles. Stream detection now requires a real stream — the JSON decoder (server functions, frames) treats a value as a stream only when seroval's `isStream` holds and it has a callable `.on`, so decoded plain data that happens to carry a `__SEROVAL_STREAM__` key stays data. The frames container-trace check, the client container-trace materializer and the render stream's channel guard also recognize seroval's untagged stream class, and the frames border walk tests for an async iterator first.
+- 234cfc9: The server-component half of hydration installs from `@solidjs/web/frames`' `installServerComponents()`, not from `hydrate()`: `sharedConfig.holdBoundary` (the client hold on adopted markup counted as a pending boundary), `sharedConfig.hydrateWindow` (the claim window an adopted occurrence re-enters hydration through), fragment ownership by rendering (the `_$HY.fa` term of the reveal policy) and the ledger's published answer `_$HY.fr` on the solid side; the declared claim roots (`sharedConfig.claimRoots`) and the frame-region exclusion of the root sweep on the DOM runtime's side. A hydrating page without server components carries none of it — −686 B minified / ≈ −205…−243 B brotli on the hydrating apps (this returns the bytes the frames A0 correctness pass added to every hydrating page); a server-component page pays the two installers' glue (≈ +220 B minified).
+
+  Public surface (`@internal`): `enableServerComponentHydration()` on `solid-js` (runtime) and `solid-js/internal` (typed), a no-op on the server entry; `installServerComponentHydration()` on `@solidjs/web`, which installs both halves — the frames client calls it where it installs its reveal hook.
+
+- d966729: On the server, a render effect's retry and a projection's re-derive (`createProjection`, `createStore(fn)`, `createOptimisticStore(fn)`) run under their own render's context once a pending source settles, as an async memo's retry already does (#3972). Under concurrent requests they ran under whichever render set the context last, so anything the pass created took the other request's hydration ids.
+- a405039: On the server, an async memo's retry (when its source settles) runs under its own render's context instead of whichever concurrent render set it last (#3972). Under concurrent requests, slot content created by the retry took the other request's hydration ids, which could leave the server spinning or fail hydration with "Hydration key miss".
+- 234cfc9: The store hydration adapters (`createStore(fn)` / `createProjection` / `createOptimisticStore(fn)` under hydration: snapshot adoption, the parked patch backlog, the hybrid handoff) move to their own source module, and `solid-js/internal/container-trace` — the frames traces tier's materializer, a lazy chunk — bundles its own copy of it instead of reading the eager slot `enableHydration()` fills through `withStoreHydration`. Reading the slot from the lazy chunk pinned every adapter into the entry chunk of a server-component page that never creates a client store (an app bundler keeps a module eager whenever an eager module imports it); the copy is inert by construction — the adapters declare no module-level state, and every piece of shared state is read back from the one `solid-js` instance. −2,550 B minified / ≈ −575 B brotli on the compiled server-component page; 0 on pages whose root pass creates a derived store (they keep the eager install); the lazy `trace.js` chunk grows ≈ 0.5 KB brotli.
+
+  Public surface (`@internal`, stripped from the declarations): `withStoreHydration` is removed from the `solid-js` client and server entries (its only consumer was the trace entry); the client entry gains the runtime exports the adapter copy reads — `readSerializedOrCompute`, `subFetch`, `readHydratedValue`, `wrapFirstYield`, `adoptedAnswerStream`, `withHydrationGate`, `onHydrationEnd`, `noHydrationId`, `markTopLevelSnapshotScope`, `hasLoadingWindow`, `isAsyncIterable`, `syncThenable`, `UNASKED` — mirrored on the server entry as inert stubs for export parity.
+
+- Updated dependencies [4f8daa2]
+- Updated dependencies [ad973ed]
+- Updated dependencies [b2bec73]
+- Updated dependencies [49a765c]
+- Updated dependencies [0c70907]
+- Updated dependencies [5a26ebe]
+- Updated dependencies [c189013]
+- Updated dependencies [a963ec1]
+- Updated dependencies [0c70907]
+- Updated dependencies [ad973ed]
+- Updated dependencies [39051bf]
+- Updated dependencies [ef1c297]
+- Updated dependencies [ade4c46]
+- Updated dependencies [eae6e03]
+- Updated dependencies [c9027a9]
+- Updated dependencies [20db6a2]
+- Updated dependencies [1c14992]
+- Updated dependencies [d8ba741]
+- Updated dependencies [e9d549f]
+- Updated dependencies [c689a9a]
+- Updated dependencies [a2dff39]
+- Updated dependencies [f6905dc]
+- Updated dependencies [e0a7548]
+- Updated dependencies [a24e911]
+  - @solidjs/signals@2.0.0-rc.15
+
 ## 2.0.0-rc.14
 
 ### Patch Changes

@@ -1,5 +1,80 @@
 # test-integration
 
+## 2.0.0-rc.15
+
+### Patch Changes
+
+- Updated dependencies [4f8daa2]
+- Updated dependencies [ad973ed]
+- Updated dependencies [b2bec73]
+- Updated dependencies [49a765c]
+- Updated dependencies [617d195]
+- Updated dependencies [617d195]
+- Updated dependencies [ca15970]
+- Updated dependencies [56c309c]
+- Updated dependencies [a497d4b]
+- Updated dependencies [4afc662]
+- Updated dependencies [b460640]
+- Updated dependencies [0c70907]
+- Updated dependencies [a14c18b]
+- Updated dependencies [5a26ebe]
+- Updated dependencies [372005f]
+- Updated dependencies [c189013]
+- Updated dependencies [a963ec1]
+- Updated dependencies [39450e5]
+- Updated dependencies [0c70907]
+- Updated dependencies [469733e]
+- Updated dependencies [cbd66e5]
+- Updated dependencies [ad973ed]
+- Updated dependencies [43570f8]
+- Updated dependencies [b083833]
+- Updated dependencies [1365d31]
+- Updated dependencies [39051bf]
+- Updated dependencies [ef1c297]
+- Updated dependencies [06c7717]
+- Updated dependencies [abe12fc]
+- Updated dependencies [f64fcfe]
+- Updated dependencies [ade4c46]
+- Updated dependencies [eae6e03]
+- Updated dependencies [c9027a9]
+- Updated dependencies [e5a4c8e]
+- Updated dependencies [5413c06]
+- Updated dependencies [0c4bff7]
+- Updated dependencies [6232d18]
+- Updated dependencies [20db6a2]
+- Updated dependencies [3173a14]
+- Updated dependencies [5d75ed8]
+- Updated dependencies [1c14992]
+- Updated dependencies [d8ba741]
+- Updated dependencies [86ac6da]
+- Updated dependencies [c2d4571]
+- Updated dependencies [e9d549f]
+- Updated dependencies [25935fe]
+- Updated dependencies [c689a9a]
+- Updated dependencies [49bed5c]
+- Updated dependencies [43570f8]
+- Updated dependencies [b749474]
+- Updated dependencies [234cfc9]
+- Updated dependencies [be845cb]
+- Updated dependencies [a26ee62]
+- Updated dependencies [22f942d]
+- Updated dependencies [d966729]
+- Updated dependencies [a405039]
+- Updated dependencies [a2dff39]
+- Updated dependencies [234cfc9]
+- Updated dependencies [f6905dc]
+- Updated dependencies [e0a7548]
+- Updated dependencies [a24e911]
+- Updated dependencies [39411bd]
+- Updated dependencies [234cfc9]
+  - @solidjs/signals@2.0.0-rc.15
+  - @solidjs/babel-plugin@2.0.0-rc.15
+  - @solidjs/web@2.0.0-rc.15
+  - @solidjs/h@2.0.0-rc.15
+  - solid-js@2.0.0-rc.15
+  - @solidjs/html@2.0.0-rc.15
+  - @solidjs/universal@2.0.0-rc.15
+
 ## 2.0.0-rc.14
 
 ### Patch Changes
