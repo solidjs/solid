@@ -3586,7 +3586,7 @@ module.exports = [
     // signals core: `arm` takes what a re-armed boundary collects off the
     // boundaries above it; a `record` helper folds the four reader-record
     // sites to pay for most of it. Cap set at measured + 10 B rounded up to
-    // 0.01 KB. Pending the maintainer's ruling on #4031.
+    // 0.01 KB. Accepted by the maintainer 2026-10-13 (the floors unchanged).
     limit: "25.79 KB",
     capMinified: 80723,
     alias
