@@ -27,69 +27,174 @@ body {
     sans-serif;
 }
 
-.chat {
-  max-width: 720px;
-  margin: 0 auto;
+.app {
+  display: grid;
+  grid-template-columns: 240px 1fr;
   min-height: 100vh;
+}
+
+.sidebar {
+  padding: 16px 12px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.sidebar a {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar a:hover,
+.sidebar a.current {
+  background: var(--surface-2);
+}
+
+.sidebar .new-chat {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.sidebar .threads {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar .writing::after {
+  content: " ●";
+  color: var(--accent);
+}
+
+.main {
+  min-width: 0;
+}
+
+.thread {
   display: flex;
   flex-direction: column;
-  padding: 24px 16px 96px;
+  max-width: 760px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 24px 20px 0;
 }
 
-.masthead h1 {
+.thread-head h1 {
   margin: 0 0 4px;
-  font-size: 20px;
+  font-size: 18px;
 }
 
-.masthead p {
-  margin: 0 0 24px;
+.muted {
   color: var(--muted);
-  font-size: 13px;
 }
 
-.transcript {
+.error {
+  color: #f87168;
+}
+
+.messages,
+.outbox {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
-.exchange {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.messages {
+  margin-top: 20px;
 }
 
-.bubble {
-  border-radius: 12px;
-  padding: 10px 14px;
-  max-width: 85%;
+.outbox:not(:empty) {
+  margin: 16px 0 0;
 }
 
-.bubble.user {
+.message {
+  max-width: 100%;
+}
+
+.message.user {
   align-self: flex-end;
+  max-width: 80%;
+  padding: 8px 14px;
+  border-radius: 16px 16px 4px 16px;
   background: var(--accent);
   color: #fff;
 }
 
-.bubble.assistant {
-  align-self: flex-start;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  width: 85%;
+.message.user p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.reply .md > :first-child {
+/* Sent, and not yet in the server's render. */
+.message.pending {
+  opacity: 0.6;
+}
+
+.reasoning {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.reasoning summary {
+  cursor: pointer;
+}
+
+.message-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.message-foot button {
+  padding: 2px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The router marks a form while its submission is in flight. */
+form[aria-busy] button {
+  opacity: 0.5;
+}
+
+.typing::before {
+  content: "▍";
+  color: var(--muted);
+  animation: blink 1s steps(2) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.md > :first-child {
   margin-top: 0;
 }
 
-.reply .md > :last-child {
+.md > :last-child {
   margin-bottom: 0;
 }
 
-.reply .md + .md {
+.md + .md {
   margin-top: 12px;
 }
 
@@ -192,85 +297,50 @@ body {
   color: var(--accent);
 }
 
-.typing {
-  margin: 0;
-  color: var(--muted);
-  animation: blink 1s steps(2) infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0.25;
-  }
-}
-
-.status {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  color: var(--muted);
-  display: flex;
-  gap: 12px;
-  align-items: baseline;
-}
-
-/* The paragraph meter — driven by the usage container (a live store). */
-.status .meter {
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 6px;
-}
-
-.status .ticker::before {
-  content: "●";
-  color: var(--accent);
-  margin-right: 6px;
-  animation: blink 1s steps(2) infinite;
-}
-
-.status .done::before {
-  content: "✓";
-  color: #5dbb63;
-  margin-right: 6px;
-}
-
 .composer {
-  position: fixed;
+  position: sticky;
   bottom: 0;
-  left: 0;
-  right: 0;
+  margin-top: auto;
+  padding: 12px 0 20px;
+  background: linear-gradient(transparent, var(--bg) 24px);
+}
+
+.composer form {
   display: flex;
   gap: 8px;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 16px;
-  background: linear-gradient(transparent, var(--bg) 30%);
-}
-
-.composer input {
-  flex: 1;
-  background: var(--surface);
+  margin-top: 16px;
+  padding: 8px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--text);
-  padding: 10px 14px;
-  font: inherit;
+  border-radius: 16px;
+  background: var(--surface);
 }
 
-.composer input:focus {
+.composer textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  resize: none;
+}
+
+.composer textarea:focus {
   outline: none;
+}
+
+.composer form:focus-within {
   border-color: var(--accent);
 }
 
 .composer button {
+  align-self: flex-end;
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 10px;
   background: var(--accent);
   color: #fff;
-  border: none;
-  border-radius: 10px;
-  padding: 10px 18px;
   font: inherit;
   cursor: pointer;
 }
@@ -278,4 +348,12 @@ body {
 .composer button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.composer .error {
+  margin: 12px 0 0;
+}
+
+.app-error {
+  margin: 24px;
 }

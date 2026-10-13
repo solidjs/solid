@@ -1,6 +1,6 @@
 {
   "name": "chat-example",
-  "description": "A simulated LLM chat as Solid Server Components: each reply is a server component whose markdown renders on the server and streams in paragraph by paragraph, while the transcript, input, and autoscroll are client state. The markdown renderer never ships to the browser.",
+  "description": "An AI chat as live Solid Server Components: threads rendered on the server and streamed as HTML, with generation as a job that outlives the request that started it",
   "version": "0.0.0",
   "private": true,
   "author": "Ryan Carniato",
@@ -14,6 +14,7 @@
     "check:server": "node scripts/check-server.mjs"
   },
   "dependencies": {
+    "@solidjs/router": "2.0.0-next.38",
     "@solidjs/web": "workspace:*",
     "highlight.js": "^11.11.1",
     "marked": "^12.0.2",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@solidjs/vite-plugin": "3.0.0-next.49",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "vite": "^8.0.0"
   }
 }

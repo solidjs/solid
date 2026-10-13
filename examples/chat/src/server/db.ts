@@ -54,6 +54,11 @@ function save() {
     .catch(console.error);
 }
 
+// A dev knob: CHAT_SLOW=<ms> delays storing a prompt by that long, so the
+// gap between a message being sent and the server having it is wide enough
+// to see.
+const slow = Number(process.env.CHAT_SLOW || 0);
+
 /** Settles when every write so far has reached the store. */
 export async function flushed(): Promise<void> {
   await ready;
@@ -61,10 +66,9 @@ export async function flushed(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Change notification. Three things can be watched, each with its own
-// counter, so a token arriving re-renders one message and nothing else:
-// the list of threads, a thread's shape (which messages, in what state), and
-// one message's content.
+// Change notification. Two things can be watched, each with its own counter:
+// the list of threads, and one thread. A token arriving wakes the renders of
+// its thread and nobody watching the list.
 
 const versions = new Map<string, number>();
 const waiters = new Map<string, Set<() => void>>();
@@ -129,26 +133,22 @@ export function watchThreads(signal?: AbortSignal): AsyncGenerator<ThreadSummary
   );
 }
 
-export interface ThreadShape {
+export interface ThreadView {
   thread: Thread | undefined;
-  /** In order. Yields again when a message is added or changes status — not per token. */
-  messages: Pick<Message, "id" | "role" | "status">[];
+  /** In order, each as it stands now. */
+  messages: Message[];
 }
 
-export function watchThread(id: string, signal?: AbortSignal): AsyncGenerator<ThreadShape> {
+/** A thread and its messages, again after every write to either. */
+export function watchThread(id: string, signal?: AbortSignal): AsyncGenerator<ThreadView> {
   return watch(
     `thread:${id}`,
     () => ({
       thread: state.threads.find(t => t.id === id),
-      messages: messagesOf(id).map(({ id, role, status }) => ({ id, role, status }))
+      messages: messagesOf(id).map(m => ({ ...m }))
     }),
     signal
   );
-}
-
-/** One message, again after every write to it. */
-export function watchMessage(id: string, signal?: AbortSignal): AsyncGenerator<Message> {
-  return watch(`message:${id}`, () => ({ ...state.messages.find(m => m.id === id)! }), signal);
 }
 
 const messagesOf = (threadId: string) =>
@@ -185,6 +185,7 @@ export async function send(
   text: string
 ): Promise<{ threadId: string; replyId: string; fresh: boolean }> {
   await ready;
+  if (slow > 0) await new Promise(resolve => setTimeout(resolve, slow));
   if (typeof messageId !== "string" || !ID.test(messageId)) throw new Rejected("Bad message id");
   const body = typeof text === "string" ? text.trim() : "";
   if (!body) throw new Rejected("Nothing to send");
@@ -247,7 +248,7 @@ export function append(messageId: string, kind: "text" | "reasoning", delta: str
   if (!message || message.status !== "generating") return;
   message[kind] += delta;
   save();
-  bump(`message:${messageId}`);
+  bump(`thread:${message.threadId}`);
 }
 
 /** A reply is over, one way or another. */
@@ -260,7 +261,6 @@ export function finish(
   if (!message || message.status !== "generating") return;
   Object.assign(message, extra, { status });
   save();
-  bump(`message:${messageId}`);
   bump(`thread:${message.threadId}`);
   bump("threads");
 }

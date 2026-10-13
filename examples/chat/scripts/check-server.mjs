@@ -39,7 +39,14 @@ const { FAILURE_WORD } = await import("../src/server/model.ts");
 
 const tick = ms => new Promise(resolve => setTimeout(resolve, ms));
 const read = async iterable => (await iterable[Symbol.asyncIterator]().next()).value;
-const message = id => read(db.watchMessage(id));
+const messages = async threadId => (await read(db.watchThread(threadId))).messages;
+// Any message by id, wherever it is.
+const message = async id => {
+  for (const thread of await read(db.watchThreads())) {
+    const found = (await messages(thread.id)).find(m => m.id === id);
+    if (found) return found;
+  }
+};
 const until = async (test, what, ms = 4000) => {
   const deadline = Date.now() + ms;
   while (!(await test())) {
@@ -101,16 +108,15 @@ await check("the first prompt makes a thread, titled by its first line", async (
   const [summary] = await read(db.watchThreads());
   assert.equal(summary.title, "What is a server component?");
   assert.equal(summary.generating, true);
-  const shape = await read(db.watchThread(threadId));
   assert.deepEqual(
-    shape.messages.map(m => `${m.role}:${m.status}`),
+    (await messages(threadId)).map(m => `${m.role}:${m.status}`),
     ["user:complete", "assistant:generating"]
   );
 });
 await check("a retried prompt id changes nothing and answers the same reply", async () => {
   const again = await db.send(threadId, "prompt0001", "What is a server component?");
   assert.deepEqual(again, { threadId, replyId, fresh: false });
-  assert.equal((await read(db.watchThread(threadId))).messages.length, 2);
+  assert.equal((await messages(threadId)).length, 2);
 });
 await check("a second prompt while a reply is being written is refused", async () => {
   await rejects(db.send(threadId, "prompt0002", "And another thing"), /Wait for the reply/);
@@ -123,10 +129,9 @@ await check("bad input is refused", async () => {
 
 console.log("generating");
 await check(
-  "a job writes the reply; tokens wake the message's watcher and not the thread's",
+  "a job writes the reply; tokens wake the thread's watchers and not the list's",
   async () => {
-    const shapes = counting(db.watchThread(threadId, stop.signal));
-    const writes = counting(db.watchMessage(replyId, stop.signal));
+    const views = counting(db.watchThread(threadId, stop.signal));
     const lists = counting(db.watchThreads(stop.signal));
     await tick(20);
     generations.start(threadId, replyId);
@@ -135,12 +140,12 @@ await check(
     const reply = await message(replyId);
     assert.match(reply.text, /server component/);
     assert.ok(reply.usage.tokens > 10 && reply.usage.seconds >= 0);
-    assert.ok(writes.length > 5, `the message was written many times (${writes.length})`);
+    const writes = views.map(v => v.messages.find(m => m.id === replyId));
+    assert.ok(writes.length > 5, `the thread was yielded many times (${writes.length})`);
     for (let i = 1; i < writes.length; i++) {
       assert.ok(writes[i].text.startsWith(writes[i - 1].text), "each write extends the last");
     }
-    assert.equal(shapes.length, 2, "the thread's shape changed once: generating to complete");
-    assert.equal(lists.length, 2, "and so did the list of threads");
+    assert.equal(lists.length, 2, "the list of threads changed once: generating to complete");
     assert.equal(generations.isRunning(replyId), false);
   }
 );

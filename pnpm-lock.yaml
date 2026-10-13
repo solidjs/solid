@@ -133,6 +133,9 @@ importers:
 
   examples/chat:
     dependencies:
+      '@solidjs/router':
+        specifier: 2.0.0-next.38
+        version: 2.0.0-next.38(@solidjs/web@packages+web)(solid-js@packages+solid)
       '@solidjs/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -152,6 +155,9 @@ importers:
       '@solidjs/vite-plugin':
         specifier: 3.0.0-next.49
         version: 3.0.0-next.49(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+      '@vitejs/plugin-basic-ssl':
+        specifier: ^2.3.0
+        version: 2.3.0(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
       vite:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
