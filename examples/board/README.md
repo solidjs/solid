@@ -5,8 +5,9 @@ sits in the client-owned, persistent corner of the examples. The server owns
 the truth and nothing else — no markup crosses the wire. Everything on screen
 is rendered in the browser from one value that the server keeps sending.
 
-Its twin is [../chat](../chat): the other persistent app, with the server
-owning the markup. Its control is [../todos](../todos): the same optimistic store with
+Its twin will be [../chat](../chat): the other persistent app, with the
+server owning the markup. That rebuild is still to come; today `chat` is an
+earlier streaming demo. Its control is [../todos](../todos): the same optimistic store with
 one user and a refetch where this has a stream.
 
 ```sh
