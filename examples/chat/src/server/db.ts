@@ -133,6 +133,11 @@ export function watchThreads(signal?: AbortSignal): AsyncGenerator<ThreadSummary
   );
 }
 
+/** Every thread, newest first, as of now. */
+export async function listThreads(): Promise<ThreadSummary[]> {
+  return (await watchThreads().next()).value;
+}
+
 export interface ThreadView {
   thread: Thread | undefined;
   /** In order, each as it stands now. */

@@ -67,7 +67,10 @@ const getThread = liveQuery(
                 .messages.filter(m => m.status === "generating")
                 .map(message => messageMarkup(message, block))}
             </ol>
+            {/* Keyed by thread: going to another conversation is a new
+                composer, so a half-typed message stays with its thread. */}
             <props.composer
+              $key={id}
               threadId={id}
               seen={view().messages.map(m => m.id)}
               busy={view().messages.some(m => m.status === "generating")}

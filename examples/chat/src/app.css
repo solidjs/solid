@@ -51,7 +51,7 @@ body {
 }
 
 .sidebar a:hover,
-.sidebar a.current {
+.sidebar .threads a[aria-current] {
   background: var(--surface-2);
 }
 
