@@ -372,6 +372,34 @@ Resolved:
 Pinned in `server-functions-304-format-3897` (cached `{ value: 17 }` survives
 the freshened headers; 204 keeps `Void`).
 
+## Ruling — a shared-cacheable read carries no trace (#3985, 2026-10-13)
+
+The commit seam hands the request's trace to the browser as `Server-Timing`
+entries (`traceparent`, a provider's vendor pair) whenever something is
+recording it. A declared read whose response a shared cache stores is one
+answer replayed to every viewer, so one request's trace would parent every
+viewer's browser spans. Resolved:
+
+1. **A `GET` (and its `HEAD`) whose departing `Cache-Control` lets a shared
+   cache store it carries no trace entry.** "Lets a shared cache store it"
+   is the author asking for one — `public` or `s-maxage` — matched as whole,
+   case-insensitive directives. `no-store` and an unqualified `private`
+   (RFC 9111 §5.2.2.7) win over it: such a response stays one viewer's, and
+   so does its trace. A qualified `private="…"` does not, since the rest of
+   the response may still be stored. The departing policy is the
+   response's own, else the event stub's it gap-fills from; the
+   transport's `no-store` default never qualifies.
+2. **Decided before the commit, not stripped after it.** The request's
+   trace record stops emitting for that response, so no trace byte is
+   written and an app's own `Server-Timing` entries are untouched. The
+   timing metrics (`solid-invocation`, observe/dev with a listener) still
+   ride. `getTraceContext()` is unchanged — the body can still forward the
+   trace downstream.
+3. **`POST` and documents are unchanged**, whatever `Cache-Control` they
+   carry. No option or export is added.
+
+Pinned in `server-trace` ("Server-Timing on a shared-cacheable read").
+
 ## Extraction and merge discipline
 
 - A red test demonstrates current behavior; it becomes an ordinary guard only

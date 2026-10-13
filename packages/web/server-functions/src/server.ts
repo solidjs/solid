@@ -21,6 +21,7 @@ import {
 } from "../../src/response.js";
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
+import { traceForEvent } from "../../src/trace.js";
 import { reportServerError } from "solid-js/internal";
 import { requestErrorHook } from "../../src/request-error-hook.js";
 import { observeInvocation } from "../../src/server-observe.js";
@@ -4206,8 +4207,26 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // the next request carried stale credentials with the failure pointing at
   // the wrong place. Committing here also arms the stub's late-write
   // instrumentation, same as the dispatch tail.
+  //
+  // The commit is also where the request's trace reaches the head
+  // (`Server-Timing`, see ../../src/trace.ts) — except on a read a shared
+  // cache may store (#3985): that one answer is replayed to every viewer,
+  // and handing each of them the trace of the request that filled the cache
+  // would parent every viewer's browser spans to it. Decided BEFORE the
+  // commit, from the `Cache-Control` the response will leave with, so no
+  // trace byte is ever written there; `getTraceContext()` still answers the
+  // function body and anything forwarding the trace downstream.
+  const commitResponse = raw => {
+    if (
+      (method === "GET" || method === "HEAD") &&
+      sharedCacheMayStore(departingCacheControl(raw, event))
+    ) {
+      withholdTrace(event);
+    }
+    return commitEventResponse(raw, event);
+  };
   const refuseCommitted = raw => {
-    const response = commitEventResponse(raw, event);
+    const response = commitResponse(raw);
     return finish(protectsRequest ? withCSRFVary(response) : response);
   };
   const provide = options.provideEvent || provideEvent;
@@ -4621,11 +4640,67 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // mutate freely instead of auditing every write site, and covers every
   // foreign-response path at once (raw passthrough, unscripted returns and
   // throws, custom handleNoJS results, envelope-carried responses).
-  const response = commitEventResponse(
-    enforceComposedHeaderInvariants(ownResponse(await dispatch())),
-    event
-  );
+  const response = commitResponse(enforceComposedHeaderInvariants(ownResponse(await dispatch())));
   return finish(protectsRequest ? withCSRFVary(response) : response);
+}
+
+// The `Cache-Control` a response leaves the handler with: its own, else the
+// event stub's — `commitEventResponse` gap-fills a stub header the response
+// does not answer, and an already-committed stub folds nothing. The
+// transport tail only ever adds `no-store` where neither said anything.
+function departingCacheControl(response, event) {
+  const own = response.headers.get("Cache-Control");
+  if (own !== null) return own;
+  const stub = event.response;
+  return stub && stub.headers && !stub.committed ? stub.headers.get("Cache-Control") : null;
+}
+
+// Whether a shared cache may store a response under `cacheControl` — the
+// author asked for one with `public` or `s-maxage` (#3985). Directives are
+// matched whole and case-insensitively (RFC 9111 §5.2), never as substrings,
+// and a quoted argument may carry commas. What forbids a shared cache wins
+// over what asks for one: `no-store` (no cache may keep it), and an
+// unqualified `private` (§5.2.2.7: a shared cache MUST NOT store it, whatever
+// `s-maxage` says — the response stays one viewer's, so its trace stays
+// too). A qualified `private="…"` keeps only the named fields out of a shared
+// cache, so the rest of the response — `Server-Timing` included — may still
+// be stored.
+function sharedCacheMayStore(cacheControl) {
+  if (!cacheControl) return false;
+  let shared = false;
+  let start = 0;
+  let quoted = false;
+  for (let i = 0; i <= cacheControl.length; i++) {
+    const c = cacheControl[i];
+    if (quoted) {
+      if (c === "\\") i++;
+      else if (c === '"') quoted = false;
+      continue;
+    }
+    if (c === '"') {
+      quoted = true;
+      continue;
+    }
+    if (c !== "," && i < cacheControl.length) continue;
+    const directive = cacheControl.slice(start, i);
+    start = i + 1;
+    const eq = directive.indexOf("=");
+    const name = (eq === -1 ? directive : directive.slice(0, eq)).trim().toLowerCase();
+    if (name === "no-store" || (name === "private" && eq === -1)) return false;
+    if (name === "public" || name === "s-maxage") shared = true;
+  }
+  return shared;
+}
+
+// The request's trace stays off this response's head: the record's `emit`
+// is what `appendTraceServerTiming` reads at commit (the record is shared
+// across bundle copies, so the commit seam's copy sees it). Every entry
+// goes — `traceparent` and a provider's vendor pair alike — while the
+// context itself is untouched for `getTraceContext()`. Nothing to withhold
+// once the stub has committed: its head already left.
+function withholdTrace(event) {
+  if (event.response && event.response.committed) return;
+  traceForEvent(event).emit = false;
 }
 
 // A fresh Response around the same body: status, statusText and headers are
