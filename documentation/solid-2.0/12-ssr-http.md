@@ -30,6 +30,34 @@ For hydration, the document needs the hydration script ahead of the app markup: 
 
 In a hand-built document the render output ends with the serialized hydration records (`_$HY.r`), written by a classic inline `<script>`. The client entry must execute after that script: make it a deferred `<script type="module">` (or a `defer` classic script), or place it after the render output — never `async`, which may run before the records have been parsed and hydrate against an empty document. `<HydrationScript />` documents handle the ordering themselves: the records script is spliced immediately after the bootstrap, so the entry may be `async` there.
 
+### Observing the end of hydration: `onHydrationEnd` (experimental)
+
+`onHydrationEnd(callback)` (`solid-js`, `@experimental`) runs `callback` once, when the hydration phase ends: the root pass of `hydrate()` is over and every streamed `<Loading>` boundary — and every hold an integration registers, such as server-component content waiting for its data — has resumed or been cancelled. When no hydration is in progress (before `hydrate()` starts, after the phase has ended, in a client-only render, on the server) it runs in the next microtask.
+
+It exists for test tooling and markers: an end-to-end test that must wait until the client has taken over before it checks state the client writes, or must assert that it has not yet. It is not a way to branch what the app renders — read `isHydrating()` where a value must match the server and switch to the client-only value from `onSettled` (RFC 01).
+
+```tsx
+import { onHydrationEnd } from "solid-js";
+import { hydrate } from "@solidjs/web";
+
+hydrate(() => <App />, document);
+// after hydrate(): see below
+onHydrationEnd(() => {
+  document.documentElement.dataset.hydrated = "";
+});
+```
+
+```ts
+// Playwright
+await expect(page.locator("html[data-hydrated]")).toBeAttached();
+```
+
+What the callback does and does not tell you:
+
+- **Register it after calling `hydrate()`.** Registered before hydration starts, the callback runs in the next microtask and does not wait for hydration work started afterward. The same holds when `hydrate()` parks because the entry ran while the parser was still inside the server shell (an `async` entry, #3971): hydration starts at the shell-end marker, after `hydrate()` has returned.
+- **It reports that the phase ended, not that hydration succeeded.** When a document root's module preload fails, `hydrate()` abandons hydration and keeps the server markup, which is not interactive; the callback still runs. A non-document root whose preload fails runs it before falling back to a client render. Check the expected behavior (and the reported error) separately.
+- **It is not page-wide completion with several hydration roots.** A root whose render waits on its module preload is not counted, so another root finishing ends the phase before that root has claimed anything (GH5 in `documentation/server-components/frames-consistency-contract.md`).
+
 ### Consuming the stream: `pipe`, `pipeTo`, `readable`
 
 `renderToStream` returns a result with three consumption surfaces — **exactly one may be used per render** (a second consumer throws with a directed message):

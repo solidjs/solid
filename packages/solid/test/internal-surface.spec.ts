@@ -66,7 +66,6 @@ const CONTAINER_TRACE_SEAMS = [
   "wrapFirstYield",
   "adoptedAnswerStream",
   "withHydrationGate",
-  "onHydrationEnd",
   "noHydrationId",
   "markTopLevelSnapshotScope",
   "hasLoadingWindow",
@@ -90,6 +89,19 @@ test.each([
     mentions(declarations, name)
   );
   expect(leaked).toEqual([]);
+});
+
+// Once seams, now public (`@experimental`): `onHydrationEnd` left the
+// container-trace list above when it became API (#4000). Both entries must
+// declare it, or a consumer's import would type-check on one tier only.
+const PUBLIC_FORMER_SEAMS = ["onHydrationEnd"];
+
+test.each([
+  ["client", "index.d.ts"],
+  ["server", "server/index.d.ts"]
+])("former seams made public reach the %s entry's declarations", (_tier, file) => {
+  const declarations = read(file);
+  expect(PUBLIC_FORMER_SEAMS.filter(name => !mentions(declarations, name))).toEqual([]);
 });
 
 test("solid-js/internal's declarations carry the protocol and the seams", () => {

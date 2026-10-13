@@ -112,7 +112,8 @@ export {
   NoHydration,
   Hydration,
   isHydrating,
-  isHydratable
+  isHydratable,
+  onHydrationEnd
 } from "./client/hydration.js";
 // Seams for the runtimes in this repo, reached through `solid-js/internal`
 // (src/internal.ts): exported here at runtime so that entry shares this
@@ -132,7 +133,8 @@ export { enableServerComponentHydration } from "./client/hydration.js";
 // adapter module (client/store-hydration.ts) reads — that entry bundles its
 // own copy of the adapter and resolves the adapter's `./hydration.js` import
 // to this package, so the copy shares THIS instance's state (sharedConfig,
-// the hydration-end callbacks, the latch set, the sentinel). Runtime exports
+// the hydration-end callbacks — through `onHydrationEnd`, public above — the
+// latch set, the sentinel). Runtime exports
 // so that entry shares this module's state; `@internal`, stripped from the
 // declarations.
 /** @internal */
@@ -145,7 +147,6 @@ export {
   wrapFirstYield,
   adoptedAnswerStream,
   withHydrationGate,
-  onHydrationEnd,
   noHydrationId,
   markTopLevelSnapshotScope,
   hasLoadingWindow,

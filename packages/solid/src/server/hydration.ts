@@ -715,6 +715,16 @@ export function isHydrating(): boolean {
 }
 
 /**
+ * Server: runs `callback` in the next microtask — nothing hydrates here. See
+ * the client entry.
+ *
+ * @experimental
+ */
+export function onHydrationEnd(callback: () => void): void {
+  queueMicrotask(callback);
+}
+
+/**
  * Server: whether the caller's owner belongs to a render in progress and is
  * not under `<NoHydration>` (or is back under a nested `<Hydration>`). See
  * the client entry.
