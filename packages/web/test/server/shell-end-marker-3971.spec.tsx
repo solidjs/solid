@@ -5,6 +5,8 @@
 // script after its records,
 // so a hydrate() started mid-parse (an `async` entry) can park until the
 // whole shell is in the DOM. The bootstrap declares the ledger it writes to.
+// #4030: the marker goes inside the document, right before `</body>` — after
+// every shell node, never after `</html>`.
 import { describe, expect, test } from "vitest";
 import {
   generateHydrationScript,
@@ -49,13 +51,13 @@ describe("shell-end marker (#3971)", () => {
     ).toContain("s:{},fe(){}");
   });
 
-  test("renderToString ends with the marker, after the records", () => {
+  test("renderToString ends its body with the marker, after the records", () => {
     const html = renderToString(() => (
       <Doc>
         <button>edit</button>
       </Doc>
     ));
-    expect(html.endsWith(MARKER)).toBe(true);
+    expect(html.endsWith(MARKER + "</body></html>")).toBe(true);
     expect(html.indexOf("_$HY")).toBeLessThan(html.indexOf(MARKER));
   });
 
@@ -73,7 +75,9 @@ describe("shell-end marker (#3971)", () => {
       { renderId: "isl", nonce: "n0" }
     );
     expect(
-      html.endsWith(`<script nonce="n0">_$HY.s["isl"]=1,_$HY.sw&&_$HY.sw("isl")</script>`)
+      html.endsWith(
+        `<script nonce="n0">_$HY.s["isl"]=1,_$HY.sw&&_$HY.sw("isl")</script></body></html>`
+      )
     ).toBe(true);
   });
 
@@ -103,8 +107,45 @@ describe("shell-end marker (#3971)", () => {
         </main>
       </Doc>
     ));
-    expect(chunks[0].endsWith(MARKER)).toBe(true);
+    expect(chunks[0].endsWith(MARKER + "</body></html>")).toBe(true);
     expect(html.split(MARKER).length - 1).toBe(1);
     expect(html.indexOf(MARKER)).toBeLessThan(html.indexOf(">late<"));
+  });
+
+  test("a whole document still ends with </html> (#4030)", async () => {
+    const Ready = () => {
+      const v = createMemo(() => new Promise<string>(r => setTimeout(() => r("ready"), 5)));
+      return <p>{v()}</p>;
+    };
+    const app = () => (
+      <Doc>
+        <main>
+          <Loading fallback="...">
+            <Ready />
+          </Loading>
+        </main>
+      </Doc>
+    );
+    // The complete-document path (an awaited stream, async render mode)…
+    const html = await renderToStream(app);
+    expect(html.endsWith(MARKER + "</body></html>")).toBe(true);
+    expect(html.indexOf(">ready<")).toBeLessThan(html.indexOf(MARKER));
+    // …and a stream whose shell has nothing pending.
+    const { chunks } = await collect(() => (
+      <Doc>
+        <p>x</p>
+      </Doc>
+    ));
+    expect(chunks.join("").endsWith(MARKER + "</body></html>")).toBe(true);
+  });
+
+  test("a shell without </body> (an embedded render) gets the marker appended", () => {
+    const html = renderToString(() => (
+      <div>
+        <HydrationScript />
+        <p>x</p>
+      </div>
+    ));
+    expect(html.endsWith(MARKER)).toBe(true);
   });
 });

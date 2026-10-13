@@ -1889,7 +1889,7 @@ export function renderToString(code, options = {}) {
       noScripts,
       traceMetaMarkup(context.trace)
     );
-    const document =
+    const document = withShellEnd(
       assembleDocument(
         resolveSSRSelectValues(html),
         tracking.emittedAssets,
@@ -1899,7 +1899,12 @@ export function renderToString(code, options = {}) {
         nonce,
         head,
         onHead
-      ) + shellEndMarker(context, renderId, nonce, noScripts);
+      ),
+      context,
+      renderId,
+      nonce,
+      noScripts
+    );
     // Head-freeze point: the request's response head commits right before
     // the render's final dispose — the same order as an awaited
     // `renderToStream`'s completion — so the `httpStatus`/`httpHeader`
@@ -2438,16 +2443,22 @@ export function renderToStream(code, options = {}) {
     // its head content before any body output it could flush.
     shell(shellHtml, meta) {
       buffer.write(
-        assembleDocument(
-          shellHtml,
-          meta.preloads,
-          meta.preloadLinks,
-          meta.inlineStyles,
-          meta.tasks.length ? meta.tasks : "",
+        withShellEnd(
+          assembleDocument(
+            shellHtml,
+            meta.preloads,
+            meta.preloadLinks,
+            meta.inlineStyles,
+            meta.tasks.length ? meta.tasks : "",
+            nonce,
+            meta.head,
+            onHead
+          ),
+          context,
+          renderId,
           nonce,
-          meta.head,
-          onHead
-        ) + shellEndMarker(context, renderId, nonce, noScripts)
+          noScripts
+        )
       );
     },
     ...options.sink
@@ -5982,10 +5993,19 @@ function allSettled(promises) {
 // that emitted `<HydrationScript />`: that is the document whose entry may
 // be `async` (a hand-built document's entry must be deferred, see
 // 12-ssr-http.md), and it keeps every other render's bytes unchanged.
-function shellEndMarker(context, renderId, nonce, noScripts) {
-  if (noScripts || !context || !context.bootstrap) return "";
+// Ends a shell with its marker (#4030): after every shell node, but inside
+// the document — spliced before `</body>` when the shell has one, appended
+// otherwise (a body-only or embedded render). Appended to a whole document it
+// landed after `</html>`, a parse error the browser repairs. Only the tail is
+// searched (a negative start reads as 0): at shell time nothing but `</html>`
+// and whitespace follows `</body>`, and a render without one (the embedded
+// case) must not pay a scan of the whole shell for a needle that isn't there.
+function withShellEnd(html, context, renderId, nonce, noScripts) {
+  if (noScripts || !context || !context.bootstrap) return html;
   const id = JSON.stringify(renderId).replace(/</g, "\\u003C");
-  return `<script${nonceAttr(nonce, "script")}>_$HY.s[${id}]=1,_$HY.sw&&_$HY.sw(${id})</script>`;
+  const marker = `<script${nonceAttr(nonce, "script")}>_$HY.s[${id}]=1,_$HY.sw&&_$HY.sw(${id})</script>`;
+  const at = html.indexOf("</body>", html.length - 512);
+  return at < 0 ? html + marker : html.slice(0, at) + marker + html.slice(at);
 }
 
 // Single-pass document assembly. This replaced four sequential inject passes
