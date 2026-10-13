@@ -3418,8 +3418,18 @@ module.exports = [
     // them their transaction instead of the committed screen. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-13.
-    limit: "29.00 KB",
-    capMinified: 87305,
+    // Size-Exception (GRAPH_GROWTH also requires what outlived each
+    // navigation to climb, #4007, 2026-10-13): 29.00 KB -> 29.24 KB, measured
+    // locally at 29,230 B against `next` @ c9027a90's 28,984 (+246 B; 230 B
+    // over the cap; +594 B minified, 87,305 -> 87,899). Engine-only: the
+    // navigation's snapshot walk (a WeakSet of what was alive as it opened),
+    // the settle walk's count of what survived it, the same-pattern visit
+    // rule, and the finding's `survived` series and message. Every prod
+    // artifact byte-identical; the observe tier scenario above did not move.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer 2026-10-13.
+    limit: "29.24 KB",
+    capMinified: 87899,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
