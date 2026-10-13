@@ -132,7 +132,7 @@ export * from "./flow.js";
 export type { ArrayElement, Element } from "../types.js";
 
 // SSR coordination
-export { NoHydration, Hydration, isHydrating, isHydratable } from "./hydration.js";
+export { NoHydration, Hydration, isHydrating, isHydratable, onHydrationEnd } from "./hydration.js";
 export type { HydrationContext } from "./hydration.js";
 
 // Seams for the runtimes in this repo, reached through `solid-js/internal`
@@ -199,10 +199,6 @@ export function adoptedAnswerStream(thenable: any): any {
 /** @internal */
 export function withHydrationGate(create: (hydrated: () => boolean) => any): any {
   return create(() => true);
-}
-/** @internal */
-export function onHydrationEnd(callback: () => void): void {
-  queueMicrotask(callback);
 }
 /** @internal */
 export function noHydrationId(): boolean {

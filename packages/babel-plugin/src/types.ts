@@ -161,6 +161,7 @@ export interface DynamicBinding {
   tagName?: string;
   styleProperty?: boolean;
   classProperty?: boolean;
+  checkableInput?: boolean;
 }
 
 export interface SetAttrOptions {

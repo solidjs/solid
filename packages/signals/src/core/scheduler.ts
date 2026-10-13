@@ -1,5 +1,6 @@
 import {
   CONFIG_HELD,
+  CONFIG_HELD_FRAME,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_GUESS,
   CONFIG_INPUTS_PUBLISHED,
@@ -428,8 +429,10 @@ export function list(n: Signal<any>, t: Transaction): void {
 function holdFrame(owner: Owner, t: Transaction): void {
   for (let c = owner._firstChild; c !== null; c = c._nextSibling) {
     if ((c as Computed<any>)._x?._transaction?._lane) continue;
-    if ((c as Computed<any>)._fn !== undefined && !(c._config & CONFIG_HELD))
-      holdNode(c as unknown as Signal<any>, t);
+    if ((c as Computed<any>)._fn !== undefined) {
+      if (!(c._config & CONFIG_HELD)) holdNode(c as unknown as Signal<any>, t);
+      c._config |= CONFIG_HELD_FRAME;
+    }
     holdFrame(c, t);
   }
 }
@@ -1156,8 +1159,8 @@ export function commitPendingNode(n: Signal<any>): void {
   // #3305): a reveal of it must observe, not show the pre-flight value.
   const inFlight = n._pendingValue === NOT_PENDING && (c._statusFlags! & STATUS_PENDING) !== 0;
   n._config = inFlight
-    ? (n._config & ~CONFIG_HELD) | CONFIG_INPUTS_PUBLISHED
-    : n._config & ~(CONFIG_HELD | CONFIG_STAGED | CONFIG_INPUTS_PUBLISHED);
+    ? (n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_INPUTS_PUBLISHED
+    : n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME | CONFIG_STAGED | CONFIG_INPUTS_PUBLISHED);
   if (n._pendingValue !== NOT_PENDING) {
     n._value = n._pendingValue as any;
     n._pendingValue = NOT_PENDING;

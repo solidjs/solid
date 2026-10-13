@@ -190,8 +190,8 @@ type SharedConfig = {
    * not hydrating), fires via queueMicrotask. Assigned by enableHydration();
    * absent in CSR bundles and on the server sharedConfig — when absent,
    * hydration is definitionally complete, so fire the callback via
-   * queueMicrotask yourself. Cross-package wiring; not part of the
-   * user-facing API.
+   * queueMicrotask yourself. Cross-package wiring; application code imports
+   * `onHydrationEnd` from `solid-js` instead.
    *
    * @internal
    */
@@ -370,11 +370,44 @@ export function isHydratable(): boolean {
   return !!getOwner() && !getContext(NoHydrateContext);
 }
 
-// Registers a callback to run once when all hydration completes (all
-// boundaries hydrated or cancelled). If hydration is already complete (or not
-// hydrating), fires via queueMicrotask. Reached as
-// `sharedConfig.onHydrationEnd`.
-/** @internal — shared with the store adapter module (store-hydration.ts). */
+// Also reached as `sharedConfig.onHydrationEnd` (the runtimes in this repo)
+// and by the store adapter module (store-hydration.ts).
+/**
+ * Runs `callback` once, when the hydration phase ends: the root pass of
+ * `hydrate()` is over and every streamed `<Loading>` boundary (and every
+ * hold an integration registers, such as server-component content waiting
+ * for its data) has resumed or been cancelled. When no hydration is in
+ * progress — before `hydrate()` starts, after the phase has ended, in a
+ * client-only render, on the server — it runs in the next microtask.
+ *
+ * Intended for test tooling and markers, such as an attribute an end-to-end
+ * test waits for. Do not branch what the app renders on it: read
+ * `isHydrating()` where a value must match the server, and switch to the
+ * client-only value from `onSettled`.
+ *
+ * - **Register it after calling `hydrate()`.** Registered before hydration
+ *   starts, the callback runs in the next microtask and does not wait for
+ *   hydration work started afterward. The same holds when `hydrate()` parks
+ *   because the entry ran while the parser was still inside the server
+ *   shell (an `async` entry script): hydration starts at the shell-end
+ *   marker, after `hydrate()` has returned.
+ * - **It does not say hydration succeeded.** When a document root's module
+ *   preload fails, hydration is abandoned with the server markup left in
+ *   place and not interactive, and the callback still runs. A non-document
+ *   root whose preload fails runs it before falling back to a client render.
+ * - **It is not page-wide completion with several hydration roots.** A root
+ *   whose render waits on its module preload is not counted, so another
+ *   root finishing can end the phase before that root has claimed anything.
+ *
+ * @example
+ * ```ts
+ * hydrate(() => <App />, document);
+ * onHydrationEnd(() => {
+ *   document.documentElement.dataset.hydrated = "";
+ * });
+ * ```
+ * @experimental
+ */
 export function onHydrationEnd(callback: () => void): void {
   if (_hydrationDone || (!sharedConfig.hydrating && _pendingBoundaries === 0)) {
     queueMicrotask(callback);

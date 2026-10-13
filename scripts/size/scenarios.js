@@ -567,6 +567,15 @@ module.exports = [
     // at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-07 on the condition hello world stays under 10 KB. The cap is
     // frozen again at 7.45 KB.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 7.45 KB -> 7.48 KB (floor-caps.json),
+    // measured at 7,468 B against `next` @ be845cb9's 7,443 (+25 B; 18 B over
+    // the cap; +89 B minified; recorded 20,316 -> 20,436) — the signals core:
+    // `holdFrame` tags a held frame's members (CONFIG_HELD_FRAME) so
+    // `recompute`, `frameRead` and `stagedScreen` serve them their transaction
+    // instead of the committed screen. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-13; hello world stays under
+    // 10 KB at 9,966 B. The cap is frozen again at 7.48 KB.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
@@ -1027,8 +1036,16 @@ module.exports = [
     // hold's unit goes from the key to the leaf; the end of the
     // container -> key -> leaf series. Cap set at measured + 10 B rounded up
     // to 0.01 KB. Accepted by the maintainer 2026-10-12.
-    limit: "14.89 KB",
-    capMinified: 45276,
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 14.89 -> 14.94 KB, measured at 14,927 B
+    // against `next` @ be845cb9's 14,879 (+48 B; 37 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    limit: "14.94 KB",
+    capMinified: 45365,
     alias
   },
   {
@@ -1296,8 +1313,16 @@ module.exports = [
     // #3898 stacks on this; its combined size is remeasured before merge.
     // #3898 stacked on next (2026-10-08): measured at 9,727 B brotli / 27,398 B minified
     // by CI (Size run 37877131816). Cap set to that brotli size, rounded up to 0.01 KB.
-    limit: "9.73 KB",
-    capMinified: 27398,
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 9.73 -> 9.77 KB, measured at 9,753 B
+    // against `next` @ be845cb9's 9,706 (+47 B; 23 B over the cap; +121 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    limit: "9.77 KB",
+    capMinified: 27447,
     alias
   },
   {
@@ -1517,6 +1542,15 @@ module.exports = [
     // #3928 (2026-10-09): the select-value retry, including multiple, measured
     // 9,938 B / 27,891 B on the pre-merge branch and does not move this floor
     // past #3884's 9.94 KB.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 9.94 KB -> 9.98 KB (floor-caps.json),
+    // measured at 9,966 B against `next` @ be845cb9's 9,919 (+47 B; 26 B over
+    // the cap; +89 B minified; recorded 27,895 -> 27,945) — the signals core:
+    // `holdFrame` tags a held frame's members (CONFIG_HELD_FRAME) so
+    // `recompute`, `frameRead` and `stagedScreen` serve them their transaction
+    // instead of the committed screen. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-13; it stays under 10 KB. The
+    // cap is frozen again at 9.98 KB.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -2621,8 +2655,16 @@ module.exports = [
     // (`_fb`), disposed by a queued run once the content that replaces it is
     // on screen. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
     // by the maintainer 2026-10-12.
-    limit: "13.03 KB",
-    capMinified: 36932,
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 13.03 -> 13.07 KB, measured at 13,051 B
+    // against `next` @ be845cb9's 13,005 (+46 B; 21 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    limit: "13.07 KB",
+    capMinified: 37021,
     alias
   },
   {
@@ -2913,8 +2955,16 @@ module.exports = [
     // measured locally at 14,573 B against `next`'s 14,565 (+8 B; +186 B
     // minified, 41,274 -> 41,460). Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-12.
-    limit: "14.59 KB",
-    capMinified: 41460,
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 14.59 -> 14.64 KB, measured at 14,623 B
+    // against `next` @ be845cb9's 14,621 (+2 B; 33 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    limit: "14.64 KB",
+    capMinified: 41549,
     alias: observeAlias
   },
   {
@@ -3354,18 +3404,26 @@ module.exports = [
     // the recorded minified (86,937 -> 87,216). Both merged with the
     // maintainer's go-ahead 2026-10-12. Cap set at measured + 10 B rounded up
     // to 0.01 KB.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 28.96 -> 29.00 KB, measured at 28,984 B
+    // against `next` @ be845cb9's 28,930 (+54 B; 24 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
     // Size-Exception (GRAPH_GROWTH also requires what outlived each
-    // navigation to climb, #4007, 2026-10-13): 28.96 KB -> 29.17 KB, measured
-    // locally at 29,160 B against `next` @ d8ba741d's 28,930 (+230 B; +594 B
-    // minified, 87,216 -> 87,810; recorded 87,216 -> 87,810). Engine-only:
-    // the navigation's snapshot walk (a WeakSet of what was alive as it
-    // opened), the settle walk's count of what survived it, the same-pattern
-    // visit rule, and the finding's `survived` series and message. Every
-    // prod artifact byte-identical; the observe tier scenario above did not
-    // move. Cap set at measured + 10 B rounded up to 0.01 KB. AWAITING the
-    // maintainer's acceptance — re-measure on CI before accepting.
-    limit: "29.17 KB",
-    capMinified: 87810,
+    // navigation to climb, #4007, 2026-10-13): 29.00 KB -> 29.24 KB, measured
+    // locally at 29,230 B against `next` @ c9027a90's 28,984 (+246 B; 230 B
+    // over the cap; +594 B minified, 87,305 -> 87,899). Engine-only: the
+    // navigation's snapshot walk (a WeakSet of what was alive as it opened),
+    // the settle walk's count of what survived it, the same-pattern visit
+    // rule, and the finding's `survived` series and message. Every prod
+    // artifact byte-identical; the observe tier scenario above did not move.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer 2026-10-13.
+    limit: "29.24 KB",
+    capMinified: 87899,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -3422,8 +3480,16 @@ module.exports = [
     // condition hello world stays under 10 KB.
     // #3928 merged with next @ 617d19511 (2026-10-09): measured at 10,134 B
     // (28,443 B minified). Cap set to that brotli, not above it.
-    limit: "10.134 KB",
-    capMinified: 28443,
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 10.134 -> 10.17 KB, measured at 10,151 B
+    // against `next` @ be845cb9's 10,135 (+16 B; 17 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    limit: "10.17 KB",
+    capMinified: 28475,
     alias
   },
   {
@@ -3499,8 +3565,16 @@ module.exports = [
     // locally at 25,637 B against `next` @ 49a765cc's 25,492 (+145 B; +586 B
     // minified, 79,919 -> 80,505). Cap set at measured + 10 B rounded up to
     // 0.01 KB.
-    limit: "25.65 KB",
-    capMinified: 80505,
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 25.65 -> 25.75 KB, measured at 25,736 B
+    // against `next` @ be845cb9's 25,643 (+93 B; 86 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    limit: "25.75 KB",
+    capMinified: 80664,
     alias
   },
   {
@@ -3597,8 +3671,16 @@ module.exports = [
     // hydratable checkbox/radio `checked`/`value` runtime handling. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-13).
-    limit: "31.58 KB",
-    capMinified: 100838,
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 31.58 -> 31.62 KB, measured at 31,610 B
+    // against `next` @ be845cb9's 31,561 (+49 B; 30 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    limit: "31.62 KB",
+    capMinified: 100927,
     alias
   },
   {

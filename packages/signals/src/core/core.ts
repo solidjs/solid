@@ -27,6 +27,7 @@ import {
   CONFIG_OWNED_WRITE,
   CONFIG_PROMOTED,
   CONFIG_STAGED,
+  CONFIG_HELD_FRAME,
   CONFIG_SYNC,
   CONFIG_TRANSPARENT,
   defaultContext,
@@ -111,6 +112,7 @@ import {
   staleReader,
   laneDirty
 } from "./scheduler.js";
+import type { Transaction } from "./scheduler.js";
 import type {
   Computed,
   Link,
@@ -306,9 +308,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // joins all the same. Not a render effect (rule 3): it is the frame.
     // Re-run outside its transaction's flush it publishes mainline — the
     // value it staged there is superseded (`frameRead` remembers it for the
-    // landing). A frame born into the transaction (uninitialized: never run,
-    // A29) keeps staging: live writes keep it current, it effects at the
-    // swap (ruling A).
+    // landing). A frame born into the transaction (`bornInto`: never run,
+    // A29, or mounted by a pass of it still awaiting its commit, #4010) keeps
+    // staging: live writes keep it current, it effects at the swap (ruling
+    // A).
     // A pending flight is the transition's own work (#3884). A probe on an
     // earlier pass left CONFIG_VERDICT, and a frame read here would serve the
     // committed screen, settle the flight and drop the hold — a superseding
@@ -322,7 +325,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // world (`read`), and has left it otherwise.
       if (tx._lane) {
       } else if (isEffect !== EFFECT_RENDER && !(el._config & CONFIG_VERDICT)) joinPassTx(tx);
-      else if (tx !== flushTransaction && !(el._statusFlags & STATUS_UNINITIALIZED)) {
+      else if (
+        tx !== flushTransaction &&
+        !(el._statusFlags & STATUS_UNINITIALIZED || el._config & CONFIG_HELD_FRAME)
+      ) {
         // Published mainline, it is not held: the frame this pass builds is
         // replaced on the spot (#3404) — this flush's commit retires the
         // committed frame the held pass had parked (`commitPendingNode`),
@@ -1011,11 +1017,11 @@ export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): voi
  * re-derived after that transaction's landing (`_reruns`,
  * REACTIVE_FRAME_READ) so the frame catches up with it once it is the
  * committed world. Not a frame born into that transaction (held and never
- * committed — created by one of its held passes, A29): that one reads its
- * transaction's values and keeps staging. Not of a flight whose inputs are
- * already visible (CONFIG_INPUTS_PUBLISHED, #3305): its committed value
- * would tear against them, so the reveal observes the flight instead. Once
- * per pass.
+ * committed — created by one of its held passes, A29; `bornInto`): that
+ * one reads its transaction's values and keeps staging. Not of a flight
+ * whose inputs are already visible (CONFIG_INPUTS_PUBLISHED, #3305): its
+ * committed value would tear against them, so the reveal observes the
+ * flight instead. Once per pass.
  *
  * Lane work is a stale reader too (maintainer, 2026-10-01: a lane sees the
  * screen plus its own guesses). A held write is held because showing it
@@ -1053,13 +1059,22 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // Lane work and verdict readers are never the transaction's pass, whichever
   // flush runs it: a node T holds re-enters T when it re-runs (`recompute`'s
   // head), and the pass may then read a guess and become the lane's.
-  if (
-    (t === flushTransaction && passLane === null && !verdict) ||
-    (c._statusFlags & STATUS_UNINITIALIZED && c._config & CONFIG_HELD && txOf(c) === t)
-  )
-    return false;
+  if ((t === flushTransaction && passLane === null && !verdict) || bornInto(c, t)) return false;
   staleReader(c, t);
   return true;
+}
+
+/** A node born into transaction `t`: held by it and never committed (A29,
+ * ruling A) — uninitialized (born held), or a member of the frame one of its
+ * held passes built (CONFIG_HELD_FRAME). Its branch exists only in `t`: it
+ * has no screen to read, so it reads `t`'s values, whichever flush runs it,
+ * and keeps staging (#4010). */
+export function bornInto(c: Computed<any>, t: Transaction): unknown {
+  return (
+    (c._statusFlags & STATUS_UNINITIALIZED || c._config & CONFIG_HELD_FRAME) &&
+    c._config & CONFIG_HELD &&
+    txOf(c) === t
+  );
 }
 
 /** The computed whose pass a creation under `owner` belongs to (a root's is
@@ -1740,7 +1755,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // effect keeps its DOM by throwing, a memo has no DOM and is handed the
   // value. `[isPending(x), x()]` reads `[true, stale]` in either order (A10)
   // — unless the flight committed beneath inputs already on screen
-  // (`observeFlight`).
+  // (`observeFlight`), or the reader was born into the flight's transaction
+  // (#4010): it has no screen, and waits on the flight with its frame.
   if (
     owner._statusFlags & STATUS_PENDING &&
     !committed &&
@@ -1907,9 +1923,10 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
  * #3322 — one run, on the committed world), or with the hold. Before any
  * transaction the answer is the seam's and the reader watches it
  * (verdict.ts). A node born into the future has no screen: its staging is
- * its only value (A29). */
+ * its only value (A29). Nor has a reader born into the flush's transaction
+ * (`bornInto`, #4010): its branch exists only there. */
 export function stagedScreen(c: Computed<any>): boolean {
-  if (flushTransaction === null) return false;
+  if (flushTransaction === null || bornInto(c, flushTransaction)) return false;
   staleReader(c, flushTransaction);
   return true;
 }

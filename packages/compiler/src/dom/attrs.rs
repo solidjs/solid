@@ -1,6 +1,9 @@
 use crate::error::Result;
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::{Expression, FormalParameterKind, JSXAttributeItem, Statement};
+use oxc_ast::ast::{
+    Expression, FormalParameterKind, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
+    JSXExpression, Statement,
+};
 use oxc_span::Span;
 
 use crate::dom::dynamics::{DynamicSlot, DynamicsBatch};
@@ -16,6 +19,50 @@ use crate::shared::utils::{
     format_attribute_value_with_quotes, format_number, is_void_element,
     normalize_static_attribute_value,
 };
+
+/// Whether an `<input>` may be a checkbox or radio, whose nullish
+/// value/defaultValue removes the `value` attribute (restoring the native
+/// "on" submission value) instead of clearing it to "" like a text field
+/// (#4017). Only a plain `type` written as a string literal is resolved; a
+/// missing `type` is a text input. Anything else (an expression, `prop:type`,
+/// `attr:type`, a spread) is unknown and treated as possibly checkable, which
+/// stays correct because setProperty tests the live `type`. Mirrors Babel's
+/// `inputMayBeCheckable` (dom/element.ts).
+fn input_may_be_checkable(attributes: &[JSXAttributeItem<'_>]) -> bool {
+    let mut checkable = false;
+    for attr in attributes {
+        let JSXAttributeItem::Attribute(attr) = attr else {
+            return true;
+        };
+        match &attr.name {
+            JSXAttributeName::NamespacedName(name) => {
+                if name.name.name == "type" {
+                    return true;
+                }
+            }
+            JSXAttributeName::Identifier(name) => {
+                if name.name != "type" {
+                    continue;
+                }
+                let literal = match &attr.value {
+                    None => None,
+                    Some(JSXAttributeValue::StringLiteral(literal)) => Some(literal.value.as_str()),
+                    Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                        match &container.expression {
+                            JSXExpression::StringLiteral(literal) => Some(literal.value.as_str()),
+                            _ => return true,
+                        }
+                    }
+                    Some(_) => return true,
+                };
+                checkable = literal.is_some_and(|value| {
+                    value.eq_ignore_ascii_case("checkbox") || value.eq_ignore_ascii_case("radio")
+                });
+            }
+        }
+    }
+    checkable
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct CloseTagContext {
@@ -158,6 +205,7 @@ impl<'a> AstDomTransform<'a, '_> {
         let mut ref_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> = std::vec::Vec::new();
         let mut needs_placeholder = false;
         let slots_before = dynamics.slots.len();
+        let checkable_input = tag_name == "input" && input_may_be_checkable(attributes);
 
         for plan in plans {
             // Explicit JSX children are the final content source. Suppress a
@@ -176,6 +224,7 @@ impl<'a> AstDomTransform<'a, '_> {
                     self.lower_runtime_attribute(
                         plan,
                         tag_name,
+                        checkable_input,
                         element_id,
                         declarations,
                         &mut exprs,
@@ -284,6 +333,7 @@ impl<'a> AstDomTransform<'a, '_> {
         &mut self,
         plan: AttrPlan<'a>,
         tag_name: &str,
+        checkable_input: bool,
         element_id: &str,
         declarations: &mut std::vec::Vec<Statement<'a>>,
         exprs: &mut std::vec::Vec<Statement<'a>>,
@@ -350,6 +400,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 tag_name: tag_name.to_string(),
                 style_property: plan.style_property,
                 class_property: plan.class_property,
+                checkable_input,
             });
             return Ok(());
         }
@@ -366,6 +417,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 tag_name: tag_name.to_string(),
                 style_property: plan.style_property,
                 class_property: plan.class_property,
+                checkable_input,
             },
         );
         exprs.push(self.ast().statement_expression(span, set_attr));
