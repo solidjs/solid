@@ -641,7 +641,7 @@ function overlayRebuilds(t: StoreTarget, pb: Record<PropertyKey, any>): boolean 
   if (t.kc > OVERLAY_REBUILD_MAX_KEYS) return false;
   if (t.del !== null && t.del.size !== 0) return true;
   const wk = t.wk;
-  if (wk !== null && wk !== WK_ALL && wk.u === null && wk.size <= OVERLAY_REBUILD_MIN_ADDS)
+  if (wk !== null && wk !== WK_ALL && wk.u === undefined && wk.size <= OVERLAY_REBUILD_MIN_ADDS)
     return false;
   const v = t.v;
   let adds = 0;
@@ -976,7 +976,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
           const v = t.v;
           const wk = t.wk;
           if (wk !== null && wk !== WK_ALL) {
-            for (let w: WrittenKeys | null = wk; w !== null; w = w.u)
+            for (let w: WrittenKeys | undefined = wk; w !== undefined; w = w.u)
               for (const key of w) {
                 if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
                 else delete (v as any)[key];
@@ -1412,8 +1412,6 @@ export function notifyFold(
 // visibility
 
 let writing = 0;
-/** The outermost setter's generation: the `wk` it opens is its own. */
-let wkGen = 0;
 /** Roots of the stores with an open setter: reads of THEIR drafts are the
  * writer's (no tracking, pending backing served); every other store reads
  * normally — a derive's external reads are its dependencies (#3037). */
@@ -1905,19 +1903,20 @@ const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor
 // traps
 
 /** A trap write: the target is told at the setter's exit, the key recorded
- * in this setter's `wk` — a new setter's is its own (the notify visits it,
- * D-8), the batch's earlier ones chained behind for the fold's union. */
+ * in this setter's `wk`. A setter's first write to a target still staged by
+ * an earlier setter of the batch opens a set of its own (the notify visits
+ * it, D-8) and chains the earlier one behind for the fold's union. */
 function touch(target: StoreTarget, key: PropertyKey): void {
-  pendingNotify.add(target);
   let wk = target.wk;
-  if (wk === WK_ALL) return;
-  if (wk === null || wk.g !== wkGen) {
-    const fresh = new Set() as WrittenKeys;
-    fresh.g = wkGen;
-    fresh.u = wk;
-    target.wk = wk = fresh;
+  if (!pendingNotify.has(target)) {
+    pendingNotify.add(target);
+    if (wk !== null && wk !== WK_ALL) {
+      wk = new Set() as WrittenKeys;
+      wk.u = target.wk!;
+      target.wk = wk;
+    }
   }
-  wk.add(key);
+  if (wk !== WK_ALL) (target.wk ??= new Set() as WrittenKeys).add(key);
 }
 
 const traps: ProxyHandler<StoreTarget> = {
@@ -2304,7 +2303,7 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   writeScopes.add(scopeKey(target));
   const prevUser = userWrite;
   userWrite = guard;
-  if (writing++ === 0) wkGen++;
+  writing++;
   let result: any;
   try {
     // No untrack: the writing flag already disables store-node linking
