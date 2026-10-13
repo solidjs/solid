@@ -2400,8 +2400,14 @@ module.exports = [
     // `hydrate()`: a hydrate() started mid-parse waits for the shell-end
     // marker. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by
     // the maintainer (2026-10-13) with the renderToString floor raise.
-    limit: "29.50 KB",
-    capMinified: 93176,
+    // Size-Exception (a lazy() load started during the hydration trace is not
+    // cached, #4013, 2026-10-13): 29.50 -> 29.52 KB, measured at 29,506 B
+    // against `next` @ c9027a90's 29,440 (+66 B; 6 B over the cap; +34 B
+    // minified, 93,304 -> 93,338) — the same `lazy()`/`lazyModule()` guard
+    // as the compiled hydrating note. Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-13.
+    limit: "29.52 KB",
+    capMinified: 93338,
     alias
   },
   {
@@ -3669,8 +3675,15 @@ module.exports = [
     // them their transaction instead of the committed screen. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-13.
-    limit: "31.62 KB",
-    capMinified: 100927,
+    // Size-Exception (a lazy() load started during the hydration trace is not
+    // cached, #4013, 2026-10-13): 31.62 -> 31.64 KB, measured at 31,622 B
+    // against `next` @ c9027a90's 31,610 (+12 B; 2 B over the cap; +34 B
+    // minified, 100,927 -> 100,961) — `lazy()`/`lazyModule()` drop a loader
+    // promise built from the trace's never-settling Promise stub. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    limit: "31.64 KB",
+    capMinified: 100961,
     alias
   },
   {

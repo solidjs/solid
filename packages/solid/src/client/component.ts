@@ -1,6 +1,6 @@
 import { untrack, createMemo } from "@solidjs/signals";
 import { IS_DEV, IS_OBSERVE, observedComponent } from "../client/core.js";
-import { _lazyHydrationLookup, sharedConfig } from "./hydration.js";
+import { _lazyHydrationLookup, sharedConfig, tracing } from "./hydration.js";
 import type { Element as SolidElement } from "../types.js";
 
 /**
@@ -150,6 +150,13 @@ export function lazy<T extends Component<any>>(
   const load = () => {
     if (p) return p;
     const cur = (p = fn());
+    // Under a hydration trace the global Promise is the never-settling
+    // MockPromise stub; a loader that builds its promise from it (Vite's
+    // __vitePreload) must not cache that stub, or every later preload and
+    // render waits on it forever (#4013). Nothing loaded under a trace is
+    // kept: a real import() still lands through then() below (and the module
+    // registry dedupes the next call); the stub's then() is inert.
+    if (tracing) p = undefined;
     cur.then(
       (mod: any) => {
         comp = () => (exportName ? mod[exportName] : mod.default) as T;
@@ -230,6 +237,8 @@ export function lazyModule<T extends Record<string, any>>(
   const load = () => {
     if (p) return p;
     const cur = (p = fn());
+    // Same MockPromise-stub guard as lazy() (#4013).
+    if (tracing) p = undefined;
     cur.then(
       m => {
         mod = m;

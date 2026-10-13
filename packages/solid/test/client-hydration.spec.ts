@@ -24,7 +24,7 @@ import {
   createStore,
   createOptimisticStore
 } from "../src/client/hydration.js";
-import { lazy } from "../src/client/component.js";
+import { lazy, lazyModule } from "../src/client/component.js";
 import { Errored, Loading } from "../src/client/flow.js";
 
 // Enable the hydration-aware wrappers
@@ -4887,5 +4887,62 @@ describe("adoption trace — Promise statics", () => {
 
     expect(result).toBe("server");
     expect(callback).not.toHaveBeenCalled();
+  });
+
+  // #4013: a loader building its promise from the global Promise (Vite's
+  // __vitePreload does) gets the trace's never-settling stub when preload()
+  // runs inside a traced compute. lazy() must not keep that stub as the
+  // module load, or every later preload()/render waits on it forever.
+  test("lazy().preload() after hydration settles when first called under the trace (#4013)", async () => {
+    startHydration({ t0: { s: 1, v: "ready" } });
+
+    const Lazy = lazy(
+      () => new Promise<any>(resolve => setTimeout(() => resolve({ default: () => "ok" }), 0))
+    );
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(async () => {
+          await Lazy.preload();
+          return "ready";
+        })();
+      },
+      { id: "t" }
+    );
+    flush();
+    stopHydration();
+    expect(result).toBe("ready");
+
+    const settled = await Promise.race([
+      Lazy.preload().then(mod => mod.default({})),
+      new Promise(r => setTimeout(() => r("timeout"), 50))
+    ]);
+    expect(settled).toBe("ok");
+  });
+
+  test("lazyModule() after hydration settles when first called under the trace (#4013)", async () => {
+    startHydration({ t0: { s: 1, v: "ready" } });
+
+    const mod = lazyModule(
+      () => new Promise<any>(resolve => setTimeout(() => resolve({ value: "ok" }), 0))
+    );
+    createRoot(
+      () => {
+        createMemo(async () => {
+          await mod();
+          return "ready";
+        })();
+      },
+      { id: "t" }
+    );
+    flush();
+    stopHydration();
+
+    const settled = await Promise.race([
+      mod().then(m => m.value),
+      new Promise(r => setTimeout(() => r("timeout"), 50))
+    ]);
+    expect(settled).toBe("ok");
+    expect(mod.peek()).toEqual({ value: "ok" });
   });
 });

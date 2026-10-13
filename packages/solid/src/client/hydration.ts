@@ -520,10 +520,18 @@ const MockPromise = /* @__PURE__ */ (() => {
   return MockPromise;
 })();
 
+/**
+ * @internal — subFetch's nesting depth. lazy()/lazyModule() read it so a
+ * loader promise made during a trace (possibly from the MockPromise stub)
+ * never becomes their cached module load (#4013).
+ */
+export let tracing = 0;
+
 /** @internal — shared with the store adapter module (store-hydration.ts). */
 export function subFetch<T>(fn: (prev?: T) => any, prev?: T) {
   const ogFetch = fetch;
   const ogPromise = Promise;
+  tracing++;
   try {
     window.fetch = () => new MockPromise() as any;
     Promise = MockPromise as any;
@@ -554,6 +562,7 @@ export function subFetch<T>(fn: (prev?: T) => any, prev?: T) {
   } finally {
     window.fetch = ogFetch;
     Promise = ogPromise;
+    tracing--;
   }
 }
 
