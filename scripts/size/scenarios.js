@@ -4981,6 +4981,15 @@ module.exports = [
     // heard as `request`. The cost is the `catch` and its one
     // `reportServerError` call (already retained here). Accepted by the
     // maintainer. The cap is frozen again at 20.42 KB.
+    // Size-Exception (#4002, 2026-10-13): 20.42 -> 20.48 KB, measured at
+    // 20,473 B against `next` @ 6232d18e's 20,403 (+70 B; 53 B over the cap;
+    // +199 B minified, 71,813 -> 72,012). A render that emits
+    // `<HydrationScript />` ends its shell with the #3971 marker script and
+    // its bootstrap declares the `_$HY.s` ledger, so a `hydrate()` started
+    // mid-parse by an `async` entry parks until the whole shell is parsed.
+    // The cost is the marker helper, the bootstrap split and the ledger
+    // flag, all retained by renderToString. Accepted by the maintainer
+    // (2026-10-13). The cap is frozen again at 20.48 KB.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
     // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
