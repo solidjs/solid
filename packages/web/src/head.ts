@@ -125,6 +125,28 @@ export function asciiLowerCase(value) {
   return value.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
 }
 
+// Script types whose body is JSON: importmap and speculationrules, which
+// HTML matches ASCII case-insensitively without stripping whitespace, and
+// JSON MIME types as MIME Sniffing defines them (essence `application/json`
+// or `text/json`, or a `+json` subtype), parsed with HTTP whitespace only.
+// Without the `u` flag, `i` folds ASCII letters only. The type is checked
+// as `String` writes the attribute (a Symbol included, which `test` alone
+// would throw on), so `true` (an empty `type`) and absent values never match.
+const JSON_SCRIPT_TYPE =
+  /^(?:importmap|speculationrules)$|^[\t\n\r ]*(?:application\/json|text\/json|[\w!#$%&'*+.^`|~-]+\/[\w!#$%&'*+.^`|~-]*\+json)[\t\n\r ]*(?:;|$)/i;
+
+// A script body is raw text: the server rewrites `</script` so it cannot
+// close the element early, but `<!--` followed by `<script` moves the
+// tokenizer into the double-escaped state, where the real `</script>` no
+// longer ends it. JSON scripts take every `<` as `\u003C` instead, which
+// parses back to the same value. The client writes and compares the same
+// text so it can adopt the server's element; other bodies pass through.
+export function headBodyText(tag, props, text) {
+  return tag === "script" && JSON_SCRIPT_TYPE.test(String(props.type))
+    ? text.replace(/</g, "\\u003C")
+    : text;
+}
+
 // Identity for a resource-class tag (evaluated props). Qualifier values are
 // length-prefixed: plain `:q=value` concatenation let a value containing the
 // delimiters forge another qualifier (`type: "a:media=b"` collided with
