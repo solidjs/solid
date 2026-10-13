@@ -316,7 +316,7 @@ export function createSSRResponse(
   event: RequestEvent | undefined,
   options?: {
     responseInit?: ResponseInit;
-    nonce?: string;
+    nonce?: CSPNonce;
     transformChunk?: (chunk: string) => string;
   }
 ): Response;
@@ -325,7 +325,7 @@ export function createSSRResponse(
   event: RequestEvent | undefined,
   options?: {
     responseInit?: ResponseInit;
-    nonce?: string;
+    nonce?: CSPNonce;
     transformChunk?: (chunk: string) => string;
   }
 ): Promise<Response>;

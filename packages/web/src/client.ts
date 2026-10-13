@@ -241,16 +241,18 @@ const delegatedContainers = new Map();
 
 function voidFn() {}
 
+type CSPNonce = string | { script: string | false; style: string | false };
+
 /** Client stub — hydration bootstrap is a server-only emit. */
 export function generateHydrationScript(_options?: {
   eventNames?: string[];
-  nonce?: string;
+  nonce?: CSPNonce;
 }): string {
   return "";
 }
 
 /** Client stub — valid JSX component, renders nothing. */
-export function HydrationScript(_props?: { nonce?: string; eventNames?: string[] }): null {
+export function HydrationScript(_props?: { nonce?: CSPNonce; eventNames?: string[] }): null {
   return null;
 }
 
