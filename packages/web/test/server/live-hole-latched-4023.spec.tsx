@@ -116,8 +116,9 @@ describe("a live hole the impurity gate closes is named in dev (#4023)", () => {
       expect(events).toHaveLength(1);
       expect(events[0].kind).toBe("ssr");
       expect(events[0].severity).toBe("warn");
-      expect(events[0].data).toMatchObject({ cause: "owners" });
-      expect(String((events[0].data as any).expression)).toContain("usage");
+      expect(events[0].data).toEqual({ cause: "owners" });
+      // Located by owner: the boundary the hole sits in.
+      expect(events[0].ownerPath).toEqual(["<Loading>"]);
       expect(events[0].message).toContain("const usage = m.usage");
       expect(warn.mock.calls.some(c => String(c[0]).includes("[SSR_LIVE_HOLE_LATCHED]"))).toBe(
         true

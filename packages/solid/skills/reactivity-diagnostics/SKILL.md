@@ -872,8 +872,8 @@ is a condition on a property inside markup that re-renders from a live
 source, such as `{m.usage && <b>done</b>}`: the compiler wraps that condition
 in a memo, which a re-run would re-create. Read the property into a local
 first (`const usage = m.usage;` then `{usage && …}`), and keep components and
-memos out of markup that re-renders from a live source. `data.expression` is
-the start of the hole's compiled expression.
+memos out of markup that re-renders from a live source. The finding is
+located by the component the hole is in.
 
 ### LAZY_ASSET_UNMAPPED
 

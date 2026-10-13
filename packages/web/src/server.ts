@@ -3775,30 +3775,25 @@ export function createLiveHoles(sink, scoped) {
   // its markers and then went quiet on its first re-evaluation — markup that
   // silently stops updating. The usual cause is a compiler condition memo
   // (`{m.usage && <b/>}` with a property condition), which a re-run would
-  // re-create. Once per binding: a closed binding never sweeps again.
+  // re-create. Once per binding: a closed binding never sweeps again. The
+  // finding is located by the hole's owner (its component path); the hole's
+  // expression is not named, because keeping it on every scoped hole costs
+  // the render even in dev.
   const latched = !"_SOLID_DEV_"
     ? null
-    : (owner, cause, hole) => {
-        // The hole's own expression (`ssrScope` keeps it on its wrapper in dev).
-        const expression =
-          typeof hole === "function"
-            ? String(hole.$source || hole)
-                .replace(/\s+/g, " ")
-                .slice(0, 160)
-            : undefined;
+    : (owner, cause, content) => {
         devCheck(
           {
             code: "SSR_LIVE_HOLE_LATCHED",
             kind: "ssr",
             severity: "warn",
             message:
-              `[SSR_LIVE_HOLE_LATCHED] A live ${hole ? "markup hole" : "attribute"} stopped updating: ` +
+              `[SSR_LIVE_HOLE_LATCHED] A live ${content ? "markup hole" : "attribute"} stopped updating: ` +
               `re-running it ${cause === "records" ? "emitted slot records" : "created reactive scopes (a component, a memo, or a compiler condition memo such as {m.usage && …})"}, ` +
-              `so it cannot re-run and keeps the markup it last sent.` +
-              (expression ? ` Expression: ${expression}.` : "") +
-              ` Read a property used in a condition into a local first (const usage = m.usage), ` +
+              `so it cannot re-run and keeps the markup it last sent. ` +
+              `Read a property used in a condition into a local first (const usage = m.usage), ` +
               `and keep components and memos out of markup that re-renders from a live source.`,
-            data: { cause, ...(expression ? { expression } : {}) }
+            data: { cause }
           },
           owner
         );
@@ -3954,7 +3949,7 @@ export function createLiveHoles(sink, scoped) {
           // before its impure part ran): the hole is not re-runnable.
           // Close and latch what the retry path shipped.
           if (engine.gateHit || stamp() !== sweepOwnersBefore) {
-            if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", hole);
+            if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", true);
             b.closed = true;
             sink.closeBinding(b.key);
             return;
@@ -4150,7 +4145,7 @@ export function createLiveHoles(sink, scoped) {
             engine.sweeping = prevSweeping;
           }
           if (engine.gateHit || stamp() !== sweepOwnersBefore) {
-            if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", null);
+            if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", false);
             b.closed = true;
             sink.closeBinding(b.key);
             return;
