@@ -81,7 +81,7 @@ export const CONFIG_SYNC = 1 << 6;
 // CONFIG_HELD_CHILDREN, CONFIG_INPUTS_PUBLISHED and CONFIG_ADOPTED_UNFLUSHED
 // (transaction holds, zombies, until()'s authoritative view) went with the
 // transactions.
-// L2 (step 2): three bits, all maintained by the node's commit.
+// L2 (step 2): four bits, all maintained by the node's commit.
 /** The node has a pass awaiting commit: its live children (and `_disposal`)
  * are that pass's and were never shown — a re-pass tears them down on the
  * spot, while the frame parked on `_x._pendingFirstChild` keeps waiting for
@@ -94,6 +94,11 @@ export const CONFIG_STAGED = 1 << 7;
  * parking flush they see the committed value and hold nothing, and are
  * re-derived at the landing. Set at the park seam on every staged node. */
 export const CONFIG_HELD = 1 << 8;
+/** A member of the uncommitted frame a held pass built (ruling A): set at
+ * the park seam on every computed under a staged node (`holdFrame`). Never
+ * shown, it has no screen: its reads are its transaction's, whichever flush
+ * runs it (`bornInto`, #4010). Cleared by its commit. */
+export const CONFIG_HELD_FRAME = 1 << 20;
 /** A15's reveal corollary (#3305): a commit published this flight's inputs
  * beneath it — the node was pending, nothing staged, when it committed — so
  * its committed value is torn against the visible frame. A render effect
