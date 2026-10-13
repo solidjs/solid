@@ -57,6 +57,7 @@ type DOMSetAttrOptions = {
   tagName?: string;
   styleProperty?: boolean;
   classProperty?: boolean;
+  checkableInput?: boolean;
 };
 type SpreadOptions = {
   elem: babelTypes.Expression;
@@ -354,7 +355,7 @@ export function setAttr(
   elem: babelTypes.Expression,
   name: string,
   value: babelTypes.Expression,
-  { dynamic, prevId, tagName, styleProperty, classProperty }: DOMSetAttrOptions = {}
+  { dynamic, prevId, tagName, styleProperty, classProperty, checkableInput }: DOMSetAttrOptions = {}
 ): babelTypes.Expression {
   // pull out namespace
   const config = getConfig(path);
@@ -428,10 +429,17 @@ export function setAttr(
     // carries the select-value retry and input/textarea nullish special cases.
     // `<select value>` always goes through it: a microtask only sees options
     // inserted in the same turn, so options that arrive later never get
-    // selected (#3928).
+    // selected (#3928). So does a non-literal value/defaultValue on an input
+    // that may be a checkbox or radio: a nullish value must remove the
+    // attribute so the checked box submits its native "on" (#4009, #4017),
+    // and setProperty already tests the live `type` for that.
     if (
       (config.hydratable && (isLocked || namespace !== "prop")) ||
-      (name === "value" && tagName === "select")
+      (name === "value" && tagName === "select") ||
+      (checkableInput &&
+        (name === "value" || name === "defaultValue") &&
+        !t.isStringLiteral(value) &&
+        !t.isNumericLiteral(value))
     ) {
       return t.callExpression(registerImportMethod(path, "setProperty"), [
         elem,
@@ -451,7 +459,8 @@ export function setAttr(
       !t.isStringLiteral(value) &&
       !t.isNumericLiteral(value)
     ) {
-      // prevents undefined on input/textarea.value/defaultValue, fallback to empty string
+      // prevents undefined on text input/textarea.value/defaultValue, fallback
+      // to empty string (#2957)
       return t.assignmentExpression(
         "=",
         t.memberExpression(elem, t.identifier(name)),
@@ -492,6 +501,35 @@ function detectResolvableEventHandler(
   return t.isFunction(handler);
 }
 
+/**
+ * Whether an `<input>` may be a checkbox or radio, whose nullish
+ * value/defaultValue removes the `value` attribute (restoring the native "on"
+ * submission value) instead of clearing it to "" like a text field (#4017).
+ * Only a plain `type` written as a string literal is resolved here; a missing
+ * `type` is a text input. Anything else (an expression, `prop:type`,
+ * `attr:type`, a spread) is unknown and treated as possibly checkable, which
+ * stays correct because setProperty tests the live `type`. Mirrored by the
+ * native compiler's `input_may_be_checkable` (dom/attrs.rs).
+ */
+function inputMayBeCheckable(node: babelTypes.JSXElement): boolean {
+  let checkable = false;
+  for (const attribute of node.openingElement.attributes) {
+    if (t.isJSXSpreadAttribute(attribute)) return true;
+    const name = attribute.name;
+    if (t.isJSXNamespacedName(name)) {
+      if (name.name.name === "type") return true;
+      continue;
+    }
+    if (name.name !== "type") continue;
+    let value: babelTypes.Node | null | undefined = attribute.value;
+    if (t.isJSXExpressionContainer(value)) value = value.expression;
+    if (value == null) checkable = false;
+    else if (t.isStringLiteral(value)) checkable = /^(checkbox|radio)$/i.test(value.value);
+    else return true;
+  }
+  return checkable;
+}
+
 function transformAttributes(
   path: BabelPath<babelTypes.JSXElement>,
   results: DOMTransformResult
@@ -504,7 +542,8 @@ function transformAttributes(
   const tagName = getTagName(path.node),
     hasChildren = path.node.children.length > 0,
     hasSpread = attributes.some(attribute => t.isJSXSpreadAttribute(attribute.node)),
-    config = getConfig(path);
+    config = getConfig(path),
+    checkableInput = tagName === "input" && inputMayBeCheckable(path.node);
   const refs: babelTypes.Statement[] = [];
 
   // preprocess spreads
@@ -1182,6 +1221,7 @@ function transformAttributes(
             key,
             value: value.expression,
             tagName,
+            checkableInput,
             styleProperty: isStyleProperty,
             classProperty: isClassProperty
           });
@@ -1190,6 +1230,7 @@ function transformAttributes(
             t.expressionStatement(
               setAttr(attribute, elem, key, value.expression, {
                 tagName,
+                checkableInput,
                 styleProperty: isStyleProperty,
                 classProperty: isClassProperty
               })
@@ -1238,7 +1279,10 @@ function transformAttributes(
         ) {
           results.exprs.push(
             t.expressionStatement(
-              setAttr(attribute, elem, key, staticValue as babelTypes.Expression, { tagName })
+              setAttr(attribute, elem, key, staticValue as babelTypes.Expression, {
+                tagName,
+                checkableInput
+              })
             )
           );
         } else {

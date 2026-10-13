@@ -258,6 +258,7 @@ function wrapDynamics(
             t.expressionStatement(
               setAttr(path, dynamics[0].elem, dynamics[0].key, newValue, {
                 tagName: dynamics[0].tagName,
+                checkableInput: dynamics[0].checkableInput,
                 dynamic: true,
                 prevId: prevValue,
                 styleProperty: dynamics[0].styleProperty,
@@ -278,7 +279,9 @@ function wrapDynamics(
   const statements: t.ExpressionStatement[] = [];
   const properties: t.Identifier[] = [];
 
-  dynamics.forEach(({ elem, key, value, tagName, styleProperty, classProperty }, index) => {
+  dynamics.forEach((binding, index) => {
+    const { elem, key, tagName, styleProperty, classProperty, checkableInput } = binding;
+    let value = binding.value;
     const propIdent = t.identifier(getNumberedId(index));
     const propMember = t.memberExpression(prevId, propIdent);
     const optionalPropMember = t.optionalMemberExpression(prevId, propIdent, false, true);
@@ -296,7 +299,8 @@ function wrapDynamics(
           setAttr(path, elem, key, propIdent, {
             tagName,
             dynamic: true,
-            prevId: optionalPropMember
+            prevId: optionalPropMember,
+            checkableInput
           })
         )
       );
@@ -316,7 +320,8 @@ function wrapDynamics(
               tagName,
               dynamic: true,
               styleProperty,
-              classProperty
+              classProperty,
+              checkableInput
             })
           )
         )

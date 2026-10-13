@@ -421,3 +421,21 @@ const template97 = <div class={["todo", { active: isActive(), [props.name]: prop
 const template98 = <div class={["todo", { active: isActive() }, props.extra]} />;
 
 const template99 = <div class={["todo", "item", { todo: false, active: isActive() }]} />;
+
+// #4017: a nullish value/defaultValue on a checkbox or radio (or an input whose
+// type is not statically known) removes the attribute; text inputs clear to "".
+const template100 = <input type="checkbox" name="agree" value={value()} checked />;
+
+const template101 = <input type="radio" name="choice" defaultValue={value()} />;
+
+const template102 = <input type="text" value={value()} />;
+
+const template103 = <input value={value()} />;
+
+const template104 = <input type={kind()} value={value()} />;
+
+const template105 = <input type="Checkbox" value={value} />;
+
+const template106 = <input type="checkbox" value={value()} defaultValue={other()} />;
+
+const template107 = <input type="email" value={value()} defaultValue={other()} />;
