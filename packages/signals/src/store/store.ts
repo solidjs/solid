@@ -1904,6 +1904,13 @@ const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor
 // ---------------------------------------------------------------------------
 // traps
 
+/** A trap write: the target is told at the setter's exit, the key stamped
+ * with this setter's generation (`wk`). */
+function touch(target: StoreTarget, key: PropertyKey): void {
+  pendingNotify.add(target);
+  if (target.wk !== WK_ALL) (target.wk ??= new Map()).set(key, wkGen);
+}
+
 const traps: ProxyHandler<StoreTarget> = {
   get(target, key, receiver) {
     // One typeof gates every brand-symbol compare off the hot string path.
@@ -2155,12 +2162,12 @@ const traps: ProxyHandler<StoreTarget> = {
     if (key === "__proto__") return true; // pollution guard (core R30)
     const uv = target.s ? value : unwrapValue(value);
     const pb = ensurePB(target);
-    pendingNotify.add(target);
     if (Array.isArray(pb)) {
+      touch(target, key);
       if (key === "length") target.wk = WK_ALL;
-      else if (target.wk !== WK_ALL) (target.wk ??= new Map()).set(key, wkGen).set("length", wkGen);
+      else touch(target, "length");
     } else {
-      if (target.wk !== WK_ALL) (target.wk ??= new Map()).set(key, wkGen);
+      touch(target, key);
       if (!(key in pb)) target.kc++;
     }
     if (UNSAFE_KEYS.has(key)) {
@@ -2196,8 +2203,7 @@ const traps: ProxyHandler<StoreTarget> = {
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     const pb = ensurePB(target);
     if (target.a || !(desc.enumerable && desc.writable && desc.configurable)) target.sc = 1;
-    pendingNotify.add(target);
-    if (target.wk !== WK_ALL) (target.wk ??= new Map()).set(key, wkGen);
+    touch(target, key);
     Object.defineProperty(pb, key, desc);
     if (target.del !== null) target.del.delete(key);
     if (override) notifyWrites(target);
@@ -2209,8 +2215,7 @@ const traps: ProxyHandler<StoreTarget> = {
     const override = !draft && writeOverride;
     if (!draft && !override) return true;
     const pb = ensurePB(target);
-    pendingNotify.add(target);
-    if (target.wk !== WK_ALL) (target.wk ??= new Map()).set(key, wkGen);
+    touch(target, key);
     delete pb[key as any];
     if (target.ovl && hasOwn.call(target.v, key)) (target.del ??= new Set()).add(key);
     if (override) notifyWrites(target);
