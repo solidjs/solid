@@ -15,9 +15,23 @@ pnpm build && pnpm start       # production harness, http://localhost:3009/
 pnpm check                     # server checks, build, client-bundle check
 ```
 
-With no key it talks to a simulated model, which is enough to see everything
-below. Set `ANTHROPIC_API_KEY` on the server to talk to Claude
-(`CHAT_MODEL` picks the model; the default is `claude-opus-5-5`).
+With nothing configured it talks to a simulated model, which is enough to see
+everything below. To talk to a real one, set one of these on the server:
+
+```sh
+# A model on your own machine, free, through Ollama (https://ollama.com):
+ollama pull llama3.2
+OPENAI_BASE_URL=http://localhost:11434/v1 CHAT_MODEL=llama3.2 pnpm dev
+
+# Any hosted provider that speaks the OpenAI chat-completions API:
+OPENAI_BASE_URL=https://… OPENAI_API_KEY=… CHAT_MODEL=… pnpm dev
+
+# Claude, through Anthropic's SDK (CHAT_MODEL defaults to claude-opus-5-5):
+ANTHROPIC_API_KEY=… pnpm dev
+```
+
+The choice is made in one file, [src/server/model.ts](./src/server/model.ts),
+and nothing outside the server knows which was made.
 
 ## What to look at
 

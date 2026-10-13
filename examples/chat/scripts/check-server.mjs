@@ -14,6 +14,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 
 process.env.CHAT_PACE ??= "5";
@@ -35,7 +36,8 @@ registerHooks({
 
 const db = await import("../src/server/db.ts");
 const generations = await import("../src/server/generations.ts");
-const { FAILURE_WORD } = await import("../src/server/model.ts");
+const model = await import("../src/server/model.ts");
+const { FAILURE_WORD } = model;
 
 const tick = ms => new Promise(resolve => setTimeout(resolve, ms));
 const read = async iterable => (await iterable[Symbol.asyncIterator]().next()).value;
@@ -273,6 +275,98 @@ await check("deleting a thread removes it, and a job writing into it ends quietl
   assert.ok(!(await read(db.watchThreads())).some(t => t.id === doomed.threadId));
   assert.equal(await db.deleteThread(doomed.threadId), undefined, "deleting again does nothing");
 });
+
+console.log("an OpenAI-compatible provider (a local stub)");
+{
+  // A stand-in server that speaks the streaming chat-completions shape. It
+  // splits an event across two writes, to check that half a line is kept.
+  const seen = [];
+  const stub = createServer((req, res) => {
+    let body = "";
+    req.on("data", chunk => (body += chunk));
+    req.on("end", async () => {
+      const request = JSON.parse(body);
+      seen.push({ path: req.url, auth: req.headers.authorization, request });
+      if (request.model === "missing") return res.writeHead(404).end("no such model");
+      if (req.headers.authorization !== "Bearer stub-key") return res.writeHead(401).end("no");
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const event = delta => `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
+      res.write(event({ role: "assistant", content: "" }));
+      res.write(event({ reasoning_content: "thinking it over. " }));
+      const split = event({ content: "Hello " });
+      res.write(split.slice(0, 20));
+      await tick(15);
+      res.write(split.slice(20));
+      for (const word of ["from ", "the ", "stub."]) {
+        await tick(request.model === "slow" ? 80 : 5);
+        if (res.destroyed) return;
+        res.write(event({ content: word }));
+      }
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`);
+      res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise(resolve => stub.listen(0, "127.0.0.1", resolve));
+  const env = { ...process.env };
+  process.env.OPENAI_BASE_URL = `http://127.0.0.1:${stub.address().port}/v1/`;
+  process.env.OPENAI_API_KEY = "stub-key";
+  process.env.CHAT_MODEL = "stub-model";
+  const history = [{ role: "user", text: "Say hello" }];
+  const collect = async signal => {
+    const out = { text: "", reasoning: "" };
+    for await (const { type, delta } of model.stream(history, signal)) out[type] += delta;
+    return out;
+  };
+
+  await check("text and reasoning arrive, an event split across reads included", async () => {
+    assert.equal(model.modelName(), "stub-model");
+    const reply = await collect(new AbortController().signal);
+    assert.equal(reply.text, "Hello from the stub.");
+    assert.equal(reply.reasoning, "thinking it over. ");
+    const { path, auth, request } = seen.at(-1);
+    assert.equal(path, "/v1/chat/completions");
+    assert.equal(auth, "Bearer stub-key");
+    assert.equal(request.stream, true);
+    assert.deepEqual(request.messages, [{ role: "user", content: "Say hello" }]);
+  });
+  await check("stopping part-way rejects with the stop, not a network error", async () => {
+    process.env.CHAT_MODEL = "slow";
+    const abort = new AbortController();
+    const reason = new Error("Stopped");
+    setTimeout(() => abort.abort(reason), 60);
+    await assert.rejects(collect(abort.signal), err => err === reason);
+    process.env.CHAT_MODEL = "stub-model";
+  });
+  await check("a refused key and a missing model are worded for the page", async () => {
+    const quiet = console.error;
+    console.error = () => {};
+    process.env.OPENAI_API_KEY = "wrong";
+    await assert.rejects(collect(new AbortController().signal), /API key was rejected/);
+    process.env.OPENAI_API_KEY = "stub-key";
+    process.env.CHAT_MODEL = "missing";
+    await assert.rejects(collect(new AbortController().signal), /no model called "missing"/);
+    delete process.env.CHAT_MODEL;
+    await assert.rejects(collect(new AbortController().signal), /Set CHAT_MODEL/);
+    console.error = quiet;
+  });
+  await check("a job runs through it like any other model", async () => {
+    process.env.CHAT_MODEL = "stub-model";
+    const sent = await db.send(null, "prompt0012", "Say hello");
+    generations.start(sent.threadId, sent.replyId);
+    await until(async () => (await message(sent.replyId)).status === "complete", "the reply");
+    const reply = await message(sent.replyId);
+    assert.equal(reply.text, "Hello from the stub.");
+    assert.equal(reply.reasoning, "thinking it over. ");
+  });
+  for (const name of ["OPENAI_BASE_URL", "OPENAI_API_KEY", "CHAT_MODEL"]) {
+    if (env[name] === undefined) delete process.env[name];
+    else process.env[name] = env[name];
+  }
+  await check("with nothing configured the simulated model answers", () => {
+    assert.equal(model.modelName(), "a simulated model");
+  });
+  await new Promise(resolve => stub.close(resolve));
+}
 
 console.log("teardown");
 await check("aborting ends parked watchers now", async () => {

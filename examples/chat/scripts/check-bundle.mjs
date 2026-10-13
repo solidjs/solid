@@ -8,6 +8,8 @@ const root = new URL("../dist/client/", import.meta.url).pathname;
 const FORBIDDEN = [
   "ANTHROPIC_API_KEY",
   "anthropic-version", // the SDK's request header
+  "chat/completions", // the OpenAI-compatible adapter
+  "OPENAI_BASE_URL",
   "registerLanguage", // highlight.js
   'hljs-keyword\\b|className:"keyword"', // its grammars
   "walkTokens", // marked
