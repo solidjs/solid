@@ -48,11 +48,11 @@ list's fresh markup.
 Without JavaScript the page also has to arrive whole. The server streams by
 default: content that settles before the first flush is inlined into the
 document, and anything later arrives as markup that a script swaps into
-place. This example's reads answer immediately, so the list lands before
-the flush — but that is timing, not a guarantee. An app that has to work
-without JavaScript renders in the vite plugin's `async` mode
-(`start.renderMode`), which waits for the whole page before sending it:
-either always, or only for crawlers, chosen per request from the user agent.
+place. A streamed list never appears without that script, so this example
+renders in the vite plugin's `async` mode (`start: { renderMode: "async" }`
+in [vite.config.ts](./vite.config.ts)), which waits for the whole page
+before sending it. The mode can also be chosen per request, for example
+only for crawlers, from the user agent.
 
 ## Intent is CSS
 
@@ -76,8 +76,9 @@ to its own submission, so overlapping requests don't clear each other's.
 A failed save returns `{ error }` rather than throwing, so the failure is
 typed from the action to the client. The server words it — it knows the
 todo's title, the client doesn't. The router records each submission;
-`useSubmissions(action)` lists them, and `submission.retry()` runs the same
-call again. The route ([src/routes/todos.tsx](./src/routes/todos.tsx))
+`useSubmissions(action)` lists them with the input each was called with.
+A retry is that input posted again: a small form on the same action, so it
+works without JavaScript like every other control. The route ([src/routes/todos.tsx](./src/routes/todos.tsx))
 renders the failures under the list — the one piece of client code the list
 has — and each action's `onSettled` clears the earlier answers to the same
 question, so a success dismisses an old error and a new failure takes its

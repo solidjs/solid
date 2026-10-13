@@ -34,7 +34,7 @@ export default function Story(props: RouteProps<Path>) {
         </Show>
         <p class="meta">
           {story().points} points | by <a href={`/users/${story().user}`}>{story().user}</a>{" "}
-          {story().time_ago} ago
+          {story().time_ago}
         </p>
       </div>
       <div class="item-view-comments">

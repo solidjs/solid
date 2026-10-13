@@ -306,4 +306,46 @@ describe("document face — live holes against the real core", () => {
     expect(html).toContain("outside-static");
     expect(html).not.toMatch(/<!--lh:(\d+)-->outside-static/);
   });
+
+  test("an unchanged hole holding an element with a dynamic attribute is not re-sent", async () => {
+    // The first render mints `data-lha` on an element with a dynamic
+    // attribute; a sweep's re-evaluation is mint-suppressed and writes none.
+    // The baseline has to compare without those addresses, as it does
+    // without the `lh` comment markers, or every such hole reads as changed
+    // and its markup ships a second time as a channel op (todos-server's
+    // whole list, each hackernews feed title).
+    const rows = [
+      { id: "a", href: "/items/a" },
+      { id: "b", href: "/items/b" }
+    ];
+    const ServerComp = () => {
+      const ready = createMemo(async () => {
+        await wait(5);
+        return true;
+      });
+      return (
+        <Loading fallback={<span>FB</span>}>
+          <ul data-ready={String(ready())}>
+            {rows.map(row => (
+              <li>
+                <a href={row.href}>row-{row.id}</a>
+              </li>
+            ))}
+          </ul>
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dlh/attr-baseline" }) as any;
+    const html = await collect(() => Inline({}));
+
+    // The hole is marked and its anchors are addressed: this is the shape
+    // that used to re-send.
+    expect(html).toMatch(/<!--lh:\d+-->/);
+    expect(html).toMatch(/<a data-lha="\d+" href="\/items\/a">/);
+    // Nothing changed after the first render, so no hole op rides the
+    // channel and each row is in the response once.
+    expect(html).not.toContain('type:"hole"');
+    expect(html.split("/items/a").length).toBe(2);
+    expect(html.split("/items/b").length).toBe(2);
+  });
 });

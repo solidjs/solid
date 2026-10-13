@@ -3704,9 +3704,10 @@ export function createLiveHoles(sink, scoped) {
   const inScope =
     scoped && typeof inServerComponentScope === "function" ? inServerComponentScope : null;
   // Baselines compare marker-free: a first render's html carries nested
-  // holes' markers, while sweep re-evaluations are mint-suppressed and
-  // produce none — the equality gate must not read that as a change.
-  const stripMarkers = html => html.replace(/<!--lh:\/?\d+-->/g, "");
+  // holes' markers and its elements' attr addresses (`data-lha`), while
+  // sweep re-evaluations are mint-suppressed and produce neither — the
+  // equality gate must not read that as a change.
+  const stripMarkers = html => html.replace(/<!--lh:\/?\d+-->| data-lha="\d+"/g, "");
   // Sweeps re-evaluate under the mint-time render CONTEXT as well as the
   // owner. `runWithOwner` restores only the owner; everything a compiled
   // template reads off `sharedConfig.context` (the behavior-claims arming

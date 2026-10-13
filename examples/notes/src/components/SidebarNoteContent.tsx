@@ -68,9 +68,9 @@ export default function SidebarNoteContent(props: {
       >
         <Show
           when={isExpanded()}
-          fallback={<img src="/chevron-down.svg" width="10px" height="10px" alt="Collapse" />}
+          fallback={<img src="/chevron-down.svg" width="10px" height="10px" alt="Expand" />}
         >
-          <img src="/chevron-up.svg" width="10px" height="10px" alt="Expand" />
+          <img src="/chevron-up.svg" width="10px" height="10px" alt="Collapse" />
         </Show>
       </button>
       {isExpanded() && props.expandedChildren}

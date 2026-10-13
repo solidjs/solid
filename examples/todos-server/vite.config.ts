@@ -14,7 +14,10 @@ export default defineConfig({
   server: { port: 3010 },
   plugins: [
     solid({
-      start: {},
+      // Every control is a form that works without JavaScript, so the page
+      // has to arrive whole: `async` waits for the list instead of streaming
+      // it in behind a fallback that only a script can swap out.
+      start: { renderMode: "async" },
       ssr: true,
       serverFunctions: { components: true, configure: "src/server-config.ts" }
     })

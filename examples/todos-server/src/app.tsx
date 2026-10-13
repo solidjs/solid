@@ -5,7 +5,8 @@
 // Adding shows intent like every other form: the router marks it
 // `aria-busy` while it saves (app.css dims the input), the input clears when
 // the answer lands, and a failure stays in the input with its error beside
-// it.
+// it. The retry is a second form carrying the same title, so it posts
+// without JavaScript too.
 import { useSubmissions } from "@solidjs/router";
 import { Errored, Loading, Show } from "solid-js";
 import { addTodo } from "~/actions";
@@ -36,10 +37,13 @@ function Header() {
       </form>
       <Show when={failure()}>
         {f => (
-          <p class="add-error">
+          <div class="add-error">
             Couldn't add “{String(f().input[0].get("title"))}”: {f().result!.error}.{" "}
-            <button onClick={() => f().retry()}>Retry</button>
-          </p>
+            <form action={addTodo} method="post">
+              <input type="hidden" name="title" value={String(f().input[0].get("title"))} />
+              <button>Retry</button>
+            </form>
+          </div>
         )}
       </Show>
     </header>

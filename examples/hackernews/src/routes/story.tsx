@@ -18,7 +18,7 @@ const getStory = GET(async ({ params }: ServerRouteArgs<RouteParams<"/stories/:i
           {story.domain ? <span class="host">({story.domain})</span> : null}
           <p class="meta">
             {story.points} points | by <a href={`/users/${story.user}`}>{story.user}</a>{" "}
-            {story.time_ago} ago
+            {story.time_ago}
           </p>
         </div>
         <div class="item-view-comments">
@@ -46,7 +46,7 @@ function Comment(props: { comment: CommentDefinition }) {
   return (
     <li class="comment">
       <div class="by">
-        <a href={`/users/${c.user}`}>{c.user}</a> {c.time_ago} ago
+        <a href={`/users/${c.user}`}>{c.user}</a> {c.time_ago}
       </div>
       <div class="text" innerHTML={c.content} />
       {c.comments.length ? (
