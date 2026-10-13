@@ -658,6 +658,12 @@ Check (`kind: "ssr"`, dev only) read off the boundary's facts — the same ones 
 
 Check (`warn`, dev only, `kind: "ssr"`). A boundary whose content turned out to be client-only — a `ssrSource: "client"` read — but only after a real server wait: an async read on an earlier pass masked it. The server did the work, streamed the fallback, then handed the whole subtree to the client anyway, so the work was discarded and the user saw the fallback for the wait's duration before the client rendered. A client-only read found on the **first** pass is the well-behaved case — the boundary hands off with the shell, nothing extra is paid, no finding. `data.boundary`, `data.passes`, `data.durationMs`.
 
+#### `SSR_LIVE_HOLE_LATCHED`
+
+**Message:** "[SSR_LIVE_HOLE_LATCHED] A live markup hole stopped updating: re-running it created reactive scopes (a component, a memo, or a compiler condition memo such as {m.usage && …}), so it cannot re-run and keeps the markup it last sent. Expression: () => view().map(…). Read a property used in a condition into a local first (const usage = m.usage), and keep components and memos out of markup that re-renders from a live source."
+
+Check (`warn`, dev only, `kind: "ssr"`). A live hole's first render escalated before its impure part ran, so it shipped its markers; the first re-evaluation then created reactive scopes or emitted slot records, and the live-hole engine's impurity gate closed the binding (#4023). Before this check that was silent: the markup simply stopped updating. The common cause is a condition on a property (`{m.usage && …}`, `{m.usage ? … : …}`), which the compiler memoizes; a local identifier condition is not memoized and stays live. Once per binding. `data.cause` (`"owners"` or `"records"`), `data.expression` (the start of the hole's compiled expression; absent for an attribute). Located by owner. A hole that latches on its first render (never opened) is not reported.
+
 #### `SSR_UNDECLARED_LIVE_SOURCE`
 
 **Message:** "[SSR_UNDECLARED_LIVE_SOURCE] An async iterable read in a server component is still producing 5s into a document render: the document stays open for as long as it does. Declare the server function live(...) so the document takes the source's first value and the client connects for the rest, or bound the source."
@@ -983,6 +989,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `SSR_BOUNDARY_WATERFALL`           | info/warn  | ssr            | A `<Loading>` boundary needed 3+/4+ render passes — 2+/3+ sequential async waits (dev)                                                                            |
 | `SSR_CLIENT_CONTENT_MASKED`        | warn       | ssr            | Client-only content in a `<Loading>` surfaced only after a server wait; the server's work was discarded (dev)                                                     |
 | `SSR_UNDECLARED_LIVE_SOURCE`       | warn       | ssr            | A document render is still pumping an async iterable in server-component scope 5s in — declare the function `live(...)` or bound the source (dev)                 |
+| `SSR_LIVE_HOLE_LATCHED`            | warn       | ssr            | A live hole that shipped its markers was closed by the impurity gate on re-run and stopped updating (dev)                                                         |
 | `LAZY_ASSET_UNMAPPED`              | warn       | ssr            | `lazy()` component's client assets could not be resolved for the page (dev)                                                                                       |
 | `PRELOAD_DESCRIPTOR_INVALID`       | warn       | head           | `registerAsset("preload")` descriptor broke a field rule; link dropped or field ignored (dev)                                                                     |
 | `HEAD_TAG_INVALID`                 | warn       | head           | `useHead` registration the render could not honor; `data.reason` names the rule (dev)                                                                             |

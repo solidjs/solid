@@ -627,7 +627,7 @@ export function ssrScope<T>(fn: () => T): () => unknown {
   // inner effect.
   let resume: (() => unknown) | undefined;
   let resumeCount = 0;
-  return () => {
+  const scoped = () => {
     const prevId = parent.id;
     const prevSlot = parent._scopeSlot;
     const prevCount = parent._childCount;
@@ -661,6 +661,11 @@ export function ssrScope<T>(fn: () => T): () => unknown {
       parent._childCount = prevCount;
     }
   };
+  // Dev: the hole's own expression, for a diagnostic that names it (the live
+  // hole engine's SSR_LIVE_HOLE_LATCHED, #4023) — this wrapper's text says
+  // nothing about the hole it scopes.
+  if (IS_DEV) (scoped as any).$source = fn;
+  return scoped;
 }
 
 // === Observer tracking (for async memo) ===
