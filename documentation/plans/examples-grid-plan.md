@@ -160,10 +160,11 @@ Kept, with no further pass:
 
 Handed off, in this order:
 
-1. `chat-flagship.md`, then the rebuild. Absorbs `room`'s `/`.
+1. `chat-flagship.md`, then the rebuild. Absorbs `room`'s `/`. _Built
+   2026-10-13, after `board`; see the `chat` entry below._
 2. `board-flagship.md`, then `board`. Absorbs `room`'s `/live`. _Taken
    first (2026-10-12) and built; see the `board` entry below._
-3. Delete `room` once both exist.
+3. Delete `room` once both exist. _Both exist now; not yet done._
 4. V5, then the `migrating-element` decision.
 5. G1 and G2, if a later example needs text positions or the binding-slot
    execution model. Nothing landed here does.
@@ -334,7 +335,15 @@ the same question; the no-JS path reads the same list from the router's
 flash cookie. Add is not optimistic (a busy form, the error with a retry).
 The pending-row template slot is gone.
 
-### `chat` — bottom-right FLAGSHIP. STANDING DEMO; rebuild handed off
+### `chat` — bottom-right FLAGSHIP. BUILT 2026-10-13
+
+Plan and build record: `documentation/plans/chat-flagship.md`. As built:
+threads rendered by a live server component from stored state, generation
+as a job that outlives its request, a live sidebar, every mutation a plain
+form (send, stop, regenerate, retry, rename, delete), the composer as the
+one client component in a slot keyed by thread, the copy button as a
+binding slot, and a simulated model by default with an OpenAI-compatible
+adapter and Claude behind one function. The brief as handed off:
 
 Plan: `documentation/plans/chat-flagship.md` (to write first). Realistic
 AI chat: threads durable and addressable; generation as a job that outlives
@@ -529,7 +538,7 @@ are unreleased, so the flagships carry no deadline._
 4. README and authoring-layout pass: `notes`, `todos`. Landed.
 5. `todos-server` reshape. Landed as forms, binding slots, and
    `aria-busy`. The optimistic toggle was not built.
-6. `chat-flagship.md`, then `chat`. Handed off. The streaming demo stays.
+6. `chat-flagship.md`, then `chat`. Built 2026-10-13, after 7.
 7. `board-flagship.md`, then `board`. Built 2026-10-12, ahead of 6.
 8. Retire `room`. Handed off; it stays until 6 and 7 exist.
 9. V5, then the `migrating-element` decision. Handed off. The canvas stays.
