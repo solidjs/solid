@@ -1,7 +1,7 @@
 {
   "name": "todos-server-example",
   "description": "TodoMVC as a Solid Server Component — the list is server markup whose every control is a form that works without JavaScript; with it, binding slots add the optimism a form cannot express (toggle-all, clear-completed, the live count) and typed errors come back through useSubmissions",
-  "version": "0.0.1-rc.2",
+  "version": "0.0.1-rc.3",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",
