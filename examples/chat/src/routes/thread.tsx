@@ -12,7 +12,7 @@
 // composer, a client component in a slot at the foot of the thread, and what
 // the Copy button on a code block does.
 import { createMemo, For, Loading, onCleanup } from "solid-js";
-import { dynamicComponent, getRequestEvent } from "@solidjs/web";
+import { dynamicComponent, getRequestEvent, redirect } from "@solidjs/web";
 import { GET, live } from "@solidjs/web/server-functions";
 import type { BindingSlot, Slot } from "@solidjs/web/frames";
 import { action, liveQuery, type RouteSectionProps } from "@solidjs/router";
@@ -21,7 +21,7 @@ import * as db from "~/server/db";
 import * as generations from "~/server/generations";
 import * as markdown from "~/server/markdown";
 import * as model from "~/server/model";
-import type { Message } from "~/types";
+import type { Message, Thread } from "~/types";
 
 type ComposerSlot = Slot<{ threadId: string; seen: string[]; busy: boolean }>;
 type CopyHandler = (e: MouseEvent & { currentTarget: HTMLButtonElement }) => void;
@@ -33,6 +33,37 @@ const stopGeneration = action(async (replyId: string) => {
   "use server";
   generations.stop(replyId);
 }, "stopGeneration");
+
+// Writes the last reply again: Regenerate on a finished one, Retry on a
+// failed one. Like sending, it starts a job and returns.
+const regenerate = action(async (replyId: string) => {
+  "use server";
+  try {
+    const { threadId } = await db.restart(replyId);
+    generations.start(threadId, replyId);
+  } catch (err) {
+    if (err instanceof db.Rejected) return { error: err.message };
+    throw err;
+  }
+}, "regenerate");
+
+const renameThread = action(async (id: string, form: FormData) => {
+  "use server";
+  try {
+    await db.renameThread(id, String(form.get("title") ?? ""));
+  } catch (err) {
+    if (err instanceof db.Rejected) return { error: err.message };
+    throw err;
+  }
+}, "renameThread");
+
+// Deleting leaves nothing to look at, so it answers with where to go.
+const deleteThread = action(async (id: string) => {
+  "use server";
+  const writing = await db.deleteThread(id);
+  if (writing) generations.stop(writing);
+  return redirect("/");
+}, "deleteThread");
 
 // `live` holds the response open and reconnects it if it dies; `liveQuery`
 // gives it a key and one connection per thread, and tells the router that
@@ -58,16 +89,12 @@ const getThread = liveQuery(
         return (
           <article class="thread">
             <header class="thread-head">
-              <h1>{view().thread?.title ?? "No such conversation"}</h1>
+              {headMarkup(view().thread)}
               <p class="muted">Answered by {model.modelName()}</p>
             </header>
             <ol class="messages">
-              {view()
-                .messages.filter(m => m.status !== "generating")
-                .map(message => messageMarkup(message, block))}
-              {view()
-                .messages.filter(m => m.status === "generating")
-                .map(message => messageMarkup(message, block))}
+              {messagesMarkup(view().messages, false, block)}
+              {messagesMarkup(view().messages, true, block)}
             </ol>
             {/* Keyed by thread: going to another conversation is a new
                 composer, so a half-typed message stays with its thread. */}
@@ -85,6 +112,33 @@ const getThread = liveQuery(
   "thread"
 );
 
+// The title is its own editor: a form around a field, so renaming is typing
+// and pressing Enter, with or without JavaScript.
+function headMarkup(thread: Thread | undefined) {
+  if (!thread) return <h1>No such conversation</h1>;
+  return (
+    <div class="thread-title">
+      <h1>
+        <form action={renameThread.with(thread.id)} method="post">
+          <input name="title" value={thread.title} aria-label="Title" required maxlength="60" />
+        </form>
+      </h1>
+      <form action={deleteThread.with(thread.id)} method="post">
+        <button type="submit">Delete</button>
+      </form>
+    </div>
+  );
+}
+
+// The finished messages, or the one being written. Only the last message in
+// the thread can be written again.
+function messagesMarkup(messages: Message[], writing: boolean, block: { onCopy: CopyHandler }) {
+  const lastId = messages.at(-1)?.id;
+  return messages
+    .filter(m => (m.status === "generating") === writing)
+    .map(message => messageMarkup(message, block, message.id === lastId));
+}
+
 // One message as markup. A plain function, not a component: the server
 // re-runs the read that called it and sends the result, and there is nothing
 // here to keep between runs.
@@ -92,7 +146,7 @@ const getThread = liveQuery(
 // Every condition below tests a local, not a property. The compiler wraps a
 // condition it cannot see through (`message.usage && …`) in a memo, and a
 // read the server re-runs cannot create one.
-function messageMarkup(message: Message, block: { onCopy: CopyHandler }) {
+function messageMarkup(message: Message, block: { onCopy: CopyHandler }, last: boolean) {
   const { id, text, reasoning, error, usage } = message;
   if (message.role === "user") {
     return (
@@ -104,6 +158,7 @@ function messageMarkup(message: Message, block: { onCopy: CopyHandler }) {
   const generating = message.status === "generating";
   const stopped = message.status === "stopped";
   const failed = message.status === "failed";
+  const again = last && !generating && (failed ? "Retry" : "Regenerate");
   return (
     <li class={`message assistant ${message.status}`} data-id={id}>
       {reasoning && (
@@ -141,6 +196,11 @@ function messageMarkup(message: Message, block: { onCopy: CopyHandler }) {
           <span class="muted">
             {usage.tokens} tokens · {usage.seconds}s
           </span>
+        )}
+        {again && (
+          <form action={regenerate.with(id)} method="post">
+            <button type="submit">{again}</button>
+          </form>
         )}
       </footer>
     </li>

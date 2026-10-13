@@ -217,6 +217,63 @@ await check("a second thread sorts first once it is the latest", async () => {
   await until(async () => (await message(other.replyId)).status === "complete", "the reply");
 });
 
+console.log("rename, regenerate, retry, delete");
+await check("rename retitles the thread, in its own view and in the list", async () => {
+  await db.renameThread(threadId, "  Server components, explained  ");
+  assert.equal((await read(db.watchThread(threadId))).thread.title, "Server components, explained");
+  assert.ok((await read(db.watchThreads())).some(t => t.title === "Server components, explained"));
+  await rejects(db.renameThread(threadId, "   "), /empty/);
+  await rejects(db.renameThread("nosuchthread", "x"), /no longer exists/);
+});
+await check("the last reply can be written again; an earlier one cannot", async () => {
+  const all = await messages(threadId);
+  const last = all.at(-1);
+  const earlier = all.find(m => m.role === "assistant" && m.id !== last.id);
+  await rejects(db.restart(earlier.id), /Only the last reply/);
+  const before = last.text;
+  await db.restart(last.id);
+  const cleared = await message(last.id);
+  assert.equal(cleared.status, "generating");
+  assert.equal(cleared.text, "");
+  assert.equal(cleared.usage, undefined);
+  await rejects(db.restart(last.id), /still being written/);
+  assert.equal(
+    (await db.historyOf(threadId)).at(-1).role,
+    "user",
+    "the model is not shown the reply it is rewriting"
+  );
+  generations.start(threadId, last.id);
+  await until(async () => (await message(last.id)).status === "complete", "the new reply");
+  assert.equal((await message(last.id)).text, before, "the simulated model gives the same answer");
+  assert.equal((await messages(threadId)).length, all.length, "no message was added");
+});
+await check("a failed reply can be retried", async () => {
+  const sent = await db.send(threadId, "prompt0010", `Please ${FAILURE_WORD} again`);
+  const quiet = console.error;
+  console.error = () => {};
+  generations.start(threadId, sent.replyId);
+  await until(async () => (await message(sent.replyId)).status === "failed", "the failure");
+  await db.restart(sent.replyId);
+  generations.start(threadId, sent.replyId);
+  await until(async () => (await message(sent.replyId)).status === "failed", "the second failure");
+  console.error = quiet;
+  assert.match((await message(sent.replyId)).error, /crashed/);
+});
+await check("deleting a thread removes it, and a job writing into it ends quietly", async () => {
+  const doomed = await db.send(null, "prompt0011", "A thread to delete");
+  process.env.CHAT_PACE = "40";
+  generations.start(doomed.threadId, doomed.replyId);
+  await tick(150);
+  const writing = await db.deleteThread(doomed.threadId);
+  assert.equal(writing, doomed.replyId);
+  generations.stop(writing);
+  await until(() => !generations.isRunning(doomed.replyId), "the job to end");
+  process.env.CHAT_PACE = "5";
+  assert.equal((await read(db.watchThread(doomed.threadId))).thread, undefined);
+  assert.ok(!(await read(db.watchThreads())).some(t => t.id === doomed.threadId));
+  assert.equal(await db.deleteThread(doomed.threadId), undefined, "deleting again does nothing");
+});
+
 console.log("teardown");
 await check("aborting ends parked watchers now", async () => {
   let ended = false;

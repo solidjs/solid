@@ -29,7 +29,8 @@ you can see the moment between sending and the server having it.
   written, and open the same address again. The reply is there as far as it
   had got, and still growing. View the page's source: it is in the document.
 - **Two tabs.** Open a thread in two tabs and send from one. Both show the
-  reply as it is written. Stop in one stops it in both.
+  reply as it is written. Stop in one stops it in both; rename it in one and
+  the title changes in both, in the header and in the sidebar.
 - **The bundle.** `pnpm check` builds the app and confirms the browser's
   scripts contain no markdown parser, no highlighter, no model SDK and no
   key name. The browser gets what they produce.
@@ -37,9 +38,13 @@ you can see the moment between sending and the server having it.
   and gives way to the server's own row when the server has it.
 - **Stop, and failure.** Stop keeps what had arrived. A message containing
   the word `crash` makes the simulated model fail part-way: the partial
-  reply stays, with the reason, in every tab and after a reload.
-- **Without JavaScript** the page is still the thread, and Send and Stop are
-  forms that post. Reload to see more of a reply.
+  reply stays, with the reason and a Retry, in every tab and after a reload.
+- **Every control is a form.** Send, Stop, Regenerate, Retry, Delete, and
+  the title itself (type in it and press Enter). The server renders them
+  inside markup it keeps re-sending, and a form you have submitted stays
+  marked busy while that markup changes around it.
+- **Without JavaScript** the page is still the thread, and those forms post
+  and come back. Reload to see more of a reply.
 
 ## Generation is a job
 
@@ -112,8 +117,11 @@ Two things to know when writing markup the server re-sends:
   handler the browser supplies through a binding slot
   (`codeBlock={() => ({ onCopy })}`), bound to every button the server
   renders, including ones that arrive mid-reply.
-- **Navigation.** The sidebar's links are server markup too; the router
-  claims them and marks the current one.
+- **Navigation.** The sidebar is a second live server component
+  (`getThreads` in [src/router.tsx](./src/router.tsx)): the list of threads,
+  with a mark where a reply is being written. Its links are server markup;
+  the router claims them and marks the current one. When the list changes
+  the thread beside it is untouched, half-typed message included.
 
 ## Notes
 
@@ -122,12 +130,14 @@ Two things to know when writing markup the server re-sends:
 - **When a reply finishes it moves** from the "being written" piece to the
   "finished" piece, so its elements are replaced once at that moment. An open
   Reasoning disclosure closes.
-- **The sidebar is an ordinary query**, refreshed when this tab sends
-  something. A thread started in another tab appears after the next
-  navigation or send.
+- **Two connections per tab**: the sidebar and the open thread. That is why
+  `pnpm dev` serves HTTPS, which Vite speaks as HTTP/2; a browser allows only
+  six connections per origin over HTTP/1.1.
 - **One reply at a time per thread.** Sending while one is being written is
   refused.
-- **Not here:** renaming and deleting threads, regenerating or retrying a
-  reply, accounts. Anyone at the address sees the same threads.
+- **Only the last reply can be written again.** Regenerate and Retry replace
+  it in place.
+- **Not here:** accounts, attachments, tools, editing a sent message. Anyone
+  at the address sees the same threads.
 - **In dev**, editing a source file reloads the server module and the
   in-memory threads are gone. `CHAT_STORAGE=fs` keeps them in `.data/`.

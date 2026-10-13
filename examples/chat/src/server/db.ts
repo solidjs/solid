@@ -163,7 +163,7 @@ const messagesOf = (threadId: string) =>
 export async function historyOf(threadId: string): Promise<Pick<Message, "role" | "text">[]> {
   await ready;
   return messagesOf(threadId)
-    .filter(m => m.text && m.status !== "failed")
+    .filter(m => m.text && m.status !== "failed" && m.status !== "generating")
     .map(({ role, text }) => ({ role, text }));
 }
 
@@ -245,6 +245,56 @@ export async function send(
   bump(`thread:${thread.id}`);
   bump("threads");
   return { threadId: thread.id, replyId, fresh: true };
+}
+
+/** Gives a thread a new title. */
+export async function renameThread(id: string, title: string): Promise<void> {
+  await ready;
+  const thread = state.threads.find(t => t.id === id);
+  if (!thread) throw new Rejected("That conversation no longer exists");
+  const named = typeof title === "string" ? title.trim().slice(0, 60) : "";
+  if (!named) throw new Rejected("A title can't be empty");
+  thread.title = named;
+  save();
+  bump(`thread:${id}`);
+  bump("threads");
+}
+
+/** Removes a thread and everything in it. Answers the reply being written, if any. */
+export async function deleteThread(id: string): Promise<string | undefined> {
+  await ready;
+  if (!state.threads.some(t => t.id === id)) return;
+  const writing = messagesOf(id).find(m => m.status === "generating")?.id;
+  state.threads = state.threads.filter(t => t.id !== id);
+  state.messages = state.messages.filter(m => m.threadId !== id);
+  save();
+  bump(`thread:${id}`);
+  bump("threads");
+  return writing;
+}
+
+/**
+ * Clears the last reply in a thread to be written again: Regenerate on a
+ * finished or stopped reply, Retry on a failed one. Only the last message
+ * can be, and not while it is being written. Answers its thread.
+ */
+export async function restart(replyId: string): Promise<{ threadId: string }> {
+  await ready;
+  const reply = state.messages.find(m => m.id === replyId);
+  if (!reply || reply.role !== "assistant") throw new Rejected("That reply no longer exists");
+  if (messagesOf(reply.threadId).at(-1) !== reply) {
+    throw new Rejected("Only the last reply can be written again");
+  }
+  if (reply.status === "generating") throw new Rejected("That reply is still being written");
+  Object.assign(reply, { text: "", reasoning: "", status: "generating" });
+  delete reply.error;
+  delete reply.usage;
+  const thread = state.threads.find(t => t.id === reply.threadId)!;
+  thread.updatedAt = Date.now();
+  save();
+  bump(`thread:${reply.threadId}`);
+  bump("threads");
+  return { threadId: reply.threadId };
 }
 
 /** More of a reply has arrived. */

@@ -2,29 +2,50 @@
 // server-config.ts (which hands it to the flight collector) share one.
 //
 // The sidebar's list lives here too, as the root preload: every route shows
-// it, and when a message is sent the router asks for it again, so a new
-// thread appears in the list with the response that created it.
-import { createRouter, defineRoute, query } from "@solidjs/router";
+// it.
+import { createMemo, onCleanup } from "solid-js";
+import { getRequestEvent } from "@solidjs/web";
+import { GET, live } from "@solidjs/web/server-functions";
+import { createRouter, defineRoute, liveQuery } from "@solidjs/router";
 import Home from "~/routes/home";
 import Thread from "~/routes/thread";
 import * as db from "~/server/db";
 
-// The list of conversations, as server markup. An ordinary query, not a live
-// one: it changes when this tab sends something, and the router refreshes it
-// then. The router marks the link to the page you are on.
-export const getThreads = query(async () => {
-  "use server";
-  const threads = await db.listThreads();
-  return () => (
-    <ul class="threads">
-      {threads.map(thread => (
-        <li>
-          <a href={`/t/${thread.id}`}>{thread.title}</a>
-        </li>
-      ))}
-    </ul>
-  );
-}, "threads");
+// The list of conversations, as live server markup: newest first, with a
+// mark on the ones where a reply is being written. It is live because it
+// changes without this tab doing anything — another tab sends a message, a
+// reply finishes, a thread is renamed or deleted. The router marks the link
+// to the page you are on.
+export const getThreads = liveQuery(
+  live(
+    GET(async () => {
+      "use server";
+      return () => {
+        const gone = new AbortController();
+        onCleanup(() => gone.abort());
+        getRequestEvent()?.request.signal.addEventListener("abort", () => gone.abort(), {
+          once: true
+        });
+        const threads = createMemo(() => db.watchThreads(gone.signal));
+        return (
+          <ul class="threads">
+            {threads().map(thread => {
+              const writing = thread.generating ? "writing" : undefined;
+              return (
+                <li>
+                  <a href={`/t/${thread.id}`} class={writing}>
+                    {thread.title}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        );
+      };
+    })
+  ),
+  "threads"
+);
 
 export const Router = createRouter({
   routes: [

@@ -357,3 +357,44 @@ form[aria-busy] button {
 .app-error {
   margin: 24px;
 }
+
+/* The thread's title is a field; it looks like a heading until you use it. */
+.thread-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.thread-title h1 {
+  flex: 1;
+  min-width: 0;
+}
+
+.thread-title input {
+  width: 100%;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+
+.thread-title input:hover,
+.thread-title input:focus {
+  border-color: var(--border);
+  outline: none;
+}
+
+.thread-title button {
+  padding: 2px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
