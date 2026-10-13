@@ -1,104 +1,133 @@
-# Chat — Streaming Server Components
+# Chat — live server components
 
-A simulated LLM chat built with **Solid Server Components**: every reply is a
-server component whose markdown renders on the server and streams to the
-browser as HTML, token by token. The client owns the transcript, the input,
-and autoscroll — the markdown parser, the syntax highlighter, and the canned
-answers never ship.
+An AI chat where the server owns the markup. A thread — its messages, the
+markdown, the highlighted code — is rendered on the server and arrives as
+HTML that keeps changing while a reply is written. It sits in the
+server-owned, persistent corner of the examples.
 
-Where the HackerNews twin ([../hackernews](../hackernews)) shows markup that
-*arrives and stands still*, this example is about markup that **keeps
-changing after it arrives** — one generation streaming through live markup
-holes, live slot arguments, and a live store, all crossing the same border.
-
-This stands in the persistent, server-owned corner as the demo the runtime
-can show today: one generation, a fake model, no threads. The product —
-durable threads, a generation that outlives the tab — is handed off in
-[`examples-grid-plan.md`](../../documentation/plans/examples-grid-plan.md).
-It is not built here.
+Its twin is [../board](../board), the other persistent app, where the
+browser owns the markup and the server sends only data.
 
 ```sh
-pnpm dev                  # http://localhost:3009
-pnpm build && pnpm start  # http://localhost:3009
+pnpm dev                       # https://localhost:3009/  (self-signed cert)
+HTTPS=0 pnpm dev               # http://localhost:3009/
+pnpm build && pnpm start       # production harness, http://localhost:3009/
+pnpm check                     # server checks, build, client-bundle check
 ```
 
-Ask about **server components**, **signals**, or **markdown** — those hit the
-canned answers ([src/lib/model.ts](./src/lib/model.ts), a fake model that
-streams like a real one: no length or structure known up front).
-
-## Three kinds of liveness, one border
-
-All of it lives in [src/lib/ai.tsx](./src/lib/ai.tsx), and all of it is
-written the same way — plain reactive expressions:
-
-- **A live markup hole.** `<Message>` renders the reply's accumulated
-  markdown into one `innerHTML` hole. Every yield re-renders it on the
-  server; the browser morphs the message in place, mid-sentence, with no
-  client component involved. One hole because a generation's structure is
-  unknown — the message is the unit that grows.
-- **Live slot arguments.** `progress={progress()}` and `stats={stats()}`
-  cross a client position as reactive expressions: the server re-evaluates
-  them per commit and the client fill's props update live. `stats` is a
-  promise face that settles only when generation ends, so it is pending
-  *per-arg* — the fill renders immediately and its own `<Loading>` covers
-  that one read ([src/components/status.tsx](./src/components/status.tsx)).
-- **A live store.** `usage={usage}` passes a whole projection across the
-  border. It ships as its trace — one snapshot, then the patches the server
-  records — and materializes on the client as a live read-only store.
-  `<Status>` reads `props.usage.parts` like local state; each field updates
-  granularly, with no re-shipping and no domain keys.
-
-Slots render as JSX (`<props.status …/>`), never as calls: the compiler wraps
-each prop in a getter, so reads defer to the slot border where the runtime
-owns them.
+With no key it talks to a simulated model, which is enough to see everything
+below. Set `ANTHROPIC_API_KEY` on the server to talk to Claude
+(`CHAT_MODEL` picks the model; the default is `claude-opus-5-5`).
 
 ## What to look at
 
-**The welcome message is already typing before JavaScript runs.** The
-`welcome()` reply renders into the *initial document*: generation starts with
-the page, the first tokens paint through the streamed document itself, and
-hydration adopts the boundary in place — zero network — and picks the
-generation up mid-sentence over the `sc:live` channel. The `reply()` calls
-for your own messages are the exact same component on the call-driven face.
+Start with `HTTPS=0 CHAT_PACE=120 CHAT_SLOW=500 pnpm dev`. `CHAT_PACE` slows
+the simulated model down; `CHAT_SLOW` delays the server storing a message, so
+you can see the moment between sending and the server having it.
 
-**View source.** The reply text appears once, as finished HTML. There is no
-JSON shadow of the markdown, no serialized answer text — the only data
-scripts are the trace feeding the usage store.
+- **Close the tab.** Send a message, close the tab while the reply is being
+  written, and open the same address again. The reply is there as far as it
+  had got, and still growing. View the page's source: it is in the document.
+- **Two tabs.** Open a thread in two tabs and send from one. Both show the
+  reply as it is written. Stop in one stops it in both.
+- **The bundle.** `pnpm check` builds the app and confirms the browser's
+  scripts contain no markdown parser, no highlighter, no model SDK and no
+  key name. The browser gets what they produce.
+- **Send.** Your message shows under the thread the moment you press Enter,
+  and gives way to the server's own row when the server has it.
+- **Stop, and failure.** Stop keeps what had arrived. A message containing
+  the word `crash` makes the simulated model fail part-way: the partial
+  reply stays, with the reason, in every tab and after a reload.
+- **Without JavaScript** the page is still the thread, and Send and Stop are
+  forms that post. Reload to see more of a reply.
 
-**The client bundle.** `marked`, `highlight.js`, and the answers are
-dependencies of a `"use server"` module, so the client build strips them.
-Syntax-highlighted code blocks arrive as token `<span>`s styled by ~15 lines
-of CSS — the grammar stays on the server.
+## Generation is a job
 
-**Streaming markdown that never flashes.** A token stream dangles inline
-delimiters — `**Solid` would render literal asterisks until the closer
-arrives — so [ai.tsx](./src/lib/ai.tsx)'s `closePartial` balances unfinished
-emphasis and hides half-arrived links on every frame, the same smoothing real
-chat UIs do. It's a render concern, so it lives beside the parser:
-server-only, like everything else about the markdown.
+Sending a message does three things and returns: it stores the prompt,
+stores an empty reply, and starts a job
+([src/server/generations.ts](./src/server/generations.ts)). The job belongs
+to the server, not to the request. It reads from the model and writes the
+reply into the thread as it arrives.
 
-**Autoscroll with nothing to hook.** Replies grow through server-driven
-morphs — there is no client render to observe — so bottom-pinning in
-[src/app.tsx](./src/app.tsx) watches the transcript's *size* with a
-`ResizeObserver`, and stays pinned only while the reader is already at the
-bottom.
+Nothing renders "the stream". Every render of a thread reads what is stored,
+and is told when that changes. That one decision is why a closed tab loses
+nothing, why two tabs agree, and why a reply that was being written when the
+server stopped is, after a restart, a failed message with what it had — a
+fact about the thread, not something left hanging.
 
-## How it's wired
+## The thread is a live server component
 
-- [src/lib/model.ts](./src/lib/model.ts) — the simulated model, server-only.
-  One generation, four async faces: `text` (accumulated markdown), `progress`
-  (status lines), `stats` (a promise of the final numbers), `usage`
-  (structured events).
-- [src/lib/ai.tsx](./src/lib/ai.tsx) — the server components: `reply(prompt)`
-  for each message, `welcome()` for the t=0 face, `<Message>` for the live
-  hole, and the projection that becomes the client's usage store.
-- [src/app.tsx](./src/app.tsx) — the whole client app: transcript state, the
-  composer, autoscroll, and one `dynamicComponent()` per reply.
-- [src/components/status.tsx](./src/components/status.tsx) — the client fill
-  reading all three tiers: expression args, the pending promise read, and the
-  materialized store.
-- [vite.config.ts](./vite.config.ts) — the same turnkey setup as the
-  HackerNews twin: `start: {}` generates the entries and the document shell,
-  `serverFunctions: { components: true }` is the flag that turns on server
-  components.
-- [server.js](./server.js) — a plain node server for the production build.
+[src/routes/thread.tsx](./src/routes/thread.tsx) is the screen.
+
+```tsx
+const getThread = liveQuery(
+  live(
+    GET(async (id: string) => {
+      "use server";
+      return (props: { composer: ComposerSlot; codeBlock: CodeBlockSlot }) => {
+        const view = createMemo(() => db.watchThread(id, gone.signal));
+        return (
+          <article class="thread">
+            …
+            <ol class="messages">
+              {view().messages.filter(m => m.status !== "generating").map(…)}
+              {view().messages.filter(m => m.status === "generating").map(…)}
+            </ol>
+            <props.composer $key={id} threadId={id} seen={…} busy={…} />
+          </article>
+        );
+      };
+    })
+  ),
+  "thread"
+);
+```
+
+`live` holds the response open and reconnects it if it dies. `liveQuery`
+gives it a key and one connection per thread.
+
+Each `{…}` that reads `view()` is a piece of the page the server can send
+again by itself, and it sends one only when its HTML has changed. The thread
+is cut along the line that matters: the finished messages are one piece, the
+reply being written is another. A token re-sends the reply and nothing else.
+
+Two things to know when writing markup the server re-sends:
+
+- **Test locals, not properties, in a condition.** `{message.usage && …}`
+  renders once and then never updates; `const { usage } = message` and
+  `{usage && …}` works. The compiler wraps a condition it cannot see through
+  in a memo, and a read the server re-runs cannot create one.
+- **One source per render, read at the top.** A watcher created per message,
+  inside the list, never settles: each retry of the render makes a new one.
+
+## What the browser owns
+
+- **The composer** ([src/components/composer.tsx](./src/components/composer.tsx))
+  is the one client component. The server places it with a slot
+  (`<props.composer …/>`), keyed by thread so a half-typed message stays with
+  its conversation. Its form is the send action; the message it shows while
+  the server does not have it yet steps aside by derivation, the moment the
+  server's render says it has that id (`seen`).
+- **Copy.** Each code block's button is server markup. What it does is one
+  handler the browser supplies through a binding slot
+  (`codeBlock={() => ({ onCopy })}`), bound to every button the server
+  renders, including ones that arrive mid-reply.
+- **Navigation.** The sidebar's links are server markup too; the router
+  claims them and marks the current one.
+
+## Notes
+
+- **Every open tab holds a render on the server.** That is the cost of this
+  corner: the server keeps one live render per open thread per tab.
+- **When a reply finishes it moves** from the "being written" piece to the
+  "finished" piece, so its elements are replaced once at that moment. An open
+  Reasoning disclosure closes.
+- **The sidebar is an ordinary query**, refreshed when this tab sends
+  something. A thread started in another tab appears after the next
+  navigation or send.
+- **One reply at a time per thread.** Sending while one is being written is
+  refused.
+- **Not here:** renaming and deleting threads, regenerating or retrying a
+  reply, accounts. Anyone at the address sees the same threads.
+- **In dev**, editing a source file reloads the server module and the
+  in-memory threads are gone. `CHAT_STORAGE=fs` keeps them in `.data/`.

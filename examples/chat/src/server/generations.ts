@@ -44,7 +44,6 @@ export function start(threadId: string, replyId: string): void {
       write(); // what had arrived is kept either way
       if (abort.signal.aborted) db.finish(replyId, "stopped");
       else {
-        console.error(err);
         db.finish(replyId, "failed", {
           error: err instanceof Error ? err.message : "The model stopped answering"
         });

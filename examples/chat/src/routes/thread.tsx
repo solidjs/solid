@@ -20,6 +20,7 @@ import Composer from "~/components/composer";
 import * as db from "~/server/db";
 import * as generations from "~/server/generations";
 import * as markdown from "~/server/markdown";
+import * as model from "~/server/model";
 import type { Message } from "~/types";
 
 type ComposerSlot = Slot<{ threadId: string; seen: string[]; busy: boolean }>;
@@ -58,6 +59,7 @@ const getThread = liveQuery(
           <article class="thread">
             <header class="thread-head">
               <h1>{view().thread?.title ?? "No such conversation"}</h1>
+              <p class="muted">Answered by {model.modelName()}</p>
             </header>
             <ol class="messages">
               {view()

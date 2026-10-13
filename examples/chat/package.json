@@ -11,9 +11,11 @@
     "build": "vite build",
     "start": "node server.js",
     "typecheck": "tsc --noEmit",
-    "check:server": "node scripts/check-server.mjs"
+    "check:server": "node scripts/check-server.mjs",
+    "check": "pnpm check:server && vite build && node scripts/check-bundle.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
     "@solidjs/router": "2.0.0-next.38",
     "@solidjs/web": "workspace:*",
     "highlight.js": "^11.11.1",

@@ -1,10 +1,17 @@
 import "server-only";
 // The model. One interface — a stream of text and reasoning deltas over a
-// conversation — and, for now, one adapter: a simulated model that needs no
-// key. Like a real one it knows nothing about a reply's length or shape up
-// front, takes a moment to start, and can be cut off or fail part-way.
+// conversation — and two adapters. With ANTHROPIC_API_KEY set on the server,
+// replies come from Claude through Anthropic's SDK. Without it, a simulated
+// model answers: like a real one it knows nothing about a reply's length or
+// shape up front, takes a moment to start, and can be cut off or fail
+// part-way.
 //
-// CHAT_PACE=<ms> sets the gap between chunks (default 60).
+// The key, the SDK and the canned answers all live here, on the server.
+//
+//   ANTHROPIC_API_KEY   use Claude
+//   CHAT_MODEL          which model (default claude-opus-5-5)
+//   CHAT_PACE=<ms>      the simulated model's gap between chunks (default 60)
+import Anthropic from "@anthropic-ai/sdk";
 import type { Message } from "~/types";
 
 export interface Delta {
@@ -118,13 +125,58 @@ async function* simulated(history: History, signal: AbortSignal): AsyncGenerator
   }
 }
 
+const MODEL = process.env.CHAT_MODEL || "claude-opus-5-5";
+const hasKey = () => !!process.env.ANTHROPIC_API_KEY;
+
+// What went wrong, worded for the person reading the thread. The SDK's own
+// messages can carry request details, and those stay in the server's log.
+function explain(err: unknown): Error {
+  if (err instanceof Anthropic.AuthenticationError) return new Error("The API key was rejected");
+  if (err instanceof Anthropic.RateLimitError)
+    return new Error("The model is busy. Try again in a moment");
+  if (err instanceof Anthropic.APIConnectionError) return new Error("Couldn't reach the model");
+  if (err instanceof Anthropic.APIError) return new Error("The model returned an error");
+  return err instanceof Error ? err : new Error("The model stopped answering");
+}
+
+async function* claude(history: History, signal: AbortSignal): AsyncGenerator<Delta> {
+  const client = new Anthropic();
+  try {
+    const events = client.messages.stream(
+      {
+        model: MODEL,
+        max_tokens: 64000,
+        // Thinking is summarized so the page has reasoning to show.
+        thinking: { type: "adaptive", display: "summarized" },
+        messages: history.map(m => ({ role: m.role, content: m.text }))
+      },
+      { signal }
+    );
+    for await (const event of events) {
+      if (event.type !== "content_block_delta") continue;
+      if (event.delta.type === "text_delta") yield { type: "text", delta: event.delta.text };
+      else if (event.delta.type === "thinking_delta")
+        yield { type: "reasoning", delta: event.delta.thinking };
+    }
+    const final = await events.finalMessage();
+    if (final.stop_reason === "refusal") throw new Error("The model declined to answer that");
+    if (final.stop_reason === "max_tokens")
+      throw new Error("The reply was cut off at its length limit");
+  } catch (err) {
+    if (signal.aborted) throw signal.reason;
+    console.error(err);
+    throw explain(err);
+  }
+}
+
 /**
  * The reply to `history`, as it is produced. Ends when the reply does;
- * rejects with the signal's reason when aborted, or with the model's error.
+ * rejects with the signal's reason when aborted, or with an error whose
+ * message can be shown.
  */
 export function stream(history: History, signal: AbortSignal): AsyncIterable<Delta> {
-  return simulated(history, signal);
+  return hasKey() ? claude(history, signal) : simulated(history, signal);
 }
 
 /** Which model is answering, for the page to say. */
-export const modelName = () => "a simulated model";
+export const modelName = () => (hasKey() ? MODEL : "a simulated model");
