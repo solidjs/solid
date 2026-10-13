@@ -42,8 +42,11 @@ import type {
 // `@solidjs/web` alias resolves through (index.server.ts re-exports it).
 import { commitResponseStub } from "../../src/server.js";
 import {
+  GET as serverGET,
+  createServerReference,
   handleServerFunctionRequest,
-  registerServerFunction
+  registerServerFunction,
+  registerServerReference
 } from "@solidjs/web/server-functions/server";
 import { OBSERVE } from "solid-js";
 
@@ -537,6 +540,103 @@ describe("Server-Timing at head commit", () => {
     inScope(stranger, () => commitResponseStub(foreign));
     expect(foreign.headers.has("server-timing")).toBe(false);
     expect(foreign.committed).toBe(true);
+  });
+});
+
+// #3985: a read a shared cache may store would replay ONE request's trace
+// id to every later viewer — and on a miss, the caller's inbound
+// `traceparent` picks it for everyone. Such a response leaves without the
+// trace entries; a private one (and any non-read) keeps them, unchanged.
+describe("Server-Timing on a shared-cacheable server-function read (#3985)", () => {
+  function declareRead(id: string, cacheControl?: string) {
+    serverGET(
+      createServerReference(
+        registerServerReference(id, () => {
+          const headers = new Headers({ "Server-Timing": "db;dur=5" });
+          if (cacheControl !== undefined) headers.set("Cache-Control", cacheControl);
+          return new Response("ok", { headers });
+        })
+      )
+    );
+  }
+
+  function call(id: string, method: string) {
+    return handleServerFunctionRequest(
+      new Request(`https://app.example/_server/${id}`, {
+        method,
+        headers: { "Sec-Fetch-Site": "same-origin", traceparent: INCOMING }
+      })
+    );
+  }
+
+  test.each([
+    "public, max-age=60",
+    "public, max-age=0, s-maxage=600",
+    "s-maxage=60",
+    "max-age=0, S-MAXAGE=60"
+  ])("GET and HEAD with `Cache-Control: %s` drop the trace, keep the other metrics", async cc => {
+    const id = `trace-shared-${cc}`;
+    declareRead(id, cc);
+    for (const method of ["GET", "HEAD"]) {
+      const response = await call(id, method);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe(cc);
+      const timing = serverTiming(response.headers);
+      expect(timing.has("traceparent")).toBe(false);
+      expect(timing.get("db")).toBe("db;dur=5");
+    }
+  });
+
+  test.each([
+    ["private, max-age=60", "private, max-age=60"],
+    ["public, private", "public, private"],
+    ["public, no-store", "public, no-store"],
+    ["max-age=60", "max-age=60"],
+    [undefined, "no-store"]
+  ])("GET with `Cache-Control: %s` keeps the trace", async (cc, sent) => {
+    const id = `trace-private-${cc}`;
+    declareRead(id, cc);
+    const response = await call(id, "GET");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe(sent);
+    const timing = serverTiming(response.headers);
+    expect(timing.get("traceparent")).toMatch(
+      new RegExp(`^traceparent;desc="00-${TRACE_ID}-[0-9a-f]{16}-01"$`)
+    );
+    expect(timing.get("db")).toBe("db;dur=5");
+  });
+
+  test("a POST keeps the trace whatever its Cache-Control says", async () => {
+    registerServerFunction(
+      "trace-shared-post",
+      () => new Response("ok", { headers: { "Cache-Control": "public, s-maxage=60" } })
+    );
+    const response = await call("trace-shared-post", "POST");
+    expect(response.status).toBe(200);
+    expect(serverTiming(response.headers).has("traceparent")).toBe(true);
+  });
+
+  test("an unsampled request had nothing appended — an app's own entry of that name stays", async () => {
+    serverGET(
+      createServerReference(
+        registerServerReference(
+          "trace-shared-own",
+          () =>
+            new Response("ok", {
+              headers: {
+                "Cache-Control": "public, s-maxage=60",
+                "Server-Timing": 'traceparent;desc="app"'
+              }
+            })
+        )
+      )
+    );
+    const response = await handleServerFunctionRequest(
+      new Request("https://app.example/_server/trace-shared-own", {
+        headers: { "Sec-Fetch-Site": "same-origin" }
+      })
+    );
+    expect(serverTiming(response.headers).get("traceparent")).toBe('traceparent;desc="app"');
   });
 });
 

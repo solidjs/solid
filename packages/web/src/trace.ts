@@ -423,6 +423,29 @@ export function mergeServerTiming(target: Headers, value: string): void {
   }
 }
 
+/**
+ * Takes the trace entries `appendTraceServerTiming` told the browser about
+ * back off `headers`' `Server-Timing` for the request keyed `key`, leaving
+ * every other metric. For a response a shared cache may store: the entry
+ * names ONE request's trace, and the cache would replay it to every later
+ * viewer (#3985). Never derives a record — a request whose trace was not
+ * emitted had nothing appended, so there is nothing to take back.
+ */
+export function dropTraceServerTiming(headers: Headers, key: object): void {
+  const record = records().get(key);
+  if (!record || !record.emit) return;
+  const value = headers.get("server-timing");
+  if (value === null) return;
+  const names = new Set(Object.keys(record.context.entries).map(name => name.toLowerCase()));
+  const kept: string[] = [];
+  for (const entry of splitServerTiming(value)) {
+    const trimmed = entry.trim();
+    if (trimmed && !names.has(metricName(trimmed))) kept.push(trimmed);
+  }
+  if (kept.length) headers.set("Server-Timing", kept.join(", "));
+  else headers.delete("Server-Timing");
+}
+
 function escapeAttr(value: string): string {
   return value.replace(/[&"<>]/g, c =>
     c === "&" ? "&amp;" : c === '"' ? "&quot;" : c === "<" ? "&lt;" : "&gt;"

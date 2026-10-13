@@ -21,6 +21,7 @@ import {
 } from "../../src/response.js";
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
+import { dropTraceServerTiming } from "../../src/trace.js";
 import { reportServerError } from "solid-js/internal";
 import { requestErrorHook } from "../../src/request-error-hook.js";
 import { observeInvocation } from "../../src/server-observe.js";
@@ -4008,7 +4009,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // else), then the read's `Origin` variance where an allowlist makes the
   // answer depend on it (`withCORS` already named it for an admitted one).
   const finish = response => {
-    const finalized = withCORS(finalizeTransportResponse(response, method), cors);
+    const finalized = withCORS(finalizeTransportResponse(response, method, request), cors);
     return readVariesByOrigin && cors === null
       ? withHeaders(finalized, headers => appendVary(headers, ["Origin"]))
       : finalized;
@@ -4655,8 +4656,10 @@ function ownResponse(response) {
  * - HEAD responses drop their body, as HTTP requires — the function still
  *   ran (HEAD is gated identically to GET), so status and headers are those
  *   of the equivalent GET (#3069).
+ * - A read whose `Cache-Control` lets a shared cache store it leaves
+ *   without the request's `Server-Timing` trace entries (#3985).
  */
-function finalizeTransportResponse(response, method) {
+function finalizeTransportResponse(response, method, request) {
   const stripBody = method === "HEAD" && response.body !== null;
   // Never onto a 304: a 304 is not a stored response, it is an UPDATE to
   // one — RFC 9111 §4.3.4 has the cache freshen its stored entry with the
@@ -4669,11 +4672,23 @@ function finalizeTransportResponse(response, method) {
   // minimal correct 304 the dev warning's own advice leads to. 204/205 are
   // ordinary answers, not cache updates, and keep the default.
   const defaultsCache = !response.headers.has("Cache-Control") && response.status !== 304;
-  if (stripBody || defaultsCache) {
+  // The trace entries commitEventResponse appended name THIS request's
+  // trace. On a read a CDN may store, every later viewer would be served
+  // that one trace id — and on a miss, whichever caller sent the inbound
+  // `traceparent` picks it for everyone (#3985). Shared-cacheable is
+  // decided on the final Cache-Control, which is only known here, after
+  // the stub fold. HEAD carries the equivalent GET's headers (#3069), and
+  // a 304's headers freshen the stored entry, so both are covered too.
+  const dropsTrace =
+    (method === "GET" || method === "HEAD") &&
+    response.headers.has("Server-Timing") &&
+    allowsSharedCache(response.headers.get("Cache-Control"));
+  if (stripBody || defaultsCache || dropsTrace) {
     try {
       if (defaultsCache) {
         response.headers.set("Cache-Control", "no-store");
       }
+      if (dropsTrace) dropTraceServerTiming(response.headers, request);
       if (!stripBody) return response;
       // discard, don't leak: the encoded body may be a live codec stream
       response.body.cancel().catch(() => {});
@@ -4686,6 +4701,7 @@ function finalizeTransportResponse(response, method) {
       // immutable headers (e.g. a raw fetch() Response passed through)
       const headers = new Headers(response.headers);
       if (defaultsCache && !headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
+      if (dropsTrace) dropTraceServerTiming(headers, request);
       if (stripBody) response.body.cancel().catch(() => {});
       return new Response(stripBody ? null : response.body, {
         status: response.status,
@@ -4695,4 +4711,19 @@ function finalizeTransportResponse(response, method) {
     }
   }
   return response;
+}
+
+/**
+ * Whether a `Cache-Control` value lets a shared cache store the response:
+ * `public` or `s-maxage`, and neither `private` nor `no-store`.
+ */
+function allowsSharedCache(value) {
+  if (value === null) return false;
+  let shared = false;
+  for (const directive of value.split(",")) {
+    const name = directive.split("=")[0].trim().toLowerCase();
+    if (name === "private" || name === "no-store") return false;
+    if (name === "public" || name === "s-maxage") shared = true;
+  }
+  return shared;
 }
