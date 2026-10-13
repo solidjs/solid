@@ -627,7 +627,7 @@ function scanAccessorsOnce(target: StoreTarget): boolean {
 const OVERLAY_MIN_KEYS = 32;
 const OVERLAY_REBUILD_MAX_KEYS = 1024;
 const OVERLAY_REBUILD_MIN_ADDS = 16;
-const WK_ALL: Set<PropertyKey> = new Set();
+const WK_ALL: Map<PropertyKey, number> = new Map();
 
 const plainProto = (o: object): boolean => {
   const p = Object.getPrototypeOf(o);
@@ -974,7 +974,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
           const v = t.v;
           const wk = t.wk;
           if (wk !== null && wk !== WK_ALL) {
-            for (const key of wk) {
+            for (const key of wk.keys()) {
               if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
               else delete (v as any)[key];
             }
@@ -1160,10 +1160,16 @@ function notifyWrites(t: StoreTarget): void {
   // value can change when ANY key is written), or a non-plain prototype
   // (class instances: prototype getters derive from arbitrary fields).
   // Overlay pbs chain to the COMMITTED object (#3044) — plainness is the
-  // committed container's prototype, not the overlay's.
+  // committed container's prototype, not the overlay's. THIS setter's keys
+  // only (D-8, #3743): a key an earlier setter of the batch wrote and this
+  // one did not is no second proposal — its node was told then, and telling
+  // a held node its unchanged value again would join this tick to the hold.
   const wk0 = t.wk;
-  const writtenKeys =
-    wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
+  let writtenKeys: PropertyKey[] | null = null;
+  if (wk0 !== null && wk0 !== WK_ALL && t.a !== true && plainProto(t.ovl ? (t.v as object) : pb)) {
+    writtenKeys = [];
+    for (const [key, g] of wk0) if (g === wkGen) writtenKeys.push(key);
+  }
   if (__OBSERVE__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
   if (t.fam !== null && !heldDerivationHit && writtenKeys !== null)
     for (const key of writtenKeys)
@@ -1406,6 +1412,8 @@ export function notifyFold(
 // visibility
 
 let writing = 0;
+/** The outermost setter's generation: what `wk` stamps the keys it writes. */
+let wkGen = 0;
 /** Roots of the stores with an open setter: reads of THEIR drafts are the
  * writer's (no tracking, pending backing served); every other store reads
  * normally — a derive's external reads are its dependencies (#3037). */
@@ -2150,13 +2158,9 @@ const traps: ProxyHandler<StoreTarget> = {
     pendingNotify.add(target);
     if (Array.isArray(pb)) {
       if (key === "length") target.wk = WK_ALL;
-      else if (target.wk !== WK_ALL) {
-        const wk = (target.wk ??= new Set());
-        wk.add(key);
-        wk.add("length");
-      }
+      else if (target.wk !== WK_ALL) (target.wk ??= new Map()).set(key, wkGen).set("length", wkGen);
     } else {
-      if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+      if (target.wk !== WK_ALL) (target.wk ??= new Map()).set(key, wkGen);
       if (!(key in pb)) target.kc++;
     }
     if (UNSAFE_KEYS.has(key)) {
@@ -2193,7 +2197,7 @@ const traps: ProxyHandler<StoreTarget> = {
     const pb = ensurePB(target);
     if (target.a || !(desc.enumerable && desc.writable && desc.configurable)) target.sc = 1;
     pendingNotify.add(target);
-    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+    if (target.wk !== WK_ALL) (target.wk ??= new Map()).set(key, wkGen);
     Object.defineProperty(pb, key, desc);
     if (target.del !== null) target.del.delete(key);
     if (override) notifyWrites(target);
@@ -2206,7 +2210,7 @@ const traps: ProxyHandler<StoreTarget> = {
     if (!draft && !override) return true;
     const pb = ensurePB(target);
     pendingNotify.add(target);
-    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+    if (target.wk !== WK_ALL) (target.wk ??= new Map()).set(key, wkGen);
     delete pb[key as any];
     if (target.ovl && hasOwn.call(target.v, key)) (target.del ??= new Set()).add(key);
     if (override) notifyWrites(target);
@@ -2286,7 +2290,7 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   writeScopes.add(scopeKey(target));
   const prevUser = userWrite;
   userWrite = guard;
-  writing++;
+  if (writing++ === 0) wkGen++;
   let result: any;
   try {
     // No untrack: the writing flag already disables store-node linking

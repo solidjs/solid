@@ -61,19 +61,22 @@ export interface StoreTarget {
   /** Lazy CONTAINER node: membership/iteration/`$TRACK`/`length`
    * subscriptions (§6) and the backing's staging home (plan sec. 31.3). */
   k: Signal<any> | null;
-  /** Keys written through the traps since the last fold commit. Bounds the
-   * setter notify/hold-check to O(written) instead of O(subscribed nodes) —
-   * a record with thousands of per-key subscriptions (selection maps) would
-   * otherwise pay a full node scan on every write. null = no trap writes
-   * this batch (bulk paths fall back to the full scan); WK_ALL = bound
-   * unusable (array length write). LOAD-BEARING SHAPE RULE: array proxy
+  /** Keys written through the traps since the last fold commit, each with
+   * the setter generation that last wrote it. Bounds the setter
+   * notify/hold-check to O(written) instead of O(subscribed nodes) — a
+   * record with thousands of per-key subscriptions (selection maps) would
+   * otherwise pay a full node scan on every write — and the generation
+   * bounds the notify to THIS setter's keys (D-8: a key an earlier setter
+   * of the batch wrote is told once, #3743). null = no trap writes this
+   * batch (bulk paths fall back to the full scan); WK_ALL = bound unusable
+   * (array length write). LOAD-BEARING SHAPE RULE: array proxy
    * targets carry their fields as named properties on a real array, and V8
    * normalizes an array to dictionary properties as the named count grows
    * (empirically at counts ≡ 0 mod 3 from 18 up on V8 13.x) — every trap
    * field read then becomes a hash lookup (~15% uibench, tree suites
    * worst). Future write-side state MUST ride an extension object, not new
    * named fields. */
-  wk: Set<PropertyKey> | null;
+  wk: Map<PropertyKey, number> | null;
   /** Lazy deep-witness node: `deep()` subscribes ONE node per record instead
    * of one per path; write paths bump it only when it exists. Separate from
    * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */
