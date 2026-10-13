@@ -4677,12 +4677,18 @@ function finalizeTransportResponse(response, method, request) {
   // that one trace id — and on a miss, whichever caller sent the inbound
   // `traceparent` picks it for everyone (#3985). Shared-cacheable is
   // decided on the final Cache-Control, which is only known here, after
-  // the stub fold. HEAD carries the equivalent GET's headers (#3069), and
-  // a 304's headers freshen the stored entry, so both are covered too.
+  // the stub fold — and it fails closed: a shared cache may store anything
+  // with explicit freshness or none at all (RFC 9111 §3), so the trace
+  // stays only where storing is forbidden. HEAD carries the equivalent
+  // GET's headers (#3069), and a 304's headers freshen the stored entry,
+  // so both are covered too.
   const dropsTrace =
     (method === "GET" || method === "HEAD") &&
     response.headers.has("Server-Timing") &&
-    allowsSharedCache(response.headers.get("Cache-Control"));
+    allowsSharedCache(
+      defaultsCache ? "no-store" : response.headers.get("Cache-Control"),
+      response.headers.get("CDN-Cache-Control")
+    );
   if (stripBody || defaultsCache || dropsTrace) {
     try {
       if (defaultsCache) {
@@ -4714,16 +4720,35 @@ function finalizeTransportResponse(response, method, request) {
 }
 
 /**
- * Whether a `Cache-Control` value lets a shared cache store the response:
- * `public` or `s-maxage`, and neither `private` nor `no-store`.
+ * Whether a shared cache may store the response. Under RFC 9111 §3 it may
+ * unless `Cache-Control` says `no-store` or an unqualified `private` (a
+ * `private="<field>"` only withholds the named fields, §5.2.2.7). A CDN
+ * that honours `CDN-Cache-Control` (RFC 9213) reads that field instead, so
+ * a present one that does not forbid storing allows it too.
  */
-function allowsSharedCache(value) {
+function allowsSharedCache(cacheControl, cdnCacheControl) {
+  if (!forbidsStoring(cacheControl)) return true;
+  return cdnCacheControl !== null && !forbidsStoring(cdnCacheControl);
+}
+
+/** `no-store` or an unqualified `private`, read over quoted strings. */
+function forbidsStoring(value) {
   if (value === null) return false;
-  let shared = false;
-  for (const directive of value.split(",")) {
-    const name = directive.split("=")[0].trim().toLowerCase();
-    if (name === "private" || name === "no-store") return false;
-    if (name === "public" || name === "s-maxage") shared = true;
+  let start = 0;
+  let quoted = false;
+  for (let i = 0; i <= value.length; i++) {
+    const c = value[i];
+    if (quoted) {
+      if (c === "\\") i++;
+      else if (c === '"') quoted = false;
+    } else if (c === '"') quoted = true;
+    else if (c === "," || i === value.length) {
+      const directive = value.slice(start, i);
+      const eq = directive.indexOf("=");
+      const name = (eq === -1 ? directive : directive.slice(0, eq)).trim().toLowerCase();
+      if (name === "no-store" || (name === "private" && eq === -1)) return true;
+      start = i + 1;
+    }
   }
-  return shared;
+  return false;
 }

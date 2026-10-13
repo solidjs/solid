@@ -548,6 +548,7 @@ describe("Server-Timing at head commit", () => {
 // `traceparent` picks it for everyone. Such a response leaves without the
 // trace entries; a private one (and any non-read) keeps them, unchanged.
 describe("Server-Timing on a shared-cacheable server-function read (#3985)", () => {
+  let declared = 0;
   function declareRead(id: string, cacheControl?: string) {
     serverGET(
       createServerReference(
@@ -569,13 +570,20 @@ describe("Server-Timing on a shared-cacheable server-function read (#3985)", () 
     );
   }
 
+  // Fails closed (RFC 9111 §3): a shared cache may store anything not
+  // marked `no-store` or unqualified `private` — explicit freshness, or
+  // none at all. A qualified `private="<field>"` only withholds that field
+  // (§5.2.2.7), and a directive name inside a quoted string is not one.
   test.each([
     "public, max-age=60",
     "public, max-age=0, s-maxage=600",
-    "s-maxage=60",
-    "max-age=0, S-MAXAGE=60"
+    "max-age=60",
+    "max-age=0, S-MAXAGE=60",
+    'no-cache="a, private"',
+    'private="Set-Cookie", max-age=60',
+    'no-cache="x\\", private", max-age=60'
   ])("GET and HEAD with `Cache-Control: %s` drop the trace, keep the other metrics", async cc => {
-    const id = `trace-shared-${cc}`;
+    const id = `trace-shared-${++declared}`;
     declareRead(id, cc);
     for (const method of ["GET", "HEAD"]) {
       const response = await call(id, method);
@@ -588,13 +596,13 @@ describe("Server-Timing on a shared-cacheable server-function read (#3985)", () 
   });
 
   test.each([
+    ["no-store", "no-store"],
+    ["private", "private"],
     ["private, max-age=60", "private, max-age=60"],
-    ["public, private", "public, private"],
-    ["public, no-store", "public, no-store"],
-    ["max-age=60", "max-age=60"],
+    ["public, NO-STORE", "public, NO-STORE"],
     [undefined, "no-store"]
   ])("GET with `Cache-Control: %s` keeps the trace", async (cc, sent) => {
-    const id = `trace-private-${cc}`;
+    const id = `trace-private-${++declared}`;
     declareRead(id, cc);
     const response = await call(id, "GET");
     expect(response.status).toBe(200);
@@ -604,6 +612,27 @@ describe("Server-Timing on a shared-cacheable server-function read (#3985)", () 
       new RegExp(`^traceparent;desc="00-${TRACE_ID}-[0-9a-f]{16}-01"$`)
     );
     expect(timing.get("db")).toBe("db;dur=5");
+  });
+
+  test("a `CDN-Cache-Control` that lets the CDN store the read drops the trace (RFC 9213)", async () => {
+    const declare = (id: string, cdn: string) =>
+      serverGET(
+        createServerReference(
+          registerServerReference(
+            id,
+            () =>
+              new Response("ok", {
+                headers: { "Cache-Control": "private", "CDN-Cache-Control": cdn }
+              })
+          )
+        )
+      );
+    declare("trace-cdn-stores", "max-age=60");
+    declare("trace-cdn-no-store", "no-store");
+    const stored = await call("trace-cdn-stores", "GET");
+    expect(serverTiming(stored.headers).has("traceparent")).toBe(false);
+    const unstored = await call("trace-cdn-no-store", "GET");
+    expect(serverTiming(unstored.headers).has("traceparent")).toBe(true);
   });
 
   test("a POST keeps the trace whatever its Cache-Control says", async () => {
