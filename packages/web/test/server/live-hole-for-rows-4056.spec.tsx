@@ -9,7 +9,7 @@
  * previous sweep. The emitted markup is unchanged.
  */
 import { expect, test } from "vitest";
-import { createMemo, For } from "solid-js";
+import { createMemo, createStore, For } from "solid-js";
 import { Loading } from "@solidjs/web";
 import { renderServerComponent } from "../../frames/src/frame-sink.js";
 
@@ -185,4 +185,162 @@ test("a row moved to another index renders again", async () => {
     "<li><!--$-->0<!--/-->:<!--$-->B<!--/--></li><li><!--$-->1<!--/-->:<!--$-->A<!--/--></li>"
   );
   expect(rendered.slice(-2)).toEqual(["B", "A"]);
+});
+
+test("a row that read a memo besides its item renders again on every sweep", async () => {
+  type View = { items: Message[]; sel: string };
+  const ch = channel<View>();
+  const rendered: string[] = [];
+  const Thread = () => {
+    const view = createMemo(() => ch.iterable);
+    return (
+      <Loading fallback={<p>wait</p>}>
+        <ol>
+          <For each={view().items}>
+            {m => {
+              rendered.push(m.text);
+              return <li>{view().sel === m.id ? "*" : m.text}</li>;
+            }}
+          </For>
+        </ol>
+      </Loading>
+    );
+  };
+  const { chunks, done } = consume(renderServerComponent(Thread, { frame: { id: "f" } }));
+  await tick();
+  const a = { id: "a", text: "A" };
+  const b = { id: "b", text: "B" };
+  ch.push({ items: [a, b], sel: "a" });
+  await tick(20);
+  ch.push({ items: [a, b], sel: "b" });
+  await tick(20);
+  ch.push({ items: [a, b], sel: "x" });
+  await tick(20);
+  ch.end();
+  await done;
+
+  // The selection moves with every push though no item changed.
+  expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+    "<li>A</li><li>*</li>",
+    "<li>A</li><li>B</li>"
+  ]);
+  expect(rendered.length).toBeGreaterThan(2);
+});
+
+test("an item edited in place is not the item the row rendered", async () => {
+  const ch = channel<Message[]>();
+  const rendered: string[] = [];
+  const Thread = () => {
+    const view = createMemo(() => ch.iterable);
+    return (
+      <Loading fallback={<p>wait</p>}>
+        <ol>
+          <For each={view()}>
+            {m => {
+              rendered.push(m.text);
+              return <li>{m.text}</li>;
+            }}
+          </For>
+        </ol>
+      </Loading>
+    );
+  };
+  const { chunks, done } = consume(renderServerComponent(Thread, { frame: { id: "f" } }));
+  await tick();
+  // One object, edited between pushes — as a store updated in place hands back.
+  const a = { id: "a", text: "A" };
+  const list = [a];
+  ch.push(list);
+  await tick(20);
+  list.push({ id: "b", text: "B" });
+  ch.push(list);
+  await tick(20);
+  a.text = "AA";
+  ch.push(list);
+  await tick(20);
+  ch.end();
+  await done;
+
+  expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+    "<li>A</li><li>B</li>",
+    "<li>AA</li><li>B</li>"
+  ]);
+  expect(rendered).toEqual(["A", "B", "AA"]);
+});
+
+test("a row whose memos read only its item is still reused", async () => {
+  const ch = channel<Message[]>();
+  const rendered: string[] = [];
+  const Thread = () => {
+    const view = createMemo(() => ch.iterable);
+    return (
+      <Loading fallback={<p>wait</p>}>
+        <ol>
+          <For each={view()}>
+            {m => {
+              rendered.push(m.text);
+              const loud = createMemo(() => m.text.toUpperCase());
+              return <li>{m.text.length > 1 ? <b>{loud()}</b> : <i>{m.text}</i>}</li>;
+            }}
+          </For>
+        </ol>
+      </Loading>
+    );
+  };
+  const { chunks, done } = consume(renderServerComponent(Thread, { frame: { id: "f" } }));
+  await tick();
+  ch.push([{ id: "a", text: "a" }]);
+  await tick(20);
+  ch.push([
+    { id: "a", text: "a" },
+    { id: "b", text: "bb" }
+  ]);
+  await tick(20);
+  ch.end();
+  await done;
+
+  expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+    "<li><i>a</i></li><li><b>BB</b></li>"
+  ]);
+  expect(rendered).toEqual(["a", "bb"]);
+});
+
+test("a row that read an async store besides its item renders again on every sweep", async () => {
+  const items = channel<Message[]>();
+  const sel = channel<string>();
+  const Thread = () => {
+    const view = createMemo(() => items.iterable);
+    const [state] = createStore<{ sel?: string }>(async function* (draft) {
+      for await (const s of sel.iterable) {
+        draft.sel = s;
+        yield;
+      }
+    }, {});
+    return (
+      <Loading fallback={<p>wait</p>}>
+        <ol>
+          <For each={view()}>{m => <li>{state.sel === m.id ? "*" : m.text}</li>}</For>
+        </ol>
+      </Loading>
+    );
+  };
+  const { chunks, done } = consume(renderServerComponent(Thread, { frame: { id: "f" } }));
+  await tick();
+  const a = { id: "a", text: "A" };
+  const b = { id: "b", text: "B" };
+  sel.push("a");
+  items.push([a, b]);
+  await tick(20);
+  sel.push("b");
+  await tick(20);
+  items.end();
+  sel.end();
+  await done;
+
+  expect(
+    chunks
+      .filter(c => c.type === "hole")
+      .map(c => c.html)
+      .at(-1)
+  ).toBe("<li>A</li><li>*</li>");
 });
