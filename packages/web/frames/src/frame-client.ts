@@ -482,21 +482,39 @@ function claimHandlers() {
   return handlers !== undefined && handlers.length !== 0 ? handlers : undefined;
 }
 
-/** Fire every handler on one element unconditionally. */
-function claimNode(handlers, el) {
+/**
+ * Fire every handler on one element. `adopter`, on the adoption path only,
+ * is the frame adopting it: an element a live frame's adoption sweep already
+ * claimed is skipped (see `adoptedBy`).
+ */
+function claimNode(handlers, el, adopter?: object) {
+  if (adopter) {
+    const by = adoptedBy.get(el);
+    if (by && liveFrames.has(by)) return;
+    adoptedBy.set(el, adopter);
+  }
   for (let i = 0; i < handlers.length; i++) handlers[i](el);
 }
 
 const claimedAttr = name => name === "href" || name === "action";
 
 /** Sweep `root` (element or fragment) and its claimable interior. */
-function claimTree(handlers, root) {
+function claimTree(handlers, root, adopter?: object) {
   const isElement = root.nodeType === ELEMENT_NODE;
   if (!isElement && root.nodeType !== 11 /* DOCUMENT_FRAGMENT_NODE */) return;
-  if (isElement && root.matches(CLAIMED_ELEMENTS)) claimNode(handlers, root);
+  if (isElement && root.matches(CLAIMED_ELEMENTS)) claimNode(handlers, root, adopter);
   const found = root.querySelectorAll(CLAIMED_ELEMENTS);
-  for (let i = 0; i < found.length; i++) claimNode(handlers, found[i]);
+  for (let i = 0; i < found.length; i++) claimNode(handlers, found[i], adopter);
 }
+
+// Which frame's adoption sweep claimed an element. A region's interior is
+// inside its enclosing frame's range, so the enclosing frame's sweep already
+// claimed it, and the frame bound over the region would claim it again (at
+// depth N, N+1 times). While the claiming frame lives, its claim stands;
+// once it is disposed, a later adoption claims again. Changes to an element
+// reach consumers through the morph, directly or as new fragments, which
+// never pass an adopter.
+const adoptedBy = new WeakMap<Element, object>();
 
 /** Fragment placeholder start: `<template id="pl-KEY">` (content = fallback). */
 const placeholderId = name => `pl-${name}`;
@@ -1277,10 +1295,10 @@ class FrameImpl {
   // recheck, which must fire on `href`/`action` REMOVAL too (the element no
   // longer matches the sweep selector), mirroring compiled setAttribute.
   // Stable identity so it threads into the morph without allocation.
-  #claimTree = (node, direct) => {
+  #claimTree = (node, direct?, adopter?) => {
     const handlers = claimHandlers();
     if (!handlers) return;
-    this.#scoped(() => (direct ? claimNode(handlers, node) : claimTree(handlers, node)));
+    this.#scoped(() => (direct ? claimNode(handlers, node) : claimTree(handlers, node, adopter)));
   };
 
   /** Run `fn` under the creator's `ownerScope` (when provided). */
@@ -2236,7 +2254,7 @@ class FrameImpl {
 
   /** Sweep-claim the frame's existing content (the adoption path). */
   #claimContent() {
-    for (let n = this.#element.firstChild; n; n = n.nextSibling) this.#claimTree(n);
+    for (let n = this.#element.firstChild; n; n = n.nextSibling) this.#claimTree(n, false, this);
   }
 
   /**

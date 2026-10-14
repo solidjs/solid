@@ -2406,8 +2406,17 @@ module.exports = [
     // minified, 93,304 -> 93,338) — the same `lazy()`/`lazyModule()` guard
     // as the compiled hydrating note. Cap set at measured + 10 B rounded up
     // to 0.01 KB. Accepted by the maintainer 2026-10-13.
-    limit: "29.52 KB",
-    capMinified: 93338,
+    // Size-Exception (a later store setter's written keys are its own set,
+    // D-8/U-8, #4039, 2026-10-14): 29.52 -> 29.57 KB, CI measured 29,559 B
+    // against `next` @ d1cb8013's 29,509 (+50 B; 39 B over the cap) with
+    // −16 B minified (93,396 -> 93,380). The minified growth over the
+    // recorded 93,338 is `next`'s own (+58 B from the U-4 `arm` sweep, #4031,
+    // which stayed under this cap); this PR's bytes are brotli layout against
+    // that base. Cap set at measured + 10 B rounded up to 0.01 KB, recorded
+    // minified at the head's bytes. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B).
+    limit: "29.57 KB",
+    capMinified: 93380,
     alias
   },
   {
@@ -4110,8 +4119,23 @@ module.exports = [
     // minified over the PR base. The frames client calls
     // installServerComponentHydration from installRevealHook. Cap set to that
     // measurement, not above it.
-    limit: "11.426 KB",
-    capMinified: 34211,
+    // Nested-region claim dedupe (2026-10-14): measured at 11,461 B brotli /
+    // 34,318 B minified locally against the 11.426 KB / 34,211 B cap (+35 B
+    // brotli, +107 B minified). Adopting a slot region swept every claimable
+    // element inside it, and each enclosing region's frame swept it again,
+    // so a link N regions deep was claimed N + 1 times (the router re-parses
+    // and re-matches its URL on every claim: ~116 ms at 4x CPU on the HN
+    // story page with a client toggle per comment). `adoptedBy` records
+    // which live frame's adoption claimed an element; other adoption sweeps
+    // skip it. Cap set to that measurement, not above it.
+    // #4042 (2026-10-14): measured at 11,495 B brotli / 34,411 B minified
+    // locally on top of the claim dedupe (+34 B brotli, +93 B minified). A
+    // document mount picks the unclaimed site whose `data-fa` matches its
+    // call's arguments, so sites minted out of mount order bind their own
+    // frames. Cap set to that measurement, not above it. Pending the
+    // maintainer's OK.
+    limit: "11.495 KB",
+    capMinified: 34411,
     alias: framesAlias,
     external: framesExternal
   },

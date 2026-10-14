@@ -1093,15 +1093,25 @@ function indexBoundaries(root: ParentNode) {
     if (key && isBoundaryId(key) && !boundaryIndex!.has(key)) boundaryIndex!.set(key, el);
   });
 }
-function findBoundaryElement(id: string): Element | undefined {
+function findBoundaryElement(id: string, address?: string): Element | undefined {
   if (!boundaryIndex) {
     boundaryIndex = new Map();
     if (typeof document !== "undefined" && document.body) indexBoundaries(document.body);
   }
   // Later sites of one factory (#3889) are `<id>~n`, probed in mint order.
+  // Mint order is the server's, not the client's mount order: a site behind
+  // async setup mints after its neighbours on the server but mounts first
+  // here (#4042). So a mount that knows its call takes the unclaimed site
+  // showing its arguments (`data-fa`), and the first unclaimed site when
+  // none does.
+  const args = address && address.slice(id.length + 1);
+  let first: Element | undefined, el: Element | undefined;
   for (let n = 0; ; n++) {
     const key = n ? id + "~" + (n + 1) : id;
-    if (!claimedBoundaries.has(key)) return boundaryIndex.get(key);
+    if (claimedBoundaries.has(key)) continue;
+    if (!(el = boundaryIndex.get(key)) || !args || (el as HTMLElement).dataset.fa == args)
+      return el || first;
+    first = first || el;
   }
 }
 
@@ -1246,7 +1256,8 @@ function documentBoundary(
   // client entry's installServerComponents() call — re-attempt here, where
   // hydration is necessarily live (idempotent via the $sc flag).
   installRevealHook();
-  const el = findBoundaryElement(id);
+  const address = binding && contentAddress(binding());
+  const el = findBoundaryElement(id, address);
   if (el) return adoptBoundary(host, id, el, props, binding);
   // Not in the page (yet). While the page can still deliver it (the document is
   // streaming, or a deferred fragment is still holding its markup — see
@@ -1276,7 +1287,7 @@ function documentBoundary(
         () =>
           live &&
           runWithOwner(owner, () => {
-            const node = findBoundaryElement(id);
+            const node = findBoundaryElement(id, address);
             // No element after all (the page ran out of reveals, or another
             // mount took it): mount fresh, exactly as an unwaited miss would.
             return node

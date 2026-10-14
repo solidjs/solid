@@ -197,6 +197,10 @@ export const STATUS_PENDING = 1 << 0;
 export const STATUS_ERROR = 1 << 1;
 export const STATUS_UNINITIALIZED = 1 << 2;
 
+/** `GlobalQueue._catch`'s answer when the catcher is a boundary re-armed by
+ * `on` (truthy, as any catch): what it collects is its own, not the hold's. */
+export const CAUGHT_REARMED = 2;
+
 export const EFFECT_PURE = 0;
 export const EFFECT_RENDER = 1;
 export const EFFECT_USER = 2;
