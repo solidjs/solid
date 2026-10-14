@@ -1630,8 +1630,15 @@ class FrameImpl {
     // positions rather than filling a range (no interior, no regions, never
     // replaced), and whose consumer set may change without a re-call.
     const found: Map<any, any> & { b?: boolean } = new Map();
-    if (root) collectSlots(root, found, found);
-    else this.#collectSlots(found, found);
+    // The bind tier loading but not resident (an announced tier's load
+    // starts at install): the install's flush re-syncs with the tier in
+    // place, so this sync only needs to hold. Note it up front and walk
+    // comments alone — an element scan for `_s:*` positions here would be
+    // thrown away.
+    const loading = tierLoads.bind;
+    const elements = loading && !loading.r ? void (found.b = true) : found;
+    if (root) collectSlots(root, found, elements);
+    else this.#collectSlots(found, elements);
     // Whether this sync leaves an occurrence WAITING to mount — for its
     // record, for a `{$ref}`'s data: a claim the frame owes the page and has
     // not made yet (see the hold at the end).
@@ -2667,16 +2674,12 @@ function findPlaceholder(n, end, id) {
 function collectSlots(root, out, elements) {
   let announced;
   // `elements` is the found map or undefined; `tierLoads.bind` a promise or undefined.
-  let bind =
+  const bind =
     elements &&
     (tierLoads.bind ||
       !(announced = (globalThis as any)._$HY?.r?.["sc:tiers"]) ||
       announced.includes("bind"));
   const B = bind && tierLoads.bind?.r;
-  // Announced or loading but not resident: the install's flush re-walks with
-  // the tier in place, so this walk only needs to say a position may exist.
-  // Note it and walk comments alone — the attribute scan would be thrown away.
-  if (bind && !B && (tierLoads.bind || announced)) bind = !(elements.b = true);
   // `NodeFilter.SHOW_COMMENT`, `| SHOW_ELEMENT` — as literals (the same on
   // every platform).
   const w = root.ownerDocument.createTreeWalker(root, bind ? 0x81 : 0x80);
