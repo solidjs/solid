@@ -4227,8 +4227,17 @@ module.exports = [
     // Chat example, 12 KB replies at 4x CPU, walk self time per reply:
     // 0.34 / 0.78 / 1.03 / 1.58 s with 0-3 prior replies -> 0.18 / 0.22 /
     // 0.19 / 0.28 s. Cap set to that measurement, not above it.
-    limit: "11.715 KB",
-    capMinified: 35056,
+    // Row ops for live `For` holes (#4064, 2026-10-14): measured at 11,799 B
+    // brotli / 35,285 B minified (+84 B brotli, +229 B minified). A sweep
+    // that changed some rows of a `For` hole sends just those rows; the
+    // eager client checks the range shows the ops' base and hands them to
+    // the lazy wire tier, which morphs only those rows' ranges (else the
+    // whole range morphs from the record's full html, as before).
+    // server-dbmon, 4x CPU, 10% of rows changing per tick at 5 ticks/s,
+    // main-thread busy ms/s: 100 rows 305-319 -> 189-261; 400 rows
+    // 933-1001 (saturated) -> 649-706. Cap set to that measurement.
+    limit: "11.81 KB",
+    capMinified: 35285,
     alias: framesAlias,
     external: framesExternal
   },

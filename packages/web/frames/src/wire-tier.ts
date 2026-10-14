@@ -339,3 +339,68 @@ export function connect(
   });
   return binding;
 }
+
+/**
+ * Apply a live `For` hole's row ops (#4064) to its range `open`…`close`:
+ * truncate to `ops.n` rows, morph each changed row's range in place, and
+ * append new rows before `close`. A row is everything from its
+ * `<!--lr-->` marker to the next one (or `close`); a nested live hole's
+ * range is skipped whole. Every changed row parses in ONE fragment, split
+ * back at the markers. `morph` is the frame's range reconcile; the ranges
+ * it touched are pushed onto `morphed` for the scoped slot sync. Returns
+ * false, having changed nothing, when the range doesn't hold rows the ops
+ * can address — the caller then morphs the whole range.
+ * @internal
+ */
+export function rows(
+  open: Node,
+  close: Node,
+  ops: { n: number; r: [number, string][] },
+  parse: (html: string) => DocumentFragment,
+  morph: (start: Node, end: Node, fragment: DocumentFragment) => void,
+  morphed: Node[][]
+): boolean {
+  const isRow = (n: Node) => n.nodeType === 8 && (n as Comment).data === "lr";
+  const starts: Node[] = [];
+  for (let n = open.nextSibling; n && n !== close; n = n.nextSibling) {
+    if (isRow(n)) starts.push(n);
+    else if (n.nodeType === 8 && /^lh:\d+$/.test((n as Comment).data)) {
+      const end = "lh:/" + (n as Comment).data.slice(3);
+      while (n.nextSibling && !(n.nodeType === 8 && (n as Comment).data === end)) n = n.nextSibling;
+    }
+  }
+  const had = starts.length;
+  const n = ops.n;
+  // Appends must cover every new index; a range without rows is not a list.
+  let appended = 0;
+  for (const [i] of ops.r) if (i >= had) appended++;
+  if (!had || appended !== Math.max(0, n - had)) return false;
+  const fragment = parse(ops.r.map(op => "<!--lr-->" + op[1]).join(""));
+  const parsed: DocumentFragment[] = [];
+  for (let c = fragment.firstChild; c; ) {
+    const next = c.nextSibling;
+    if (isRow(c)) parsed.push(document.createDocumentFragment());
+    else parsed[parsed.length - 1].appendChild(c);
+    c = next;
+  }
+  if (parsed.length !== ops.r.length) return false;
+  const parent = open.parentNode!;
+  // Truncate: everything from the first dropped row's marker to `close`.
+  if (n < had) while (starts[n].nextSibling !== close) parent.removeChild(close.previousSibling!);
+  if (n < had) parent.removeChild(starts[n]);
+  let first: Node | undefined;
+  ops.r.forEach(([i], k) => {
+    if (i < had) {
+      const end = i + 1 < Math.min(n, had) ? starts[i + 1] : close;
+      morph(starts[i], end, parsed[k]);
+      morphed.push([starts[i], end]);
+    } else {
+      const marker = document.createComment("lr");
+      parent.insertBefore(marker, close);
+      parent.insertBefore(parsed[k], close);
+      first ||= marker;
+    }
+  });
+  if (first) morphed.push([first, close]);
+  return true;
+}

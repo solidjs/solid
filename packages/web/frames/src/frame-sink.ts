@@ -432,6 +432,8 @@ export function createFrameSink(write, frame, have, hooks) {
   // recoverable from html the way a content range is, so the digests ride
   // from here.
   const attrText = new Map();
+  // The digest of each live hole's last emission (see `hole`).
+  const holeDigest = new Map();
   // Emit what differs inside `html` against the have-list: each top-level
   // hole whose digest moved (its nested holes ride inside it, markers kept,
   // so they stay individually live), each addressed attr whose text moved.
@@ -765,8 +767,18 @@ export function createFrameSink(write, frame, have, hooks) {
     // A live-hole re-emission (Stage 3): the hole's re-resolved HTML, keyed
     // by its marker id — the consumer morphs the marked range in place.
     // Produced by a sweep, so it joins the sweep's unit (see `sweep`).
-    hole(key, html) {
+    hole(key, html, rows) {
       const op = { type: "hole", key, html, digest: textDigest(html) };
+      // Row ops (#4064): the rows of a `For` hole that changed since the
+      // emission whose digest is `base` (none: since the first render).
+      // `html` still carries the whole hole, so a client that does not
+      // show `base` morphs the whole range instead.
+      if (rows) {
+        op.rows = rows;
+        const base = holeDigest.get(key);
+        if (base) op.base = base;
+      }
+      holeDigest.set(key, op.digest);
       swept ? swept.ops.push(op) : emitOps([op]);
     },
     // A live attr-hole re-emission: the addressed element's rebuilt

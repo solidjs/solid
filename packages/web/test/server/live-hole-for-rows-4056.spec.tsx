@@ -91,9 +91,9 @@ test("a For row whose item is unchanged is not rendered again on a sweep", async
   await done;
 
   expect(chunks.find(c => c.type === "fragment").html).toBe(
-    "<ol><!--lh:0--><li>A</li><!--lh:/0--></ol>"
+    "<ol><!--lh:0--><!--lr--><li>A</li><!--lh:/0--></ol>"
   );
-  expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+  expect(chunks.filter(c => c.type === "hole").map(c => c.html.replace(/<!--lr-->/g, ""))).toEqual([
     "<li>A</li><li>B</li>",
     "<li>A</li><li>BB</li>"
   ]);
@@ -138,7 +138,7 @@ test("a fresh snapshot whose items are shallow-equal reuses its rows", async () 
   ch.end();
   await done;
 
-  expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+  expect(chunks.filter(c => c.type === "hole").map(c => c.html.replace(/<!--lr-->/g, ""))).toEqual([
     "<li>A</li><li>B</li>",
     "<li>A</li><li>BB</li>"
   ]);
@@ -180,7 +180,7 @@ test("a row moved to another index renders again", async () => {
   ch.end();
   await done;
 
-  const holes = chunks.filter(c => c.type === "hole").map(c => c.html);
+  const holes = chunks.filter(c => c.type === "hole").map(c => c.html.replace(/<!--lr-->/g, ""));
   expect(holes.at(-1)).toBe(
     "<li><!--$-->0<!--/-->:<!--$-->B<!--/--></li><li><!--$-->1<!--/-->:<!--$-->A<!--/--></li>"
   );
@@ -220,7 +220,7 @@ test("a row that read a memo besides its item renders again on every sweep", asy
   await done;
 
   // The selection moves with every push though no item changed.
-  expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+  expect(chunks.filter(c => c.type === "hole").map(c => c.html.replace(/<!--lr-->/g, ""))).toEqual([
     "<li>A</li><li>*</li>",
     "<li>A</li><li>B</li>"
   ]);
@@ -261,7 +261,7 @@ test("an item edited in place is not the item the row rendered", async () => {
   ch.end();
   await done;
 
-  expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+  expect(chunks.filter(c => c.type === "hole").map(c => c.html.replace(/<!--lr-->/g, ""))).toEqual([
     "<li>A</li><li>B</li>",
     "<li>AA</li><li>B</li>"
   ]);
@@ -299,7 +299,7 @@ test("a row whose memos read only its item is still reused", async () => {
   ch.end();
   await done;
 
-  expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+  expect(chunks.filter(c => c.type === "hole").map(c => c.html.replace(/<!--lr-->/g, ""))).toEqual([
     "<li><i>a</i></li><li><b>BB</b></li>"
   ]);
   expect(rendered).toEqual(["a", "bb"]);
@@ -340,7 +340,7 @@ test("a row that read an async store besides its item renders again on every swe
   expect(
     chunks
       .filter(c => c.type === "hole")
-      .map(c => c.html)
+      .map(c => c.html.replace(/<!--lr-->/g, ""))
       .at(-1)
   ).toBe("<li>A</li><li>*</li>");
 });

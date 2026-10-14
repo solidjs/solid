@@ -1,0 +1,182 @@
+/**
+ * @jsxImportSource @solidjs/web
+ * @vitest-environment jsdom
+ */
+// solidjs/solid#4064: a live `For` hole's sweep sends only the rows that
+// changed. The client morphs just those rows' ranges, appends and truncates
+// at the tail, keeps the untouched rows' nodes, and falls back to morphing
+// the whole range from the record's full html when the range doesn't show
+// the emission the ops were taken against or the wire tier isn't resident.
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { flush, Loading } from "solid-js";
+import { dynamic, render } from "@solidjs/web";
+import { installServerComponents, createFrameHost } from "../frames/src/client.js";
+import { prepareTier, tierLoads } from "../frames/src/frame-client.js";
+import { createJSONDataTable } from "../serialization/src/serializer.js";
+import { createServerReference } from "../server-functions/src/client.js";
+import { openFrameResponse } from "./lifecycle-matrix/harness.js";
+
+const ID = "table/rows";
+
+const settle = () => new Promise(r => setTimeout(r));
+const cycle = async () => {
+  flush();
+  await settle();
+  flush();
+  await settle();
+};
+
+function makeHost() {
+  const table = createJSONDataTable();
+  return createFrameHost({
+    applyData: (c: any) => table.apply(c),
+    resolve: (ref: any) => table.resolve(ref)
+  });
+}
+
+const getTable = createServerReference(ID);
+const list = (...rows: string[]) => rows.map(r => `<!--lr--><li>${r}</li>`).join("");
+
+async function mount() {
+  const held = openFrameResponse(ID);
+  vi.stubGlobal("fetch", async () => held.response);
+  const Table = dynamic(() => getTable() as any);
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const dispose = render(
+    () => (
+      <Loading fallback={<span>wait</span>}>
+        <Table />
+      </Loading>
+    ),
+    container
+  );
+  held.send({ type: "start", id: ID, version: 1 });
+  held.send({
+    type: "html",
+    id: ID,
+    version: 1,
+    html: `<ul><!--lh:0-->${list("a", "b", "c")}<!--lh:/0--></ul>`
+  });
+  await cycle();
+  const items = () => [...container.querySelectorAll("li")];
+  const send = (op: any) => held.send({ type: "ops", id: ID, version: 1, ops: [op] });
+  const done = async () => {
+    held.send({ type: "complete", id: ID, version: 1 });
+    held.close();
+    await cycle();
+    dispose();
+    flush();
+    container.remove();
+  };
+  return { container, items, send, done };
+}
+
+describe("row ops on a live For hole", () => {
+  beforeEach(() => installServerComponents(makeHost()));
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  test("morphs only the changed row, appends and truncates at the tail", async () => {
+    await prepareTier("wire");
+    const { items, send, done } = await mount();
+    const [a, b, c] = items();
+
+    send({
+      type: "hole",
+      key: "lh:0",
+      html: list("a", "B", "c"),
+      digest: "d1",
+      rows: { n: 3, r: [[1, "<li>B</li>"]] }
+    });
+    await cycle();
+    expect(items().map(li => li.textContent)).toEqual(["a", "B", "c"]);
+    // Untouched rows are the same nodes; the changed row was morphed in place.
+    expect(items()[0]).toBe(a);
+    expect(items()[1]).toBe(b);
+    expect(items()[2]).toBe(c);
+
+    // Only the changed row was parsed.
+    const parsed: string[] = [];
+    const set = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML")!.set!;
+    vi.spyOn(HTMLTemplateElement.prototype, "innerHTML", "set").mockImplementation(function (
+      this: any,
+      v: string
+    ) {
+      parsed.push(v);
+      set.call(this, v);
+    });
+    send({
+      type: "hole",
+      key: "lh:0",
+      html: list("a", "B", "C", "d", "e"),
+      digest: "d2",
+      base: "d1",
+      rows: {
+        n: 5,
+        r: [
+          [2, "<li>C</li>"],
+          [3, "<li>d</li>"],
+          [4, "<li>e</li>"]
+        ]
+      }
+    });
+    await cycle();
+    expect(parsed).toEqual(["<!--lr--><li>C</li><!--lr--><li>d</li><!--lr--><li>e</li>"]);
+    expect(items().map(li => li.textContent)).toEqual(["a", "B", "C", "d", "e"]);
+    expect(items()[0]).toBe(a);
+
+    send({
+      type: "hole",
+      key: "lh:0",
+      html: list("a", "B"),
+      digest: "d3",
+      base: "d2",
+      rows: { n: 2, r: [] }
+    });
+    await cycle();
+    expect(items().map(li => li.textContent)).toEqual(["a", "B"]);
+    expect(items()[0]).toBe(a);
+    await done();
+  });
+
+  test("a range that doesn't show the ops' base morphs from the full html", async () => {
+    await prepareTier("wire");
+    const { items, send, done } = await mount();
+    // Base names an emission this range never applied.
+    send({
+      type: "hole",
+      key: "lh:0",
+      html: list("x", "y", "z"),
+      digest: "d2",
+      base: "d1",
+      rows: { n: 3, r: [[1, "<li>Q</li>"]] }
+    });
+    await cycle();
+    expect(items().map(li => li.textContent)).toEqual(["x", "y", "z"]);
+    await done();
+  });
+
+  test("without the wire tier the whole range morphs", async () => {
+    const wire = tierLoads.wire;
+    delete tierLoads.wire;
+    try {
+      const { items, send, done } = await mount();
+      send({
+        type: "hole",
+        key: "lh:0",
+        html: list("a", "B", "c"),
+        digest: "d1",
+        rows: { n: 3, r: [[1, "<li>Q</li>"]] }
+      });
+      await cycle();
+      // The full html wins: the ops (Q) were not applied.
+      expect(items().map(li => li.textContent)).toEqual(["a", "B", "c"]);
+      await done();
+    } finally {
+      if (wire) tierLoads.wire = wire;
+    }
+  });
+});

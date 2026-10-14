@@ -27,6 +27,13 @@ import { DEV, OBSERVE } from "solid-js";
  * chunk may carry `tiers` (see `TierAnnouncement`).
  * @experimental
  */
+/**
+ * Row ops for a live hole whose value is a `For`'s rows (#4064): the new
+ * row count `n` and the rows that changed or were appended, as
+ * `[index, html]`. A count below the range's truncates it.
+ */
+export type HoleRows = { n: number; r: [number, string][] };
+
 export type FrameChunk = (
   | { type: "start"; id: string; version: number }
   | {
@@ -56,6 +63,9 @@ export type FrameChunk = (
       html: string;
       digest?: string;
       holes?: Record<string, string>;
+      /** Row ops for a `For` hole (#4064), against the emission `base`. */
+      rows?: HoleRows;
+      base?: string;
     }
   | {
       type: "attr";
@@ -107,7 +117,14 @@ export type FrameChunk = (
       id: string;
       version: number;
       ops: (
-        | { type: "hole"; key: string; html: string; digest?: string }
+        | {
+            type: "hole";
+            key: string;
+            html: string;
+            digest?: string;
+            rows?: HoleRows;
+            base?: string;
+          }
         | { type: "attr"; key: string; attrs: string; removed?: string[]; digest?: string }
       )[];
     }
@@ -677,7 +694,10 @@ export function chunkToRecords(chunk) {
           kind: "html",
           value: chunk.html,
           digest: chunk.digest,
-          holes: chunk.holes
+          holes: chunk.holes,
+          // Row ops against the emission digested `base` (#4064).
+          rows: chunk.rows,
+          base: chunk.base
         }
       };
     case "attr":
@@ -1261,6 +1281,10 @@ class FrameImpl {
   // only while its node is still in this frame and still matches; the
   // root morph and a version bump clear the map (ids restart per stream).
   #liveTargets = new Map();
+  // What each live hole's range shows, by the digest of the record last
+  // applied to it (none: its first render) — the base a row-op record
+  // must name to be applied as row ops (#4064).
+  #shows = new Map();
   // The last full slot walk's result (#syncSlots' found map; dropped by a
   // root morph and an empty write) and, during a flush, the ranges its
   // live holes morphed — `[open, close]` for a hole, `[element]` for an
@@ -1494,6 +1518,7 @@ class FrameImpl {
     this.#appliedRoot = this.#appliedError = undefined;
     this.#appliedHoles.clear();
     this.#liveTargets.clear();
+    this.#shows.clear();
     this.#pendingReveals = [];
   }
 
@@ -1572,7 +1597,7 @@ class FrameImpl {
           this.#appliedHoles.set(key, record);
           if ("_SOLID_DEV_")
             console.error(`Live hole ${key.slice(5, -6)} failed on the server; latched:`, record);
-        } else if (this.#applyHole(key.slice(5), record.value)) {
+        } else if (this.#applyHole(key.slice(5), record)) {
           this.#appliedHoles.set(key, record);
           this.#recordHave(key.slice(5), record);
           morphed = true;
@@ -2195,6 +2220,7 @@ class FrameImpl {
 
   #applyRoot(html) {
     this.#liveTargets.clear();
+    this.#shows.clear();
     this.#found = undefined;
     const fragment = parseFragment(html);
     const parent = this.#element;
@@ -2239,7 +2265,7 @@ class FrameImpl {
    * displaced-range index is needed. Returns whether the markers were
    * found and the morph ran.
    */
-  #applyHole(marker, html) {
+  #applyHole(marker, record) {
     if (!this.#hasContent) return false;
     const open = this.#liveTarget(
       "hole:" + marker,
@@ -2257,8 +2283,30 @@ class FrameImpl {
       }
       return false;
     }
-    reconcileChildren(open.parentNode, parseFragment(html), open, close, this.#claimTree);
-    this.#morphed.push([open, close]);
+    const claim = this.#claimTree;
+    const rows = record.rows;
+    // Row ops (#4064): only the rows that changed, when the range shows
+    // the emission they were taken against and the wire tier is resident;
+    // otherwise the whole range, from the record's full html.
+    if (
+      !(
+        rows &&
+        this.#shows.get(marker) === record.base &&
+        tierLoads.wire?.r?.rows(
+          open,
+          close,
+          rows,
+          parseFragment,
+          (start, end, fragment) =>
+            reconcileChildren(start.parentNode, fragment, start, end, claim),
+          this.#morphed
+        )
+      )
+    ) {
+      reconcileChildren(open.parentNode, parseFragment(record.value), open, close, claim);
+      this.#morphed.push([open, close]);
+    }
+    this.#shows.set(marker, record.digest);
     return true;
   }
 

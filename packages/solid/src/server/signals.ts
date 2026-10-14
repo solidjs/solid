@@ -3266,6 +3266,10 @@ export function mapArray<T, U>(
         s.push(runWithOwner(fo, () => options.fallback!()) as U);
       }
       kept = sweeping && items && items.length ? { items: snaps, rows: s, pure } : null;
+      // In a live render the rows are tagged as rows: a live hole whose
+      // value this is marks each row, so a sweep can send only the rows
+      // that changed (#4064).
+      if (live && items && items.length) (s as any).$rows = true;
       return s;
     },
     { sync: true }
