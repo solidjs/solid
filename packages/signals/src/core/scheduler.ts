@@ -882,7 +882,7 @@ export class GlobalQueue implements IQueue {
     this._queues = [[], []];
     for (let k = transactions.length - 1; k >= 0; k--) {
       const u = transactions[k];
-      if (blocked(u)) continue;
+      if (blocked(u) || rederived(u)) continue;
       transactions.splice(k, 1);
       GlobalQueue._endLanes?.(u);
       land(u);
@@ -1023,6 +1023,29 @@ export function reruns(u: Transaction): void {
     }
   }
   u._reruns.length = 0;
+}
+
+/** D-9: a frame `u` held pending that a mainline pass served the committed
+ * screen re-derives in `u`'s world before `u` lands — a landing does not
+ * reveal a gate its stale reader re-derives onto a new flight. */
+function rederived(u: Transaction): boolean {
+  for (let i = 0, n = u._reruns.length; i < n; i++) {
+    const r = u._reruns[i];
+    if (
+      (r as any)._type === EFFECT_RENDER &&
+      !(r._config & CONFIG_VERDICT) &&
+      r._flags & REACTIVE_FRAME_READ &&
+      !(r._flags & REACTIVE_DISPOSED) &&
+      r._x?._transaction != null &&
+      txOf(r) === u
+    ) {
+      r._config |= CONFIG_HELD;
+      flushTransaction = u;
+      recompute(r);
+      flushTransaction = null;
+    }
+  }
+  return blocked(u);
 }
 
 /** The landing: the held frame becomes the frame. */
