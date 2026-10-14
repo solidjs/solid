@@ -3293,7 +3293,8 @@ function trackGraph(state: NavState): void {
     `(${size.roots} roots)${routes.length > 1 ? `, across visits to ${routes.join(", ")}` : ""}. Each ` +
     `visit left something behind that the next did not reclaim — the shape says ${shape}. Dispose ` +
     `what a visit creates (onCleanup, or return the disposer from onSettled) and own it under the ` +
-    `route's component so leaving the route tears it down.`;
+    `route's component so leaving the route tears it down. A cache that keeps every entry a visit ` +
+    `adds grows the same way: bound it, or evict what no visit still reads.`;
   const data: Record<string, unknown> = {
     route,
     grew,
