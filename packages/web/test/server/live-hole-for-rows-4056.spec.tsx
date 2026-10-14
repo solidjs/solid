@@ -4,8 +4,9 @@
  * solidjs/solid#4056 — a `<For>` inside a markup hole that re-emits ran
  * `mapFn` for every row on every sweep, so a list's render cost was paid per
  * write. During sweeps a row whose item is the same reference at the same
- * index now reuses the row it rendered on the previous sweep, as the
- * client's `For` keeps its rows. The emitted markup is unchanged.
+ * index — the same reference, or a fresh shallow-equal object, as a live
+ * source's snapshot usually is — now reuses the row it rendered on the
+ * previous sweep. The emitted markup is unchanged.
  */
 import { expect, test } from "vitest";
 import { createMemo, For } from "solid-js";
@@ -98,6 +99,49 @@ test("a For row whose item is unchanged is not rendered again on a sweep", async
   ]);
   // Each row renders once per distinct item; before #4056 this was
   // A,A,A,B,A,BB,A,BB.
+  expect(rendered).toEqual(["A", "B", "BB"]);
+});
+
+test("a fresh snapshot whose items are shallow-equal reuses its rows", async () => {
+  const ch = channel<Message[]>();
+  const rendered: string[] = [];
+  const Thread = () => {
+    const view = createMemo(() => ch.iterable);
+    return (
+      <Loading fallback={<p>wait</p>}>
+        <ol>
+          <For each={view()}>
+            {m => {
+              rendered.push(m.text);
+              return <li>{m.text}</li>;
+            }}
+          </For>
+        </ol>
+      </Loading>
+    );
+  };
+  const { chunks, done } = consume(renderServerComponent(Thread, { frame: { id: "f" } }));
+  await tick();
+  // Every push is a new array of new objects, as a re-run query hands back.
+  ch.push([{ id: "a", text: "A" }]);
+  await tick(20);
+  ch.push([
+    { id: "a", text: "A" },
+    { id: "b", text: "B" }
+  ]);
+  await tick(20);
+  ch.push([
+    { id: "a", text: "A" },
+    { id: "b", text: "BB" }
+  ]);
+  await tick(20);
+  ch.end();
+  await done;
+
+  expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+    "<li>A</li><li>B</li>",
+    "<li>A</li><li>BB</li>"
+  ]);
   expect(rendered).toEqual(["A", "B", "BB"]);
 });
 

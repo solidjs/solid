@@ -3159,9 +3159,10 @@ export function mapArray<T, U>(
   // Rows kept across live-hole sweeps (#4056). A markup hole that re-emits
   // (a live response, a standing source) re-evaluates its whole value on
   // every commit, and without this every row re-ran `mapFn` each time — a
-  // list's render cost paid per write. During a sweep a row whose item is
-  // the same reference at the same index reuses the row it rendered on the
-  // previous sweep, as the client's `For` keeps its rows. Sweeps only: a
+  // list's render cost paid per write. During a sweep a row whose item at
+  // the same index is unchanged — the same reference, or a shallow-equal
+  // object, since a live source usually hands back a fresh snapshot — reuses
+  // the row it rendered on the previous sweep. Sweeps only: a
   // sweep's evaluation is mint-suppressed and owner-free (the engine's
   // impurity gate closes any hole that creates owners), so a row from one
   // sweep carries no markers or bindings that another could duplicate. The
@@ -3185,7 +3186,7 @@ export function mapArray<T, U>(
           const origId = ownerId(rowOwner);
           try {
             for (let i = 0, len = items.length; i < len; i++) {
-              if (prev && i < prev.items.length && prev.items[i] === items[i]) {
+              if (prev && i < prev.items.length && sameItem(prev.items[i], items[i])) {
                 s.push(prev.rows[i]);
                 continue;
               }
@@ -3225,6 +3226,18 @@ export function mapArray<T, U>(
     { sync: true }
   );
   return read;
+}
+
+// A sweep's row reuse test (see mapArray): the same value, or two plain
+// objects/arrays whose own entries are the same values.
+function sameItem(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) if ((a as any)[k] !== (b as any)[k] || !(k in b)) return false;
+  return true;
 }
 
 export function repeat<T>(
