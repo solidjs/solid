@@ -102,7 +102,8 @@ import {
   storeLookup,
   storeOwners,
   type StoreFamily,
-  type StoreTarget
+  type StoreTarget,
+  type WrittenKeys
 } from "./target.js";
 import { affectsHooks, optHooks } from "./hooks.js";
 import {
@@ -627,7 +628,7 @@ function scanAccessorsOnce(target: StoreTarget): boolean {
 const OVERLAY_MIN_KEYS = 32;
 const OVERLAY_REBUILD_MAX_KEYS = 1024;
 const OVERLAY_REBUILD_MIN_ADDS = 16;
-const WK_ALL: Set<PropertyKey> = new Set();
+const WK_ALL = new Set() as WrittenKeys;
 
 const plainProto = (o: object): boolean => {
   const p = Object.getPrototypeOf(o);
@@ -640,7 +641,8 @@ function overlayRebuilds(t: StoreTarget, pb: Record<PropertyKey, any>): boolean 
   if (t.kc > OVERLAY_REBUILD_MAX_KEYS) return false;
   if (t.del !== null && t.del.size !== 0) return true;
   const wk = t.wk;
-  if (wk !== null && wk !== WK_ALL && wk.size <= OVERLAY_REBUILD_MIN_ADDS) return false;
+  if (wk !== null && wk !== WK_ALL && wk.u === undefined && wk.size <= OVERLAY_REBUILD_MIN_ADDS)
+    return false;
   const v = t.v;
   let adds = 0;
   for (const key of Reflect.ownKeys(pb))
@@ -974,10 +976,11 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
           const v = t.v;
           const wk = t.wk;
           if (wk !== null && wk !== WK_ALL) {
-            for (const key of wk) {
-              if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
-              else delete (v as any)[key];
-            }
+            for (let w: WrittenKeys | undefined = wk; w !== undefined; w = w.u)
+              for (const key of w) {
+                if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
+                else delete (v as any)[key];
+              }
           } else {
             for (const key of Reflect.ownKeys(pb)) {
               const d = Object.getOwnPropertyDescriptor(pb, key)!;
@@ -1160,7 +1163,10 @@ function notifyWrites(t: StoreTarget): void {
   // value can change when ANY key is written), or a non-plain prototype
   // (class instances: prototype getters derive from arbitrary fields).
   // Overlay pbs chain to the COMMITTED object (#3044) — plainness is the
-  // committed container's prototype, not the overlay's.
+  // committed container's prototype, not the overlay's. THIS setter's keys
+  // only (D-8, #3743): a key an earlier setter of the batch wrote and this
+  // one did not is no second proposal — its node was told then, and telling
+  // a held node its unchanged value again would join this tick to the hold.
   const wk0 = t.wk;
   const writtenKeys =
     wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
@@ -1896,6 +1902,23 @@ const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor
 // ---------------------------------------------------------------------------
 // traps
 
+/** A trap write: the target is told at the setter's exit, the key recorded
+ * in this setter's `wk`. A setter's first write to a target still staged by
+ * an earlier setter of the batch opens a set of its own (the notify visits
+ * it, D-8) and chains the earlier one behind for the fold's union. */
+function touch(target: StoreTarget, key: PropertyKey): void {
+  let wk = target.wk;
+  if (!pendingNotify.has(target)) {
+    pendingNotify.add(target);
+    if (wk !== null && wk !== WK_ALL) {
+      wk = new Set() as WrittenKeys;
+      wk.u = target.wk!;
+      target.wk = wk;
+    }
+  }
+  if (wk !== WK_ALL) (target.wk ??= new Set() as WrittenKeys).add(key);
+}
+
 const traps: ProxyHandler<StoreTarget> = {
   get(target, key, receiver) {
     // One typeof gates every brand-symbol compare off the hot string path.
@@ -2147,16 +2170,12 @@ const traps: ProxyHandler<StoreTarget> = {
     if (key === "__proto__") return true; // pollution guard (core R30)
     const uv = target.s ? value : unwrapValue(value);
     const pb = ensurePB(target);
-    pendingNotify.add(target);
     if (Array.isArray(pb)) {
+      touch(target, key);
       if (key === "length") target.wk = WK_ALL;
-      else if (target.wk !== WK_ALL) {
-        const wk = (target.wk ??= new Set());
-        wk.add(key);
-        wk.add("length");
-      }
+      else touch(target, "length");
     } else {
-      if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+      touch(target, key);
       if (!(key in pb)) target.kc++;
     }
     if (UNSAFE_KEYS.has(key)) {
@@ -2192,8 +2211,7 @@ const traps: ProxyHandler<StoreTarget> = {
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     const pb = ensurePB(target);
     if (target.a || !(desc.enumerable && desc.writable && desc.configurable)) target.sc = 1;
-    pendingNotify.add(target);
-    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+    touch(target, key);
     Object.defineProperty(pb, key, desc);
     if (target.del !== null) target.del.delete(key);
     if (override) notifyWrites(target);
@@ -2205,8 +2223,7 @@ const traps: ProxyHandler<StoreTarget> = {
     const override = !draft && writeOverride;
     if (!draft && !override) return true;
     const pb = ensurePB(target);
-    pendingNotify.add(target);
-    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+    touch(target, key);
     delete pb[key as any];
     if (target.ovl && hasOwn.call(target.v, key)) (target.del ??= new Set()).add(key);
     if (override) notifyWrites(target);
