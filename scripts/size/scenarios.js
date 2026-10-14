@@ -4134,16 +4134,16 @@ module.exports = [
     // call's arguments, so sites minted out of mount order bind their own
     // frames. Cap set to that measurement, not above it. Accepted by the
     // maintainer on merge (2026-10-14).
-    // Bind-tier single scan (2026-10-14): measured at 11,511 B brotli /
-    // 34,452 B minified locally (+16 B brotli, +41 B minified). While the bind
+    // Bind-tier single scan (2026-10-14): measured at 11,509 B brotli /
+    // 34,449 B minified locally (+14 B brotli, +38 B minified). While the bind
     // tier is announced or loading but not resident, the slot walk visits
     // comments only and marks the frame held instead of scanning every
     // element for `_s:*` attributes; the install's flush does the one scan
     // with the tier in place (HN story page with binding slots: 20,750 ->
     // 10,375 elements visited, 15,308 -> 7,658 attribute reads). Cap set to
     // that measurement, not above it. Pending the maintainer's OK.
-    limit: "11.511 KB",
-    capMinified: 34452,
+    limit: "11.509 KB",
+    capMinified: 34449,
     alias: framesAlias,
     external: framesExternal
   },
