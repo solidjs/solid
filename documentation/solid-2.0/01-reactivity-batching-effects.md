@@ -17,7 +17,7 @@ Solid 2.0 tightens the reactivity model: no writes under owned scope (with narro
 
 ### No writes under owned scope
 
-Writing to a signal inside a reactive scope (effect, memo, component body) **throws** in dev. Writes belong in event handlers, `onSettled`, or untracked blocks. When a signal must be written from within scope (e.g. internal state), opt in with `ownedWrite: true`:
+Writing to a signal inside a reactive scope (effect, memo, component body) **throws** in dev. Writes belong in event handlers or `onSettled`. Wrapping the write in `untrack` does not help: the check is on the owning scope, and `untrack` only stops dependency tracking — `untrack(() => setCount(1))` inside an effect or component body still throws `REACTIVE_WRITE_IN_OWNED_SCOPE`. When a signal must be written from within scope (e.g. internal state), opt in with `ownedWrite: true`:
 
 ```js
 // Default: throws if set in effect/component
@@ -271,7 +271,7 @@ Unlike other tracked scopes these primitives cannot create nested primitives whi
 
 - **`batch`:** Remove; use `flush()` when you need synchronous application of updates (e.g. before reading DOM).
 - **`onMount`:** Replace with `onSettled`.
-- **Writes under scope:** Move setter calls to event handlers, `onSettled`, or untracked blocks; or create the signal with `{ ownedWrite: true }` for the rare valid case (e.g. internal or intentionally in-scope writes).
+- **Writes under scope:** Move setter calls to event handlers or `onSettled` (`untrack` does not exempt a write — it stops tracking, not ownership); or create the signal with `{ ownedWrite: true }` for the rare valid case (e.g. internal or intentionally in-scope writes).
 
 ## Removals
 
