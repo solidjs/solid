@@ -5149,6 +5149,15 @@ module.exports = [
     // document ends with `</html>` again; the cost is the tail search and
     // splice in the marker helper, retained by renderToString. Accepted by
     // the maintainer (2026-10-13). The cap is frozen again at 20.51 KB.
+    // Size-Exception (#4043, 2026-10-14): 20.51 -> 20.55 KB, measured at
+    // 20,531 B against `next` @ d1cb8013's 20,497 (+34 B; 21 B over the cap;
+    // +155 B minified, 72,087 -> 72,242). A hole that escalates inside a
+    // server component carries the component's claims arming into its
+    // retry, so a boundary outside the component that resumes it still
+    // writes handler-position markers (`_s:on:click`); the cost is the arm
+    // in `buildAsyncWrap`'s retry wrapper, retained by renderToString.
+    // Up for the maintainer's acceptance on #4043. The cap is frozen again
+    // at 20.55 KB.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
     // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
