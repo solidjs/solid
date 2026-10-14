@@ -685,6 +685,9 @@ interface ServerComputation<T = any> {
   // hook (`ctx.commitEpoch`) only exists where a binding ledger is live.
   sync?: boolean;
   epoch?: number;
+  // The value can change between live-hole sweeps: the result is async, or
+  // a compute read something that is (see asyncReads).
+  moving?: boolean;
   // Runs when the owner disposes the compute (see `armDispose`), for work
   // that cannot wait for its next pull to notice `disposed`: a pumped
   // iterator parked on a `next()` that will not settle until the world
@@ -1178,6 +1181,13 @@ function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
   });
 }
 
+// Reads of values that can change between two live-hole sweeps, counted so
+// a sweep can tell a `For` row that read one (see mapArray). Only async
+// sources move on the server — a plain signal or store has no writer once
+// the render runs — so this counts reads of async memos and async
+// projections, and of any memo whose last compute read one of those.
+let asyncReads = 0;
+
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 // Commit #0 (loadingValue) removes the uninitialized window: never undefined
@@ -1324,10 +1334,12 @@ export function createMemo<T>(
     resetOwnerForRerun(owner);
     const prev = sharedConfig.context;
     sharedConfig.context = ctx;
+    const reads = asyncReads;
     try {
       return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
     } finally {
       sharedConfig.context = prev;
+      if (asyncReads !== reads) comp.moving = true;
     }
   };
 
@@ -1346,8 +1358,10 @@ export function createMemo<T>(
         typeof result === "object" &&
         (typeof (result as any)[Symbol.asyncIterator] === "function" ||
           typeof (result as any).then === "function")
-      )
+      ) {
+        comp.moving = true;
         armDispose();
+      }
       processResult(
         comp,
         result,
@@ -1412,6 +1426,7 @@ export function createMemo<T>(
       // as epoch comparison, no subscriber graph needed.
       update();
     }
+    if (comp.moving) asyncReads++;
     if (comp.errored) {
       // A client hole read outside a Loading discovery pass must fail loudly
       // rather than wedge the stream (see clientHoleRead). Identity check on
@@ -1472,6 +1487,8 @@ function createSyncMemo<T>(
   let cached = false;
   // The commit epoch `value`/`error` was computed at (frame renders only).
   let epoch: number | undefined;
+  // See ServerComputation.moving.
+  let moving = false;
 
   function pull(): T | undefined {
     // Inlined `runWithOwner` — avoids the per-pull `() => compute(value)`
@@ -1487,6 +1504,7 @@ function createSyncMemo<T>(
     // created by the eventual successful pull drift ahead of the client's
     // (#2801, generalized to all retry paths in #2900).
     resetOwnerForRerun(owner);
+    const reads = asyncReads;
     try {
       value = compute(value) as T;
       error = undefined;
@@ -1504,6 +1522,7 @@ function createSyncMemo<T>(
       throw err;
     } finally {
       currentOwner = prev;
+      if (asyncReads !== reads) moving = true;
     }
   }
 
@@ -1516,6 +1535,7 @@ function createSyncMemo<T>(
   }
 
   return (() => {
+    if (moving) asyncReads++;
     if (cached && (!ctx?.commitEpoch || ctx.commitEpoch() === epoch)) {
       if (errored) throw error;
       return value;
@@ -2473,7 +2493,7 @@ function createPendingProxy<T extends object>(
   let status: 0 | 1 | 2 = 0;
   let error: any;
   let readTarget: T = state;
-  const gate = () => {
+  const open = () => {
     if (status > 1) {
       // A derive that landed on a client hole (settleServerAsync's FINAL
       // reclassification, #3659) errors with the tagged NotReady: the same
@@ -2486,6 +2506,11 @@ function createPendingProxy<T extends object>(
     // read path (see clientHoleRead).
     if (source === CLIENT_HOLE) clientHoleRead();
     throw new NotReadyError(source);
+  };
+  // Every read counts as an async read (see asyncReads), ready or not.
+  const gate = () => {
+    asyncReads++;
+    open();
   };
   const proxy = new Proxy(state, {
     get(obj, key, receiver) {
@@ -3160,15 +3185,21 @@ export function mapArray<T, U>(
   // (a live response, a standing source) re-evaluates its whole value on
   // every commit, and without this every row re-ran `mapFn` each time — a
   // list's render cost paid per write. During a sweep a row whose item at
-  // the same index is unchanged — the same reference, or a shallow-equal
-  // object, since a live source usually hands back a fresh snapshot — reuses
-  // the row it rendered on the previous sweep. Sweeps only: a
-  // sweep's evaluation is mint-suppressed and owner-free (the engine's
+  // the same index is unchanged reuses the row it rendered on the previous
+  // sweep. Unchanged is deep equality with a copy of the item taken when the
+  // row rendered — a live source usually hands back a fresh snapshot, and a
+  // server store may edit the same object in place. A row reused must also
+  // have read no async source while rendering (an async memo or projection,
+  // or a memo derived from one: see asyncReads), since only those change
+  // between sweeps; such a row renders again every sweep. This is the
+  // client's rule at row grain: a row is kept while its item is, and what
+  // else it read re-runs it. Sweeps
+  // only: a sweep's evaluation is mint-suppressed and owner-free (the engine's
   // impurity gate closes any hole that creates owners), so a row from one
   // sweep carries no markers or bindings that another could duplicate. The
   // first render and its retries never read or fill the cache, so their
   // ids and minting are exactly as before.
-  let kept: { items: readonly T[]; rows: U[] } | null = null;
+  let kept: { items: unknown[]; rows: U[]; pure: boolean[] } | null = null;
   const read = createMemo(
     () => {
       const items = list();
@@ -3176,6 +3207,8 @@ export function mapArray<T, U>(
       const live = (sharedConfig.context as any)?.liveHoles;
       const sweeping = !!(live && live.sweeping);
       const prev = sweeping ? kept : null;
+      const snaps: unknown[] = [];
+      const pure: boolean[] = [];
       // Reset per pass so retries re-synthesize row/fallback ids from 0,
       // like the client's fresh row owners on its first successful pass.
       rowOwner._childCount = 0;
@@ -3186,10 +3219,18 @@ export function mapArray<T, U>(
           const origId = ownerId(rowOwner);
           try {
             for (let i = 0, len = items.length; i < len; i++) {
-              if (prev && i < prev.items.length && sameItem(prev.items[i], items[i])) {
+              if (
+                prev &&
+                i < prev.items.length &&
+                prev.pure[i] &&
+                sameItem(prev.items[i], items[i])
+              ) {
                 s.push(prev.rows[i]);
+                snaps.push(prev.items[i]);
+                pure.push(true);
                 continue;
               }
+              const reads = asyncReads;
               if (origId !== undefined) {
                 rowOwner.id = formatChildId(origId, i);
               }
@@ -3210,6 +3251,10 @@ export function mapArray<T, U>(
                       ? (mapFn as (v: T, i: Accessor<number>) => U)(items[i], () => i)
                       : (mapFn as (v: T) => U)(items[i])
               );
+              if (sweeping) {
+                snaps.push(copyItem(items[i], 0));
+                pure.push(asyncReads === reads);
+              }
             }
           } finally {
             rowOwner.id = origId;
@@ -3220,7 +3265,7 @@ export function mapArray<T, U>(
         const fo = runWithOwner(rowOwner as unknown as Owner, () => createOwner());
         s.push(runWithOwner(fo, () => options.fallback!()) as U);
       }
-      kept = sweeping && items && items.length ? { items: items.slice(), rows: s } : null;
+      kept = sweeping && items && items.length ? { items: snaps, rows: s, pure } : null;
       return s;
     },
     { sync: true }
@@ -3228,15 +3273,30 @@ export function mapArray<T, U>(
   return read;
 }
 
-// A sweep's row reuse test (see mapArray): the same value, or two plain
-// objects/arrays whose own entries are the same values.
-function sameItem(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
+// A sweep's row reuse test (see mapArray): `a` is the copy `copyItem` took
+// when the row rendered, `b` the item now; deep equality over plain objects
+// and arrays. Past the depth limit (or a cycle) the copy holds NOT_COPIED,
+// which equals nothing, so the row renders again.
+const NOT_COPIED = {};
+const COPY_DEPTH = 8;
+function copyItem(v: any, depth: number): unknown {
+  if (!v || typeof v !== "object") return v;
+  if (depth > COPY_DEPTH) return NOT_COPIED;
+  if (Array.isArray(v)) return v.map(x => copyItem(x, depth + 1));
+  const proto = Object.getPrototypeOf(v);
+  // Class instances (a Date, a Map) are not copied: the row renders again.
+  if (proto !== Object.prototype && proto !== null) return NOT_COPIED;
+  const out: Record<string, unknown> = {};
+  for (const k in v) out[k] = copyItem(v[k], depth + 1);
+  return out;
+}
+function sameItem(a: any, b: any): boolean {
+  if (a === b) return a !== NOT_COPIED;
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (a === NOT_COPIED || Array.isArray(a) !== Array.isArray(b)) return false;
   const ka = Object.keys(a);
   if (ka.length !== Object.keys(b).length) return false;
-  for (const k of ka) if ((a as any)[k] !== (b as any)[k] || !(k in b)) return false;
+  for (const k of ka) if (!(k in b) || !sameItem(a[k], b[k])) return false;
   return true;
 }
 
