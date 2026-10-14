@@ -145,12 +145,8 @@ function messagesMarkup(messages: Message[], writing: boolean, block: { onCopy: 
 // One message as markup. A plain function, not a component: the server
 // re-runs the read that called it and sends the result, and there is nothing
 // here to keep between runs.
-//
-// Every condition below tests a local, not a property. The compiler wraps a
-// condition it cannot see through (`message.usage && …`) in a memo, and a
-// read the server re-runs cannot create one.
 function messageMarkup(message: Message, block: { onCopy: CopyHandler }) {
-  const { id, text, reasoning, error, usage } = message;
+  const { id, text } = message;
   if (message.role === "user") {
     return (
       <li class="message user" data-id={id}>
@@ -167,10 +163,10 @@ function messageMarkup(message: Message, block: { onCopy: CopyHandler }) {
   const again = !generating && (failed ? "Retry" : "Regenerate");
   return (
     <li class={`message assistant ${message.status}`} data-id={id}>
-      {reasoning && (
+      {message.reasoning && (
         <details class="reasoning">
           <summary>Reasoning</summary>
-          <p>{reasoning}</p>
+          <p>{message.reasoning}</p>
         </details>
       )}
       <div class="md">
@@ -197,10 +193,10 @@ function messageMarkup(message: Message, block: { onCopy: CopyHandler }) {
           </form>
         )}
         {stopped && <span class="muted">Stopped</span>}
-        {failed && <span class="error">{error}</span>}
-        {usage && (
+        {failed && <span class="error">{message.error}</span>}
+        {message.usage && (
           <span class="muted">
-            {usage.tokens} tokens · {usage.seconds}s
+            {message.usage.tokens} tokens · {message.usage.seconds}s
           </span>
         )}
         {again && (
