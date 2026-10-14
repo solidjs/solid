@@ -345,12 +345,13 @@ An `<Errored>` flipping to its fallback is a boundary going back to its fallback
 - **Nothing waits for it.** A change that re-asks it holds nothing on its account: its readers keep the answer they show, and the rest of the change shows now. An unready source it reads (`createDeferred(() => query())`) is the same: the node keeps its answer, nothing pends through it.
 - **Its landing is a change of its own.** It shows when it lands, unless it lands into a hold (next bullet); an unrelated hold does not keep it back.
 - **It never leads.** A re-ask that read a held value derived from that hold's world, so its answer lands into that hold and shows with its commit (F-7). Its readers that also read a held value see the committed one, as any reader does.
+- **A held answer stays held.** Once a hold has taken its landing (a reader downstream is pending and staged it), a change that re-asks it still holds nothing: the change shows now, and the hold keeps the landing it took and shows it at its commit.
 - **The verdict sees it.** `isPending` of the node, and of everything derived from it (a memo over it, a derived store's keys), is `true` from the re-ask until the landing (F-9: a new question). A `refresh()` re-ask is quiet. The verdict and the landed value change in one frame.
 - **Truth readers wait for it.** `await refresh(d)` delivers the landing; `until`'s predicate does not see the stale answer of a source it derives from (the reader's own declaration: `resolve` takes the first settled value and does not wait).
 - **Errors are not lag.** A rejected re-ask errors like any memo (F-12); the stale answer never masks it.
 - **On the server it is `createMemo`** (everything is first load there).
 
-**Collapses:** `docs/create-deferred.md` D1–D10 (2026-09-08; its lane-landing mechanism is superseded, see its §6). **Status:** standing, built 2026-10-14 (`tests/create-deferred.test.ts`).
+**Collapses:** `docs/create-deferred.md` D1–D11 (2026-09-08, D11 ruled 2026-10-04; its lane-landing mechanism is superseded, see its §6). **Status:** standing, built 2026-10-14 (`tests/create-deferred.test.ts`, `tests/create-deferred-3710.test.ts`).
 
 ---
 

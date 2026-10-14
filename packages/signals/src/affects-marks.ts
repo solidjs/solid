@@ -13,6 +13,7 @@
 // start and end (`repoll`): the only notification a mark makes.
 
 import {
+  CONFIG_AUTHORITATIVE,
   CONFIG_SLOT_NODE,
   CONFIG_VERDICT,
   REACTIVE_RECOMPUTING_DEPS,
@@ -30,16 +31,23 @@ let active = 0;
 
 /** The verdict readers downstream of `node` — through derivations, stopping
  * at effects — re-derive: the mark's one notification (a probe's answer
- * changed with no value notifying anyone). */
-export function repoll(node: Marked, seen = new Set<Computed<any>>()): void {
+ * changed with no value notifying anyone). Truth readers (`until`, the
+ * `refresh` waiter) too, which a lagging flight parked (deferred.ts) — but
+ * not through a derived store, whose leaves change only once its derive
+ * re-runs: they re-derive at that write. */
+export function repoll(
+  node: Marked,
+  seen = new Set<Computed<any>>(),
+  readers = CONFIG_VERDICT | CONFIG_AUTHORITATIVE
+): void {
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const sub = s._sub;
     if (seen.has(sub)) continue;
     seen.add(sub);
-    if (sub._config & CONFIG_VERDICT) enqueueSub(sub);
-    if (!(sub as any)._type) repoll(sub, seen);
+    if (sub._config & readers) enqueueSub(sub);
+    if (!(sub as any)._type) repoll(sub, seen, readers);
     // A derived store's derive: its leaves' readers derive from it too.
-    (sub as any).family?.((n: Marked) => repoll(n, seen));
+    (sub as any).family?.((n: Marked) => repoll(n, seen, CONFIG_VERDICT));
   }
 }
 

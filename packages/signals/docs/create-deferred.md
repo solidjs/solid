@@ -415,9 +415,11 @@ heavy chart lags) is real but narrow. Not forbidden, not advertised.
 
 ### 6.0 As built (2026-10-14, L2)
 
-`src/deferred.ts`, pay-for-use; core carries two small edits (`recompute`
-keeps `REACTIVE_REASK` through the pass, and `watch` asks `_lagging` for
-truth readers).
+`src/deferred.ts`, pay-for-use; core carries three small edits (`recompute`
+keeps `REACTIVE_REASK` through the pass and skips the T4 join for a
+`CONFIG_LAGS` node, and `watch` asks `_lagging` for truth readers). It
+carries #3710's pins (`tests/create-deferred-3710.test.ts`, D1–D11), and
+supersedes that PR.
 
 - **Read side: the loading window.** Once the node has a real answer, every
   pass opens `_loading` before it asks, so a flight serves the committed
@@ -431,14 +433,22 @@ truth readers).
   a held one means the pass read the held world (an input changed after the
   pass would have superseded the flight), so the node is put on that hold
   (`holdNode`) and `setSignal` stages the answer there.
-- **Verdict: the mark core** (`src/marks.ts`, split out of `affects.ts`):
+- **D11: a held re-ask joins nothing.** When a downstream hold staged the
+  node's landing, a write that re-asks it re-passes a held node. The node
+  carries `CONFIG_LAGS` once answered, so `recompute` does not join the
+  pass to the hold (the write commits mainline), and the wrapper serves the
+  staged landing as the pass's value, so it is not restaged over with the
+  committed one.
+- **Verdict: the mark core** (`src/affects-marks.ts`, split out of `affects.ts`):
   a mark whose lifetime is the flight, not counted while a `refresh()`
   re-ask is in flight. Coverage is the probe-time dependency walk, which
   now hops a store slot to its family's derive; the repoll reaches a derived
-  store's leaf readers through the derive's `_family`.
+  store's leaf readers through the derive's `family`.
 - **Truth readers** (`refresh`'s waiter, `until`): `watch` throws
   `NotReadyError` for a deferred flight the value derives from
-  (`GlobalQueue._lagging`), so they park and the landing re-runs them.
+  (`GlobalQueue._lagging`), so they park; the mark's repoll at the landing
+  re-runs them even when the landing equals the committed value (not through
+  a derived store, whose leaves re-run them when its derive writes).
 - **Streams:** the flight ends at the first yield.
 
 The sections below are the original sketch, kept for the reasoning.

@@ -28,13 +28,16 @@
 
 import {
   CONFIG_HELD,
+  CONFIG_LAGS,
   CONFIG_REDERIVE,
+  CONFIG_SLOT_NODE,
+  NOT_PENDING,
   REACTIVE_DISPOSED,
   REACTIVE_REASK,
   REACTIVE_RECOMPUTING_DEPS,
   STATUS_UNINITIALIZED
 } from "./core/constants.js";
-import { isThenable } from "./core/async.js";
+import { handleAsync, isThenable } from "./core/async.js";
 import { cleanup, computed, getOwner, NotReadyError } from "./core/index.js";
 import { GlobalQueue, holdNode, schedule, txOf } from "./core/scheduler.js";
 import type { Computed } from "./core/types.js";
@@ -50,6 +53,7 @@ function lagOf(c: Computed<any>, seen: Set<Computed<any>>): Computed<any> | unde
   if (lagging.has(c)) return c;
   if (seen.has(c)) return;
   seen.add(c);
+  if (c._config & CONFIG_SLOT_NODE) return lagOf((c as any)._host?.fam?.node ?? c, seen);
   const tail = c._flags & REACTIVE_RECOMPUTING_DEPS ? c._depsTail : undefined;
   if (tail !== null)
     for (let d = c._deps ?? null; d !== null; d = d._nextDep) {
@@ -123,6 +127,16 @@ export function createDeferred<T>(
       repoll(node);
     }
   };
+  /** Registers the flight and serves the pass's value: the committed one,
+   * or over a held landing the landing itself, which a lagging question
+   * does not replace (D-40) — restaged as the committed value, the hold's
+   * readers would re-derive against the old input. */
+  const serve = (r: PromiseLike<T> | AsyncIterable<T>): T => {
+    const v = handleAsync(node, r);
+    return node._config & CONFIG_HELD && node._pendingValue !== NOT_PENDING
+      ? (node._pendingValue as T)
+      : v;
+  };
   const end = () => node._flags & REACTIVE_DISPOSED && land(flight);
   return accessor<T>(
     computed<T>(prev => {
@@ -133,7 +147,7 @@ export function createDeferred<T>(
       // not a `loadingValue` window still open (both are loading, F-9).
       // Sticky, and read before this wrapper ever opens the window itself.
       const open = (answered ||= !(node._statusFlags & STATUS_UNINITIALIZED) && !node._loading);
-      if (open) node._loading = true;
+      if (open) ((node._loading = true), (node._config |= CONFIG_LAGS));
       let r: T | PromiseLike<T> | AsyncIterable<T>;
       try {
         r = fn(prev);
@@ -148,7 +162,7 @@ export function createDeferred<T>(
           ask(r);
           const done = () => land(r, true);
           (r as PromiseLike<T>).then(done, done);
-          return r;
+          return serve(r as PromiseLike<T>);
         }
         const iterate = (r as AsyncIterable<T>)[Symbol.asyncIterator];
         if (iterate) {
@@ -167,7 +181,7 @@ export function createDeferred<T>(
             return: v => it.return?.(v) ?? Promise.resolve({ done: true, value: v })
           };
           ask(s);
-          return { [Symbol.asyncIterator]: () => s };
+          return serve({ [Symbol.asyncIterator]: () => s });
         }
       }
       land(flight);
