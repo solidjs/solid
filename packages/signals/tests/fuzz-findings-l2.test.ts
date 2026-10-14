@@ -146,6 +146,8 @@ describe("fuzz findings on L2 — holds and boundaries", () => {
   // lands — and its stale-reader re-derivation then discovers flight(0) with
   // `src=0` visible. The landing published `show=true` beside a panel that can
   // only say "hidden": a torn frame the reveal corollary forbids.
+  // Deferred (#4071): the fix re-derives the stale reader before the
+  // landing, which costs the core floor.
   it.fails(
     "F2: a landing does not reveal a gate its stale reader re-derives onto a new flight (A15 reveal corollary)",
     async () => {
