@@ -3034,7 +3034,9 @@ function insertExpression(parent, value, current, marker) {
   if (hydrationRt !== null && sharedConfig.hydrating && value && value.length !== 0) {
     const tracked = [].concat(current ?? []);
     if (
-      [].concat(value).every(n => (n === tracked[0] && tracked.shift(), n.parentNode === parent)) &&
+      []
+        .concat(value)
+        .every(n => (n === tracked[0] && tracked.shift(), n?.parentNode === parent)) &&
       !tracked.length
     )
       return value;
