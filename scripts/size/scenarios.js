@@ -1910,6 +1910,15 @@ module.exports = [
     // Size-Exception (#3884, 2026-10-08): 17.91 -> 17.93 KB, measured at 17,922 B
     // brotli / 52,998 B minified by CI (Size run 37873447222). Cap set to that
     // brotli size, rounded up to 0.01 KB.
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 17.93 -> 18.09 KB, CI measured
+    // 18,074 B against `next` @ c818604's 17,887 (+187 B; 144 B over the
+    // cap; +417 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (floor-caps.json; the floors unchanged, 0 B minified).
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2415,8 +2424,17 @@ module.exports = [
     // that base. Cap set at measured + 10 B rounded up to 0.01 KB, recorded
     // minified at the head's bytes. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B).
-    limit: "29.57 KB",
-    capMinified: 93380,
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 29.57 -> 29.65 KB, CI measured
+    // 29,631 B against `next` @ c818604's 29,537 (+94 B; 61 B over the
+    // cap; +417 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    limit: "29.65 KB",
+    capMinified: 93714,
     alias
   },
   {
@@ -2678,8 +2696,17 @@ module.exports = [
     // them their transaction instead of the committed screen. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-13.
-    limit: "13.07 KB",
-    capMinified: 37021,
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 13.07 -> 13.20 KB, CI measured
+    // 13,181 B against `next` @ c818604's 13,041 (+140 B; 111 B over the
+    // cap; +416 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    limit: "13.20 KB",
+    capMinified: 37415,
     alias
   },
   {
@@ -2978,8 +3005,17 @@ module.exports = [
     // them their transaction instead of the committed screen. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-13.
-    limit: "14.64 KB",
-    capMinified: 41549,
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 14.64 -> 14.79 KB, CI measured
+    // 14,778 B against `next` @ c818604's 14,639 (+139 B; 138 B over the
+    // cap; +416 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    limit: "14.79 KB",
+    capMinified: 41943,
     alias: observeAlias
   },
   {
@@ -3437,8 +3473,17 @@ module.exports = [
     // artifact byte-identical; the observe tier scenario above did not move.
     // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
     // maintainer 2026-10-13.
-    limit: "29.24 KB",
-    capMinified: 87899,
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 29.24 -> 29.38 KB, CI measured
+    // 29,370 B against `next` @ c818604's 29,232 (+138 B; 130 B over the
+    // cap; +417 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    limit: "29.38 KB",
+    capMinified: 88330,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -3596,8 +3641,17 @@ module.exports = [
     // boundaries above it; a `record` helper folds the four reader-record
     // sites to pay for most of it. Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-13 (the floors unchanged).
-    limit: "25.79 KB",
-    capMinified: 80723,
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 25.79 -> 25.92 KB, CI measured
+    // 25,904 B against `next` @ c818604's 25,802 (+102 B; 114 B over the
+    // cap; +417 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    limit: "25.92 KB",
+    capMinified: 81041,
     alias
   },
   {
@@ -3709,8 +3763,17 @@ module.exports = [
     // promise built from the trace's never-settling Promise stub. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-13.
-    limit: "31.64 KB",
-    capMinified: 100961,
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 31.64 -> 31.78 KB, CI measured
+    // 31,765 B against `next` @ c818604's 31,694 (+71 B; 125 B over the
+    // cap; +418 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    limit: "31.78 KB",
+    capMinified: 101338,
     alias
   },
   {
