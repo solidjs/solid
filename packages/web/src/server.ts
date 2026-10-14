@@ -4235,8 +4235,20 @@ export function ssr(t) {
       result.t[lastOpen.seg] = seg.slice(0, lastOpen.off) + inject + seg.slice(lastOpen.off);
       prefix = result.t[lastOpen.seg].slice(lastOpen.off + inject.length);
     }
-    cap = { id, parts: [prefix], base: prefix };
+    cap = { id, parts: [prefix], base: prefix, at: result ? lastOpen.seg : 0, inject };
     return true;
+  };
+  // An in-tag hole escalated (its value is pending): the tag latches, and
+  // the address the capture spliced in goes with it (#4032). The resume
+  // re-renders this open tag and mints its own; a leftover would sit
+  // beside it and ride every rebuilt attr text, moving the element off its
+  // bound address on the first op. The address is unique, so the first
+  // match is the splice: in `s` before escalation, else in the tag's
+  // segment (`s` became `result.t[0]`).
+  const dropCap = () => {
+    if (result) result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
+    else s = s.replace(cap.inject, "");
+    cap = null;
   };
   for (let i = 1; i < len; i++) {
     const hole = arguments[i];
@@ -4288,7 +4300,7 @@ export function ssr(t) {
         } else {
           // Group escalation: the tag (if one is being captured) went
           // async mid-attrs — it latches.
-          cap = null;
+          if (cap) dropCap();
           result.h.push(ssrGroupSlot(lastGroupVal.fn, lastGroupIdx++));
           result.p.push(lastGroupVal.p);
           result.t.push("");
@@ -4358,7 +4370,7 @@ export function ssr(t) {
             cap.parts.push({ f: hole });
           } else {
             // The hole escalated mid-attrs: the tag latches.
-            cap = null;
+            dropCap();
           }
         }
       } else {
@@ -4374,7 +4386,7 @@ export function ssr(t) {
           }
         } else {
           // The hole escalated mid-attrs: the tag latches.
-          if (capturing) cap = null;
+          if (capturing) dropCap();
           result = { t: [s], h: [], p: [] };
           s = "";
           appendResolvedNode(result, r);
