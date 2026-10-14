@@ -5179,6 +5179,16 @@ module.exports = [
     // document ends with `</html>` again; the cost is the tail search and
     // splice in the marker helper, retained by renderToString. Accepted by
     // the maintainer (2026-10-13). The cap is frozen again at 20.51 KB.
+    // Size-Exception (#4043, 2026-10-14): 20.51 -> 20.55 KB, measured at
+    // 20,531 B against `next` @ d1cb8013's 20,497 (+34 B; 21 B over the cap;
+    // +155 B minified, 72,087 -> 72,242). A hole that escalates inside a
+    // server component carries the component's claims arming into its
+    // retry, so a boundary outside the component that resumes it still
+    // writes handler-position markers (`_s:on:click`); the cost is the arm
+    // in `buildAsyncWrap`'s retry wrapper, retained by renderToString.
+    // Accepted by the maintainer (2026-10-14), together with #4055's growth
+    // under one combined cap of about 20.58 KB: whichever of the two merges
+    // second re-measures on top of the first (#4055, below).
     // Size-Exception (#4032, 2026-10-14): 20.51 -> 20.56 KB, measured
     // locally at 20,555 B against `next` @ c8186046's 20,497 (+58 B; 45 B over
     // the cap; +131 B minified, 72,087 -> 72,218). An in-tag hole that
@@ -5189,7 +5199,10 @@ module.exports = [
     // on the link-claim bench, one allocation per template instance),
     // retained by renderToString. Accepted by the maintainer (2026-10-14) as
     // one combined cap with #4043 (+34 B); whichever of the two merges
-    // second re-measures and sets the cap.
+    // second re-measures and sets the cap. Merged second, on top of #4043:
+    // measured at 20,570 B against `next` @ f048691f's 20,531 (+39 B;
+    // +131 B minified, 72,242 -> 72,373). The combined cap is frozen at
+    // 20.58 KB, as the maintainer accepted.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
     // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
