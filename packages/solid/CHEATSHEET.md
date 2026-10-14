@@ -587,8 +587,10 @@ const v = await resolve(() => user());
 // Throw to signal "not ready" through the reactive graph (library authors).
 throw new NotReadyError();
 
-// 1.x-style path setter compat. Use only when migrating; draft-first is canonical.
-setStore(storePath("user", "address", "city", "Paris"));
+// 1.x path setters (setStore("user", "address", "city", "Paris")) become draft writes.
+setStore(s => {
+  s.user.address.city = "Paris";
+});
 ```
 
 ---

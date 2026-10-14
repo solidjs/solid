@@ -4401,8 +4401,10 @@ export async function handleServerFunctionRequest(request, options = {}) {
       if (isResponseEnvelope(result)) {
         const { response, value } = result;
         // consumers without the client runtime get the carried response
-        // whole — e.g. respond()'s real JSON body (invisible PE)
-        if (!scripted && !handleNoJS && response && response.body) {
+        // whole — e.g. respond()'s real JSON body (invisible PE) — when JSON
+        // carries the value faithfully; otherwise the value negotiates like
+        // a plain return below (a bigint would error that body, #4060)
+        if (!scripted && !handleNoJS && response && response.body && isJSONSafe(value)) {
           return response;
         }
         if (response && response.headers) {

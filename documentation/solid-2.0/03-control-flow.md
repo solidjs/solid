@@ -166,7 +166,7 @@ render(() => <App />, root, undefined, { onError });
 - No return: the client has no wire to map for. A throwing hook is reported on the console and ignored — a monitor never takes the app down.
 - Pay-for-use: the hook machinery rides with `Errored` or the app's own `configureClientErrors` import; a root's hook is parked on the root owner, so `render` retains nothing for an app that passes none.
 
-An effect's own error arm (`createEffect(compute, effect, onError)`) is the author handling the failure and is not reported here.
+An effect's own error arm (`createEffect(compute, { effect, error })`) is the author handling the failure and is not reported here.
 
 ### Dynamic components: the `dynamic` factory
 

@@ -93,7 +93,7 @@ on={latest(id)}: [A] → [A + spinner]  →  [B + spinner]  →  [B + comments]
 
 That is a capability, not a recommendation. The `[A + spinner]` frame is B's loading state inside A's page, for a change nothing else on the page reflects yet; reach for it only when that is what you mean.
 
-Because only the notification matters, the value returned by `on` is never compared: `on={() => { id(); return 1; }}` notifies whenever `id` changes, and an expression that reads nothing reactive never does. Optimistic writes to a dependency notify like any other write. A zero-argument function is a tracked accessor, not a callback.
+Because only the notification matters, the value of `on` is never compared: `on={(id(), 1)}` notifies whenever `id` changes even though its value is always `1`, and an expression that reads nothing reactive never does. Optimistic writes to a dependency notify like any other write. `on` takes a value, not a function: the compiler already wraps the expression so its reads are tracked, so `on={() => id()}` hands the boundary a function that nothing calls — it reads nothing and never notifies. Write the reads directly: `on={id()}`.
 
 ### `isPending(fn)` (in-flight change queries)
 
@@ -343,7 +343,7 @@ navigate(`/todos/${todos.at(-1).id}`);
 
 The promise is safe to ignore — fire-and-forget `refresh()` is unchanged, and a failed refetch never surfaces an unhandled rejection from an ignored promise. The semantics are quiescence, not flight identity: if a second refresh (or any invalidation) supersedes this one mid-flight, the promise waits for — and delivers — whatever finally lands. A failed re-ask rejects with the error. Awaiting does not change the quiet-re-ask contract: `isPending` still stays `false` for a bare refresh.
 
-Refresh granularity is the granularity of the _derive function_: refreshing a nested store node re-asks the whole family projection (there is no per-path refetch to re-run), though the promise still resolves with the node you passed. Inside actions, `yield refresh(x)` is the mutate-then-refetch sequencing primitive — see RFC 06.
+Refresh granularity is the granularity of the _derive function_: there is no per-path refetch to re-run, so refresh a derived store by passing its root (`refresh(todos)`, not `refresh(todos.items[0])`) — that re-asks the whole projection, and reads through any nested node after the `await` are fresh. Inside actions, `yield refresh(x)` is the mutate-then-refetch sequencing primitive — see RFC 06.
 
 #### `resource.mutate` → `createOptimisticStore` / `action`
 

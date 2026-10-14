@@ -126,7 +126,10 @@ const [cards, setCards] = createStore<Card[]>(
   []
 );
 
-const [card, setCard] = createSignal<Card>(prev => (prev?.pinned ? prev : source()));
+const [card, setCard] = createSignal<Card>(prev => {
+  const next = source(); // read unconditionally so the dependency survives while pinned
+  return prev?.pinned ? prev : next;
+});
 ```
 
 Setting `moveFailed` (or `pinned`) keeps the local value through later updates. Clearing it lets the next source change take over, even when both happen in the same update.
