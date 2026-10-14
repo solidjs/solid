@@ -4119,14 +4119,23 @@ module.exports = [
     // minified over the PR base. The frames client calls
     // installServerComponentHydration from installRevealHook. Cap set to that
     // measurement, not above it.
-    // #4042 (2026-10-14): measured at 11,469 B brotli / 34,304 B minified
-    // locally (base 11,426 / 34,211, matching CI) — +43 B brotli, +93 B
-    // minified. A document mount picks the unclaimed site whose `data-fa`
-    // matches its call's arguments, so sites minted out of mount order bind
-    // their own frames. Cap set to that measurement, not above it. Pending
-    // the maintainer's OK.
-    limit: "11.469 KB",
-    capMinified: 34304,
+    // Nested-region claim dedupe (2026-10-14): measured at 11,461 B brotli /
+    // 34,318 B minified locally against the 11.426 KB / 34,211 B cap (+35 B
+    // brotli, +107 B minified). Adopting a slot region swept every claimable
+    // element inside it, and each enclosing region's frame swept it again,
+    // so a link N regions deep was claimed N + 1 times (the router re-parses
+    // and re-matches its URL on every claim: ~116 ms at 4x CPU on the HN
+    // story page with a client toggle per comment). `adoptedBy` records
+    // which live frame's adoption claimed an element; other adoption sweeps
+    // skip it. Cap set to that measurement, not above it.
+    // #4042 (2026-10-14): measured at 11,495 B brotli / 34,411 B minified
+    // locally on top of the claim dedupe (+34 B brotli, +93 B minified). A
+    // document mount picks the unclaimed site whose `data-fa` matches its
+    // call's arguments, so sites minted out of mount order bind their own
+    // frames. Cap set to that measurement, not above it. Pending the
+    // maintainer's OK.
+    limit: "11.495 KB",
+    capMinified: 34411,
     alias: framesAlias,
     external: framesExternal
   },
