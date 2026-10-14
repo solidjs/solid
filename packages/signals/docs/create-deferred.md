@@ -443,7 +443,7 @@ supersedes that PR.
   a mark whose lifetime is the flight, not counted while a `refresh()`
   re-ask is in flight. Coverage is the probe-time dependency walk, which
   now hops a store slot to its family's derive; the repoll reaches a derived
-  store's leaf readers through the derive's `family`.
+  store's leaf readers through the derive's `fam`.
 - **Truth readers** (`refresh`'s waiter, `until`): `watch` throws
   `NotReadyError` for a deferred flight the value derives from
   (`GlobalQueue._lagging`), so they park; the mark's repoll at the landing

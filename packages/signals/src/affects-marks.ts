@@ -46,8 +46,13 @@ export function repoll(
     seen.add(sub);
     if (sub._config & readers) enqueueSub(sub);
     if (!(sub as any)._type) repoll(sub, seen, readers);
-    // A derived store's derive: its leaves' readers derive from it too.
-    (sub as any).family?.((n: Marked) => repoll(n, seen, CONFIG_VERDICT));
+    // A derived store's derive: its leaves' readers derive from it too
+    // (store/projection.ts; a live target's property, has and keys nodes).
+    const fam = (sub as any).fam;
+    if (fam)
+      for (const t of fam.live)
+        for (const o of [t.n, t.h, { k: t.k, d: t.dk }])
+          if (o) for (const k of Reflect.ownKeys(o)) o[k] && repoll(o[k], seen, CONFIG_VERDICT);
   }
 }
 

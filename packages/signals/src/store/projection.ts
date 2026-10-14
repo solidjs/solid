@@ -343,7 +343,7 @@ function createProjectionInternal<T extends object = {}>(
   fam.node = node;
   // The derive's leaves are not its dependents: a mark's repoll
   // (affects-marks.ts) reaches their readers through this.
-  (node as any).family = (fn: (n: Signal<any>) => void) => forEachFamilyNode(fam, fn);
+  (node as any).fam = fam;
   return { store, node } as { store: Refreshable<Store<T>>; node: Computed<void | T> };
 }
 
