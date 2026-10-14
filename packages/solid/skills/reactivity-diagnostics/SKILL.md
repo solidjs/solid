@@ -869,15 +869,15 @@ connection) are never judged.
 ### SSR_LIVE_HOLE_LATCHED
 
 A live markup hole (or attribute) in a server component shipped its markers
-and then stopped updating: re-running it would create reactive scopes
-(`data.cause: "owners"`) or emit slot records (`"records"`), so the runtime
-closed it and the client keeps the markup it last received. The usual cause
-is a condition on a property inside markup that re-renders from a live
-source, such as `{m.usage && <b>done</b>}`: the compiler wraps that condition
-in a memo, which a re-run would re-create. Read the property into a local
-first (`const usage = m.usage;` then `{usage && …}`), and keep components and
-memos out of markup that re-renders from a live source. The finding is
-located by the component the hole is in.
+and then stopped updating: re-running it created a reactive scope still
+waiting on async work (`data.cause: "owners"`) or emitted slot records
+(`"records"`), so the runtime closed it and the client keeps the markup it
+last received. Scopes that finish synchronously (a nested `<For>`, a
+condition memo such as `{m.usage && …}`, a component) are fine: each re-run
+gets a throwaway scope. The usual cause is a memo over a fetch or a stream
+created inside the markup that re-renders, which would restart on every
+re-run. Create the async source in the component body instead. The finding
+is located by the component the hole is in.
 
 ### LAZY_ASSET_UNMAPPED
 
