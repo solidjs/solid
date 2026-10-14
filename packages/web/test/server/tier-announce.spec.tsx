@@ -208,14 +208,16 @@ describe("tier announcement — stream face", () => {
 });
 
 describe("tier announcement — document face", () => {
-  it("announces nothing when nothing is minted: no record, no link", async () => {
+  it("announces an empty list when nothing is minted: an empty record, no link", async () => {
+    // The empty record tells the client the page minted no tier, so its slot
+    // walk skips the per-element marker scan the un-announced fallback runs.
     const Inline = frameTransformDirectResult(Plain, {
       id: "td-none",
       tierUrls: { bind: "/tier-bind.js" }
     }) as any;
     const html = await document(() => Inline({ children: () => <i>client</i> }));
     expect(html).toContain("<h1>Story</h1>");
-    expect(tiersRecord(html)).toBeUndefined();
+    expect(tiersRecord(html)).toEqual([]);
     expect(html).not.toContain("modulepreload");
   });
 
