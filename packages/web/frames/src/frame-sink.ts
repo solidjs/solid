@@ -2046,6 +2046,7 @@ function armDocumentLiveHoles(ctx) {
     if (live.holes) {
       ctx.commit = live.commit;
       ctx.commitEpoch = live.commitEpoch;
+      ctx.unsettled = live.unsettled;
     }
     return;
   }
@@ -2058,6 +2059,13 @@ function armDocumentLiveHoles(ctx) {
     if (live) live.holes = null;
     return;
   }
+  // Whether this document has served anything a later commit will replace
+  // (the core calls `ctx.unsettled` before such a value can be read: a
+  // pumped iterable, a loading value or seed ahead of its landing). Until
+  // then nothing a synchronous hole reads can change within the response,
+  // so the engine ships those holes unmarked and unbound — on a
+  // request/response page, every one of them.
+  let unsettled = false;
   const bindings = new Map();
   let epoch = 0;
   let sweepScheduled = false;
@@ -2141,10 +2149,14 @@ function armDocumentLiveHoles(ctx) {
         return epoch;
       }
     },
-    /* scoped */ true
+    /* scoped */ true,
+    /* settled */ () => !unsettled
   );
   ctx.commit = live.commit = scheduleSweep;
   ctx.commitEpoch = live.commitEpoch = () => epoch;
+  ctx.unsettled = live.unsettled = () => {
+    unsettled = true;
+  };
   // The document ARG ledger (DR-2 case 1 at t=0): slot-props invocations
   // open watched-arg bindings into the same sweep set as the holes, and a
   // re-emission ships the occurrence's whole record as a `slot` op on the
