@@ -256,10 +256,7 @@ export function blocked(t: Transaction): boolean {
   judge ??= t;
   // An action still running in it holds it open (action.ts). Its lanes
   // (lanes.ts): a lane under `t` blocks it while blocked itself.
-  const r =
-    t._open !== 0 ||
-    blockedBy(t._nodes, t) ||
-    (!!GlobalQueue._lanesBlocked && GlobalQueue._lanesBlocked(t));
+  const r = t._open !== 0 || blockedBy(t._nodes, t) || !!GlobalQueue._lanesBlocked?.(t);
   judge = prev;
   return r;
 }
@@ -354,10 +351,7 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
  * everything under it, so a reader there is not on screen and holds
  * nothing — boundaries.ts). */
 function onScreen(r: Computed<any>, t: Transaction): boolean {
-  return (
-    !(r._flags & REACTIVE_ZOMBIE && removalStagedBy(r, t)) &&
-    !(GlobalQueue._hidden && GlobalQueue._hidden(r))
-  );
+  return !(r._flags & REACTIVE_ZOMBIE && removalStagedBy(r, t)) && !GlobalQueue._hidden?.(r);
 }
 /** A15 (#3463): a reader whose removal is staged — a zombie, parked by a
  * pass awaiting its commit — is still on screen and live for every hold,
@@ -367,10 +361,9 @@ function onScreen(r: Computed<any>, t: Transaction): boolean {
  * the nearest non-zombie ancestor. */
 function removalStagedBy(r: Computed<any>, t: Transaction): boolean {
   let o: Owner | null = r;
-  while (o !== null && (o as any)._flags & REACTIVE_ZOMBIE) o = o._parent;
+  while ((o as any)?._flags & REACTIVE_ZOMBIE) o = o!._parent;
   return (
-    o !== null &&
-    (o._config & CONFIG_HELD) !== 0 &&
+    !!((o?._config as number) & CONFIG_HELD) &&
     (o as any)._x?._transaction != null &&
     txOf(o as any) === resolveTx(t)
   );
@@ -435,6 +428,26 @@ function holdFrame(owner: Owner, t: Transaction): void {
     }
     holdFrame(c, t);
   }
+}
+
+/** The nodes under `owner` a transaction other than `t` holds (boundaries.ts:
+ * what an earlier hold staged under a re-armed boundary). */
+export function heldUnder(
+  owner: Owner,
+  t: Transaction | null,
+  fn: (n: Computed<any>) => void
+): void {
+  for (let c = owner._firstChild; c !== null; c = c._nextSibling) {
+    if ((c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD && txOf(c as any) !== t)
+      fn(c as Computed<any>);
+    heldUnder(c, t, fn);
+  }
+}
+
+/** `n` leaves the hold it was staged in: its next pass publishes mainline. */
+export function unhold(n: Signal<any>): void {
+  n._x!._transaction = null;
+  n._config &= ~CONFIG_HELD;
 }
 
 export const dirtyQueue: Heap = {
@@ -956,7 +969,7 @@ export class GlobalQueue implements IQueue {
    * first: a fallback catches what is not ready under it, and the root
    * never hears of it. */
   notify(node: Computed<any>, mask: number, flags: number, error?: any): boolean {
-    if (GlobalQueue._catch && GlobalQueue._catch(node, flags & mask, error)) return true;
+    if (GlobalQueue._catch?.(node, flags & mask, error)) return true;
     if (mask & STATUS_PENDING) {
       if (flags & STATUS_PENDING) {
         if (__DEV__ && _enforceLoadingBoundary) _hitUnhandledAsync = true;

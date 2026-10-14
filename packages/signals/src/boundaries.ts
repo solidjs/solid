@@ -48,7 +48,6 @@ import {
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
-  NOT_PENDING,
   REACTIVE_DISPOSED,
   REACTIVE_LANE_READ,
   REACTIVE_ZOMBIE,
@@ -64,10 +63,12 @@ import { link } from "./core/graph.js";
 import { enqueueSub } from "./core/heap.js";
 import { cleanup, createOwner, dispose, getOwner } from "./core/owner.js";
 import {
+  clock,
   flushTransaction,
   GlobalQueue,
   globalQueue,
   haltReactivity,
+  heldUnder,
   joinFuture,
   passLane,
   passTx,
@@ -75,6 +76,7 @@ import {
   schedule,
   setPassLane,
   txOf,
+  unhold,
   type Transaction
 } from "./core/scheduler.js";
 import { attrHooks } from "./core/attribution-hooks.js";
@@ -199,6 +201,8 @@ function caught(b: Boundary, node: Computed<any>, error: unknown): void {
 function flip(b: Boundary): void {
   b._initialized = false;
   b._lane = b._armLane;
+  const o = b._output!;
+  if (!b._lane && o._config & CONFIG_HELD && txOf(o) !== flushTransaction) unhold(o);
   if (b._lane !== null && b._output !== null)
     GlobalQueue._laneStage!(b._output, b._lane, true, false);
 }
@@ -247,6 +251,13 @@ function catchStatus(
     record(b, node);
   }
   return false;
+}
+
+/** The nearest loading boundary that would catch `node` was re-armed this
+ * flush. */
+function armedOver(node: Computed<any>): boolean | undefined {
+  for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent)
+    if (b._type & STATUS_PENDING && isCollecting(b)) return b._armed;
 }
 
 /** The nearest boundary on `r`'s chain showing its fallback, if any
@@ -306,7 +317,10 @@ export function prune(b: Boundary, pass: boolean): number {
   for (const r of b._readers) {
     if (r._flags & REACTIVE_DISPOSED) b._readers.delete(r);
     else if (!(r._statusFlags & mask)) {
-      if (r !== b._tree && (r._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD) {
+      if (
+        (r !== b._tree || b._armed) &&
+        (r._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
+      ) {
         // Landed, held: the content is that transaction's — the output's
         // pass enters it and the reveal lands with the reader's run. The
         // seam, past its park decision, waits for the commit instead. (A
@@ -351,6 +365,18 @@ function boundarySeam(): void {
     // A parked frame's boundary (zombie) keeps its state for its revival.
     if (flags & REACTIVE_ZOMBIE) continue;
     prune(b, false);
+    const o = b._output!;
+    if (
+      b._armed &&
+      !b._initialized &&
+      o._config & CONFIG_HELD &&
+      [...b._readers].every(
+        r => !(r._statusFlags & STATUS_PENDING) && r._config & CONFIG_HELD && txOf(r) === txOf(o)
+      )
+    ) {
+      b._readers.clear();
+      b._initialized = true;
+    }
     if (__DEV__ && b._armed && !b._initialized && !b._ahead) reportOutsideHold(b);
     b._armed = false;
     if (b._readers.size === 0) {
@@ -387,6 +413,9 @@ function reportOutsideHold(b: Boundary): void {
     const sources = r._x?._pendingSources;
     if (sources === undefined) continue;
     for (const source of sources) {
+      // Only the flight the change itself started (D-16): an outside reader
+      // of an earlier write's flight holds nothing the change waits on.
+      if (source._time !== clock) continue;
       for (let s = source._subs; s !== null; s = s._nextSub) {
         if (!outside(s._sub, true)) continue;
         const name = (source as any)._name as string | undefined;
@@ -459,8 +488,13 @@ function arm(b: Boundary): void {
   b._armLane = lane;
   if (__DEV__) b._ahead = lane !== null;
   collecting.add(b);
+  const n = b._readers.size;
+  heldUnder(b._owner, flushTransaction, r => record(b, r));
   for (const r of b._readers) {
-    if (r._statusFlags & STATUS_PENDING && !(r._flags & REACTIVE_DISPOSED)) {
+    if (
+      b._readers.size !== n ||
+      (r._statusFlags & STATUS_PENDING && !(r._flags & REACTIVE_DISPOSED))
+    ) {
       // What it collects was forwarded through it to the boundaries above
       // too (`catchStatus` records a reader in every boundary on the way).
       // It is this boundary's alone now (B5, the nearest catcher): an outer
@@ -821,7 +855,8 @@ export function createErrorBoundary<T, U>(
 // boundary. An app without one pays the three null checks and nothing else.
 GlobalQueue._catch = catchStatus;
 GlobalQueue._fresh = (node, held) =>
-  !held && node._statusFlags & STATUS_UNINITIALIZED && catchStatus(node, STATUS_PENDING);
+  !held &&
+  (node._statusFlags & STATUS_UNINITIALIZED ? catchStatus(node, STATUS_PENDING) : armedOver(node));
 GlobalQueue._hidden = hiddenBy;
 GlobalQueue._boundarySeam = boundarySeam;
 GlobalQueue._heldRun = heldRun;

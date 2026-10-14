@@ -10,9 +10,10 @@
  * publishes, and the content appears at the hold's commit. Outside such a
  * boundary, A15 and the direction rule are unchanged.
  *
- * Re-arm (`on`) under the boundary scope is deferred to a separate change,
- * pending its ruling: those shapes keep next's behavior and are pinned
- * `it.fails` with the ruled display.
+ * Re-arm (`on`) under the boundary scope (U-9, D-14/D-16): a boundary
+ * re-armed by a change that does not join the hold owns its content — what
+ * reads the hold under it waits behind the fallback, and the hold does not
+ * wait for it.
  *
  * Each case is traced on the pre-L2 core (41fdf9696) too; the notes say
  * where it differs and the ruling that explains it. Sources: `held` — the
@@ -438,10 +439,10 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
     ],
     // A re-armed ancestor: the content is pending and its fallback shows
     // now — nothing else holds the re-arming frame (#3575). In flight, as
-    // pre-L2. Held (the ruled display, pinned `it.fails`: re-arm under the
-    // boundary scope is deferred): pre-L2 shows the committed value
-    // (`open fresh 0`, a tear under L2's A29); `next` holds the whole mount
-    // for the commit.
+    // pre-L2. Held (U-9): the mount's pass reads the hold as the boundary's,
+    // not the tick's, so the fallback shows now and the content at the
+    // commit; pre-L2 shows the committed value (`open fresh 0`, a tear under
+    // L2's A29).
     "rearmed outer held memo": [
       "outer outer fallback | o1 i1",
       "open fresh 1 · outer outer · x 1 | o0 i0",
@@ -514,91 +515,85 @@ describe("#3540: the catcher is whoever `catchStatus` would catch at — at any 
   for (const shape of ["unrevealed", "rearmed outer", "revealed", "rearmed", "plain"] as Shape[])
     for (const source of ["held", "flight"] as Source[])
       for (const kind of ["memo", "bound"] as Content[])
-        // Re-arm over a held write: content bound by a render effect is caught
-        // (a boundary that has not shown content keeps a held reader, #3540);
-        // content through a memo is still deferred to the re-arm change.
-        (source === "held" && shape.startsWith("rearmed") && kind === "memo" ? it.fails : it)(
-          `${shape}, ${source}, content ${kind}`,
-          async () => {
-            const log: string[] = [];
-            const [open, setOpen] = createSignal(false);
-            let resolveGate: (() => void) | undefined;
-            let w!: ReturnType<typeof world>;
-            let outerOwner: object | undefined;
-            let innerOwner!: object;
-            let outer: (() => unknown) | undefined;
-            let inner!: () => unknown;
-            const innerFn = () => {
-              innerOwner = getOwner()!;
-              createRenderEffect(
-                () => (open() ? content(kind, w.read, log, "fresh")() : false),
-                v => {
-                  log.push(`open ${v}`);
-                }
-              );
-              return "inner";
-            };
-            const showInner = (on?: () => unknown) => {
-              inner = Loading(innerFn, "inner fallback", on);
-              createRenderEffect(inner, v => {
-                log.push(`inner ${v}`);
-              });
-            };
-            createRoot(() => {
-              w = world(source, log);
-              if (shape === "rearmed" || shape === "plain")
-                return showInner(shape === "rearmed" ? open : undefined);
-              outer = Loading(
-                () => {
-                  outerOwner = getOwner()!;
-                  showInner();
-                  if (shape === "unrevealed") {
-                    const gate = createMemo(
-                      () => new Promise<string>(r => (resolveGate = () => r("gate")))
-                    );
-                    createRenderEffect(gate, v => {
-                      log.push(`gate ${v}`);
-                    });
-                  }
-                  return "outer";
-                },
-                "outer fallback",
-                shape === "rearmed outer" ? open : undefined
-              );
-              createRenderEffect(outer, v => {
-                log.push(`outer ${v}`);
-              });
-            });
-            flush();
-            await w.settle();
-            const end = w.begin();
-            log.length = 0;
-            const steps = [
-              () => (setOpen(true), flush()),
-              end,
-              w.settle,
-              async () => {
-                resolveGate?.();
-                await tick();
+        it(`${shape}, ${source}, content ${kind}`, async () => {
+          const log: string[] = [];
+          const [open, setOpen] = createSignal(false);
+          let resolveGate: (() => void) | undefined;
+          let w!: ReturnType<typeof world>;
+          let outerOwner: object | undefined;
+          let innerOwner!: object;
+          let outer: (() => unknown) | undefined;
+          let inner!: () => unknown;
+          const innerFn = () => {
+            innerOwner = getOwner()!;
+            createRenderEffect(
+              () => (open() ? content(kind, w.read, log, "fresh")() : false),
+              v => {
+                log.push(`open ${v}`);
               }
-            ];
-            const readers = (): [string, number | undefined][] =>
-              outer
-                ? [
-                    ["o", readersOf(outerOwner)],
-                    ["i", readersOf(innerOwner)]
-                  ]
-                : [["i", readersOf(innerOwner)]];
-            const pending = () => [
-              ...(outer && isPending(() => outer!()) ? ["o"] : []),
-              ...(isPending(() => inner()) ? ["i"] : [])
-            ];
-            const out = await trace(steps, log, readers, pending);
-            // The gate step reports the log only.
-            out[3] = out[3].split(" | ")[0];
-            expect(out).toEqual(expected[`${shape} ${source} ${kind}`]);
-          }
-        );
+            );
+            return "inner";
+          };
+          const showInner = (on?: () => unknown) => {
+            inner = Loading(innerFn, "inner fallback", on);
+            createRenderEffect(inner, v => {
+              log.push(`inner ${v}`);
+            });
+          };
+          createRoot(() => {
+            w = world(source, log);
+            if (shape === "rearmed" || shape === "plain")
+              return showInner(shape === "rearmed" ? open : undefined);
+            outer = Loading(
+              () => {
+                outerOwner = getOwner()!;
+                showInner();
+                if (shape === "unrevealed") {
+                  const gate = createMemo(
+                    () => new Promise<string>(r => (resolveGate = () => r("gate")))
+                  );
+                  createRenderEffect(gate, v => {
+                    log.push(`gate ${v}`);
+                  });
+                }
+                return "outer";
+              },
+              "outer fallback",
+              shape === "rearmed outer" ? open : undefined
+            );
+            createRenderEffect(outer, v => {
+              log.push(`outer ${v}`);
+            });
+          });
+          flush();
+          await w.settle();
+          const end = w.begin();
+          log.length = 0;
+          const steps = [
+            () => (setOpen(true), flush()),
+            end,
+            w.settle,
+            async () => {
+              resolveGate?.();
+              await tick();
+            }
+          ];
+          const readers = (): [string, number | undefined][] =>
+            outer
+              ? [
+                  ["o", readersOf(outerOwner)],
+                  ["i", readersOf(innerOwner)]
+                ]
+              : [["i", readersOf(innerOwner)]];
+          const pending = () => [
+            ...(outer && isPending(() => outer!()) ? ["o"] : []),
+            ...(isPending(() => inner()) ? ["i"] : [])
+          ];
+          const out = await trace(steps, log, readers, pending);
+          // The gate step reports the log only.
+          out[3] = out[3].split(" | ")[0];
+          expect(out).toEqual(expected[`${shape} ${source} ${kind}`]);
+        });
 
   /**
    * A revealed outer Loading; a Show under it mounts, in the flush, a fresh
@@ -800,22 +795,23 @@ describe("#3540: the boundary scope — committed content, held mounts, no catch
   // Committed content under a revealed boundary, re-run by a plain write
   // to `key` while the hold is up. With `on: key` the boundary is re-armed
   // and owns its subtree: the content that reads the hold waits behind the
-  // fallback, and the hold does not wait for it (the ruled display, pinned
-  // `it.fails`: re-arm under the boundary scope is deferred). Pre-L2 and
-  // `next` show no fallback: the content joins the hold (`next` reports the
-  // boundary pending). Without `on`: A15, the content joins the hold — as
-  // pre-L2 and next. (`memo`:
+  // fallback, and the hold does not wait for it (U-9; pre-L2 showed no
+  // fallback: the content joined the hold). Held, the re-armed content's
+  // derivation is staged in the hold, so `latest` serves it (A11, as for a
+  // fresh boundary's content above); in flight the boundary waits on every
+  // reader it caught or collected. Without `on`: A15, the content joins the
+  // hold — as pre-L2 and next. (`memo`:
   // the boundary's own render reads `m`, so its re-run creates a fresh
   // memo — no value until it loads; `bound`: the binding re-runs over the
   // committed memo, pending with its committed value.)
   const committed: Record<string, string[]> = {
     "held rearmed memo": [
-      "view fallback | readers=1 view=false m=false latest=throws NotReadyError",
+      "view fallback | readers=1 view=false m=false latest=c1 1",
       "view c1 1 · x 1 | readers=0 view=false m=false latest=c1 1",
       " | readers=0 view=false m=false latest=c1 1"
     ],
     "held rearmed bound": [
-      "view fallback | readers=1 view=false m=true latest=c0 0",
+      "view fallback | readers=1 view=false m=true latest=c1 1",
       "text c1 1 · view p · x 1 | readers=0 view=false m=false latest=c1 1",
       " | readers=0 view=false m=false latest=c1 1"
     ],
@@ -832,12 +828,12 @@ describe("#3540: the boundary scope — committed content, held mounts, no catch
       " | readers=0 view=false m=false latest=c1 1"
     ],
     "flight rearmed memo": [
-      "view fallback | readers=1 view=false m=true latest=c0 0",
+      "view fallback | readers=3 view=false m=true latest=c0 0",
       "holder 1 · view c1 1 | readers=0 view=false m=false latest=c1 1",
       " | readers=0 view=false m=false latest=c1 1"
     ],
     "flight rearmed bound": [
-      "view fallback | readers=1 view=false m=true latest=c0 0",
+      "view fallback | readers=2 view=false m=true latest=c0 0",
       "holder 1 · text c1 1 · view p | readers=0 view=false m=false latest=c1 1",
       " | readers=0 view=false m=false latest=c1 1"
     ],
@@ -855,51 +851,47 @@ describe("#3540: the boundary scope — committed content, held mounts, no catch
   for (const source of ["held", "flight"] as Source[])
     for (const withOn of [true, false])
       for (const kind of ["memo", "bound"] as Content[])
-        // Re-arm over committed content: deferred to the re-arm change, pending its ruling.
-        (withOn ? it.fails : it)(
-          `${source}, committed content ${withOn ? "under a re-armed boundary" : "under a plain boundary"}, ${kind}`,
-          async () => {
-            const log: string[] = [];
-            const [key, setKey] = createSignal(0);
-            let w!: ReturnType<typeof world>;
-            let m!: () => string;
-            let view!: () => unknown;
-            let owner: object | undefined;
-            createRoot(() => {
-              w = world(source, log);
-              view = Loading(
-                () => {
-                  owner = getOwner()!;
-                  m = createMemo(() => `c${key()} ${w.read()}`);
-                  if (kind === "memo") return m();
-                  createRenderEffect(m, v => {
-                    log.push(`text ${v}`);
-                  });
-                  return "p";
-                },
-                "fallback",
-                withOn ? key : undefined
-              );
-              createRenderEffect(view, v => {
-                log.push(`view ${v}`);
-              });
-            });
-            flush();
-            await w.settle();
-            const out = await steps(
-              log,
-              w,
-              () => setKey(1),
-              () => ({
-                readers: readersOf(owner),
-                view: verdict(() => view(), "pending"),
-                m: verdict(() => m(), "pending"),
-                latest: verdict(() => m(), "latest")
-              })
+        it(`${source}, committed content ${withOn ? "under a re-armed boundary" : "under a plain boundary"}, ${kind}`, async () => {
+          const log: string[] = [];
+          const [key, setKey] = createSignal(0);
+          let w!: ReturnType<typeof world>;
+          let m!: () => string;
+          let view!: () => unknown;
+          let owner: object | undefined;
+          createRoot(() => {
+            w = world(source, log);
+            view = Loading(
+              () => {
+                owner = getOwner()!;
+                m = createMemo(() => `c${key()} ${w.read()}`);
+                if (kind === "memo") return m();
+                createRenderEffect(m, v => {
+                  log.push(`text ${v}`);
+                });
+                return "p";
+              },
+              "fallback",
+              withOn ? key : undefined
             );
-            expect(out).toEqual(committed[`${source} ${withOn ? "rearmed" : "plain"} ${kind}`]);
-          }
-        );
+            createRenderEffect(view, v => {
+              log.push(`view ${v}`);
+            });
+          });
+          flush();
+          await w.settle();
+          const out = await steps(
+            log,
+            w,
+            () => setKey(1),
+            () => ({
+              readers: readersOf(owner),
+              view: verdict(() => view(), "pending"),
+              m: verdict(() => m(), "pending"),
+              latest: verdict(() => m(), "latest")
+            })
+          );
+          expect(out).toEqual(committed[`${source} ${withOn ? "rearmed" : "plain"} ${kind}`]);
+        });
 
   // A boundary mounted as part of the hold — `<Show when={x()}>`'s memo
   // creates it, at top level or in a revealed boundary: it appears at the
@@ -1017,9 +1009,7 @@ describe("#3540: the boundary scope — semantic fuzzer findings (rev 19, seed 9
   // of it is a read of content the boundary owns, so the tree leaves the
   // transaction and re-derives (pending under the boundary) rather than
   // being recorded as a settled reader — which redrew the boundary forever.
-  // Re-arm under the boundary scope is deferred, pending its ruling: next's
-  // display here is the held content, no fallback.
-  it.fails("a held tree under a re-armed boundary re-derives — no redraw loop", async () => {
+  it("a held tree under a re-armed boundary re-derives — no redraw loop", async () => {
     const [s1, setS1] = createSignal(0);
     const [s2, setS2] = createSignal(0);
     const [visible, setShow] = createSignal(true);

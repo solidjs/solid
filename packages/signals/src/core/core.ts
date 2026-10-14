@@ -325,7 +325,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // a sync write (#3460). The pass is the lane's if it reads the lane's
       // world (`read`), and has left it otherwise.
       if (tx._lane) {
-      } else if (isEffect !== EFFECT_RENDER && !(el._config & CONFIG_VERDICT)) joinPassTx(tx);
+      } else if (isEffect !== EFFECT_RENDER && !(el._config & CONFIG_VERDICT))
+        joinPassTx(tx, GlobalQueue._fresh?.(el, el._statusFlags & STATUS_UNINITIALIZED));
       else if (
         tx !== flushTransaction &&
         !(el._statusFlags & STATUS_UNINITIALIZED || el._config & CONFIG_HELD_FRAME)

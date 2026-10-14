@@ -907,7 +907,8 @@ export function propagateStatus(
       if (
         passLane === null &&
         (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
-        globalQueue._running
+        globalQueue._running &&
+        !GlobalQueue._fresh?.(sub, pendingSource._time === clock)
       )
         joinFuture(txOf(sub));
       return;
