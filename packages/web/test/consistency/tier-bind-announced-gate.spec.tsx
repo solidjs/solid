@@ -190,4 +190,35 @@ describe("the bind tier — the announcement gates the scan", () => {
     expect(hydrationInProgress()).toBe(false);
     expect(page!.errors).toEqual([]);
   });
+
+  test("announced but not resident: the held walk skips elements, so the page is scanned for `_s:*` attributes once, after the tier installs", async () => {
+    const f = boot(["bind"]);
+    const doc = document;
+    const orig = doc.createTreeWalker;
+    const masks: number[] = [];
+    doc.createTreeWalker = function (
+      this: Document,
+      root: Node,
+      mask?: number,
+      filter?: NodeFilter | null
+    ) {
+      masks.push(mask ?? 0xffffffff);
+      return orig.call(this, root, mask, filter);
+    } as typeof doc.createTreeWalker;
+    try {
+      f.start();
+      await quiesce();
+      expect(hydrationInProgress()).toBe(true);
+      expect(masks.filter(m => m & 1)).toEqual([]);
+      f.bind.release(await import("../../frames/src/bind-tier.js"));
+      await quiesce();
+      await quiesce();
+      expect(masks.filter(m => m & 1).length).toBe(1);
+    } finally {
+      doc.createTreeWalker = orig;
+    }
+    expect(f.mounted).toEqual(["a"]);
+    expect(hydrationInProgress()).toBe(false);
+    expect(page!.errors).toEqual([]);
+  });
 });

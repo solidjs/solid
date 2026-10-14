@@ -4139,9 +4139,22 @@ module.exports = [
     // hydration trace is not cached, and waits are released when hydration
     // ends as well as on reveals, so a data server function called during
     // hydration reaches the network. Cap set to that measurement, not above
-    // it. Pending the maintainer's OK.
-    limit: "11.522 KB",
-    capMinified: 34465,
+    // it. Accepted by the maintainer (2026-10-14).
+    // Bind-tier single scan (2026-10-14): measured at 11,509 B brotli /
+    // 34,449 B minified locally (+14 B brotli, +38 B minified). While the bind
+    // tier is loading but not resident, the slot sync marks the frame held
+    // and walks comments only instead of scanning every element for `_s:*`
+    // attributes; the install's flush does the one scan with the tier in
+    // place (HN story page with binding slots: 20,750 -> 10,375 elements
+    // visited, 15,308 -> 7,658 attribute reads). Cap set to that
+    // measurement, not above it. Accepted by the maintainer (2026-10-14).
+    // The final shape (the check moved into the sync, leaving the walk as it
+    // was) measures 11,515 B brotli / 34,445 B minified: within the minified
+    // allowance, so the cap stays. On top of #4033 (merged first): measured
+    // at 11,540 B brotli / 34,499 B minified (+18 B brotli, +34 B minified
+    // over 11,522 / 34,465). Accepted by the maintainer (2026-10-14).
+    limit: "11.54 KB",
+    capMinified: 34499,
     alias: framesAlias,
     external: framesExternal
   },
