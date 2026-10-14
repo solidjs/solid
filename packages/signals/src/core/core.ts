@@ -28,6 +28,7 @@ import {
   CONFIG_PROMOTED,
   CONFIG_STAGED,
   CONFIG_HELD_FRAME,
+  CAUGHT_REARMED,
   CONFIG_SYNC,
   CONFIG_TRANSPARENT,
   defaultContext,
@@ -730,8 +731,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // A first pass that went pending where the born-held arm would have held
   // its value (it read a held node, or a verdict lane's mount read a staging,
   // #3851) is held like it: its answer is the hold's, and the hold waits
-  // for it (A29, #3800) — unless a boundary that has not shown content
-  // catches it: then it is the boundary's, and the hold does not wait (#3540).
+  // for it (A29, #3800). A boundary that has not shown content catches it
+  // and it is held all the same — its answer reveals no earlier than the
+  // hold's commit (D-12) — but the hold does not wait for it: its only
+  // readers are behind the fallback (`_hidden`; F-4, #3540). A boundary
+  // re-armed by `on` owns what it collects outright (D-14): not held.
   if (
     create &&
     lane === null &&
@@ -739,7 +743,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     el._statusFlags & STATUS_PENDING
   ) {
     const t = flushTransaction ?? passTx;
-    if (t !== null && !t._lane && !GlobalQueue._fresh?.(el)) holdNode(el, t);
+    if (t && !t._lane && GlobalQueue._fresh?.(el) !== CAUGHT_REARMED) holdNode(el, t);
   }
   // Dependencies are the committed frame's until it is replaced (A30, #3410):
   // a pass that staged its value leaves the previous pass's tail linked for

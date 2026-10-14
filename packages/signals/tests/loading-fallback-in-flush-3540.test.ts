@@ -741,9 +741,11 @@ describe("#3540: the boundary scope — committed content, held mounts, no catch
   // committed or staged value (`content 0` in a flush, a tear under A29;
   // `content 1` from mainline); `next` reports the boundary pending while
   // it holds the mount. (Readers: the content's catch walk records it once
-  // more than the normal path, until the commit.)
+  // more than the normal path, until the commit; in flight every first pass
+  // under the boundary — the memo, the children, the tree — is caught and
+  // held with the hold, D-12.)
   const observe = (source: Source, x1: string) => [
-    `view fallback | readers=2 view=false m=false latest=${source === "held" ? "content 1" : "throws NotReadyError"}`,
+    `view fallback | readers=${source === "held" ? 2 : 3} view=false m=false latest=${source === "held" ? "content 1" : "throws NotReadyError"}`,
     `${[x1, "view content 1"].sort().join(" · ")} | readers=0 view=false m=false latest=content 1`,
     " | readers=0 view=false m=false latest=content 1"
   ];

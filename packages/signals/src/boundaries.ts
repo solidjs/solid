@@ -40,6 +40,7 @@
  * change's frame; nothing pending, and the arm is a no-op at the seam.
  */
 import {
+  CAUGHT_REARMED,
   CONFIG_REDERIVE,
   CONFIG_HELD,
   CONFIG_OVERRIDE,
@@ -212,7 +213,11 @@ export function redraw(b: Boundary): void {
 /** GlobalQueue._catch: status from a frame reader, nearest boundary first.
  * A loading boundary on the way records a pending reader whether or not it
  * catches it (its `on` may collect it later). */
-function catchStatus(node: Computed<any>, flags: number, error?: unknown): boolean {
+function catchStatus(
+  node: Computed<any>,
+  flags: number,
+  error?: unknown
+): boolean | typeof CAUGHT_REARMED {
   if (flags === 0) {
     // A status cleared. Judged by the node's status now, against each
     // boundary's own rule (`unsettled`) — the error path clears pending
@@ -222,7 +227,7 @@ function catchStatus(node: Computed<any>, flags: number, error?: unknown): boole
     // lands with its run, not a round after). Others still waiting: nothing
     // on screen changes, the fallback stays as it is.
     if (collecting.size !== 0)
-      for (let b = boundaryOf(node); b !== undefined; b = b._parent ?? undefined)
+      for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent)
         if (
           !(node._statusFlags & unsettled(b)) &&
           b._readers.delete(node) &&
@@ -233,11 +238,11 @@ function catchStatus(node: Computed<any>, flags: number, error?: unknown): boole
         }
     return false;
   }
-  for (let b = boundaryOf(node); b !== undefined; b = b._parent ?? undefined) {
+  for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent) {
     if (!(b._type & flags)) continue;
     if (isCollecting(b)) {
       caught(b, node, error);
-      return true;
+      return b._armed ? CAUGHT_REARMED : true;
     }
     record(b, node);
   }
@@ -247,7 +252,7 @@ function catchStatus(node: Computed<any>, flags: number, error?: unknown): boole
 /** The nearest boundary on `r`'s chain showing its fallback, if any
  * (GlobalQueue._hidden: `r` is behind a fallback). */
 function hiddenBy(r: Computed<any>): Boundary | undefined {
-  for (let b = boundaryOf(r); b !== undefined; b = b._parent ?? undefined)
+  for (let b: Boundary | null | undefined = boundaryOf(r); b; b = b._parent)
     if (b._fallback) return b;
   return undefined;
 }
@@ -374,7 +379,7 @@ function reportOutsideHold(b: Boundary): void {
       return false;
     }
     if (hiddenBy(reader)) return false;
-    for (let o = boundaryOf(reader); o !== undefined; o = o._parent ?? undefined)
+    for (let o: Boundary | null | undefined = boundaryOf(reader); o; o = o._parent)
       if (o === b) return false;
     return true;
   };
