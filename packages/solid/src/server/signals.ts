@@ -3156,10 +3156,25 @@ export function mapArray<T, U>(
   // per evaluation (#2976). Evaluating it in the row id space would both
   // misplace that allocation and shift the row base by one.
   const rowOwner = createOwner() as unknown as SSROwner;
+  // Rows kept across live-hole sweeps (#4056). A markup hole that re-emits
+  // (a live response, a standing source) re-evaluates its whole value on
+  // every commit, and without this every row re-ran `mapFn` each time — a
+  // list's render cost paid per write. During a sweep a row whose item is
+  // the same reference at the same index reuses the row it rendered on the
+  // previous sweep, as the client's `For` keeps its rows. Sweeps only: a
+  // sweep's evaluation is mint-suppressed and owner-free (the engine's
+  // impurity gate closes any hole that creates owners), so a row from one
+  // sweep carries no markers or bindings that another could duplicate. The
+  // first render and its retries never read or fill the cache, so their
+  // ids and minting are exactly as before.
+  let kept: { items: readonly T[]; rows: U[] } | null = null;
   const read = createMemo(
     () => {
       const items = list();
       const s: U[] = [];
+      const live = (sharedConfig.context as any)?.liveHoles;
+      const sweeping = !!(live && live.sweeping);
+      const prev = sweeping ? kept : null;
       // Reset per pass so retries re-synthesize row/fallback ids from 0,
       // like the client's fresh row owners on its first successful pass.
       rowOwner._childCount = 0;
@@ -3170,6 +3185,10 @@ export function mapArray<T, U>(
           const origId = ownerId(rowOwner);
           try {
             for (let i = 0, len = items.length; i < len; i++) {
+              if (prev && i < prev.items.length && prev.items[i] === items[i]) {
+                s.push(prev.rows[i]);
+                continue;
+              }
               if (origId !== undefined) {
                 rowOwner.id = formatChildId(origId, i);
               }
@@ -3200,6 +3219,7 @@ export function mapArray<T, U>(
         const fo = runWithOwner(rowOwner as unknown as Owner, () => createOwner());
         s.push(runWithOwner(fo, () => options.fallback!()) as U);
       }
+      kept = sweeping && items && items.length ? { items: items.slice(), rows: s } : null;
       return s;
     },
     { sync: true }

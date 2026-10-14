@@ -85,6 +85,18 @@ const getThread = liveQuery(
         const view = createMemo(() => db.watchThread(id, gone.signal));
 
         const block = props.codeBlock();
+        // The finished messages as rows the server can keep: each write
+        // gives back the previous row object when nothing on it changed, so
+        // `<For>` reuses the row it already rendered instead of running the
+        // markdown again (#4056). A row is what it shows, `last` included.
+        const keep = keeper();
+        const finished = createMemo(() => {
+          const messages = view().messages;
+          const lastId = messages.at(-1)?.id;
+          return messages
+            .filter(m => m.status !== "generating")
+            .map(m => keep(m.id, { message: m, last: m.id === lastId }));
+        });
 
         return (
           <article class="thread">
@@ -93,7 +105,7 @@ const getThread = liveQuery(
               <p class="muted">Answered by {model.modelName()}</p>
             </header>
             <ol class="messages">
-              {messagesMarkup(view().messages, false, block)}
+              <For each={finished()}>{row => messageMarkup(row.message, block, row.last)}</For>
               {messagesMarkup(view().messages, true, block)}
             </ol>
             {/* Keyed by thread: going to another conversation is a new
@@ -128,6 +140,29 @@ function headMarkup(thread: Thread | undefined) {
       </form>
     </div>
   );
+}
+
+type Row = { message: Message; last: boolean };
+
+// Hands back the row it gave last time under `id` when every field the row
+// shows is unchanged, so the row keeps its identity across writes.
+function keeper() {
+  const rows = new Map<string, Row>();
+  return (id: string, next: Row): Row => {
+    const prev = rows.get(id);
+    const same =
+      prev &&
+      prev.last === next.last &&
+      (Object.keys(next.message) as (keyof Message)[]).every(
+        k =>
+          prev.message[k] === next.message[k] ||
+          (k === "usage" &&
+            JSON.stringify(prev.message.usage) === JSON.stringify(next.message.usage))
+      );
+    const row = same ? prev! : next;
+    rows.set(id, row);
+    return row;
+  };
 }
 
 // The finished messages, or the one being written. Only the last message in
