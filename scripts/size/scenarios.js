@@ -5179,15 +5179,17 @@ module.exports = [
     // document ends with `</html>` again; the cost is the tail search and
     // splice in the marker helper, retained by renderToString. Accepted by
     // the maintainer (2026-10-13). The cap is frozen again at 20.51 KB.
-    // Size-Exception (#4032, 2026-10-14): 20.51 -> 20.55 KB, measured
-    // locally at 20,545 B against `next` @ a4b33919's 20,497 (+48 B; 35 B over
-    // the cap; +95 B minified, 72,087 -> 72,182). An in-tag hole that
+    // Size-Exception (#4032, 2026-10-14): 20.51 -> 20.56 KB, measured
+    // locally at 20,555 B against `next` @ c8186046's 20,497 (+58 B; 45 B over
+    // the cap; +131 B minified, 72,087 -> 72,218). An in-tag hole that
     // escalates drops the `data-lha` its attr capture spliced in, so the
     // resume's own address is the element's only one; the cost is the
-    // capture's splice record and the removal at the three escalation
-    // sites, retained by renderToString. Accepted by the maintainer
-    // (2026-10-14) as one combined cap of about 20.58 KB with #4043 (+34 B);
-    // whichever of the two merges second re-measures and sets the cap.
+    // capture's splice record and the removal written inline at the three
+    // escalation sites (a closure in `ssr()` was 10 B smaller but cost ~13%
+    // on the link-claim bench, one allocation per template instance),
+    // retained by renderToString. Accepted by the maintainer (2026-10-14) as
+    // one combined cap with #4043 (+34 B); whichever of the two merges
+    // second re-measures and sets the cap.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
     // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
