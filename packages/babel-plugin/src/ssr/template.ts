@@ -1,7 +1,13 @@
 import * as t from "@babel/types";
 import { getConfig, isStatementVariableInitializer, registerImportMethod } from "../shared/utils";
 import type { NodePath } from "@babel/traverse";
-import type { ProgramScopeData, SkipRecord, TemplateRecord, TransformResult } from "../types";
+import type {
+  LinkAttrsRecord,
+  ProgramScopeData,
+  SkipRecord,
+  TemplateRecord,
+  TransformResult
+} from "../types";
 
 type SSRDeclarator = t.VariableDeclarator & { id: t.LVal; init: t.Expression };
 
@@ -180,6 +186,45 @@ export function appendSkips(path: NodePath<t.Program>, skips: SkipRecord[]) {
     t.variableDeclaration(
       "var",
       skips.map(s => t.variableDeclarator(s.id, s.predicate))
+    )
+  );
+}
+
+/**
+ * The link-attributes object of a static anchor's `ssrLinkClaim` hole
+ * (ssr/element.ts `transformAttributes`): `{ href: "/about" }`, the anchor's
+ * link-relevant attributes as the literals they were written as. Hoisted to
+ * the module like a template — one object per distinct attribute set,
+ * shared by every anchor that writes the same one — so the hole allocates
+ * nothing per render.
+ */
+export function registerLinkAttrs(path: NodePath, entries: [string, string][]): t.Identifier {
+  const data = path.scope.getProgramParent().data as ProgramScopeData;
+  const records = data.ssrLinkAttrs || (data.ssrLinkAttrs = []);
+  const key = entries.map(([name, value]) => `${name}=${value}`).join("\0");
+  const found = records.find(r => r.key === key);
+  if (found) return found.id;
+  const id = path.scope.generateUidIdentifier("lk$");
+  records.push({
+    key,
+    id,
+    object: t.objectExpression(
+      entries.map(([name, value]) => t.objectProperty(linkAttrsKey(name), t.stringLiteral(value)))
+    )
+  });
+  return id;
+}
+
+/** The key of a link-attributes object property: `href`, or `"aria-current"`. */
+export function linkAttrsKey(name: string): t.Identifier | t.StringLiteral {
+  return t.isValidIdentifier(name) ? t.identifier(name) : t.stringLiteral(name);
+}
+
+export function appendLinkAttrs(path: NodePath<t.Program>, records: LinkAttrsRecord[]) {
+  path.node.body.unshift(
+    t.variableDeclaration(
+      "var",
+      records.map(r => t.variableDeclarator(r.id, r.object))
     )
   );
 }

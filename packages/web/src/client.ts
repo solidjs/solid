@@ -19,9 +19,10 @@ import {
   ROOT_ERROR_HOOK,
   OBSERVE
 } from "solid-js";
-import type { ClientErrorHook } from "solid-js";
+import type { ClientErrorHook, Owner } from "solid-js";
 import {
   sharedConfig,
+  enableServerComponentHydration,
   viewOf,
   OmitView,
   sourceKeys,
@@ -38,7 +39,12 @@ import { effect, memo, setSpreadName, spreadName, tagElement } from "./render.js
 
 import { JSX } from "../jsx/jsx.js";
 
-import type { RequestEventLocals, HydrationWriter, HydrationValue } from "./server.js";
+import type {
+  RequestEventLocals,
+  HydrationWriter,
+  HydrationValue,
+  LinkClaimHandler
+} from "./server.js";
 import type { TraceContext } from "./trace.js";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
@@ -109,7 +115,7 @@ export interface ResponseStub {
  * `locals`, whichever entry typed the event.
  */
 export type { RequestEventLocals } from "./server.js";
-export type { HydrationWriter, HydrationValue } from "./server.js";
+export type { HydrationWriter, HydrationValue, LinkClaimHandler } from "./server.js";
 
 export interface RequestEvent {
   request: Request;
@@ -179,6 +185,7 @@ import {
   classifyHeadTag,
   evalHeadProps,
   evalHeadValue,
+  headBodyText,
   resourceIdentity,
   replaceableIdentity,
   resolveHead,
@@ -234,16 +241,18 @@ const delegatedContainers = new Map();
 
 function voidFn() {}
 
+type CSPNonce = string | { script: string | false; style: string | false };
+
 /** Client stub — hydration bootstrap is a server-only emit. */
 export function generateHydrationScript(_options?: {
   eventNames?: string[];
-  nonce?: string;
+  nonce?: CSPNonce;
 }): string {
   return "";
 }
 
 /** Client stub — valid JSX component, renders nothing. */
-export function HydrationScript(_props?: { nonce?: string; eventNames?: string[] }): null {
+export function HydrationScript(_props?: { nonce?: CSPNonce; eventNames?: string[] }): null {
   return null;
 }
 
@@ -289,6 +298,31 @@ export function takeHydrationValue(key) {
     return { status: "pending", promise: v };
   }
   return { status: "resolved", value: v };
+}
+
+/**
+ * Client stub — a render's link handler is set during server rendering
+ * (see the server entry's `setLinkClaim`). Always `false` here, so a router
+ * can call it unguarded from isomorphic setup code.
+ * @experimental
+ */
+export function setLinkClaim(_handler: LinkClaimHandler | undefined): boolean {
+  return false;
+}
+
+/**
+ * Whether the server render that produced this document ran a link handler
+ * (`setLinkClaim`), so its anchors carry the server's link state
+ * (`aria-current="page"`, `data-active`) in the HTML. Reads the `links`
+ * hydration record the render wrote once; non-destructive, readable before
+ * and after hydration. `false` on a page rendered without the router — the
+ * absence of link state on an anchor then means nothing, and a link
+ * consumer must resolve it itself. Server: `false`.
+ * @experimental
+ */
+export function hasServerLinkState(): boolean {
+  const registry = globalThis._$HY && globalThis._$HY.r;
+  return !!registry && registry.links === 1;
 }
 /**
  * Client stub — the trace a request belongs to is a server-side reading
@@ -523,9 +557,12 @@ function attachDelegatedEvent(name, container, state) {
 // Wrapping those two in the signals attribution engine's `withInteraction`
 // stamps every root write a handler performs with the event that caused it
 // (`click on button#next "Next →"`) — what turns a transition hold or a hot
-// scope into a per-interaction number. Not covered: non-delegated events
-// whose handler is a literal function (the compiler emits a bare
-// `addEventListener` for those) and hand-written `ref`-based listeners.
+// scope into a per-interaction number. Every listener of one event joins one
+// frame (the event is the engine's join key), so a hand-written listener that
+// wraps itself in `dispatchAsInteraction` lands on the same record. Not
+// covered: non-delegated events whose handler is a literal function (the
+// compiler emits a bare `addEventListener` for those) and hand-written
+// listeners that do not wrap themselves.
 
 /** `button#next "Next →"`, `input[name=q]`, `a "Docs"` — what the user hit. */
 function describeEventTarget(target) {
@@ -558,11 +595,34 @@ function interactionStart(e) {
   return typeof at === "number" && at >= 0 && at <= performance.now() ? at : undefined;
 }
 
-function dispatchAsInteraction(e, fn) {
-  return OBSERVE.attribution.withInteraction(
-    { type: e.type, target: describeEventTarget(e.target), at: interactionStart(e) },
-    fn
-  );
+/**
+ * Runs `fn` as a handler of the DOM event `e`, inside the interaction frame
+ * the runtime opens for `e` — the one its own listeners for `e` run in. A
+ * listener the runtime did not attach (a router's `document` click handler,
+ * analytics, drag-and-drop) wraps its body in this, so its work joins the
+ * same interaction record as the component handlers for the same event
+ * instead of running outside one. In production builds this is `fn()`.
+ *
+ * Use it for listeners that respond to the user (`click`, `submit`,
+ * `keydown`), not for passive ones (`mousemove`, `focusin` preloads), which
+ * would each record an interaction.
+ *
+ * @example
+ * ```ts
+ * document.addEventListener("click", e =>
+ *   dispatchAsInteraction(e, () => handleAnchorClick(e))
+ * );
+ * ```
+ */
+export function dispatchAsInteraction<T>(e: Event, fn: () => T): T;
+
+export function dispatchAsInteraction(e, fn) {
+  return "_SOLID_OBSERVE_"
+    ? OBSERVE.attribution.withInteraction(
+        { type: e.type, target: describeEventTarget(e.target), at: interactionStart(e), event: e },
+        fn
+      )
+    : fn();
 } /** Event-delegation plumbing (Portal/custom-root wiring). Integration plumbing. @internal */
 export function getDelegatedRoot(node: MountableElement): MountableElement | undefined;
 
@@ -589,68 +649,133 @@ export function setProperty(node, name, value) {
   if (isHydrating(node)) return;
   // Stateful DOM properties (DOMWithState) route through here in hydratable
   // builds so the claim pass adopts pre-hydration user state instead of
-  // clobbering it (#3182). Mirror the special cases the compiler emits for
-  // the direct-assignment path: <select value> defers a microtask so options
-  // rendered later in the same pass are selectable, and input/textarea
-  // value/defaultValue clear on nullish instead of stringifying (#2957).
+  // clobbering it (#3182). <select value> remembers the value and
+  // reapplies it when options arrive (a microtask only covers the same
+  // turn — #3928), and input/textarea value/defaultValue clear on nullish
+  // instead of stringifying (#2957). Checkbox/radio inputs need the value
+  // attribute removed to restore their default submission value of "on".
+  // Non-hydratable inline bindings still coalesce nullish values to "".
   const nodeName = node.nodeName;
-  if (name === "value" && nodeName === "SELECT")
-    queueMicrotask(() => (node.value = value)) || (node.value = value);
+  if (name === "value" && nodeName === "SELECT") writeSelectValue(node, value);
   else if (
     (name === "value" || name === "defaultValue") &&
     (nodeName === "INPUT" || nodeName === "TEXTAREA")
-  )
-    node[name] = value ?? "";
-  else node[name] = value;
+  ) {
+    if (value == null && /^(checkbox|radio)$/.test(node.type)) node.removeAttribute("value");
+    else node[name] = value ?? "";
+  } else node[name] = value;
+  reclaimAttribute(node, name);
 }
 
 // === Element claims ===
 //
 // Compiled DOM output claims navigation-relevant elements (`a[href]`,
-// `form[action]`) at creation via `claimElement`, and the write sites the
-// compiler owns (binding effects and spread assigns, which both land in
-// `setAttribute`) re-invoke the same handlers when an `href`/`action`
-// attribute changes — handlers must be idempotent. Dormant by design: with
-// no handler registered every hook is a null check, so apps without a
-// consumer (e.g. a router's link-state layer) pay nothing at runtime.
+// `form[action]`) once, at mount, via `claimElement` — AFTER the element's
+// initial attributes are applied, so a handler sees the anchor it will
+// manage (#3923): a fully static element is claimed as soon as it is
+// created, an element with dynamic bindings at the tail of the render
+// effect that applies them (its first run — synchronous at creation, or the
+// landing's when the mount is held), an element carrying a spread after the
+// spread's first application. Afterwards the write sites the compiler owns
+// (binding effects and spread assigns — `setAttribute`, `setAttributeNS`,
+// `setProperty`, the spread's property path) re-invoke the same handlers when
+// an attribute a consumer declared (`registerElementClaim`'s `attributes`,
+// `href`/`action` by default) is written — handlers must be idempotent.
+// Writes before the mount claim never re-claim: the claim that follows sees
+// them, so one mount is one claim. Dormant by design: with no handler
+// registered every hook is a null check, so apps without a consumer (e.g. a
+// router's link-state layer) pay nothing at runtime.
 //
-// Handlers run during element creation, under whatever reactive owner is
-// current — consumers scope their per-element state and cleanup through
-// their own reactive system (e.g. onCleanup), not through this hook.
+// Handlers run under the reactive owner the element was created with —
+// consumers scope their per-element state and cleanup through their own
+// reactive system (e.g. onCleanup), not through this hook. A claim that
+// trails a render effect's first run receives that owner explicitly
+// (compiled output captures it at creation), since the effect's callback
+// runs ownerless when the mount lands from a held flush.
 let claimHandlers = null;
+// Per registered handler, the attribute names whose writes re-claim — the
+// write sites consult their union (a handful of names across one or two
+// consumers; scanned, not indexed).
+const claimAttributeSets = [];
 
 // The live handler list is mirrored onto a registered symbol so the frame
 // runtime — deliberately importless in both directions, like the FRAME
 // brand — sweeps serialized server content against the SAME registry, even
 // when the two land in separately bundled copies of this module.
-const CLAIM_SEAM = Symbol.for("solid.element-claims"); /**
+const CLAIM_SEAM = Symbol.for("solid.element-claims");
+
+/** Options for `registerElementClaim`. */
+export type ElementClaimOptions = {
+  /**
+   * Attribute names whose compiler-owned writes re-claim an already claimed
+   * element, as plain names: `href` covers the `href` attribute, the
+   * `prop:href` property path and the `xlink:href` namespaced path alike.
+   * Defaults to `["href", "action"]`. The write sites consult the union of
+   * every registered consumer's set.
+   */
+  attributes?: readonly string[];
+}; /**
  * Register a consumer for compiler-emitted element claims. Compiled DOM
- * output claims navigation-relevant elements (`a[href]`, `form[action]`) at
- * creation, and compiler-owned writes to `href`/`action` re-invoke the same
- * handlers — so handlers must be idempotent and must check the element's
- * relevance themselves (rechecks can fire for any element whose
- * `href`/`action` is written, e.g. `<link href>`). Handlers run under the
- * reactive owner current at element creation; scope per-element state and
- * cleanup through your own reactive system. Dormant until registered —
- * without a handler the emitted claims are null checks. Returns an
- * unregister function.
+ * output claims navigation-relevant elements (`a[href]`, `form[action]`)
+ * once at mount, after their initial attributes are applied — so a handler
+ * sees the element's final initial attributes and is told about one mount
+ * exactly once. Afterwards compiler-owned writes to an attribute in the
+ * consumer's declared set (`options.attributes`, default `href`/`action`;
+ * `prop:href` and `xlink:href` map to `href`) re-invoke the handlers — so
+ * handlers must be idempotent and must check the element's relevance
+ * themselves. Handlers run under the reactive owner the element was created
+ * with; scope per-element state and cleanup through your own reactive
+ * system. Dormant until registered — without a handler the emitted claims
+ * are null checks. Returns an unregister function.
  *
  * Integration plumbing (routers register the consumer); not meant for
  * application code.
  * @internal
  */
-export function registerElementClaim(handler: (element: Element) => void): () => void;
+export function registerElementClaim(
+  handler: (element: Element) => void,
+  options?: ElementClaimOptions
+): () => void;
 
 /**
  * Register a consumer for compiler-emitted element claims. Returns an
  * unregister function.
  */
-export function registerElementClaim(handler) {
+export function registerElementClaim(handler, options) {
   (claimHandlers || (claimHandlers = globalThis[CLAIM_SEAM] = [])).push(handler);
+  claimAttributeSets.push(options?.attributes || ["href", "action"]);
   return () => {
     const index = claimHandlers.indexOf(handler);
-    index > -1 && claimHandlers.splice(index, 1);
+    if (index > -1) {
+      claimHandlers.splice(index, 1);
+      claimAttributeSets.splice(index, 1);
+    }
   };
+}
+
+/** Fire every handler in `handlers` on `node`. */
+function runClaimHandlers(handlers, node) {
+  for (let i = 0; i < handlers.length; i++) handlers[i](node);
+}
+
+// Compiler-owned attribute writes land here after the DOM write: once an
+// element has had its mount claim (`_$claimed`), a write to a declared
+// attribute re-claims it. `name` is the name as the write site has it —
+// plain, `prop:` stripped on the property path, qualified on the namespaced
+// path — and the declared names are plain, so a qualified name is looked up
+// by its local part (`xlink:href` re-claims as `href`; a plain name slices
+// from 0, which hands back the same string). The registry check comes first
+// on purpose: `claimHandlers` is only ever assigned by `registerElementClaim`,
+// so an app without a consumer (the registration tree-shaken) has the bundler
+// fold this — and `claimElement` — to nothing; the dormant path costs no
+// bytes and no reads.
+function reclaimAttribute(node, name) {
+  if (
+    claimHandlers !== null &&
+    node._$claimed &&
+    claimAttributeSets.some(set => set.includes(name.slice(name.indexOf(":") + 1)))
+  )
+    runClaimHandlers(claimHandlers, node);
 }
 
 // Elements the claim contract covers, and the subtree sweep over them.
@@ -685,28 +810,40 @@ export function claimElementTree(root) {
   if (handlers === undefined || handlers.length === 0) return root;
   const isElement = root.nodeType === 1;
   if (!isElement && root.nodeType !== 11) return root;
+  // A sweep is an explicit (re-)claim, never deduped against the mount mark —
+  // it marks so later compiler-owned writes to a swept element re-claim.
   if (isElement && root.matches(CLAIMED_ELEMENTS)) {
-    for (let i = 0; i < handlers.length; i++) handlers[i](root);
+    root._$claimed = true;
+    runClaimHandlers(handlers, root);
   }
   const found = root.querySelectorAll(CLAIMED_ELEMENTS);
   for (let i = 0; i < found.length; i++) {
-    for (let j = 0; j < handlers.length; j++) handlers[j](found[i]);
+    found[i]._$claimed = true;
+    runClaimHandlers(handlers, found[i]);
   }
   return root;
 } /**
- * Claim `node` for registered consumers (see `registerElementClaim`).
- * Emitted by the compiler at element creation; idempotent by contract.
+ * Claim `node` for registered consumers (see `registerElementClaim`): the
+ * element's mount claim, once per element — a second call is a no-op.
+ * Emitted by the compiler after the element's initial attributes are
+ * applied: at creation for a static element, at the tail of its binding
+ * effect otherwise, where `owner` is the reactive owner captured at
+ * creation (the effect's callback runs ownerless when a held mount lands)
+ * and the handlers run under it.
  * @internal
  */
-export function claimElement<T extends Element>(node: T): T;
+export function claimElement<T extends Element>(node: T, owner?: Owner | null): T;
 
 /**
- * Claim `node` for registered consumers. Emitted by the compiler at element
- * creation and re-invoked (idempotently) from claimed-attribute writes.
+ * Claim `node` for registered consumers, once. Emitted by the compiler
+ * after the element's initial attributes are applied; the spread runtime
+ * calls it after a spread's first application.
  */
-export function claimElement(node) {
-  if (claimHandlers !== null) {
-    for (let i = 0; i < claimHandlers.length; i++) claimHandlers[i](node);
+export function claimElement(node, owner) {
+  if (claimHandlers !== null && !node._$claimed) {
+    node._$claimed = true;
+    if (owner === undefined) runClaimHandlers(claimHandlers, node);
+    else runWithOwner(owner, () => runClaimHandlers(claimHandlers, node));
   }
   return node;
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
@@ -737,10 +874,10 @@ export function setAttribute(node, name, value) {
     }
   }
   if (selectMultiple) node._$multiple = true;
-  // Frozen contract with compiled output: `href`/`action` can only change
-  // through compiler-owned write paths, which all land here — so one recheck
-  // at this site keeps claim consumers fresh with no observers.
-  if (claimHandlers !== null && (name === "href" || name === "action")) claimElement(node);
+  // Frozen contract with compiled output: a claimed element's attributes can
+  // only change through compiler-owned write paths, which land here — so
+  // one recheck at this site keeps claim consumers fresh with no observers.
+  reclaimAttribute(node, name);
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function setAttributeNS(node: Element, namespace: string, name: string, value: string): void;
 
@@ -751,6 +888,10 @@ export function setAttributeNS(node, namespace, name, value) {
   if (value == null || value === false)
     node.removeAttributeNS(namespace, name.indexOf(":") > -1 ? name.split(":").pop() : name);
   else node.setAttributeNS(namespace, name, value === true ? "" : value);
+  // The qualified name: the declared set carries each name's namespaced
+  // forms too (`xlink:href` re-claims as `href`), so this site stays as
+  // cheap as the plain one.
+  reclaimAttribute(node, name);
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function className(node: Element, value: JSX.ClassValue, prev?: JSX.ClassValue): void;
 
@@ -916,13 +1057,23 @@ export function style(node, value, prev) {
  * literal is already the compute's own); a proxy is copied with ONE
  * `ownKeys` trap (its own trap keeps the key set tracked) plus one tracked
  * read per key; a clsx-style class array is re-mapped element-wise (className
- * allocates for an array anyway; measured at parity). */
+ * allocates for an array anyway; measured at parity).
+ *
+ * The proxy's keys are read with `Reflect.ownKeys` directly — what
+ * `sourceKeys(value, SOURCE_PROXY)` resolves to by definition (`leafOf` is
+ * the identity for a proxy kind; `leafKeys` answers a proxy with one
+ * `ownKeys` trap) — rather than through `sourceKeys`, whose kind argument is
+ * a runtime value: calling it here retained the merge/omit view walkers
+ * (`collectKeys`, `mergeKeysOf`, `hiddenByAny`, …, ≈ 1.1 KB minified) on
+ * every compiled page with a dynamic `class`/`style`, reached by nothing
+ * (hydration-split-measured.md, candidate (e)). `spread()` still reads its
+ * sources through `sourceKeys`, so a page with an element spread keeps them. */
 export function readShallow(value: unknown): unknown;
 export function readShallow(value) {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(readShallow);
   if (value[$PROXY] !== value) return value;
-  const keys = sourceKeys(value, SOURCE_PROXY);
+  const keys = Reflect.ownKeys(value);
   const out = {};
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i];
@@ -1008,10 +1159,22 @@ export function spread(node, props, skipChildren, skip, name) {
     }
   }
   const prevProps = {};
+  // Claim contract: an `a`/`form` carrying a spread is a claim target (the
+  // spread may carry its `href`/`action`), claimed after the first
+  // application under the owner it is created with — `claimElement` is
+  // once-per-element, so a rerun costs one check. The compiler emits no
+  // claim for a spread element; this is its mount claim. Registry check
+  // first so an app without a consumer folds this away (see
+  // `reclaimAttribute`).
+  const owner =
+    claimHandlers !== null && (node.localName === "a" || node.localName === "form")
+      ? getOwner()
+      : undefined;
   const apply = newProps => {
     const r = newProps.ref;
     if (r !== prevProps.ref && (typeof r === "function" || Array.isArray(r))) ref(() => r, node);
     assign(node, newProps, true, prevProps, true);
+    if (owner !== undefined) claimElement(node, owner);
   };
   if (Array.isArray(props)) {
     effect(() => collectSources({}, props, undefined, skip), apply);
@@ -1442,6 +1605,14 @@ export function insert(parent, accessor, marker, initial, options) {
       const value = normalize(accessor(), current, multi, true);
       if ("_SOLID_DEV_") checkUnscopedHole(devNext, accessor, parent);
       if (typeof value !== "function") return value;
+      // The child-resolution pass must track every row's resolved child, so
+      // its width is the list's, not a coarse read: dev marks it `_wide`
+      // (exempt from WIDE_SCOPE_DEPS, never from HUGE_FAN_IN). Dev only, like
+      // `_plumbing`: signals' observe artifact mangles `_` option names.
+      const innerOptions =
+        prev !== undefined && !(options && options.schedule)
+          ? { ...options, schedule: true }
+          : options;
       effect(
         () => (
           hydrationRt !== null && (current = hydrationRt.reclaimRegion(current, parent, marker)),
@@ -1451,9 +1622,7 @@ export function insert(parent, accessor, marker, initial, options) {
           current = insertExpression(parent, inner, current, marker);
           host && tagHost(current, host);
         },
-        prev !== undefined && !(options && options.schedule)
-          ? { ...options, schedule: true }
-          : options
+        "_SOLID_DEV_" ? { ...innerOptions, _wide: true } : innerOptions
       );
       if ("_SOLID_DEV_") checkUnscopedHole(devNext, accessor, parent);
       return INNER_OWNED;
@@ -1918,7 +2087,7 @@ function createHeadElement(tag, props) {
     if (v == null || v === false) continue;
     el.setAttribute(name, v === true ? "" : String(v));
   }
-  if (props.children != null) el.textContent = String(props.children);
+  if (props.children != null) el.textContent = headBodyText(tag, props, String(props.children));
   return el;
 }
 
@@ -1943,7 +2112,9 @@ function headElementMatches(el, t) {
     } else if (el.getAttribute(name) !== (v === true ? "" : String(v))) return false;
   }
   const children = t.props.children;
-  return (children == null ? "" : String(children)) === el.textContent;
+  return (
+    (children == null ? "" : headBodyText(t.tag, t.props, String(children))) === el.textContent
+  );
 }
 
 // Mount-once resources: hints (preload/preconnect/…) and scripts mount
@@ -2178,7 +2349,36 @@ export function hydrate(
 export function hydrate(code, element, options = {}) {
   enableHydration();
   installHydrationRuntime();
-  if (globalThis._$HY.done) return render(code, element, [...element.childNodes], options);
+  const hy = globalThis._$HY;
+  const id = options.renderId || "";
+  // #3971: an `async` entry runs as soon as it loads, which can be while the
+  // parser is still inside the server shell; the claim walk would gather only
+  // the `_hk` nodes parsed so far and leave the rest of the shell dead beside
+  // fresh client copies. The server ends each render's shell with a marker
+  // script (`_$HY.s[renderId] = 1`, see withShellEnd); scripts run in parse
+  // order, so once it has run every shell node is in the DOM. Without it yet
+  // and mid-parse, park the start on the marker (or DOMContentLoaded, should
+  // no marker come). Streamed fragments land after the shell and are claimed
+  // on their own resume, so nothing waits for the stream. A root render's
+  // marker ("") also releases ids re-entered inside it (<Hydration id>). `s`
+  // is set by the server bootstrap only: a hand-built `_$HY` never parks.
+  if (hy.s && !hy.s[id] && !hy.s[""] && !hy.done && document.readyState === "loading") {
+    let started, disposer;
+    // Re-entering hydrate() passes the gate: the marker has set its key, or
+    // the parser is done.
+    const start = () => started || ((started = true), (disposer = hydrate(code, element, options)));
+    // The marker calls `_$HY.sw(renderId)`; starts ride a microtask so they
+    // run once the marker script has finished, before parsing resumes. A
+    // root render's ("") marker covers every id re-entered inside it.
+    (hy.sp || (hy.sp = [])).push([id, start]);
+    hy.sw = key => hy.sp.forEach(([k, f]) => (!key || k === key) && queueMicrotask(f));
+    document.addEventListener("DOMContentLoaded", start, { once: true });
+    return () => {
+      started = true;
+      disposer && disposer();
+    };
+  }
+  if (hy.done) return render(code, element, [...element.childNodes], options);
   // #3081: the server splices useHead's charset/base prelude immediately
   // after the <head> open tag — a byte-placement constraint (charset within
   // the first 1024 bytes, base before URL-bearing tags) the parser has
@@ -2522,18 +2722,80 @@ function isHydrating(node) {
   if (sharedConfig.isClaiming && !sharedConfig.isClaiming()) return false;
   if (!node || node.isConnected) return true;
   // Connectivity tells claimed SSR nodes apart from fresh template clones,
-  // but a claimed tree isn't always IN the document: a frame adoption whose
-  // slot fill resolved async claims its server-rendered range after a
-  // pending boundary displaced it (re-inserted on reveal). Such claim scopes
-  // declare their roots (sharedConfig.claimRoots); descent from one is as
-  // claimed as being connected. Fresh clones descend from neither.
-  const roots = sharedConfig.claimRoots;
-  if (roots) {
-    for (let i = 0; i < roots.length; i++) {
-      if (roots[i].contains(node)) return true;
+  // but a claimed tree isn't always IN the document — a server-component
+  // integration's declared claim roots are as claimed as connected (see
+  // enableServerComponentClaims). Without one, fresh clones is all a
+  // detached node can be.
+  return serverComponentClaims !== null && serverComponentClaims.claimed(node);
+}
+
+// The server-component half of hydration, installed by the integration that
+// owns server markup wholesale (`@solidjs/web/frames`'
+// `installServerComponents`) and reached by nothing else: a hydrating page
+// without server components carries neither the claim-roots walk nor the
+// frame-region exclusion of the root sweep below, nor solid's half
+// (hydration-split-measured.md, candidate (g-sc)). Same slot shape as
+// `installHydrationRuntime` above.
+let serverComponentClaims = null;
+/**
+ * Installs the server-component half of hydration — solid's
+ * (`enableServerComponentHydration`: the hold, the claim window, fragment
+ * ownership, the ledger's published answer) and this runtime's two terms of
+ * the claim walk:
+ *
+ * - `sharedConfig.claimRoots` (ruling 95): a claimed tree isn't always IN
+ *   the document — a frame adoption whose slot fill resolved async claims
+ *   its server-rendered range after a pending boundary displaced it
+ *   (re-inserted on reveal). Such claim scopes declare their roots, and
+ *   descent from one is as claimed as being connected; fresh clones
+ *   descend from neither.
+ * - The root sweep's frame exclusion (ruling 97): frame regions
+ *   (`data-fid` — the frame runtime's element brand, an importless
+ *   duplicate like FRAME_ID_ATTR in frame-client/frame-sink) are another
+ *   layer's property. Their fills claim through their own windows on their
+ *   own schedule (a lazy route module may adopt long after the root
+ *   completes), so collecting them in the ambient sweep only sets up the
+ *   completion sweep to report legitimately-late claims as unclaimed.
+ *   Whether the root has frames is one question about the page, not one
+ *   per keyed node: found once per sweep, containment-tested against the
+ *   list rather than `closest("[data-fid]")` from every node.
+ *
+ * The same shape as `hydrate()` — solid's half, then this runtime's — one
+ * call for the integration. Before `hydrate()` runs its root sweep (the
+ * frames client calls it from `installServerComponents()`, which precedes
+ * `hydrate()` in every entry) and again wherever it re-attempts its reveal
+ * hook; idempotent. Cross-package wiring; not for application code.
+ *
+ * @internal
+ */
+export function installServerComponentHydration(): void;
+export function installServerComponentHydration() {
+  enableServerComponentHydration();
+  if (serverComponentClaims !== null) return;
+  serverComponentClaims = {
+    claimed(node) {
+      const roots = sharedConfig.claimRoots;
+      if (roots) {
+        for (let i = 0; i < roots.length; i++) {
+          if (roots[i].contains(node)) return true;
+        }
+      }
+      return false;
+    },
+    // The root sweep's exclusion test for `element`, or undefined when the
+    // root has no frame region (the common page: no per-node test at all).
+    inFrame(element) {
+      const frames = element.querySelectorAll("[data-fid]");
+      const frameCount = frames.length;
+      if (frameCount === 0) return undefined;
+      // `contains` is inclusive: a node that is itself a frame is skipped
+      // too, as `closest` (which starts at the node) did before.
+      return node => {
+        for (let j = 0; j < frameCount; j++) if (frames[j].contains(node)) return true;
+        return false;
+      };
     }
-  }
-  return false;
+  };
 }
 
 function classListToObject(classList) {
@@ -2607,16 +2869,18 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
   ) {
     if (hasNamespace) prop = prop.slice(5);
     else if (isHydrating(node)) return value; // TODO IS this correct?
-    if (prop === "value" && nodeName === "SELECT")
-      queueMicrotask(() => (node.value = value)) || (node.value = value);
+    if (prop === "value" && nodeName === "SELECT") writeSelectValue(node, value);
     else if (
       (prop === "value" || prop === "defaultValue") &&
       (nodeName === "INPUT" || nodeName === "TEXTAREA")
-    )
-      // Compiler parity: direct bindings emit `el.value = v ?? ""` for
-      // input/textarea — nullish must clear the field, not stringify (#2957).
-      node[prop] = value ?? "";
-    else node[prop] = value;
+    ) {
+      // Text controls clear nullish values rather than stringifying them (#2957);
+      // checkbox/radio inputs drop the attribute so they submit "on".
+      if (value == null && /^(checkbox|radio)$/.test(node.type)) node.removeAttribute("value");
+      else node[prop] = value ?? "";
+    } else node[prop] = value;
+    // The claim contract is in plain names: `prop:href` re-claims as `href`.
+    reclaimAttribute(node, prop);
   } else {
     const ns = hasNamespace && Namespaces[prop.split(":")[0]];
     if (ns) setAttributeNS(node, ns, prop, value);
@@ -2754,23 +3018,29 @@ function insertExpression(parent, value, current, marker) {
     return value;
   }
   if (value === current) return value;
-  // A region tracked as empty can receive nodes that already sit in it:
-  // server nodes a boundary claims on a late resume, after this insert's
-  // claim pass saw no value (#3749). Re-inserting them would move connected
-  // nodes and blur a focused input, so they stay put. Only while hydrating
-  // (the resume window sets the flag): then claimed server nodes are the only
-  // nodes of ours already in `parent`, and they arrive in server order. Every
-  // item must be a node in `parent` (a raw primitive is a failed text claim
-  // and still needs inserting); an empty array keeps its clear.
-  if (
-    hydrationRt !== null &&
-    sharedConfig.hydrating &&
-    current == null &&
-    value &&
-    [].concat(value).every(n => n?.parentNode === parent) &&
-    value.length !== 0
-  )
-    return value;
+  // A region can receive nodes that already sit in it: server nodes a
+  // boundary claims on a late resume, after this insert's claim pass saw no
+  // value for it (#3749). Re-inserting them would move connected nodes and
+  // blur a focused input, so they stay put. Only while hydrating (the resume
+  // window sets the flag): then claimed server nodes are the only nodes of
+  // ours already in `parent`, and they arrive in server order. Every item
+  // must be a node in `parent` (a raw primitive is a failed text claim and
+  // still needs inserting); an empty array keeps its clear. The region may
+  // already track the boundary's siblings in the same insert, claimed in the
+  // root pass (#4049): reconciling against them re-inserts the boundary's
+  // nodes, and reverses them when a sibling's `nextSibling` is the
+  // boundary's first node. So the tracked nodes must all be among the items,
+  // in the same order — a removal or a reorder still reconciles.
+  if (hydrationRt !== null && sharedConfig.hydrating && value && value.length !== 0) {
+    const tracked = [].concat(current ?? []);
+    if (
+      []
+        .concat(value)
+        .every(n => (n === tracked[0] && tracked.shift(), n?.parentNode === parent)) &&
+      !tracked.length
+    )
+      return value;
+  }
   const t = typeof value,
     multi = marker !== undefined;
 
@@ -2849,7 +3119,48 @@ function insertExpression(parent, value, current, marker) {
       message: `[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (${typeof value}).`,
       data: { type: typeof value, value }
     });
+  // Installed by `writeSelectValue` (#3928). Absent until a select value
+  // misses, so apps that never bind one keep a null check here.
+  selectInsert && selectInsert(parent);
   return value;
+}
+
+// Pending `<select value>` (#3928). `_$v` holds a scalar or a multi-select
+// array until the matching option(s) are selected. Assigning an array to
+// `.value` stringifies it and selects one option, so arrays select by walking
+// `options` (`option.value == entry`, so `"1"` matches `1`). One `parentNode`
+// step covers an optgroup. The array stays pending until every entry is
+// selected; a capture `change` listener clears it first so a later insert
+// cannot restore a selection the user changed. The microtask covers
+// `<option value={expr}>`, assigned later in the same turn with no insert.
+// Nullish values still go through the historical `.value` write.
+let selectInsert;
+function selectChange(e) {
+  (e = e.currentTarget || e)._$v = null;
+  e.removeEventListener("change", selectChange, true);
+}
+function writeSelectValue(node, value) {
+  // `.map` is only on arrays — strings and numbers fall through to the scalar path.
+  const had = node._$v && node._$v.map,
+    has = value != null && value.map;
+  if (has) had || node.addEventListener("change", selectChange, true);
+  else had && node.removeEventListener("change", selectChange, true);
+  if (value == null) {
+    node._$v = null;
+    return queueMicrotask(() => (node.value = value)) || (node.value = value);
+  }
+  node._$v = value;
+  (selectInsert ||= p => {
+    p && p._$v == null && (p = p.parentNode);
+    const v = p && p._$v;
+    if (v == null) return;
+    if (v.map) {
+      const o = [...p.options];
+      for (let i = 0; i < o.length; i++) o[i].selected = v.some(x => x == o[i].value);
+      v.every(x => o.some(el => el.value == x)) && selectChange(p);
+    } else ((p.value = v), p.selectedIndex > -1 && p.value == v && (p._$v = null));
+  })(node);
+  queueMicrotask(() => selectInsert(node));
 }
 
 function normalize(value, current, multi, doNotUnwrap) {
@@ -2973,42 +3284,31 @@ function cleanChildren(parent, current, marker, replacement) {
 }
 
 function gatherHydratable(element, root) {
-  const templates = element.querySelectorAll(`*[_hk]`);
-  // The ambient sweep claims only what this hydration root itself walks.
-  // Frame regions ("data-fid" — the frame runtime's element brand, an
-  // importless duplicate like FRAME_ID_ATTR in frame-client/frame-sink)
-  // are another layer's property: their fills claim through scoped
-  // registries on their own schedule (a lazy route module may adopt long
-  // after this root completes), so collecting them here only sets up the
-  // completion sweep to report legitimately-late claims as unclaimed.
-  // Whether the root has frames is one question about the page, not one per
-  // keyed node: find them once and test containment against the list, rather
-  // than `closest("[data-fid]")` from every node — an ancestor walk to the
-  // document root for each element, paid in full on pages with no frames.
-  const frames = root ? null : element.querySelectorAll("[data-fid]");
-  const frameCount = frames ? frames.length : 0;
+  // A prefix-scoped gather (a streamed boundary's late resume) names exactly
+  // what it owns — collect wherever the keys sit, frame interiors included:
+  // keys are namespaced by their producer chain, so a nested frame's content
+  // can never match a foreign prefix. Selected natively: it runs once per
+  // resume, and a full `_hk` sweep filtered in JS each time is a cost per
+  // resume on the whole page. An adopted frame's occurrences do NOT gather
+  // here: a scan of the root per occurrence is a cost per occurrence on the
+  // whole page (37 ms on a 652-occurrence thread), so the frames client
+  // indexes its element's keys once at adoption and serves its windows from
+  // that (`claimScope` in frames/src/client.ts) — only a window a frame
+  // opens with no root gathered yet falls through to this gather.
+  const templates = element.querySelectorAll(
+    root ? `[_hk^="${root.replace(/["\\]/g, "\\$&")}"]` : `*[_hk]`
+  );
+  // The ambient sweep claims only what this hydration root itself walks:
+  // with a server-component integration installed, the frame regions it
+  // owns are excluded (see enableServerComponentClaims); without one there
+  // is nothing on the page to exclude.
+  const inFrame =
+    root || serverComponentClaims === null ? undefined : serverComponentClaims.inFrame(element);
   const registry = sharedConfig.registry;
   for (let i = 0; i < templates.length; i++) {
     const node = templates[i];
+    if (inFrame !== undefined && inFrame(node)) continue;
     const key = node.getAttribute("_hk");
-    if (root) {
-      // A prefix-scoped gather (a boundary's late resume) names exactly what
-      // it owns — collect wherever the keys sit, frame interiors included.
-      // Keys are namespaced by their producer chain, so a nested frame's
-      // content can never match a foreign prefix.
-      if (!key.startsWith(root)) continue;
-    } else if (frameCount !== 0) {
-      // `contains` is inclusive: a node that is itself a frame is skipped too,
-      // as `closest` (which starts at the node) did before.
-      let inFrame = false;
-      for (let j = 0; j < frameCount; j++) {
-        if (frames[j].contains(node)) {
-          inFrame = true;
-          break;
-        }
-      }
-      if (inFrame) continue;
-    }
     if (!registry.has(key)) registry.set(key, node);
   }
 } /** Hydration-walk primitive; not for hand-written code. @internal */

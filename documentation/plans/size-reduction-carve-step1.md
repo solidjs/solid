@@ -956,6 +956,8 @@ A34 items are the next step's.
    node _status_ rather than by a join: a pending uninitialized node with
    no observer. If a boundary step wants loading sources held for a
    fallback, this is the hook.
+   (2026-10-06: an instance of the direction rule — a hold never waits on
+   work that has never committed; SPEC, "The hold model — L2".)
 
 ---
 

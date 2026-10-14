@@ -408,7 +408,9 @@ describe("A15 (was B3): overlapping transitions settle as one unit", () => {
         } else {
           const [c, setC] = createSignal(0);
           get = c;
-          write = v => setC(v);
+          write = v => {
+            setC(v);
+          };
         }
         const details = createMemo(() => fetcher.fetch(get()));
         createRenderEffect(
@@ -1066,7 +1068,7 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
       return g;
     }
 
-    it("differing arrival: downstream async restarts from the truth immediately; screen and untracked reads keep the override until commit", async () => {
+    it("differing arrival: downstream async restarts from the truth immediately; screen and untracked reads keep what showed until commit", async () => {
       const g = await primed();
 
       g.setValue(1);
@@ -1084,7 +1086,11 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
       await settle();
       expect(g.flights.map(f => f.n)).toEqual([3, 2]);
       expect(latest(g.double)).toBe(2); // the arrived truth
-      expect(g.double()).toBe(3); // untracked read: still the displayed override
+      // Untracked read: what the screen shows. The guess never revealed (the
+      // lane held on its downstream flight through the boundary), so it is
+      // void at the correction and the committed value stays (A18
+      // amendment, 2026-10-05: correction display is what showed).
+      expect(g.double()).toBe(0);
       expect(isPending(g.double)).toBe(true); // displayed ≠ final
       expect(g.log).toEqual([]);
 
@@ -1092,7 +1098,7 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
       g.flights.shift()!.resolve();
       await settle();
       expect(g.log).toEqual([]);
-      expect(g.double()).toBe(3);
+      expect(g.double()).toBe(0);
 
       // The 2-flight lands: the transaction commits, the optimism is gone.
       g.flights.shift()!.resolve();
@@ -1170,7 +1176,7 @@ describe("A18 (was B4): an override's lifetime is bound to its own async source,
       await settle();
       expect(flights.map(f => f.n)).toEqual([3, 2]);
       expect(latest(double)).toBe(2);
-      expect(double()).toBe(3);
+      expect(double()).toBe(0); // the never-shown guess is void (A18 amendment, 2026-10-05)
       expect(isPending(double)).toBe(true);
       expect(log).toEqual([]);
 

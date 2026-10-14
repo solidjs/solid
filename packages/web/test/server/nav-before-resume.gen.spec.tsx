@@ -6,14 +6,8 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { expect, test } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { renderToStream } from "@solidjs/web";
 import { createNavApp } from "../harness/nav-before-resume.jsx";
-
-const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
-mkdirSync(artifactsDir, { recursive: true });
+import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
 const storage = new AsyncLocalStorage<any>();
 (globalThis as any)[Symbol.for("solid.RequestContext")] = storage;
@@ -25,35 +19,19 @@ test("render nav-before-resume chunks", async () => {
     locals: {},
     response: { status: 200, headers: new Headers() }
   };
-  const out = await storage.run(
-    event,
-    () =>
-      new Promise<{ shell: string; chunks: string[] }>(done => {
-        const chunks: string[] = [];
-        let shell: string | undefined;
-        let shellDone = false;
-        renderToStream(() => <App />, {
-          onCompleteShell() {
-            shellDone = true;
-          }
-        }).pipe({
-          write(c: string) {
-            chunks.push(c);
-            if (shellDone && shell === undefined) shell = chunks.splice(0).join("");
-          },
-          end() {
-            if (shell === undefined) shell = chunks.splice(0).join("");
-            done({ shell, chunks });
-          }
-        });
-      })
-  );
-  const all = out.shell + out.chunks.join("");
-  expect(out.shell).toContain("title:/a");
-  expect(out.shell).toContain("side-loading");
-  expect(out.shell).toContain("a-loading");
+  const { shell, chunks } = await storage.run(event, () => recordStream(() => <App />));
+  const all = shell + chunks.join("");
+  expect(shell).toContain("title:/a");
+  expect(shell).toContain("side-loading");
+  expect(shell).toContain("a-loading");
   expect(all).toContain("a-data");
   expect(all).toContain("side-data");
   expect(all).toContain('"lib:side"');
-  writeFileSync(resolve(artifactsDir, "nav-before-resume.json"), JSON.stringify(out, null, 2));
+  // The route's 20 ms boundary, then the 60 ms `<Side>`: two chunks in that
+  // order on every host (a loaded loop once found both due and wrote them
+  // the other way round).
+  expect(chunks).toHaveLength(2);
+  expect(chunks[0]).toContain("a-data");
+  expect(chunks[1]).toContain("side-data");
+  writeArtifact("nav-before-resume", { shell, chunks });
 });

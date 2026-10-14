@@ -47,6 +47,7 @@ import {
   STATUS_PENDING
 } from "../core/constants.js";
 import {
+  captureWriteSnapshot,
   context,
   isEqual,
   notePromotedWrite,
@@ -55,6 +56,7 @@ import {
   REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
   setSignal,
   slotSignal,
+  snapshotCaptureActive,
   stagedRead,
   stagedScreen,
   strictRead,
@@ -96,54 +98,14 @@ import {
   isOwned,
   lookupTarget,
   markDescendants,
+  setLookup,
   storeLookup,
   storeOwners,
   type StoreFamily,
-  type StoreTarget
+  type StoreTarget,
+  type WrittenKeys
 } from "./target.js";
-/** The optimistic machinery (optimistic.ts, S4), installed when it loads
- * — a plain store pays nothing for it (#2883): the plain paths reach it
- * only through a family with `opt` set, which only `createOptimisticStore`
- * sets. */
-export interface OptHooks {
-  /** A user setter's draft on an optimistic family: a clone of the
-   * writer's view (a staging already on the target is set aside). */
-  draft(t: StoreTarget): Record<PropertyKey, any>;
-  /** The setter's exit: the draft becomes guesses; returns the staging the
-   * draft set aside (`null`: none). */
-  writes(t: StoreTarget, pb: Record<PropertyKey, any>): Record<PropertyKey, any> | null;
-  /** `src` with the lanes' values over it (`writer`: the next write's base
-   * — the unflushed guesses too). */
-  view(t: StoreTarget, src: Record<PropertyKey, any>, writer?: boolean): Record<PropertyKey, any>;
-  /** An untracked `key in store`: the presence guess, or `undefined`. */
-  has(t: StoreTarget, key: PropertyKey): boolean | undefined;
-  /** A guessed key's descriptor (`null`: removed; `undefined`: no guess). */
-  descriptor(t: StoreTarget, key: PropertyKey): PropertyDescriptor | null | undefined;
-  /** The flush's commit: targets no lane holds leave `overlaid`. */
-  sweep(): void;
-  /** The container comparator's lane arm: an arrangement guess against a
-   * landing (or another arrangement), by row identity. */
-  arrangement(t: StoreTarget, a: any, b: any): boolean;
-  /** A user's `reconcile` on an optimistic family: the keyed diff written
-   * into the draft. */
-  reconcile(draft: any, incoming: any, keyFn: ((item: any) => any) | null): void;
-}
-export let optHooks: OptHooks | null = null;
-export function installOptHooks(hooks: OptHooks): void {
-  optHooks = hooks;
-}
-
-/** The store half of `affects()` (store/affects.ts), installed with the
- * stores: a node born on a covered record inherits the live mark; an
- * untracked verdict probe through a record with no node is witnessed. */
-export interface AffectsHooks {
-  born(t: StoreTarget, node: Signal<any>, key: PropertyKey): void;
-  witness(t: StoreTarget, key: PropertyKey | undefined): void;
-}
-export let affectsHooks: AffectsHooks | null = null;
-export function installAffectsHooks(hooks: AffectsHooks): void {
-  affectsHooks = hooks;
-}
+import { affectsHooks, optHooks } from "./hooks.js";
 import {
   $PROXY,
   $RECORD,
@@ -242,7 +204,7 @@ function createTarget(
   t.ovl = false;
   t.del = null;
   t.px = new Proxy(t, traps);
-  (fam?.map ?? storeLookup).set(value, t);
+  setLookup(value, t);
   if (__TEST__ && ingestedRaw && !isOwned(value)) ingestedRaw.add(value);
   return t;
 }
@@ -268,11 +230,14 @@ export function wrap<T extends Record<PropertyKey, any>>(
   return createTarget(value, parent, parentKey, fam).px;
 }
 
-/** Unwrap our own proxies to their current backing; leave everything else. */
+/** Unwrap our own proxies to their current backing; leave everything else.
+ * A projection draft wrapper is registered as its target's alias
+ * (projection.ts `wrapDraft`) — adopted as a backing, it would forward to
+ * itself (#3767). */
 export function unwrapValue(v: any): any {
   if (v == null || typeof v !== "object") return v;
   const t: StoreTarget | undefined = v[$TARGET];
-  if (t !== undefined && t.px === v && t.v !== undefined) {
+  if (t !== undefined && (t.px === v || lookupTarget(v, t.fam) === t) && t.v !== undefined) {
     // A draft escaping into other storage must be a REAL container that
     // becomes this target's committed backing at fold (the shared-raw
     // contract) — a prototype overlay is neither.
@@ -367,7 +332,7 @@ function releaseSlot(node: any): void {
 function noteNode(target: StoreTarget, node: Signal<any>, key: PropertyKey): void {
   if (target.fam !== null) target.fam.live.add(target);
   markDescendants(target);
-  if (affectsHooks !== null) affectsHooks.born(target, node, key);
+  if (affectsHooks !== null) affectsHooks._born(target, node, key);
 }
 
 // Shared slot-node release handler: registered once; the core sweep
@@ -554,6 +519,7 @@ function notifyContainer(k: Signal<any>, pb: Record<PropertyKey, any>): void {
   if (k._config & CONFIG_OVERRIDE) setSignal(k, pb);
   else {
     if (k._config & CONFIG_HELD) joinFuture(txOf(k));
+    if (snapshotCaptureActive) captureWriteSnapshot(k, k._value);
     insertSubs(k);
     schedule();
   }
@@ -662,7 +628,7 @@ function scanAccessorsOnce(target: StoreTarget): boolean {
 const OVERLAY_MIN_KEYS = 32;
 const OVERLAY_REBUILD_MAX_KEYS = 1024;
 const OVERLAY_REBUILD_MIN_ADDS = 16;
-const WK_ALL: Set<PropertyKey> = new Set();
+const WK_ALL = new Set() as WrittenKeys;
 
 const plainProto = (o: object): boolean => {
   const p = Object.getPrototypeOf(o);
@@ -675,7 +641,8 @@ function overlayRebuilds(t: StoreTarget, pb: Record<PropertyKey, any>): boolean 
   if (t.kc > OVERLAY_REBUILD_MAX_KEYS) return false;
   if (t.del !== null && t.del.size !== 0) return true;
   const wk = t.wk;
-  if (wk !== null && wk !== WK_ALL && wk.size <= OVERLAY_REBUILD_MIN_ADDS) return false;
+  if (wk !== null && wk !== WK_ALL && wk.u === undefined && wk.size <= OVERLAY_REBUILD_MIN_ADDS)
+    return false;
   const v = t.v;
   let adds = 0;
   for (const key of Reflect.ownKeys(pb))
@@ -833,7 +800,7 @@ export function adoptPB(
   target.wk = null; // adoption supersedes staged trap writes
   const owner: StoreTarget | undefined = (incoming as any)[$OWNER];
   if (owner !== undefined && owner.fam === target.fam) (incoming as any)[$OWNER] = target;
-  else (target.fam?.map ?? storeLookup).set(incoming, target);
+  else setLookup(incoming, target);
   if (__TEST__ && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
   if (notify && base !== incoming) notifyFold(target, base, incoming);
 }
@@ -965,6 +932,10 @@ GlobalQueue._storeCommit = () => {
   drainFolds();
   optHooks?.sweep();
 };
+/** The store half of `affects()` (store/affects.ts) makes its marks' nodes
+ * and walks records through these: it never imports the engine. */
+GlobalQueue._storeNode = getNode;
+GlobalQueue._storeWrappable = isWrappable;
 
 /** A projection's creation run commits directly (a memo's first value is
  * its `_value`, not a staging): the draft still writes a clone of the seed,
@@ -993,7 +964,10 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
           // the adopted object (shared ownership — never cloned).
           t.pb = null;
           t.wk = null;
-        } else if (t.ovl && (t.v !== old || !overlayRebuilds(t, pb))) {
+        } else if (
+          t.ovl &&
+          (t.v !== old || (!overlayRebuilds(t, pb) && k?._x?._snapshotValue !== old))
+        ) {
           // Overlay flatten (#3044): the backing keeps its identity, so the
           // `t.v === old` gate below skips path copying (the parent slot
           // already points here) and the adopted-notify (setter
@@ -1007,10 +981,11 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
           const v = t.v;
           const wk = t.wk;
           if (wk !== null && wk !== WK_ALL) {
-            for (const key of wk) {
-              if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
-              else delete (v as any)[key];
-            }
+            for (let w: WrittenKeys | undefined = wk; w !== undefined; w = w.u)
+              for (const key of w) {
+                if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
+                else delete (v as any)[key];
+              }
           } else {
             for (const key of Reflect.ownKeys(pb)) {
               const d = Object.getOwnPropertyDescriptor(pb, key)!;
@@ -1193,7 +1168,10 @@ function notifyWrites(t: StoreTarget): void {
   // value can change when ANY key is written), or a non-plain prototype
   // (class instances: prototype getters derive from arbitrary fields).
   // Overlay pbs chain to the COMMITTED object (#3044) — plainness is the
-  // committed container's prototype, not the overlay's.
+  // committed container's prototype, not the overlay's. THIS setter's keys
+  // only (D-8, #3743): a key an earlier setter of the batch wrote and this
+  // one did not is no second proposal — its node was told then, and telling
+  // a held node its unchanged value again would join this tick to the hold.
   const wk0 = t.wk;
   const writtenKeys =
     wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
@@ -1215,16 +1193,19 @@ function notifyWrites(t: StoreTarget): void {
       ) {
         // Accessor keys: the node is linked for shape-change notification,
         // its value is never served (the getter runs with the proxy
-        // receiver on read) — FORCE wakes the readers.
+        // receiver on read) — FORCE wakes the readers. A data descriptor
+        // falls through so the cleared-acc hot read serves it (#3949);
+        // an own getter's descriptor has no `value`, so the compare below
+        // would otherwise keep the getter's result (or FORCE) for `undefined`.
         (node as any).acc = isOwnAccessor(pb, key);
         const od = Object.getOwnPropertyDescriptor(old, key);
         const nd = Object.getOwnPropertyDescriptor(pb, key);
-        if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
+        if (!nd || nd.get || nd.set) {
           if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
             setSignal(node, () => FORCE as any);
           continue;
         }
-        if (!isEqual(od?.value, nd?.value)) setSignal(node, () => nd?.value);
+        if (od?.get || od?.set || !isEqual(od?.value, nd.value)) setSignal(node, () => nd.value);
         continue;
       }
       const nv = t.del !== null && t.del.has(key) ? undefined : pb[key as any];
@@ -1336,14 +1317,15 @@ export function notifyKeyDiff(
     (node as any).acc = isOwnAccessor(neu, key);
     const od = Object.getOwnPropertyDescriptor(old, key);
     const nd = Object.getOwnPropertyDescriptor(neu, key);
-    if ((od && (od.get || od.set)) || (nd && (nd.get || nd.set))) {
+    // Data descriptors fall through, as in notifyWrites (#3949).
+    if (!nd || nd.get || nd.set) {
       if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
         setSignal(node, () => FORCE as any);
       return;
     }
     const ov = od?.value;
     const nv = nd?.value;
-    if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
+    if (od?.get || od?.set || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
       setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
   } else {
     const ov = old[key as any];
@@ -1615,7 +1597,70 @@ function readSource(
 /** Did the HELD staging (the container node's, not a mainline layer above
  * it) change `key`? */
 function heldKeyChanged(target: StoreTarget, key: PropertyKey, shape = true): boolean {
-  return changedBetween(target, target.k!._value, target.k!._pendingValue, key, shape);
+  return (
+    changedBetween(target, target.k!._value, target.k!._pendingValue, key, shape) &&
+    !adoptChild(target, key)
+  );
+}
+
+/** The values of a held frame, built once per frame: neither the committed
+ * frame nor the held staging changes while the hold stands (a draft writes a
+ * clone), so the set stays true for every first read of the hold. */
+const frameRaws = new WeakMap<object, Set<unknown>>();
+function rawsOf(frame: object): Set<unknown> {
+  let raws = frameRaws.get(frame);
+  if (raws === undefined) frameRaws.set(frame, (raws = new Set(Object.values(frame))));
+  return raws;
+}
+
+/** The same row at a slot, as the adoption pairs rows (reconcile.ts): two
+ * objects whose keys agree — positionally for an unkeyed family. */
+export function sameRow(pv: any, nv: any, keyFn: ((item: any) => any) | null): boolean {
+  return (
+    pv !== null &&
+    typeof pv === "object" &&
+    nv !== null &&
+    typeof nv === "object" &&
+    (keyFn === null || sameKey(keyFn(pv), keyFn(nv)))
+  );
+}
+
+/** A key of a held adoption whose old and new values are the same row that
+ * nothing had proxied when the adoption ran, so `descend` never paired
+ * them: paired now, as it would have been (#3712) — one target, the old
+ * raw its committed frame, the new raw its staging, held by the same
+ * transaction. Both raws resolve to it, so the slot reads as unchanged and
+ * the row's own leaves decide: `id` the same in both frames holds no one,
+ * `version` holds. A record's keys pair by name; an array's by the family's
+ * key — without a family the pairing is not known here and the hold stands. */
+function adoptChild(target: StoreTarget, key: PropertyKey): boolean {
+  const k = target.k!;
+  const old = asBacking(k._value);
+  const ov = old[key as any];
+  const nv = (k._pendingValue as any)[key];
+  const keyFn = Array.isArray(old) ? target.fam?.key : null;
+  if (
+    target.s ||
+    keyFn === undefined ||
+    !sameRow(ov, nv, keyFn) ||
+    !isWrappable(ov) ||
+    !isWrappable(nv) ||
+    Array.isArray(ov) !== Array.isArray(nv) ||
+    lookupTarget(ov, target.fam) !== undefined ||
+    lookupTarget(nv, target.fam) !== undefined ||
+    // A raw in both frames (the same objects swapped or reordered) is its
+    // own row: pairing it with another would alias the two after the commit.
+    rawsOf(old).has(nv) ||
+    rawsOf(k._pendingValue as object).has(ov)
+  )
+    return false;
+  // A raw-marked value wraps to itself, a proxy to its own target: neither
+  // is a fresh target around `ov`.
+  const ct: StoreTarget | undefined = (wrap(ov, target, key) as any)[$TARGET];
+  if (ct === undefined || ct.v !== ov) return false;
+  adoptPB(ct, nv, false);
+  holdNode(getContainerNode(ct), txOf(k));
+  return true;
 }
 
 /** A family target's unheld staging, read with no pass (a handler). */
@@ -1718,7 +1763,9 @@ function serveDataKey(
     }
   }
   if (target.s) return serveShallow(target, key, v);
-  if (target.ch && !chained && v !== null && typeof v === "object" && v[$TARGET] === undefined)
+  // A derive's draft wrapper answers `$TARGET` without being a proxy: the
+  // inner store's alias (#3767), resolved like a raw (#3859).
+  if (target.ch && !chained && v !== null && typeof v === "object" && v[$TARGET]?.px !== v)
     v = resolveChainedRaw(target, key, v);
   if (node !== undefined) {
     if ((node as any).pxv === v && v !== undefined) return draftServe(target, (node as any).px);
@@ -1762,11 +1809,13 @@ function pullFamily(target: StoreTarget): void {
     // One that already observes the flight (linked by the pass that saw it
     // go up — the frame's hold, `blocked`) keeps observing it: a re-run for
     // another reason (a guess it read, the seam) that dropped the link would
-    // release the hold with the flight still up.
+    // release the hold with the flight still up. An errored derive has no
+    // landing to learn of: the error is what the frame shows.
     const c: any = context;
     if (
       c !== null &&
       c._type === EFFECT_RENDER &&
+      !(fw._statusFlags & STATUS_ERROR) &&
       fw._config & CONFIG_HELD &&
       flushTransaction !== txOf(fw) &&
       !linkedTo(c, fw)
@@ -1817,7 +1866,7 @@ function holdWithDerive(target: StoreTarget, node: Signal<any>): void {
  * at this key, is served as the inner store's wrapper — never a fresh
  * raw-keyed one — so the chained targets are the same objects across
  * settled and pending views. */
-function resolveChainedRaw(target: StoreTarget, key: PropertyKey, v: object): any {
+export function resolveChainedRaw(target: StoreTarget, key: PropertyKey, v: object): any {
   const innerT: StoreTarget = (target.v as any)[$TARGET];
   if (innerT.ch) {
     const iv = resolveChainedRaw(innerT, key, v);
@@ -1858,6 +1907,23 @@ const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor
 // ---------------------------------------------------------------------------
 // traps
 
+/** A trap write: the target is told at the setter's exit, the key recorded
+ * in this setter's `wk`. A setter's first write to a target still staged by
+ * an earlier setter of the batch opens a set of its own (the notify visits
+ * it, D-8) and chains the earlier one behind for the fold's union. */
+function touch(target: StoreTarget, key: PropertyKey): void {
+  let wk = target.wk;
+  if (!pendingNotify.has(target)) {
+    pendingNotify.add(target);
+    if (wk !== null && wk !== WK_ALL) {
+      wk = new Set() as WrittenKeys;
+      wk.u = target.wk!;
+      target.wk = wk;
+    }
+  }
+  if (wk !== WK_ALL) (target.wk ??= new Set() as WrittenKeys).add(key);
+}
+
 const traps: ProxyHandler<StoreTarget> = {
   get(target, key, receiver) {
     // One typeof gates every brand-symbol compare off the hot string path.
@@ -1885,7 +1951,7 @@ const traps: ProxyHandler<StoreTarget> = {
     // (The witness before the pull: a mark on an uninitialized derived
     // store is witnessed, then the pull throws — loading, declared pending.)
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
-      affectsHooks.witness(target, key);
+      affectsHooks._witness(target, key);
     if (target.fam !== null) pullFamily(target);
     // Hot inline case: existing PLAIN node (non-accessor) read outside any
     // draft — the dbmon/uibench effect re-read shape. Core's `read()` serves
@@ -2001,6 +2067,9 @@ const traps: ProxyHandler<StoreTarget> = {
       // Inherited: prototype getters/methods run with the proxy receiver.
       v = Reflect.get(src, key, receiver);
       if (typeof v === "function") return v; // proto methods untracked
+      // Read-through (§7b): the inner store answers an absent key too — the
+      // outer's node is a subscription point unless it carries a guess.
+      if (target.ch && src === target.v) return serveDataKey(target, key, v, src, node0, accProbe);
       // Reading a currently-absent own key subscribes to it (R12) — for any
       // target OUTSIDE its own draft scope, even mid-setter (#3037, above).
       if (v === undefined && !inDraft(target)) {
@@ -2030,7 +2099,7 @@ const traps: ProxyHandler<StoreTarget> = {
     // (The witness before the pull: a mark on an uninitialized derived
     // store is witnessed, then the pull throws — loading, declared pending.)
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
-      affectsHooks.witness(target, key);
+      affectsHooks._witness(target, key);
     if (target.fam !== null) pullFamily(target);
     const src = readSource(target, key);
     // A tracked reader's presence node answers (born from the two frames;
@@ -2056,7 +2125,7 @@ const traps: ProxyHandler<StoreTarget> = {
 
   ownKeys(target) {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
-      affectsHooks.witness(target, undefined);
+      affectsHooks._witness(target, undefined);
     if (target.fam !== null) pullFamily(target);
     return visibleKeys(target, enumerationSource(target));
   },
@@ -2065,7 +2134,7 @@ const traps: ProxyHandler<StoreTarget> = {
     if (key === $OWNER || key === $RECORD) return undefined;
     const obs = getObserver();
     if (verdict !== null && affectsHooks !== null && obs === null)
-      affectsHooks.witness(target, key);
+      affectsHooks._witness(target, key);
     if (target.fam !== null) pullFamily(target);
     // An enumerator (spread, Object.entries) already holds the container
     // node and reads its frame; a descriptor read on its own tracks
@@ -2106,16 +2175,12 @@ const traps: ProxyHandler<StoreTarget> = {
     if (key === "__proto__") return true; // pollution guard (core R30)
     const uv = target.s ? value : unwrapValue(value);
     const pb = ensurePB(target);
-    pendingNotify.add(target);
     if (Array.isArray(pb)) {
+      touch(target, key);
       if (key === "length") target.wk = WK_ALL;
-      else if (target.wk !== WK_ALL) {
-        const wk = (target.wk ??= new Set());
-        wk.add(key);
-        wk.add("length");
-      }
+      else touch(target, "length");
     } else {
-      if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+      touch(target, key);
       if (!(key in pb)) target.kc++;
     }
     if (UNSAFE_KEYS.has(key)) {
@@ -2151,8 +2216,7 @@ const traps: ProxyHandler<StoreTarget> = {
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
     const pb = ensurePB(target);
     if (target.a || !(desc.enumerable && desc.writable && desc.configurable)) target.sc = 1;
-    pendingNotify.add(target);
-    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+    touch(target, key);
     Object.defineProperty(pb, key, desc);
     if (target.del !== null) target.del.delete(key);
     if (override) notifyWrites(target);
@@ -2164,8 +2228,7 @@ const traps: ProxyHandler<StoreTarget> = {
     const override = !draft && writeOverride;
     if (!draft && !override) return true;
     const pb = ensurePB(target);
-    pendingNotify.add(target);
-    if (target.wk !== WK_ALL) (target.wk ??= new Set()).add(key);
+    touch(target, key);
     delete pb[key as any];
     if (target.ovl && hasOwn.call(target.v, key)) (target.del ??= new Set()).add(key);
     if (override) notifyWrites(target);

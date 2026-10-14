@@ -1,9 +1,12 @@
 use crate::error::Result;
 use oxc_allocator::CloneIn;
-use oxc_ast::ast::{Expression, FormalParameterKind, JSXAttributeItem, Statement};
+use oxc_ast::ast::{
+    Expression, FormalParameterKind, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
+    JSXExpression, Statement,
+};
 use oxc_span::Span;
 
-use crate::dom::dynamics::DynamicSlot;
+use crate::dom::dynamics::{DynamicSlot, DynamicsBatch};
 use crate::dom::element::AstDomTransform;
 use crate::dom::set_attr::SetAttrOptions;
 use crate::shared::attr_plan::{AttrPlan, AttrPlanOutcome, AttrPlanner, ConfidentValue, PlanValue};
@@ -16,6 +19,50 @@ use crate::shared::utils::{
     format_attribute_value_with_quotes, format_number, is_void_element,
     normalize_static_attribute_value,
 };
+
+/// Whether an `<input>` may be a checkbox or radio, whose nullish
+/// value/defaultValue removes the `value` attribute (restoring the native
+/// "on" submission value) instead of clearing it to "" like a text field
+/// (#4017). Only a plain `type` written as a string literal is resolved; a
+/// missing `type` is a text input. Anything else (an expression, `prop:type`,
+/// `attr:type`, a spread) is unknown and treated as possibly checkable, which
+/// stays correct because setProperty tests the live `type`. Mirrors Babel's
+/// `inputMayBeCheckable` (dom/element.ts).
+fn input_may_be_checkable(attributes: &[JSXAttributeItem<'_>]) -> bool {
+    let mut checkable = false;
+    for attr in attributes {
+        let JSXAttributeItem::Attribute(attr) = attr else {
+            return true;
+        };
+        match &attr.name {
+            JSXAttributeName::NamespacedName(name) => {
+                if name.name.name == "type" {
+                    return true;
+                }
+            }
+            JSXAttributeName::Identifier(name) => {
+                if name.name != "type" {
+                    continue;
+                }
+                let literal = match &attr.value {
+                    None => None,
+                    Some(JSXAttributeValue::StringLiteral(literal)) => Some(literal.value.as_str()),
+                    Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                        match &container.expression {
+                            JSXExpression::StringLiteral(literal) => Some(literal.value.as_str()),
+                            _ => return true,
+                        }
+                    }
+                    Some(_) => return true,
+                };
+                checkable = literal.is_some_and(|value| {
+                    value.eq_ignore_ascii_case("checkbox") || value.eq_ignore_ascii_case("radio")
+                });
+            }
+        }
+    }
+    checkable
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct CloseTagContext {
@@ -95,12 +142,18 @@ impl<'a> AstDomTransform<'a, '_> {
         template: &mut String,
         declarations: &mut std::vec::Vec<Statement<'a>>,
         operations: &mut std::vec::Vec<Statement<'a>>,
-        dynamics: &mut std::vec::Vec<DynamicSlot<'a>>,
+        dynamics: &mut DynamicsBatch<'a>,
     ) -> Result<AttrsLowering<'a>> {
-        // Claim contract: a[href] / form[action] elements are claimed at
-        // creation so registered consumers (e.g. a router's link-state layer)
-        // see them. Babel pushes the claim ahead of the attribute
-        // expressions (events still unshift in front of it).
+        // Claim contract (#3923): a[href] / form[action] elements are claimed
+        // ONCE, after their initial attributes are applied, so registered
+        // consumers (e.g. a router's link-state layer) see the element they
+        // will manage. A fully static element (attributes in the template,
+        // writes at creation) is claimed at creation, after those writes and
+        // its refs; an element with dynamic bindings at the tail of the
+        // template root's binding effect (`wrap_dynamics_statement`), whose
+        // first run applies them; a spread element by the spread runtime
+        // after the spread's first application — no compiled claim. Mirrors
+        // Babel's `transformElement`.
         let claim_target = crate::dom::element::is_claim_target(tag_name, attributes);
 
         if attributes
@@ -128,9 +181,6 @@ impl<'a> AstDomTransform<'a, '_> {
                     ref_groups.push(self.dom_ref_statements(attr.span, element_id, value));
                 }
             }
-            if claim_target {
-                operations.push(self.claim_element_statement(element_id));
-            }
             operations.push(self.spread_attribute_statement(
                 attributes,
                 tag_name,
@@ -151,12 +201,11 @@ impl<'a> AstDomTransform<'a, '_> {
             children_replacement,
         } = self.plan_attributes(attributes, tag_name)?;
         let mut exprs: std::vec::Vec<Statement<'a>> = std::vec::Vec::new();
-        if claim_target {
-            exprs.push(self.claim_element_statement(element_id));
-        }
         let mut front_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> = std::vec::Vec::new();
         let mut ref_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> = std::vec::Vec::new();
         let mut needs_placeholder = false;
+        let slots_before = dynamics.slots.len();
+        let checkable_input = tag_name == "input" && input_may_be_checkable(attributes);
 
         for plan in plans {
             // Explicit JSX children are the final content source. Suppress a
@@ -175,6 +224,7 @@ impl<'a> AstDomTransform<'a, '_> {
                     self.lower_runtime_attribute(
                         plan,
                         tag_name,
+                        checkable_input,
                         element_id,
                         declarations,
                         &mut exprs,
@@ -195,6 +245,13 @@ impl<'a> AstDomTransform<'a, '_> {
         }
         for group in ref_groups {
             exprs.extend(group);
+        }
+        if claim_target {
+            if dynamics.slots.len() > slots_before {
+                dynamics.claims.push(element_id.to_string());
+            } else {
+                exprs.push(self.claim_element_statement(element_id, None));
+            }
         }
         operations.extend(exprs);
         Ok(AttrsLowering {
@@ -276,12 +333,13 @@ impl<'a> AstDomTransform<'a, '_> {
         &mut self,
         plan: AttrPlan<'a>,
         tag_name: &str,
+        checkable_input: bool,
         element_id: &str,
         declarations: &mut std::vec::Vec<Statement<'a>>,
         exprs: &mut std::vec::Vec<Statement<'a>>,
         front_groups: &mut std::vec::Vec<std::vec::Vec<Statement<'a>>>,
         ref_groups: &mut std::vec::Vec<std::vec::Vec<Statement<'a>>>,
-        dynamics: &mut std::vec::Vec<DynamicSlot<'a>>,
+        dynamics: &mut DynamicsBatch<'a>,
         needs_placeholder: &mut bool,
     ) -> Result<()> {
         let span = plan.span;
@@ -334,7 +392,7 @@ impl<'a> AstDomTransform<'a, '_> {
             } else {
                 element_id.to_string()
             };
-            dynamics.push(DynamicSlot {
+            dynamics.slots.push(DynamicSlot {
                 span,
                 elem,
                 key: plan.key,
@@ -342,6 +400,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 tag_name: tag_name.to_string(),
                 style_property: plan.style_property,
                 class_property: plan.class_property,
+                checkable_input,
             });
             return Ok(());
         }
@@ -358,6 +417,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 tag_name: tag_name.to_string(),
                 style_property: plan.style_property,
                 class_property: plan.class_property,
+                checkable_input,
             },
         );
         exprs.push(self.ast().statement_expression(span, set_attr));

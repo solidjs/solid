@@ -462,3 +462,6 @@ const template114 = (
 const template115 = <textarea {...spread} innerHTML="<b>x</b>" />;
 const template116 = <li {...spread} class="row" data-kind="item" ref={link} />;
 const template117 = <div style={{ color: color(), [key]: size(), "margin-right": "40px" }} />;
+const nullishAttributes = <div style={null} class={undefined} title={null} />;
+const nullableAttributes = <div style={props.style} class={props.class} title={props.title} />;
+const emptyAttributes = <div style={false} class="" />;

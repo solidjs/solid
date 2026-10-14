@@ -9,12 +9,17 @@ name: Size
 # ships); the retained-module-graph assertions in
 # packages/signals/tests/treeshake.test.ts stay the which-module diagnostic
 # underneath.
-# The check job also runs on direct pushes to next: it is self-contained
-# (absolute limits, no base ref), and PR-only triggering let the
-# +createStore scenario sit failing at a release commit unnoticed — direct
-# pushes never measured. The compare job stays PR-only; it needs a PR
-# context (base branch, comment target). The floor-cap freeze step in check
-# is PR-only for the same reason (it diffs against the base branch).
+#
+# Three jobs. `head` measures the commit under test; `base` (PRs only)
+# measures the PR's base with the head's harness; `check` — the required
+# status — decides with both (scripts/size/gate.mjs): a scenario fails only
+# when it is over its brotli cap AND grew past the minified allowance over
+# the base. The decision needs the base's minified numbers, so the base
+# measurement moved from the old informational `compare` job (which ran after
+# `check`) into a job `check` waits on; `head` and `base` run in parallel.
+# Pushes to next are gated too, against the commit before the push —
+# PR-only triggering let the +createStore scenario sit failing at a release
+# commit unnoticed.
 on:
   push:
     branches: [next]
@@ -26,9 +31,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  # The hard gate: self-contained on the PR head, fails when any scenario
-  # exceeds its limit. Never depends on the base branch.
-  check:
+  head:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,46 +51,33 @@ jobs:
       - run: pnpm build
       - run: npm ci --no-audit --no-fund
         working-directory: scripts/size
-      # size.mjs gates every scenario against its cap and prints the lazy
-      # chunks and per-package minified bytes for each, so a bump is
-      # attributed in the same log that reports it. The JSON feeds the
-      # compare job's PR comment.
-      - run: npm run size -- --json size-head.json
+      # size.mjs prints the lazy chunks and per-package minified bytes for
+      # each scenario, so a bump is attributed in the same log that reports
+      # it. --no-gate: the decision is check's. Uploaded on pushes too — a
+      # push to next's size-head is what `npm run ratchet -- --from` reads.
+      - run: npm run size -- --json size-head.json --no-gate
         working-directory: scripts/size
-      - if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: size-head
           path: scripts/size/size-head.json
-      # The floor and page caps (scripts/size/floor-caps.json) are frozen: a PR
-      # may lower them, never raise them, unless its body carries a
-      # `Size-Exception:` line. Compared against the PR's base branch, so
-      # PR events only.
-      - if: github.event_name == 'pull_request'
-        run: git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-      - if: github.event_name == 'pull_request'
-        run: npm run check-floor-caps -- "origin/${{ github.base_ref }}"
-        working-directory: scripts/size
-        env:
-          SIZE_EXCEPTION: ${{ github.event.pull_request.body }}
 
-  # Best-effort base-vs-head delta comment. Builds the base branch and
-  # measures its artifacts with the HEAD's harness (SIZE_PACKAGES_ROOT), so
-  # both columns come from the same scenarios and the same Rolldown; the head
-  # numbers are the check job's. Informational and never blocks:
-  # continue-on-error keeps bootstrap PRs (and any hiccup) green. PR events
-  # only — it needs a base ref and a comment target.
-  compare:
-    # always(): the comment is most useful on the PR whose check failed.
-    if: always() && github.event_name == 'pull_request'
-    needs: check
+  # Builds the base and measures its artifacts with the HEAD's harness
+  # (SIZE_PACKAGES_ROOT), so both sides come from the same scenarios and the
+  # same Rolldown. On a PR the head is the merge commit with base.sha, so the
+  # difference is the PR's own change; on a push it is the pushed range
+  # (`before`), so a merge that passed with a noise warning does not turn
+  # next red on the absolute cap. continue-on-error: a base the head's
+  # harness cannot build or measure leaves check on absolute caps instead of
+  # blocking.
+  base:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           path: base
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -106,23 +96,50 @@ jobs:
         working-directory: base
       - run: npm ci --no-audit --no-fund
         working-directory: scripts/size
-      - run: node size.mjs --json size-base.json || true
+      - run: node size.mjs --json size-base.json --no-gate
         working-directory: scripts/size
         env:
           SIZE_PACKAGES_ROOT: ${{ github.workspace }}/base
+      - uses: actions/upload-artifact@v4
+        with:
+          name: size-base
+          path: scripts/size/size-base.json
+
+  # The hard gate (the required status). always(): it runs when base failed;
+  # a failed head leaves no size-head artifact and fails here.
+  check:
+    if: always()
+    needs: [head, base]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+      - run: npm ci --no-audit --no-fund
+        working-directory: scripts/size
+      # gate.mjs's own tests; scripts/size is outside the workspace `pnpm test`.
+      - run: npm test
+        working-directory: scripts/size
       - uses: actions/download-artifact@v4
         with:
           name: size-head
           path: scripts/size
+      - continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: size-base
+          path: scripts/size
+      # The job summary carries the report on every run. The comment only
+      # goes on PRs from this repository: a fork PR's token is read-only, so
+      # createComment answers 403. Rendered before the gate step so a failing
+      # PR still gets its table.
       - run: node report.mjs size-head.json size-base.json > size-comment.md
         working-directory: scripts/size
-      # The job summary carries the report on every PR. The comment only goes
-      # on PRs from this repository: a fork PR's token is read-only, so
-      # createComment answered 403 and the job showed as failed on every
-      # external PR.
       - run: cat size-comment.md >> "$GITHUB_STEP_SUMMARY"
         working-directory: scripts/size
-      - if: github.event.pull_request.head.repo.full_name == github.repository
+      - if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
@@ -135,3 +152,16 @@ jobs:
             const mine = comments.find(c => c.user.type === "Bot" && c.body.startsWith(marker));
             if (mine) await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
             else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+      - run: node gate.mjs size-head.json size-base.json
+        working-directory: scripts/size
+      # The floor and page caps (scripts/size/floor-caps.json) are frozen: a PR
+      # may lower them, never raise them, unless its body carries a
+      # `Size-Exception:` line. Compared against the PR's base branch, so
+      # PR events only. always(): reported even when the gate step failed.
+      - if: always() && github.event_name == 'pull_request'
+        run: git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+      - if: always() && github.event_name == 'pull_request'
+        run: npm run check-floor-caps -- "origin/${{ github.base_ref }}"
+        working-directory: scripts/size
+        env:
+          SIZE_EXCEPTION: ${{ github.event.pull_request.body }}

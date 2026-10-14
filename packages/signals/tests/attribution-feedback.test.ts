@@ -29,6 +29,7 @@ afterEach(() => {
   attribution.disable();
   flush();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -444,6 +445,12 @@ describe("feedback()", () => {
   });
 
   it("measures how long each loading boundary showed its fallback, and counts flashes", async () => {
+    // The show is timed on the engine's clock (`performance.now()`): on the
+    // wall clock a loaded runner stretched the 20ms wait past the 150ms flash
+    // window. Faked, the fallback is up for exactly the time advanced.
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date", "performance"]
+    });
     arm();
     const feed = pagedFeed();
     const shown: string[] = [];
@@ -464,12 +471,14 @@ describe("feedback()", () => {
     expect(shown).toEqual(["loading…"]);
     let [row] = feedback().fallbacks;
     expect(row).toMatchObject({ boundary: "boundary", shows: 1, shownMs: 0, flashes: 0 });
-    await wait(20);
+    await vi.advanceTimersByTimeAsync(20);
     feed.resolve("a");
-    await until(() => shown.includes("a-p1"), "content");
+    await vi.advanceTimersByTimeAsync(0);
+    flush();
+    expect(shown).toContain("a-p1");
     [row] = feedback().fallbacks;
     expect(row.shows).toBe(1);
-    expect(row.shownMs).toBeGreaterThanOrEqual(15);
+    expect(row.shownMs).toBe(20);
     expect(row.worstMs).toBe(row.shownMs);
     // Under 150ms: a spinner that flashed.
     expect(row.flashes).toBe(1);

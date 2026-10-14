@@ -33,7 +33,7 @@ it("commits an effect write when a pending source is superseded with its cached 
       }
       const [version, setVersion] = createSignal(0, { ownedWrite: true });
       notify = () => setVersion(value => value + 1);
-      const data = createMemo(previous => {
+      const data = createMemo<number>(previous => {
         version();
         return flight && previous !== undefined ? flight : 1;
       });

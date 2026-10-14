@@ -3,12 +3,97 @@
 Tree-shaken import-cost tracking: `scenarios.js` defines scenario entries
 (signals floor, +createStore, +isPending/latest, the render+one-signal simple
 app, a representative CSR app, a hydrating pair — with and without store
-primitives — that keeps the store engine pay-for-use under `hydrate()`, the
-frames client as a package, two server-component PAGES: base and live, and
-two server-entry floors: `getRequestEvent`/`isServer` and `renderToString`)
-with hard brotli limits on the eager entry chunk. CI fails when a scenario
-exceeds its limit — that means tree-shaking regressed, or a deliberate feature
-landed and the limit should be bumped in the same PR with a reason.
+primitives — that keeps the store engine pay-for-use under `hydrate()`, three
+compiled-template scenarios — a compiled floor and a JSX todo app in CSR and
+hydrating form — the frames client as a package, two server-component PAGES:
+base and live, their two compiled counterparts — the same pages as JSX with
+the templates a real page has — the same two hand-written pages under
+`@solidjs/router`, and two server-entry floors: `getRequestEvent`/`isServer` and
+`renderToString`) with hard brotli limits on the eager entry chunk. CI fails
+when a scenario exceeds its limit and grew more than a small minified
+allowance over its base (see [The gate](#the-gate)) — that means tree-shaking regressed, or a deliberate
+feature landed and the limit should be bumped in the same PR with a reason.
+
+## The gate
+
+Caps are **brotli** bytes on the eager entry chunk — brotli is what ships —
+set at measured + 10 B rounded up to 0.01 KB. But brotli's layout is not
+monotonic in the input: a change of a few minified bytes moves a scenario's
+brotli by ±50–90 B, so a brotli-only gate failed PRs for noise and every
+"fix" either raised a cap (permanently) or golfed the code until the layout
+came out lucky. Minified bytes are deterministic, so the gate (`gate.mjs`)
+uses them to tell noise from growth.
+
+Every cap records the **minified size measured when it was set**:
+`capMinified` beside an inline `limit` in `scenarios.js`, and
+`{ "cap", "minified" }` entries in `floor-caps.json`. Per scenario:
+
+| brotli vs cap | head minified                                        | verdict                 |
+| ------------- | ---------------------------------------------------- | ----------------------- |
+| at or under   | anything                                             | **pass**                |
+| over          | ≤ recorded minified + `MINIFIED_ALLOWANCE` (20 B)    | **pass with a warning** |
+| over          | more                                                 | **fail**                |
+| over          | no recorded minified: grew ≤ 20 B over the PR's base | pass with a warning     |
+| over          | no recorded minified: grew more, or no base          | **fail**                |
+
+The allowance is measured against the recorded size, not per PR, so growth
+cannot creep across PRs: on an over-cap scenario, two successive +15 B PRs
+do not both pass — the second is +30 B over the recorded size. The warning
+(job summary, PR size comment, annotation) states the headroom left:
+_over brotli cap by N B; minified M B vs R B recorded with the cap (+D B) —
+H B of the 20 B minified allowance left; +P B minified over this PR's base_.
+A failure carries the same numbers, so a PR whose own change is small can
+see that earlier growth used the allowance up.
+
+The last two rows are the fail-safe for a cap without a recorded minified (a
+new scenario that did not record one): the gate compares with the PR's base
+(`pull_request.base.sha`, the first parent of the merge commit CI measures
+as the head; on a push to `next`, the commit before the push), measured in
+the same run with the head's harness, and the summary says so. The
+allowance is one constant, `MINIFIED_ALLOWANCE` in `gate.mjs`; a scenario
+may set its own with `minifiedAllowance` in `scenarios.js` (none does).
+
+Real growth is still a decision made in the PR: lower the bytes, or raise
+the scenario's cap **and its recorded minified** in the same PR, measured
+together by CI, with a dated reason in its ledger. A new scenario records
+both. Raising a frozen floor's cap or its recorded minified (below)
+additionally needs a `Size-Exception:` line in the PR body — the override
+for growth the maintainer has accepted.
+
+Locally, `npm run size` is the absolute gate (any scenario over its cap
+fails); `node gate.mjs head.json base.json` applies the PR rule to two
+`size.mjs --json` files, and `npm test` runs the decision's tests.
+
+## The ratchet
+
+Savings leave caps loose. `npm run ratchet` re-bases every cap on what the
+tree measures now — measured + 10 B rounded up to 0.01 KB — and **only ever
+lowers** a cap. A lowered cap records the minified measured with it (one
+measurement; if that minified is higher, brotli still shrank, and the
+ratchet lists it). A cap it does not lower only ever has its recorded
+minified **lowered**, or recorded for the first time; it is never raised —
+that loosens the gate like a cap raise, so it takes a PR (and, on a floor,
+a `Size-Exception:`). The ratchet rewrites `scenarios.js` and
+`floor-caps.json`, adds a dated ledger line above each cap it changes, and
+prints the inline caps and the **frozen floors** as separate tables, so a
+floor change is seen as one. Scenarios still over their cap, or above their
+recorded minified, are listed and left alone: the ratchet does not raise,
+so a scenario that landed over its cap on noise stays over it, held to its
+recorded minified + 20 B, until code shrinks or a PR re-bases it.
+`--minified-only` leaves every cap alone and only records or lowers
+minified sizes.
+
+Run it once per RC, on `next`, from CI's numbers — local and CI artifacts
+differ by tens of brotli bytes:
+
+```sh
+gh run download <run-id> -n size-head   # the Size run of the push to next
+node ratchet.mjs --from size-head.json --note "RC.7, next @ abc1234" --dry-run
+node ratchet.mjs --from size-head.json --note "RC.7, next @ abc1234"
+```
+
+Without `--from` it measures this checkout (build it first). Land the
+result as its own PR.
 
 ## Bundler
 
@@ -18,7 +103,13 @@ actually downloads. Rolldown is pinned exactly in `package.json`: its minifier
 decides the numbers, so an upgrade is a re-base recorded like any other cap
 change. Code splitting is real — a scenario's `import()` yields a lazy chunk
 that is reported and never counted; the seroval codec the page scenarios load
-lazily shows up that way at its true size.
+lazily shows up that way at its true size. The eager graph is the entry chunk
+**plus any chunk it imports statically**: when the entry and a lazy chunk
+share modules, Rolldown may hoist them into a chunk the entry `import`s at
+its top, and the browser fetches that before the entry runs. Such a chunk is
+counted (each file brotli'd on its own) and named in the output as `eager
+(… counted)`; the compiled live server-component page is the one scenario
+that splits this way (its ledger note says why).
 
 Scenarios bundle for the browser unless they set `platform`/`conditions`.
 The `server:` scenarios bundle for Node (Rolldown's node conditions, no
@@ -32,6 +123,77 @@ switch re-based every cap (Rolldown lands 4–9% lower on the same artifacts;
 the table is in the switch PR and each scenario's ledger note in
 `scenarios.js`). Ledger deltas must not be read across that line.
 
+## The router scenarios
+
+`page: base + router` and `page: live + router` are the two page scenarios
+plus `@solidjs/router` 2.0 — the Solid 2 line (`2.0.0-next.*`), a
+devDependency of this directory pinned exactly like Rolldown (a router
+upgrade is a re-base, recorded like any other cap change). It resolves from
+this directory's `node_modules`; its `solid-js` / `@solidjs/web` imports go
+through the page alias to the built dists like everything else, and
+`.npmrc`'s `legacy-peer-deps` keeps npm from installing those peers from the
+registry for nothing. The router's own modules report as the `other`
+package. These are not floors: their caps are inline, and the two page
+floors stay the gate on the runtime alone.
+
+The router is resolved through its **`solid` export condition**
+(`solidConditions` in `scenarios.js`: `solid` ahead of Rolldown's browser
+set, the order `@solidjs/vite-plugin` gives Vite), which is `dist/index.jsx`
+plus the router's per-module output — two of those modules are JSX, compiled
+at measure time by the measured checkout's compiler like a compiled
+scenario's fixtures (the scenarios set `compile`), hydratable as an SSR'd
+app compiles them. That is what a Vite application ships. The package's
+`default` condition is a flat `dist/index.js` rolled up with
+`inlineDynamicImports`, which turns the lazy server-form fallback
+(`data/events`' `import("./serverForms.js")`) into a static edge to the
+action layer, `query` and the flight consumer — eager there, a lazy chunk
+under `solid`. Until 2026-10-08 (router `2.0.0-next.35`) the scenarios
+resolved the flat build and overstated the router by 2.7 KB brotli / 8.4 KB
+minified on the base page; the switch to `solid` landed with the
+`2.0.0-next.37` re-base (the dated notes in `scenarios.js` separate the two).
+Under `solid` the live + router page's eager graph is two chunks (Rolldown
+hoists the runtime the entry shares with the lazy server-form chunk into a
+statically-imported chunk), counted the way the compiled live page is.
+
+## Compiled scenarios
+
+The hand-written `app:` fixtures call the runtime directly and never compile
+a template, so the DOM attribute runtime (`spread`, `className`, `style`,
+`setAttribute`, `addEvent`, `delegateEvents`) and the hydratable walk
+helpers were never on the gate. A scenario with `compile` is JSX under
+`fixtures/` — `fixtures/compiled/` holds a one-button floor and a todo app
+with an element spread, `merge`/`omit`, a component spread, delegated and
+direct events, `class`/`style` objects, a keyed `<For>`, `<Show>`,
+`<Loading>` around a `lazy()` child and a store — compiled at measure time
+by the **native `@solidjs/compiler` of the checkout being measured**
+(`packages/compiler/index.js`, so the compare job measures the base with the
+base's compiler) in client DOM mode with the production posture the Vite
+plugin uses (`dev: false`, `hydratable` from the scenario), then bundled like
+every other scenario. The compiler sees only each file's basename, so the
+output — and the numbers — are the same on every host. The compiled app's
+own modules report as the `app` package. CI needs nothing beyond what it
+already does: the compiler is built before `pnpm build`.
+
+The two server-component page scenarios have compiled counterparts for the
+same reason (`page: compiled base …`, `page: compiled live …`;
+`fixtures/compiled/sc-base.jsx`, `sc-live.jsx`, the shared `sc-shell.jsx`):
+the hand-written `sc-base-app.js` / `sc-live-app.js` keep the runtime alive as
+values and never compile a template, so a change that drops the attribute
+runtime from those pages drops nothing from a page an application ships —
+compiled templates import `className`, `style`, `setAttribute`, `addEvent`
+and `delegateEvents` themselves. The compiled pages mount the same server
+component through `dynamicComponent()` over the same server-function
+reference (the live one through `live(GET(…))`, with `action` and
+`isPending`/`latest`), inside a compiled shell: links with a dynamic `class`
+and `style`, an `href`, a handler passed through as a prop, a search input
+with a `value` binding, `<For>`, `<Show>`, `<Errored>`/`<Loading>` and a
+`lazy()` child — and **no element spread** (the maintainer's ruling,
+2026-10-07: most server-component apps do not have client element spreads, so
+the compiled baseline must not carry one; `spread` is absent from both
+pages' rendered `web.js`). The hand-written pages stay as the frames-only
+floor (their caps are the frozen ones); the compiled pages are the number a
+real page moves by.
+
 ## Frozen floor caps
 
 The three floor scenarios — the signals floor, the simple app, and the
@@ -41,10 +203,13 @@ the two server-entry floors have their caps in `floor-caps.json`, not in
 **frozen**: a PR may lower them, never raise them. `check-floor-caps.mjs`
 diffs the file against the PR's base branch in CI and fails on a raise unless
 the PR body contains a line starting with `Size-Exception:` naming why the
-maintainer accepted the cost. Ten weeks of individually justified 10–300 B
+maintainer accepted the cost (read from the PR body when the run starts —
+edit the body, then re-run). Ten weeks of individually justified 10–300 B
 bumps took the signals floor from 7.1 to 9.9 KB; the freeze makes the next
 one a decision, not a paragraph. See
-`documentation/plans/size-reduction-audit.md`.
+`documentation/plans/size-reduction-audit.md`. Each floor's recorded
+minified is frozen the same way (raising it, or removing it, needs the
+exception). The ratchet may lower a frozen floor like any cap.
 
 ## Attribution
 
@@ -54,7 +219,18 @@ the lazy chunks and the minified bytes each package contributed (`signals`,
 attributed in the log that reports it. Minified bytes are the attributable
 unit; brotli compresses across module boundaries. `node attribute.mjs [name]
 [--min bytes]` lists the individual dist modules of matching scenarios.
-`node size.mjs --json out.json` writes the results for the PR comment.
+`node size.mjs --json out.json` writes the results for the gate and the PR
+comment.
+
+## CI
+
+`.github/workflows/size.yml` runs three jobs. `head` builds the commit under
+test and measures it; `base` builds the base (above) and measures it with
+the head's harness (`SIZE_PACKAGES_ROOT`); the two run in parallel. `check`
+— the required status — waits for both, renders the summary and the PR
+comment (`report.mjs`), decides (`gate.mjs`) and checks the floor freeze
+(`check-floor-caps.mjs`). A base that cannot be built or measured leaves the
+caps absolute rather than blocking.
 
 ## Layout
 
@@ -70,3 +246,26 @@ first). `SIZE_PACKAGES_ROOT=<checkout>` measures another checkout's built
 The retained-module-graph test in `packages/signals/tests/treeshake.test.ts`
 is the companion diagnostic that names the re-coupled module when shaking
 breaks.
+
+## Ledger
+
+- **2026-10-05 — minified allowance and ratchet.** The gate stopped failing
+  on brotli alone: over the cap with ≤ 20 B minified growth over the base
+  passes with a warning; caps stay brotli and are re-based downward per RC
+  by `npm run ratchet`. Prompted by one day of noise: #3807 +63 B minified
+  went +36 then +97 B brotli after `next` moved (a +61 B variant measured
+  +3 / −54); #3814 +10 B minified went +50 / +56 B; #3811 +20 B minified
+  went +55 / +89 B; #3817 reordered a condition for −20 B minified and
+  moved one scenario −90 B brotli. The base measurement moved out of the informational
+  `compare` job (which ran after `check`) into a parallel `base` job that
+  `check` waits on, and pushes to `next` now compare against the previous
+  commit instead of the absolute cap. No cap changed.
+- **2026-10-06 — recorded minified (#3822).** Measured per PR, the
+  allowance let an over-cap scenario creep: each +15 B PR passed against its
+  own base. Every cap now records the minified size measured when it was
+  set, and the allowance is measured against that. The warning states the
+  headroom left instead of promising a re-base (the lower-only ratchet
+  cannot re-base an over-cap scenario). Seeded by the ratchet's
+  `--minified-only` mode from CI's measurement of `next` @ fff1615ee (Size
+  run 37443080193); every cap unchanged. The base comparison remains the fail-safe
+  for a cap without a recorded minified.

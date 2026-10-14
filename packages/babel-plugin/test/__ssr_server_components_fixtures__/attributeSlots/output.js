@@ -4,6 +4,7 @@ import { escape as _$escape } from "r-server";
 import { ssrElementAttribute as _$ssrElementAttribute } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
 import { ssr as _$ssr } from "r-server";
+import { ssrLinkClaim as _$ssrLinkClaim } from "r-server";
 import { ssrClaim as _$ssrClaim } from "r-server";
 import { sharedConfig as _$sharedConfig } from "r-server";
 var _tmpl$ = [
@@ -11,6 +12,7 @@ var _tmpl$ = [
     ">Copy</button><input",
     "><span",
     '>warns at render when the gate is open</span><a href="/x"',
+    "",
     ">multiple refs merge to an array</a></div>"
   ],
   _tmpl$2 = ["<li", "", "", ">", "</li>"],
@@ -23,6 +25,9 @@ var _tmpl$ = [
     '><span class="static stays">',
     "</span></li>"
   ];
+var _lk$ = {
+  href: "/x"
+};
 var _sk$ = k => k === "class";
 var _v$ =
     _$sharedConfig.context && _$sharedConfig.context.claims
@@ -54,7 +59,7 @@ var _v$ =
 // compile to one guarded whole-attribute claim hole per element, gated on
 // the render context's claims flag so plain SSR never evaluates the
 // expressions.
-const template = _$ssr(_tmpl$, _v$, _v$2, _v$3, _v$4);
+const template = _$ssr(_tmpl$, _v$, _v$2, _v$3, _$ssrLinkClaim(_lk$), _v$4);
 
 // A spread element's named `ref`/`on*` compile to the same claim map a
 // template element's do — duplicate refs merged, a tuple kept whole, a

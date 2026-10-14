@@ -20,6 +20,18 @@ pub(crate) struct DynamicSlot<'a> {
     pub(crate) tag_name: String,
     pub(crate) style_property: bool,
     pub(crate) class_property: bool,
+    pub(crate) checkable_input: bool,
+}
+
+/// What one template root folds into its single binding effect
+/// (`wrap_dynamics_statement`): the deferred attribute bindings (Babel's
+/// `results.dynamics`) and the claim targets whose mount claim trails them
+/// at the effect's tail (Babel's `results.claims`) — `a[href]` /
+/// `form[action]` elements with a binding in `slots`, in document order.
+#[derive(Default)]
+pub(crate) struct DynamicsBatch<'a> {
+    pub(crate) slots: std::vec::Vec<DynamicSlot<'a>>,
+    pub(crate) claims: std::vec::Vec<String>,
 }
 
 impl<'a> AstDomTransform<'a, '_> {
@@ -29,7 +41,12 @@ impl<'a> AstDomTransform<'a, '_> {
     /// enumerate their object in the untracked commit phase, so a proxy value
     /// (a store sub-object, merged props) would be identity-reactive only.
     /// Skipped when the expression is provably a string or a fresh literal.
-    fn wrap_read_shallow(&mut self, span: Span, key: &str, value: Expression<'a>) -> Expression<'a> {
+    fn wrap_read_shallow(
+        &mut self,
+        span: Span,
+        key: &str,
+        value: Expression<'a>,
+    ) -> Expression<'a> {
         if key != "class" && key != "style" {
             return value;
         }
@@ -58,14 +75,28 @@ impl<'a> AstDomTransform<'a, '_> {
 
     /// Port of Babel's `wrapDynamics` (dom/template.ts): one dynamic binding
     /// gets its own effect; multiple bindings share a single keyed effect
-    /// with a previous-values object.
+    /// with a previous-values object. The batch's claim targets are claimed
+    /// at the tail of the effect body — the first run claims after it
+    /// applied the initial attributes (`claimElement` is once-per-element, so
+    /// reruns cost one check) — under `owner`, the owner the template root
+    /// captured at creation (the callback runs ownerless when a held mount
+    /// lands).
     pub(crate) fn wrap_dynamics_statement(
         &mut self,
-        mut dynamics: std::vec::Vec<DynamicSlot<'a>>,
+        batch: DynamicsBatch<'a>,
+        owner: Option<&str>,
     ) -> Option<Statement<'a>> {
+        let DynamicsBatch {
+            slots: mut dynamics,
+            claims,
+        } = batch;
         if dynamics.is_empty() {
             return None;
         }
+        let claim_statements: std::vec::Vec<Statement<'a>> = claims
+            .iter()
+            .map(|element_id| self.claim_element_statement(element_id, owner))
+            .collect();
         self.template_state.uses_effect = true;
         // `sourceNames.bindings`: the effect is named by what it writes — each
         // binding's `<tag>.<attribute>` as written (undoing the `prop:` the
@@ -117,6 +148,7 @@ impl<'a> AstDomTransform<'a, '_> {
                     tag_name: slot.tag_name,
                     style_property: slot.style_property,
                     class_property: slot.class_property,
+                    checkable_input: slot.checkable_input,
                 },
             );
             let statement = self.ast().statement_expression(span, set_attr);
@@ -125,7 +157,9 @@ impl<'a> AstDomTransform<'a, '_> {
             } else {
                 vec!["_v$"]
             };
-            let setter = self.arrow_with_statements(span, params, self.ast().vec1(statement));
+            let mut body = self.ast().vec1(statement);
+            body.extend(claim_statements);
+            let setter = self.arrow_with_statements(span, params, body);
             let effect_local = self.effect_wrapper_local();
             let mut args = vec![getter, setter];
             if let Some(label) = label {
@@ -178,6 +212,7 @@ impl<'a> AstDomTransform<'a, '_> {
                         tag_name: slot.tag_name,
                         style_property: false,
                         class_property: false,
+                        checkable_input: slot.checkable_input,
                     },
                 );
                 statements.push(self.ast().statement_expression(slot_span, set_attr));
@@ -225,6 +260,7 @@ impl<'a> AstDomTransform<'a, '_> {
                         tag_name: slot.tag_name,
                         style_property: slot.style_property,
                         class_property: slot.class_property,
+                        checkable_input: slot.checkable_input,
                     },
                 );
                 statements.push(self.ast().statement_expression(
@@ -239,6 +275,7 @@ impl<'a> AstDomTransform<'a, '_> {
             }
             param_names.push(prop_name);
         }
+        statements.extend(claim_statements);
 
         let values_object = self.ast().expression_object(span, value_props);
         let getter = self.arrow_with_return(span, std::vec::Vec::new(), values_object);

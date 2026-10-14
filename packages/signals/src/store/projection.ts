@@ -16,6 +16,7 @@
  * (uninitialized / pending / errored) and the reader's height, by the
  * rules a memo's read follows. No per-leaf back-pointer, nothing in core.
  */
+import { attrHooks } from "../core/attribution-hooks.js";
 import { CONFIG_AUTO_DISPOSE, STATUS_PENDING, STATUS_UNINITIALIZED } from "../core/constants.js";
 import { computed } from "../core/core.js";
 import { NotReadyError } from "../core/error.js";
@@ -33,9 +34,10 @@ import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { reconcileState } from "./reconcile.js";
 import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
-import type { StoreFamily, StoreTarget } from "./target.js";
+import { setLookup, storeOwners, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
+  isWrappable,
   markRawIngest,
   setWriteOverride,
   type NoFn,
@@ -116,7 +118,12 @@ function wrapDraft(
         Reflect.defineProperty(inner, prop, desc);
       })
   };
-  return new Proxy(Array.isArray(inner) ? [] : {}, traps);
+  const px = new Proxy(Array.isArray(inner) ? [] : {}, traps);
+  // The wrapper stands for its store proxy wherever the derive's result
+  // carries it (`wrap`, `unwrapValue`, reconcile's slot matching).
+  const t: StoreTarget | undefined = inner[$TARGET];
+  if (t !== undefined) setLookup(px, t);
+  return px;
 }
 
 function cloneState<T extends object>(v: T, shallow: boolean): T {
@@ -274,7 +281,9 @@ export function runProjectionComputed<T extends object>(
     // A flight went up (NotReady out of the pass — the derive's own, with
     // the derive as its source): the leaves' readers learn it from here —
     // they do not subscribe to the derive.
-    if (e instanceof NotReadyError && !first) wakeFamily(fam, e);
+    // A synchronous error the same way (#3956: a rerun that finds the
+    // entry failed throws): every live reader re-derives and meets it.
+    if (!first) e instanceof NotReadyError ? wakeFamily(fam, e) : errorFamily(fam);
     throw e;
   }
   // A pass that returned with a flight up (an iterator's sync first yield):
@@ -296,11 +305,20 @@ function createProjectionInternal<T extends object = {}>(
   seed: Partial<T>,
   options?: ProjectionOptions
 ) {
+  const keyOption = options?.key === undefined ? "id" : options.key;
   const fam: StoreFamily = {
     map: new WeakMap(),
     node: null,
     live: new Set(),
-    shallow: !!options?.shallow
+    shallow: !!options?.shallow,
+    // The row key, for a child paired after the adoption (store.ts
+    // `adoptChild`, #3712) as the adoption pairs them.
+    key:
+      typeof keyOption === "function"
+        ? keyOption
+        : keyOption === null
+          ? null
+          : (row: any) => (isWrappable(row) ? row[keyOption] : undefined)
   };
   const store = wrap(seed as any, null, null, fam) as Store<T>;
   if (fam.shallow) {
@@ -309,13 +327,17 @@ function createProjectionInternal<T extends object = {}>(
   }
   let nodeOptions: { name?: string; loadingValue?: void } | undefined;
   if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
+  if (__OBSERVE__ && attrHooks !== null)
+    // As createStore: the owner in scope stamps the projection's property
+    // nodes, so attribution places them under it (#4035).
+    storeOwners!.set((store as any)[$TARGET] as StoreTarget, getOwner());
   if (__OBSERVE__ && options?.name) {
     nodeOptions = { ...nodeOptions, name: options.name };
     nameStore(store, options.name);
   }
   const node = computed(() => {
     if (!fam.node) fam.node = getOwner() as Computed<any>;
-    runProjectionComputed(store, fn, options?.key === undefined ? "id" : options.key);
+    runProjectionComputed(store, fn, keyOption);
   }, nodeOptions);
   node._config &= ~CONFIG_AUTO_DISPOSE;
   fam.node = node;

@@ -8,7 +8,8 @@ import {
   isPending,
   refresh,
   untrack,
-  OBSERVE
+  OBSERVE,
+  type Refreshable
 } from "../src/index.js";
 import { NotReadyError } from "../src/core/error.js";
 
@@ -264,7 +265,7 @@ describe("thenable probe on a store proxy in a strict-read scope", () => {
     const capture = OBSERVE!.diagnostics.capture();
     let fetches = 0;
     let dispose!: () => void;
-    let list!: { id: number }[];
+    let list!: Refreshable<{ id: number }[]>;
     createRoot(d => {
       dispose = d;
       [list] = createStore(
@@ -324,7 +325,7 @@ describe("thenable probe on a store proxy in a strict-read scope", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const capture = OBSERVE!.diagnostics.capture();
     let dispose!: () => void;
-    let list!: { id: number }[];
+    let list!: Refreshable<{ id: number }[]>;
     let fetches = 0;
     createRoot(d => {
       dispose = d;

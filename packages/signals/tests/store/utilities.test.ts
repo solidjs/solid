@@ -781,7 +781,7 @@ describe("view descriptors", () => {
   });
   test("a store leaf or a memo source is always an accessor, whatever the store reports", () => {
     createRoot(() => {
-      const [store] = createStore({ a: 1 });
+      const [store] = createStore<{ a: number; z?: never }>({ a: 1 });
       const overStore = merge({ b: 2 }, store);
       expect(typeof Object.getOwnPropertyDescriptor(overStore, "a")!.get).toBe("function");
       expect(Object.getOwnPropertyDescriptor(overStore, "b")!.value).toBe(2);
@@ -865,7 +865,7 @@ describe("view descriptors", () => {
     expect(l7.type).toBe("x");
     expect(l7.class).toBeUndefined();
     // One pass gives every key with the leaf that owns it.
-    const keys: PropertyKey[] = [],
+    const keys: (string | symbol)[] = [],
       owners: any[] = [];
     sourceOwners(l5, keys, owners);
     expect(keys).toEqual(["role", "class", "label", "extra"]);
@@ -1159,7 +1159,7 @@ describe("view descriptors", () => {
     test("through merge() and omit() views, the leaf that owns the key decides", () => {
       const [sig, setSig] = createSignal("a");
       const literal = { as: "button", label: "x" };
-      const expr = {
+      const expr: { readonly as: string; label?: never } = {
         get as() {
           return sig();
         }
@@ -1194,7 +1194,7 @@ describe("view descriptors", () => {
       expect(isStatic(chainDyn, "as")).toBe(false);
     });
     test("memo sources, stores, and anything reaching them are not static", () => {
-      const [store] = createStore({ as: "button" });
+      const [store] = createStore<{ as: string; label?: never }>({ as: "button" });
       const plain = { label: "x" };
       // A store answers `as` with a value, but the key can change and even
       // appear/disappear: never static, whether direct or through a view.

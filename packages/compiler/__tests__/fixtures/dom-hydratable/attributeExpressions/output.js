@@ -110,12 +110,12 @@ _$spread(_el$2, [
 		}
 	}
 ], true);
-_$claimElement(_el$3);
 _$className(_el$3, { "ccc ddd": true });
 var _ref$ = link;
 typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
 	return _ref$;
 }, _el$3) : link = _el$3;
+_$claimElement(_el$3);
 _$runHydrationEvents();
 const template = _el$;
 var _el$4 = _$getNextElement(_tmpl$2);
@@ -259,7 +259,6 @@ _$effect(() => "t" in test, (_v$) => {
 });
 const template23 = _el$30;
 var _el$31 = _$getNextElement(_tmpl$16);
-_$claimElement(_el$31);
 _$spread(_el$31, [props, { something: true }], false);
 _$runHydrationEvents();
 const template24 = _el$31;
@@ -270,7 +269,6 @@ var _el$36 = _el$34.nextSibling;
 _$insert(_el$32, _$scope(() => {
 	return props.children;
 }), _el$34, _el$35);
-_$claimElement(_el$36);
 _$spread(_el$36, [props, { something: true }], false);
 _$runHydrationEvents();
 const template25 = _el$32;

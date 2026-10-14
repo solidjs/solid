@@ -21,7 +21,7 @@ import {
   flush,
   isPending
 } from "../../src/index.js";
-import type { Store } from "../../src/store.js";
+import type { Store } from "../../src/store/index.js";
 
 const tick = () => new Promise(r => setTimeout(r, 0));
 

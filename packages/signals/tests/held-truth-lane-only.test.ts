@@ -586,7 +586,7 @@ describe("held truth is masked from lane passes only (GabbeV's session fold, #31
     let mainMemo!: () => string;
     const dispose = createRoot(d => {
       [state, setState] = createOptimisticStore<{ session: Session }>(
-        async function* () {
+        async function* (): AsyncGenerator<{ session: Session }, void, unknown> {
           yield { session: { status: "signedOut", account: { email: "g@x" } } };
           await authenticated;
           yield { session: { status: "authenticated", user: { name: "Gabriel" } } };

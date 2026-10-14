@@ -90,8 +90,10 @@ pub fn project_tsrx_for_typecheck(
     let source_mapping_utf16 = utf16_offsets(&code, &source_mapping_endpoints)?;
     let generated_mapping_utf16 = utf16_offsets(&output.code, &generated_mapping_endpoints)?;
     let mappings = source_mapping_utf16
-        .chunks_exact(2)
-        .zip(generated_mapping_utf16.chunks_exact(2))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .zip(generated_mapping_utf16.as_chunks::<2>().0)
         .map(|(source, generated)| TsrxTypecheckMapping {
             source_start: source[0],
             generated_start: generated[0],
@@ -108,7 +110,7 @@ pub fn project_tsrx_for_typecheck(
     let embedded_regions = output
         .embedded_regions
         .into_iter()
-        .zip(utf16_endpoints.chunks_exact(2))
+        .zip(utf16_endpoints.as_chunks::<2>().0)
         .map(|(region, offsets)| {
             let kind = match region.kind {
                 crate::tsrx::TsrxEmbeddedRegionKind::Css => "css",
@@ -177,9 +179,11 @@ pub fn transform_directives(
     crate::directives::transform_directives(code, options)
 }
 
-/// The `lazy()` module-URL pass — injects `__SOLID_LAZY_MODULE__:` placeholder
-/// arguments into `lazy(() => import("..."))` calls for the bundler plugin to
-/// resolve. Ported from vite-plugin-solid's `lazy-module-url` Babel plugin.
+/// The `lazy()` / `lazyModule()` module-URL pass — injects
+/// `__SOLID_LAZY_MODULE__:` placeholder arguments into
+/// `lazy(() => import("..."))` and `lazyModule(() => import("..."))` calls
+/// for the bundler plugin to resolve. Ported from vite-plugin-solid's
+/// `lazy-module-url` Babel plugin.
 #[napi]
 pub fn transform_lazy(
     code: String,

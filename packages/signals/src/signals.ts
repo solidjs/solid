@@ -8,6 +8,7 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_DEFERRED,
   CONFIG_FRESH_READ,
+  CONFIG_GUESS,
   createRoot,
   dispose,
   effect,
@@ -31,15 +32,16 @@ import {
   dirtyQueue,
   flushTransaction,
   globalQueue,
+  GlobalQueue,
   joinFuture,
   passTx,
   resolveTx,
   staleReader,
   type Transaction
 } from "./core/scheduler.js";
-import { REACTIVE_JOINED } from "./core/constants.js";
+import { REACTIVE_JOINED, STATUS_ERROR, STATUS_PENDING } from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
-import { optimisticWrite } from "./core/lanes.js";
+import { optimisticWrite, truthConfirmed, truthRead } from "./core/lanes.js";
 import { deferredCompute, installDeferred, unansweredFlight } from "./deferred.js";
 
 /**
@@ -620,7 +622,7 @@ export function createDeferred<T>(
  *
  * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
  */
-export function createEffect<T>(
+export function createEffect<const T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   effectFn: EffectFunction<NoInfer<T>, T> | EffectBundle<NoInfer<T>, T>,
   options?: EffectOptions
@@ -674,7 +676,7 @@ export function createEffect<T>(
  *
  * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
  */
-export function createRenderEffect<T>(
+export function createRenderEffect<const T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   effectFn: EffectFunction<NoInfer<T>, T>,
   options?: EffectOptions
@@ -829,6 +831,10 @@ function watch<T>(
   inPass?: (v: T) => void,
   own: Transaction | null = flushTransaction
 ): void {
+  if (config & CONFIG_AUTHORITATIVE) {
+    GlobalQueue._truth = truthRead;
+    GlobalQueue._confirmed = truthConfirmed;
+  }
   // `config` is on the node for its first pass too (the pass runs inside
   // `computed()`): `until`'s predicate is authoritative from its first read,
   // or an already-displayed guess would satisfy it in a later slice. (REDERIVE
@@ -971,22 +977,31 @@ export function refresh<T>(
   const own = flushTransaction;
   const promise = new Promise<any>((res, rej) => {
     queueMicrotask(() => {
-      // No createRoot: the microtask has no ambient owner, so the watcher is
-      // naturally detached, and settle disposes the node directly (dev keeps
-      // a root husk purely to stay quiet about the missing owner). The
-      // capture runs inside the watcher's own pass, where the ambient owner
-      // IS the watcher — exactly what dispose() takes.
+      // The root is load-bearing: an ownerless computed is auto-disposing,
+      // and the settle walk releases an unobserved one instead of re-running
+      // it, so the waiter would never see the refetch land (#3888). Settle
+      // disposes the waiter directly; the capture runs inside the watcher's
+      // own pass, where the ambient owner IS the watcher — exactly what
+      // dispose() takes.
       let waiter: Computed<unknown> | null = null;
       const make = () =>
         watch(
           () => {
             if (waiter === null) waiter = getOwner() as Computed<unknown>;
-            const value = read(node);
+            // Authoritative: the truth beneath a guess (`until`'s view). A
+            // guessed node's own re-ask is not answered by it (#3895): park
+            // on that flight, or reject with its error.
+            const v = read(node!);
+            if (
+              node!._config & CONFIG_GUESS &&
+              node!._statusFlags & (STATUS_PENDING | STATUS_ERROR)
+            )
+              throw node!._x?._error;
             // D9 (deferred.ts): a `createDeferred` re-ask is served the
             // committed value; the waiter parks on the flight instead, and
             // the flight's close re-runs it.
-            if (unansweredFlight(node, null)) throw new NotReadyError(node);
-            return value;
+            if (unansweredFlight(node!, null)) throw new NotReadyError(node!);
+            return v;
           },
           value => {
             res(typeof target === "function" ? value : target);
@@ -996,11 +1011,11 @@ export function refresh<T>(
             rej(err);
             dispose(waiter!);
           },
-          CONFIG_FRESH_READ,
+          CONFIG_FRESH_READ | CONFIG_AUTHORITATIVE,
           undefined,
           own
         );
-      __DEV__ ? createRoot(make) : make();
+      createRoot(make);
     });
   });
   // Fire-and-forget refresh must not turn a failed refetch into an unhandled

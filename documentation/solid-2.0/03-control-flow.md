@@ -166,7 +166,7 @@ render(() => <App />, root, undefined, { onError });
 - No return: the client has no wire to map for. A throwing hook is reported on the console and ignored — a monitor never takes the app down.
 - Pay-for-use: the hook machinery rides with `Errored` or the app's own `configureClientErrors` import; a root's hook is parked on the root owner, so `render` retains nothing for an app that passes none.
 
-An effect's own error arm (`createEffect(compute, effect, onError)`) is the author handling the failure and is not reported here.
+An effect's own error arm (`createEffect(compute, { effect, error })`) is the author handling the failure and is not reported here.
 
 ### Dynamic components: the `dynamic` factory
 
@@ -228,6 +228,7 @@ const Article = dynamic(() => loadArticle(params.id), { deferStream: true });
 #### Notes
 
 - The source evaluation is shared across all mounted instances of the returned component, so using one `dynamic(...)` in many places doesn't duplicate work.
+- Because a source may answer with a tag name, one `dynamic` on a page retains the element runtime (`spread`, the attribute helpers, the namespace tables) for everyone; `dynamicComponent(source)` from `solid-js` is the same primitive for a source that only ever answers with a component — a server component mount ([RFC 11](11-server-components.md#using-one)) — and never does. `@solidjs/web` re-exports it.
 
 ### Client-only components: `clientOnly`
 

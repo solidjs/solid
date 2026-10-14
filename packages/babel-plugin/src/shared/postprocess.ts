@@ -1,7 +1,11 @@
 import * as t from "@babel/types";
 import { getRendererConfig, registerImportMethod } from "./utils";
 import { appendTemplates as appendTemplatesDOM } from "../dom/template";
-import { appendTemplates as appendTemplatesSSR, appendSkips } from "../ssr/template";
+import {
+  appendTemplates as appendTemplatesSSR,
+  appendSkips,
+  appendLinkAttrs
+} from "../ssr/template";
 import { isInvalidMarkup } from "./validate";
 import { hoistProps, takeHoistedProps } from "../ssr/props";
 import type { NodePath } from "@babel/traverse";
@@ -24,8 +28,10 @@ export default (path: NodePath<t.Program>, state: PluginPass) => {
     if (hoisted) path.node.body.unshift(...hoisted);
   }
   // Spread-element skip predicates sit between the templates and the hoisted
-  // props shapes (unshifted after them, before the templates unshift).
+  // props shapes (unshifted after them, before the templates unshift); the
+  // static anchors' link-attributes objects right after the templates.
   if (data.ssrSkips?.length) appendSkips(path, data.ssrSkips);
+  if (data.ssrLinkAttrs?.length) appendLinkAttrs(path, data.ssrLinkAttrs);
 
   if (data.events) {
     path.node.body.push(

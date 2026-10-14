@@ -1,19 +1,43 @@
-// #2916: when an action's done() restores activeTransition (without adopting
-// the ambient batch) and the shared transition is still incomplete, an
-// ordinary write in the microtask window before the scheduled flush lands in
-// the detached ambient batch. The incomplete-transition stash then replaced
-// that batch wholesale, stranding the queued pending node: the write never
-// committed and every later write to the same signal stayed frozen (dev
-// INV-7).
+// #2916: a write between action completion and a pending scheduler flush must
+// commit and leave the signal writable, even while another action is open.
+// The original stranded pending node violated INV-7 on the next flush.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { action, createSignal, flush } from "../src/index.js";
-import * as scheduler from "../src/core/scheduler.js";
 
-const tick = () => Promise.resolve();
+afterEach(() => vi.restoreAllMocks());
+
+// Hold scheduler flushes while Promise callbacks complete the action.
+// Await its result, inject the operation, then release the held callbacks.
+// The callbacks can come from joining or completing a transaction.
+async function inDoneWindow(done: Promise<void>, complete: () => void, operation: () => void) {
+  const queued: VoidFunction[] = [];
+  const events: string[] = [];
+  const microtask = vi.spyOn(globalThis, "queueMicrotask").mockImplementation(callback => {
+    queued.push(() => {
+      events.push("flush");
+      callback();
+    });
+  });
+  try {
+    complete();
+    await done;
+    events.push("done");
+    expect(queued.length).toBeGreaterThan(0);
+    expect(events).toEqual(["done"]);
+    operation();
+    events.push("operation");
+    expect(events).toEqual(["done", "operation"]);
+    while (queued.length) queued.shift()!();
+    expect(events[2]).toBe("flush");
+  } finally {
+    microtask.mockRestore();
+    while (queued.length) queued.shift()!();
+  }
+}
 
 describe("post-action completion race (#2916)", () => {
-  it("commits an ambient write made between an action's done() and its scheduled flush", async () => {
+  it("commits an ambient write after an action completes and before a pending flush", async () => {
     const [y, setY] = createSignal(0);
 
     let resolveA!: () => void;
@@ -32,23 +56,17 @@ describe("post-action completion race (#2916)", () => {
 
     const aDone = A();
     const bDone = B();
-    flush(); // stash the shared incomplete transition
+    flush();
+    await Promise.resolve(); // drain the initial scheduled flush before interception
 
-    resolveA();
-
-    // Write in the window where A's done() has restored activeTransition but
-    // its scheduled flush has not run. The internal read only makes the
-    // timing deterministic; the write itself is an ordinary application
-    // write.
-    let wrote = false;
-    for (let i = 0; i < 16; i++) {
-      await tick();
-      if (!wrote && scheduler.activeTransition !== null) {
-        wrote = true;
-        setY(7);
-      }
-    }
-    expect(wrote).toBe(true);
+    let bCompleted = false;
+    void bDone.then(() => {
+      bCompleted = true;
+    });
+    await inDoneWindow(aDone, resolveA, () => {
+      expect(bCompleted).toBe(false);
+      setY(7);
+    });
 
     resolveB();
     await Promise.all([aDone, bDone]);

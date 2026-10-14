@@ -11,7 +11,8 @@ import {
   refresh,
   type Accessor,
   type Owner,
-  type Signal
+  type Signal,
+  type SourceAccessor
 } from "../src/index.js";
 
 afterEach(() => flush());
@@ -48,7 +49,7 @@ it("should not resurrect a dependency-free computation queued before disposal (#
   // resurrecting the node (post-unmount runs, leaked cleanups).
   let runs = 0;
   let cleanups = 0;
-  let read!: Accessor<number>;
+  let read!: SourceAccessor<number>;
   let dispose!: () => void;
 
   createRoot(d => {

@@ -22,6 +22,23 @@ export function createTemplate(
 ): t.Expression {
   const config = getConfig(path);
   if (result.id) {
+    // Claim targets with dynamic bindings are claimed at the tail of the
+    // binding effect's first run, under the owner the template is created
+    // with: the effect's callback runs ownerless when a held mount lands, so
+    // the owner is captured here, at creation, and handed to the claim.
+    let ownerId: t.Identifier | undefined;
+    if (result.claims?.length) {
+      ownerId = path.scope.generateUidIdentifier("o$");
+      result.declarations.push(
+        t.variableDeclarator(
+          ownerId,
+          t.callExpression(
+            registerImportMethod(path, "getOwner", getRendererConfig(path, "dom").moduleName),
+            []
+          )
+        )
+      );
+    }
     registerTemplate(path, result);
     const decl = result.decl!;
     if (
@@ -30,7 +47,7 @@ export function createTemplate(
     ) {
       return decl.declarations[0].init as t.Expression;
     } else {
-      const dynamicsStmt = wrapDynamics(path, result.dynamics);
+      const dynamicsStmt = wrapDynamics(path, result.dynamics, result.claims, ownerId);
       const stmts = [
         decl,
         ...result.exprs,
@@ -172,13 +189,31 @@ function wrapReadShallow(path: NodePath, key: string, value: t.Expression): t.Ex
   );
 }
 
-function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
+function wrapDynamics(
+  path: NodePath,
+  dynamics: DynamicBinding[],
+  claims: t.Identifier[] = [],
+  ownerId?: t.Identifier
+) {
   if (!dynamics.length) return;
   const config = getConfig(path);
 
   // dynamics are only queued when effectWrapper is configured (element.ts
   // guards every push), so the name is always a string here
   const effectWrapperId = registerImportMethod(path, config.effectWrapper as string, undefined);
+  // The claim contract's mount claims for this root's claim targets with
+  // dynamic bindings (element.ts): the tail of the effect body, so the first
+  // run claims after it applied the initial attributes; `claimElement` is
+  // once-per-element, so reruns cost one check. `ownerId` is the owner
+  // captured at creation (createTemplate) the handlers run under.
+  const claimStatements = claims.map(id =>
+    t.expressionStatement(
+      t.callExpression(
+        registerImportMethod(path, "claimElement", getRendererConfig(path, "dom").moduleName),
+        [id, ownerId!]
+      )
+    )
+  );
   // `sourceNames.bindings`: the effect is named by what it writes — each
   // binding's `<tag>.<attribute>` as written (undoing the `prop:` the locked
   // DOM property pre-pass added to `value`, `checked`, …), the merged effect
@@ -223,12 +258,14 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
             t.expressionStatement(
               setAttr(path, dynamics[0].elem, dynamics[0].key, newValue, {
                 tagName: dynamics[0].tagName,
+                checkableInput: dynamics[0].checkableInput,
                 dynamic: true,
                 prevId: prevValue,
                 styleProperty: dynamics[0].styleProperty,
                 classProperty: dynamics[0].classProperty
               })
-            )
+            ),
+            ...claimStatements
           ])
         ),
         ...label
@@ -242,7 +279,9 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
   const statements: t.ExpressionStatement[] = [];
   const properties: t.Identifier[] = [];
 
-  dynamics.forEach(({ elem, key, value, tagName, styleProperty, classProperty }, index) => {
+  dynamics.forEach((binding, index) => {
+    const { elem, key, tagName, styleProperty, classProperty, checkableInput } = binding;
+    let value = binding.value;
     const propIdent = t.identifier(getNumberedId(index));
     const propMember = t.memberExpression(prevId, propIdent);
     const optionalPropMember = t.optionalMemberExpression(prevId, propIdent, false, true);
@@ -260,7 +299,8 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
           setAttr(path, elem, key, propIdent, {
             tagName,
             dynamic: true,
-            prevId: optionalPropMember
+            prevId: optionalPropMember,
+            checkableInput
           })
         )
       );
@@ -280,7 +320,8 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
               tagName,
               dynamic: true,
               styleProperty,
-              classProperty
+              classProperty,
+              checkableInput
             })
           )
         )
@@ -293,7 +334,7 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
       t.arrowFunctionExpression([], t.objectExpression(values)),
       t.arrowFunctionExpression(
         [t.objectPattern(properties.map(id => t.objectProperty(id, id, false, true))), prevId],
-        t.blockStatement(statements)
+        t.blockStatement([...statements, ...claimStatements])
       ),
       ...label
     ])

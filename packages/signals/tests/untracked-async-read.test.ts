@@ -25,7 +25,7 @@ describe("untracked async read after await (#2987)", () => {
         return "m-value";
       });
 
-      const [s] = createSignal<Promise<number>, number>(async () => {
+      const [s] = createSignal<number>(async () => {
         await Promise.resolve();
         m(); // first-ever read of m — untracked, m still loading
         return 42;

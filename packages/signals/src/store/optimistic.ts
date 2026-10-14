@@ -50,15 +50,16 @@ import {
   getContainerNode,
   getHasNode,
   getNode,
-  installOptHooks,
   LaneView,
   nameStore,
+  resolveChainedRaw,
   sameKey,
   storeSetter,
   targetsEqual,
   unwrapValue,
   wrap
 } from "./store.js";
+import { installOptHooks } from "./hooks.js";
 import { $OWNER, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
@@ -82,6 +83,17 @@ const hasOwn = Object.prototype.hasOwnProperty;
  * restored when the setter's writes become guesses (`writes`). */
 const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
 
+// A chained backing is a proxy: reading it as a handler can expose a
+// derived store's staging. Compose the writer's view on the committed
+// backing of each link, retaining any optimistic guesses on that link.
+function writerBacking(t: StoreTarget): Record<PropertyKey, any> {
+  const base = committed(t);
+  const inner: StoreTarget | undefined = (base as any)[$TARGET];
+  return inner === undefined
+    ? base
+    : optimisticView(inner, writerBacking(inner), laneValueOf, true);
+}
+
 /** The user's draft on an optimistic family: a clone of the view the user
  * saw — the committed frame with the lanes' values and the tick's own
  * unflushed guesses over it (#3665). A staging already on the target (a
@@ -89,7 +101,7 @@ const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
  * guesses go over it, it stays the truth beneath. */
 function optimisticDraft(t: StoreTarget): Record<PropertyKey, any> {
   if (t.pb !== null) optStaged.set(t, t.pb);
-  return cloneRaw(optimisticView(t, committed(t), laneValueOf, true), t);
+  return cloneRaw(optimisticView(t, writerBacking(t), laneValueOf, true), t);
 }
 
 export function notifyOptimisticWrites(
@@ -98,7 +110,7 @@ export function notifyOptimisticWrites(
 ): Record<PropertyKey, any> | null {
   // The view the user saw: the committed frame (a staging adopted eagerly
   // is not it) with the lanes' values and the tick's own guesses over it.
-  const base = committed(t);
+  const base = writerBacking(t);
   const old = optimisticView(t, base, laneValueOf, true);
   const isArr = Array.isArray(pb);
   // A chained target's nodes are links (§7b): their committed value is
@@ -107,21 +119,25 @@ export function notifyOptimisticWrites(
   // inner store's truth for its key before guessing over it.
   const inner = t.ch ? (t.v as Record<PropertyKey, any>) : null;
   const guess = (node: Signal<any>, key: PropertyKey, presence: boolean, nv: unknown): void => {
-    if (inner !== null)
-      node._value = untrack(() => (presence ? key in inner : unwrapValue(inner[key as any])));
+    if (inner !== null) node._value = presence ? key in base : unwrapValue(base[key as any]);
     // By value: a function leaf is a value, not an updater (#3017).
     optimisticWrite(node, () => nv);
   };
   let structural = false;
   for (const key of Reflect.ownKeys(pb)) {
     if ((isArr && key === "length") || key === $OWNER) continue;
-    const nv = unwrapValue(pb[key as any]);
+    // A chained draft holds the inner store's raws; a raw is the inner slot it
+    // resolves to (as a read of it serves) — the row a held write staged is
+    // the same row, not a guess over the slot (#3796).
+    const raw = pb[key as any];
+    const nv = unwrapValue(inner && raw ? resolveChainedRaw(t, key, raw) : raw);
     if (!(key in old)) {
       guess(getNode(t, key), key, false, nv);
       guess(getHasNode(t, key), key, true, true);
       structural = true;
     } else {
-      const ov = unwrapValue(old[key as any]);
+      const previous = old[key as any];
+      const ov = unwrapValue(inner && previous ? resolveChainedRaw(t, key, previous) : previous);
       if (!isEqual(ov, nv) && !targetsEqual(ov, nv)) {
         guess(getNode(t, key), key, false, nv);
         if (isArr) structural = true;
@@ -184,8 +200,39 @@ function rowSame(a: any, b: any, keyFn: ((item: any) => any) | null): boolean {
   if (keyFn === null || !isWrappable(a) || !isWrappable(b)) return false;
   const ka = keyFn(unwrapValue(a));
   const kb = keyFn(unwrapValue(b));
+  // Keyless rows are identified by position — reconcile's fallback when the
+  // key is missing. The caller already paired these by index, so two keyless
+  // rows are the same row and the landing confirms the arrangement instead of
+  // dissolving it. Dissolving held an external echo under the action, and a
+  // mainline `until` then timed out on a source that already contained it
+  // (#3898). Keyed rows still match only on the key.
+  if (ka === undefined && kb === undefined) return true;
   return ka !== undefined && sameKey(ka, kb);
 }
+
+/** Whether reconcile would write anything into `a` from `b`: wrappable
+ * pairs descend, leaves compare as its writes do. A key mismatch is a
+ * replacement, which a content difference already says. Plain data — the
+ * server's echo of a guessed row is a new object with the same contents. */
+function echoes(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (!isWrappable(a) || !isWrappable(b)) return false;
+  a = unwrapValue(a);
+  b = unwrapValue(b);
+  const ak = Object.keys(a);
+  if (Array.isArray(a) !== Array.isArray(b) || ak.length !== Object.keys(b).length) return false;
+  for (const k of ak) if (!hasOwn.call(b, k) || !echoes(a[k], b[k])) return false;
+  return true;
+}
+// A cycle (a row that references itself) is not plain data: no match, so
+// the landing stays a correction.
+GlobalQueue._echoes = (a, b) => {
+  try {
+    return echoes(a, b);
+  } catch {
+    return false;
+  }
+};
 
 function arrangementEqual(
   a: Record<PropertyKey, any>,

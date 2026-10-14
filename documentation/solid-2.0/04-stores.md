@@ -40,25 +40,30 @@ setStore((s) => {
 });
 ```
 
-#### `storePath` (compat helper for 1.x-style path setters)
+#### Migrating 1.x path setters
 
-Solid 2.0’s default store setter is draft-first (produce-style). For teams migrating from Solid 1.x’s “path argument” setter ergonomics, `storePath(...)` is provided as an **opt-in helper** that adapts the old style into a function you can pass to `setStore`.
+Solid 2.0's store setter is draft-first (produce-style) and takes no path arguments. A 1.x path setter becomes a draft write to the same path; the path patterns (ranges, filters) become ordinary loops, and setting `undefined` to remove a key becomes `delete`:
 
 ```js
-// 2.0 preferred: draft-first setter
+// 1.x: setStore("user", "address", "city", "Paris")
 setStore((s) => {
   s.user.address.city = "Paris";
 });
 
-// Optional compat: 1.x-style path setter via storePath
-setStore(storePath("user", "address", "city", "Paris"));
-```
+// 1.x: setStore("items", { from: 1, to: 4, by: 2 }, 99)
+setStore((s) => {
+  for (let i = 1; i <= 4; i += 2) s.items[i] = 99;
+});
 
-`storePath` also supports common path patterns (indices, filters, ranges) and a delete sentinel:
+// 1.x: setStore("todos", (t) => t.done, "archived", true)
+setStore((s) => {
+  for (const t of s.todos) if (t.done) t.archived = true;
+});
 
-```js
-setStore(storePath("items", { from: 1, to: 4, by: 2 }, 99));
-setStore(storePath("nickname", storePath.DELETE));
+// 1.x: setStore("nickname", undefined)
+setStore((s) => {
+  delete s.nickname;
+});
 ```
 
 ### `merge` (rename and semantic cleanup)

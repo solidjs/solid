@@ -131,9 +131,17 @@ Delete the call; observe results after the action resolves.
 
 ### NO_OWNER_EFFECT / NO_OWNER_BOUNDARY
 
-An effect or boundary was created outside any reactive context (no root, no
-component). It will never be disposed — a leak. Create it under a component
-or `createRoot`, or use `runWithOwner` to attach it to an existing owner.
+#### NO_OWNER_EFFECT
+
+An effect was created outside any reactive context (no root, no component).
+Create it under a component or `createRoot`, or use `runWithOwner` to attach
+it to an existing owner so it can be disposed.
+
+#### NO_OWNER_BOUNDARY
+
+A boundary was created outside any reactive context. Like an unowned effect,
+it needs an owner to dispose it. Create it under a component or `createRoot`,
+or attach it to an existing owner with `runWithOwner`.
 
 ### NO_OWNER_CLEANUP
 
@@ -167,6 +175,14 @@ stored past its lifetime — re-capture the owner at call time or guard with
 work: `createEffect(() => signal(), value => doWork(value))`. For a derived
 value use `createMemo`; for a one-shot side effect just call the function.
 
+### PRIMITIVE_IN_EFFECT_CALLBACK
+
+A memo, effect, or root was created without an owner inside an effect
+callback or its cleanup. The effect phase has no ambient owner, so those
+computations cannot be disposed or held by a parent. Create them in the
+compute phase, or attach them to an existing owner with `runWithOwner`.
+Creating a signal alone does not trigger this error.
+
 ### PRIMITIVE_IN_FORBIDDEN_SCOPE
 
 Reactive primitives cannot be created inside `createTrackedEffect` or
@@ -190,6 +206,28 @@ AsyncIterable; the value would be stored as-is, never awaited, in
 production. Remove `sync: true` to use async-aware behavior, or unwrap
 before returning.
 
+## Loading boundaries
+
+### ASYNC_OUTSIDE_LOADING_BOUNDARY
+
+On the client, an async value was read outside a Loading boundary during
+mounting. The root mount waits until the pending async work settles. Put the
+pending content inside `<Loading>` and provide a fallback if the page should
+show something while it waits.
+
+During SSR, reading a source declared with `ssrSource: "client"` outside
+`<Loading>` throws an error because the server cannot run that source.
+Wrap the read in `<Loading>` to provide a fallback, or declare
+`loadingValue`/`seedLoadingValue` to render a provisional value.
+
+### LOADING_ON_OUTSIDE_HOLD
+
+`on` re-armed a Loading boundary, but a source it is waiting on is also read
+outside the boundary and holds the frame. The frame waits for that same
+source, so the fallback cannot appear. Move the outside read under the boundary.
+If the fallback should appear immediately beside the held frame, use a
+`latest()` read in `on`.
+
 ## Hard failures
 
 ### REACTIVITY_HALTED
@@ -198,6 +236,15 @@ An earlier uncaught error halted the reactive system; subsequent updates are
 ignored. Do not treat this code as the bug — find the original error above
 it (or add an error boundary with `<Errored>`) and fix
 that.
+
+### SETTLE_WALK_UNINITIALIZED_SOURCE
+
+The runtime tried to settle a source before it produced a value or an
+error. Waking its parked readers at that point would expose its initial
+value instead of settled data. This is an internal consistency check,
+reported in development. Keep the full diagnostic and reduce the async
+sequence to a reproduction when reporting it; adding `flush()` or silencing
+the diagnostic does not repair the missing value.
 
 ### INVARIANT_VIOLATION
 
@@ -224,17 +271,38 @@ derived from other state, `createProjection` builds it.
 
 ### HUGE_FAN_IN / WIDE_SCOPE_DEPS
 
-One computation reads very many sources, so it re-runs when any of them
-change. Narrow its reads or split it into smaller memos that each track only
-what they need. The message lists the sources — start with those.
+#### HUGE_FAN_IN
+
+The always-on backstop: one computation tracked 2000 or more sources in a
+single pass, so it re-runs when any of them change. The message names the
+computation and the count (`data: { count }`); it does NOT list the sources.
+To see which sources, enable the attribution engine and read
+[WIDE_SCOPE_DEPS](#wide_scope_deps), which fires earlier (200 sources)
+and names up to 12 of them. The repair is the same: narrow the reads or
+split the derivation into smaller memos that each track only what they need.
+
+#### WIDE_SCOPE_DEPS
+
+Attribution engine cost checks only: a scope is subscribed to 200 or more
+sources (it re-warns on 50% further growth). HMR plumbing sources are not
+counted, and in dev the renderer's insert child-resolution pass (which tracks
+each row's resolved child) is not judged — `HUGE_FAN_IN` still is. The
+message lists up to 12 of them — start there, and narrow the reads or split
+the scope as described under [HUGE_FAN_IN](#huge_fan_in).
 
 ### GRAPH_GROWTH
 
-The live graph got bigger on every one of the last `data.history.length`
-visits to `data.route`, and it did not shrink on the visits in between —
-something each visit creates is never disposed. This is the leak a heap
-snapshot finds; the engine finds it by measuring the reactive graph at each
-navigation's settle. `data.grew` says which measure climbed, and that names
+The live graph, counted when each navigation settles, got bigger on every
+one of the last `data.history.length` visits to `data.route`, and so did the
+part of it that outlived each of those navigations (`data.survived`, beside
+`data.history`: what was alive when the navigation began and still is) —
+something each visit creates is never disposed. A page that is merely bigger
+on one visit than the last does not report: its content is new at each
+arrival, so it is not in `data.survived`. Navigations that only change a
+route's params or query continue the visit and are not compared. This is the
+leak a heap snapshot finds; the engine finds it by measuring the reactive
+graph as each navigation opens and at its settle. `data.grew` says which
+measure climbed, and that names
 the leak: `owners` is an undisposed root or a Portal mounted per visit;
 `computations` with `owners` flat is an effect or memo created with no
 owner, kept alive only by the sources it reads; `edges` alone is a
@@ -251,11 +319,19 @@ culprit is on one of them. Look for, in order:
   pair it with `onCleanup`.
 - A `Portal`, a panel or a modal mounted on each visit into a long-lived
   root, never removed when the route leaves.
+- A cache (entities kept by key, each under its own root) that only ever
+  adds. Its entries outlive every navigation, so to the walk it is the same
+  growth as a leak, and it is: memory that never comes back. Bound it or
+  evict entries no visit still reads; an evicting cache stays quiet.
 
 Do NOT reach for `dispose()` on the app root or a periodic sweep; the fix is
 ownership — create the thing under the owner whose lifetime it should share.
 `graphSize()` from `solid-js/attribution` gives the count on demand;
 `OBSERVE.records.subscribe("graph", …)` gives it at every navigation's settle.
+
+The initial route declaration (`initial: true`) emits a `graph` record but is
+excluded from growth comparisons because it settles before route content
+mounts. Later visits to that route count as usual.
 
 ### HOT_SCOPE_RERUNS
 
@@ -789,6 +865,19 @@ produces. Declare the server function `live(...)` — the document then takes
 each source's first value and closes it, and the client connects for the
 rest after hydration — or bound the source. Frame-stream renders (a live
 connection) are never judged.
+
+### SSR_LIVE_HOLE_LATCHED
+
+A live markup hole (or attribute) in a server component shipped its markers
+and then stopped updating: re-running it would create reactive scopes
+(`data.cause: "owners"`) or emit slot records (`"records"`), so the runtime
+closed it and the client keeps the markup it last received. The usual cause
+is a condition on a property inside markup that re-renders from a live
+source, such as `{m.usage && <b>done</b>}`: the compiler wraps that condition
+in a memo, which a re-run would re-create. Read the property into a local
+first (`const usage = m.usage;` then `{usage && …}`), and keep components and
+memos out of markup that re-renders from a live source. The finding is
+located by the component the hole is in.
 
 ### LAZY_ASSET_UNMAPPED
 

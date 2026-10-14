@@ -671,7 +671,10 @@ describe("typed preload links", () => {
         id: "late-links",
         version: 1,
         key: "",
-        preloads: [{ href: "/late-frame.webp", attrs: { as: "image", fetchpriority: "high" } }]
+        preloads: [{ href: "/late-frame.webp", attrs: { as: "image", fetchpriority: "high" } }],
+        // The first assets chunk of the stream, minted after the head left:
+        // it announces the `assets` tier in-band (frames savings pass §2).
+        tiers: ["assets"]
       }
     ]);
   });

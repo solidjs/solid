@@ -53,6 +53,7 @@ runFixtures({
           "noscript",
           "select",
           "video",
+          "form",
           "option",
           "math",
           "merror",

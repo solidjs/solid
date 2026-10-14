@@ -124,13 +124,16 @@ export type {
 
 // Component helpers and types
 export * from "./component.js";
+export { dynamicComponent, type DynamicOptions } from "./dynamic.js";
+/** @internal — tag-arm core behind `dynamicComponent` and `@solidjs/web`'s `dynamic`. */
+export { dynamicCore } from "./dynamic.js";
 
 // Flow controls
 export * from "./flow.js";
 export type { ArrayElement, Element } from "../types.js";
 
 // SSR coordination
-export { NoHydration, Hydration, isHydrating, isHydratable } from "./hydration.js";
+export { NoHydration, Hydration, isHydrating, isHydratable, onHydrationEnd } from "./hydration.js";
 export type { HydrationContext } from "./hydration.js";
 
 // Seams for the runtimes in this repo, reached through `solid-js/internal`
@@ -163,12 +166,78 @@ export { ssrHandleError, ssrScope } from "./hydration.js";
 // is unchanged.
 import { installServerWithOrigin } from "./shared.js";
 
-/**
- * @internal — client-only (see client/hydration.ts). The server stub is
- * inert: nothing delivers a trace TO a server, so a marker passes through.
- */
-export function materializeContainerTrace(marker: unknown): unknown {
-  return marker;
+// The container-trace materializer's seams (client/hydration.ts; consumed by
+// `solid-js/internal/container-trace`, a client-only entry): the patch
+// protocol, and the hydration helpers the store adapter copy that entry
+// bundles (client/store-hydration.ts) reads off the `solid-js` namespace.
+// Mirrored here for export parity (test/server/export-parity.spec), inert:
+// nothing delivers a trace TO a server, so nothing applies a patch batch,
+// and the adapter is never called on this entry (`sharedConfig.hydrating` is
+// not a member of the server's sharedConfig) — the helpers below are the
+// shapes they have with no hydration in progress.
+/** @internal */
+export function applyPatches(_target: any, _patches: any[]): void {}
+/** @internal */
+export function readSerializedOrCompute(compute: (prev: any) => any, prev: any): any {
+  return compute(prev);
+}
+/** @internal */
+export function subFetch<T>(fn: (prev?: T) => any, prev?: T): any {
+  return fn(prev);
+}
+/** @internal */
+export function readHydratedValue(initP: any): any {
+  return initP;
+}
+/** @internal */
+export function wrapFirstYield(iterable: any): any {
+  return iterable;
+}
+/** @internal */
+export function adoptedAnswerStream(thenable: any): any {
+  return thenable;
+}
+/** @internal */
+export function withHydrationGate(create: (hydrated: () => boolean) => any): any {
+  return create(() => true);
+}
+/** @internal */
+export function noHydrationId(): boolean {
+  return true;
+}
+/** @internal */
+export function markTopLevelSnapshotScope(): void {}
+/** @internal */
+export function hasLoadingWindow(options: any): boolean {
+  return (
+    options != null &&
+    typeof options === "object" &&
+    ("loadingValue" in options || options.seedLoadingValue === true)
+  );
+}
+/** @internal */
+export function isAsyncIterable(v: any): boolean {
+  return v != null && typeof v[Symbol.asyncIterator] === "function";
+}
+/** @internal */
+export function syncThenable(value: any): { then(fn: (value: any) => void): void } {
+  return {
+    then(fn) {
+      fn(value);
+    }
+  };
+}
+/** @internal */
+export const UNASKED: PromiseLike<never> = { then() {} } as any;
+// The server-component half of client hydration (client/hydration.ts;
+// installed by `@solidjs/web/frames`' client through `solid-js/internal`).
+// Mirrored for export parity, inert: there is no claim window, hold or
+// reveal ledger on a server.
+/** @internal */
+export function enableServerComponentHydration(): void {}
+/** @internal */
+export function forwardIteratorReturn(it: any, value?: any): any {
+  return Promise.resolve(it.return ? it.return(value) : { done: true, value });
 }
 
 // Observe / dev — same shape as the client entry. Both literals are replaced

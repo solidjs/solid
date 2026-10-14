@@ -14,13 +14,20 @@ import { bundle, moduleOf, packageOf, scenarios, toKB } from "./bundle.mjs";
 const args = process.argv.slice(2);
 const minAt = args.indexOf("--min");
 const threshold = minAt >= 0 ? parseInt(args[minAt + 1], 10) : 200;
-const filters = args.filter((a, i) => !a.startsWith("--") && i !== minAt + 1);
+// Without `--min`, minAt is -1 and `i !== minAt + 1` would drop the first
+// positional filter (index 0); only exclude the value argument when the flag
+// is present. (The same fix size.mjs carries for `--json`.)
+const filters = args.filter((a, i) => !a.startsWith("--") && (minAt < 0 || i !== minAt + 1));
 
 for (const scenario of scenarios) {
   if (filters.length && !filters.some(f => scenario.name.includes(f))) continue;
   const r = await bundle(scenario);
   console.log(`\n${r.name}`);
-  console.log(`  entry chunk: minified ${r.min} B   brotli ${r.br} B (${toKB(r.br)})`);
+  console.log(
+    `  ${r.eager.length ? "eager graph" : "entry chunk"}: minified ${r.min} B   brotli ${r.br} B (${toKB(r.br)})`
+  );
+  for (const c of r.eager)
+    console.log(`  eager chunk ${c.name} (counted): minified ${c.min} B   brotli ${c.br} B`);
   for (const c of r.lazy)
     console.log(`  lazy chunk ${c.name}: minified ${c.min} B   brotli ${c.br} B`);
   const rows = r.modules

@@ -71,7 +71,7 @@ describe("#3164: union-shape landing under a held transaction", () => {
 
     createRoot(() => {
       [state, setState] = createOptimisticStore<{ session: Session }>(
-        async function* () {
+        async function* (): AsyncGenerator<{ session: Session }, void, unknown> {
           yield { session: { status: "signedOut", account: { email: "gabriel@example.com" } } };
           await authenticated;
           yield { session: { status: "authenticated", user: { name: "Gabriel" } } };
@@ -144,7 +144,11 @@ describe("#3164: union-shape landing under a held transaction", () => {
     let signIn!: () => Promise<unknown>;
 
     createRoot(() => {
-      [session, setSession] = createOptimistic<Session>(async function* () {
+      [session, setSession] = createOptimistic<Session>(async function* (): AsyncGenerator<
+        Session,
+        void,
+        unknown
+      > {
         yield { status: "signedOut", account: { email: "gabriel@example.com" } };
         await authenticated;
         yield { status: "authenticated", user: { name: "Gabriel" } };

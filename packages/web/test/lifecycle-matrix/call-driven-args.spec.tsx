@@ -5,13 +5,23 @@
 // Lifecycle matrix — mount kind: FRESH CALL-DRIVEN MOUNT, crossed with the
 // ARG TIER dimension: scalars ride the chunk, `{$ref}` args resolve against
 // the response's streamed data table (async values settle through patch
-// records), `{$frame}` args are nested server regions. See MATRIX.md.
-import { afterEach, describe, expect, test, vi } from "vitest";
+// records), `{$frame}` args are nested server regions — the frames client's
+// REGIONS TIER (`@solidjs/web/frames/regions`, frames savings pass §3 row
+// C4), fetched through `prepareTier("regions")` behind the server's
+// announcement or the first record naming a region. The region cell runs
+// with it RESIDENT (warmed below, as the production host has it after that
+// first load); the load itself — the hold, the buffered record — is pinned
+// in `test/consistency/tier-regions-hold.spec.tsx`. See MATRIX.md.
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createMemo, createRoot, createSignal, flush, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
+import { prepareTier } from "../../frames/src/frame-client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, frameResponse, dataChunks, createDataSource, pump, settle } from "./harness.js";
+
+// The regions tier, resident before any cell runs (see the header).
+beforeAll(() => prepareTier("regions"));
 
 const getScalars = createServerReference("matrix/args/scalars");
 const getRef = createServerReference("matrix/args/ref");

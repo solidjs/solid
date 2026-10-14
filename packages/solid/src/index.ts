@@ -93,6 +93,9 @@ export type {
 } from "./client/core.js";
 
 export * from "./client/component.js";
+export { dynamicComponent, type DynamicOptions } from "./client/dynamic.js";
+/** @internal — tag-arm core behind `dynamicComponent` and `@solidjs/web`'s `dynamic`. */
+export { dynamicCore } from "./client/dynamic.js";
 export * from "./client/flow.js";
 export type { ArrayElement, Element } from "./types.js";
 export {
@@ -110,13 +113,48 @@ export {
   NoHydration,
   Hydration,
   isHydrating,
-  isHydratable
+  isHydratable,
+  onHydrationEnd
 } from "./client/hydration.js";
 // Seams for the runtimes in this repo, reached through `solid-js/internal`
 // (src/internal.ts): exported here at runtime so that entry shares this
 // module's state, `@internal` so they are stripped from the declarations.
 /** @internal */
-export { materializeContainerTrace, sharedConfig } from "./client/hydration.js";
+export { sharedConfig } from "./client/hydration.js";
+// The server-component half of hydration (the hold, the claim window,
+// fragment ownership, the ledger's published answer): installed by the
+// integration that owns server markup wholesale (`@solidjs/web/frames`'
+// client, through `solid-js/internal`), so a page without one carries none
+// of it. Runtime export so that entry shares this module's state.
+/** @internal */
+export { enableServerComponentHydration } from "./client/hydration.js";
+// The container-trace materializer's seams (`solid-js/internal/container-trace`,
+// a separate dist entry so the store engine it builds on stays in a lazy
+// chunk): the projection patch protocol, and the hydration helpers the store
+// adapter module (client/store-hydration.ts) reads — that entry bundles its
+// own copy of the adapter and resolves the adapter's `./hydration.js` import
+// to this package, so the copy shares THIS instance's state (sharedConfig,
+// the hydration-end callbacks — through `onHydrationEnd`, public above — the
+// latch set, the sentinel). Runtime exports
+// so that entry shares this module's state; `@internal`, stripped from the
+// declarations.
+/** @internal */
+export {
+  applyPatches,
+  forwardIteratorReturn,
+  readSerializedOrCompute,
+  subFetch,
+  readHydratedValue,
+  wrapFirstYield,
+  adoptedAnswerStream,
+  withHydrationGate,
+  noHydrationId,
+  markTopLevelSnapshotScope,
+  hasLoadingWindow,
+  isAsyncIterable,
+  syncThenable,
+  UNASKED
+} from "./client/hydration.js";
 /** @internal */
 export { $DEVCOMP } from "./client/core.js";
 // The boundary primitives behind `Errored`, `Loading` and `Reveal`: exported

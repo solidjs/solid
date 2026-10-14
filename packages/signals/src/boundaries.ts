@@ -20,7 +20,7 @@
  * the root holds the frame as for any reader. The tree's own status takes
  * the same route from the output's pass (`read(tree)` throws it).
  *
- * The hold (`blocked`, scheduler.ts) asks `hidden`: a reader behind a
+ * The hold (`blocked`, scheduler.ts) asks `hiddenBy`: a reader behind a
  * fallback — any boundary on its chain whose last pass chose the fallback —
  * is not on screen and holds nothing. An error boundary flipping to its
  * fallback is the same as a loading one resetting: every reader under it
@@ -40,6 +40,7 @@
  * change's frame; nothing pending, and the arm is a no-op at the seam.
  */
 import {
+  CAUGHT_REARMED,
   CONFIG_REDERIVE,
   CONFIG_HELD,
   CONFIG_OVERRIDE,
@@ -61,7 +62,7 @@ import { NotReadyError, unwrapStatusError } from "./core/error.js";
 import { reportClientError } from "./core/error-hooks.js";
 import { link } from "./core/graph.js";
 import { enqueueSub } from "./core/heap.js";
-import { cleanup, createOwner, getOwner } from "./core/owner.js";
+import { cleanup, createOwner, dispose, getOwner } from "./core/owner.js";
 import {
   flushTransaction,
   GlobalQueue,
@@ -107,7 +108,7 @@ interface Boundary {
    * whatever holds the frame; no LOADING_ON_OUTSIDE_HOLD report. */
   _ahead?: boolean;
   /** The output's last pass chose the fallback: readers under it are off
-   * screen (`hidden`). */
+   * screen (`hiddenBy`). */
   _fallback: boolean;
   /** User effects whose run came due behind the fallback: re-queued at the
    * reveal (`heldRun`). */
@@ -120,6 +121,10 @@ interface Boundary {
   _collapsed: boolean;
   _error: Signal<unknown> | null;
   _show: (b: Boundary) => unknown;
+  /** The fallback's own computed, in its own scope like `Show`'s function
+   * child: instantiated once per show and kept across the output's
+   * re-derives while it shows (#3991). */
+  _fb: Computed<unknown> | null;
 }
 
 /** Context key: the nearest boundary of a node, inherited at creation. */
@@ -155,6 +160,12 @@ const boundaryOf = (node: Owner): Boundary | undefined =>
 const isCollecting = (b: Boundary): boolean =>
   b._type === STATUS_ERROR || !b._initialized || b._armed;
 
+/** A reader `b` waits on: recorded for its `on`, and `b` visited at the seam. */
+function record(b: Boundary, node: Computed<any>): void {
+  b._readers.add(node);
+  collecting.add(b);
+}
+
 /** The reader goes to the fallback: recorded, and the output re-derives
  * (a no-op while the output's own pass is running — its post-check
  * decides). */
@@ -171,8 +182,7 @@ function caught(b: Boundary, node: Computed<any>, error: unknown): void {
     setSignal(b._error!, caught);
     reportClientError(caught, b._owner, node);
   }
-  b._readers.add(node);
-  collecting.add(b);
+  record(b, node);
   if (b._armed) flip(b);
   // Already showing the fallback: one more reader to wait on changes
   // nothing on screen. The fallback is instantiated once per show — a later
@@ -203,7 +213,11 @@ export function redraw(b: Boundary): void {
 /** GlobalQueue._catch: status from a frame reader, nearest boundary first.
  * A loading boundary on the way records a pending reader whether or not it
  * catches it (its `on` may collect it later). */
-function catchStatus(node: Computed<any>, flags: number, error: unknown): boolean {
+function catchStatus(
+  node: Computed<any>,
+  flags: number,
+  error?: unknown
+): boolean | typeof CAUGHT_REARMED {
   if (flags === 0) {
     // A status cleared. Judged by the node's status now, against each
     // boundary's own rule (`unsettled`) — the error path clears pending
@@ -213,7 +227,7 @@ function catchStatus(node: Computed<any>, flags: number, error: unknown): boolea
     // lands with its run, not a round after). Others still waiting: nothing
     // on screen changes, the fallback stays as it is.
     if (collecting.size !== 0)
-      for (let b = boundaryOf(node); b !== undefined; b = b._parent ?? undefined)
+      for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent)
         if (
           !(node._statusFlags & unsettled(b)) &&
           b._readers.delete(node) &&
@@ -224,28 +238,23 @@ function catchStatus(node: Computed<any>, flags: number, error: unknown): boolea
         }
     return false;
   }
-  for (let b = boundaryOf(node); b !== undefined; b = b._parent ?? undefined) {
+  for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent) {
     if (!(b._type & flags)) continue;
     if (isCollecting(b)) {
       caught(b, node, error);
-      return true;
+      return b._armed ? CAUGHT_REARMED : true;
     }
-    b._readers.add(node);
-    collecting.add(b);
+    record(b, node);
   }
   return false;
 }
 
-/** The nearest boundary on `r`'s chain showing its fallback, if any. */
+/** The nearest boundary on `r`'s chain showing its fallback, if any
+ * (GlobalQueue._hidden: `r` is behind a fallback). */
 function hiddenBy(r: Computed<any>): Boundary | undefined {
-  for (let b = boundaryOf(r); b !== undefined; b = b._parent ?? undefined)
+  for (let b: Boundary | null | undefined = boundaryOf(r); b; b = b._parent)
     if (b._fallback) return b;
   return undefined;
-}
-
-/** GlobalQueue._hidden: behind a fallback. */
-function hidden(r: Computed<any>): boolean {
-  return hiddenBy(r) !== undefined;
 }
 
 /** GlobalQueue._heldRun: a queued run behind a fallback waits for the reveal
@@ -301,8 +310,11 @@ export function prune(b: Boundary, pass: boolean): number {
         // Landed, held: the content is that transaction's — the output's
         // pass enters it and the reveal lands with the reader's run. The
         // seam, past its park decision, waits for the commit instead. (A
-        // lane's reader reveals with the lane, this round.)
-        if (!pass) continue;
+        // lane's reader reveals with the lane, this round.) A boundary that
+        // has not shown content catches it instead: the fallback stays until
+        // the reader is committed (#3540: what a fresh boundary catches holds
+        // nothing outside it).
+        if (!pass || !b._initialized) continue;
         joinFuture(txOf(r));
       }
       b._readers.delete(r);
@@ -366,8 +378,8 @@ function reportOutsideHold(b: Boundary): void {
           if (outside(s._sub, false)) return true;
       return false;
     }
-    if (hidden(reader)) return false;
-    for (let o = boundaryOf(reader); o !== undefined; o = o._parent ?? undefined)
+    if (hiddenBy(reader)) return false;
+    for (let o: Boundary | null | undefined = boundaryOf(reader); o; o = o._parent)
       if (o === b) return false;
     return true;
   };
@@ -449,6 +461,12 @@ function arm(b: Boundary): void {
   collecting.add(b);
   for (const r of b._readers) {
     if (r._statusFlags & STATUS_PENDING && !(r._flags & REACTIVE_DISPOSED)) {
+      // What it collects was forwarded through it to the boundaries above
+      // too (`catchStatus` records a reader in every boundary on the way).
+      // It is this boundary's alone now (B5, the nearest catcher): an outer
+      // re-armed by the same tick does not wait for it (D-14, U-4).
+      for (let a = b._parent; a !== null; a = a._parent)
+        for (const o of b._readers) a._readers.delete(o);
       flip(b);
       redraw(b);
       return;
@@ -502,7 +520,8 @@ function createBoundary<T>(
     _gated: false,
     _collapsed: false,
     _error: type === STATUS_ERROR ? signal<unknown>(undefined, ERROR_SIGNAL) : null,
-    _show: show
+    _show: show,
+    _fb: null
   };
   const controller = type === STATUS_PENDING ? (owner._context[REVEAL] as object | null) : null;
   if (getOwner())
@@ -587,8 +606,7 @@ function createBoundary<T>(
           }
           // Forwarded: a loading boundary showing content keeps it and
           // holds the frame like any reader (recorded for its `on`).
-          b._readers.add(tree);
-          collecting.add(b);
+          record(b, tree);
         }
         // A pending passes an error boundary by (A6); an error, a loading
         // one; a loading boundary showing content forwards its pending.
@@ -596,25 +614,23 @@ function createBoundary<T>(
       }
       if (isCollecting(b)) {
         // A29's boundary exemption (#3540): a boundary MOUNTED over a held
-        // value (its first pass; the tree born held) shows its fallback now
-        // and the content at the commit — entering the transaction would
-        // make the output itself born held, and nothing would show until
-        // the commit. (The seam keeps a held reader until it is committed.)
-        // A boundary with a committed value reads a held tree and enters:
-        // the outside sees its committed value until the landing, which
-        // reveals the content — a fallback staged earlier is replaced ahead
-        // of the commit and never shown.
+        // value (its first pass; a first pass under it that read a hold was
+        // collected, `joinPass` — the tree's own, or a render effect's that
+        // binds the content) shows its fallback now and the content at the
+        // commit — entering the transaction would make the output itself
+        // born held, and nothing would show until the commit. The seam
+        // keeps a held reader until it is committed, then re-derives this
+        // pass. A boundary with a committed value reads a held tree and
+        // enters: the outside sees its committed value until the landing,
+        // which reveals the content — a fallback staged earlier is replaced
+        // ahead of the commit and never shown.
         const self = getOwner() as Computed<any>;
         if (
-          tree._config & CONFIG_HELD &&
+          b._readers.size !== 0 &&
           self._statusFlags & STATUS_UNINITIALIZED &&
           !(self._config & CONFIG_HELD)
-        ) {
-          // The seam re-derives this pass once; by then the fallback is
-          // the committed value, and the next pass enters.
-          collecting.add(b);
+        )
           return fallback(b);
-        }
         // Readers under it still unready: the fallback, the tree untouched.
         // The seam re-derives this pass when they settle.
         if (prune(b, true) !== 0) return fallback(b);
@@ -630,8 +646,7 @@ function createBoundary<T>(
           }
           // Forwarded: a loading boundary showing content keeps it and
           // holds the frame like any reader (recorded for its `on`).
-          b._readers.add(tree);
-          collecting.add(b);
+          record(b, tree);
         }
         // A pending passes an error boundary by (A6).
         throw e;
@@ -645,6 +660,20 @@ function createBoundary<T>(
       if (__OBSERVE__ && b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
         attrHooks.boundaryFallback(b, b._tree, false);
       b._fallback = false;
+      // The fallback dies when the content that replaces it is on screen —
+      // with this flush's commits when the pass is the frame's, at the
+      // landing when the frame parks (the run is held with it, as the old
+      // children of a held pass are) — not now: a held swap keeps the
+      // fallback on screen, live, until it commits. A pass back to the
+      // fallback before then finds it still built and keeps it.
+      const fb = b._fb;
+      if (fb !== null)
+        globalQueue.enqueue(EFFECT_RENDER, () => {
+          if (!b._fallback && b._fb === fb) {
+            dispose(fb);
+            b._fb = null;
+          }
+        });
       release(b);
       // Shown: the slot leaves its reveal order (a later re-arm gates nobody
       // else; the frontier moves on).
@@ -688,7 +717,22 @@ function fallback<T>(b: Boundary): T {
     if (!globalQueue._running) schedule();
   }
   b._fallback = true;
-  return b._show(b) as T;
+  // Built in its own scope, like `Show`'s function child, once per show
+  // (D-39: the fallback is the display until a new answer replaces the
+  // error): a re-derive of the output while it shows — a second reader
+  // caught, the same error propagated again through a sibling's re-run, a
+  // retry pending after `reset()`, a later error — keeps the built
+  // fallback, its DOM and focus with it (#3991). A later error reaches it
+  // through the error accessor; only a fallback reading the accessor at its
+  // top level is rebuilt by it. Created beside the output — in its owner,
+  // outside the boundary, as the output is: its errors and runs are the
+  // enclosing boundary's — with the output's id, so what it builds gets the
+  // ids a build under the output would; disposed once content is on screen.
+  if (b._fb === null) {
+    const out = getOwner() as Computed<any>;
+    b._fb = runWithOwner(out._parent, () => computed(() => b._show(b), { id: out.id }))!;
+  }
+  return read(b._fb) as T;
 }
 
 const ERROR_SIGNAL = { ownedWrite: true, _noSnapshot: true } as const;
@@ -776,6 +820,8 @@ export function createErrorBoundary<T, U>(
 // Installed at module evaluation — present exactly when something imports a
 // boundary. An app without one pays the three null checks and nothing else.
 GlobalQueue._catch = catchStatus;
-GlobalQueue._hidden = hidden;
+GlobalQueue._fresh = (node, held) =>
+  !held && node._statusFlags & STATUS_UNINITIALIZED && catchStatus(node, STATUS_PENDING);
+GlobalQueue._hidden = hiddenBy;
 GlobalQueue._boundarySeam = boundarySeam;
 GlobalQueue._heldRun = heldRun;

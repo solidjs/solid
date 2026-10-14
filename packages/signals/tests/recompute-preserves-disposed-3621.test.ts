@@ -21,7 +21,8 @@ import {
   flush,
   isDisposed,
   refresh,
-  runWithOwner
+  runWithOwner,
+  type SourceAccessor
 } from "../src/index.js";
 
 const node = (accessor: () => unknown) => (accessor as any)[$REFRESH];
@@ -31,7 +32,7 @@ afterEach(() => flush());
 describe("#3621 a memo disposing its own root mid-recompute stays disposed", () => {
   it("issue repro: isDisposed is true and refresh() does not re-run it", () => {
     const [n, setN] = createSignal(0);
-    let memo!: () => number;
+    let memo!: SourceAccessor<number>;
     let runs = 0;
 
     createRoot(dispose => {
@@ -166,7 +167,7 @@ describe("#3621 a memo disposing its own root mid-recompute stays disposed", () 
 
   it("a memo disposing a parent owner (not its root) mid-compute stays disposed; the root survives", () => {
     const [n, setN] = createSignal(0);
-    let memo!: () => number;
+    let memo!: SourceAccessor<number>;
     let sibling!: () => number;
     let runs = 0;
     let siblingRuns = 0;
@@ -213,7 +214,7 @@ describe("#3621 a memo disposing its own root mid-recompute stays disposed", () 
 
   it("control: disposing after the flush (non-reentrant) is unchanged", () => {
     const [n, setN] = createSignal(0);
-    let memo!: () => number;
+    let memo!: SourceAccessor<number>;
     let runs = 0;
     let dispose!: () => void;
 

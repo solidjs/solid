@@ -35,6 +35,14 @@ export interface NodeOptions<T> {
    * attribution records of its own; its children stay observed (internal —
    * not part of public API; see CONFIG_PLUMBING). */
   _plumbing?: boolean;
+  /** Observe tiers: a framework scope wide by construction — exempt from
+   * WIDE_SCOPE_DEPS, never from HUGE_FAN_IN (internal — not part of public
+   * API; see CONFIG_WIDE). */
+  _wide?: boolean;
+  /** Observe tiers: a framework async node that supersedes its own flights by
+   * design — exempt from ABANDONED_FLIGHTS (internal — not part of public
+   * API; see CONFIG_SUPERSEDES). */
+  _supersedes?: boolean;
   unobserved?: () => void;
   lazy?: boolean;
   sync?: boolean;

@@ -225,6 +225,10 @@ export interface ServerFunctionsClientConfig {
    *   }
    * });
    * ```
+   *
+   * Return synchronously when you can: hydration adopts a server-rendered
+   * read only if its request is sent in the same tick, so an async hook
+   * makes every hydrated read fetch again from the browser.
    */
   prepareRequest?: PrepareRequestHook;
   /**
@@ -239,10 +243,34 @@ export interface ServerFunctionsClientConfig {
    */
   responseHandler?: {
     capture?(info: { id: string; meta: unknown }): unknown;
+    /**
+     * `ctx.retry` makes the same call again — the reference, arguments,
+     * declared shape and per-call options as dispatched (a `GET`-declared
+     * read stays a GET; a caller-supplied `signal` still owns the wire) —
+     * for a handler re-asking on its own account (a frames boundary's
+     * `reset`, frames-rulings 3.3).
+     */
     handle(
       response: Response,
-      ctx: { id: string; meta: unknown; args: unknown[]; context: unknown }
+      ctx: {
+        id: string;
+        meta: unknown;
+        args: unknown[];
+        context: unknown;
+        retry(): Promise<unknown>;
+      }
     ): unknown;
+    /**
+     * Answer a call before any request is made (t = 0 local answers — see
+     * `createServerComponentHandler`). `info.retry` is the call as it would
+     * go to the wire, for a handler that answers now and re-asks later.
+     */
+    intercept?(info: {
+      id: string;
+      meta: unknown;
+      args: unknown[];
+      retry(): Promise<unknown>;
+    }): unknown;
     /**
      * What a `live` (re)connect of the call resumes from, when the handler
      * shows it: `position` becomes the request's `Last-Event-ID`, `headers`
@@ -254,6 +282,13 @@ export interface ServerFunctionsClientConfig {
       meta: unknown;
       args: unknown[];
     }): { position?: string; headers?: Record<string, string> } | undefined;
+    /**
+     * A `live()` call was made — fired at the call, before its first fetch,
+     * so a handler that serves live calls through code it loads on demand
+     * (the frames client's live wire tier) can start the load against the
+     * request's own latency. Per call, not per connect.
+     */
+    onLive?(): void;
   };
   /**
    * Encoder for argument lists JSON can't carry faithfully. JSON-safe args
@@ -577,7 +612,9 @@ async function createRequest(base, id, options, meta) {
   // RequestInit (transport headers included), so session policy can adjust
   // anything the transport is about to send.
   if (config.prepareRequest) {
-    const prepared = await config.prepareRequest(init, { id, meta });
+    let prepared = config.prepareRequest(init, { id, meta });
+    // A sync hook must send in this tick: hydration's fetch mock is only in place synchronously.
+    if (prepared && typeof prepared.then === "function") prepared = await prepared;
     // The hook's return is validated, not adopted wholesale (#3174): the
     // natural mistake — returning a fresh `{ headers }` instead of
     // spreading — used to silently drop the argument payload, the abort
@@ -759,6 +796,12 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // sync up to its first await), so ambient call context is still live.
   const handler = config.responseHandler;
   const context = handler && handler.capture ? handler.capture({ id, meta }) : undefined;
+  // The call as made, for the handler's `ctx.retry` (see
+  // `ServerFunctionsClientConfig.responseHandler`): the options as the
+  // caller sent them — before this dispatch's own controller is spliced in
+  // below, so the re-ask mints a controller of its own; a caller-supplied
+  // signal rides along, as it owns the wire (below).
+  const sent = options;
 
   // The call owns an AbortController so a streaming result can be ENDED, not
   // just abandoned: `iterator.return()` on the received iterable aborts the
@@ -781,7 +824,13 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // LIVE_WIRE) so the handler can read the body through the loop's reader
   // and hang the connection's end on the slot as the decoder would.
   if (handler) {
-    const ctx = { id, meta, args: callArgs, context };
+    const ctx = {
+      id,
+      meta,
+      args: callArgs,
+      context,
+      retry: () => fetchServerFunction(base, id, sent, args, meta, callArgs)
+    };
     if (options[LIVE_WIRE]) ctx[LIVE_WIRE] = options[LIVE_WIRE];
     const handled = handler.handle(response, ctx);
     if (handled !== undefined) return handled;
@@ -997,7 +1046,9 @@ export function createServerReference(id, name, base) {
       );
     const handler = config.responseHandler;
     if (handler && handler.intercept && !adoptedCall(invokeOptions)) {
-      const hit = handler.intercept({ id, meta: metadata, args });
+      // `retry`: the call as it would go to the wire, for a handler that
+      // answers it now and re-asks later (see `ServerFunctionsClientConfig`).
+      const hit = handler.intercept({ id, meta: metadata, args, retry: send });
       if (hit !== undefined) return localOrSend(hit, send);
     }
     return send();
@@ -1095,8 +1146,9 @@ export function GET(fn) {
   const run = async (args, invokeOptions) => {
     const handler = config.responseHandler;
     if (handler && handler.intercept && !adoptedCall(invokeOptions)) {
-      const hit = handler.intercept({ id, meta: metadata, args });
-      if (hit !== undefined) return localOrSend(hit, () => send(args, invokeOptions));
+      const retry = () => send(args, invokeOptions);
+      const hit = handler.intercept({ id, meta: metadata, args, retry });
+      if (hit !== undefined) return localOrSend(hit, retry);
     }
     return send(args, invokeOptions);
   };
@@ -1306,6 +1358,10 @@ export function live(fn) {
     // any other consumer's iteration yields it first, then connects. Either
     // way the connect that follows is not answered locally again (`adopted`).
     const handler = config.responseHandler;
+    // Preload-at-call (see `responseHandler.onLive`): the handler starts
+    // whatever a live connection will need of it NOW, before this call's
+    // first fetch — the load races only the request.
+    handler && handler.onLive && handler.onLive();
     const local =
       handler && handler.intercept ? handler.intercept({ id, meta: metadata, args }) : undefined;
     const iterable = {

@@ -80,7 +80,10 @@ const replaceDev = isDev => replaceFlags(isDev, isDev);
 const externalizeSharedTransport = {
   name: "externalize-shared-transport",
   resolveId(source, importer) {
-    if (!importer || !/[\\/]frame-transport\.(js|ts)$/.test(importer)) return null;
+    // The live wire tier (wire-tier.ts) imports the same wire layer: the
+    // loop's `LIVE_WIRE` slot is a process-local symbol, so the tier must
+    // read the one instance the loop wrote.
+    if (!importer || !/[\\/](frame-transport|wire-tier)\.(js|ts)$/.test(importer)) return null;
     if (source === "../../server-functions/src/shared.js" || source === "../../src/response.js") {
       return { id: "@solidjs/web/server-functions/client", external: true };
     }
@@ -102,6 +105,29 @@ const externalizeSharedClient = {
     if (source === "./client.js" || source === "./shared.js") {
       return { id: "@solidjs/web/server-functions/client", external: true };
     }
+    return null;
+  }
+};
+
+// The frames TIER entries (`frames/src/trace-tier.ts` →
+// `@solidjs/web/frames/trace`, `frames/src/regions-tier.ts` →
+// `@solidjs/web/frames/regions`; loaded by the frames client through
+// `prepareTier(name)`) wire themselves into the eager frames client: the
+// traces tier sets the shared host's `revive` (`getFrameHost()`) at install,
+// the regions tier binds frames (`createFrame`) the parent frame's host
+// routes to. That must be the SAME frames client instance the app mounted
+// its boundaries through, so a tier's import of the client entry resolves
+// to the external package specifier, never to a bundled private copy (whose
+// `getFrameHost()` would mint a host nothing reads, whose `createFrame`
+// would mint frames nothing routes to). Same instance-identity reasoning as
+// externalizeSharedClient above. A tier's imports of frame-client.js's pure
+// helpers stay bundled (its own copy — the module is importless and keeps
+// no state those helpers read).
+const externalizeFramesClient = {
+  name: "externalize-frames-client",
+  resolveId(source, importer) {
+    if (!importer || !/[\\/](trace|regions|bind|wire)-tier\.(js|ts)$/.test(importer)) return null;
+    if (source === "./client.js") return { id: "@solidjs/web/frames", external: true };
     return null;
   }
 };
@@ -374,7 +400,30 @@ export default [
       "@solidjs/web/server-functions/client",
       // Lazily imported (`prepareData`): the codec loads only when a `data`
       // chunk actually arrives, so the frames client ships seroval-free.
-      "@solidjs/web/serialization/decode"
+      "@solidjs/web/serialization/decode",
+      // Lazily imported (`tierLoaders.trace`, through `prepareTier`): the
+      // traces tier — solid's container-trace materializer (the store
+      // engine's one edge into a server-component page) and the plugin's
+      // client half — loads behind the server's announcement or the first
+      // adopt-time record whose args carry a trace. Its own entry below.
+      "@solidjs/web/frames/trace",
+      // Lazily imported (`tierLoaders.regions`): the regions tier — nested
+      // server-content regions (`{$frame}` args) — loads behind the
+      // server's announcement or the first record naming a region. Its own
+      // entry below.
+      "@solidjs/web/frames/regions",
+      // Lazily imported (`tierLoaders.assets`): the assets tier — the head
+      // mirror a segment's assets record drives. Its own entry below.
+      "@solidjs/web/frames/assets",
+      // Lazily imported (`tierLoaders.bind`): the bind tier — binding-slot
+      // positions (the `_s:*` marker readers, the owned-position arms, the
+      // fill's binding over `assign`). Its own entries below.
+      "@solidjs/web/frames/bind",
+      // Lazily imported (`tierLoaders.wire`): the live wire tier — a
+      // `live()` loop's connection (join / open / supersede, the SSE
+      // reader, the lifetime told to the loop, the have-list ledger and the
+      // resume request). Its own entry below.
+      "@solidjs/web/frames/wire"
     ],
     // Prod build: strip `_SOLID_DEV_` like the main `dist/web.js` entry, so the
     // frame runtime's dev checks/warnings (marker-integrity diagnostics) do
@@ -396,7 +445,12 @@ export default [
       "seroval",
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
-      "@solidjs/web/serialization/decode"
+      "@solidjs/web/serialization/decode",
+      "@solidjs/web/frames/trace",
+      "@solidjs/web/frames/regions",
+      "@solidjs/web/frames/assets",
+      "@solidjs/web/frames/bind",
+      "@solidjs/web/frames/wire"
     ],
     plugins: [replaceFlags(false, true), externalizeSharedTransport]
       .concat(plugins)
@@ -414,11 +468,116 @@ export default [
       "seroval",
       "seroval-plugins/web",
       "@solidjs/web/server-functions/client",
-      "@solidjs/web/serialization/decode"
+      "@solidjs/web/serialization/decode",
+      "@solidjs/web/frames/trace",
+      "@solidjs/web/frames/regions",
+      "@solidjs/web/frames/assets",
+      "@solidjs/web/frames/bind",
+      "@solidjs/web/frames/wire"
     ],
     plugins: [replaceDev(true), externalizeSharedTransport]
       .concat(plugins)
       .concat(assertFramesClientTransport)
+  },
+  {
+    // The traces tier (`@solidjs/web/frames/trace`, frames/src/trace-tier.ts):
+    // the container tier's client half as a lazy chunk the frames client
+    // loads through `prepareTier("trace")`. Bundles the plugin's client half
+    // (frame-container-plugin.js: the shared hook state, the memo, the
+    // marker test, the revive walk); solid's materializer stays the external
+    // `solid-js/internal/container-trace` entry so the app's bundler can
+    // give the store engine to this chunk (bundled here it would be a second
+    // engine). The eager client entry is external by instance (see
+    // externalizeFramesClient). No `_SOLID_DEV_` gates of its own, so one
+    // build serves every condition.
+    input: "frames/src/trace-tier.ts",
+    output: { file: "frames/dist/trace.js", format: "es" },
+    external: [
+      "solid-js",
+      "solid-js/internal",
+      "solid-js/internal/container-trace",
+      "@solidjs/web"
+    ],
+    plugins: [externalizeFramesClient].concat(plugins)
+  },
+  {
+    // The regions tier (`@solidjs/web/frames/regions`, frames/src/regions-tier.ts):
+    // nested server-content regions as a lazy chunk the frames client loads
+    // through `prepareTier("regions")` — the per-frame region cache,
+    // discovery in an adopted interior, the `{$frame}` arm of arg
+    // resolution, the bind of a frame over each region element, disposal.
+    // Bundles its own copy of frame-client.js's pure DOM helpers
+    // (`eachInRange`, `makeFrameElement`, `isFrameElement`); the eager
+    // client entry is external by instance (see externalizeFramesClient) —
+    // `createFrame` must be the runtime the app's host routes to. No
+    // `_SOLID_DEV_` gates of its own, so one build serves every condition.
+    input: "frames/src/regions-tier.ts",
+    output: { file: "frames/dist/regions.js", format: "es" },
+    external: ["solid-js", "solid-js/internal", "@solidjs/web"],
+    plugins: [externalizeFramesClient].concat(plugins)
+  },
+  {
+    // The assets tier (`@solidjs/web/frames/assets`, frames/src/assets-tier.ts):
+    // the head mirror a segment's assets record drives — the stylesheet
+    // gate, module / typed preloads, inline styles — as a lazy chunk the
+    // frames client loads through `prepareTier("assets")` (plan step C5).
+    // Import-free (its one import is a type), so nothing is external and no
+    // instance seam applies: the module's exports are the dispatch the
+    // eager client calls off the resident stamp, with the frame handed in.
+    // No `_SOLID_DEV_` gates of its own, so one build serves every condition.
+    input: "frames/src/assets-tier.ts",
+    output: { file: "frames/dist/assets.js", format: "es" },
+    plugins
+  },
+  {
+    // The bind tier (`@solidjs/web/frames/bind`, frames/src/bind-tier.ts):
+    // binding-slot positions as a lazy chunk the frames client loads
+    // through `prepareTier("bind")` (plan step C6) — the `_s:*` marker
+    // readers and consumer discovery, the morph's owned-position arms, the
+    // per-frame consumer set, the fill's binding over `@solidjs/web`'s
+    // `assign` (external: it binds delegated handlers into the app's own
+    // event tables; the eager frames client no longer imports it). Bundles
+    // its own copy of frame-client.js's constants and dev shape finders;
+    // the eager client entry is external by instance (externalizeFramesClient
+    // — `isAsyncValue`, and the edge that keeps an app's bundler attaching
+    // the chunk to the entry's graph instead of splitting the shared
+    // runtime out; see bind-tier.ts). Unlike the other tiers it carries
+    // `_SOLID_DEV_` gates of its own (the fill-shape and
+    // text-shape findings), so it builds twice like the client entry: this
+    // prod chunk strips them, the dev chunk below (the `development` export
+    // condition) keeps them. (`_SOLID_OBSERVE_` is not read here, so the
+    // prod chunk serves the `observe` condition too.)
+    input: "frames/src/bind-tier.ts",
+    output: { file: "frames/dist/bind.js", format: "es" },
+    external: ["solid-js", "solid-js/internal", "@solidjs/web"],
+    plugins: [replaceDev(false), externalizeFramesClient].concat(plugins)
+  },
+  {
+    input: "frames/src/bind-tier.ts",
+    output: { file: "frames/dist/bind.dev.js", format: "es" },
+    external: ["solid-js", "solid-js/internal", "@solidjs/web"],
+    plugins: [replaceDev(true), externalizeFramesClient].concat(plugins)
+  },
+  {
+    // The live wire tier (`@solidjs/web/frames/wire`, frames/src/wire-tier.ts):
+    // what a `live()` loop's connection needs of the frames transport — the
+    // per-address connection (join / open / supersede), the SSE reader
+    // selection and the connection's lifetime told to the loop, the
+    // mount's have-list ledger and the resume request — as a lazy chunk the
+    // frames client loads through `prepareTier("wire")` (plan step C2;
+    // preload-at-call from `live()`'s `onLive` hook). The eager client
+    // entry is external by instance (externalizeFramesClient —
+    // `applyFrameResponse` must be the runtime the handler's host routes
+    // through), and so is the server-function wire layer
+    // (externalizeSharedTransport — the loop's `LIVE_WIRE` slot, the
+    // `ChunkReader`, `frameAddress`, `isEventStream`; one instance). Its
+    // two literals from frame-transport.ts (the have-list header name and
+    // budget) bundle as its own copy. No `_SOLID_DEV_` gates of its own, so
+    // one build serves every condition.
+    input: "frames/src/wire-tier.ts",
+    output: { file: "frames/dist/wire.js", format: "es" },
+    external: ["solid-js", "solid-js/internal", "@solidjs/web"],
+    plugins: [externalizeFramesClient, externalizeSharedTransport].concat(plugins)
   },
   {
     // Prod build, like the main server entry above: the sink's own

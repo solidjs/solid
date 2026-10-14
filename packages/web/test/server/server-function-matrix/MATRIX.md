@@ -341,6 +341,68 @@ Pinned in `server-functions-undefined-arguments` (default-config refusal,
 rich-argument delivery, plain-JSON string call, FormData/URLSearchParams/File
 controls).
 
+## Ruling — 304 does not retarget a cached representation (#3897, 2026-10-08)
+
+A 304 is a cache update, not a stored response (the same fact as #3134's
+`Cache-Control` ruling). RFC 9111 §3.2 freshens the stored entry with the
+header fields the 304 carries and leaves the stored body in place. The
+body-format tag is representation metadata: writing `Void` onto the 304
+replaces the tag the original GET stored (`Json` for `{ value: 17 }`) while
+the cached bytes stay that JSON, so the browser's replay — status 200, cached
+body, freshened headers — decodes as `undefined`.
+
+Resolved:
+
+1. **A 304 does not receive a runtime-invented body-format tag.** `encodeResult`
+   still answers 204/205 with `Void`, because those statuses are the stored
+   answer and the tag is how the client tells a runtime-encoded empty body
+   from an untagged peer. 304 is the exception. An author who echoes the
+   stored tag on the 304 keeps it; the runtime does not overwrite it and does
+   not add one.
+2. **A scripted 304 with no cached body still decodes as `undefined`.** The
+   client already treats 304 as a conditional answer rather than a payload
+   (#3101). Omitting the tag does not make that call throw, and it does not
+   turn the 304 into a value.
+3. **The dev warning for a scripted 304 is unchanged.** It still fires when a
+   scripted call's answer is 304 (#3101), including a browser-generated
+   `If-None-Match` the transport itself did not set. Narrowing that warning
+   would change the diagnostic contract; the representation bug does not
+   require it.
+
+Pinned in `server-functions-304-format-3897` (cached `{ value: 17 }` survives
+the freshened headers; 204 keeps `Void`).
+
+## Ruling — a shared-cacheable read carries no trace (#3985, 2026-10-13)
+
+The commit seam hands the request's trace to the browser as `Server-Timing`
+entries (`traceparent`, a provider's vendor pair) whenever something is
+recording it. A declared read whose response a shared cache stores is one
+answer replayed to every viewer, so one request's trace would parent every
+viewer's browser spans. Resolved:
+
+1. **A `GET` (and its `HEAD`) whose departing `Cache-Control` lets a shared
+   cache store it carries no trace entry.** "Lets a shared cache store it"
+   is the author asking for one — `public` or `s-maxage` — matched as whole,
+   case-insensitive directives. `no-store` and an unqualified `private`
+   (RFC 9111 §5.2.2.7) win over it: such a response stays one viewer's, and
+   so does its trace. A qualified `private="…"` does not, since the rest of
+   the response may still be stored. The departing policy is the
+   response's own, else the event stub's it gap-fills from; the
+   transport's `no-store` default never qualifies. A departing
+   `CDN-Cache-Control` (RFC 9213) qualifies on its own unless it says
+   `no-store` or an unqualified `private`: it is addressed only to shared
+   caches, so any storable value means a CDN replays the response.
+2. **Decided before the commit, not stripped after it.** The request's
+   trace record stops emitting for that response, so no trace byte is
+   written and an app's own `Server-Timing` entries are untouched. The
+   timing metrics (`solid-invocation`, observe/dev with a listener) still
+   ride. `getTraceContext()` is unchanged — the body can still forward the
+   trace downstream.
+3. **`POST` and documents are unchanged**, whatever `Cache-Control` they
+   carry. No option or export is added.
+
+Pinned in `server-trace` ("Server-Timing on a shared-cacheable read").
+
 ## Extraction and merge discipline
 
 - A red test demonstrates current behavior; it becomes an ordinary guard only

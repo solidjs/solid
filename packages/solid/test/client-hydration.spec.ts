@@ -24,7 +24,7 @@ import {
   createStore,
   createOptimisticStore
 } from "../src/client/hydration.js";
-import { lazy } from "../src/client/component.js";
+import { lazy, lazyModule } from "../src/client/component.js";
 import { Errored, Loading } from "../src/client/flow.js";
 
 // Enable the hydration-aware wrappers
@@ -2625,6 +2625,91 @@ describe("live-branded sources — automatic takeover", () => {
     uninstall();
   });
 
+  test("a live node whose server value is still streaming waits for hydration's end", async () => {
+    // #3764: the streamed value is what a pending boundary will claim
+    // against, so the root pass ending must not replace it
+    const slow = makeLoadingPromise();
+    const value = makeLoadingPromise();
+    const uninstall = installHY({ t0: value.promise, t1: slow.promise });
+    startHydration({ t0: value.promise, t1: slow.promise });
+
+    const connections = { count: 0 };
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => makeLiveSource("live-current", connections) as any);
+        Loading({
+          fallback: "loading...",
+          get children() {
+            return (() => result()) as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+    sharedConfig.hydrating = false;
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(connections.count).toBe(0);
+
+    value.resolve();
+    slow.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    expect(sharedConfig.done).toBe(true);
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(result()).toBe("live-current");
+    expect(connections.count).toBe(1);
+    uninstall();
+  });
+
+  test("a live node with a loadingValue reconnects when the root pass ends, though its value still streams", async () => {
+    // commit #0 is what every claim reads, so the streamed value has no
+    // claim to wait for: the node keeps its per-scope takeover
+    const slow = makeLoadingPromise();
+    const value = makeLoadingPromise();
+    const uninstall = installHY({ t0: value.promise, t1: slow.promise });
+    startHydration({ t0: value.promise, t1: slow.promise });
+
+    const connections = { count: 0 };
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() => makeLiveSource("live-current", connections) as any, {
+          loadingValue: "commit-0"
+        });
+        Loading({
+          fallback: "loading...",
+          get children() {
+            return "content" as any;
+          }
+        });
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(result()).toBe("commit-0");
+
+    sharedConfig.hydrating = false;
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(sharedConfig.done).toBe(false);
+    expect(result()).toBe("live-current");
+    expect(connections.count).toBe(1);
+
+    value.resolve();
+    slow.resolve();
+    await new Promise(r => setTimeout(r, 20));
+    flush();
+    expect(sharedConfig.done).toBe(true);
+    expect(connections.count).toBe(1); // no second takeover at hydration end
+    uninstall();
+  });
+
   test("a live node under a boundary reconnects when that boundary hydrates, not when the page does", async () => {
     const boundary = makeLoadingPromise();
     const other = makeLoadingPromise(); // never resolved: the page stays un-done
@@ -4802,5 +4887,62 @@ describe("adoption trace — Promise statics", () => {
 
     expect(result).toBe("server");
     expect(callback).not.toHaveBeenCalled();
+  });
+
+  // #4013: a loader building its promise from the global Promise (Vite's
+  // __vitePreload does) gets the trace's never-settling stub when preload()
+  // runs inside a traced compute. lazy() must not keep that stub as the
+  // module load, or every later preload()/render waits on it forever.
+  test("lazy().preload() after hydration settles when first called under the trace (#4013)", async () => {
+    startHydration({ t0: { s: 1, v: "ready" } });
+
+    const Lazy = lazy(
+      () => new Promise<any>(resolve => setTimeout(() => resolve({ default: () => "ok" }), 0))
+    );
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(async () => {
+          await Lazy.preload();
+          return "ready";
+        })();
+      },
+      { id: "t" }
+    );
+    flush();
+    stopHydration();
+    expect(result).toBe("ready");
+
+    const settled = await Promise.race([
+      Lazy.preload().then(mod => mod.default({})),
+      new Promise(r => setTimeout(() => r("timeout"), 50))
+    ]);
+    expect(settled).toBe("ok");
+  });
+
+  test("lazyModule() after hydration settles when first called under the trace (#4013)", async () => {
+    startHydration({ t0: { s: 1, v: "ready" } });
+
+    const mod = lazyModule(
+      () => new Promise<any>(resolve => setTimeout(() => resolve({ value: "ok" }), 0))
+    );
+    createRoot(
+      () => {
+        createMemo(async () => {
+          await mod();
+          return "ready";
+        })();
+      },
+      { id: "t" }
+    );
+    flush();
+    stopHydration();
+
+    const settled = await Promise.race([
+      mod().then(m => m.value),
+      new Promise(r => setTimeout(() => r("timeout"), 50))
+    ]);
+    expect(settled).toBe("ok");
+    expect(mod.peek()).toEqual({ value: "ok" });
   });
 });

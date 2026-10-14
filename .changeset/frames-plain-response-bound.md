@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+frames: a plain (non-`live`) server component response ends at a streaming bound. A response whose content reads a standing source — a generator memo, a projection — used to stay open until the source settled, which for a source that never returns was never, with none of `live`'s reconnect semantics. The producer now ends it after `maxYields` emitting sweeps past the first flush (default 64) or `maxDurationMs` after the first flush (default 30 000 ms) — and when the request's `signal` aborts after the first flush — emitting `{ type: "complete", bound: "yields" | "time" }` before the body closes, and tears the render down quietly (sources returned, no abandonment finding). Both are new options on `FrameStreamOptions` (`renderServerComponent`, `renderToFrameStream`, `serverComponentResponse`); a `live` response is never bounded. The client stores `:bound` beside `:complete` and, in dev, warns once per cut-off naming `live()` as the declared way past the bound. `createFrameSink` gains an optional fourth `hooks` argument (`onYield`) and its `end(bound?)` takes the bound. Additive wire; RFC addendum in `frame-streams-rfc.md`.

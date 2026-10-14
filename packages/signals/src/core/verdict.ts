@@ -13,6 +13,7 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_HELD,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_VERDICT,
   EFFECT_RENDER,
@@ -29,14 +30,17 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import {
+  bornInto,
   context,
+  joinPass,
   markLateLinker,
   pullComputed,
   setVerdict,
   spectating,
   strictRead,
   tracking,
-  unflushedValue
+  unflushedValue,
+  verdict
 } from "./core.js";
 import { warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
@@ -49,6 +53,7 @@ import {
   GlobalQueue,
   joinFuture,
   passLane,
+  queuePendingNode,
   setPassLane,
   stagedReaders,
   staleReader,
@@ -85,11 +90,31 @@ function route(c: Computed<any>, t: Transaction): void {
  * none has, as the throw would have had it), the reader is that
  * transaction's verdict lane's (shown now, with the flight's verdict), and
  * re-derives at the landing (REACTIVE_FRAME_READ — which is also what makes
- * it a blocker of the hold, `blockedBy`; a probe alone is neither). */
-function observeFlight(c: Computed<any>): void {
-  if (!globalQueue._running) return;
-  joinFuture(null);
-  verdictRead(c, flushTransaction!, true);
+ * it a blocker of the hold, `blockedBy`; a probe alone is neither). The
+ * hold is on the flight: a reader served committed never goes pending, so
+ * the transaction waits on it only through the flight's node — one that
+ * went pending this flush is queued for the seam to hold; one in the air
+ * from before, held by nobody (a lane's derivation whose lane dissolved at
+ * its parent's landing with the flight still up; a flight nothing displayed,
+ * #3305), is registered by this, its first observer (A15, #3458): queued for
+ * the seam as if it had gone pending here, so the transaction has an entry
+ * for what it now shows a reader of. Held by nothing, it landed at this very
+ * seam and its `_reruns` re-derived the reader into the same observation,
+ * every flush (fuzzer F12). True when the reader is served the committed
+ * value — not over a flight committed beneath inputs already on screen (A15
+ * reveal corollary, #3305): that value would tear against them, and the
+ * reveal observes the flight. Nor for a reader born into the flight's
+ * transaction (`bornInto`, #4010): it has no screen — it waits on the flight
+ * with the rest of its frame. */
+function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
+  if (el._config & CONFIG_INPUTS_PUBLISHED || (el._config & CONFIG_HELD && bornInto(c, txOf(el))))
+    return false;
+  if (globalQueue._running) {
+    joinFuture(null);
+    if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
+    verdictRead(c, flushTransaction!, true);
+  }
+  return true;
 }
 
 /** Verdict windows. Inside `latest(fn)` a read of a held node serves the
@@ -101,10 +126,6 @@ function observeFlight(c: Computed<any>): void {
 let latestActive = false;
 let probing = false;
 let probeFound = false;
-/** `read` dispatches here while a window is open. */
-function setWindows(): void {
-  setVerdict(latestActive || probing ? verdictValue : null);
-}
 
 /** A verdict read of a node a transaction (or lane) holds: the reading pass
  * is the holder's verdict lane's and re-derives at the holder's landing
@@ -113,9 +134,10 @@ function setWindows(): void {
  * reader re-derives there. `latest` shows the proposal that lands — a
  * rewrite or a landing reaches its reader through the link it holds — so a
  * re-run would only repeat the frame. */
-function verdictRead(c: Computed<any>, t: Transaction, rerun = probing): void {
+function verdictRead(c: Computed<any>, t: Transaction, plain?: boolean): void {
   route(c, t);
-  if (rerun) staleReader(c, t);
+  if (plain) staleReader(c, t);
+  else if (probing && t._reruns[t._reruns.length - 1] !== c) t._reruns.push(c);
 }
 
 /** A verdict read of a node staged or in flight but not held yet: whether it
@@ -203,11 +225,14 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
 }
 
 /** The pass entering a verdict window is a verdict reader (CONFIG_VERDICT):
- * a dependency going pending re-derives it, the verdict having changed. */
+ * a dependency going pending re-derives it, the verdict having changed. Not
+ * an untracked window: that is a snapshot, like any untracked read (#3946 —
+ * a router's link claim probing inside the computation that creates the
+ * anchor). A throw still reaches the pass through `untrack`. */
 function markVerdictReader(window: number): void {
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
-  if (c !== null) {
+  if (c !== null && tracking) {
     c._config |= CONFIG_VERDICT;
     (c as Computed<any>)._flags |= REACTIVE_PROBED;
     // Observe tier: which windows this pass entered (1 `isPending`, 2
@@ -216,17 +241,20 @@ function markVerdictReader(window: number): void {
   }
 }
 
-/** The windows. */
+/** The windows. `read` dispatches to `verdictValue` while one is open; each
+ * restores the dispatch it found — none inside a memo's pass a window
+ * pulled (`verdictValue`). */
 export function latest<T>(fn: () => T): T {
   markVerdictReader(2);
-  const prev = latestActive;
+  const prev = latestActive,
+    prevVerdict = verdict;
   latestActive = true;
-  setWindows();
+  setVerdict(verdictValue);
   try {
     return fn();
   } finally {
     latestActive = prev;
-    setWindows();
+    setVerdict(prevVerdict);
   }
 }
 
@@ -234,9 +262,10 @@ export function isPending(fn: () => any): boolean {
   markVerdictReader(1);
   const prevProbing = probing;
   const prevFound = probeFound;
+  const prevVerdict = verdict;
   probing = true;
   probeFound = false;
-  setWindows();
+  setVerdict(verdictValue);
   try {
     fn();
     return probeFound;
@@ -252,7 +281,7 @@ export function isPending(fn: () => any): boolean {
   } finally {
     probing = prevProbing;
     probeFound = prevFound;
-    setWindows();
+    setVerdict(prevVerdict);
   }
 }
 
@@ -288,10 +317,18 @@ function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): u
  * - an errored derivation throws for every reader (#2897). */
 function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const owner = el as Computed<any>;
-  const tracked = c !== null && tracking && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  const owned = c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  const tracked = owned && tracking;
   if (c !== null && tracking) {
     link(el, c);
-    if (owner._fn !== undefined) pullComputed(owner, c);
+    if (owner._fn !== undefined) {
+      // A31: the pulled memo's pass is its own, not the probe's — it reads
+      // outside the window, and the probe's read below answers for what
+      // the pass produced.
+      setVerdict(null);
+      pullComputed(owner, c);
+      setVerdict(verdictValue);
+    }
   }
   // A live `affects()` mark on the node or a dependency (affects.ts): not
   // final by declaration — the value itself is read as below. The verdict is
@@ -360,9 +397,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       }
       return el._value;
     }
-    // Born into the future: its staging is its only value.
-    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING))
+    // Born into the future: its staging is its only value. It has no
+    // committed value, so no verdict: `isPending` reads it as its read does —
+    // the owner joins the hold (held with it, or caught by a boundary that
+    // has not shown content) and answers for the commit, where it is final.
+    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
+      if (probing && owned) joinPass(c!, el);
       return el._pendingValue;
+    }
   } else if (el._pendingValue !== NOT_PENDING) {
     if (owner._statusFlags & STATUS_PENDING && !uninitialized)
       pendingVerdict(tracked ? c : null, owner);

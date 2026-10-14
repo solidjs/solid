@@ -63,6 +63,7 @@ afterEach(() => {
   for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   restorePerformance();
 });
@@ -304,6 +305,8 @@ describe("enablePerformanceTracks", () => {
   });
 
   test("click → write → memo → effect: one span per record, on the record's own clock", () => {
+    // A DOM event's interaction is recorded at the task after its dispatch.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { on } = measures();
     enable();
     const { reruns, interactions } = records();
@@ -333,6 +336,7 @@ describe("enablePerformanceTracks", () => {
     const clicked = clock.now();
     container.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     flush();
+    vi.advanceTimersByTime(1);
 
     // The interaction: labelled by the shared formatter, start/end from the
     // record — the handler's 3ms, then the settle through the 5ms drain.
@@ -1474,6 +1478,57 @@ describe("enablePerformanceTracks", () => {
     flush();
     expect(logged).toHaveBeenCalledTimes(1); // the session left: quiet again
     joined();
+  });
+
+  // #3739: the tracks are loaded in every dev session, so their hold is
+  // records only — the cost checks stay the opt-in lens they were designed as.
+  function wideMemo(n: number) {
+    const sources = Array.from({ length: n }, (_, i) => createSignal(i)[0]);
+    createRoot(dispose => {
+      disposers.push(dispose);
+      createMemo(() => sources.reduce((s, read) => s + read(), 0), { name: "wide" })();
+    });
+    flush();
+  }
+  const wideFindings = () => {
+    const events: string[] = [];
+    offs.push(
+      OBSERVE!.diagnostics.subscribe(e => {
+        if (e.code === "WIDE_SCOPE_DEPS") events.push(e.code);
+      })
+    );
+    return events;
+  };
+
+  test("the adapter's hold runs no cost checks by default, and still records", () => {
+    const { on } = measures();
+    quiet();
+    const findings = wideFindings();
+    disposers.push(enablePerformanceTracks());
+    wideMemo(600);
+    expect(findings).toEqual([]);
+    expect(on("Memos").some(m => m.label.includes("wide"))).toBe(true);
+  });
+
+  test("an explicit `checks: true` on the adapter's hold runs them", () => {
+    const { marks } = measures();
+    quiet();
+    const findings = wideFindings();
+    disposers.push(enablePerformanceTracks({ attribution: { checks: true, hotTime: false } }));
+    wideMemo(600);
+    expect(findings).toEqual(["WIDE_SCOPE_DEPS"]);
+    expect(marks.some(m => m.label.startsWith("WIDE_SCOPE_DEPS"))).toBe(true);
+  });
+
+  test("a hold beside the adapter that asks for the checks gets them", () => {
+    measures();
+    quiet();
+    const findings = wideFindings();
+    disposers.push(enablePerformanceTracks());
+    const release = attribution.enable({ log: false, hotTime: false });
+    wideMemo(600);
+    release();
+    expect(findings).toEqual(["WIDE_SCOPE_DEPS"]);
   });
 
   test("alone on the engine, disable uninstalls it", () => {

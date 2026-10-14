@@ -21,6 +21,11 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
+// The ledger's published answer (`_$HY.fr`) is what a server-component
+// integration reads; it installs with the integration's half of hydration,
+// not with `hydrate()` (a page without server components carries none of
+// it), so this probe installs that half itself.
+import { enableServerComponentHydration } from "solid-js/internal";
 import { scenarios } from "../harness/scenarios.jsx";
 
 const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
@@ -67,6 +72,7 @@ describe("stream truncated before a declared fragment settles (#2958)", () => {
     Object.defineProperty(document, "readyState", { value: "loading", configurable: true });
 
     for (const s of applyChunk(container, shell, true)) (0, eval)(s);
+    enableServerComponentHydration();
     const dispose = hydrate(() => <scenario.App />, container);
     flush();
     await sleep(10);

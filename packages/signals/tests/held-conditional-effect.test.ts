@@ -78,9 +78,9 @@ describe("conditional render effect across a held branch change (#3438)", () => 
       const [show, sS] = createSignal(true, { name: "show" });
       setCount = sC;
       setShow = sS;
-      const delayedShow = createMemo(() => delay(1000, show()), undefined, { name: "delayedShow" });
+      const delayedShow = createMemo(() => delay(1000, show()), { name: "delayedShow" });
       // Shape the compiler emits for `{show() ? count() : "hidden"}`.
-      const c = createMemo(() => !!show(), undefined, { name: "c" });
+      const c = createMemo(() => !!show(), { name: "c" });
       text(() => `Count: ${count()}`, log, when);
       text(() => `Show: ${show()}`, log, when);
       deps = text(() => `Panel: ${c() ? count() : "hidden"}`, log, when);
@@ -89,15 +89,15 @@ describe("conditional render effect across a held branch change (#3438)", () => 
     flush();
     await settle();
     await advanceTo(2000);
-    expect(deps()).toBe("computed,count]");
+    expect(deps()).toBe("c,count]");
     setShow(false);
     await settle();
     // The held pass validated only `c`; count stays linked past the tail.
-    expect(deps()).toBe("computed],count");
+    expect(deps()).toBe("c],count");
     await advanceTo(2500);
     setCount(1);
     await settle();
-    expect(deps()).toBe("computed,count]");
+    expect(deps()).toBe("c,count]");
     await advanceTo(5000);
     // The `show` flip (2000) is held by delayedShow. Panel's held pass stopped
     // reading count; before, its trim dropped that edge at the pass while the

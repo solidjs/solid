@@ -134,6 +134,7 @@ type Method = NodePath<t.ObjectMethod>;
 interface Capture {
   binding: Binding;
   name: string;
+  reference: t.Identifier;
   index: number;
 }
 
@@ -153,6 +154,20 @@ function insideRealFunction(path: NodePath, stop: NodePath): boolean {
     fn = fn.parentPath!.getFunctionParent();
   }
   return false;
+}
+
+/** Type positions are erased before the code runs: a name there (the `x` of
+ * `typeof x`, or a type that shares a value's name) is not a value the
+ * constructor can be handed. `TSType` covers `implements`/`extends` heritage. */
+function isTypePosition(path: NodePath): boolean {
+  return (
+    path.isTSType() ||
+    path.isTSTypeAnnotation() ||
+    path.isTSTypeParameterDeclaration() ||
+    path.isTSTypeParameterInstantiation() ||
+    path.isTSInterfaceDeclaration() ||
+    path.isTSTypeAliasDeclaration()
+  );
 }
 
 /** Is `binding` initialized by the time the site constructs its props? The
@@ -240,6 +255,10 @@ function hoistSite(p: NodePath<t.ObjectExpression>, state: HoistState): void {
           if (q.node.meta.name === "new" && !insideRealFunction(q, m)) fallback = true;
           return;
         }
+        if (isTypePosition(q)) {
+          q.skip();
+          return;
+        }
         if (!q.isIdentifier()) return;
         const name = q.node.name;
         let write = false;
@@ -272,7 +291,7 @@ function hoistSite(p: NodePath<t.ObjectExpression>, state: HoistState): void {
         }
         let capture = captures.get(binding);
         if (!capture) {
-          capture = { binding, name, index: captures.size };
+          capture = { binding, name, reference: q.node, index: captures.size };
           captures.set(binding, capture);
         }
         uses.add(binding);
@@ -294,7 +313,9 @@ function hoistSite(p: NodePath<t.ObjectExpression>, state: HoistState): void {
   for (const capture of captures.values()) {
     const param = scope.generateUidIdentifier("p");
     params.push(param);
-    args.push(t.identifier(capture.name));
+    const argument = t.identifier(capture.name);
+    argument.loc = capture.reference.loc;
+    args.push(argument);
     body.push(
       t.expressionStatement(
         t.assignmentExpression(

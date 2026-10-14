@@ -1,6 +1,6 @@
 import { untrack, createMemo } from "@solidjs/signals";
 import { IS_DEV, IS_OBSERVE, observedComponent } from "../client/core.js";
-import { _lazyHydrationLookup, sharedConfig } from "./hydration.js";
+import { _lazyHydrationLookup, sharedConfig, tracing } from "./hydration.js";
 import type { Element as SolidElement } from "../types.js";
 
 /**
@@ -150,6 +150,13 @@ export function lazy<T extends Component<any>>(
   const load = () => {
     if (p) return p;
     const cur = (p = fn());
+    // Under a hydration trace the global Promise is the never-settling
+    // MockPromise stub; a loader that builds its promise from it (Vite's
+    // __vitePreload) must not cache that stub, or every later preload and
+    // render waits on it forever (#4013). Nothing loaded under a trace is
+    // kept: a real import() still lands through then() below (and the module
+    // registry dedupes the next call); the stub's then() is inert.
+    if (tracing) p = undefined;
     cur.then(
       (mod: any) => {
         comp = () => (exportName ? mod[exportName] : mod.default) as T;
@@ -196,6 +203,67 @@ export function lazy<T extends Component<any>>(
   wrap.preload = load;
   wrap.moduleUrl = moduleUrl;
   return wrap as T & { preload: () => Promise<{ default: T }>; moduleUrl?: string };
+}
+
+/**
+ * A cached dynamic import the server can preload before hydration, for a
+ * module that is not itself a component. `lazy()` is the component-shaped
+ * sibling and is unchanged.
+ *
+ * Call the result (or `.preload()`) to start the import. Both share one
+ * promise. `.peek()` reads it synchronously: the settled module, or
+ * `undefined` when it has not landed. During hydration `.peek()` reads
+ * `_$HY.modules[moduleUrl]` and returns `undefined` on a miss — it does not
+ * throw. The bundler pass appends `moduleUrl` for a literal `import()`.
+ *
+ * @example
+ * ```ts
+ * const admin = lazyModule(() => import("./admin/routes"));
+ * admin();          // Promise<Module>, cached
+ * admin.preload();  // same promise
+ * admin.peek();     // Module | undefined
+ * ```
+ */
+export function lazyModule<T extends Record<string, any>>(
+  fn: () => Promise<T>,
+  moduleUrl?: string
+): (() => Promise<T>) & {
+  preload: () => Promise<T>;
+  peek: () => T | undefined;
+  moduleUrl?: string;
+} {
+  let p: Promise<T> | undefined;
+  let mod: T | undefined;
+  const load = () => {
+    if (p) return p;
+    const cur = (p = fn());
+    // Same MockPromise-stub guard as lazy() (#4013).
+    if (tracing) p = undefined;
+    cur.then(
+      m => {
+        mod = m;
+      },
+      () => {
+        if (p === cur) p = undefined;
+      }
+    );
+    return cur;
+  };
+  const read = load as typeof load & {
+    preload: typeof load;
+    peek: () => T | undefined;
+    moduleUrl?: string;
+  };
+  read.preload = load;
+  read.peek = () => {
+    if (!sharedConfig.hydrating) return mod;
+    // Module ids, not hydration ids. A miss is today's late load, not a throw.
+    const cached = moduleUrl ? (globalThis as any)._$HY?.modules?.[moduleUrl] : undefined;
+    if (cached) mod = cached;
+    return cached;
+  };
+  read.moduleUrl = moduleUrl;
+  return read;
 }
 
 let counter = 0;

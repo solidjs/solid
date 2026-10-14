@@ -60,12 +60,14 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 export interface PerformanceTracksOptions {
   /**
    * Options for the engine hold this adapter takes
-   * (`attribution.enable({ log: false, ...attribution })`). The adapter asks
-   * for no console log — the timeline is the output — which, the engine
-   * combining holds by the most demanding request, quiets the console only
-   * while nobody else wants it: a console session beside the tracks keeps
-   * its log. `checks` is left to the engine's default; pass `checks: false`
-   * for records only (honoured while no other holder wants the checks).
+   * (`attribution.enable({ log: false, checks: false, ...attribution })`).
+   * The adapter asks for no console log and records only — the timeline is
+   * the output — which, the engine combining holds by the most demanding
+   * request, quiets the console and the cost checks (`hotRuns`, `hotTime`,
+   * `wideDeps`, `unstableMemos`, `fanOut`, `wastedRecompute`) only while
+   * nobody else wants them: a console session beside the tracks keeps its
+   * log and its checks. Pass `checks: true` to have the tracks' own hold
+   * run them, their findings painted as markers like any other.
    */
   attribution?: AttributionOptions;
   /**
@@ -226,7 +228,11 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
   const { records } = observe;
   const releases = [
     () => server.dispose(),
-    attribution.enable({ log: false, ...options.attribution }),
+    attribution.enable({
+      log: false,
+      ...options.attribution,
+      checks: options.attribution?.checks ?? false
+    }),
     records.subscribe("rerun", (e, node) => painter.rerun(e, node)),
     records.subscribe("create", (e, node) => painter.create(e, node)),
     records.subscribe("effect", (e, node) => painter.effect(e, node)),

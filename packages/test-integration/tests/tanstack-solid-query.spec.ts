@@ -14,7 +14,7 @@ import { dirname, join, resolve } from "path";
 import { spawnSync } from "child_process";
 
 /**
- * Release gate: the TanStack Solid Query adapter's full suite against the
+ * Integration check: the TanStack Solid Query adapter's full suite against the
  * WORKSPACE-BUILT core — solid-js, @solidjs/signals, and @solidjs/web packed
  * from this tree and installed together, never a registry mix — compiled by
  * the WORKSPACE-BUILT compiler (@solidjs/compiler with this tree's native
@@ -37,8 +37,9 @@ import { spawnSync } from "child_process";
  * pass; only the adapter's own suite fails. So the adapter's suite runs
  * here, against the bits a release would ship.
  *
- * Run via `pnpm run test:solid-query` in this package (invoked by
- * scripts/release.mjs before publish). Needs network (repo download +
+ * Run by hand via `pnpm run test:solid-query` in this package; it is not
+ * part of the release path, since it tracks TanStack's live branch and an
+ * upstream change could block a publish. Needs network (repo download +
  * registry install) and several minutes on a cold store — deliberately not
  * part of the default offline `test` script.
  */

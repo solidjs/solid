@@ -41,7 +41,8 @@ const domElements = [
   "noscript",
   "select",
   "option",
-  "video"
+  "video",
+  "form"
 ];
 
 const fixtureParity = {

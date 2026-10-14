@@ -83,10 +83,16 @@ pub(crate) fn hoist_props<'a>(
     if plans.is_empty() {
         return std::vec::Vec::new();
     }
+    let commented = program
+        .comments
+        .iter()
+        .map(|comment| comment.attached_to)
+        .collect();
     let mut emitter = Emitter {
         ast: AstBuilder::new(allocator),
         plans,
         taken,
+        commented,
         dev,
         symbol_index: 0,
         ctor_index: 0,
@@ -140,6 +146,8 @@ struct SitePlan {
 struct Capture {
     symbol: SymbolId,
     name: String,
+    /// The first authored reference — the `new` argument's source position.
+    span: Span,
 }
 
 #[derive(Default)]
@@ -302,8 +310,25 @@ impl<'a> Planner<'_, 'a> {
 
     /// Babel's `!binding.constant`: assigned anywhere, or declared twice.
     fn is_mutated(&self, symbol: SymbolId) -> bool {
+        self.semantic.scoping().symbol_is_mutated(symbol)
+            || self.value_declarations(symbol).nth(1).is_some()
+    }
+
+    /// The declarations of `symbol` that exist at runtime. A `type` or
+    /// `interface` sharing a value's name joins the value's symbol as a
+    /// redeclaration; Babel's binding is the value alone.
+    fn value_declarations(&self, symbol: SymbolId) -> impl Iterator<Item = NodeId> + '_ {
         let scoping = self.semantic.scoping();
-        scoping.symbol_is_mutated(symbol) || !scoping.symbol_redeclarations(symbol).is_empty()
+        let redeclarations = scoping.symbol_redeclarations(symbol);
+        let single = redeclarations
+            .is_empty()
+            .then(|| scoping.symbol_declaration(symbol));
+        single.into_iter().chain(
+            redeclarations
+                .iter()
+                .filter(|redeclaration| redeclaration.flags.intersects(SymbolFlags::Value))
+                .map(|redeclaration| redeclaration.declaration),
+        )
     }
 
     /// The SSR template emits `(_v$ = init, ssr(_tmpl$, _v$))` with `var _v$;`
@@ -337,7 +362,9 @@ impl<'a> Planner<'_, 'a> {
     /// declaration itself (`const x = <Comp a={x.y} />` reads `x` lazily today).
     fn declared_before(&self, symbol: SymbolId, site: Span) -> bool {
         let scoping = self.semantic.scoping();
-        let declaration = scoping.symbol_declaration(symbol);
+        let Some(declaration) = self.value_declarations(symbol).next() else {
+            return false;
+        };
         let kind = self.semantic.nodes().kind(declaration);
         if matches!(
             kind,
@@ -370,7 +397,7 @@ struct BodyScan<'p, 's, 'a> {
 }
 
 impl<'a> BodyScan<'_, '_, 'a> {
-    fn reference(&mut self, symbol: SymbolId, name: &str, write: bool) {
+    fn reference(&mut self, symbol: SymbolId, name: &str, span: Span, write: bool) {
         if self.fallback {
             return;
         }
@@ -408,6 +435,7 @@ impl<'a> BodyScan<'_, '_, 'a> {
                 self.captures.push(Capture {
                     symbol,
                     name: name.to_string(),
+                    span,
                 });
                 self.captures.len() - 1
             }
@@ -438,7 +466,7 @@ impl<'a> Visit<'a> for BodyScan<'_, '_, 'a> {
         // module level and are not this body's business.
         let captures = inner.captures.clone();
         for capture in captures {
-            self.reference(capture.symbol, &capture.name, false);
+            self.reference(capture.symbol, &capture.name, capture.span, false);
         }
         for property in &it.properties {
             if let ObjectPropertyKind::ObjectProperty(property) = property
@@ -467,7 +495,7 @@ impl<'a> Visit<'a> for BodyScan<'_, '_, 'a> {
                     self.receiver_use(it.node_id.get());
                 }
             }
-            Some(symbol) => self.reference(symbol, &it.name, reference.is_write()),
+            Some(symbol) => self.reference(symbol, &it.name, it.span, reference.is_write()),
         }
     }
 
@@ -490,6 +518,18 @@ impl<'a> Visit<'a> for BodyScan<'_, '_, 'a> {
     fn visit_private_in_expression(&mut self, _it: &PrivateInExpression<'a>) {
         self.fallback = true;
     }
+
+    // Type positions are erased before the code runs: a name there (a type
+    // parameter, a local `type`/`interface`, the `x` of `typeof x`) is not a
+    // value the constructor can be handed. Semantic flags a type query's
+    // reference `Read`, so these are skipped by position, not by flags.
+    fn visit_ts_type(&mut self, _it: &TSType<'a>) {}
+    fn visit_ts_type_annotation(&mut self, _it: &TSTypeAnnotation<'a>) {}
+    fn visit_ts_type_parameter_declaration(&mut self, _it: &TSTypeParameterDeclaration<'a>) {}
+    fn visit_ts_type_parameter_instantiation(&mut self, _it: &TSTypeParameterInstantiation<'a>) {}
+    fn visit_ts_interface_declaration(&mut self, _it: &TSInterfaceDeclaration<'a>) {}
+    fn visit_ts_type_alias_declaration(&mut self, _it: &TSTypeAliasDeclaration<'a>) {}
+    fn visit_ts_class_implements(&mut self, _it: &TSClassImplements<'a>) {}
 }
 
 // --- Phase 2: emit -------------------------------------------------------------
@@ -530,6 +570,10 @@ struct Emitter<'t, 'a> {
     ast: AstBuilder<'a>,
     plans: HashMap<NodeId, SitePlan>,
     taken: &'t HashSet<String>,
+    /// Positions authored comments are anchored to. Codegen prints a comment
+    /// at the first node starting there, so a `new` argument mapped to such a
+    /// reference would pull the comment out of the getter's position.
+    commented: HashSet<u32>,
     dev: bool,
     symbol_index: usize,
     ctor_index: usize,
@@ -695,7 +739,15 @@ impl<'a> Emitter<'_, 'a> {
 
         for (index, capture) in plan.captures.iter().enumerate() {
             let param = param_uid(&mut self.param_index, self.taken);
-            args.push(expression_to_argument(self.ident(&capture.name)));
+            let span = if self.commented.contains(&capture.span.start) {
+                SPAN
+            } else {
+                capture.span
+            };
+            args.push(expression_to_argument(
+                self.ast
+                    .expression_identifier(span, self.ast.ident(&capture.name)),
+            ));
             body.push(self.assign(self.this_slot(index), self.ident(&param)));
             params.push(param);
         }

@@ -26,11 +26,24 @@ export interface SkipRecord {
   predicate: t.ArrowFunctionExpression;
 }
 
+/**
+ * A hoisted link-attributes object of a static anchor's `ssrLinkClaim` hole
+ * (ssr/template.ts `registerLinkAttrs`).
+ */
+export interface LinkAttrsRecord {
+  /** The attribute entries, `\0`-joined — the dedupe key. */
+  key: string;
+  id: t.Identifier;
+  object: t.ObjectExpression;
+}
+
 export interface ProgramScopeData {
   imports?: Map<string, t.Identifier>;
   templates?: TemplateRecord[];
   /** SSR spread-element skip predicates, placed by postprocess. */
   ssrSkips?: SkipRecord[];
+  /** SSR static anchors' link-attributes objects, placed by postprocess. */
+  ssrLinkAttrs?: LinkAttrsRecord[];
   events?: Set<string>;
   /** SSR hoisted props shapes (ssr/props.ts), placed by postprocess. */
   hoistedProps?: t.Statement[];
@@ -80,6 +93,7 @@ export interface TransformResult {
   postDeclarations?: ResultPostDeclaration[];
   exprs: ResultExpression[];
   dynamics: DynamicBinding[];
+  claims?: t.Identifier[];
   postExprs?: ResultPostExpression[];
   decl?: t.VariableDeclaration;
   id?: t.Identifier;
@@ -118,6 +132,12 @@ export interface DOMTransformResult extends TransformResult {
   declarations: t.VariableDeclarator[];
   exprs: t.Statement[];
   dynamics: DynamicBinding[];
+  /**
+   * Claim targets (`a[href]` / `form[action]`) with dynamic bindings in
+   * `dynamics`: claimed at the tail of the template root's binding effect,
+   * after its first run applies them (see `wrapDynamics`).
+   */
+  claims: t.Identifier[];
   postExprs: t.Statement[];
   toBeClosed?: Set<string>;
   hasHydratableEvent?: boolean;
@@ -141,6 +161,7 @@ export interface DynamicBinding {
   tagName?: string;
   styleProperty?: boolean;
   classProperty?: boolean;
+  checkableInput?: boolean;
 }
 
 export interface SetAttrOptions {

@@ -1139,20 +1139,11 @@ export namespace JSX {
     target?: "_self" | "_blank" | "_parent" | "_top" | (string & {}) | RemoveAttribute;
     type?: string | RemoveAttribute;
 
-    // Client-side navigation contract. These attributes are inert markup on
-    // their own — a routing integration that delegates anchor clicks (e.g.
-    // @solidjs/router) reads them off the element at event time. Typed here
-    // so plain `<a>` elements participate without per-router augmentation.
+    // Client-side navigation contract. `link` is inert markup on its own —
+    // a routing integration that delegates anchor clicks (e.g. @solidjs/router)
+    // reads it off the element at event time.
     /** Marks the anchor as a client-navigation link when the integration requires explicit opt-in. */
     link?: BooleanAttribute | RemoveAttribute;
-    /** Serialized (JSON) history state pushed alongside the navigation. */
-    state?: string | RemoveAttribute;
-    /** Suppress scroll restoration/reset after the navigation. */
-    noscroll?: BooleanAttribute | RemoveAttribute;
-    /** Replace the current history entry instead of pushing a new one. */
-    replace?: BooleanAttribute | RemoveAttribute;
-    /** Route preload intent; `"false"` disables the integration's default eager preload. */
-    preload?: boolean | "false" | RemoveAttribute;
 
     /** @experimental */
     attributionsrc?: string | RemoveAttribute;

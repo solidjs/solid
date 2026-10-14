@@ -12,14 +12,23 @@
 // config doesn't compile hydratable JSX, so claimRender's registry path —
 // which needs `_hk` on the adopted wrapper — can't engage here.)
 // Own spec file: the boundary marker index is a once-per-boot module cache.
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createRoot, flush, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
+import { prepareTier } from "../frames/src/frame-client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 
 const settle = () => new Promise(r => setTimeout(r));
+
+// The `{$frame}` region the changed record introduces is the REGIONS TIER's
+// (`@solidjs/web/frames/regions`, loaded through `prepareTier("regions")` at
+// the first record naming one; the hand-applied chunks here announce
+// nothing). Warmed, so this cell pins the #547 guarantee with the tier
+// resident; the load itself is pinned in
+// `test/consistency/tier-regions-hold.spec.tsx`.
+beforeAll(() => prepareTier("regions"));
 
 function makeHost() {
   const table = createJSONDataTable();

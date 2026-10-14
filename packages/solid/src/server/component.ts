@@ -121,7 +121,12 @@ type AssetContext = NonNullable<typeof sharedConfig.context>;
 // component loads late during hydration instead of preloading with the page.
 // `subject` locates it: the current owner by default, or the one a body
 // captured for the async paths (a rejected resolver, a deferred import).
-function lazyAssetUnmapped(id: string | undefined, error?: unknown, subject?: Owner | null): void {
+function lazyAssetUnmapped(
+  id: string | undefined,
+  error?: unknown,
+  subject?: Owner | null,
+  api = "lazy()"
+): void {
   // The gate sits before the message is built, so the prod artifact carries
   // an empty function and none of the text.
   if (!IS_DEV) return;
@@ -132,8 +137,8 @@ function lazyAssetUnmapped(id: string | undefined, error?: unknown, subject?: Ow
       severity: "warn",
       message:
         id !== undefined
-          ? `[LAZY_ASSET_UNMAPPED] lazy() asset resolution failed for "${id}": ${errorText(error)}`
-          : "[LAZY_ASSET_UNMAPPED] lazy() used in SSR without a moduleUrl and the loaded module has no " +
+          ? `[LAZY_ASSET_UNMAPPED] ${api} asset resolution failed for "${id}": ${errorText(error)}`
+          : `[LAZY_ASSET_UNMAPPED] ${api} used in SSR without a moduleUrl and the loaded module has no ` +
             "$$moduleUrl export, so its client assets cannot be resolved — the component will load " +
             "late during hydration. This is typically injected by the bundler plugin.",
       data:
@@ -141,6 +146,39 @@ function lazyAssetUnmapped(id: string | undefined, error?: unknown, subject?: Ow
     },
     subject as any
   );
+}
+
+/**
+ * CSS, preloads, and client module scripts for one resolved manifest entry.
+ * `moduleKey` files the entry into the hydration module map (`registerModule`).
+ * Omit it for a hint-only registration (`preload()`). `lazy()` passes a
+ * hydration id; `lazyModule()` passes the module id.
+ */
+function emitLazyAssets(
+  ctx: AssetContext,
+  assets: ResolvedAssets | null | undefined,
+  noHydrate: boolean,
+  moduleKey?: string
+): void {
+  if (!assets || !ctx.registerAsset) return;
+  const register = ctx.registerAsset;
+  for (let i = 0; i < assets.css.length; i++) {
+    const css = assets.css[i];
+    if (typeof css === "string") register("style", css);
+    else register("inline-style", css);
+  }
+  if (assets.preloads) {
+    for (let i = 0; i < assets.preloads.length; i++) {
+      const preload = assets.preloads[i];
+      const as = (preload as any)?.as;
+      if (!noHydrate || typeof as !== "string" || as.toLowerCase() !== "script")
+        register("preload", preload);
+    }
+  }
+  if (!noHydrate) {
+    for (let i = 0; i < assets.js.length; i++) register("module", assets.js[i]);
+    if (moduleKey != null) ctx.registerModule?.(moduleKey, assets.js[0]);
+  }
 }
 
 /**
@@ -315,27 +353,8 @@ export function lazy<T extends Component<any>>(
       // so no module identity needs to exist client-side.
       const o = getOwner();
       const hydrationKey = !noHydrate && o?.id != null ? peekNextChildId(o) : undefined;
-      const applyAssets = (assets: ResolvedAssets | null | undefined) => {
-        if (!assets) return;
-        for (let i = 0; i < assets.css.length; i++) {
-          const css = assets.css[i];
-          if (typeof css === "string") ctx.registerAsset!("style", css);
-          else ctx.registerAsset!("inline-style", css);
-        }
-        if (assets.preloads) {
-          for (let i = 0; i < assets.preloads.length; i++) {
-            const preload = assets.preloads[i];
-            const as = (preload as any)?.as;
-            if (!noHydrate || typeof as !== "string" || as.toLowerCase() !== "script") {
-              ctx.registerAsset!("preload", preload);
-            }
-          }
-        }
-        if (!noHydrate) {
-          for (let i = 0; i < assets.js.length; i++) ctx.registerAsset!("module", assets.js[i]);
-          if (hydrationKey != null) ctx.registerModule?.(hydrationKey, assets.js[0]);
-        }
-      };
+      const applyAssets = (assets: ResolvedAssets | null | undefined) =>
+        emitLazyAssets(ctx, assets, !!noHydrate, hydrationKey);
       const registerLazyAssets = (id: string): Promise<void> | undefined =>
         resolveLazyAssets(ctx, id, applyAssets);
       if (moduleUrl) {
@@ -436,27 +455,10 @@ export function lazy<T extends Component<any>>(
     // fetches the module. Reading the context needs an owner.
     const owner = getOwner();
     const noHydrate = owner ? getContext(NoHydrateContext, owner) : false;
-    const hint = (assets: ResolvedAssets | null | undefined) => {
-      if (!assets) return;
-      for (let i = 0; i < assets.css.length; i++) {
-        const css = assets.css[i];
-        if (typeof css === "string") ctx.registerAsset!("style", css);
-        else ctx.registerAsset!("inline-style", css);
-      }
-      if (assets.preloads) {
-        for (let i = 0; i < assets.preloads.length; i++) {
-          const preload = assets.preloads[i];
-          const as = (preload as any)?.as;
-          if (!noHydrate || typeof as !== "string" || as.toLowerCase() !== "script") {
-            ctx.registerAsset!("preload", preload);
-          }
-        }
-      }
-      // Hint-only: registerModule files the module into the serialized
-      // hydration map, whose key only the render that creates it knows.
-      if (!noHydrate)
-        for (let i = 0; i < assets.js.length; i++) ctx.registerAsset!("module", assets.js[i]);
-    };
+    // Hint-only: no module key, so registerModule is not called. The hydration
+    // map's key is known only to the render that creates it.
+    const hint = (assets: ResolvedAssets | null | undefined) =>
+      emitLazyAssets(ctx, assets, !!noHydrate);
     const hintFor = (id: string) => {
       try {
         resolveLazyAssets(ctx, id, hint);
@@ -528,6 +530,153 @@ export function lazy<T extends Component<any>>(
     enumerable: true
   });
   return wrap as T & { preload: () => Promise<any>; moduleUrl?: string };
+}
+
+/**
+ * Cached dynamic import the server can preload before hydration. Unlike
+ * `lazy()`, the value is the module namespace, and the hydration key is the
+ * module id (`moduleUrl` / `$$moduleUrl`), not a hydration id.
+ *
+ * `.peek()` during a render resolves assets, files `registerModule(moduleUrl,
+ * entry)` on the caller's boundary, and holds the shell with `ctx.block`
+ * while the module (or its assets) is in flight — then throws `NotReadyError`
+ * so the render retries and reads the module synchronously. `.preload()` only
+ * hints assets; it does not register. A missing id warns in dev and `.peek()`
+ * still returns the module. Outside a render, `.peek()` is a sync read.
+ */
+export function lazyModule<T extends Record<string, any>>(
+  fn: () => Promise<T>,
+  moduleUrl?: string
+): (() => Promise<T>) & {
+  preload: () => Promise<T>;
+  peek: () => T | undefined;
+  moduleUrl?: string;
+} {
+  type Loading = Promise<T> & { mod?: T; error?: unknown; errored?: boolean };
+  let p: Loading | undefined;
+  const load = (): Loading => {
+    if (p) return p;
+    const cur = (p = fn() as Loading);
+    cur.then(
+      (mod: T) => {
+        cur.mod = mod;
+      },
+      err => {
+        cur.error = err;
+        cur.errored = true;
+        if (p === cur) p = undefined;
+      }
+    );
+    return cur;
+  };
+  const track = (ctx: AssetContext, id: string, noHydrate: boolean, moduleKey?: string) =>
+    resolveLazyAssets(ctx, id, assets => emitLazyAssets(ctx, assets, noHydrate, moduleKey));
+  const read = load as typeof load & {
+    preload: () => Promise<T>;
+    peek: () => T | undefined;
+    moduleUrl?: string;
+  };
+  read.peek = () => {
+    const ctx = sharedConfig.context;
+    const owner = getOwner();
+    const noHydrate = !!(owner && getContext(NoHydrateContext, owner));
+    if (ctx && !noHydrate && !ctx.resolveAssets)
+      throw new Error(
+        `lazyModule() called${moduleUrl ? ` with moduleUrl "${moduleUrl}"` : ""} but no asset manifest is set. ` +
+          "Pass a manifest option to renderToStream/renderToString."
+      );
+    const cur = load();
+    if (!ctx) {
+      if (cur.errored) throw cur.error;
+      return cur.mod;
+    }
+    let assetsPending: Promise<void> | undefined;
+    if (ctx.registerAsset && ctx.resolveAssets) {
+      if (moduleUrl)
+        assetsPending = track(ctx, moduleUrl, noHydrate, noHydrate ? undefined : moduleUrl);
+      else if (!noHydrate) {
+        if (cur.mod !== undefined) {
+          const id = (cur.mod as any)?.$$moduleUrl;
+          if (typeof id === "string") assetsPending = track(ctx, id, false, id);
+          else lazyAssetUnmapped(undefined, undefined, owner, "lazyModule()");
+        } else {
+          const boundary = ctx._currentBoundaryId;
+          assetsPending = cur.then(mod => {
+            const id = (mod as any)?.$$moduleUrl;
+            if (typeof id !== "string") {
+              lazyAssetUnmapped(undefined, undefined, owner, "lazyModule()");
+              return;
+            }
+            const current = ctx._currentBoundaryId;
+            ctx._currentBoundaryId = boundary;
+            try {
+              return track(ctx, id, false, id);
+            } finally {
+              ctx._currentBoundaryId = current;
+            }
+          });
+        }
+      }
+      if (assetsPending) {
+        const clear = () => {
+          assetsPending = undefined;
+        };
+        assetsPending = assetsPending.then(clear, clear);
+      }
+    }
+    if (ctx.async && ((cur.mod === undefined && !cur.errored) || assetsPending)) {
+      const gate = assetsPending ? cur.then(() => assetsPending) : cur;
+      ctx.block(
+        gate.then(
+          () => {},
+          () => {}
+        )
+      );
+    }
+    if (cur.errored) throw cur.error;
+    if (cur.mod === undefined || assetsPending)
+      throw new NotReadyError(assetsPending && cur.mod !== undefined ? assetsPending : cur);
+    return cur.mod;
+  };
+  read.preload = () => {
+    const cur = load();
+    const ctx = callerRenderContext();
+    if (!ctx?.resolveAssets || !ctx.registerAsset) return cur;
+    const owner = getOwner();
+    const noHydrate = !!(owner && getContext(NoHydrateContext, owner));
+    const hint = (id: string) => {
+      try {
+        resolveLazyAssets(ctx, id, assets => emitLazyAssets(ctx, assets, noHydrate));
+      } catch (err) {
+        lazyAssetUnmapped(id, err, owner, "lazyModule()");
+      }
+    };
+    if (moduleUrl) hint(moduleUrl);
+    else {
+      const known = (cur.mod as any)?.$$moduleUrl;
+      if (typeof known === "string") hint(known);
+      else {
+        const boundary = ctx._currentBoundaryId;
+        cur.then(
+          (mod: any) => {
+            const id = mod?.$$moduleUrl;
+            if (typeof id !== "string") return;
+            const current = ctx._currentBoundaryId;
+            ctx._currentBoundaryId = boundary;
+            try {
+              hint(id);
+            } finally {
+              ctx._currentBoundaryId = current;
+            }
+          },
+          () => {}
+        );
+      }
+    }
+    return cur;
+  };
+  read.moduleUrl = moduleUrl;
+  return read;
 }
 
 export function createUniqueId(): string {

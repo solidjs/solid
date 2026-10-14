@@ -249,15 +249,22 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
   let released: Computed<any>[] | undefined;
   const visited = new Set<Computed<any>>();
   const settle = (node: Computed<any>) => {
-    if (visited.has(node)) return;
-    // A conditional dropped this source, but another dependency can still
-    // carry it. Only retire pending state inherited through the recovered
-    // branch. Deliberately NOT marked visited on this early return: the
-    // carrying dependency may itself be a later branch of this same walk
-    // (two unchanged memos converging), and its visit must be free to
-    // re-examine this node once that branch has retired the source.
-    if (source !== el && retryReaches(node, source)) return;
-    if (!removePendingSource(node, source)) return;
+    if (
+      visited.has(node) ||
+      // A conditional dropped this source, but another dependency can still
+      // carry it. Only retire pending state inherited through the recovered
+      // branch. Deliberately NOT marked visited on this early return: the
+      // carrying dependency may itself be a later branch of this same walk
+      // (two unchanged memos converging), and its visit must be free to
+      // re-examine this node once that branch has retired the source.
+      (source !== el && retryReaches(node, source)) ||
+      !removePendingSource(node, source)
+    )
+      // A19: a verdict reader holds no pending of its own (it was re-derived
+      // when the source went pending, `propagateStatus`), and a landing
+      // equal to the committed value notifies nobody — the source settling
+      // is its verdict changing: it runs again.
+      return node._config & CONFIG_VERDICT && enqueueSub(node);
     visited.add(node);
     node._time = clock;
     const remaining = node._x?._pendingSources?.values().next().value;
@@ -458,10 +465,21 @@ export function handleAsync<T>(
         return;
       }
       if (wasUninitialized) landStatus(el, true);
+      // Attribution hook: this path landed through the setter (derived
+      // stores, projections), which does not go through setSignal, so the
+      // plain branch's asyncEnd never ran and the flight stayed open — the
+      // next flight counted a committed answer as abandoned (#3947).
+      // direct=true: asyncEnd finalizes either way and stamps an async write
+      // only if the commit moved `_value`/`_time` or parked `_pendingValue`.
+      // A store setter does not move this node's `_value`, so no stamp is
+      // recorded and waterfall chaining through derived stores stays
+      // unmeasured. Outside the try (#2883 — see attribution-hooks.ts).
+      if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
     } else {
       // CARVE 2: the override-covered landing (hold + A18 supersession) and the
       // lane-routed landing (derived override, lane effect queue) went with
-      // the optimistic engine; every landing is the plain setSignal.
+      // the optimistic engine; every landing is the plain setSignal. A node
+      // already held stages its answer into that hold (`setSignal`).
       try {
         setSignal(el, () => value);
       } catch (e) {
@@ -904,11 +922,11 @@ export function propagateStatus(
     ) {
       // The marked subscriber is queued for the commit sweep so its status
       // bookkeeping (loading window, uninitialized clear) runs with the flush
-      // — with the lane, when the pass propagating is the lane's work: the
-      // dependent's pending is the lane's own flight.
+      // — with the lane, when the pass propagating is the lane's work and
+      // the dependent's pending is the lane's own flight (`laneStage`).
       if (!downstreamBlockStatus) {
         // (No answer: a pending propagation leaves a written guess a guess.)
-        if (passLane !== null) GlobalQueue._laneStage!(sub, passLane, true, true);
+        if (passLane !== null) GlobalQueue._laneStage!(sub, passLane, true, el);
         else {
           queuePendingNode(sub);
           // A15 (#3443): pending propagates onto a held memo without

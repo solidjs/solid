@@ -138,14 +138,10 @@ export function asyncArg<T>(value: PromiseLike<T> | AsyncIterable<T>): T {
 }
 
 export {
-  renderToFrameStream,
-  renderServerComponent,
-  serverComponentResponse,
   frameTransformResult,
   // Single-flight: mutations whose invalidated payload includes markup
   // stream it as regions in one response (install as transformFlightResult)
   frameTransformFlightResult,
-  createFrameSink,
   // Document SSR (t=0): inline rendering + the hydration reference
   frameTransformDirectResult,
   ServerComponentPlugin,
@@ -155,5 +151,8 @@ export {
   FRAME_STREAM_HEADER,
   FRAME_HAVE_HEADER,
   FRAME_HAVE_BUDGET,
+  // The tier announcement's header name (frames savings pass §2). The client
+  // entry reads it but does not re-export it (its one use inlines).
+  FRAME_TIERS_HEADER,
   isFrameStreamResponse
 } from "./frame-transport.js";

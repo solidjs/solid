@@ -1,6 +1,20 @@
 /** @vitest-environment jsdom */
-import { afterEach, describe, expect, it } from "vitest";
-import { createFrame, createFrameHost } from "../frames/src/frame-client.js";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  createFrame,
+  createFrameHost,
+  prepareTier,
+  tierLoaders
+} from "../frames/src/frame-client.js";
+
+beforeAll(async () => {
+  // Preloads apply through the ASSETS TIER (`@solidjs/web/frames/assets`,
+  // frames savings pass §3 row C5); the client entry wires its loader in
+  // production — wire and warm it here, so these pins read a resident tier
+  // (the buffer-until-install arm is consistency/tier-assets-ready.spec).
+  tierLoaders.assets ??= () => import("../frames/src/assets-tier.js");
+  await prepareTier("assets");
+});
 
 afterEach(() => {
   document.head.replaceChildren();

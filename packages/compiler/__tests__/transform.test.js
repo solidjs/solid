@@ -167,6 +167,55 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).toContain("_$createComponent(Child, {})");
   });
 
+  it("keeps component refs written behind TypeScript casts", () => {
+    const source = `
+      const setRef = el => {};
+      const a = <Comp ref={[setRef, props.ref] as any} role="x" />;
+      const b = <Comp ref={setRef as any} />;
+      const c = <Comp ref={props.ref!} />;
+      const d = <Comp ref={props.ref satisfies any} />;
+      const e = <Comp ref={factory() as any} />;
+      `;
+
+    for (const generate of ["dom", "ssr", "universal"]) {
+      const { code } = transform(source, {
+        filename: "cast-refs.tsx",
+        moduleName: "r-dom",
+        generate
+      });
+
+      expect(code).toContain("ref: [setRef, props.ref],");
+      expect(code).toContain("{ ref: setRef }");
+      expect(code).toContain("props.ref = r$");
+      expect(code.match(/var _ref\$\d* = props\.ref;/g)).toHaveLength(2);
+      expect(code).toMatch(/var _ref\$\d* = factory\(\);/);
+      expect(code).not.toContain(" as any");
+      expect(code).not.toContain("satisfies");
+      expect(code).not.toContain("props.ref!");
+    }
+
+    const elements = `
+      let myRef;
+      const a = <view ref={myRef as any} />;
+      const b = <view ref={props.ref!} />;
+      `;
+
+    for (const generate of ["dom", "universal"]) {
+      const { code } = transform(elements, {
+        filename: "cast-refs.tsx",
+        moduleName: "r-dom",
+        generate
+      });
+
+      expect(code).toMatch(/var _ref\$\d* = myRef;/);
+      expect(code).toMatch(/var _ref\$\d* = props\.ref;/);
+      expect(code).toContain(": myRef = _el$;");
+      expect(code).toContain(": props.ref = _el$2;");
+      expect(code).not.toContain(" as any");
+      expect(code).not.toContain("props.ref!");
+    }
+  });
+
   it("covers the static subset of the Babel simpleElements fixture", () => {
     const result = transform(
       'const template = <div id="main"><style>{"div { color: red; }"}</style><h1>Welcome</h1><label for={"entry"}>Edit:</label><input id="entry" type="text" /></div>;',
@@ -219,10 +268,10 @@ describe("@solidjs/compiler transform", () => {
     );
 
     expect(result.code).not.toMatch(/_\$template\(`<select value=/);
-    expect(result.code.match(/queueMicrotask/g)).toHaveLength(6);
-    expect(result.code.match(/\.value = (?:"2"|2)/g)).toHaveLength(10);
-    expect(result.code.match(/\.value = \["1", "2"\]/g)).toHaveLength(2);
-    expect(result.code.indexOf("queueMicrotask")).toBeLessThan(result.code.indexOf("_$insert("));
+    expect(result.code).not.toMatch(/queueMicrotask/);
+    expect(result.code.match(/_\$setProperty\(/g)).toHaveLength(6);
+    expect(result.code).toMatch(/_\$setProperty\([^)]*"value", \["1", "2"\]\)/);
+    expect(result.code.indexOf("_$setProperty")).toBeLessThan(result.code.indexOf("_$insert("));
   });
 
   it("compiles the supported simpleElements fixture subset from Babel sources", () => {

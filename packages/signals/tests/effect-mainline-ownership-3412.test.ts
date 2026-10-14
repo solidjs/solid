@@ -31,8 +31,8 @@ function setup(opts: { boundary: boolean; on: boolean; unconditional: boolean })
     const [show, _setShow] = createSignal(true);
     setCount = _setCount;
     setShow = _setShow;
-    const copy = createMemo(async () => count(), undefined, { name: "copy" });
-    const details = createMemo(() => delay(1500, copy()), undefined, { name: "details" });
+    const copy = createMemo(async () => count(), { name: "copy" });
+    const details = createMemo(() => delay(1500, copy()), { name: "details" });
     createRenderEffect(
       () => String(show()),
       v => {

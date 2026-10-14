@@ -33,7 +33,8 @@ import {
   flush,
   refresh,
   TimeoutError,
-  until
+  until,
+  type SourceAccessor
 } from "../src/index.js";
 
 const tick = () => new Promise(r => setTimeout(r, 0));
@@ -408,7 +409,7 @@ test("authoritative view covers membership: in / Object.keys ignore optimistic s
  */
 test("refresh()ed async source landing mid-hold satisfies until", async () => {
   const resolvers: ((v: number) => void)[] = [];
-  let version!: () => number;
+  let version!: SourceAccessor<number>;
   let dispose!: () => void;
   createRoot(d => {
     dispose = d;

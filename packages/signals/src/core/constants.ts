@@ -81,7 +81,7 @@ export const CONFIG_SYNC = 1 << 6;
 // CONFIG_HELD_CHILDREN, CONFIG_INPUTS_PUBLISHED and CONFIG_ADOPTED_UNFLUSHED
 // (transaction holds, zombies, until()'s authoritative view) went with the
 // transactions.
-// L2 (step 2): three bits, all maintained by the node's commit.
+// L2 (step 2): four bits, all maintained by the node's commit.
 /** The node has a pass awaiting commit: its live children (and `_disposal`)
  * are that pass's and were never shown — a re-pass tears them down on the
  * spot, while the frame parked on `_x._pendingFirstChild` keeps waiting for
@@ -94,6 +94,11 @@ export const CONFIG_STAGED = 1 << 7;
  * parking flush they see the committed value and hold nothing, and are
  * re-derived at the landing. Set at the park seam on every staged node. */
 export const CONFIG_HELD = 1 << 8;
+/** A member of the uncommitted frame a held pass built (ruling A): set at
+ * the park seam on every computed under a staged node (`holdFrame`). Never
+ * shown, it has no screen: its reads are its transaction's, whichever flush
+ * runs it (`bornInto`, #4010). Cleared by its commit. */
+export const CONFIG_HELD_FRAME = 1 << 20;
 /** A15's reveal corollary (#3305): a commit published this flight's inputs
  * beneath it — the node was pending, nothing staged, when it committed — so
  * its committed value is torn against the visible frame. A render effect
@@ -172,14 +177,34 @@ export const CONFIG_PROMOTED = 1 << 22;
 /** Observe tiers only: the node is framework plumbing (the `solid-js/refresh`
  * HMR memo between a component's root and its body) — it has no name, is no
  * segment of any owner path, and the attribution engine records nothing about
- * it (creation, re-runs, checks), while the nodes it owns stay fully observed.
+ * it (creation, re-runs, checks) and does not count it toward another scope's
+ * WIDE_SCOPE_DEPS or a write's engine-side HUGE_FAN_OUT, while the nodes it
+ * owns stay fully observed.
  * Set from the internal `_plumbing` option at creation; never set in prod. */
 export const CONFIG_PLUMBING = 1 << 25;
+/** Observe tiers only: a framework scope wide by construction (`@solidjs/web`'s
+ * insert child-resolution pass, which must track each row's resolved child) —
+ * the attribution engine's WIDE_SCOPE_DEPS skips it; the always-on HUGE_FAN_IN
+ * does not. Set from the internal `_wide` option at creation by dev builds only
+ * (the observe artifact mangles the option name, as it does `_plumbing`). */
+export const CONFIG_WIDE = 1 << 26;
+/** Observe tiers only: a framework async node that supersedes its own flights
+ * by design (`@solidjs/web/frames`' per-key slot-arg memo, re-run by every
+ * re-shipped record while the arg is still pending) — the attribution
+ * engine's ABANDONED_FLIGHTS skips it; its flight records and the feedback
+ * fold's counts are unchanged. Set from the internal `_supersedes` option at
+ * creation by dev builds only (the observe artifact mangles the option name,
+ * as it does `_wide`). */
+export const CONFIG_SUPERSEDES = 1 << 27;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
 export const STATUS_ERROR = 1 << 1;
 export const STATUS_UNINITIALIZED = 1 << 2;
+
+/** `GlobalQueue._catch`'s answer when the catcher is a boundary re-armed by
+ * `on` (truthy, as any catch): what it collects is its own, not the hold's. */
+export const CAUGHT_REARMED = 2;
 
 export const EFFECT_PURE = 0;
 export const EFFECT_RENDER = 1;

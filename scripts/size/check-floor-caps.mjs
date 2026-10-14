@@ -12,7 +12,11 @@
 //   Compares floor-caps.json at HEAD with the same file at <base-ref>. Exits
 //   non-zero if any cap increased, unless SIZE_EXCEPTION (the PR body, in CI)
 //   contains a line starting with "Size-Exception:" that names the reason.
-//   A cap absent at the base (a new floor scenario) is allowed.
+//   A cap absent at the base (a new floor scenario) is allowed. The minified
+//   size recorded with each cap (`{ cap, minified }` entries; the gate
+//   measures minified growth against it) is frozen the same way: raising it
+//   loosens the gate exactly as raising the cap does. A recorded minified
+//   absent at the base (an entry still in the old string form) is allowed.
 
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -54,12 +58,15 @@ try {
 }
 
 const exception = /^\s*Size-Exception:\s*\S/m.test(process.env.SIZE_EXCEPTION ?? "");
+const entry = e => (typeof e === "string" ? { cap: e } : e);
 let raised = [];
-for (const [name, cap] of Object.entries(head)) {
+for (const [name, value] of Object.entries(head)) {
   if (!(name in baseCaps)) continue;
-  const before = toBytes(baseCaps[name]);
-  const after = toBytes(cap);
-  if (after > before) raised.push(`  ${name}: ${baseCaps[name]} -> ${cap}`);
+  const was = entry(baseCaps[name]);
+  const now = entry(value);
+  if (toBytes(now.cap) > toBytes(was.cap)) raised.push(`  ${name}: ${was.cap} -> ${now.cap}`);
+  if (typeof was.minified === "number" && !(now.minified <= was.minified))
+    raised.push(`  ${name}: recorded minified ${was.minified} B -> ${now.minified ?? "removed"}`);
 }
 
 if (raised.length === 0) {

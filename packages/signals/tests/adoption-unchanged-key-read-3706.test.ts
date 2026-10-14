@@ -41,7 +41,7 @@ function deferred<T = void>() {
 }
 
 function board(read: (drag: () => string | undefined, cards: Card[]) => unknown) {
-  const gates = new Map<string, ReturnType<typeof deferred>>();
+  const gates = new Map<string, ReturnType<typeof deferred<void>>>();
   let move!: (id: string, column: number) => Promise<void>;
   let setDrag!: (v: string) => void;
   let drag!: () => string | undefined;
@@ -269,54 +269,50 @@ describe("#3706 unchanged key read under an adoption hold", () => {
     dispose();
   });
 
-  // Third playground: the row is first read AFTER the adoption, so it has no
-  // target for slot equality and the container hold stands. Freeing it needs
-  // the adoption to carry per-child held views: a positional lazy
-  // materialization aliased reordered rows and split proxy identity by
-  // reader context under review. Left as a design call, tracked in #3712.
+  // Third playground: the row is first read AFTER the adoption, so nothing
+  // had paired it with its old row. It is paired at that read, by the
+  // family's key, as the adoption would have paired it (#3712): the slot is
+  // the same row, and `id` the same in both frames holds no one.
   for (const read of ["find", "index-id"] as const) {
-    it.fails(
-      `a row first read AFTER the adoption (${read}) derives nothing from the hold (third playground)`,
-      async () => {
-        let release!: () => void;
-        let drag!: () => string | undefined;
-        let setDrag!: (v: string) => void;
-        let move!: () => Promise<void>;
-        let derived!: () => unknown;
-        let serverCards!: () => { id: string; version: number }[];
-        let dispose!: () => void;
-        createRoot(d => {
-          dispose = d;
-          const [rows, setRows] = createSignal([{ id: "card", version: 0 }]);
-          serverCards = createMemo(() => rows());
-          const [localCards] = createStore(() => serverCards(), []);
-          const [cards] = createOptimisticStore(localCards);
-          [drag, setDrag] = createSignal<string>();
-          move = action(function* () {
-            setRows([{ id: "card", version: 1 }]);
-            yield new Promise<void>(r => (release = r));
-          });
-          // The row is only read once `drag` is set — after the adoption.
-          derived = createMemo(() =>
-            read === "find" ? drag() && cards.find(c => c.id === drag())?.id : drag() && cards[0].id
-          );
-          createRenderEffect(derived, () => {});
+    it(`a row first read AFTER the adoption (${read}) derives nothing from the hold (third playground)`, async () => {
+      let release!: () => void;
+      let drag!: () => string | undefined;
+      let setDrag!: (v: string) => void;
+      let move!: () => Promise<void>;
+      let derived!: () => unknown;
+      let serverCards!: () => { id: string; version: number }[];
+      let dispose!: () => void;
+      createRoot(d => {
+        dispose = d;
+        const [rows, setRows] = createSignal([{ id: "card", version: 0 }]);
+        serverCards = createMemo(() => rows());
+        const [localCards] = createStore(() => serverCards(), []);
+        const [cards] = createOptimisticStore(localCards);
+        [drag, setDrag] = createSignal<string>();
+        move = action(function* () {
+          setRows([{ id: "card", version: 1 }]);
+          yield new Promise<void>(r => (release = r));
         });
-        flush();
-        const p = move();
-        flush();
-        await tick();
-        expect(isPending(serverCards)).toBe(true);
-        setDrag("card");
-        flush();
-        const pending = isPending(drag);
-        release();
-        await p;
-        flush();
-        dispose();
-        expect(pending).toBe(false);
-      }
-    );
+        // The row is only read once `drag` is set — after the adoption.
+        derived = createMemo(() =>
+          read === "find" ? drag() && cards.find(c => c.id === drag())?.id : drag() && cards[0].id
+        );
+        createRenderEffect(derived, () => {});
+      });
+      flush();
+      const p = move();
+      flush();
+      await tick();
+      expect(isPending(serverCards)).toBe(true);
+      setDrag("card");
+      flush();
+      const pending = isPending(drag);
+      release();
+      await p;
+      flush();
+      dispose();
+      expect(pending).toBe(false);
+    });
   }
 
   it("a changed leaf of a row first read after the adoption holds (A29)", async () => {

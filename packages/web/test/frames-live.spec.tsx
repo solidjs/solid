@@ -13,10 +13,17 @@
 // equals-gate keeps the instance; a completion (every frame complete)
 // completes the iteration. Supersession by another response is a death;
 // an undeclared frame's death is an error; `onstatus` reports the wire.
-import { afterEach, describe, expect, test, vi } from "vitest";
-import { createMemo, createRoot, createSignal, Loading } from "solid-js";
+//
+// The live arm is the LIVE WIRE TIER's (frames savings pass §3 row C2,
+// `@solidjs/web/frames/wire`): the handler awaits its load before the body
+// is read. Warmed here (`prepareTier("wire")`) so every cell runs resident —
+// the shape a live page is in once `live()`'s preload-at-call has landed;
+// `consistency/tier-wire-preload.spec` pins the load itself.
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
+import { createMemo, createRoot, createSignal, Errored, Loading } from "solid-js";
 import { dynamic } from "../src/index.js";
 import { installServerComponents } from "../frames/src/client.js";
+import { prepareTier } from "../frames/src/frame-client.js";
 import { createServerReference, live } from "../server-functions/src/client.js";
 import { frameAddress } from "../server-functions/src/shared.js";
 import {
@@ -37,16 +44,23 @@ function articleHtml(title: string) {
   );
 }
 
-/** Mount `<Loading fallback=…><Comp {...props}/></Loading>` into the body. */
+/**
+ * Mount `<Errored><Loading fallback=…><Comp {...props}/></Loading></Errored>`
+ * into the body. The `<Errored>` is the frame's (frames-rulings 3.3): a
+ * frame's `:error` throws to the nearest client `<Errored>` as any rejected
+ * `createAsync` does; its fallback renders the record's message as `.err`.
+ */
 function mountUnderLoading(Comp: any, props: Record<string, any> = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   let div!: HTMLDivElement;
   const dispose = createRoot(d => {
     <div ref={div}>
-      <Loading fallback={<span>shell-fallback</span>}>
-        <Comp {...props} />
-      </Loading>
+      <Errored fallback={err => <span class="err">{String((err() as any)?.message)}</span>}>
+        <Loading fallback={<span>shell-fallback</span>}>
+          <Comp {...props} />
+        </Loading>
+      </Errored>
     </div>;
     container.appendChild(div);
     return d;
@@ -54,6 +68,8 @@ function mountUnderLoading(Comp: any, props: Record<string, any> = {}) {
   return {
     div,
     dispose,
+    /** The <Errored> fallback's text, or null while the content shows. */
+    error: () => div.querySelector(".err")?.textContent ?? null,
     cleanup() {
       dispose();
       container.remove();
@@ -63,6 +79,7 @@ function mountUnderLoading(Comp: any, props: Record<string, any> = {}) {
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+beforeAll(() => prepareTier("wire"));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("frames consume live: death vs complete", () => {
@@ -153,7 +170,10 @@ describe("frames consume live: death vs complete", () => {
     m.cleanup();
   });
 
-  test("a stream-level error record is a completion of the failing kind: no retry, the error on the frame", async () => {
+  // The frame's `:error` is its one async value rejecting (frames-rulings
+  // 3.3): the loop closes without a retry, and the mount's enclosing
+  // <Errored> shows the record — the landing rejected, no empty frame.
+  test("a stream-level error record is a completion of the failing kind: no retry, the error on the frame — and in the <Errored>", async () => {
     const { host } = makeHost();
     installServerComponents(host);
     const { held, urls } = stubLiveFetch("srv", 2);
@@ -171,6 +191,8 @@ describe("frames consume live: death vs complete", () => {
     await until(() => status.includes("closed"));
     expect(status).toEqual(["connected", "closed"]);
     expect((host.get("frames-live/refused") as any).error).toEqual({ message: "refused" });
+    expect(m.error()).toBe("refused");
+    expect(m.div.querySelector("solid-frame")).toBeNull();
     await wait(700);
     expect(urls).toHaveLength(1);
 
@@ -252,12 +274,17 @@ describe("frames consume live: supersession and undeclared death", () => {
     await pump();
     held.send({ type: "start", id: "srv", version: 1 });
     held.send({ type: "html", id: "srv", version: 1, html: articleHtml("partial") });
+    await pump();
+    expect(m.div.querySelector("h1")!.textContent).toBe("partial");
     held.close();
     await pump();
     const frame: any = host.get("frames-live/undeclared");
-    expect(m.div.querySelector("h1")!.textContent).toBe("partial");
     expect(frame.error).toBeTruthy();
     expect(String(frame.error.message)).toContain("before the frame completed");
+    // The frame errored (3.3): the <Errored> shows the death; the partial
+    // content stands in the mount behind it.
+    expect(m.error()).toContain("before the frame completed");
+    expect(m.div.querySelector("h1")).toBeNull();
     await wait(700);
     expect(calls).toBe(1);
 

@@ -235,6 +235,23 @@ describe("binding slots — stream face", () => {
     );
   });
 
+  it("a class ARRAY binds its object entries' names as the object form does; its strings stay inline", async () => {
+    const ServerComp = (props: any) => {
+      const t = props.toggle({ $key: 7 });
+      return (
+        <div class={["toggle", { open: t.open }]}>
+          <a onClick={t.onToggle}>{t.label}</a>
+        </div>
+      );
+    };
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "ds1a" } }));
+    const html = plain(chunks.find(c => c.type === "html").html);
+    expect(html).toContain(
+      '<div class="toggle" _s:class="toggle#7:open=open"><a _s:on:click="toggle#7:onToggle"><!--_s:t=toggle#7:label--><!--/_s:t--></a></div>'
+    );
+    expect(findings()).toEqual([]);
+  });
+
   it("keys and class names percent-encode onto the marker alphabet", async () => {
     const ServerComp = (props: any) => {
       const row = props.row({ id: 1 });
@@ -737,6 +754,48 @@ describe("binding slots — stream face", () => {
 });
 
 describe("binding slots — document face (t=0)", () => {
+  it("a handler position under a hole whose source lands later still marks in the first markup (a deferred retry keeps the component's claims)", async () => {
+    // The chat thread's shape: the message list reads async data, so its
+    // hole escalates and its first markup comes from a retry that runs long
+    // after the component's synchronous render returned, resumed by a
+    // boundary OUTSIDE the component. That retry still renders the
+    // component's markup, so the Copy button carries its handler marker in
+    // the markup the client adopts, not only in a later re-emission.
+    const ServerComp = (props: any) => {
+      const block = props.codeBlock();
+      const messages = createMemo(async () => {
+        await new Promise(r => setTimeout(r, 5));
+        return ["one", "two"];
+      });
+      return (
+        <ol>
+          {messages().map(m => (
+            <li>
+              {m}
+              <button class="copy" onClick={block.onCopy}>
+                Copy
+              </button>
+            </li>
+          ))}
+        </ol>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsdefer" }) as any;
+    const html = await document(() => (
+      <main>
+        <Loading fallback={<p>loading</p>}>
+          {Inline({ codeBlock: () => ({ onCopy: () => {} }) })}
+        </Loading>
+      </main>
+    ));
+    const markup = plain(html.slice(html.indexOf("<template id=")));
+    expect(markup).toContain(
+      '<button class="copy" _s:on:click="codeBlock:onCopy" _hk>Copy</button>'
+    );
+    // Nothing changed after the first render: no hole is re-sent to add it.
+    expect(html).not.toContain('type:"hole"');
+  });
+
   it("runs the fill at t=0 and writes each position's value beside its marker", async () => {
     const ServerComp = (props: any) => (
       <ul>
@@ -771,18 +830,18 @@ describe("binding slots — document face (t=0)", () => {
       '<li class="todo completed" _s:class="row#2:done=completed,row#2:editing=editing" hidden _s:hidden="row#2:removed">'
     );
     expect(html).toContain(
-      '<input type="checkbox" _s:checked="row#1:done" _s:on:input="row#1:toggle" _s:ref="row#1:checkbox">'
+      '<input type="checkbox" _s:checked="row#1:done" _s:on:input="row#1:toggle" _s:ref="row#1:checkbox" _hk>'
     );
     expect(html).toContain(
-      '<input type="checkbox" checked _s:checked="row#2:done" _s:on:input="row#2:toggle" _s:ref="row#2:checkbox">'
+      '<input type="checkbox" checked _s:checked="row#2:done" _s:on:input="row#2:toggle" _s:ref="row#2:checkbox" _hk>'
     );
     expect(html).toContain('<label _s:style="row#1:opacity=opacity">a</label>');
     expect(html).toContain('<label style="opacity:0.5" _s:style="row#2:opacity=opacity">b</label>');
     expect(html).toContain(
-      '<button class="destroy" _s:class="row#1:buttonClass" _s:aria-busy="row#1:busy" _s:on:click="row#1:remove">×</button>'
+      '<button class="destroy" _s:class="row#1:buttonClass" _s:aria-busy="row#1:busy" _s:on:click="row#1:remove" _hk>×</button>'
     );
     expect(html).toContain(
-      '<button class="destroy done" _s:class="row#2:buttonClass" aria-busy _s:aria-busy="row#2:busy" _s:on:click="row#2:remove">×</button>'
+      '<button class="destroy done" _s:class="row#2:buttonClass" aria-busy _s:aria-busy="row#2:busy" _s:on:click="row#2:remove" _hk>×</button>'
     );
     // Handlers and refs never serialize or run on the server.
     expect(html).not.toContain("toggle:");
@@ -790,6 +849,82 @@ describe("binding slots — document face (t=0)", () => {
     // The occurrence's t=0 record, keyed for the adopting frame's store.
     expect(html).toContain("sc:slot:dsd0:row#1");
     expect(html).toContain("sc:slot:dsd0:row#2");
+    expect(findings()).toEqual([]);
+  });
+
+  it("the replay-window stamp: a bare ` _hk` on the document face's EVENT-slot consumers only — not on a ref-only or attribute-only consumer, never on the stream face", async () => {
+    // The bootstrap queues a delegated event only under an `_hk` ancestor
+    // (frames savings pass §1, bind row): the element whose handler the
+    // bind tier installs must carry one, or a click before the tier lands
+    // is lost. Bare — no key: nothing gathers it, nothing claims it, the
+    // dev completion sweep passes over it once the tier marks it completed.
+    // Ref-only and attribute-only consumers queue nothing, and carry nothing.
+    // The stream face: the bootstrap stopped queueing at `_$HY.done`, so a
+    // response's html has no window to keep open.
+    const ServerComp = (props: any) => {
+      const block = props.codeBlock();
+      return (
+        <div>
+          <button onClick={block.copy} class={block.cls}>
+            Copy
+          </button>
+          <span ref={block.el} />
+          <i aria-busy={block.busy}>…</i>
+        </div>
+      );
+    };
+    const fill = () => ({ copy: () => {}, cls: "c", el: () => {}, busy: true });
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsd0h" }) as any;
+    const html = plain(await document(() => Inline({ codeBlock: fill })));
+    expect(html).toContain(
+      '<button class="c" _s:class="codeBlock:cls" _s:on:click="codeBlock:copy" _hk>Copy</button>'
+    );
+    expect(html).toContain('<span _s:ref="codeBlock:el"></span>');
+    expect(html).toContain('<i aria-busy _s:aria-busy="codeBlock:busy">…</i>');
+    // Four bytes per stamped element, no key to allocate or gather.
+    expect(html.match(/ _hk[ >]/g)).toHaveLength(1);
+    const chunks = await collect(renderServerComponent(ServerComp, { frame: { id: "ds0h" } }));
+    const stream = plain(chunks.find(c => c.type === "html").html);
+    expect(stream).toContain(
+      '<button _s:class="codeBlock:cls" _s:on:click="codeBlock:copy">Copy</button>'
+    );
+    expect(stream).not.toContain("_hk");
+    expect(findings()).toEqual([]);
+  });
+
+  it("a class ARRAY writes its strings and its bound names' t=0 values into one class attribute", async () => {
+    const ServerComp = (props: any) => (
+      <ul>
+        {[1, 2].map(id => {
+          const t = props.toggle({ $key: id });
+          return (
+            <li>
+              <div class={["toggle", { open: t.open }]}>
+                <a onClick={t.onToggle}>{t.label}</a>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    );
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsd1a" }) as any;
+    let calls = 0;
+    const html = plain(
+      await document(() =>
+        Inline({
+          toggle: () => {
+            const open = calls++ === 0;
+            return { open, label: open ? "[-]" : "[+] comments collapsed", onToggle: () => {} };
+          }
+        })
+      )
+    );
+    expect(html).toContain(
+      '<div class="toggle open" _s:class="toggle#1:open=open"><a _s:on:click="toggle#1:onToggle" _hk><!--_s:t=toggle#1:label-->[-]<!--/_s:t--></a></div>'
+    );
+    expect(html).toContain(
+      '<div class="toggle" _s:class="toggle#2:open=open"><a _s:on:click="toggle#2:onToggle" _hk><!--_s:t=toggle#2:label-->[+] comments collapsed<!--/_s:t--></a></div>'
+    );
     expect(findings()).toEqual([]);
   });
 
@@ -815,7 +950,7 @@ describe("binding slots — document face (t=0)", () => {
     const html = plain(await document(() => Inline({ row: fill })));
     expect(fill).toHaveBeenCalledTimes(2);
     expect(html).toContain(
-      '<li class="todo done" _s:class="row#2:done=done" _s:hidden="row#2:removed"><input type="checkbox" checked _s:checked="row#2:done" _s:on:input="row#2:toggle"><label>b</label><button _s:on:click="row#2:remove">×</button></li>'
+      '<li class="todo done" _s:class="row#2:done=done" _s:hidden="row#2:removed"><input type="checkbox" checked _s:checked="row#2:done" _s:on:input="row#2:toggle" _hk><label>b</label><button _s:on:click="row#2:remove" _hk>×</button></li>'
     );
     expect(html.match(/sc:slot:dsd0k:row#1"/g)).toHaveLength(1);
     expect(html.match(/sc:slot:dsd0k:row#2"/g)).toHaveLength(1);
@@ -848,7 +983,7 @@ describe("binding slots — document face (t=0)", () => {
     expect(fill).toHaveBeenCalledTimes(2);
     expect(badge).toHaveBeenCalledTimes(2);
     expect(html).toContain(
-      '<li class="todo done" _s:class="row#1:done=done" _s:hidden="row#1:removed"><input type="checkbox" checked _s:checked="row#1:done" _s:on:input="row#1:toggle"><label>b</label><button _s:on:click="row#1:remove">×</button></li>'
+      '<li class="todo done" _s:class="row#1:done=done" _s:hidden="row#1:removed"><input type="checkbox" checked _s:checked="row#1:done" _s:on:input="row#1:toggle" _hk><label>b</label><button _s:on:click="row#1:remove" _hk>×</button></li>'
     );
     expect(html.match(/sc:slot:dsd0u:row#0"/g)).toHaveLength(1);
     expect(html.match(/sc:slot:dsd0u:row#1"/g)).toHaveLength(1);
@@ -882,7 +1017,7 @@ describe("binding slots — document face (t=0)", () => {
     expect(fill).toHaveBeenCalledTimes(1);
     expect(note).toHaveBeenCalledTimes(2);
     expect(html).toContain(
-      '<button class="c" _s:class="codeBlock:cls" _s:on:click="codeBlock:copy">Copy</button><button _s:on:click="codeBlock:copy" _s:ref="codeBlock:el">Copy too</button>'
+      '<button class="c" _s:class="codeBlock:cls" _s:on:click="codeBlock:copy" _hk>Copy</button><button _s:on:click="codeBlock:copy" _s:ref="codeBlock:el" _hk>Copy too</button>'
     );
     expect(html.match(/<!--slot:note:start--><b[^>]*>new<\/b><!--slot:note:end-->/g)).toHaveLength(
       2
@@ -928,7 +1063,7 @@ describe("binding slots — document face (t=0)", () => {
       ])
     );
     expect(seen).toEqual([undefined, undefined]);
-    expect(html).toContain('<button type="button" _s:on:click="codeBlock:copy">Copy</button>');
+    expect(html).toContain('<button type="button" _s:on:click="codeBlock:copy" _hk>Copy</button>');
     expect(html).toMatch(/<div _hk=\d+ class="a"><\/div>/);
     expect(findings()).toEqual([]);
   });
