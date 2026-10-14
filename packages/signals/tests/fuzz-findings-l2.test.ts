@@ -83,60 +83,58 @@ describe("fuzz findings on L2 — holds and boundaries", () => {
   // (`createLoadingBoundary.test.ts` "nested boundaries - inner catches
   // async" is the mount-time form). On L2 the outer records the inner's
   // reader too (catchStatus walks every boundary while none is armed yet) and
-  // keeps its fallback until the inner's flight lands.
-  it.fails(
-    "F1: an outer on-reset boundary does not wait for a flight its nested on-reset boundary catches (A33, B5)",
-    async () => {
-      const [a, setA] = createSignal(0);
-      const [b, setB] = createSignal(0);
-      const gates = new Map<string, () => void>();
-      let outer: unknown, inner: unknown;
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const ma = createMemo(() => gated(gates, `a:${a()}`, a()));
-        const mb = createMemo(() => gated(gates, `b:${b()}`, b()));
-        const outerView = createLoadingBoundary(
-          () => {
-            createRenderEffect(ma, () => {}); // a binding inside the outer content
-            const innerView = createLoadingBoundary(
-              () => {
-                createRenderEffect(mb, () => {}); // a binding inside the inner content
-                return "inner-content";
-              },
-              () => "inner-loading",
-              { on: a }
-            );
-            createRenderEffect(innerView, v => {
-              inner = v;
-            });
-            return "outer-content";
-          },
-          () => "outer-loading",
-          { on: a }
-        );
-        createRenderEffect(outerView, v => {
-          outer = v;
-        });
+  // kept its fallback until the inner's flight landed; what an `on` re-arm
+  // collects is that boundary's alone now (`arm`, boundaries.ts).
+  it("F1: an outer on-reset boundary does not wait for a flight its nested on-reset boundary catches (A33, B5)", async () => {
+    const [a, setA] = createSignal(0);
+    const [b, setB] = createSignal(0);
+    const gates = new Map<string, () => void>();
+    let outer: unknown, inner: unknown;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const ma = createMemo(() => gated(gates, `a:${a()}`, a()));
+      const mb = createMemo(() => gated(gates, `b:${b()}`, b()));
+      const outerView = createLoadingBoundary(
+        () => {
+          createRenderEffect(ma, () => {}); // a binding inside the outer content
+          const innerView = createLoadingBoundary(
+            () => {
+              createRenderEffect(mb, () => {}); // a binding inside the inner content
+              return "inner-content";
+            },
+            () => "inner-loading",
+            { on: a }
+          );
+          createRenderEffect(innerView, v => {
+            inner = v;
+          });
+          return "outer-content";
+        },
+        () => "outer-loading",
+        { on: a }
+      );
+      createRenderEffect(outerView, v => {
+        outer = v;
       });
-      flush();
-      gates.get("a:0")!();
-      gates.get("b:0")!();
-      await drain();
-      expect([outer, inner]).toEqual(["outer-content", "inner-content"]);
-      setA(1);
-      setB(1); // both boundaries re-arm on `a`; both flights are up
-      await drain();
-      expect(outer).toBe("outer-loading");
-      gates.get("a:1")!();
-      await drain();
-      // The outer's own work landed; the inner's flight is the inner's fallback.
-      expect([outer, inner]).toEqual(["outer-content", "inner-loading"]);
-      dispose();
-      gates.get("b:1")!();
-      await drain();
-    }
-  );
+    });
+    flush();
+    gates.get("a:0")!();
+    gates.get("b:0")!();
+    await drain();
+    expect([outer, inner]).toEqual(["outer-content", "inner-content"]);
+    setA(1);
+    setB(1); // both boundaries re-arm on `a`; both flights are up
+    await drain();
+    expect(outer).toBe("outer-loading");
+    gates.get("a:1")!();
+    await drain();
+    // The outer's own work landed; the inner's flight is the inner's fallback.
+    expect([outer, inner]).toEqual(["outer-content", "inner-loading"]);
+    dispose();
+    gates.get("b:1")!();
+    await drain();
+  });
 
   // F2. A15 reveal corollary: "a write that makes a render reader read a
   // pending node for the first time … the reveal holds and joins the

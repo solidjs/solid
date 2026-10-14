@@ -3579,8 +3579,16 @@ module.exports = [
     // them their transaction instead of the committed screen. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-13.
-    limit: "25.75 KB",
-    capMinified: 80664,
+    // Size-Exception (an outer `on`-reset boundary does not wait for a flight
+    // its nested boundary catches, D-14/U-4, #4031, 2026-10-13): 25.75 ->
+    // 25.79 KB, CI measured 25,778 B against `next` @ eae6e038's 25,736
+    // (+42 B; 28 B over the cap; +59 B minified, 80,664 -> 80,723) — the
+    // signals core: `arm` takes what a re-armed boundary collects off the
+    // boundaries above it; a `record` helper folds the four reader-record
+    // sites to pay for most of it. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-13 (the floors unchanged).
+    limit: "25.79 KB",
+    capMinified: 80723,
     alias
   },
   {

@@ -159,6 +159,12 @@ const boundaryOf = (node: Owner): Boundary | undefined =>
 const isCollecting = (b: Boundary): boolean =>
   b._type === STATUS_ERROR || !b._initialized || b._armed;
 
+/** A reader `b` waits on: recorded for its `on`, and `b` visited at the seam. */
+function record(b: Boundary, node: Computed<any>): void {
+  b._readers.add(node);
+  collecting.add(b);
+}
+
 /** The reader goes to the fallback: recorded, and the output re-derives
  * (a no-op while the output's own pass is running — its post-check
  * decides). */
@@ -175,8 +181,7 @@ function caught(b: Boundary, node: Computed<any>, error: unknown): void {
     setSignal(b._error!, caught);
     reportClientError(caught, b._owner, node);
   }
-  b._readers.add(node);
-  collecting.add(b);
+  record(b, node);
   if (b._armed) flip(b);
   // Already showing the fallback: one more reader to wait on changes
   // nothing on screen. The fallback is instantiated once per show — a later
@@ -234,8 +239,7 @@ function catchStatus(node: Computed<any>, flags: number, error?: unknown): boole
       caught(b, node, error);
       return true;
     }
-    b._readers.add(node);
-    collecting.add(b);
+    record(b, node);
   }
   return false;
 }
@@ -456,6 +460,12 @@ function arm(b: Boundary): void {
   collecting.add(b);
   for (const r of b._readers) {
     if (r._statusFlags & STATUS_PENDING && !(r._flags & REACTIVE_DISPOSED)) {
+      // What it collects was forwarded through it to the boundaries above
+      // too (`catchStatus` records a reader in every boundary on the way).
+      // It is this boundary's alone now (B5, the nearest catcher): an outer
+      // re-armed by the same tick does not wait for it (D-14, U-4).
+      for (let a = b._parent; a !== null; a = a._parent)
+        for (const o of b._readers) a._readers.delete(o);
       flip(b);
       redraw(b);
       return;
@@ -595,8 +605,7 @@ function createBoundary<T>(
           }
           // Forwarded: a loading boundary showing content keeps it and
           // holds the frame like any reader (recorded for its `on`).
-          b._readers.add(tree);
-          collecting.add(b);
+          record(b, tree);
         }
         // A pending passes an error boundary by (A6); an error, a loading
         // one; a loading boundary showing content forwards its pending.
@@ -636,8 +645,7 @@ function createBoundary<T>(
           }
           // Forwarded: a loading boundary showing content keeps it and
           // holds the frame like any reader (recorded for its `on`).
-          b._readers.add(tree);
-          collecting.add(b);
+          record(b, tree);
         }
         // A pending passes an error boundary by (A6).
         throw e;
