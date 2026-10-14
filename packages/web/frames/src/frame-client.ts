@@ -2673,9 +2673,15 @@ function collectSlots(root, out, elements) {
       !(announced = (globalThis as any)._$HY?.r?.["sc:tiers"]) ||
       announced.includes("bind"));
   const B = bind && tierLoads.bind?.r;
+  // Announced or loading but not resident: the install's flush re-walks with
+  // the tier in place, so this walk only needs to say a position may exist.
+  // Note it without visiting elements — the attribute scan would be thrown
+  // away — and walk comments alone.
+  const scan = B || (bind && !(tierLoads.bind || announced));
+  if (bind && !scan) elements.b = true;
   // `NodeFilter.SHOW_COMMENT`, `| SHOW_ELEMENT` — as literals (the same on
   // every platform).
-  const w = root.ownerDocument.createTreeWalker(root, bind ? 0x81 : 0x80);
+  const w = root.ownerDocument.createTreeWalker(root, scan ? 0x81 : 0x80);
   let n, p;
   while ((n = w.nextNode())) {
     if (n.nodeType !== COMMENT_NODE) {
@@ -2691,7 +2697,7 @@ function collectSlots(root, out, elements) {
     } else if (n.data.startsWith("slot:")) {
       const id = slotStartId(n);
       if (!id) continue;
-      if (!bind) {
+      if (!scan) {
         // Comments-only: a start inside a nested frame element is its own.
         for (p = n.parentNode; p !== root; p = p.parentNode)
           if (p.hasAttribute(FRAME_ID_ATTR)) break;
