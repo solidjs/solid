@@ -16,6 +16,7 @@
  * (uninitialized / pending / errored) and the reader's height, by the
  * rules a memo's read follows. No per-leaf back-pointer, nothing in core.
  */
+import { attrHooks } from "../core/attribution-hooks.js";
 import { CONFIG_AUTO_DISPOSE, STATUS_PENDING, STATUS_UNINITIALIZED } from "../core/constants.js";
 import { computed } from "../core/core.js";
 import { NotReadyError } from "../core/error.js";
@@ -33,7 +34,7 @@ import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { reconcileState } from "./reconcile.js";
 import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
-import { setLookup, type StoreFamily, type StoreTarget } from "./target.js";
+import { setLookup, storeOwners, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
   isWrappable,
@@ -326,6 +327,10 @@ function createProjectionInternal<T extends object = {}>(
   }
   let nodeOptions: { name?: string; loadingValue?: void } | undefined;
   if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
+  if (__OBSERVE__ && attrHooks !== null)
+    // As createStore: the owner in scope stamps the projection's property
+    // nodes, so attribution places them under it (#4035).
+    storeOwners!.set((store as any)[$TARGET] as StoreTarget, getOwner());
   if (__OBSERVE__ && options?.name) {
     nodeOptions = { ...nodeOptions, name: options.name };
     nameStore(store, options.name);

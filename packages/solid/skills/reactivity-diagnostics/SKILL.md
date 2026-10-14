@@ -319,6 +319,10 @@ culprit is on one of them. Look for, in order:
   pair it with `onCleanup`.
 - A `Portal`, a panel or a modal mounted on each visit into a long-lived
   root, never removed when the route leaves.
+- A cache (entities kept by key, each under its own root) that only ever
+  adds. Its entries outlive every navigation, so to the walk it is the same
+  growth as a leak, and it is: memory that never comes back. Bound it or
+  evict entries no visit still reads; an evicting cache stays quiet.
 
 Do NOT reach for `dispose()` on the app root or a periodic sweep; the fix is
 ownership — create the thing under the owner whose lifetime it should share.
