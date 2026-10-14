@@ -3156,10 +3156,26 @@ export function mapArray<T, U>(
   // per evaluation (#2976). Evaluating it in the row id space would both
   // misplace that allocation and shift the row base by one.
   const rowOwner = createOwner() as unknown as SSROwner;
+  // Rows kept across live-hole sweeps (#4056). A markup hole that re-emits
+  // (a live response, a standing source) re-evaluates its whole value on
+  // every commit, and without this every row re-ran `mapFn` each time — a
+  // list's render cost paid per write. During a sweep a row whose item at
+  // the same index is unchanged — the same reference, or a shallow-equal
+  // object, since a live source usually hands back a fresh snapshot — reuses
+  // the row it rendered on the previous sweep. Sweeps only: a
+  // sweep's evaluation is mint-suppressed and owner-free (the engine's
+  // impurity gate closes any hole that creates owners), so a row from one
+  // sweep carries no markers or bindings that another could duplicate. The
+  // first render and its retries never read or fill the cache, so their
+  // ids and minting are exactly as before.
+  let kept: { items: readonly T[]; rows: U[] } | null = null;
   const read = createMemo(
     () => {
       const items = list();
       const s: U[] = [];
+      const live = (sharedConfig.context as any)?.liveHoles;
+      const sweeping = !!(live && live.sweeping);
+      const prev = sweeping ? kept : null;
       // Reset per pass so retries re-synthesize row/fallback ids from 0,
       // like the client's fresh row owners on its first successful pass.
       rowOwner._childCount = 0;
@@ -3170,6 +3186,10 @@ export function mapArray<T, U>(
           const origId = ownerId(rowOwner);
           try {
             for (let i = 0, len = items.length; i < len; i++) {
+              if (prev && i < prev.items.length && sameItem(prev.items[i], items[i])) {
+                s.push(prev.rows[i]);
+                continue;
+              }
               if (origId !== undefined) {
                 rowOwner.id = formatChildId(origId, i);
               }
@@ -3200,11 +3220,24 @@ export function mapArray<T, U>(
         const fo = runWithOwner(rowOwner as unknown as Owner, () => createOwner());
         s.push(runWithOwner(fo, () => options.fallback!()) as U);
       }
+      kept = sweeping && items && items.length ? { items: items.slice(), rows: s } : null;
       return s;
     },
     { sync: true }
   );
   return read;
+}
+
+// A sweep's row reuse test (see mapArray): the same value, or two plain
+// objects/arrays whose own entries are the same values.
+function sameItem(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) if ((a as any)[k] !== (b as any)[k] || !(k in b)) return false;
+  return true;
 }
 
 export function repeat<T>(

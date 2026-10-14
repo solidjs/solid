@@ -169,6 +169,11 @@ body {
   cursor: pointer;
 }
 
+/* Only the last message in the thread can be written again. */
+.messages > li:not(:last-child) form.again {
+  display: none;
+}
+
 /* The router marks a form while its submission is in flight. */
 form[aria-busy] button {
   opacity: 0.5;

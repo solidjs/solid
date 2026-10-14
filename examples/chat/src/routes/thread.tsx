@@ -93,7 +93,12 @@ const getThread = liveQuery(
               <p class="muted">Answered by {model.modelName()}</p>
             </header>
             <ol class="messages">
-              {messagesMarkup(view().messages, false, block)}
+              {/* A row the server has already rendered is kept while its
+                  message is unchanged, so a streaming reply doesn't render
+                  the whole history again on every write (#4056). */}
+              <For each={view().messages.filter(m => m.status !== "generating")}>
+                {message => messageMarkup(message, block)}
+              </For>
               {messagesMarkup(view().messages, true, block)}
             </ol>
             {/* Keyed by thread: going to another conversation is a new
@@ -130,13 +135,11 @@ function headMarkup(thread: Thread | undefined) {
   );
 }
 
-// The finished messages, or the one being written. Only the last message in
-// the thread can be written again.
+// The finished messages, or the one being written.
 function messagesMarkup(messages: Message[], writing: boolean, block: { onCopy: CopyHandler }) {
-  const lastId = messages.at(-1)?.id;
   return messages
     .filter(m => (m.status === "generating") === writing)
-    .map(message => messageMarkup(message, block, message.id === lastId));
+    .map(message => messageMarkup(message, block));
 }
 
 // One message as markup. A plain function, not a component: the server
@@ -146,7 +149,7 @@ function messagesMarkup(messages: Message[], writing: boolean, block: { onCopy: 
 // Every condition below tests a local, not a property. The compiler wraps a
 // condition it cannot see through (`message.usage && …`) in a memo, and a
 // read the server re-runs cannot create one.
-function messageMarkup(message: Message, block: { onCopy: CopyHandler }, last: boolean) {
+function messageMarkup(message: Message, block: { onCopy: CopyHandler }) {
   const { id, text, reasoning, error, usage } = message;
   if (message.role === "user") {
     return (
@@ -158,7 +161,10 @@ function messageMarkup(message: Message, block: { onCopy: CopyHandler }, last: b
   const generating = message.status === "generating";
   const stopped = message.status === "stopped";
   const failed = message.status === "failed";
-  const again = last && !generating && (failed ? "Retry" : "Regenerate");
+  // Every finished reply carries its Retry/Regenerate form and the
+  // stylesheet shows it only on the last message, so a row depends on
+  // nothing but its own message.
+  const again = !generating && (failed ? "Retry" : "Regenerate");
   return (
     <li class={`message assistant ${message.status}`} data-id={id}>
       {reasoning && (
@@ -198,7 +204,7 @@ function messageMarkup(message: Message, block: { onCopy: CopyHandler }, last: b
           </span>
         )}
         {again && (
-          <form action={regenerate.with(id)} method="post">
+          <form class="again" action={regenerate.with(id)} method="post">
             <button type="submit">{again}</button>
           </form>
         )}
