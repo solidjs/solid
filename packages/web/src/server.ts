@@ -3532,6 +3532,13 @@ function buildAsyncWrap(err, node) {
   // re-suspension chain overflowed the stack (SSR stack-overflow diagnosis).
   if (node.$rw) return { fn: node, p };
   const owner = getOwner();
+  // The behavior-claims arming (`ctx.claims`) is per render CONTEXT, and a
+  // server component sets it on a context that is current only for its
+  // synchronous render. A retry is re-pulled by whatever boundary resumes
+  // it — on the document face, one outside the component — so it carries
+  // the escalation's arming forward, or the markup it finally renders
+  // drops every handler-position marker (`_s:on:click`).
+  const claims = sharedConfig.context && sharedConfig.context.claims;
   // A live hole's retry chain stays mint-suppressed end to end, and a
   // machinery-owned node's (`$lhSkip` — boundary outputs, slot getters)
   // stays opted out: every escalation re-wrap crosses this site, so
@@ -3549,7 +3556,20 @@ function buildAsyncWrap(err, node) {
     if (suppress) node.$lhSuppress = true;
     return { fn: node, p };
   }
-  const fn = () => runWithOwner(owner, node);
+  const fn = () => {
+    const ctx = sharedConfig.context;
+    if (!claims || !ctx || ctx.claims === claims) return runWithOwner(owner, node);
+    // Armed on a context DERIVED from the resuming one (prototype — every
+    // shared field and method reads through, as a Loading boundary's
+    // buffered context does), so that boundary's buffering and
+    // serialization stay its own.
+    (sharedConfig.context = Object.create(ctx)).claims = claims;
+    try {
+      return runWithOwner(owner, node);
+    } finally {
+      sharedConfig.context = ctx;
+    }
+  };
   fn.$rw = true;
   if (suppress) fn.$lhSuppress = true;
   if (node.$lhSkip) fn.$lhSkip = true;
@@ -4178,6 +4198,7 @@ function attrNames(text) {
   while ((m = re.exec(text))) names.push(m[1]);
   return names;
 }
+
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
 
 // rendering
@@ -4235,7 +4256,7 @@ export function ssr(t) {
       result.t[lastOpen.seg] = seg.slice(0, lastOpen.off) + inject + seg.slice(lastOpen.off);
       prefix = result.t[lastOpen.seg].slice(lastOpen.off + inject.length);
     }
-    cap = { id, parts: [prefix], base: prefix };
+    cap = { id, parts: [prefix], base: prefix, at: lastOpen.seg, inject };
     return true;
   };
   for (let i = 1; i < len; i++) {
@@ -4287,8 +4308,15 @@ export function ssr(t) {
           }
         } else {
           // Group escalation: the tag (if one is being captured) went
-          // async mid-attrs — it latches.
-          cap = null;
+          // async mid-attrs — it latches, and the address its capture
+          // spliced in goes with it (#4032): the resume re-renders the open
+          // tag and mints its own, so a leftover would sit beside it and
+          // move the element off its bound address on the first op. The
+          // address is unique, so the first match is the splice.
+          if (cap) {
+            result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
+            cap = null;
+          }
           result.h.push(ssrGroupSlot(lastGroupVal.fn, lastGroupIdx++));
           result.p.push(lastGroupVal.p);
           result.t.push("");
@@ -4357,7 +4385,9 @@ export function ssr(t) {
             cap.base += result.t[li].slice(before);
             cap.parts.push({ f: hole });
           } else {
-            // The hole escalated mid-attrs: the tag latches.
+            // The hole escalated mid-attrs: the tag latches, its address
+            // with it (see the group escalation above).
+            result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
             cap = null;
           }
         }
@@ -4373,8 +4403,12 @@ export function ssr(t) {
             cap.parts.push({ f: hole });
           }
         } else {
-          // The hole escalated mid-attrs: the tag latches.
-          if (capturing) cap = null;
+          // The hole escalated mid-attrs: the tag latches, its address
+          // with it (see the group escalation above).
+          if (capturing) {
+            s = s.replace(cap.inject, "");
+            cap = null;
+          }
           result = { t: [s], h: [], p: [] };
           s = "";
           appendResolvedNode(result, r);

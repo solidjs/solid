@@ -23,6 +23,7 @@ import {
   createSignal,
   getOwner,
   onCleanup,
+  onHydrationEnd,
   runWithOwner,
   untrack
 } from "solid-js";
@@ -1141,9 +1142,36 @@ function awaitBoundary(id: string) {
   if (!arrival) {
     let resolve!: (v: boolean) => void;
     const promise = new Promise<boolean>(r => (resolve = r));
+    // Under a hydration trace `Promise` is a stub that never runs its
+    // executor: hand it to the trace, but never keep it, or every later ask
+    // for this id waits on it forever (#4033).
+    if (!resolve) return promise;
     arrivals.set(id, (arrival = { promise, resolve }));
+    // Hydration ending is the other moment a waiter's answer can change
+    // (see boundaryMayArrive): a call made after the page's last reveal —
+    // a data function, which never has a boundary — is released there.
+    onHydrationEnd(releaseArrivals);
   }
   return arrival.promise;
+}
+
+// A waiter the page can no longer answer must not wait forever: once the
+// document is done and no fragment is left outstanding (truncated ones
+// included), nothing else can deliver this element, so release the waiter —
+// the caller mounts fresh (the client-only shape) or goes to the wire —
+// instead of holding the fallback on screen. (The ledger reads the revealing
+// fragment as delivered from its swap, so the LAST reveal of a page is the
+// exhaustion it looks like: the `_fr` stamp the same batch executes after
+// this notification is not what it waits on.)
+function releaseArrivals() {
+  if (!arrivals.size) return;
+  const exhausted = !boundaryMayArrive();
+  for (const [id, arrival] of arrivals) {
+    const el = boundaryIndex && boundaryIndex.get(id);
+    if (!el && !exhausted) continue;
+    arrivals.delete(id);
+    arrival.resolve(!!el);
+  }
 }
 
 /**
@@ -1166,7 +1194,10 @@ function awaitBoundary(id: string) {
 function boundaryMayArrive() {
   const hy = (globalThis as any)._$HY;
   if (!hy) return false;
-  return !hy.done || !!(hy.fr && hy.fr.pending());
+  // `sharedConfig.done` flips when hydration ends; `_$HY.done` follows a
+  // task later, and a call in that gap would wait on a reveal that never
+  // comes (#4033).
+  return !(hy.done || sharedConfig.done) || !!(hy.fr && hy.fr.pending());
 }
 
 /**
@@ -1227,22 +1258,7 @@ function installRevealHook() {
     if (!boundaryIndex) return;
     const root = parent || (typeof document !== "undefined" ? document.body : null);
     if (root) indexBoundaries(root);
-    if (!arrivals.size) return;
-    // A waiter the page can no longer answer must not wait forever: once the
-    // document is done and no fragment is left outstanding (truncated ones
-    // included), nothing else can deliver this element, so release the
-    // waiter — the caller mounts fresh (the client-only shape) or goes to
-    // the wire — instead of holding the fallback on screen. (The ledger
-    // reads the revealing fragment as delivered from its swap, so the LAST
-    // reveal of a page is the exhaustion it looks like: the `_fr` stamp the
-    // same batch executes after this notification is not what it waits on.)
-    const exhausted = hy.done && !hy.fr.pending();
-    for (const [id, arrival] of arrivals) {
-      const el = boundaryIndex && boundaryIndex.get(id);
-      if (!el && !exhausted) continue;
-      arrivals.delete(id);
-      arrival.resolve(!!el);
-    }
+    releaseArrivals();
   });
 }
 

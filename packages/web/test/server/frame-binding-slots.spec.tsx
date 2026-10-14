@@ -754,6 +754,48 @@ describe("binding slots — stream face", () => {
 });
 
 describe("binding slots — document face (t=0)", () => {
+  it("a handler position under a hole whose source lands later still marks in the first markup (a deferred retry keeps the component's claims)", async () => {
+    // The chat thread's shape: the message list reads async data, so its
+    // hole escalates and its first markup comes from a retry that runs long
+    // after the component's synchronous render returned, resumed by a
+    // boundary OUTSIDE the component. That retry still renders the
+    // component's markup, so the Copy button carries its handler marker in
+    // the markup the client adopts, not only in a later re-emission.
+    const ServerComp = (props: any) => {
+      const block = props.codeBlock();
+      const messages = createMemo(async () => {
+        await new Promise(r => setTimeout(r, 5));
+        return ["one", "two"];
+      });
+      return (
+        <ol>
+          {messages().map(m => (
+            <li>
+              {m}
+              <button class="copy" onClick={block.onCopy}>
+                Copy
+              </button>
+            </li>
+          ))}
+        </ol>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dsdefer" }) as any;
+    const html = await document(() => (
+      <main>
+        <Loading fallback={<p>loading</p>}>
+          {Inline({ codeBlock: () => ({ onCopy: () => {} }) })}
+        </Loading>
+      </main>
+    ));
+    const markup = plain(html.slice(html.indexOf("<template id=")));
+    expect(markup).toContain(
+      '<button class="copy" _s:on:click="codeBlock:onCopy" _hk>Copy</button>'
+    );
+    // Nothing changed after the first render: no hole is re-sent to add it.
+    expect(html).not.toContain('type:"hole"');
+  });
+
   it("runs the fill at t=0 and writes each position's value beside its marker", async () => {
     const ServerComp = (props: any) => (
       <ul>

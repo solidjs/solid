@@ -4133,7 +4133,13 @@ module.exports = [
     // document mount picks the unclaimed site whose `data-fa` matches its
     // call's arguments, so sites minted out of mount order bind their own
     // frames. Cap set to that measurement, not above it. Accepted by the
-    // maintainer on merge (2026-10-14).
+    // maintainer (2026-10-14).
+    // #4033 (2026-10-14): measured at 11,522 B brotli / 34,465 B minified
+    // locally (+27 B brotli, +54 B minified). A boundary wait made under a
+    // hydration trace is not cached, and waits are released when hydration
+    // ends as well as on reveals, so a data server function called during
+    // hydration reaches the network. Cap set to that measurement, not above
+    // it. Accepted by the maintainer (2026-10-14).
     // Bind-tier single scan (2026-10-14): measured at 11,509 B brotli /
     // 34,449 B minified locally (+14 B brotli, +38 B minified). While the bind
     // tier is loading but not resident, the slot sync marks the frame held
@@ -4144,9 +4150,11 @@ module.exports = [
     // measurement, not above it. Accepted by the maintainer (2026-10-14).
     // The final shape (the check moved into the sync, leaving the walk as it
     // was) measures 11,515 B brotli / 34,445 B minified: within the minified
-    // allowance, so the cap stays.
-    limit: "11.509 KB",
-    capMinified: 34449,
+    // allowance, so the cap stays. On top of #4033 (merged first): measured
+    // at 11,540 B brotli / 34,499 B minified (+18 B brotli, +34 B minified
+    // over 11,522 / 34,465). Accepted by the maintainer (2026-10-14).
+    limit: "11.54 KB",
+    capMinified: 34499,
     alias: framesAlias,
     external: framesExternal
   },
@@ -5184,6 +5192,30 @@ module.exports = [
     // document ends with `</html>` again; the cost is the tail search and
     // splice in the marker helper, retained by renderToString. Accepted by
     // the maintainer (2026-10-13). The cap is frozen again at 20.51 KB.
+    // Size-Exception (#4043, 2026-10-14): 20.51 -> 20.55 KB, measured at
+    // 20,531 B against `next` @ d1cb8013's 20,497 (+34 B; 21 B over the cap;
+    // +155 B minified, 72,087 -> 72,242). A hole that escalates inside a
+    // server component carries the component's claims arming into its
+    // retry, so a boundary outside the component that resumes it still
+    // writes handler-position markers (`_s:on:click`); the cost is the arm
+    // in `buildAsyncWrap`'s retry wrapper, retained by renderToString.
+    // Accepted by the maintainer (2026-10-14), together with #4055's growth
+    // under one combined cap of about 20.58 KB: whichever of the two merges
+    // second re-measures on top of the first (#4055, below).
+    // Size-Exception (#4032, 2026-10-14): 20.51 -> 20.56 KB, measured
+    // locally at 20,555 B against `next` @ c8186046's 20,497 (+58 B; 45 B over
+    // the cap; +131 B minified, 72,087 -> 72,218). An in-tag hole that
+    // escalates drops the `data-lha` its attr capture spliced in, so the
+    // resume's own address is the element's only one; the cost is the
+    // capture's splice record and the removal written inline at the three
+    // escalation sites (a closure in `ssr()` was 10 B smaller but cost ~13%
+    // on the link-claim bench, one allocation per template instance),
+    // retained by renderToString. Accepted by the maintainer (2026-10-14) as
+    // one combined cap with #4043 (+34 B); whichever of the two merges
+    // second re-measures and sets the cap. Merged second, on top of #4043:
+    // measured at 20,570 B against `next` @ f048691f's 20,531 (+39 B;
+    // +131 B minified, 72,242 -> 72,373). The combined cap is frozen at
+    // 20.58 KB, as the maintainer accepted.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
     // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
