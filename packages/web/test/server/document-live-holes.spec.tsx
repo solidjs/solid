@@ -319,12 +319,18 @@ describe("document face — live holes against the real core", () => {
       { id: "b", href: "/items/b" }
     ];
     const ServerComp = () => {
+      // A pumped source anywhere in the document arms marking (holes that
+      // cannot change ship unmarked otherwise — see the tests below).
+      const tick = createMemo(async function* () {
+        yield "t-1";
+      });
       const ready = createMemo(async () => {
         await wait(5);
         return true;
       });
       return (
         <Loading fallback={<span>FB</span>}>
+          <b>{tick()}</b>
           <ul data-ready={String(ready())}>
             {rows.map(row => (
               <li>
@@ -347,5 +353,88 @@ describe("document face — live holes against the real core", () => {
     expect(html).not.toContain('type:"hole"');
     expect(html.split("/items/a").length).toBe(2);
     expect(html.split("/items/b").length).toBe(2);
+  });
+  test("a document with no pumped source ships its holes unmarked, unaddressed and unbound", async () => {
+    // Request/response: the component's data is awaited, so nothing a hole
+    // reads can change before the response ends. No marker, no `data-lha`
+    // address, and no op ever rides the channel.
+    const rows = [
+      { id: "a", href: "/items/a" },
+      { id: "b", href: "/items/b" }
+    ];
+    const ServerComp = () => {
+      const ready = createMemo(async () => {
+        await wait(5);
+        return "ready";
+      });
+      return (
+        <Loading fallback={<span>FB</span>}>
+          <ul data-state={ready()}>
+            {rows.map(row => (
+              <li>
+                <a href={row.href}>row-{row.id}</a>
+              </li>
+            ))}
+          </ul>
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dlh/settled" }) as any;
+    const html = await collect(() => Inline({}));
+
+    expect(html).toContain('<a href="/items/a">row-');
+    expect(html).toContain('data-state="ready"');
+    expect(html).not.toMatch(/<!--lh:/);
+    expect(html).not.toContain("data-lha");
+    expect(html).not.toContain('type:"hole"');
+    expect(html).not.toContain('type:"attr"');
+  });
+
+  test("holes minted after a pump is armed mark; holes before it do not", async () => {
+    // The pump is armed when its source is classified — before the source's
+    // first value can be read — so any hole that could read it marks, and
+    // a hole minted earlier read nothing that can move.
+    const ServerComp = () => {
+      const before = createMemo(() => "static-before");
+      const early = <p>{before()}</p>;
+      const text = createMemo(async function* () {
+        yield "gen-1";
+        await wait(5);
+        yield "gen-2";
+      });
+      return (
+        <Loading fallback={<span>FB</span>}>
+          {early}
+          <section>{text()}</section>
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dlh/armed" }) as any;
+    const html = await collect(() => Inline({}));
+
+    expect(html).toContain("<p>static-before</p>");
+    expect(html).toMatch(/<!--lh:(\d+)-->gen-1<!--lh:\/\1-->/);
+    expect(html).toContain("gen-2");
+  });
+  test("a loading value served ahead of its landing marks the holes that read it", async () => {
+    // Server-owned renders advance past a loading value when its source
+    // lands, so a hole reading it can change: the memo unsettles the render
+    // at creation, before anything reads it.
+    const ServerComp = () => {
+      const status = createMemo(
+        async () => {
+          await wait(5);
+          return "landed";
+        },
+        { loadingValue: "loading" }
+      );
+      return <p>{status()}</p>;
+    };
+    const Inline = frameTransformDirectResult(ServerComp, { id: "dlh/loading-value" }) as any;
+    const html = await collect(() => Inline({}));
+
+    // Marked and bound, as before the settled gate: a commit the response
+    // observes can re-emit it.
+    expect(html).toMatch(/<!--lh:(\d+)-->loading<!--lh:\/\1-->/);
   });
 });

@@ -166,6 +166,16 @@ export type HydrationContext = {
    * @solidjs/web's render core; holds gate only the end of the response.
    */
   hold?: () => () => void;
+  /**
+   * Document renders only (set alongside `commit` by @solidjs/web's
+   * document live-hole arming): told when the render serves something a
+   * later commit in this response will replace — a server-owned async
+   * iterable classified to pump, a loading value or seed served ahead of
+   * its landing. Called before that value can be read, so a hole minted
+   * while it has never been called read only final values, and ships
+   * unmarked.
+   */
+  unsettled?: () => void;
 };
 
 export const NoHydrateContext: Context<boolean> = {

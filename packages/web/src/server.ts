@@ -3744,7 +3744,7 @@ function holeContentPositions(t) {
  * commit through the render core, and the response's end-latch sweep is
  * always the last one).
  */
-export function createLiveHoles(sink, scoped) {
+export function createLiveHoles(sink, scoped, settled) {
   let nextId = 0;
   const stamp = typeof creationStamp === "function" ? creationStamp : () => 0;
   // The document-face arming gate: one engine serves the whole render, but
@@ -4035,6 +4035,14 @@ export function createLiveHoles(sink, scoped) {
       if (engine.recordStamp !== recordsBefore || stamp() !== ownersBefore) {
         return res.h.length ? res : res.t[0];
       }
+      // Nothing to move it (document face): until the render has served a
+      // value a later commit replaces (a pumped iterable, a loading value
+      // or seed — `settled` flips before any such value is readable), a
+      // hole that resolved synchronously read only final values. Its html
+      // is final: ship it unmarked and unbound (no op can ever address it,
+      // and no sweep need re-run it). An escalated hole still marks — its
+      // retry may land after the render is unsettled.
+      if (!res.h.length && settled && settled()) return res.t[0];
       const id = nextId++;
       const key = (b.key = "lh:" + id);
       const open = `<!--lh:${id}-->`;
@@ -4066,10 +4074,16 @@ export function createLiveHoles(sink, scoped) {
     },
     /** Whether interception may arm at the current evaluation point —
      *  `ssr()` asks before opening an attr capture (the `data-lha`
-     *  injection must not touch out-of-scope bytes; content holes are
-     *  gated inside `content()` itself). */
+     *  injection must not touch out-of-scope bytes, nor address an element
+     *  nothing can change; content holes are gated inside `content()`
+     *  itself). */
     active() {
-      return !inScope || inScope();
+      // An attr capture opens before its thunks run, so the settled gate
+      // is read up front. Nothing a thunk does can flip it in time to
+      // matter: a pump it arms leaves its own read pending (the tag
+      // latches anyway), and a loading value or seed flips the gate when
+      // its node is created, before any read.
+      return (!inScope || inScope()) && !(settled && settled());
     },
     /**
      * Register an element's attr-hole capture (built by `ssr()`'s in-tag
