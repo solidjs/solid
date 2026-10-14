@@ -279,7 +279,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       : // Loose `!=`: false with no creator lane (undefined == null).
         create &&
           prevLane?._parent!._verdict != prevLane &&
-          (creatorPass(context)?._flags ?? 0) & REACTIVE_RECOMPUTING_DEPS
+          (creatorPass(context)?._flags as number) & REACTIVE_RECOMPUTING_DEPS
         ? prevLane
         : null
   );
@@ -657,7 +657,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
               (flushTransaction !== null || passTx !== null) &&
               (joined ||
                 (prevLane && el._flags & REACTIVE_STAGED_READ) ||
-                (creatorPass(oldcontext)?._flags ?? 0) & REACTIVE_JOINED)
+                (creatorPass(oldcontext)?._flags as number) & REACTIVE_JOINED)
             )
           : isEffect && el._pendingValue === NOT_PENDING
       ) {
@@ -686,8 +686,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           el._statusFlags |= STATUS_UNINITIALIZED;
           // A boundary that has not shown content catches it: its fallback
           // waits for the commit (#3540). (The pass's own status clear above
-          // dropped what the read recorded.)
-          GlobalQueue._fresh?.(el);
+          // dropped what the read recorded.) Not when the flush has joined
+          // the hold and the pass is its own (not a verdict lane's mount,
+          // #3851): the mount is part of the hold, and the boundary appears
+          // at its commit, its fallback never seen (D-13, U-3) — a `<Show>`
+          // mounting it over a landing included.
+          GlobalQueue._fresh?.(el, !prevLane && flushTransaction);
         }
         if (__DEV__) devTrackHeldPending(el);
       }
