@@ -113,6 +113,8 @@ createServer(async (req, res) => {
     }
     out.end();
   } catch (e) {
+    // The tab went away mid-response: nothing to report.
+    if (gone.signal.aborted) return res.destroy();
     console.error(e);
     res.statusCode = 500;
     res.end(e.message);

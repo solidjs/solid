@@ -110,14 +110,9 @@ again by itself, and it sends one only when its HTML has changed. The thread
 is cut along the line that matters: the finished messages are one piece, the
 reply being written is another. A token re-sends the reply and nothing else.
 
-Two things to know when writing markup the server re-sends:
-
-- **Test locals, not properties, in a condition.** `{message.usage && …}`
-  renders once and then never updates; `const { usage } = message` and
-  `{usage && …}` works. The compiler wraps a condition it cannot see through
-  in a memo, and a read the server re-runs cannot create one.
-- **One source per render, read at the top.** A watcher created per message,
-  inside the list, never settles: each retry of the render makes a new one.
+One thing to know when writing markup the server re-sends: **one source per
+render, read at the top.** A watcher created per message, inside the list,
+never settles: each retry of the render makes a new one.
 
 ## What the browser owns
 
