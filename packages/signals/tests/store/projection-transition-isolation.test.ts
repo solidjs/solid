@@ -41,7 +41,7 @@ describe("projection transition isolation", () => {
     const [count, setCount] = createSignal(0);
     let p!: { a?: number };
     const dispose = createRoot(d => {
-      p = createProjection(() => ({ a: count() }), {});
+      p = createProjection(() => ({ a: count() }));
       return d;
     });
     flush();
@@ -72,7 +72,7 @@ describe("projection transition isolation", () => {
     const seen: (number | undefined)[] = [];
     let p!: { a?: number };
     const dispose = createRoot(d => {
-      p = createProjection(() => ({ a: count() }), {});
+      p = createProjection(() => ({ a: count() }));
       createEffect(
         () => p.a,
         v => {
@@ -103,7 +103,7 @@ describe("projection transition isolation", () => {
     let p!: { a?: number };
     let m!: () => number;
     const dispose = createRoot(d => {
-      p = createProjection(() => ({ a: count() }), {});
+      p = createProjection(() => ({ a: count() }));
       m = createMemo(() => count());
       return d;
     });
@@ -134,7 +134,7 @@ describe("projection transition isolation", () => {
     const [count, setCount] = createSignal(0);
     let p!: { a?: number };
     const dispose = createRoot(d => {
-      p = createProjection(() => ({ a: count() }), {});
+      p = createProjection(() => ({ a: count() }));
       return d;
     });
     flush();
