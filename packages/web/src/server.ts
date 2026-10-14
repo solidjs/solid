@@ -3781,9 +3781,9 @@ export function createLiveHoles(sink, scoped, settled) {
   // Dev: a sweep's impurity gate closed a binding that was live (#4023). The
   // first render escalated before the impure part ran, so the hole shipped
   // its markers and then went quiet on its first re-evaluation — markup that
-  // silently stops updating. The usual cause is a compiler condition memo
-  // (`{m.usage && <b/>}` with a property condition), which a re-run would
-  // re-create. Once per binding: a closed binding never sweeps again. The
+  // silently stops updating. The cause is a scope the re-run creates that
+  // waits on async work (a memo over a fetch or a stream inside the hole),
+  // which every re-run would restart. Once per binding: a closed binding never sweeps again. The
   // finding is located by the hole's owner (its component path); the hole's
   // expression is not named, because keeping it on every scoped hole costs
   // the render even in dev.
@@ -3797,10 +3797,10 @@ export function createLiveHoles(sink, scoped, settled) {
             severity: "warn",
             message:
               `[SSR_LIVE_HOLE_LATCHED] A live ${content ? "markup hole" : "attribute"} stopped updating: ` +
-              `re-running it ${cause === "records" ? "emitted slot records" : "created reactive scopes (a component, a memo, or a compiler condition memo such as {m.usage && …})"}, ` +
+              `re-running it ${cause === "records" ? "emitted slot records" : "created a reactive scope that waits on async work (a memo over a fetch or a stream)"}, ` +
               `so it cannot re-run and keeps the markup it last sent. ` +
-              `Read a property used in a condition into a local first (const usage = m.usage), ` +
-              `and keep components and memos out of markup that re-renders from a live source.`,
+              `Create async sources outside markup that re-renders from a live source ` +
+              `(in the component body, not inside the hole's expression).`,
             data: { cause }
           },
           owner
@@ -3816,13 +3816,35 @@ export function createLiveHoles(sink, scoped, settled) {
   // re-emissions there lost every context-derived byte: handler-position
   // slot markers (`_s:on:click`) vanished from late holes (a copy button
   // that compiled, streamed its markup, and never bound).
+  //
+  // Each sweep runs in a throwaway scope, disposed as soon as it returns. A
+  // re-evaluation that creates reactive scopes (a nested `<For>`, a
+  // compiler condition memo, a component) is still re-runnable: its scopes
+  // only served this render's markup, and disposing them keeps the owner
+  // tree from growing per commit. `engine.sweptOwners` records whether
+  // scopes were created (also when `fn` throws): the gate closes a hole only
+  // when those scopes are still waiting on async work, since a re-created
+  // async source would restart on every sweep.
   const swept = (owner, ctx, fn) => {
     const prev = sharedConfig.context;
     sharedConfig.context = ctx;
+    let dispose;
+    let before;
+    const run = () =>
+      root(
+        d => {
+          dispose = d;
+          before = stamp();
+          return fn();
+        },
+        { transparent: true }
+      );
     try {
-      return owner ? runWithOwner(owner, fn) : fn();
+      return owner ? runWithOwner(owner, run) : run();
     } finally {
       sharedConfig.context = prev;
+      engine.sweptOwners = before !== undefined && stamp() !== before;
+      if (dispose) dispose();
     }
   };
   // Resolve a hole thunk's value to a `{ t, h, p }` result. NotReady
@@ -3861,15 +3883,17 @@ export function createLiveHoles(sink, scoped, settled) {
     sweeping: false,
     parent: null,
     // The impurity gates. Slot/region records are emit-once (occurrence
-    // identity is positional), and reactive scopes are render-once (a memo
-    // re-created per sweep re-subscribes its sources — for an async
-    // iterable that is a fresh consumer and a fresh commit pump EVERY
-    // sweep, a multiplying feedback loop): an evaluation that does either
-    // is not re-runnable. First renders diff `recordStamp` / the
-    // creation stamp and latch the hole; sweep evaluations diff them and
-    // close the binding.
+    // identity is positional), and reactive scopes are render-once on the
+    // first render (they belong to the render tree). First renders diff
+    // `recordStamp` / the creation stamp and latch the hole. Sweeps run in a
+    // throwaway scope (see `swept`), so scopes they create are fine — unless
+    // one is still waiting on async work: a memo re-created per sweep
+    // re-subscribes its sources, and for an async iterable that is a fresh
+    // consumer and a fresh commit pump EVERY sweep, a feedback loop. Those
+    // sweeps, and any that emit records, close the binding.
     recordStamp: 0,
     gateHit: false,
+    sweptOwners: false,
     /**
      * Intercept a thunk content hole: resolve it, and — when the evaluation
      * proves re-runnable — mint an id, wrap the output in its marker pair,
@@ -3938,7 +3962,6 @@ export function createLiveHoles(sink, scoped, settled) {
           const prevSweeping = engine.sweeping;
           engine.sweeping = true;
           engine.gateHit = false;
-          const sweepOwnersBefore = stamp();
           let res;
           try {
             res = swept(owner, holeCtx, () => resolveHoleValue(hole));
@@ -3952,11 +3975,11 @@ export function createLiveHoles(sink, scoped, settled) {
           } finally {
             engine.sweeping = prevSweeping;
           }
-          // An impure re-evaluation (slot records or reactive-scope
-          // creation — reachable only when the first render escalated
-          // before its impure part ran): the hole is not re-runnable.
-          // Close and latch what the retry path shipped.
-          if (engine.gateHit || stamp() !== sweepOwnersBefore) {
+          // An impure re-evaluation (slot records, or reactive scopes still
+          // waiting on async work — reachable only when the first render
+          // escalated before its impure part ran): the hole is not
+          // re-runnable. Close and latch what the retry path shipped.
+          if (engine.gateHit || (engine.sweptOwners && res.h.length)) {
             if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", true);
             b.closed = true;
             sink.closeBinding(b.key);
@@ -4129,7 +4152,6 @@ export function createLiveHoles(sink, scoped, settled) {
           const prevSweeping = engine.sweeping;
           engine.sweeping = true;
           engine.gateHit = false;
-          const sweepOwnersBefore = stamp();
           let html = "";
           try {
             let group = null;
@@ -4157,8 +4179,15 @@ export function createLiveHoles(sink, scoped, settled) {
             swept(owner, holeCtx, run);
           } catch (err) {
             // NotReady holds for a later commit (the end-latch sweep is the
-            // floor); a real error is terminal, same rule as content holes.
-            if (ssrHandleError(err, true)) return;
+            // floor), unless scopes this sweep created are what wait (see
+            // `swept`); a real error is terminal, same rule as content holes.
+            if (ssrHandleError(err, true)) {
+              if (!engine.sweptOwners) return;
+              if ("_SOLID_DEV_") latched(owner, "owners", false);
+              b.closed = true;
+              sink.closeBinding(b.key);
+              return;
+            }
             b.closed = true;
             sink.closeBinding(b.key);
             sink.error("lha:" + cap.id, wireErrorMessage(err));
@@ -4166,8 +4195,8 @@ export function createLiveHoles(sink, scoped, settled) {
           } finally {
             engine.sweeping = prevSweeping;
           }
-          if (engine.gateHit || stamp() !== sweepOwnersBefore) {
-            if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", false);
+          if (engine.gateHit) {
+            if ("_SOLID_DEV_") latched(owner, "records", false);
             b.closed = true;
             sink.closeBinding(b.key);
             return;
