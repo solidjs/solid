@@ -189,34 +189,65 @@ describe("#3800: a node created over a hold waits for it, and the hold waits for
 
   // The same memo created INSIDE the boundary: content that derives from the
   // hold appears at the hold's commit (D-12), whatever position the memo was
-  // created in. Today its first answer lands on its own, beside the held
-  // parent — the boundary's catch at creation (`_fresh`) keys on where it
-  // was created (#3977 review, item 5).
-  it.fails(
-    "created inside a fresh boundary: the content still waits for the hold's commit",
-    async () => {
-      const s = setup();
-      await holdCount(s);
-      createRoot(() => {
-        const view = createLoadingBoundary(
-          () => {
-            const child = createMemo(() => Promise.resolve(s.count()));
-            createRenderEffect(child, v => void s.log.push(`child ${v}`));
-            return "content";
-          },
-          () => "fallback"
-        );
-        createRenderEffect(view, v => void s.log.push(`view ${v}`), undefined, { schedule: true });
-      });
-      flush();
-      await tick();
-      expect(s.log).toEqual(["parent 1 1", "view fallback"]);
+  // created in. The boundary catches it and it is held all the same; the
+  // hold does not wait for it — its only reader is behind the fallback (F-4).
+  it("created inside a fresh boundary: the content still waits for the hold's commit", async () => {
+    const s = setup();
+    await holdCount(s);
+    createRoot(() => {
+      const view = createLoadingBoundary(
+        () => {
+          const child = createMemo(() => Promise.resolve(s.count()));
+          createRenderEffect(child, v => void s.log.push(`child ${v}`));
+          return "content";
+        },
+        () => "fallback"
+      );
+      createRenderEffect(view, v => void s.log.push(`view ${v}`), undefined, { schedule: true });
+    });
+    flush();
+    await tick();
+    expect(s.log).toEqual(["parent 1 1", "view fallback"]);
 
-      s.slowGates.shift()!();
-      await tick();
-      expect(s.log.slice(0, 3)).toEqual(["parent 1 1", "view fallback", "parent 2 2"]);
-    }
-  );
+    s.slowGates.shift()!();
+    await tick();
+    expect(s.log.slice(0, 3)).toEqual(["parent 1 1", "view fallback", "parent 2 2"]);
+  });
+
+  // ...and the hold does not wait for it (F-4): created inside a fresh
+  // boundary and slower than the hold, the parent commits on its own, and the
+  // child's answer lands after, with the boundary's reveal.
+  it("created inside a fresh boundary, slower than the hold: the hold commits without it", async () => {
+    const s = setup();
+    await holdCount(s);
+    const childGates: Array<() => void> = [];
+    createRoot(() => {
+      const view = createLoadingBoundary(
+        () => {
+          const child = createMemo(async () => {
+            const c = s.count();
+            await new Promise<void>(resolve => childGates.push(resolve));
+            return c;
+          });
+          createRenderEffect(child, v => void s.log.push(`child ${v}`));
+          return "content";
+        },
+        () => "fallback"
+      );
+      createRenderEffect(view, v => void s.log.push(`view ${v}`), undefined, { schedule: true });
+    });
+    flush();
+    await tick();
+    expect(s.log).toEqual(["parent 1 1", "view fallback"]);
+
+    s.slowGates.shift()!();
+    await tick();
+    expect(s.log).toEqual(["parent 1 1", "view fallback", "parent 2 2"]);
+
+    childGates.shift()!();
+    await tick();
+    expect(s.log.slice(3)).toEqual(["child 2", "view content"]);
+  });
 
   it("a slower first load keeps the hold open; parent and child reveal together when it lands", async () => {
     const s = setup();

@@ -690,7 +690,7 @@ export class GlobalQueue implements IQueue {
   // is not on screen and holds nothing; `_boundarySeam` — the seam's sweep (readers
   // gone or settled without a pass reveal; an `on` re-arm resolves).
   declare static _catch:
-    | ((node: Computed<any>, flags: number, error: unknown) => boolean)
+    | ((node: Computed<any>, flags: number, error: unknown) => unknown)
     | undefined;
   declare static _fresh: ((node: Computed<any>, held?: unknown) => unknown) | undefined;
   declare static _hidden: ((r: Computed<any>) => unknown) | undefined;
