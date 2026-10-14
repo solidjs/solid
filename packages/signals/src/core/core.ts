@@ -471,9 +471,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // bookkeeping, and those marks are correctly discarded here.
     missedWake = (el._flags & REACTIVE_MISSED_WAKE) !== 0;
     joined = (el._flags & REACTIVE_JOINED) !== 0;
-    // A verdict reader is one for as long as it probes: a pass that entered
-    // no window (REACTIVE_PROBED) is an ordinary derivation again.
-    if (!(el._flags & REACTIVE_PROBED)) el._config &= ~CONFIG_VERDICT;
+    // A verdict reader is one for as long as it probes, or reads a memo
+    // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
+    // bit) is an ordinary derivation again.
+    el._config = (el._config & ~CONFIG_VERDICT) | (el._flags & REACTIVE_PROBED);
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
     // own owner (a memo calling its root's `dispose()`, a cleanup doing so
     // #3601/#3606), and `disposeChildren` set the flag on this node
@@ -1728,7 +1729,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   if (c) {
     if (tracking) {
       link(el, c as Computed<any>);
-      if ((owner as Computed<unknown>)._fn) pullComputed(owner, c as Computed<any>);
+      if ((owner as Computed<unknown>)._fn) {
+        pullComputed(owner, c as Computed<any>);
+        // F-6 (#4050): a memo over a verdict reader's value derives from a
+        // display-ahead read — a verdict reader from this pass's end, as if
+        // it probed inline: it reads held values as the screen and shows the
+        // verdict now. Not an effect: a render effect is a frame reader
+        // already, and a user effect's posture is its own reads'.
+        if (!(c as any)._type) (c as Computed<any>)._flags |= owner._config & CONFIG_VERDICT;
+      }
     }
     // L2, as in the fast block above (tracked or not). A node born into the
     // future (uninitialized) has no committed value: every reader derives
