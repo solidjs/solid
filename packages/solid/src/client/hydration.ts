@@ -13,6 +13,7 @@ import {
   createMemo as coreMemo,
   createSignal as coreSignal,
   createOptimistic as coreOptimistic,
+  createDeferred as coreDeferred,
   createProjection as coreProjection,
   createStore as coreStore,
   createOptimisticStore as coreOptimisticStore,
@@ -1766,6 +1767,29 @@ export const createOptimistic: {
     ? _hydrateSignalLike!(coreOptimistic, args[0], args[1])
     : (coreOptimistic as Function)(...args);
 }) as any;
+
+/**
+ * Creates an async memo that may lag, but never leads: after its first
+ * answer, a refetch holds nothing — readers keep the previous answer until
+ * the new one lands, and `isPending` reports the refetch. See
+ * `createDeferred` in `@solidjs/signals`. Hydrates like `createMemo`: the
+ * server's answer is its first.
+ */
+export const createDeferred: {
+  <T>(
+    compute: ComputeFunction<NoInfer<T>, T>,
+    options: HydrationMemoOptions<T> & { loadingValue: T }
+  ): SourceAccessor<T>;
+  <T>(
+    compute: ComputeFunction<undefined | NoInfer<T>, T>,
+    options?: HydrationMemoOptions<T>
+  ): SourceAccessor<T>;
+} = ((fn: any, options?: any) =>
+  // As createOptimistic: the adapter slot keeps the deferred module out of
+  // hydrating bundles that never import this primitive.
+  sharedConfig.hydrating
+    ? _hydrateSignalLike!(coreDeferred, fn, options)
+    : coreDeferred(fn, options)) as any;
 
 /**
  * Creates a derived (projected) store — `createMemo` for stores. The

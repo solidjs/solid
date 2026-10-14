@@ -115,6 +115,7 @@ export type {
 export { mapArray, repeat, type Maybe } from "./map.js";
 export * from "./store/index.js";
 export { affects } from "./affects.js";
+export { createDeferred } from "./deferred.js";
 export { flatten } from "./flatten.js";
 export { createLoadingBoundary, createErrorBoundary } from "./boundaries.js";
 export { createRevealOrder, type RevealOrder } from "./reveal.js";
