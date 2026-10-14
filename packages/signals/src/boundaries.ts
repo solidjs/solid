@@ -443,16 +443,6 @@ function reportOutsideHold(b: Boundary): void {
   }
 }
 
-/** The `on` pass is a verdict's: it probed itself (CONFIG_VERDICT), or it
- * read a memo that did (#3528's `createMemo(() => isPending(m2))`) — its
- * swap is display-ahead either way. */
-function verdictDerived(c: Computed<any>): boolean {
-  if (c._config & CONFIG_VERDICT) return true;
-  for (let d = c._deps; d !== null; d = d._nextDep)
-    if (d._dep._config & CONFIG_VERDICT) return true;
-  return false;
-}
-
 /** `on` changed after the mount: fresh again if anything under it is
  * pending now; collecting for the rest of the flush either way. */
 function arm(b: Boundary): void {
@@ -476,12 +466,17 @@ function arm(b: Boundary): void {
     return;
   }
   b._armed = true;
-  // A verdict read in `on` (`isPending`) whose frame has no transaction
-  // yet: the swap is still display-ahead — the frame gets one now (it lands
+  // A verdict read in `on` (`isPending`, or a memo of one — #3528's
+  // `createMemo(() => isPending(m2))`: the mark carries, core.ts `read`)
+  // whose frame has no transaction yet: the swap is still display-ahead — the frame gets one now (it lands
   // at this very seam if nothing holds it), and the swap is its verdict
   // lane's work, shown ahead of the frame's own runs (#3528).
   let lane = passLane;
-  if (lane === null && globalQueue._running && verdictDerived(getOwner() as Computed<any>)) {
+  if (
+    lane === null &&
+    globalQueue._running &&
+    (getOwner() as Computed<any>)._config & CONFIG_VERDICT
+  ) {
     joinFuture(null);
     lane = GlobalQueue._verdictLane!(flushTransaction!);
   }

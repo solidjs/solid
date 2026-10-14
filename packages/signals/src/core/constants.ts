@@ -131,15 +131,17 @@ export const CONFIG_GUESS = 1 << 13;
  * pending is a question for its next pass — the verdict changed — so the
  * propagation re-derives it instead of marking it pending (as a kept-tail
  * link does, A30). Set at the window, never cleared: a reader that stopped
- * asking re-derives once and goes pending through its own read. */
-export const CONFIG_VERDICT = 1 << 14;
+ * asking re-derives once and goes pending through its own read. The same
+ * bit as REACTIVE_PROBED: a pass's probe (or a read of a verdict memo,
+ * core.ts `read`) carries into the config at its end without a shift. */
+export const CONFIG_VERDICT = 1 << 15;
 /** A dependency's status is a question for this node's pass, not a fact
  * about its current one: the propagation re-derives it instead of marking
  * it, for errors as for pending (as CONFIG_VERDICT). A boundary's output
  * (show the content, or the fallback) and its `on` node (boundaries.ts); a
  * promise over an expression (`resolve`/`until`, signals.ts: the pass reads
  * the error and rejects, or re-asks a pending source). */
-export const CONFIG_REDERIVE = 1 << 15;
+export const CONFIG_REDERIVE = 1 << 14;
 /** The reader wants the truth, not the lane's guess (`until`, signals.ts):
  * a read of displayed optimism serves the base the guess covers, makes the
  * pass no lane's, and the truth landing wakes it even when it confirms the
