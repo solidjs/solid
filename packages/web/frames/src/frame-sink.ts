@@ -1916,13 +1916,21 @@ export function createDocumentSlotProps(clientProps, frameId) {
 // client-only). `display:contents` keeps it layout-transparent.
 const FRAME_TAG = "solid-frame";
 const FRAME_ID_ATTR = "data-fid";
+// The argument hash of the call a document boundary shows (#4042), so a
+// client mount can pick its own site when sites were minted in a different
+// order than the client mounts them. Written only for calls with arguments:
+// an argless call's sites all show the same content.
+const FRAME_ARGS_ATTR = "data-fa";
 
 /** Open tag for a boundary/region element with `id`. `id` is developer-owned
  *  (a server-function id, or a per-site scope of one — see `documentSiteId`),
- *  but attribute-escaped defensively. */
-function frameElementOpen(id) {
+ *  but attribute-escaped defensively. `args` is a document boundary's
+ *  argument hash (base-36, never needs escaping). */
+function frameElementOpen(id, args?) {
   const escaped = sharedConfig.context ? sharedConfig.context.escape(String(id), true) : String(id);
-  return `<${FRAME_TAG} ${FRAME_ID_ATTR}="${escaped}" style="display:contents">`;
+  return `<${FRAME_TAG} ${FRAME_ID_ATTR}="${escaped}"${
+    args ? ` ${FRAME_ARGS_ATTR}="${args}"` : ""
+  } style="display:contents">`;
 }
 
 // Per-document site scopes (#3889). One server function mounted twice renders
@@ -2240,13 +2248,14 @@ export function frameTransformDirectResult<T>(
 export function frameTransformDirectResult(value, { id, args, tierUrls }) {
   if (typeof value !== "function") return value;
   const component = value;
+  const address = frameAddress(id, args);
   const wrapped = props => {
     // Mint at the call, under the mount's owner, before the context barrier:
     // a second consumption site of this same factory gets its own scope
     // while a re-render of this mount reuses the one it already took.
     const siteId = documentSiteId(id);
     return [
-      { t: frameElementOpen(siteId) },
+      { t: frameElementOpen(siteId, address.slice(id.length + 1)) },
       // Slot props are created OUTSIDE the context barrier: their zone owner
       // (captured at proxy creation) is what client positions re-enter, so
       // the client's content keeps full app context while the component's
@@ -2304,7 +2313,7 @@ export function frameTransformDirectResult(value, { id, args, tierUrls }) {
   // original stays reachable for that producer to render on its own terms,
   // under the address the calling client derived for the same call.
   wrapped[SERVER_COMPONENT_SOURCE] = component;
-  wrapped[SERVER_COMPONENT_ADDRESS] = frameAddress(id, args);
+  wrapped[SERVER_COMPONENT_ADDRESS] = address;
   return wrapped;
 }
 
