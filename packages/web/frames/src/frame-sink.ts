@@ -2059,6 +2059,15 @@ function armDocumentLiveHoles(ctx) {
     if (live) live.holes = null;
     return;
   }
+  // Announce the (so far empty) tier list as soon as a server component
+  // renders on a streaming document, so a page that mints no tier says so.
+  // With no record at all the client can't tell "minted nothing" from "an
+  // older producer", and its slot walk falls back to checking every
+  // element's attributes for binding-slot markers.
+  if (!live.tiers) {
+    live.tiers = [];
+    ctx.serialize("sc:tiers", []);
+  }
   // Whether this document has served anything a later commit will replace
   // (the core calls `ctx.unsettled` before such a value can be read: a
   // pumped iterable, a loading value or seed ahead of its landing). Until
