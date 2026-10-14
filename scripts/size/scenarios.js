@@ -4119,8 +4119,17 @@ module.exports = [
     // minified over the PR base. The frames client calls
     // installServerComponentHydration from installRevealHook. Cap set to that
     // measurement, not above it.
-    limit: "11.426 KB",
-    capMinified: 34211,
+    // Nested-region claim dedupe (2026-10-14): measured at 11,461 B brotli /
+    // 34,318 B minified locally against the 11.426 KB / 34,211 B cap (+35 B
+    // brotli, +107 B minified). Adopting a slot region swept every claimable
+    // element inside it, and each enclosing region's frame swept it again,
+    // so a link N regions deep was claimed N + 1 times (the router re-parses
+    // and re-matches its URL on every claim: ~116 ms at 4x CPU on the HN
+    // story page with a client toggle per comment). `adoptedBy` records
+    // which live frame's adoption claimed an element; other adoption sweeps
+    // skip it. Cap set to that measurement, not above it.
+    limit: "11.461 KB",
+    capMinified: 34318,
     alias: framesAlias,
     external: framesExternal
   },
