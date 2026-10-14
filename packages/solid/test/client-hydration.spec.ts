@@ -4946,3 +4946,73 @@ describe("adoption trace — Promise statics", () => {
     expect(mod.peek()).toEqual({ value: "ok" });
   });
 });
+
+describe("seedless derived stores — hydration (#3194)", () => {
+  afterEach(() => {
+    stopHydration();
+  });
+
+  test("createProjection(fn) adopts the serialized snapshot", () => {
+    startHydration({ t0: { v: { name: "server", count: 42 }, s: 1 } });
+
+    let store: any;
+    createRoot(
+      () => {
+        store = createProjection(() => ({ name: "client", count: 999 }));
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(store.name).toBe("server");
+    expect(store.count).toBe(42);
+  });
+
+  test("createStore(fn) runs fn when no serialized data", () => {
+    startHydration({});
+
+    let store: any;
+    createRoot(
+      () => {
+        [store] = createStore(() => ({ name: "computed", count: 7 }));
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect(store.name).toBe("computed");
+    expect(store.count).toBe(7);
+  });
+
+  test("hybrid generator: the snapshot, then later yields as complete records", async () => {
+    startHydration({ t0: { v: { step: 1, label: "first" }, s: 1 } });
+
+    let store: any;
+    const gate = deferred();
+    createRoot(
+      () => {
+        store = createProjection(
+          async function* () {
+            yield { step: 1, label: "first" };
+            await gate.promise;
+            yield { step: 2 } as { step: number; label?: string };
+          },
+          undefined,
+          { ssrSource: "hybrid" }
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+
+    expect({ ...store }).toEqual({ step: 1, label: "first" });
+
+    stopHydration();
+    await tick();
+    expect({ ...store }).toEqual({ step: 1, label: "first" });
+
+    gate.resolve();
+    await tick();
+    expect({ ...store }).toEqual({ step: 2 });
+  });
+});

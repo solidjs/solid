@@ -66,6 +66,7 @@ import {
   $TRACK,
   isWrappable,
   markRawIngest,
+  type NoArray,
   type NoFn,
   type ProjectionOptions,
   type Store,
@@ -615,18 +616,25 @@ export function createOptimisticStore<T extends object = {}>(
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ProjectionOptions, "seedLoadingValue">
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
   first: T | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: Partial<T> | NoFn<T> | Store<NoFn<T>> | StoreOptions,
+  second?: NoFn<T> | Store<NoFn<T>> | StoreOptions | null,
   third?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function";
   const options = (derived ? third : second) as ProjectionOptions | undefined;
-  const initialValue = (derived ? second : first) as T;
+  // Seedless derived form: the root starts as an empty record (see
+  // createProjectionInternal).
+  const initialValue = (derived ? second || {} : first) as T;
   const keyOption = options?.key === undefined ? "id" : options.key;
   const fam: StoreFamily = {
     map: new WeakMap(),

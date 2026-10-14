@@ -884,6 +884,7 @@ type ServerMemoOptions<T> = MemoOptions<T> & {
 };
 type ServerSignalOptions<T> = SignalOptions<T>;
 type NoFn<T> = T extends Function ? never : T;
+type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
 
 /**
  * The pending source for BARE `ssrSource: "client"` (no declared commit #0):
@@ -2419,13 +2420,18 @@ export function createStore<T extends object = {}>(
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ServerProjectionOptions, "seedLoadingValue">
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ServerProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   first: T | Store<T> | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: T | Store<T>,
+  second?: T | Store<T> | null,
   third?: ServerProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   if (typeof first === "function") {
@@ -2435,7 +2441,7 @@ export function createStore<T extends object = {}>(
     // The impl signature stays loose; the public overload above enforces the
     // client/seedLoadingValue pairing, and createProjection re-checks at
     // runtime.
-    const store = createProjection(first as any, second as Partial<T>, third as any);
+    const store = (createProjection as Function)(first, second, third);
     return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
@@ -2464,13 +2470,18 @@ export function createOptimisticStore<T extends object = {}>(
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ServerProjectionOptions, "seedLoadingValue">
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ServerProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
   first: T | Store<T> | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: T | Store<T>,
+  second?: T | Store<T> | null,
   third?: ServerProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   // Same no-op rationale as createOptimistic above: optimistic writes are
@@ -2628,13 +2639,18 @@ function replaceState<T extends object>(target: T, next: T): void {
 }
 
 export function createProjection<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ServerProjectionOptions, "seedLoadingValue">
+): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ServerProjectionOptions
 ): Refreshable<Store<T>>;
 export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed?: T | null,
   options?: ServerProjectionOptions
 ): Store<T> {
   const ctx = sharedConfig.context;
@@ -2666,7 +2682,8 @@ export function createProjection<T extends object = {}>(
     if (slots) slots[slotId!] = proxy;
     return proxy;
   };
-  const [state] = createStore(seed as NoFn<T>);
+  // Seedless: the root starts as an empty record (the client's base too).
+  const [state] = createStore((seed || {}) as NoFn<T>);
 
   if (options?.ssrSource === "client") {
     // seedLoadingValue = declared commit #0: the seed renders. Bare = the
