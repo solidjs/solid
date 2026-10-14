@@ -1630,8 +1630,15 @@ class FrameImpl {
     // positions rather than filling a range (no interior, no regions, never
     // replaced), and whose consumer set may change without a re-call.
     const found: Map<any, any> & { b?: boolean } = new Map();
-    if (root) collectSlots(root, found, found);
-    else this.#collectSlots(found, found);
+    // The bind tier loading but not resident (an announced tier's load
+    // starts at install): the install's flush re-syncs with the tier in
+    // place, so this sync only needs to hold. Note it up front and walk
+    // comments alone — an element scan for `_s:*` positions here would be
+    // thrown away.
+    const loading = tierLoads.bind;
+    const elements = loading && !loading.r ? void (found.b = true) : found;
+    if (root) collectSlots(root, found, elements);
+    else this.#collectSlots(found, elements);
     // Whether this sync leaves an occurrence WAITING to mount — for its
     // record, for a `{$ref}`'s data: a claim the frame owes the page and has
     // not made yet (see the hold at the end).
