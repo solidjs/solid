@@ -3532,6 +3532,13 @@ function buildAsyncWrap(err, node) {
   // re-suspension chain overflowed the stack (SSR stack-overflow diagnosis).
   if (node.$rw) return { fn: node, p };
   const owner = getOwner();
+  // The behavior-claims arming (`ctx.claims`) is per render CONTEXT, and a
+  // server component sets it on a context that is current only for its
+  // synchronous render. A retry is re-pulled by whatever boundary resumes
+  // it — on the document face, one outside the component — so it carries
+  // the escalation's arming forward, or the markup it finally renders
+  // drops every handler-position marker (`_s:on:click`).
+  const claims = sharedConfig.context && sharedConfig.context.claims;
   // A live hole's retry chain stays mint-suppressed end to end, and a
   // machinery-owned node's (`$lhSkip` — boundary outputs, slot getters)
   // stays opted out: every escalation re-wrap crosses this site, so
@@ -3549,7 +3556,20 @@ function buildAsyncWrap(err, node) {
     if (suppress) node.$lhSuppress = true;
     return { fn: node, p };
   }
-  const fn = () => runWithOwner(owner, node);
+  const fn = () => {
+    const ctx = sharedConfig.context;
+    if (!claims || !ctx || ctx.claims === claims) return runWithOwner(owner, node);
+    // Armed on a context DERIVED from the resuming one (prototype — every
+    // shared field and method reads through, as a Loading boundary's
+    // buffered context does), so that boundary's buffering and
+    // serialization stay its own.
+    (sharedConfig.context = Object.create(ctx)).claims = claims;
+    try {
+      return runWithOwner(owner, node);
+    } finally {
+      sharedConfig.context = ctx;
+    }
+  };
   fn.$rw = true;
   if (suppress) fn.$lhSuppress = true;
   if (node.$lhSkip) fn.$lhSkip = true;
