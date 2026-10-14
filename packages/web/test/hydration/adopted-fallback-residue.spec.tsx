@@ -32,6 +32,9 @@ function makeHost() {
   });
 }
 
+// One page per file: the frames client's boundary index is module state, so
+// a second page in this file would look its frame up in the first page's
+// index. The nested-fallback case is in adopted-fallback-residue-nested.spec.tsx.
 describe("adopted slot fill whose arg settled server-side before flush", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -85,70 +88,6 @@ describe("adopted slot fill whose arg settled server-side before flush", () => {
     // While the arg is pending locally, the server's settled markup stays —
     // no fallback flash over an adopted range.
     expect(container.querySelectorAll(".ticker").length).toBe(0);
-
-    resolveStats({ tokens: 92 });
-    await settle();
-    flush();
-    await settle();
-    flush();
-
-    expect(container.querySelectorAll(".done").length).toBe(1);
-    expect(container.querySelectorAll(".ticker").length).toBe(0);
-    expect(container.textContent).toContain("92 tokens");
-
-    dispose();
-    container.remove();
-  });
-
-  test("nested Loading in the fallback (the chat Status shape): no residue", async () => {
-    const FID = "residue/nested";
-    const container = document.createElement("div");
-    container.innerHTML =
-      `<solid-frame data-fid="${FID}" style="display:contents">` +
-      "<div><!--slot:status#0:start-->" +
-      `<span _hk="sc-residue/nested-status#0-2000" class="done"><!--$-->92<!--/--> tokens</span>` +
-      "<!--slot:status#0:end--></div>" +
-      "</solid-frame>";
-    document.body.appendChild(container);
-    (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
-    vi.stubGlobal("fetch", () => {
-      throw new Error("fetch must not be called");
-    });
-    installServerComponents(makeHost());
-
-    let resolveStats!: (v: any) => void;
-    const stats = new Promise(r => (resolveStats = r));
-    // progress: an async iterable that has yielded (so the nested Loading
-    // shows the ticker, not its own dots) and never ends — like a ticker
-    // stream mid-generation.
-    const progress = (async function* () {
-      yield "thinking…";
-      await new Promise(() => {});
-    })();
-    (globalThis as any)._$HY.r[`sc:slot:${FID}:status#0`] = { stats, progress };
-
-    const Comp = (globalThis as any)._$SC.r(FID);
-    const dispose = hydrate(
-      () => (
-        <Comp
-          status={(p: any) => (
-            <Loading
-              fallback={
-                <Loading fallback={<span class="ticker">…</span>}>
-                  <span class="ticker">{p.progress}</span>
-                </Loading>
-              }
-            >
-              <span class="done">{p.stats.tokens} tokens</span>
-            </Loading>
-          )}
-        />
-      ),
-      container
-    );
-    flush();
-    await settle();
-    flush();
 
     resolveStats({ tokens: 92 });
     await settle();

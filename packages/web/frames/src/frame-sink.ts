@@ -928,7 +928,17 @@ export function renderServerComponent(component, options = {}) {
         // mark their ranges and open ledger bindings — the call-driven face
         // is live for the response window. The document face never sets
         // this (t=0 latches to the V1 snapshot).
-        ctx.liveHoles = createLiveHoles(sink);
+        //
+        // Off the live address the frame's markers are read only by ops in
+        // this same response (hole ids restart per render), so the
+        // document face's gate applies: until the render serves a value a
+        // later commit replaces, a synchronous hole ships unmarked, unbound
+        // and without a digest. The live address keeps every marker — its
+        // reconnect names them in the have-list, so a hole that moved
+        // between renders ships alone.
+        let unsettled = !!options.live;
+        if (!unsettled) ctx.unsettled = () => void (unsettled = true);
+        ctx.liveHoles = createLiveHoles(sink, false, () => !unsettled);
         // Handler positions: arm the compiled `ssrClaim` guard for the whole
         // response — everything here is the component's own render.
         ctx.claims = CLAIMS_STREAM;

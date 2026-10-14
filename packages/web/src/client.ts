@@ -3018,23 +3018,29 @@ function insertExpression(parent, value, current, marker) {
     return value;
   }
   if (value === current) return value;
-  // A region tracked as empty can receive nodes that already sit in it:
-  // server nodes a boundary claims on a late resume, after this insert's
-  // claim pass saw no value (#3749). Re-inserting them would move connected
-  // nodes and blur a focused input, so they stay put. Only while hydrating
-  // (the resume window sets the flag): then claimed server nodes are the only
-  // nodes of ours already in `parent`, and they arrive in server order. Every
-  // item must be a node in `parent` (a raw primitive is a failed text claim
-  // and still needs inserting); an empty array keeps its clear.
-  if (
-    hydrationRt !== null &&
-    sharedConfig.hydrating &&
-    current == null &&
-    value &&
-    [].concat(value).every(n => n?.parentNode === parent) &&
-    value.length !== 0
-  )
-    return value;
+  // A region can receive nodes that already sit in it: server nodes a
+  // boundary claims on a late resume, after this insert's claim pass saw no
+  // value for it (#3749). Re-inserting them would move connected nodes and
+  // blur a focused input, so they stay put. Only while hydrating (the resume
+  // window sets the flag): then claimed server nodes are the only nodes of
+  // ours already in `parent`, and they arrive in server order. Every item
+  // must be a node in `parent` (a raw primitive is a failed text claim and
+  // still needs inserting); an empty array keeps its clear. The region may
+  // already track the boundary's siblings in the same insert, claimed in the
+  // root pass (#4049): reconciling against them re-inserts the boundary's
+  // nodes, and reverses them when a sibling's `nextSibling` is the
+  // boundary's first node. So the tracked nodes must all be among the items,
+  // in the same order — a removal or a reorder still reconciles.
+  if (hydrationRt !== null && sharedConfig.hydrating && value && value.length !== 0) {
+    const tracked = [].concat(current ?? []);
+    if (
+      []
+        .concat(value)
+        .every(n => (n === tracked[0] && tracked.shift(), n?.parentNode === parent)) &&
+      !tracked.length
+    )
+      return value;
+  }
   const t = typeof value,
     multi = marker !== undefined;
 

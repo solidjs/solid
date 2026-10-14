@@ -310,7 +310,8 @@ export const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
  * for the things a naked return can't express. Progressive enhancement
  * stays invisible: the carried response holds a plain JSON body so
  * consumers without the client runtime (no-JS form posts, direct HTTP)
- * get real JSON, while integrations read `value` — no reparse.
+ * get real JSON, while integrations read `value` — no reparse. The body is
+ * encoded when read, so `value` may be anything a plain return may.
  *
  * Typed as `value`'s type: every caller of the function returning it —
  * over HTTP or in-process — receives the value, never the envelope. At
@@ -334,8 +335,20 @@ export function respond<T>(value: T, init: ResponseHelperInit = {}): T {
     ) as unknown as T;
   }
   headers.set("Content-Type", "application/json");
+  // Encoded when read, not here: only consumers without the client runtime
+  // read this body — both server-function legs use `value` — so a value
+  // plain JSON can't carry (a bigint) must not fail the call up front; it
+  // errors this body only if someone reads it (#4060).
   return new ResponseEnvelope(
-    new Response(JSON.stringify(value), { ...responseInit, headers }),
+    new Response(
+      new ReadableStream({
+        pull(controller) {
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(value)));
+          controller.close();
+        }
+      }),
+      { ...responseInit, headers }
+    ),
     value
   ) as unknown as T;
 }
