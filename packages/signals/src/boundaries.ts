@@ -20,7 +20,7 @@
  * the root holds the frame as for any reader. The tree's own status takes
  * the same route from the output's pass (`read(tree)` throws it).
  *
- * The hold (`blocked`, scheduler.ts) asks `hidden`: a reader behind a
+ * The hold (`blocked`, scheduler.ts) asks `hiddenBy`: a reader behind a
  * fallback — any boundary on its chain whose last pass chose the fallback —
  * is not on screen and holds nothing. An error boundary flipping to its
  * fallback is the same as a loading one resetting: every reader under it
@@ -107,7 +107,7 @@ interface Boundary {
    * whatever holds the frame; no LOADING_ON_OUTSIDE_HOLD report. */
   _ahead?: boolean;
   /** The output's last pass chose the fallback: readers under it are off
-   * screen (`hidden`). */
+   * screen (`hiddenBy`). */
   _fallback: boolean;
   /** User effects whose run came due behind the fallback: re-queued at the
    * reveal (`heldRun`). */
@@ -244,16 +244,12 @@ function catchStatus(node: Computed<any>, flags: number, error?: unknown): boole
   return false;
 }
 
-/** The nearest boundary on `r`'s chain showing its fallback, if any. */
+/** The nearest boundary on `r`'s chain showing its fallback, if any
+ * (GlobalQueue._hidden: `r` is behind a fallback). */
 function hiddenBy(r: Computed<any>): Boundary | undefined {
   for (let b = boundaryOf(r); b !== undefined; b = b._parent ?? undefined)
     if (b._fallback) return b;
   return undefined;
-}
-
-/** GlobalQueue._hidden: behind a fallback. */
-function hidden(r: Computed<any>): boolean {
-  return hiddenBy(r) !== undefined;
 }
 
 /** GlobalQueue._heldRun: a queued run behind a fallback waits for the reveal
@@ -377,7 +373,7 @@ function reportOutsideHold(b: Boundary): void {
           if (outside(s._sub, false)) return true;
       return false;
     }
-    if (hidden(reader)) return false;
+    if (hiddenBy(reader)) return false;
     for (let o = boundaryOf(reader); o !== undefined; o = o._parent ?? undefined)
       if (o === b) return false;
     return true;
@@ -819,8 +815,8 @@ export function createErrorBoundary<T, U>(
 // Installed at module evaluation — present exactly when something imports a
 // boundary. An app without one pays the three null checks and nothing else.
 GlobalQueue._catch = catchStatus;
-GlobalQueue._fresh = node =>
-  node._statusFlags & STATUS_UNINITIALIZED && catchStatus(node, STATUS_PENDING);
-GlobalQueue._hidden = hidden;
+GlobalQueue._fresh = (node, held) =>
+  !held && node._statusFlags & STATUS_UNINITIALIZED && catchStatus(node, STATUS_PENDING);
+GlobalQueue._hidden = hiddenBy;
 GlobalQueue._boundarySeam = boundarySeam;
 GlobalQueue._heldRun = heldRun;
