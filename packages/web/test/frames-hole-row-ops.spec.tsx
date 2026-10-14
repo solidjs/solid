@@ -4,9 +4,10 @@
  */
 // solidjs/solid#4064: a live `For` hole's sweep sends only the rows that
 // changed. The client morphs just those rows' ranges, appends and truncates
-// at the tail, keeps the untouched rows' nodes, and falls back to morphing
-// the whole range from the record's full html when the range doesn't show
-// the emission the ops were taken against or the wire tier isn't resident.
+// at the tail, keeps the untouched rows' nodes, and holds a record until
+// the wire tier is resident. A range that doesn't show the emission the ops
+// were taken against resyncs the live connection, whose resume sends the
+// hole whole.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { flush, Loading } from "solid-js";
 import { dynamic, render } from "@solidjs/web";
@@ -56,7 +57,8 @@ async function mount() {
     type: "html",
     id: ID,
     version: 1,
-    html: `<ul><!--lh:0-->${list("a", "b", "c")}<!--lh:/0--></ul>`
+    html: `<ul><!--lh:0-->${list("a", "b", "c")}<!--lh:/0--></ul>`,
+    holes: { "lh:0": "d0" }
   });
   await cycle();
   const items = () => [...container.querySelectorAll("li")];
@@ -69,7 +71,7 @@ async function mount() {
     flush();
     container.remove();
   };
-  return { container, items, send, done };
+  return { container, items, send, held, done };
 }
 
 describe("row ops on a live For hole", () => {
@@ -87,8 +89,8 @@ describe("row ops on a live For hole", () => {
     send({
       type: "hole",
       key: "lh:0",
-      html: list("a", "B", "c"),
       digest: "d1",
+      base: "d0",
       rows: { n: 3, r: [[1, "<li>B</li>"]] }
     });
     await cycle();
@@ -111,7 +113,6 @@ describe("row ops on a live For hole", () => {
     send({
       type: "hole",
       key: "lh:0",
-      html: list("a", "B", "C", "d", "e"),
       digest: "d2",
       base: "d1",
       rows: {
@@ -131,7 +132,6 @@ describe("row ops on a live For hole", () => {
     send({
       type: "hole",
       key: "lh:0",
-      html: list("a", "B"),
       digest: "d3",
       base: "d2",
       rows: { n: 2, r: [] }
@@ -142,41 +142,99 @@ describe("row ops on a live For hole", () => {
     await done();
   });
 
-  test("a range that doesn't show the ops' base morphs from the full html", async () => {
+  test("a range that doesn't show the ops' base resyncs the live connection and waits", async () => {
     await prepareTier("wire");
-    const { items, send, done } = await mount();
-    // Base names an emission this range never applied.
-    send({
-      type: "hole",
-      key: "lh:0",
-      html: list("x", "y", "z"),
-      digest: "d2",
-      base: "d1",
-      rows: { n: 3, r: [[1, "<li>Q</li>"]] }
-    });
-    await cycle();
-    expect(items().map(li => li.textContent)).toEqual(["x", "y", "z"]);
-    await done();
-  });
-
-  test("without the wire tier the whole range morphs", async () => {
-    const wire = tierLoads.wire;
-    delete tierLoads.wire;
+    const load = tierLoads.wire!;
+    const real = load.r;
+    const cancel = vi.fn();
+    load.r = { ...real, cancel };
     try {
       const { items, send, done } = await mount();
+      const [a] = items();
+      cancel.mockClear();
+      // Base names an emission this range never applied.
       send({
         type: "hole",
         key: "lh:0",
-        html: list("a", "B", "c"),
-        digest: "d1",
+        digest: "d2",
+        base: "dX",
         rows: { n: 3, r: [[1, "<li>Q</li>"]] }
       });
       await cycle();
-      // The full html wins: the ops (Q) were not applied.
+      expect(cancel).toHaveBeenCalledWith(expect.anything(), ID);
+      expect(items().map(li => li.textContent)).toEqual(["a", "b", "c"]);
+      // The resume re-sends the hole whole; it morphs and row ops resume on it.
+      send({ type: "hole", key: "lh:0", html: list("a", "y", "c"), digest: "d3" });
+      await cycle();
+      expect(items().map(li => li.textContent)).toEqual(["a", "y", "c"]);
+      send({
+        type: "hole",
+        key: "lh:0",
+        digest: "d4",
+        base: "d3",
+        rows: { n: 3, r: [[2, "<li>z</li>"]] }
+      });
+      await cycle();
+      expect(items().map(li => li.textContent)).toEqual(["a", "y", "z"]);
+      expect(items()[0]).toBe(a);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      await done();
+    } finally {
+      load.r = real;
+    }
+  });
+
+  test("without the wire tier a row op waits for it; one that lands on top of it resyncs", async () => {
+    await prepareTier("wire");
+    const load = tierLoads.wire!;
+    const real = load.r;
+    const cancel = vi.fn();
+    // A load that hasn't landed.
+    tierLoads.wire = new Promise<void>(() => {});
+    try {
+      const { items, send, held, done } = await mount();
+      send({
+        type: "hole",
+        key: "lh:0",
+        digest: "d1",
+        base: "d0",
+        rows: { n: 3, r: [[1, "<li>B</li>"]] }
+      });
+      await cycle();
+      expect(items().map(li => li.textContent)).toEqual(["a", "b", "c"]);
+      // The tier lands (its install re-walks with an empty write): the op applies.
+      tierLoads.wire = load;
+      load.r = { ...real, cancel };
+      held.send({ type: "ops", id: ID, version: 1, ops: [] });
+      await cycle();
+      expect(items().map(li => li.textContent)).toEqual(["a", "B", "c"]);
+
+      // Two ops while the tier is away: the second names a base never shown.
+      tierLoads.wire = new Promise<void>(() => {});
+      send({
+        type: "hole",
+        key: "lh:0",
+        digest: "d2",
+        base: "d1",
+        rows: { n: 3, r: [[0, "<li>A</li>"]] }
+      });
+      send({
+        type: "hole",
+        key: "lh:0",
+        digest: "d3",
+        base: "d2",
+        rows: { n: 3, r: [[2, "<li>C</li>"]] }
+      });
+      await cycle();
+      tierLoads.wire = load;
+      held.send({ type: "ops", id: ID, version: 1, ops: [] });
+      await cycle();
+      expect(cancel).toHaveBeenCalledWith(expect.anything(), ID);
       expect(items().map(li => li.textContent)).toEqual(["a", "B", "c"]);
       await done();
     } finally {
-      if (wire) tierLoads.wire = wire;
+      tierLoads.wire = load;
+      load.r = real;
     }
   });
 });

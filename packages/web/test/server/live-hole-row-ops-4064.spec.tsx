@@ -2,8 +2,9 @@
  * @jsxImportSource @solidjs/web
  *
  * solidjs/solid#4064 — a live hole whose value is a `<For>`'s rows marks
- * each row, and a sweep that changed some rows sends just those rows by
- * index (plus the whole html, for a client that can't apply them).
+ * each row, and on a live response a sweep that changed some rows sends
+ * just those rows by index, against the digest of what the client shows.
+ * Anywhere else the hole goes whole.
  */
 import { expect, test } from "vitest";
 import { createMemo, For } from "solid-js";
@@ -57,7 +58,7 @@ type Row = { id: string; text: string };
 const holes = (chunks: any[]) =>
   chunks.flatMap(c => (c.type === "ops" ? c.ops : c.type === "hole" ? [c] : []));
 
-async function run(pushes: Row[][]) {
+async function run(pushes: Row[][], live = true) {
   const ch = channel<Row[]>();
   const List = () => {
     const view = createMemo(() => ch.iterable);
@@ -69,7 +70,7 @@ async function run(pushes: Row[][]) {
       </Loading>
     );
   };
-  const { chunks, done } = consume(renderServerComponent(List, { frame: { id: "f" } }));
+  const { chunks, done } = consume(renderServerComponent(List, { frame: { id: "f" }, live }));
   await tick();
   for (const p of pushes) {
     ch.push(p);
@@ -94,9 +95,18 @@ test("first render marks each row of a live For", async () => {
 test("a sweep that changed one row sends that row by index", async () => {
   const chunks = await run([rows("a", "b", "c"), rows("a", "B", "c")]);
   const [op] = holes(chunks);
-  expect(op.html).toBe("<!--lr--><li>a</li><!--lr--><li>B</li><!--lr--><li>c</li>");
+  expect(op.html).toBeUndefined();
   expect(op.rows).toEqual({ n: 3, r: [[1, "<li>B</li>"]] });
-  expect(op.base).toBeUndefined();
+  // The base is the digest the client's ledger took from the first render.
+  const first = chunks.find(c => c.holes && c.holes["lh:0"]);
+  expect(op.base).toBe(first.holes["lh:0"]);
+});
+
+test("off a live response the hole goes whole", async () => {
+  const chunks = await run([rows("a", "b", "c"), rows("a", "B", "c")], false);
+  const [op] = holes(chunks);
+  expect(op.rows).toBeUndefined();
+  expect(op.html).toBe("<!--lr--><li>a</li><!--lr--><li>B</li><!--lr--><li>c</li>");
 });
 
 test("appends and truncation ride the row count; the next op names its base", async () => {

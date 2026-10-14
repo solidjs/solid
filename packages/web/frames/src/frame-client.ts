@@ -1281,10 +1281,10 @@ class FrameImpl {
   // only while its node is still in this frame and still matches; the
   // root morph and a version bump clear the map (ids restart per stream).
   #liveTargets = new Map();
-  // What each live hole's range shows, by the digest of the record last
-  // applied to it (none: its first render) — the base a row-op record
-  // must name to be applied as row ops (#4064).
-  #shows = new Map();
+  // What each live hole's range shows, by the digests the wire ledger
+  // keeps (kept here too, as the ledger is absent while the tier loads) —
+  // the base a row-op record must name to be applied (#4064).
+  #shows = {};
   // The last full slot walk's result (#syncSlots' found map; dropped by a
   // root morph and an empty write) and, during a flush, the ranges its
   // live holes morphed — `[open, close]` for a hole, `[element]` for an
@@ -1518,7 +1518,7 @@ class FrameImpl {
     this.#appliedRoot = this.#appliedError = undefined;
     this.#appliedHoles.clear();
     this.#liveTargets.clear();
-    this.#shows.clear();
+    this.#shows = {};
     this.#pendingReveals = [];
   }
 
@@ -2195,6 +2195,9 @@ class FrameImpl {
    * full snapshot then (the degraded case, wire-tier.ts).
    */
   #recordHave(key, record) {
+    this.#shows = key
+      ? Object.assign(this.#shows, { [key]: record.digest }, record.holes)
+      : { ...record.holes };
     tierLoads.wire?.r?.have(this, key, record);
   }
 
@@ -2220,7 +2223,7 @@ class FrameImpl {
 
   #applyRoot(html) {
     this.#liveTargets.clear();
-    this.#shows.clear();
+    this.#shows = {};
     this.#found = undefined;
     const fragment = parseFragment(html);
     const parent = this.#element;
@@ -2284,29 +2287,36 @@ class FrameImpl {
       return false;
     }
     const claim = this.#claimTree;
-    const rows = record.rows;
-    // Row ops (#4064): only the rows that changed, when the range shows
-    // the emission they were taken against and the wire tier is resident;
-    // otherwise the whole range, from the record's full html.
-    if (
-      !(
-        rows &&
-        this.#shows.get(marker) === record.base &&
-        tierLoads.wire?.r?.rows(
+    if (record.rows) {
+      // Row ops (#4064): only the rows that changed, applied by the wire
+      // tier (pending while it loads) where the range shows the emission
+      // they were taken against. Anywhere else (a fresh mount replaying
+      // the store, a record that landed on one that never applied) the
+      // live connection resumes, its have-list naming what the range
+      // shows, and the hole comes back whole.
+      const wire = tierReady("wire");
+      if (!wire) return false;
+      if (
+        this.#shows[marker] !== record.base ||
+        !wire.rows(
           open,
           close,
-          rows,
+          record.rows,
           parseFragment,
           (start, end, fragment) =>
             reconcileChildren(start.parentNode, fragment, start, end, claim),
           this.#morphed
         )
-      )
-    ) {
+      ) {
+        // Once: the record is spent, the resume re-sends the hole whole.
+        this.#appliedHoles.set("hole:" + marker, record);
+        wire.cancel(this.#options.host, this.#options.id);
+        return false;
+      }
+    } else {
       reconcileChildren(open.parentNode, parseFragment(record.value), open, close, claim);
       this.#morphed.push([open, close]);
     }
-    this.#shows.set(marker, record.digest);
     return true;
   }
 

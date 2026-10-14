@@ -4227,17 +4227,19 @@ module.exports = [
     // Chat example, 12 KB replies at 4x CPU, walk self time per reply:
     // 0.34 / 0.78 / 1.03 / 1.58 s with 0-3 prior replies -> 0.18 / 0.22 /
     // 0.19 / 0.28 s. Cap set to that measurement, not above it.
-    // Row ops for live `For` holes (#4064, 2026-10-14): measured at 11,799 B
-    // brotli / 35,285 B minified (+84 B brotli, +229 B minified). A sweep
-    // that changed some rows of a `For` hole sends just those rows; the
-    // eager client checks the range shows the ops' base and hands them to
-    // the lazy wire tier, which morphs only those rows' ranges (else the
-    // whole range morphs from the record's full html, as before).
-    // server-dbmon, 4x CPU, 10% of rows changing per tick at 5 ticks/s,
-    // main-thread busy ms/s: 100 rows 305-319 -> 189-261; 400 rows
-    // 933-1001 (saturated) -> 649-706. Cap set to that measurement.
-    limit: "11.81 KB",
-    capMinified: 35285,
+    // Row ops for live `For` holes (#4064, 2026-10-14): measured at 11,838 B
+    // brotli / 35,395 B minified (+123 B brotli, +339 B minified). On a live
+    // response, a sweep that changed some rows of a `For` hole sends just
+    // those rows, against the digest of what the client shows; the eager
+    // client checks the range shows that base and hands the rows to the
+    // lazy wire tier, which morphs only their ranges. A range showing
+    // anything else resumes the live connection, which re-sends the hole
+    // whole. server-dbmon, 4x CPU, 5 ticks/s, main-thread busy ms/s with
+    // 10% of rows changing: 100 rows 305-319 -> 231-342; 400 rows 933-1001
+    // (saturated) -> 551-825. Wire (brotli q5) 1.7-1.9 -> 1.5-1.6 KB/s at
+    // 100 rows, 6.8-8.1 -> 5.1-6.0 KB/s at 400. Cap set to that measurement.
+    limit: "11.838 KB",
+    capMinified: 35395,
     alias: framesAlias,
     external: framesExternal
   },

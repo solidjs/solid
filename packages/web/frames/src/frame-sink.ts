@@ -405,6 +405,7 @@ export function createFrameSink(write, frame, have, hooks) {
   // and a staged tier announcement leaves with the next chunk.
   const emit = chunk => {
     if (swept) swept.emitted = true;
+    showing(chunk);
     if (staged.length) {
       chunk.tiers = staged;
       staged = [];
@@ -432,8 +433,16 @@ export function createFrameSink(write, frame, have, hooks) {
   // recoverable from html the way a content range is, so the digests ride
   // from here.
   const attrText = new Map();
-  // The digest of each live hole's last emission (see `hole`).
+  // What the client's range shows for each live hole, by the digest its
+  // ledger keeps (see `hole`): seeded by the have-list a resume names, reset
+  // by a root, extended by every emission that carries hole digests.
   const holeDigest = new Map();
+  if (have) for (const key in have) key.startsWith("lh:") && holeDigest.set(key, have[key]);
+  function showing(chunk) {
+    if (chunk.type === "html") holeDigest.clear();
+    else if (chunk.type === "hole") holeDigest.set(chunk.key, chunk.digest);
+    for (const key in chunk.holes) key.startsWith("lh:") && holeDigest.set(key, chunk.holes[key]);
+  }
   // Emit what differs inside `html` against the have-list: each top-level
   // hole whose digest moved (its nested holes ride inside it, markers kept,
   // so they stay individually live), each addressed attr whose text moved.
@@ -768,17 +777,20 @@ export function createFrameSink(write, frame, have, hooks) {
     // by its marker id — the consumer morphs the marked range in place.
     // Produced by a sweep, so it joins the sweep's unit (see `sweep`).
     hole(key, html, rows) {
-      const op = { type: "hole", key, html, digest: textDigest(html) };
-      // Row ops (#4064): the rows of a `For` hole that changed since the
-      // emission whose digest is `base` (none: since the first render).
-      // `html` still carries the whole hole, so a client that does not
-      // show `base` morphs the whole range instead.
-      if (rows) {
+      const op: any = { type: "hole", key, digest: textDigest(html) };
+      // Row ops (#4064): on a live response (the wire tier's), only the
+      // rows of a `For` hole that changed since what the range shows,
+      // named by its digest `base`. A client whose range shows something
+      // else resyncs through the live connection's resume, whose have-list
+      // names what it shows. Anywhere else, the whole hole.
+      const base = holeDigest.get(key);
+      if (rows && base && tiers.has("wire")) {
         op.rows = rows;
-        const base = holeDigest.get(key);
-        if (base) op.base = base;
-      }
-      holeDigest.set(key, op.digest);
+        op.base = base;
+      } else op.html = html;
+      // Holes inside what changed now show it.
+      withHoles(op, holeDigests(op.rows ? rows.r.map(r => r[1]).join("") : html, null));
+      showing(op);
       swept ? swept.ops.push(op) : emitOps([op]);
     },
     // A live attr-hole re-emission: the addressed element's rebuilt
