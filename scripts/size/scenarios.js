@@ -5185,7 +5185,9 @@ module.exports = [
     // escalates drops the `data-lha` its attr capture spliced in, so the
     // resume's own address is the element's only one; the cost is the
     // capture's splice record and the removal at the three escalation
-    // sites, retained by renderToString. Pending the maintainer's OK.
+    // sites, retained by renderToString. Accepted by the maintainer
+    // (2026-10-14) as one combined cap of about 20.58 KB with #4043 (+34 B);
+    // whichever of the two merges second re-measures and sets the cap.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
     // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
