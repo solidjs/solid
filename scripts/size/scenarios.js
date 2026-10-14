@@ -1919,6 +1919,12 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (floor-caps.json; the floors unchanged, 0 B minified).
+    // Size-Exception (#4059 and #4061 together, 2026-10-14): 18.09 -> 18.14 KB,
+    // CI measured 18,124 B on `next` @ 47d23464 (53,350 -> 53,411 B
+    // minified, +61 B). Each PR passed alone; #4061's client change (the
+    // #4049 Loading + lazy hydration order fix in `packages/web/src/client.ts`)
+    // landed on top of #4059's raised cap. Cap set at measured + 10 B rounded
+    // up to 0.01 KB to restore `next`'s Size check. Pending the maintainer's OK.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2433,8 +2439,14 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    limit: "29.65 KB",
-    capMinified: 93714,
+    // Size-Exception (#4059 and #4061 together, 2026-10-14): 29.65 -> 29.68 KB,
+    // CI measured 29,664 B on `next` @ 47d23464 (93,714 -> 93,775 B
+    // minified, +61 B). Each PR passed alone; #4061's client change (the
+    // #4049 Loading + lazy hydration order fix in `packages/web/src/client.ts`)
+    // landed on top of #4059's raised cap. Cap set at measured + 10 B rounded
+    // up to 0.01 KB to restore `next`'s Size check. Pending the maintainer's OK.
+    limit: "29.68 KB",
+    capMinified: 93775,
     alias
   },
   {
@@ -3772,8 +3784,14 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    limit: "31.78 KB",
-    capMinified: 101338,
+    // Size-Exception (#4059 and #4061 together, 2026-10-14): 31.78 -> 31.90 KB,
+    // CI measured 31,881 B on `next` @ 47d23464 (101,338 -> 101,399 B
+    // minified, +61 B). Each PR passed alone; #4061's client change (the
+    // #4049 Loading + lazy hydration order fix in `packages/web/src/client.ts`)
+    // landed on top of #4059's raised cap. Cap set at measured + 10 B rounded
+    // up to 0.01 KB to restore `next`'s Size check. Pending the maintainer's OK.
+    limit: "31.90 KB",
+    capMinified: 101399,
     alias
   },
   {
