@@ -4119,8 +4119,14 @@ module.exports = [
     // minified over the PR base. The frames client calls
     // installServerComponentHydration from installRevealHook. Cap set to that
     // measurement, not above it.
-    limit: "11.426 KB",
-    capMinified: 34211,
+    // #4042 (2026-10-14): measured at 11,469 B brotli / 34,304 B minified
+    // locally (base 11,426 / 34,211, matching CI) — +43 B brotli, +93 B
+    // minified. A document mount picks the unclaimed site whose `data-fa`
+    // matches its call's arguments, so sites minted out of mount order bind
+    // their own frames. Cap set to that measurement, not above it. Pending
+    // the maintainer's OK.
+    limit: "11.469 KB",
+    capMinified: 34304,
     alias: framesAlias,
     external: framesExternal
   },
