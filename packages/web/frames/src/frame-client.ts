@@ -3025,6 +3025,10 @@ function morphNode(oldNode, newNode, claim, ranges, grafts) {
     // (a rich editor, a chart) or any state the deny-list above can't name.
     // The element stays matched in position; only its interior is frozen.
     if (oldNode.hasAttribute("data-preserve")) return;
+    // An identical subtree has nothing to morph: one native compare instead
+    // of walking it. Not while slot ranges are indexed for relocation — a
+    // skipped subtree would leave its ranges looking unmatched.
+    if (!ranges?.size && oldNode.isEqualNode(newNode)) return;
     morphAttributes(oldNode, newNode, claim);
     reconcileChildren(oldNode, newNode, null, null, claim, ranges, grafts);
   } else if (oldNode.data !== newNode.data) {

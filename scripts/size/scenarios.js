@@ -4334,8 +4334,14 @@ module.exports = [
     // re-inserted per tick -> 0; main-thread busy 771-910 -> 571-705 ms/s.
     // Measured at 11,856 B brotli / 35,466 B minified. Cap set to that
     // measurement.
-    limit: "11.856 KB",
-    capMinified: 35466,
+    // Morph skips an identical subtree (2026-10-15): +28 B minified. A
+    // whole-range morph walked every unchanged element in JS; one native
+    // `isEqualNode` compare now skips it. server-dbmon, row ops off, 4x CPU:
+    // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
+    // saturates. Measured at
+    // 11,873 B brotli / 35,494 B minified; cap set to that measurement. Accepted by the maintainer (2026-10-15).
+    limit: "11.873 KB",
+    capMinified: 35494,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4650,6 +4656,12 @@ module.exports = [
     // recorded minified (floor-caps.json; the brotli cap is unchanged), re-recorded at what the tree measures after
     // createDeferred (#4067) landed in the signals core. Accepted by the
     // maintainer (2026-10-15, "Ratchet up").
+    // Morph skips an identical subtree (2026-10-15): +28 B minified. A
+    // whole-range morph walked every unchanged element in JS; one native
+    // `isEqualNode` compare now skips it. server-dbmon, row ops off, 4x CPU:
+    // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
+    // saturates. Size-Exception:
+    // recorded minified (floor-caps.json) 106,786 -> 106,814; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -4909,6 +4921,12 @@ module.exports = [
     // recorded minified (floor-caps.json; the brotli cap is unchanged), re-recorded at what the tree measures after
     // createDeferred (#4067) landed in the signals core. Accepted by the
     // maintainer (2026-10-15, "Ratchet up").
+    // Morph skips an identical subtree (2026-10-15): +28 B minified. A
+    // whole-range morph walked every unchanged element in JS; one native
+    // `isEqualNode` compare now skips it. server-dbmon, row ops off, 4x CPU:
+    // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
+    // saturates. Size-Exception:
+    // recorded minified (floor-caps.json) 119,009 -> 119,037; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5230,8 +5248,14 @@ module.exports = [
     // recorded minified (the brotli cap is unchanged), re-recorded at what the tree measures after
     // createDeferred (#4067) landed in the signals core. Accepted by the
     // maintainer (2026-10-15, "Ratchet up").
+    // Morph skips an identical subtree (2026-10-15): +28 B minified. A
+    // whole-range morph walked every unchanged element in JS; one native
+    // `isEqualNode` compare now skips it. server-dbmon, row ops off, 4x CPU:
+    // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
+    // saturates. Recorded
+    // minified 130,667 -> 130,695; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
     limit: "41.794 KB",
-    capMinified: 130667,
+    capMinified: 130695,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5335,8 +5359,14 @@ module.exports = [
     // recorded minified (the brotli cap is unchanged), re-recorded at what the tree measures after
     // createDeferred (#4067) landed in the signals core. Accepted by the
     // maintainer (2026-10-15, "Ratchet up").
+    // Morph skips an identical subtree (2026-10-15): +28 B minified. A
+    // whole-range morph walked every unchanged element in JS; one native
+    // `isEqualNode` compare now skips it. server-dbmon, row ops off, 4x CPU:
+    // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
+    // saturates. Recorded
+    // minified 144,205 -> 144,233; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
     limit: "47.493 KB",
-    capMinified: 144205,
+    capMinified: 144233,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
