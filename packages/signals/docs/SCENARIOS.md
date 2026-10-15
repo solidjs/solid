@@ -850,3 +850,28 @@ _Pinned: `tests/error-is-an-answer.test.ts`._ Continues S-42 from step 3; `fetch
 | 5   | `fetchOrFail(3)` resolves `1` | `2 \| Error 2 \| 2` — still held on `slow(3)`                                                                                                                                                                                                                          | throws `Error 2`   | true              | `1, Error 2`    | settled, not shown                                                     |
 | 6   | `fetchSlow(3)` lands          | `3 \| 1 \| 3`                                                                                                                                                                                                                                                          | 1                  | false             | `1, Error 2, 1` | `1` equals the last good value and is still a new answer: the arm runs |
 | ✗   |                               | after 5: `2 \| 1 \| 2` (the error clearing ahead of its frame); after 6: the arm never runs with `1` — before D-41, and then also with nothing held at all (an async landing equal to the last good value is swallowed by the equality gate while the node is errored) |                    |                   |                 |                                                                        |
+
+## F. Declared lag (D-40)
+
+### S-41. Independent panels over one selection: the write shows now, each panel lags to its own landing — D-40
+
+_Pinned: `tests/create-deferred.test.ts`._
+
+```tsx
+const [period, setPeriod] = createSignal(1);
+const fast = createDeferred(() => fetchFast(period())); // lands in 200ms
+const slow = createDeferred(() => fetchSlow(period())); // lands in 10s
+<h1>Period {period()}</h1>
+<Panel class={{ stale: isPending(() => fast()) }} rows={fast()} />
+<Panel class={{ stale: isPending(() => slow()) }} rows={slow()} />
+```
+
+| #   | Action                                                            | Screen                                                                           | `isPending` fast / slow | Notes                                                                                   |
+| --- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------- |
+| 0   | both first loads land                                             | `Period 1` · fast 1 · slow 1                                                     | false / false           | the first loads held (or suspended to a boundary) like any                              |
+| 1   | `setPeriod(2); flush()`                                           | `Period 2` · fast 1 · slow 1                                                     | true / true             | the write shows now; nothing holds on the panels                                        |
+| 2   | `fetchFast(2)` lands                                              | `Period 2` · **fast 2** · slow 1                                                 | false / true            | the landing is its own change                                                           |
+| 3   | `fetchSlow(2)` lands                                              | `Period 2` · fast 2 · **slow 2**                                                 | false / false           |                                                                                         |
+| 1′  | instead: plain async memos                                        | `Period 1` · fast 1 · slow 1 until 3                                             | true / true             | the default: one hold, gated on the slowest (F-2)                                       |
+| 1″  | instead: `period` is held (another reader of it is still loading) | `Period 1` · fast 1 · slow 1                                                     | true / true             | a re-ask that read the held period lands into that hold and shows with its commit (F-7) |
+| ✗   |                                                                   | after 1: `Period 1` held for the panels; or after 1″: `fast 2` beside `Period 1` |                         | the first is the hold D-40 removes; the second leads the hold                           |

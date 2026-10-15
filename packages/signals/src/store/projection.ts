@@ -350,6 +350,9 @@ function createProjectionInternal<T extends object = {}>(
   }, nodeOptions);
   node._config &= ~CONFIG_AUTO_DISPOSE;
   fam.node = node;
+  // The derive's leaves are not its dependents: a mark's repoll
+  // (affects-marks.ts) reaches their readers through this.
+  (node as any).fam = fam;
   return { store, node } as { store: Refreshable<Store<T>>; node: Computed<void | T> };
 }
 

@@ -125,7 +125,7 @@ export const CONFIG_SLOT_NODE = 1 << 12;
 export const CONFIG_MANUAL_WRITE = 1 << 18;
 /** D-41: the staged value in `_pendingValue` is an error — an
  * answer of the held frame, published at its landing like a value. */
-export const CONFIG_STAGED_ERROR = 1 << 19;
+export const CONFIG_STAGED_ERROR = 1 << 21;
 /** Lanes — the node carries a written guess (`optimisticWrite`): its own
  * source recomputing it, or a plain write landing on it, is the truth
  * (`supersede`). A lane's derived staging is not. */
@@ -145,6 +145,10 @@ export const CONFIG_VERDICT = 1 << 15;
  * promise over an expression (`resolve`/`until`, signals.ts: the pass reads
  * the error and rejects, or re-asks a pending source). */
 export const CONFIG_REDERIVE = 1 << 14;
+/** An answered `createDeferred` node (deferred.ts): held because a
+ * downstream hold staged its landing, its re-pass is a lagging question,
+ * not an answer, and joins no transaction (D-40). */
+export const CONFIG_LAGS = 1 << 19;
 /** The reader wants the truth, not the lane's guess (`until`, signals.ts):
  * a read of displayed optimism serves the base the guess covers, makes the
  * pass no lane's, and the truth landing wakes it even when it confirms the

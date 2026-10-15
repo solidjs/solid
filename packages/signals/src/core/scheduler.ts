@@ -692,6 +692,9 @@ export class GlobalQueue implements IQueue {
   declare static _storePark: ((t: Transaction) => void) | undefined;
   // `affects()` marks (affects.ts): the probe's coverage test, the releases
   // at a landing and at the seam (ambient marks).
+  /** `createDeferred` (deferred.ts): a deferred node with a flight up that
+   * `c` derives from, if any — a truth reader waits on it. */
+  declare static _lagging: ((c: Computed<any>) => Computed<any> | undefined) | undefined;
   declare static _marked: ((el: Signal<any> | Computed<any>) => boolean) | undefined;
   declare static _releaseMarks: ((nodes: Signal<any>[]) => void) | undefined;
   declare static _releaseAmbientMarks: ((parked: Transaction | null) => void) | undefined;

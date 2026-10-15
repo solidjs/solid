@@ -892,6 +892,13 @@ export namespace JSX {
     extends CustomAttributes<T>, PropAttributes, EventHandlersElement<T>, AriaAttributes {
     // [key: ClassKeys]: boolean;
 
+    /**
+     * `data-*` attributes. JSX already accepts hyphenated names; this types
+     * them in props objects too (`ComponentProps<"div">`, a spread's source).
+     * `true` writes `""`; `false` and `undefined` remove the attribute.
+     */
+    [key: `data-${string}`]: FunctionMaybe<string | number | boolean | undefined>;
+
     // properties
     innerHTML?: FunctionMaybe<string>;
     textContent?: FunctionMaybe<string | number>;
