@@ -1052,8 +1052,15 @@ module.exports = [
     // them their transaction instead of the committed screen. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-13.
-    limit: "14.94 KB",
-    capMinified: 45365,
+    // Size-Exception (createDeferred, D-40, 2026-10-15): 14.94 -> 15.00 KB,
+    // measured at 14,989 B with `next` @ b2c6e4ba merged in (45,365 ->
+    // 45,395 B minified). #4067's +17 B store share (the D11 check in
+    // `recompute`, the REACTIVE_REASK mask, the projection `fam` hook) plus
+    // #4073's seedless derived stores, each inside the 20 B allowance
+    // alone, together pass it. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-14).
+    limit: "15.00 KB",
+    capMinified: 45395,
     alias
   },
   {
@@ -2456,8 +2463,15 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    limit: "29.65 KB",
-    capMinified: 93714,
+    // Size-Exception (createDeferred, D-40, 2026-10-15): 29.65 -> 29.71 KB,
+    // measured at 29,697 B with `next` @ b2c6e4ba merged in (93,714 ->
+    // 93,740 B minified). #4067's +17 B store share (the D11 check in
+    // `recompute`, the REACTIVE_REASK mask, the projection `fam` hook) plus
+    // #4073's seedless derived stores, each inside the 20 B allowance
+    // alone, together pass it. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-14).
+    limit: "29.71 KB",
+    capMinified: 93740,
     alias
   },
   {
@@ -3802,8 +3816,15 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    limit: "31.78 KB",
-    capMinified: 101338,
+    // Size-Exception (createDeferred, D-40, 2026-10-15): 31.78 -> 31.84 KB,
+    // measured at 31,823 B with `next` @ b2c6e4ba merged in (101,338 ->
+    // 101,357 B minified). #4067's +17 B store share (the D11 check in
+    // `recompute`, the REACTIVE_REASK mask, the projection `fam` hook) plus
+    // #4073's seedless derived stores, each inside the 20 B allowance
+    // alone, together pass it. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-14).
+    limit: "31.84 KB",
+    capMinified: 101357,
     alias
   },
   {
