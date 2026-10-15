@@ -18,7 +18,7 @@ import {
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
-import { IS_DEV, IS_OBSERVE, devCheck, emitFinding, errorText } from "./diagnostics.js";
+import { IS_DEV, IS_OBSERVE, codeWaits, devCheck, emitFinding, errorText } from "./diagnostics.js";
 import type { BoundaryEvent, BoundaryLive } from "./observe.js";
 import type { SSRTemplateObject, HydrationContext } from "./shared.js";
 import type { Accessor } from "./signals.js";
@@ -123,6 +123,9 @@ function ssrLoadingBoundary(
   // Render passes over the content: discovery, plus one per wait. Doubles as
   // the convergence budget's counter below.
   let passes = 0;
+  // Dev: the passes that waited only on module code (see `codeWaits`). The
+  // waterfall check leaves them out; the record still counts every pass.
+  let codePasses = 0;
 
   // Observe tier: the boundary RECORD (`OBSERVE.records`, type `"boundary"`
   // — see `BoundaryEvent`), for a boundary that waited. One gate for the
@@ -202,7 +205,7 @@ function ssrLoadingBoundary(
     // fetch is sometimes intrinsic), depth 3+ earns the console — but its
     // own code: the proof here is the boundary's pass structure, not a
     // flight chain, and the repair is read off the boundary record.
-    const flights = passes - 1;
+    const flights = passes - 1 - codePasses;
     if (flights >= 2) {
       const severity = flights > 2 ? "warn" : "info";
       devCheck(
@@ -212,11 +215,15 @@ function ssrLoadingBoundary(
           severity,
           message:
             `[SSR_BOUNDARY_WATERFALL] A <Loading> boundary took ${passes} render passes — ` +
-            `${flights} sequential async waits, ${durationMs.toFixed(0)}ms end to end: each ` +
+            `${flights} sequential async waits` +
+            (codePasses ? ` (not counting ${codePasses} on lazy() code)` : "") +
+            `, ${durationMs.toFixed(0)}ms end to end: each ` +
             `read could start only after the previous one answered. If a later read doesn't ` +
             `need the earlier answer, derive both from the same inputs so they start together; ` +
             `if the dependency is intrinsic, preload the dependent data or join the requests.`,
-          data: { boundary: id, passes, sequentialMs: durationMs }
+          data: codePasses
+            ? { boundary: id, passes, codePasses, sequentialMs: durationMs }
+            : { boundary: id, passes, sequentialMs: durationMs }
         },
         o
       );
@@ -656,6 +663,7 @@ function ssrLoadingBoundary(
         while (retryPromise) {
           if (hasFinalHole()) return clientHandoff();
           checkBudget();
+          if (IS_DEV) codeWaits!.has(retryPromise) && codePasses++;
           await retryPromise.catch(() => {});
           if (disposed) return abandon();
           ret = runDiscovery();
@@ -667,6 +675,7 @@ function ssrLoadingBoundary(
           checkBudget();
           await Promise.all(pending.p).catch(() => {});
           if (disposed) return abandon();
+          if (IS_DEV) pending.p.every(p => codeWaits!.has(p)) && codePasses++;
           passes++;
           ret = runLoadingPhase(() => resolveIn(() => ctx.ssr(pending.t, ...pending.h))) as any;
         }

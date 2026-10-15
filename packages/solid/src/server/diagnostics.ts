@@ -18,6 +18,16 @@ export const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
 export type Finding = Omit<DiagnosticEvent, "sequence">;
 
 /**
+ * Dev only: the promises a render waits on that are module CODE — a
+ * `lazy()`/`lazyModule()` chunk import or its asset resolution — not data.
+ * A `<Loading>` boundary's waterfall check leaves passes that waited only on
+ * these out of its count: a cold module cache resolves nested route chunks
+ * one level per pass even when the router started every import together,
+ * and the data advice doesn't apply to code (#4105).
+ */
+export const codeWaits: WeakSet<object> | undefined = IS_DEV ? new WeakSet() : undefined;
+
+/**
  * Records a finding on `OBSERVE.diagnostics` — observe and dev tiers — and,
  * in dev, reports it on the console through the core's one face (message,
  * `in <App> › <Page>`, the once-per-code footer). `subject` locates it; the

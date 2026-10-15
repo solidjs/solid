@@ -840,9 +840,13 @@ on; `renderToString` has none. Use `renderToStream`, or drop the ordering.
 A `<Loading>` boundary rendered in `data.passes` passes — discovery, then
 one per wait — and each pass past the first is a read that could only start
 once the previous pass's async answered: `passes - 1` sequential waits,
-`data.sequentialMs` end to end. Unlike the client's `ASYNC_WATERFALL` this
-proof is exact (the pass structure IS the chain), so there is no `markFlight`
-false positive to rule out; the same repairs apply, in the same order:
+`data.sequentialMs` end to end. Passes that waited only on `lazy()` code (a
+chunk import or its asset lookup) are not counted, because a cold module
+cache resolves nested route chunks one level per pass even when the router
+started every import together; `data.codePasses` says how many were left
+out. Unlike the client's `ASYNC_WATERFALL` the remaining proof is exact (the
+pass structure IS the chain), so there is no `markFlight` false positive to
+rule out; the same repairs apply, in the same order:
 derive both reads from the same inputs so they start together (read ALL
 async sources before using any), or, if the dependency is intrinsic, preload
 the dependent data or join the requests. Two waits are `info` — a lead;

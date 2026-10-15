@@ -10,7 +10,7 @@ import {
   createComponentOwner,
   type Owner
 } from "./signals.js";
-import { IS_DEV, IS_OBSERVE, devCheck, errorText } from "./diagnostics.js";
+import { IS_DEV, IS_OBSERVE, codeWaits, devCheck, errorText } from "./diagnostics.js";
 import { sharedConfig, callerRenderContext, type ResolvedAssets } from "./shared.js";
 import type { Element as SolidElement } from "../types.js";
 
@@ -292,6 +292,7 @@ export function lazy<T extends Component<any>>(
   let load = () => {
     if (p) return p;
     const cur = (p = fn() as LoadingModule);
+    if (IS_DEV) codeWaits!.add(cur);
     cur.then(
       (mod: any) => {
         // The full namespace is kept alongside the resolved component so a
@@ -406,6 +407,7 @@ export function lazy<T extends Component<any>>(
           assetsPending = undefined;
         };
         assetsPending = assetsPending.then(clear, clear);
+        if (IS_DEV) codeWaits!.add(assetsPending);
       }
     }
     // The module load is CODE, not data: the shell's "no new async discovered
@@ -557,6 +559,7 @@ export function lazyModule<T extends Record<string, any>>(
   const load = (): Loading => {
     if (p) return p;
     const cur = (p = fn() as Loading);
+    if (IS_DEV) codeWaits!.add(cur);
     cur.then(
       (mod: T) => {
         cur.mod = mod;
@@ -622,6 +625,7 @@ export function lazyModule<T extends Record<string, any>>(
           assetsPending = undefined;
         };
         assetsPending = assetsPending.then(clear, clear);
+        if (IS_DEV) codeWaits!.add(assetsPending);
       }
     }
     if (ctx.async && ((cur.mod === undefined && !cur.errored) || assetsPending)) {
