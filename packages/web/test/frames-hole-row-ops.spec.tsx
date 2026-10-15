@@ -114,6 +114,40 @@ describe("row ops on a live For hole", () => {
     await done();
   });
 
+  test("a hole re-sent whole skips identical rows and still lands deep changes", async () => {
+    const { container, items, send, done } = await mount();
+    const [a, b, c] = items();
+    const changed: Node[] = [];
+    const observer = new MutationObserver(records => {
+      for (const r of records) changed.push(r.target);
+    });
+    observer.observe(container, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true
+    });
+    send({
+      type: "hole",
+      key: "lh:0",
+      html: `<!--lr--><li>a</li><!--lr--><li class="x"><b>b</b></li><!--lr--><li>c</li>`,
+      digest: "d1"
+    });
+    await cycle();
+    observer.disconnect();
+    expect(items().map(li => li.outerHTML)).toEqual([
+      "<li>a</li>",
+      '<li class="x"><b>b</b></li>',
+      "<li>c</li>"
+    ]);
+    expect(items()[0]).toBe(a);
+    expect(items()[1]).toBe(b);
+    expect(items()[2]).toBe(c);
+    // The identical rows were skipped whole: every change is inside row b.
+    expect(changed.every(n => b.contains(n))).toBe(true);
+    await done();
+  });
+
   test("morphs only the changed row, appends and truncates at the tail", async () => {
     await prepareTier("wire");
     const { items, send, done } = await mount();
