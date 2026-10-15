@@ -766,13 +766,16 @@ function transformAttributes(
       )
     ) {
       classArrayAttribute.node.value = t.stringLiteral(staticClasses.join(" "));
+      const dynamicClassAttribute = t.jsxAttribute(
+        t.jsxIdentifier("class"),
+        t.jsxExpressionContainer(dynamicClassElement)
+      );
+      // `sourceNames.locations`: the split-out object locates at the array
+      // attribute it came from.
+      dynamicClassAttribute.loc = classArrayAttribute.node.loc;
       path
         .get("openingElement")
-        .node.attributes.splice(
-          Number(classArrayAttribute.key) + 1,
-          0,
-          t.jsxAttribute(t.jsxIdentifier("class"), t.jsxExpressionContainer(dynamicClassElement))
-        );
+        .node.attributes.splice(Number(classArrayAttribute.key) + 1, 0, dynamicClassAttribute);
     }
   }
 
@@ -1393,8 +1396,10 @@ function transformChildren(
         if (!transformed) return memo;
         (transformed as TransformResult & { allocatesIds?: boolean }).allocatesIds = allocatesIds;
         (transformed as TransformResult & { functionHole?: boolean }).functionHole = functionHole;
-        // `sourceNames.locations`: where the hole is written, for its insert.
-        if (child.isJSXExpressionContainer()) transformed.loc = sourceLocation(child, child.node);
+        // `sourceNames.locations`: where the hole is written, for its insert
+        // (a spread child `{...items()}` is a hole too).
+        if (child.isJSXExpressionContainer() || child.isJSXSpreadChild())
+          transformed.loc = sourceLocation(child, child.node);
         const i = memo.length;
         if (transformed.text && i && memo[i - 1].text) {
           memo[i - 1].template =
