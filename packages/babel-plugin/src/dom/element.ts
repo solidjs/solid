@@ -38,6 +38,7 @@ import {
 import { transformNode } from "../shared/transform";
 import { decodedAttrValue } from "../universal/element";
 import { namesBindings } from "../config";
+import { bindingOptions, sourceLocation } from "../shared/location";
 import { InlineElements, BlockElements } from "./constants";
 import type {
   BabelPath,
@@ -713,6 +714,8 @@ function transformAttributes(
           t.jsxExpressionContainer(p.value as babelTypes.Expression)
         );
         (newAttr as babelTypes.JSXAttribute & { _styleProperty?: boolean })._styleProperty = true;
+        // The split-out property is located at the `style` attribute it came from.
+        newAttr.loc = styleObjectAttribute.node.loc;
         path
           .get("openingElement")
           .node.attributes.splice(Number(styleObjectAttribute.key) + ++i, 0, newAttr);
@@ -815,6 +818,8 @@ function transformAttributes(
           t.jsxExpressionContainer(p.value as babelTypes.Expression)
         );
         (newAttr as babelTypes.JSXAttribute & { _classProperty?: boolean })._classProperty = true;
+        // The split-out property is located at the `class` attribute it came from.
+        newAttr.loc = classListAttribute.node.loc;
         path
           .get("openingElement")
           .node.attributes.splice(Number(classListAttribute.key) + ++i, 0, newAttr);
@@ -1223,7 +1228,11 @@ function transformAttributes(
             tagName,
             checkableInput,
             styleProperty: isStyleProperty,
-            classProperty: isClassProperty
+            classProperty: isClassProperty,
+            // `sourceNames.locations`: the attribute's start (for a property
+            // split out of a `style={{…}}` / `class={{…}}` object, the
+            // object attribute's start — see the pre-passes above).
+            loc: sourceLocation(attribute, attribute.node)
           });
         } else {
           results.exprs.push(
@@ -1384,6 +1393,8 @@ function transformChildren(
         if (!transformed) return memo;
         (transformed as TransformResult & { allocatesIds?: boolean }).allocatesIds = allocatesIds;
         (transformed as TransformResult & { functionHole?: boolean }).functionHole = functionHole;
+        // `sourceNames.locations`: where the hole is written, for its insert.
+        if (child.isJSXExpressionContainer()) transformed.loc = sourceLocation(child, child.node);
         const i = memo.length;
         if (transformed.text && i && memo[i - 1].text) {
           memo[i - 1].template =
@@ -1467,14 +1478,11 @@ function transformChildren(
       // is inserted directly and creates no effect to name.
       const accessorHole =
         child.dynamic || (child as TransformResult & { functionHole?: boolean }).functionHole;
+      // `sourceNames.locations`: `loc` after `name`, the hole's `{` start.
       const emitInsert = (args: babelTypes.Expression[]) => {
         if (accessorHole && namesBindings(getConfig(path))) {
           while (args.length < 4) args.push(t.identifier("undefined"));
-          args.push(
-            t.objectExpression([
-              t.objectProperty(t.identifier("name"), t.stringLiteral(`${tagName}.children`))
-            ])
-          );
+          args.push(bindingOptions(`${tagName}.children`, child.loc));
         }
         results.exprs.push(t.expressionStatement(t.callExpression(insert, args)));
       };
@@ -1774,7 +1782,14 @@ function processSpreads(
   // `sourceNames.bindings`: the tag as written rides as spread's trailing
   // argument (past the runtime-only `skip` slot); the runtime labels its
   // attribute effect `<tag>.spread` and its children insert `<tag>.children`.
-  if (namesBindings(config)) args.push(t.identifier("undefined"), t.stringLiteral(tagName));
+  // `sourceNames.locations`: the first spread attribute's start (`{...`)
+  // follows the name as one more string argument.
+  if (namesBindings(config)) {
+    args.push(t.identifier("undefined"), t.stringLiteral(tagName));
+    const spread = attributes.find(a => t.isJSXSpreadAttribute(a.node));
+    const loc = spread && sourceLocation(spread, spread.node);
+    if (loc !== undefined) args.push(t.stringLiteral(loc));
+  }
 
   return [
     filteredAttributes,
