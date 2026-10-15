@@ -440,5 +440,10 @@ export function createRoot<T>(
   options?: { id?: string; transparent?: boolean }
 ): T {
   const owner = createOwner(options);
-  return runWithOwner(owner, () => init(() => owner.dispose()));
+  return runWithOwner(owner, () => init(disposer(owner)));
 }
+
+// Built outside createRoot so the dispose function doesn't share its scope,
+// which holds `init`: keeping the dispose function would keep `init` and all
+// it closes over alive (#4095).
+const disposer = (owner: Root) => () => owner.dispose();
