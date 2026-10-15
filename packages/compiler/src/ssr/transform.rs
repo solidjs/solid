@@ -1534,6 +1534,39 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             element.span,
         )?;
         let children = self.spread_children_expression(&tag_name, element, do_not_escape)?;
+        // Plain SSR evaluates a named `ref` expression without calling the
+        // ref, as the template path does (`_ref$ = expr`), so a ref factory's
+        // owned setup (`ref={tooltip()}`) runs on both sides and the
+        // hydration ids after it line up (#4081). The client evaluates it
+        // after applying the spread and before the children; `ssrElement`
+        // calls the markup thunk at that point. Only an expression that
+        // calls something can run setup: `ref={el}` and `ref={props.ref}`
+        // stay out of the thunk. Babel: `refs` in `createElement`.
+        let refs: std::vec::Vec<Expression<'a>> = if self.server_components {
+            std::vec::Vec::new()
+        } else {
+            element
+                .opening_element
+                .attributes
+                .iter()
+                .filter_map(|attr| match attr {
+                    JSXAttributeItem::Attribute(attr)
+                        if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(name)
+                            if name.name == "ref") =>
+                    {
+                        match &attr.value {
+                            Some(JSXAttributeValue::ExpressionContainer(container)) => container
+                                .expression
+                                .as_expression()
+                                .filter(|expression| calls_outside_functions(expression))
+                                .map(|expression| expression.clone_in(self.allocator)),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
         let mut args = self.ast().vec_from_array([
             Argument::StringLiteral(self.ast().alloc_string_literal(
                 element.span,
@@ -1557,7 +1590,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 self.ast()
                     .expression_identifier(element.span, self.ast().ident(&skip)),
             ));
-            let markup = self.tail_markup(element.span, tail);
+            let markup = self.tail_markup(element.span, tail, refs);
+            args.push(expression_to_argument(markup));
+        } else if !refs.is_empty() {
+            args.push(expression_to_argument(self.ast().expression_identifier(
+                element.span,
+                self.ast().ident("undefined"),
+            )));
+            let markup = self.tail_markup(element.span, vec![TailPart::Text(String::new())], refs);
             args.push(expression_to_argument(markup));
         }
         // The claim map rides as a seventh argument, a thunk `ssrElement`
@@ -4067,7 +4107,15 @@ impl<'a> AstSsrTransform<'a, '_> {
 
     /// The attribute-string argument for a tail: a string literal when every
     /// part is fixed, else `() => "…" + ssrElementAttribute(…) + …`.
-    fn tail_markup(&self, span: Span, tail: std::vec::Vec<TailPart<'a>>) -> Expression<'a> {
+    /// `refs` (a spread element's ref expressions, #4081) run after the
+    /// tail's markup: `() => (ref, "markup")` for static markup, `() =>
+    /// markup + (ref, "")` for a dynamic one.
+    fn tail_markup(
+        &self,
+        span: Span,
+        tail: std::vec::Vec<TailPart<'a>>,
+        refs: std::vec::Vec<Expression<'a>>,
+    ) -> Expression<'a> {
         let ast = self.ast();
         if tail.iter().all(|part| matches!(part, TailPart::Text(_))) {
             let text: String = tail
@@ -4077,7 +4125,17 @@ impl<'a> AstSsrTransform<'a, '_> {
                     TailPart::Dynamic(_) => unreachable!("all parts are text"),
                 })
                 .collect();
-            return ast.expression_string_literal(span, ast.str(&text), None);
+            let text = ast.expression_string_literal(span, ast.str(&text), None);
+            if refs.is_empty() {
+                return text;
+            }
+            let mut sequence = ast.vec_from_iter(refs);
+            sequence.push(text);
+            return crate::shared::ast::concise_arrow_thunk(
+                self.allocator,
+                span,
+                ast.expression_sequence(span, sequence),
+            );
         }
         let mut concat: Option<Expression<'a>> = None;
         for part in tail {
@@ -4095,12 +4153,57 @@ impl<'a> AstSsrTransform<'a, '_> {
                 None => expression,
             });
         }
-        crate::shared::ast::concise_arrow_thunk(
-            self.allocator,
-            span,
-            concat.expect("a tail has at least one part"),
-        )
+        let mut concat = concat.expect("a tail has at least one part");
+        if !refs.is_empty() {
+            let mut sequence = ast.vec_from_iter(refs);
+            sequence.push(ast.expression_string_literal(span, ast.str(""), None));
+            concat = ast.expression_binary(
+                span,
+                concat,
+                oxc_ast::ast::BinaryOperator::Addition,
+                ast.expression_sequence(span, sequence),
+            );
+        }
+        crate::shared::ast::concise_arrow_thunk(self.allocator, span, concat)
     }
+}
+
+/// Does evaluating `expression` call anything? A function's body does not
+/// run. Babel: `callsOutsideFunctions`.
+fn calls_outside_functions(expression: &Expression<'_>) -> bool {
+    use oxc_ast_visit::Visit;
+
+    struct CallFinder {
+        found: bool,
+    }
+    impl<'b> Visit<'b> for CallFinder {
+        fn visit_call_expression(&mut self, _it: &oxc_ast::ast::CallExpression<'b>) {
+            self.found = true;
+        }
+        fn visit_new_expression(&mut self, _it: &oxc_ast::ast::NewExpression<'b>) {
+            self.found = true;
+        }
+        fn visit_tagged_template_expression(
+            &mut self,
+            _it: &oxc_ast::ast::TaggedTemplateExpression<'b>,
+        ) {
+            self.found = true;
+        }
+        fn visit_function(
+            &mut self,
+            _it: &oxc_ast::ast::Function<'b>,
+            _flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            _it: &oxc_ast::ast::ArrowFunctionExpression<'b>,
+        ) {
+        }
+    }
+    let mut finder = CallFinder { found: false };
+    finder.visit_expression(expression);
+    finder.found
 }
 
 /// Serializes a static SSR attribute value: empty values become bare

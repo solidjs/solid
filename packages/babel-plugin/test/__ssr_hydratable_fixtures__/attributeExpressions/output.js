@@ -92,7 +92,9 @@ var _sk$ = k => k === "foo" || k === "disabled" || k === "title" || k === "style
   _sk$6 = k => k === "class" || k === "data-kind",
   _sk$7 = k => k === "class" || k === "data-id",
   _sk$8 = k => k === "id",
-  _sk$9 = k => k === "disabled" || k === "type" || k === "tabindex" || k === "style";
+  _sk$9 = k => k === "disabled" || k === "type" || k === "tabindex" || k === "style",
+  _sk$0 = k => k === "class",
+  _sk$1 = k => k === "title";
 _$ssrSelectValues();
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
@@ -804,3 +806,33 @@ var _v$144 = _$ssrHydrationKey(),
 const nullableAttributes = _$ssr(_tmpl$51, _v$144, _g$4, _g$4, _g$4);
 var _v$150 = _$ssrHydrationKey();
 const emptyAttributes = _$ssr(_tmpl$52, _v$150);
+
+// solidjs/solid#4081: a ref expression that calls something is evaluated
+// beside a spread too, as the template path evaluates it (`_ref$ = expr`), so
+// a ref factory's owned setup runs on both sides. It runs in the attrs thunk:
+// after the spread and the tail markup, before the children. A call-free ref
+// (`ref={link}`, template116) is not evaluated.
+const spreadRefFactory = _$ssrElement(
+  "div",
+  spread,
+  undefined,
+  true,
+  undefined,
+  () => (refFactory(), "")
+);
+const spreadRefTail = _$ssrElement(
+  "div",
+  spread,
+  undefined,
+  true,
+  _sk$0,
+  () => ([refFactory(), props.ref], ' class="row"')
+);
+const spreadRefDynamicTail = _$ssrElement(
+  "input",
+  spread,
+  undefined,
+  true,
+  _sk$1,
+  () => _$ssrElementAttribute("title", title()) + (refFactory(), "")
+);
