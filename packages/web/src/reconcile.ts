@@ -9,34 +9,29 @@ export default function reconcileArrays(
   marker?: Node | null
 ): void;
 export default function reconcileArrays(parentNode: any, a: any[], b: any[], marker?: any) {
+  // Ownership: an unclaimed node (no `$$SLOT`) is fair game; a tagged node
+  // belongs only to the slot whose marker matches. `a[]` can name a node that
+  // replace/swap already took out of this parent (or out of this slot).
+  // Prefix/suffix must not treat those as still-live common ends — that was
+  // the 2fe6310f drop (#574).
+  const isLive = n => {
+    if (!n) return false;
+    const tag = n[$$SLOT];
+    return n.parentNode === parentNode && (!tag || tag === marker);
+  };
   let bLength = b.length,
     aEnd = a.length,
     bEnd = bLength,
     aStart = 0,
     bStart = 0,
     tail = a[aEnd - 1],
-    tailTag = tail[$$SLOT],
-    // Ownership tag: an unclaimed node (no `$$SLOT`) is fair game; a tagged
-    // node belongs only to the slot whose marker matches. If `a`'s tail has
-    // migrated to another slot — same parent or otherwise — `tail.nextSibling`
-    // points into a region we don't own, so fall back to `marker`. `marker ||
-    // null` keeps non-multi (root-mode) callers happy.
-    after =
-      tail.parentNode === parentNode && (!tailTag || tailTag === marker)
-        ? tail.nextSibling
-        : marker || null,
+    // If `a`'s tail has migrated to another slot — same parent or otherwise —
+    // `tail.nextSibling` points into a region we don't own, so fall back to
+    // `marker`. `marker || null` keeps non-multi (root-mode) callers happy.
+    after = isLive(tail) ? tail.nextSibling : marker || null,
     map = null,
     anchor,
     anchorTag;
-
-  // `a[]` can name a node that replace/swap already took out of this
-  // parent (or out of this slot). Prefix/suffix must not treat those as
-  // still-live common ends — that was the 2fe6310f drop (#574).
-  const isLive = n => {
-    if (!n) return false;
-    const tag = n[$$SLOT];
-    return n.parentNode === parentNode && (!tag || tag === marker);
-  };
 
   while (aStart < aEnd || bStart < bEnd) {
     // common prefix
@@ -56,11 +51,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
       if (bEnd < bLength) {
         if (bStart) {
           const prev = b[bStart - 1];
-          const prevTag = prev[$$SLOT];
-          node =
-            prev.parentNode === parentNode && (!prevTag || prevTag === marker)
-              ? prev.nextSibling
-              : after;
+          node = isLive(prev) ? prev.nextSibling : after;
         } else node = b[bEnd - bStart];
       } else node = after;
 
@@ -73,10 +64,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
     } else if (bEnd === bStart) {
       while (aStart < aEnd) {
         const n = a[aStart++];
-        if (!map || !map.has(n)) {
-          const tag = n[$$SLOT];
-          if (n.parentNode === parentNode && (!tag || tag === marker)) n.remove();
-        }
+        if ((!map || !map.has(n)) && isLive(n)) n.remove();
       }
       // swap backward — symmetric end-swap detected. Walk inward with a single
       // stable front anchor (a[aStart]); each move targets the same DOM-position
@@ -135,9 +123,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
 
           if (sequence > index - bStart) {
             const head = a[aStart];
-            const headTag = head[$$SLOT];
-            const node =
-              head.parentNode === parentNode && (!headTag || headTag === marker) ? head : after;
+            const node = isLive(head) ? head : after;
             while (bStart < index) {
               const n = b[bStart++];
               parentNode.insertBefore(n, node);
@@ -146,8 +132,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
           } else {
             const oldNode = a[aStart++];
             const newNode = b[bStart++];
-            const oldTag = oldNode[$$SLOT];
-            if (oldNode.parentNode === parentNode && (!oldTag || oldTag === marker)) {
+            if (isLive(oldNode)) {
               parentNode.replaceChild(newNode, oldNode);
             } else {
               parentNode.insertBefore(newNode, after);
@@ -157,8 +142,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
         } else aStart++;
       } else {
         const n = a[aStart++];
-        const nTag = n[$$SLOT];
-        if (n.parentNode === parentNode && (!nTag || nTag === marker)) n.remove();
+        if (isLive(n)) n.remove();
       }
     }
   }

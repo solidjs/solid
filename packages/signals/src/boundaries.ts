@@ -77,7 +77,9 @@ import {
   setPassLane,
   txOf,
   unhold,
-  type Transaction
+  type Transaction,
+  installBoundaryHooks,
+  laneStageHook
 } from "./core/scheduler.js";
 import { attrHooks } from "./core/attribution-hooks.js";
 import type { Computed, Owner, Signal } from "./core/types.js";
@@ -203,8 +205,7 @@ function flip(b: Boundary): void {
   b._lane = b._armLane;
   const o = b._output!;
   if (!b._lane && o._config & CONFIG_HELD && txOf(o) !== flushTransaction) unhold(o);
-  if (b._lane !== null && b._output !== null)
-    GlobalQueue._laneStage!(b._output, b._lane, true, false);
+  if (b._lane !== null && b._output !== null) laneStageHook!(b._output, b._lane, true, false);
 }
 
 export function redraw(b: Boundary): void {
@@ -214,7 +215,7 @@ export function redraw(b: Boundary): void {
   }
 }
 
-/** GlobalQueue._catch: status from a frame reader, nearest boundary first.
+/** `catchHook` (scheduler.ts): status from a frame reader, nearest boundary first.
  * A loading boundary on the way records a pending reader whether or not it
  * catches it (its `on` may collect it later). */
 function catchStatus(
@@ -261,14 +262,14 @@ function armedOver(node: Computed<any>): boolean | undefined {
 }
 
 /** The nearest boundary on `r`'s chain showing its fallback, if any
- * (GlobalQueue._hidden: `r` is behind a fallback). */
+ * (`hiddenHook`: `r` is behind a fallback). */
 function hiddenBy(r: Computed<any>): Boundary | undefined {
   for (let b: Boundary | null | undefined = boundaryOf(r); b; b = b._parent)
     if (b._fallback) return b;
   return undefined;
 }
 
-/** GlobalQueue._heldRun: a queued run behind a fallback waits for the reveal
+/** `heldRunHook` (scheduler.ts): a queued run behind a fallback waits for the reveal
  * (maintainer, 2026-10-02: the queue is held, the synchronous first render
  * goes through). A user effect's, which would read a DOM that is not
  * attached ("many depend on reading the DOM, something that can't happen
@@ -352,7 +353,7 @@ export function ready(b: Boundary): boolean {
   );
 }
 
-/** GlobalQueue._boundarySeam, end of the seam: readers that settled, died,
+/** `boundarySeamHook` (scheduler.ts), end of the seam: readers that settled, died,
  * or landed and committed are dropped; a fallback with none left reveals
  * next round. An arm resolves: nothing collected, nothing happened. */
 function boundarySeam(): void {
@@ -848,10 +849,14 @@ export function createErrorBoundary<T, U>(
 
 // Installed at module evaluation — present exactly when something imports a
 // boundary. An app without one pays the three null checks and nothing else.
-GlobalQueue._catch = catchStatus;
-GlobalQueue._fresh = (node, held) =>
-  !held &&
-  (node._statusFlags & STATUS_UNINITIALIZED ? catchStatus(node, STATUS_PENDING) : armedOver(node));
-GlobalQueue._hidden = hiddenBy;
-GlobalQueue._boundarySeam = boundarySeam;
-GlobalQueue._heldRun = heldRun;
+installBoundaryHooks(
+  catchStatus,
+  (node, held) =>
+    !held &&
+    (node._statusFlags & STATUS_UNINITIALIZED
+      ? catchStatus(node, STATUS_PENDING)
+      : armedOver(node)),
+  hiddenBy,
+  boundarySeam,
+  heldRun
+);

@@ -32,14 +32,15 @@ import {
   flush,
   flushTransaction,
   globalQueue,
-  GlobalQueue,
   joinFuture,
   MAINLINE_QUESTION,
   passLane,
   question,
   queuePendingNode,
   schedule,
-  txOf
+  txOf,
+  freshHook,
+  laneStageHook
 } from "./scheduler.js";
 import type { Computed, Link } from "./types.js";
 
@@ -955,7 +956,7 @@ export function propagateStatus(
         passLane === null &&
         (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
         globalQueue._running &&
-        !GlobalQueue._fresh?.(sub, pendingSource._time === clock)
+        !freshHook?.(sub, pendingSource._time === clock)
       )
         joinFuture(txOf(sub));
       return;
@@ -970,7 +971,7 @@ export function propagateStatus(
       // the dependent's pending is the lane's own flight (`laneStage`).
       if (!downstreamBlockStatus) {
         // (No answer: a pending propagation leaves a written guess a guess.)
-        if (passLane !== null) GlobalQueue._laneStage!(sub, passLane, true, el);
+        if (laneStageHook && passLane !== null) laneStageHook(sub, passLane, true, el);
         else {
           queuePendingNode(sub);
           // A15 (#3443): pending propagates onto a held memo without
