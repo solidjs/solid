@@ -3847,13 +3847,65 @@ export function createLiveHoles(sink, scoped, settled) {
       if (dispose) dispose();
     }
   };
-  // Resolve a hole thunk's value to a `{ t, h, p }` result. NotReady
-  // escalations are absorbed into h/p (the caller decides pending
-  // semantics); real errors propagate.
+  // Row ops (#4064): a hole whose value is a `For`'s rows (tagged `$rows`
+  // by `mapArray` in a live render) marks each row with `<!--lr-->`, so a
+  // sweep that changed some rows can send just those rows, by index, and
+  // the client morphs just their ranges. `resolveValue` resolves a hole's
+  // value into `res` and returns the rows' html (marker-free, the form a
+  // sweep compares) — or null for any other value, or when a row is still
+  // pending.
+  const stripRow = html => html.replace(/<!--lh:\/?\d+-->| data-lha="\d+"|<!--lr-->/g, "");
+  // A hole's value, with a `For`'s rows kept as rows: an `escape`-wrapped
+  // hole (`escapeLate`) would join them into one string, so its wrapped
+  // function is read instead and every other value escaped as the wrapper
+  // would have. A retry (`$lhBinding`) runs as it is, under the owner it
+  // restores; the rows are then the wrapped function's value it just
+  // computed (`b.fn`, a memo read in the same pass).
+  const rowsOf = v => (Array.isArray(v) && v.$rows ? v : null);
+  function holeValue(hole) {
+    const b = hole.$lhBinding;
+    if (b) {
+      const v = hole();
+      return (b.fn && rowsOf(b.fn())) || v;
+    }
+    if (!hole.$fn) return hole();
+    const v = hole.$fn();
+    return rowsOf(v) || escape(v);
+  }
+  function resolveValue(value, res) {
+    if (!Array.isArray(value) || !value.$rows) {
+      resolveSSRNode(value, res);
+      return null;
+    }
+    let rows = [];
+    for (const row of value) {
+      const r = resolveSSRNode(escape(row));
+      res.t[res.t.length - 1] += "<!--lr-->" + r.t[0];
+      if (r.h.length) {
+        res.t.push(...r.t.slice(1));
+        res.h.push(...r.h);
+        res.p.push(...r.p);
+        rows = null;
+      } else if (rows) rows.push(engine.sweeping ? r.t[0] : stripRow(r.t[0]));
+    }
+    return rows;
+  }
+  // The row ops from `last` to `rows`: the rows that changed or were
+  // appended, by index, and the new count (a shorter count truncates).
+  // Null when every row changed: the whole hole is then no more to send.
+  function rowOps(last, rows) {
+    const ops = [];
+    for (let i = 0; i < rows.length; i++)
+      if (i >= last.length || rows[i] !== last[i]) ops.push([i, rows[i]]);
+    return ops.length < rows.length ? { n: rows.length, r: ops } : null;
+  }
+  // Resolve a hole thunk's value to a `{ t, h, p }` result (`rows` as
+  // `resolveValue` returns them). NotReady escalations are absorbed into
+  // h/p (the caller decides pending semantics); real errors propagate.
   function resolveHoleValue(hole) {
-    const result = { t: [""], h: [], p: [] };
+    const result = { t: [""], h: [], p: [], rows: null };
     try {
-      resolveSSRNode(hole(), result);
+      result.rows = resolveValue(holeValue(hole), result);
     } catch (err) {
       const wrap = buildAsyncWrap(err, hole);
       if (!wrap) throw err;
@@ -3916,10 +3968,11 @@ export function createLiveHoles(sink, scoped, settled) {
       // never saw would swallow a needed emission.
       if (hole.$lhSuppress) {
         const r = { t: [""], h: [], p: [] };
+        let rows = null;
         engine.suppressed++;
         try {
           try {
-            resolveSSRNode(hole(), r);
+            rows = resolveValue(holeValue(hole), r);
           } catch (err) {
             const wrap = buildAsyncWrap(err, hole);
             // Real error: contribute nothing, matching the resolver's
@@ -3936,6 +3989,7 @@ export function createLiveHoles(sink, scoped, settled) {
         const b = hole.$lhBinding;
         if (b && !b.closed && !r.h.length && !engine.sweeping) {
           b.last = stripMarkers(r.t[0]);
+          b.rows = rows;
         }
         return r.h.length ? r : r.t[0];
       }
@@ -3956,6 +4010,10 @@ export function createLiveHoles(sink, scoped, settled) {
         key: null,
         children: [],
         last: null,
+        // The rows the client shows, when the value is a `For`'s, and the
+        // function an `escape` wrapper hides them behind (see `holeValue`).
+        rows: null,
+        fn: hole.$fn,
         closed: false,
         sweep() {
           if (b.closed) return;
@@ -3998,9 +4056,14 @@ export function createLiveHoles(sink, scoped, settled) {
           // would just re-ship what the splice is about to deliver.
           const html = res.t[0];
           if (b.last === null || html === b.last) return;
+          const ops = b.rows && res.rows && rowOps(b.rows, res.rows);
           b.last = html;
+          // Equal rows: the html differed only by the first render's markers.
+          if (ops && !ops.r.length && ops.n === b.rows.length) return;
+          b.rows = res.rows;
           closeChildren(b);
-          sink.hole(b.key, html);
+          // A sink that applies row ops takes them beside the html.
+          sink.hole(b.key, html, ops);
         }
       };
       if (engine.parent) engine.parent.children.push(b);
@@ -4014,7 +4077,7 @@ export function createLiveHoles(sink, scoped, settled) {
       let value;
       let escalated = null;
       try {
-        value = hole();
+        value = holeValue(hole);
       } catch (err) {
         const wrap = buildAsyncWrap(err, hole);
         if (!wrap) {
@@ -4045,6 +4108,7 @@ export function createLiveHoles(sink, scoped, settled) {
         return r.h.length ? r : r.t[0];
       }
       let res;
+      let rows = null;
       if (escalated) {
         // The retry chain resolves mint-suppressed (`$lhSuppress`, which
         // `resolveSSRNode` honors and propagates through re-wraps): a retry
@@ -4060,7 +4124,7 @@ export function createLiveHoles(sink, scoped, settled) {
       } else {
         res = { t: [""], h: [], p: [] };
         try {
-          resolveSSRNode(value, res);
+          rows = resolveValue(value, res);
         } catch (_) {
           engine.parent = prevParent;
           closeChildren(b);
@@ -4092,6 +4156,7 @@ export function createLiveHoles(sink, scoped, settled) {
       const close = `<!--lh:/${id}-->`;
       if (!res.h.length) {
         b.last = stripMarkers(res.t[0]);
+        b.rows = rows;
         sink.openBinding(key, b);
         return open + res.t[0] + close;
       }
@@ -5862,12 +5927,12 @@ function escapeLate(fn) {
   if (fn.$esc) return fn;
   const w = () => escape(fn());
   w.$esc = true;
-  // Dev: the wrapped function and the counter position it was registered
-  // at, for `UNSCOPED_HOLE_ALLOCATED_IDS` (`checkUnscopedHole`).
-  if ("_SOLID_DEV_") {
-    w.$fn = fn;
-    w.$reg = devPeekId();
-  }
+  // The wrapped function: a live hole reads a `For`'s rows through it
+  // before `escape` joins them (the engine's `holeValue`), and dev's
+  // `UNSCOPED_HOLE_ALLOCATED_IDS` (`checkUnscopedHole`) names it.
+  w.$fn = fn;
+  // Dev: the counter position it was registered at.
+  if ("_SOLID_DEV_") w.$reg = devPeekId();
   if (fn.$lhSkip) w.$lhSkip = true;
   if (fn.$lhSuppress) w.$lhSuppress = true;
   if (fn.$lhBinding) w.$lhBinding = fn.$lhBinding;

@@ -77,7 +77,7 @@ import { sharedConfig } from "solid-js/internal";
 // The eager frames client — the SHARED instance the app runs (see above).
 import { isAsyncValue } from "./client.js";
 // Own copies: the marker constants and the dev-only shape finders.
-import { SLOT_MARKER, SLOT_TEXT, shapeOf, slotShapeFinding } from "./frame-client.js";
+import { SLOT_MARKER, SLOT_TEXT, collectSlots, shapeOf, slotShapeFinding } from "./frame-client.js";
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of
 // the prod chunk (`bind.js`); the dev chunk (`bind.dev.js`, the
@@ -239,6 +239,90 @@ export function rebinder(frame: object, occurrence: string, fn: (consumers: any[
  *  registers its own rebinder). */
 export function unmount(frame: object, occurrence: string): void {
   byFrame.get(frame)?.delete(occurrence);
+}
+
+// === The scoped slot sync ===
+
+/**
+ * The slot sync's discovery after a write that changed the frame's DOM only
+ * inside the ranges its live holes morphed (frame-client.ts `apply`): the
+ * last full walk's found map with what lay in those ranges taken out, plus
+ * a walk of the ranges alone — the map a full walk would produce, in the
+ * same consumer order. A live stream's every write otherwise re-walked,
+ * and re-parsed the markers of, everything the frame shows. `ranges` are
+ * `[open, close]` for a hole, `[element]` for an attr patch; `root` the
+ * frame's element. Returns false, leaving `found` untouched, where reuse
+ * cannot be exact (the caller walks the whole frame): no previous walk, an
+ * attr patch on an element that carries markers or was a consumer, or a
+ * hole whose parent element is a consumer (a text position inside the
+ * range would join that element's entry, whose positions outside the range
+ * keep their place).
+ */
+export function reuse(
+  last: Map<string, any> | undefined,
+  ranges: any[][],
+  found: Map<string, any> & { b?: boolean },
+  root: Element
+): boolean {
+  if (!last) return false;
+  // In the frame, not in the document: a frame an <Errored> fallback
+  // detached still holds what it held.
+  const own = (n: Node) => root.contains(n);
+  // Ranges still in the frame, outermost only: a hole re-emitted inside
+  // another this write also morphed is walked as part of it.
+  const live = ranges.filter(r => own(r[0]));
+  const inRange = (n: Node, skip?: any[]) => {
+    for (const r of live)
+      if (
+        r !== skip &&
+        r[1] &&
+        n !== r[0] &&
+        n !== r[1] &&
+        // DOCUMENT_POSITION_FOLLOWING (4) / _PRECEDING (2).
+        r[0].compareDocumentPosition(n) & 4 &&
+        r[1].compareDocumentPosition(n) & 2
+      )
+        return true;
+    return false;
+  };
+  const parents = new Set<Node>();
+  for (const r of live) {
+    if (r[1]) parents.add(r[0].parentNode);
+    else if (slotPositions(r[0])) return false;
+    else parents.add(r[0]);
+  }
+  for (const value of last.values())
+    if (Array.isArray(value)) for (const c of value) if (parents.has(c.element)) return false;
+  for (const [occurrence, value] of last) {
+    if (!Array.isArray(value)) {
+      if (own(value) && !inRange(value)) found.set(occurrence, value);
+      continue;
+    }
+    const kept: any[] = [];
+    for (const c of value)
+      if (own(c.element) && !inRange(c.element))
+        kept.push({ element: c.element, positions: c.positions.slice() });
+    if (kept.length) found.set(occurrence, kept);
+  }
+  if ((last as any).b) found.b = true;
+  const sizes = new Map<string, number>();
+  for (const [occurrence, value] of found)
+    if (Array.isArray(value)) sizes.set(occurrence, value.length);
+  for (const r of live)
+    if (r[1] && !inRange(r[0], r)) collectSlots(r[0].parentNode, found, found, r[0], r[1]);
+  // Consumers a range walk added join a kept list at their document
+  // position — an element by itself, a text-only one by its first marker,
+  // the point a full walk would have pushed it.
+  for (const [occurrence, value] of found)
+    if (Array.isArray(value) && value.length > 1 && sizes.get(occurrence) !== value.length)
+      value.sort((a, b) =>
+        (a.positions[0].start || a.element).compareDocumentPosition(
+          b.positions[0].start || b.element
+        ) & 4
+          ? -1
+          : 1
+      );
+  return true;
 }
 
 // === The morph's owned-position arms ===
