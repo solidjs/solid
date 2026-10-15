@@ -47,6 +47,7 @@ import {
   FRAME_ID_ATTR,
   isAsyncValue,
   prepareTier,
+  setDeferBind,
   slotShapeFinding,
   tierLoaders,
   tierLoads,
@@ -1651,7 +1652,27 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
   // the document announced with its first server component's records —
   // their imports start now, ahead of the adopt-time syncs that need them.
   Object.assign(tierLoaders, options?.tiers);
-  g._$HY?.r?.["sc:tiers"]?.forEach(prepareTier);
+  const announced: string[] | undefined = g._$HY?.r?.["sc:tiers"];
+  // SPIKE (deferred binding): with the `sc-resume` cookie set, the bind
+  // tier is neither loaded nor its markers walked until the user's first
+  // interaction of any kind. Nothing on the client can have written state a
+  // fill reads before then, so every bound position still shows what the
+  // server drew. The first event starts the load; its install flush binds
+  // every occurrence on the page. No replay is needed here: an element
+  // with a handler position carries `_hk`, so the hydration bootstrap
+  // queued the event, and the bind's write completes the element and
+  // drains the queue (`runHydrationEvents`).
+  if (typeof document !== "undefined" && /\bsc-resume=1\b/.test(document.cookie)) {
+    setDeferBind(true);
+    announced?.filter(t => t !== "bind").forEach(prepareTier);
+    const types = ["click", "input", "change", "keydown", "pointerdown", "submit", "focusin"];
+    const wake = () => {
+      types.forEach(t => document.removeEventListener(t, wake, true));
+      setDeferBind(false);
+      prepareTier("bind");
+    };
+    types.forEach(t => document.addEventListener(t, wake, true));
+  } else announced?.forEach(prepareTier);
   // Upgrade the document shell's placeholder bootstrap (if present): the
   // hydration data scripts resolved server-component references to stable
   // per-id placeholders; installing `impl` makes them mount-adopting.

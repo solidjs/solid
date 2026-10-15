@@ -2799,10 +2799,21 @@ function findPlaceholder(n, end, id) {
  * further occurrences of either kind.
  */
 /** @internal (exported for the bind tier's `reuse`) */
+// SPIKE (resume-on-interaction): while set, the walk does not look for
+// `_s:*` positions at all — the comments-only pass, no note, no hold — so a
+// document's binding slots stay as the server left them until the first
+// interaction clears it and starts the bind tier's load (client.ts).
+export let deferBind = false;
+/** @internal */
+export function setDeferBind(v: boolean) {
+  deferBind = v;
+}
+
 export function collectSlots(root, out, elements, from?, to?) {
   let announced;
   // `elements` is the found map or undefined; `tierLoads.bind` a promise or undefined.
   const bind =
+    !deferBind &&
     elements &&
     (tierLoads.bind ||
       !(announced = (globalThis as any)._$HY?.r?.["sc:tiers"]) ||
