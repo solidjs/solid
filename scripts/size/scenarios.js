@@ -4581,7 +4581,7 @@ module.exports = [
     // server-dbmon, 400 rows, 10% changing, 4x CPU: 28 popover subtrees
     // re-inserted per tick -> 0; main-thread busy 771-910 -> 571-705 ms/s.
     // Recorded minified (floor-caps.json) 106,704 -> 106,772; the brotli cap
-    // is unchanged.
+    // is unchanged. Accepted by the maintainer (2026-10-15).
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
