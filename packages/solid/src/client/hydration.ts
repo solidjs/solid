@@ -2740,6 +2740,12 @@ export const createLoadingBoundary = (<T, U>(
   options?: { on?: () => any }
 ) => Accessor<T | U>;
 
+/** Loads the modules in the boundary's map (`<id>_assets`; none when the
+ * server wrote no map) that its content needs before it can claim server
+ * DOM. */
+const boundaryAssets = (id: string): Promise<void> | undefined =>
+  sharedConfig.loadModuleAssets?.(sharedConfig.load!(id + "_assets"));
+
 function hydratedCreateLoadingBoundary<T, U>(
   fn: () => T,
   fallback: () => U,
@@ -2753,12 +2759,7 @@ function hydratedCreateLoadingBoundary<T, U>(
     const o = getOwner()!;
     const id = o.id!;
 
-    let assetPromise: Promise<void> | undefined;
-    if (sharedConfig.hydrating && sharedConfig.has!(id + "_assets")) {
-      const mapping = sharedConfig.load!(id + "_assets");
-      if (mapping && typeof mapping === "object")
-        assetPromise = sharedConfig.loadModuleAssets?.(mapping);
-    }
+    const assetPromise = sharedConfig.hydrating ? boundaryAssets(id) : undefined;
 
     // Check boundary serialization key (sync SSR path: ctx.serialize(id, ...))
     if (sharedConfig.hydrating && sharedConfig.has!(id)) {
@@ -2910,7 +2911,16 @@ function hydratedCreateLoadingBoundary<T, U>(
         fr,
         shouldHydrate =>
           shouldHydrate
-            ? whenRevealed(id, () => resume(true))
+            ? whenRevealed(id, () => {
+                // A fragment can be the first to carry the boundary's
+                // module map (its content rendered after the shell
+                // flushed): load what it brought before claiming the
+                // revealed content. Resuming first renders nothing while
+                // the module loads, and that empty render clears the
+                // parent (#4087).
+                const assets = boundaryAssets(id);
+                assets ? waitAndResume(true, resume, assets) : resume(true);
+              })
             : IS_OBSERVE
               ? recover(id, registeredAt, resume)
               : resume(false),
