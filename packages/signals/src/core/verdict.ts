@@ -211,7 +211,7 @@ function heldNotFinal(owner: Computed<any>): boolean {
     !latestActive &&
     !owner._x!._reask &&
     !(owner._statusFlags & STATUS_UNINITIALIZED) &&
-    (owner._x!._shownError !== undefined ||
+    (!!owner._x!._shownError ||
       !owner._equals ||
       !owner._equals(owner._value as any, owner._pendingValue as any))
   );

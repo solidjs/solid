@@ -1176,7 +1176,7 @@ export function commitPendingNode(n: Signal<any>): void {
   const inFlight = n._pendingValue === NOT_PENDING && (c._statusFlags! & STATUS_PENDING) !== 0;
   const err = n._config & CONFIG_STAGED_ERROR;
   // An answer commits: the error it replaces leaves the display (D-41).
-  if (!inFlight && c._x != null) c._x._shownError = undefined;
+  if (!inFlight && c._x) c._x._shownError = undefined;
   n._config = inFlight
     ? (n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_INPUTS_PUBLISHED
     : n._config &

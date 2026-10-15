@@ -187,15 +187,15 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
   if (
     !(
       el._config & CONFIG_HELD ||
-      (inPass && el._flags & REACTIVE_STAGED_READ && flushTransaction !== null)
+      (inPass && el._flags & REACTIVE_STAGED_READ && flushTransaction)
     ) ||
-    passLane !== null
+    passLane
   )
     return false;
   // The node answered (an error ends the wait — no longer pending, nor
   // blocked); a shown error stays its display until the commit.
   clearPendingSources(el);
-  if (el._x !== null) el._x._blocked = false;
+  if (el._x) el._x._blocked = false;
   if (!((el._statusFlags &= STATUS_ERROR | STATUS_UNINITIALIZED) & STATUS_ERROR))
     setPendingError(el);
   el._pendingValue = error instanceof StatusError ? error : new StatusError(el, error);

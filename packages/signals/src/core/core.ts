@@ -573,7 +573,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     try {
       valueChanged =
         (!isEffect && wasUninitialized) ||
-        el._x?._shownError !== undefined ||
+        !!el._x?._shownError ||
         !el._equals ||
         !el._equals(compareValue, value);
     } catch (e) {
@@ -1873,7 +1873,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   if (committed) return el._value as T;
   // D-41: an untracked read reads the screen, and a shown error is on it
   // until the answer that replaces it commits.
-  if (!c && el._x?._shownError !== undefined) throw el._x._shownError;
+  if (!c && el._x?._shownError) throw el._x._shownError;
   const value = serve(el, c as Computed<any> | null) as T;
   if (
     !c &&
@@ -2042,7 +2042,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // value was — the error leaves at its commit (`commitPendingNode`).
   const valueChanged =
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
-    el._x?._shownError !== undefined ||
+    !!el._x?._shownError ||
     !el._equals ||
     !el._equals(currentValue, v);
   if (!valueChanged) return v;
