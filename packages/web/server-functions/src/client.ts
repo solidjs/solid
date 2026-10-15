@@ -177,7 +177,9 @@ export interface ServerFunctionsClientConfig {
   /**
    * Codec options (extra plugins etc.) for encoding arguments and decoding
    * results — must match the server's. Stored in the shared layer, so
-   * `decodeResponse` sees them too.
+   * `decodeResponse` sees them too. Arguments never carry `Response` or
+   * `Request` values, whatever plugins are configured: the server refuses
+   * them, and the rich-args encoder rejects the call before sending.
    */
   codec?: JSONCodecOptions;
   /**

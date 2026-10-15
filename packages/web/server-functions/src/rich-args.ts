@@ -10,19 +10,22 @@
 // sent; responses negotiate independently — the server answers JSON-safe
 // results as plain JSON and only rich results wake the decode half.
 import { getServerFunctionsCodec, serializeString } from "./shared.js";
-import { configureServerFunctionsClient } from "./client.js"; /**
+import { configureServerFunctionsClient } from "./client.js";
+import { argumentEncodeCodec } from "./argument-codec.js"; /**
  * Opt-in codec encoding for server-function ARGUMENTS. By default the client
  * sends argument lists as plain JSON (no serializer in the bundle) and
  * throws on values JSON can't carry faithfully. Call once at startup to
  * send Dates, Maps, Sets, typed arrays, cyclic structures, etc. through the
  * codec — at the cost of the serializer's write half (~5 KB gz on top of
  * the decode half responses already need). The handler accepts both
- * encodings unconditionally.
+ * encodings unconditionally. `Response` and `Request` values are refused
+ * (the call rejects before anything is sent): the handler never decodes
+ * them from arguments.
  */
 export function enableRichArguments(): void;
 
 export function enableRichArguments() {
   configureServerFunctionsClient({
-    serializeArgs: args => serializeString(args, getServerFunctionsCodec())
+    serializeArgs: args => serializeString(args, argumentEncodeCodec(getServerFunctionsCodec()))
   });
 }
