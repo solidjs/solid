@@ -2433,8 +2433,14 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    limit: "29.65 KB",
-    capMinified: 93714,
+    // Size-Exception (a fragment revealed before its _fr settles hydrates the
+    // revealed content, #4074, #4075, 2026-10-15): 29.65 -> 29.69 KB, CI measured
+    // 29,678 B (+30 B minified, 93,714 -> 93,753) — the still-streaming
+    // branch of hydratedCreateLoadingBoundary skips the fallback when `$df`
+    // already swapped the content in. Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-15.
+    limit: "29.69 KB",
+    capMinified: 93753,
     alias
   },
   {
@@ -3772,8 +3778,14 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    limit: "31.78 KB",
-    capMinified: 101338,
+    // Size-Exception (a fragment revealed before its _fr settles hydrates the
+    // revealed content, #4074, #4075, 2026-10-15): 31.78 -> 31.89 KB, CI measured
+    // 31,871 B (+30 B minified, 101,338 -> 101,369) — the still-streaming
+    // branch of hydratedCreateLoadingBoundary skips the fallback when `$df`
+    // already swapped the content in. Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-15.
+    limit: "31.89 KB",
+    capMinified: 101369,
     alias
   },
   {

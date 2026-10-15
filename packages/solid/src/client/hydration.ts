@@ -2894,7 +2894,11 @@ function hydratedCreateLoadingBoundary<T, U>(
         false,
         fragmentAbort(id)
       );
-      return fallback();
+      // Revealed ahead of its `_fr` settlement (two scripts on the wire; an
+      // async entry can run between them, #4074): the fallback is gone and
+      // the content is in the DOM, so render nothing until the resume
+      // adopts it.
+      return (globalThis as any)._$HY.v?.[id] ? undefined : fallback();
     }
 
     if (assetPromise && !sharedConfig.has!(id)) {
