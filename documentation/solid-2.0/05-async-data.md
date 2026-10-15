@@ -33,6 +33,8 @@ function Profile() {
 
 This pushes “loading state” to UI structure (boundaries) instead of leaking into every type.
 
+**Setting before the first value.** A writable async source (function-form `createSignal`/`createStore`, `createProjection`, the optimistic variants) can be written before its first answer lands. Absolute writes apply as usual. A function-form setter runs immediately against the raw base: `prev` is `undefined` for a signal or optimistic computed, and the draft is the seed (or `{}` for a seedless store). This holds for 2.x; the updater is not deferred until a value exists, because that would add a check and a queue to every setter call. The base itself is never readable (reads throw until something is written or lands). When the first answer lands, a return-form derive replaces the write; a derive that mutates its draft keeps it. If an updater can run in this window, guard it (`set(prev => (prev ?? 0) + 1)`).
+
 ### `Loading` is the UI boundary
 
 `Loading` shows fallback while the subtree needs unresolved async values.
