@@ -70,7 +70,7 @@ function crossDiff(mode, entry) {
   const { options } = modes[mode];
   let babelRaw, babelError;
   try {
-    babelRaw = compileBabel(entry.source, options);
+    babelRaw = compileBabel(entry.source, options, `${entry.id}.jsx`);
   } catch (err) {
     babelError = err;
   }

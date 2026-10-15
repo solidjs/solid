@@ -18,9 +18,13 @@
 //!   wrapper is not a primitive; the signal inside it is, and gets its own
 //!   local name.
 //! - An explicit name is never overridden: an options object literal
-//!   without `name` gains one, one with `name` (or a spread) is left alone,
-//!   and a non-literal options argument is left alone — we cannot see
-//!   inside it.
+//!   without `name` gains one, one with `name` keeps it, one with a spread
+//!   is left alone, and a non-literal options argument is left alone — we
+//!   cannot see inside it.
+//! - With `locations` (the default) and a `filename`, the options literal
+//!   also carries `loc`, the call's `file:line:col` with the file relative
+//!   to `root`, written right after `name` — also when `name` was the
+//!   user's. An explicit `loc` is never overridden either.
 //! - The name is the declared identifier: a `const`/`let`/`var` binding, the
 //!   first element of an array pattern (`[count, setCount]`), an object
 //!   literal's property key (`{ count: createSignal(0) }`), or a class
@@ -58,8 +62,16 @@ const PRIMITIVE_SOURCES: &[&str] = &["solid-js", "@solidjs/signals"];
 #[derive(Default)]
 pub struct TransformSourceNamesOptions {
     /// Decides the source type (`.ts`, `.tsx`, `.js`, `.jsx`); TSX without
-    /// one.
+    /// one. Also the file the `loc` strings name: without one no `loc` is
+    /// written.
     pub filename: Option<String>,
+    /// Write `loc` (`src/store.ts:3:22`, the call's position) after `name`.
+    /// Default `true`: the pass only ever runs for the dev and observe
+    /// postures.
+    pub locations: Option<bool>,
+    /// Project root the `loc` paths are made relative to; the working
+    /// directory when unset.
+    pub root: Option<String>,
     pub source_map: Option<bool>,
 }
 
@@ -94,7 +106,12 @@ pub fn transform_source_names(
     }
 
     let mut program = parsed.program;
-    let targets = collect_targets(&program);
+    let location_base = options
+        .locations
+        .unwrap_or(true)
+        .then(|| crate::shared::location::location_base(options.root.as_deref(), filename))
+        .flatten();
+    let targets = collect_targets(&program, &code, location_base.as_deref());
     if targets.is_empty() {
         return Ok(untouched(code));
     }
@@ -145,19 +162,27 @@ fn primitive_by_name(name: &str) -> Option<Primitive> {
     }
 }
 
-/// How a matched call gains its name.
+/// How a matched call gains its name (and location).
 enum Action {
-    /// Append `{ name }` as a new argument, after `pad` `void 0` fillers for
-    /// omitted positional arguments before the options slot.
+    /// Append `{ name, loc }` as a new argument, after `pad` `void 0`
+    /// fillers for omitted positional arguments before the options slot.
     Append { pad: usize },
-    /// Add a `name` property to the object literal already in the options
-    /// slot (argument `index`).
-    Extend { index: usize },
+    /// Complete the object literal already in the options slot (argument
+    /// `index`): `name` unless the user wrote one, `loc` unless the user
+    /// wrote one or none is wanted.
+    Extend {
+        index: usize,
+        add_name: bool,
+        add_loc: bool,
+    },
 }
 
 struct Target {
     span: Span,
     name: String,
+    /// The call's `file:line:col`; `None` when locations are off or there
+    /// is no filename.
+    loc: Option<String>,
     action: Action,
 }
 
@@ -210,20 +235,28 @@ fn is_component_name(name: &str) -> bool {
     name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
 }
 
-/// An object literal already in the options slot: `Some(true)` when a
-/// `name` property or a spread (which may carry one) is present, `Some(false)`
-/// when it can safely gain the name, `None` when the argument is not a
-/// literal we can see inside.
-fn options_literal_has_name(argument: &Argument<'_>) -> Option<bool> {
+/// What an object literal already in the options slot carries: `(has name,
+/// has loc)`. `None` when the argument is not a literal we can see inside,
+/// or carries a spread (which may bring either) — left alone.
+fn options_literal_keys(argument: &Argument<'_>) -> Option<(bool, bool)> {
     let Some(Expression::ObjectExpression(object)) = argument.as_expression().map(unwrap_ts) else {
         return None;
     };
-    Some(object.properties.iter().any(|property| match property {
-        ObjectPropertyKind::ObjectProperty(property) => {
-            static_key_name(&property.key).as_deref() == Some("name")
+    let mut has_name = false;
+    let mut has_loc = false;
+    for property in &object.properties {
+        match property {
+            ObjectPropertyKind::ObjectProperty(property) => {
+                match static_key_name(&property.key).as_deref() {
+                    Some("name") => has_name = true,
+                    Some("loc") => has_loc = true,
+                    _ => {}
+                }
+            }
+            ObjectPropertyKind::SpreadProperty(_) => return None,
         }
-        ObjectPropertyKind::SpreadProperty(_) => true,
-    }))
+    }
+    Some((has_name, has_loc))
 }
 
 /// Which argument index the options object belongs at for this call, or
@@ -270,7 +303,9 @@ fn options_index(primitive: Primitive, call: &CallExpression<'_>) -> Option<usiz
     }
 }
 
-fn action_for(primitive: Primitive, call: &CallExpression<'_>) -> Option<Action> {
+/// `want_loc`: whether a location is to be written at all (the option is on
+/// and there is a filename).
+fn action_for(primitive: Primitive, call: &CallExpression<'_>, want_loc: bool) -> Option<Action> {
     let index = options_index(primitive, call)?;
     // A spread before the options slot hides the real arity.
     if call
@@ -282,10 +317,17 @@ fn action_for(primitive: Primitive, call: &CallExpression<'_>) -> Option<Action>
         return None;
     }
     if call.arguments.len() > index {
-        return match options_literal_has_name(&call.arguments[index])? {
-            true => None,
-            false => Some(Action::Extend { index }),
-        };
+        let (has_name, has_loc) = options_literal_keys(&call.arguments[index])?;
+        let add_name = !has_name;
+        let add_loc = want_loc && !has_loc;
+        if !add_name && !add_loc {
+            return None;
+        }
+        return Some(Action::Extend {
+            index,
+            add_name,
+            add_loc,
+        });
     }
     Some(Action::Append {
         pad: index - call.arguments.len(),
@@ -333,7 +375,13 @@ fn collect_imports(program: &Program<'_>) -> Imports {
     imports
 }
 
-fn collect_targets(program: &Program<'_>) -> Vec<Target> {
+/// `location_base` is the root-relative path the `loc` strings start with;
+/// `None` writes no `loc`.
+fn collect_targets<'s>(
+    program: &Program<'_>,
+    source: &'s str,
+    location_base: Option<&'s str>,
+) -> Vec<Target> {
     // Semantic first: it is what fills the symbol ids the import scan reads.
     let semantic = SemanticBuilder::new().build(program).semantic;
     let imports = collect_imports(program);
@@ -344,6 +392,8 @@ fn collect_targets(program: &Program<'_>) -> Vec<Target> {
     let mut collector = Collector {
         scoping: semantic.scoping(),
         imports: &imports,
+        source,
+        location_base,
         functions: Vec::new(),
         pending_function_name: None,
         targets: Vec::new(),
@@ -355,6 +405,9 @@ fn collect_targets(program: &Program<'_>) -> Vec<Target> {
 struct Collector<'s> {
     scoping: &'s Scoping,
     imports: &'s Imports,
+    source: &'s str,
+    /// The path every `loc` starts with; `None` writes no `loc`.
+    location_base: Option<&'s str>,
     /// Enclosing functions, innermost last; `None` for an anonymous one that
     /// no declaration or property names.
     functions: Vec<Option<String>>,
@@ -410,16 +463,22 @@ impl Collector<'_> {
         let Some(primitive) = self.primitive(&call.callee) else {
             return;
         };
-        let Some(action) = action_for(primitive, call) else {
+        let Some(action) = action_for(primitive, call, self.location_base.is_some()) else {
             return;
         };
         let name = match self.prefix() {
             Some(prefix) => format!("{prefix}.{declared}"),
             None => declared,
         };
+        // The location is the call's start, `createSignal(` — the
+        // expression a stack frame would point at.
+        let loc = self.location_base.map(|base| {
+            crate::shared::location::source_location(base, self.source, call.span.start)
+        });
         self.targets.push(Target {
             span: call.span,
             name,
+            loc,
             action,
         });
     }
@@ -519,22 +578,54 @@ impl<'a> VisitMut<'a> for Rewriter<'a> {
             let target = self.targets.remove(index);
             let ast = AstBuilder::new(self.allocator);
             let span = Span::new(0, 0);
-            let name = ast.expression_string_literal(span, ast.str(&target.name), None);
-            let property = object_property(self.allocator, span, "name", name);
+            let name_property = || {
+                let name = ast.expression_string_literal(span, ast.str(&target.name), None);
+                object_property(self.allocator, span, "name", name)
+            };
+            let loc_property = |loc: &str| {
+                let loc = ast.expression_string_literal(span, ast.str(loc), None);
+                object_property(self.allocator, span, "loc", loc)
+            };
             match target.action {
                 Action::Append { pad } => {
                     for _ in 0..pad {
                         call.arguments.push(Argument::from(ast.void_0(span)));
                     }
-                    call.arguments.push(Argument::from(
-                        ast.expression_object(span, ast.vec1(property)),
-                    ));
+                    // `name` then `loc`, the order every emitter keeps.
+                    let mut properties = ast.vec1(name_property());
+                    if let Some(loc) = target.loc.as_deref() {
+                        properties.push(loc_property(loc));
+                    }
+                    call.arguments
+                        .push(Argument::from(ast.expression_object(span, properties)));
                 }
-                Action::Extend { index } => {
+                Action::Extend {
+                    index,
+                    add_name,
+                    add_loc,
+                } => {
                     if let Some(Expression::ObjectExpression(object)) =
                         call.arguments[index].as_expression_mut().map(unwrap_ts_mut)
                     {
-                        object.properties.push(property);
+                        if add_name {
+                            object.properties.push(name_property());
+                        }
+                        if add_loc && let Some(loc) = target.loc.as_deref() {
+                            // Right after `name` — the user's or ours — so
+                            // the literal reads `name, loc` wherever the
+                            // user put the name.
+                            let after_name = object
+                                .properties
+                                .iter()
+                                .position(|property| match property {
+                                    ObjectPropertyKind::ObjectProperty(property) => {
+                                        static_key_name(&property.key).as_deref() == Some("name")
+                                    }
+                                    ObjectPropertyKind::SpreadProperty(_) => false,
+                                })
+                                .map_or(object.properties.len(), |index| index + 1);
+                            object.properties.insert(after_name, loc_property(loc));
+                        }
                     }
                 }
             }

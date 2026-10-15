@@ -65,7 +65,7 @@ const view = <video muted={muted} />;
 describe("reported Babel vs Oxc parity regressions", () => {
   const compare = (mode, name, source) => {
     const options = modes[mode].options;
-    const babel = normalize(compileBabel(source, options));
+    const babel = normalize(compileBabel(source, options, `reported-${name}.jsx`));
     const oxc = normalize(compileOxc(source, `reported-${name}`, options));
 
     if (babel !== oxc) {

@@ -524,10 +524,11 @@ function compareFixture(mode, fixture) {
   const source = readFixtureSource(mode, fixture);
   let babelRaw, oxcRaw;
   try {
-    // Only TSRX modes set `extension`; JSX modes keep Babel filename-free so
-    // established expectations (e.g. dev-mode location info) stay untouched.
-    const babelFilename = modes[mode].extension ? `${fixture}${extension}` : undefined;
-    babelRaw = compileBabel(source, options, babelFilename);
+    // Both compilers see the same filename: TSRX modes route on the
+    // extension, and `sourceNames.locations` (on under `dev`) prints the
+    // cwd-relative path into the output, so a filename on one side only
+    // would be a divergence of the harness, not the compilers.
+    babelRaw = compileBabel(source, options, `${fixture}${extension}`);
   } catch (err) {
     throw new Error(`babel-plugin failed on ${mode}/${fixture}: ${err.message}`);
   }

@@ -199,6 +199,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                 // dynamic renderer's DOM subtree never emits labels.
                 component_names: false,
                 binding_names: false,
+                location_base: None,
                 context_to_custom_elements: dom.context_to_custom_elements,
                 delegate_events: dom.delegate_events,
                 delegated_events: dom.delegated_events,

@@ -343,6 +343,7 @@ impl<'a> AstDomTransform<'a, '_> {
         needs_placeholder: &mut bool,
     ) -> Result<()> {
         let span = plan.span;
+        let source_offset = plan.source_offset;
         let raw = match plan.value {
             PlanValue::Expr(expression) => expression,
             PlanValue::Literal(value) => {
@@ -394,6 +395,7 @@ impl<'a> AstDomTransform<'a, '_> {
             };
             dynamics.slots.push(DynamicSlot {
                 span,
+                source_offset,
                 elem,
                 key: plan.key,
                 value,

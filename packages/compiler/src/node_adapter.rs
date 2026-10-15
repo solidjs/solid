@@ -258,6 +258,7 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
     };
     Ok(CompileOptions {
         filename: options.filename,
+        root: options.root,
         syntax,
         module_name,
         generate,
@@ -277,6 +278,7 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
                 Some(Either::B(picked)) => SourceNames {
                     components: picked.components.unwrap_or(dev),
                     bindings: picked.bindings.unwrap_or(dev),
+                    locations: picked.locations.unwrap_or(dev),
                 },
             }
         },

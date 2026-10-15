@@ -49,7 +49,7 @@ describe("option-matrix parity", () => {
             const source = readFixtureSource(modeName, fixture);
             let babelRaw, oxcRaw, babelErr, oxcErr;
             try {
-              babelRaw = compileBabel(source, options);
+              babelRaw = compileBabel(source, options, `${fixture}.jsx`);
             } catch (err) {
               babelErr = err.message.split("\n")[0];
             }
