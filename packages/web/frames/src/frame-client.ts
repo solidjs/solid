@@ -1168,7 +1168,22 @@ export const tierLoads: Record<string, Promise<void> & { r?: any }> = {};
 // Every live frame, so an install can wake them all: a frame whose sync
 // held an occurrence on the tier re-syncs and mounts it; the rest see a
 // no-op flush.
-const liveFrames = new Set();
+const liveFrames = new Set<any>();
+// SPIKE (deferred binding): the sliced bind's view of the live frames.
+/** @internal The live frames, outermost first in insertion order. */
+export function liveFrameList(): any[] {
+  return [...liveFrames];
+}
+/** @internal Whether a frame is still live. */
+export function isLiveFrame(frame: any): boolean {
+  return liveFrames.has(frame);
+}
+/** @internal The innermost live frame whose element contains `node`. */
+export function liveFrameAt(node: Node): any {
+  let hit;
+  for (const f of liveFrames) if (f.el.contains(node) && (!hit || hit.el.contains(f.el))) hit = f;
+  return hit;
+}
 
 /**
  * Start (or join) a tier's load. Idempotent per name; a name with no loader
@@ -1176,9 +1191,9 @@ const liveFrames = new Set();
  * installed and every live frame has been flushed.
  * @internal The frames client's own seam (the announcement reads call it).
  */
-export function prepareTier(name: string): Promise<void> & { r?: any };
+export function prepareTier(name: string, flush?: boolean): Promise<void> & { r?: any };
 
-export function prepareTier(name) {
+export function prepareTier(name, flush?) {
   let load = tierLoads[name];
   if (!load) {
     const loader = tierLoaders[name];
@@ -1194,7 +1209,10 @@ export function prepareTier(name) {
           // frame with no version yet keeps none.
           load.r = module;
           module.install?.();
-          for (const frame of liveFrames) frame.apply({ version: frame.version, r: {} });
+          // SPIKE (deferred binding): `flush === false` loads and stamps without
+          // the flush; the caller binds the frames itself, in slices (client.ts).
+          if (flush !== false)
+            for (const frame of liveFrames) frame.apply({ version: frame.version, r: {} });
         })
       : Promise.resolve();
   }
@@ -1718,6 +1736,44 @@ class FrameImpl {
       }
       this.#found = elements ? found : undefined;
     }
+    let waiting = this.#mountFound(found);
+
+    // The bind tier's wait (frames savings pass §1, "bind"; §3 row C6): the
+    // walk met a `_s:*` marker — an element's or a text position's — while
+    // the tier that parses it is absent, and noted it (`found.b`) without
+    // registering an occurrence. The data occurrences stay as the server
+    // left them — positions at the server's values, handlers inert, their
+    // events queued behind each consumer's own `_hk` stamp — and the frame
+    // waits: the check starts the load (the un-announced fallback;
+    // announced, it is already in flight), the install's flush re-syncs
+    // with the tier in place and the loop above mounts them.
+    if (found.b && !tierReady("bind")) waiting = true;
+
+    // Unmount occurrences whose range has disappeared from the server content
+    // — full-frame syncs only; a scoped fragment fill never removes siblings.
+    if (!root) {
+      for (const occurrence of [...this.#mountedSlots]) {
+        if (!found.has(occurrence)) this.#unmountSlot(occurrence);
+      }
+      // The frame's hold (frames-rulings 3.2): ONE registration with the
+      // integration while a sync leaves an occurrence waiting to mount —
+      // for its record, for the record's reads to settle, or for its tier
+      // — released by the first sync that leaves none, or by disposal. The
+      // waits are bounded as a `<Loading>` resume's is: the record by its
+      // declared value settling, the read by the stream's
+      // `complete`/`:error`, the tier by its load settling.
+      if (waiting && !this.#hold) this.#hold = this.#options.hold?.();
+      else if (!waiting && this.#hold) this.#releaseHold();
+    }
+  }
+
+  /**
+   * Mount, update or re-call every occurrence of a found map (the sync's
+   * loop, factored so a sliced bind — SPIKE, deferred binding — can mount a
+   * part of a walk's result at a time). Returns whether an occurrence is
+   * left waiting to mount.
+   */
+  #mountFound(found) {
     // Whether this sync leaves an occurrence WAITING to mount — for its
     // record, for a `{$ref}`'s data: a claim the frame owes the page and has
     // not made yet (see the hold at the end).
@@ -1926,34 +1982,66 @@ class FrameImpl {
         R?.bind(this, occurrence);
       }
     }
+    return waiting;
+  }
 
-    // The bind tier's wait (frames savings pass §1, "bind"; §3 row C6): the
-    // walk met a `_s:*` marker — an element's or a text position's — while
-    // the tier that parses it is absent, and noted it (`found.b`) without
-    // registering an occurrence. The data occurrences stay as the server
-    // left them — positions at the server's values, handlers inert, their
-    // events queued behind each consumer's own `_hk` stamp — and the frame
-    // waits: the check starts the load (the un-announced fallback;
-    // announced, it is already in flight), the install's flush re-syncs
-    // with the tier in place and the loop above mounts them.
-    if (found.b && !tierReady("bind")) waiting = true;
+  // === SPIKE (deferred binding, sliced; see client.ts) ===
 
-    // Unmount occurrences whose range has disappeared from the server content
-    // — full-frame syncs only; a scoped fragment fill never removes siblings.
-    if (!root) {
-      for (const occurrence of [...this.#mountedSlots]) {
-        if (!found.has(occurrence)) this.#unmountSlot(occurrence);
+  /** @internal The frame's element. */
+  get el() {
+    return this.#element;
+  }
+
+  /**
+   * Bind the given occurrences alone: one walk of the frame that parses
+   * only their markers (the bind tier's `only` filter), then their mounts.
+   * The interaction's own occurrence binds this way before anything else,
+   * so its queued event replays after one fill instead of after every
+   * fill on the page.
+   */
+  bindOnly(only: Set<string>) {
+    if (!this.#slots && !this.#outer) return;
+    const found: any = new Map();
+    found.only = only;
+    collectSlots(this.#element, found, found);
+    this.#mountFound(found);
+  }
+
+  /**
+   * One slice of the full walk, resumed from where the last slice stopped
+   * (`found.resume`) and stopped again at `deadline`. True once complete.
+   */
+  walkSlice(found: any, deadline: number): boolean {
+    if (!this.#slots && !this.#outer) return true;
+    const from = found.resume;
+    found.resume = undefined;
+    collectSlots(this.#element, found, found, from, undefined, deadline);
+    return !found.resume;
+  }
+
+  /**
+   * One slice of the mounts for a completed walk: occurrences not yet
+   * handed to the loop, in batches, until `deadline`. True once complete;
+   * the map then stands as the last full walk's result (live-hole reuse).
+   */
+  mountSlice(found: any, deadline: number): boolean {
+    if (!this.#slots && !this.#outer) return true;
+    const keys = found.keys_ || (found.keys_ = [...found.keys()]);
+    let i = found.i_ || 0;
+    while (i < keys.length) {
+      const part = new Map();
+      for (const stop = Math.min(i + 16, keys.length); i < stop; i++)
+        part.set(keys[i], found.get(keys[i]));
+      this.#mountFound(part);
+      if (i < keys.length && performance.now() > deadline) {
+        found.i_ = i;
+        return false;
       }
-      // The frame's hold (frames-rulings 3.2): ONE registration with the
-      // integration while a sync leaves an occurrence waiting to mount —
-      // for its record, for the record's reads to settle, or for its tier
-      // — released by the first sync that leaves none, or by disposal. The
-      // waits are bounded as a `<Loading>` resume's is: the record by its
-      // declared value settling, the read by the stream's
-      // `complete`/`:error`, the tier by its load settling.
-      if (waiting && !this.#hold) this.#hold = this.#options.hold?.();
-      else if (!waiting && this.#hold) this.#releaseHold();
     }
+    delete found.keys_;
+    delete found.i_;
+    this.#found = found;
+    return true;
   }
 
   #releaseHold() {
@@ -2809,7 +2897,7 @@ export function setDeferBind(v: boolean) {
   deferBind = v;
 }
 
-export function collectSlots(root, out, elements, from?, to?) {
+export function collectSlots(root, out, elements, from?, to?, deadline?) {
   let announced;
   // `elements` is the found map or undefined; `tierLoads.bind` a promise or undefined.
   const bind =
@@ -2824,8 +2912,17 @@ export function collectSlots(root, out, elements, from?, to?) {
   const w = root.ownerDocument.createTreeWalker(root, bind ? 0x81 : 0x80);
   // A range walk (`from`/`to`, siblings under `root`): the nodes between.
   if (from) w.currentNode = from;
-  let n, p;
-  while ((n = w.nextNode()) && n !== to) {
+  let n,
+    p,
+    i = 0;
+  while (true) {
+    // SPIKE (deferred binding): a budgeted walk stops at its deadline and
+    // notes where to resume (`out.resume`: the node whose successor is next).
+    if (deadline && !(++i & 63) && performance.now() > deadline) {
+      out.resume = w.currentNode;
+      return;
+    }
+    if (!(n = w.nextNode()) || n === to) break;
     if (n.nodeType !== COMMENT_NODE) {
       // An element (shown only when markers are looked for): a nested frame
       // is stepped over whole (below); any other with attributes is parsed

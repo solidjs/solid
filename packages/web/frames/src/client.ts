@@ -46,6 +46,9 @@ import {
   createFrameHost,
   FRAME_ID_ATTR,
   isAsyncValue,
+  isLiveFrame,
+  liveFrameAt,
+  liveFrameList,
   prepareTier,
   setDeferBind,
   slotShapeFinding,
@@ -1657,19 +1660,67 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
   // tier is neither loaded nor its markers walked until the user's first
   // interaction of any kind. Nothing on the client can have written state a
   // fill reads before then, so every bound position still shows what the
-  // server drew. The first event starts the load; its install flush binds
-  // every occurrence on the page. No replay is needed here: an element
-  // with a handler position carries `_hk`, so the hydration bootstrap
-  // queued the event, and the bind's write completes the element and
-  // drains the queue (`runHydrationEvents`).
+  // server drew. The first event loads the tier and binds in SLICES: the
+  // occurrence the event's target consumes first (one filtered walk, its
+  // fills — its queued event replays then: the element carries `_hk`, so
+  // the hydration bootstrap queued the event and the bind's write drains
+  // it), then every live frame's full walk and mounts in idle slices of a
+  // few milliseconds. Later interactions during the slices bind their own
+  // occurrence the same way, ahead of the slices.
   if (typeof document !== "undefined" && /\bsc-resume=1\b/.test(document.cookie)) {
     setDeferBind(true);
     announced?.filter(t => t !== "bind").forEach(prepareTier);
     const types = ["click", "input", "change", "keydown", "pointerdown", "submit", "focusin"];
-    const wake = () => {
+    const BUDGET = 12;
+    const idle = () =>
+      new Promise<void>(r =>
+        typeof requestIdleCallback === "function"
+          ? requestIdleCallback(() => r(), { timeout: 100 })
+          : setTimeout(r, 0)
+      );
+    let started = false;
+    const bindRest = async () => {
+      await idle();
+      for (const frame of liveFrameList()) {
+        const found = new Map();
+        while (isLiveFrame(frame) && !frame.walkSlice(found, performance.now() + BUDGET))
+          await idle();
+        while (isLiveFrame(frame) && !frame.mountSlice(found, performance.now() + BUDGET))
+          await idle();
+      }
       types.forEach(t => document.removeEventListener(t, wake, true));
+      (g.__scBound ||= []).push(performance.now());
+    };
+    const wake = (e: Event) => {
+      // The occurrences the target's nearest marked ancestor consumes.
+      const only = new Set<string>();
+      let hit = e.target instanceof Element ? e.target : null;
+      while (hit) {
+        const attrs = hit.attributes;
+        for (let i = 0; i < attrs.length; i++)
+          if (attrs[i].name.startsWith("_s:"))
+            for (const entry of attrs[i].value.split(","))
+              only.add(entry.slice(0, entry.indexOf(":")));
+        if (only.size) break;
+        hit = hit.parentElement;
+      }
       setDeferBind(false);
-      prepareTier("bind");
+      const load = prepareTier("bind", false);
+      const go = () => {
+        if (hit) liveFrameAt(hit)?.bindOnly(only);
+        if (!started) {
+          started = true;
+          bindRest();
+        }
+      };
+      // Tier resident (an interaction during the slices): bind NOW, in the
+      // capture phase, so the delegated handler is on the element by the time
+      // the event bubbles to the document — the hydration queue is gone once
+      // the first bind drained it (`runHydrationEvents` nulls it after
+      // hydration is done), so a later event on an unbound element would
+      // otherwise be dropped. The first interaction's load is async; its
+      // event waits in the queue.
+      load.r ? go() : load.then(go);
     };
     types.forEach(t => document.addEventListener(t, wake, true));
   } else announced?.forEach(prepareTier);

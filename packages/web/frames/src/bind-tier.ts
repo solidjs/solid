@@ -109,6 +109,8 @@ function slotEntry(entry: string, pos: string): [string, any] | null {
 /** An occurrence's consumer list, created on first use; null when a slot
  *  range claimed the id (the dev range check reports it). */
 function consumersOf(elements: Map<string, any>, occurrence: string): any[] | null {
+  // SPIKE (deferred binding): a filtered walk registers the named occurrences alone.
+  if ((elements as any).only && !(elements as any).only.has(occurrence)) return null;
   let consumers = elements.get(occurrence);
   if (consumers === undefined) elements.set(occurrence, (consumers = []));
   return Array.isArray(consumers) ? consumers : null;
@@ -162,6 +164,8 @@ function slotPositions(el: Element): Record<string, any[]> | null {
  * attributes (frame-client.ts `collectSlots`).
  */
 export function positions(el: Element, elements: Map<string, any>): void {
+  const only = (elements as any).only;
+  if (only && !marks(el, only)) return;
   const byOccurrence = slotPositions(el);
   if (byOccurrence !== null) {
     for (const occurrence in byOccurrence) {
@@ -169,6 +173,19 @@ export function positions(el: Element, elements: Map<string, any>): void {
       if (consumers) consumers.push({ element: el, positions: byOccurrence[occurrence] });
     }
   }
+}
+
+/** SPIKE (deferred binding): whether any of the element's markers names one of
+ *  `only`'s occurrences — the cheap test before a filtered walk parses it. */
+function marks(el: Element, only: Set<string>): boolean {
+  const attrs = el.attributes;
+  for (let i = 0; i < attrs.length; i++) {
+    const attr = attrs[i];
+    if (!attr.name.startsWith(SLOT_MARKER)) continue;
+    for (const id of only)
+      if (attr.value.startsWith(id + ":") || attr.value.includes("," + id + ":")) return true;
+  }
+  return false;
 }
 
 /** Whether a data occurrence's consumer set changed (elements or positions). */
