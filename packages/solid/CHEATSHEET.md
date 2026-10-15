@@ -672,5 +672,5 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 
 ## See also
 
-- [`MIGRATION.md`](https://github.com/solidjs/solid/blob/main/documentation/solid-2.0/MIGRATION.md) — full migration guide.
-- [Solid 2.0 RFCs](https://github.com/solidjs/solid/tree/main/documentation/solid-2.0) — deep-dive design docs by subsystem.
+- [`MIGRATION.md`](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md) — full migration guide.
+- [Solid 2.0 RFCs](https://github.com/solidjs/solid/tree/next/documentation/solid-2.0) — deep-dive design docs by subsystem.

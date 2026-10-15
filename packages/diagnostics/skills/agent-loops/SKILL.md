@@ -1,3 +1,8 @@
+---
+name: agent-loops
+description: Verify Solid 2.0 reactive code with evidence from @solidjs/diagnostics captureArtifact instead of reading it; generation, acceptance, attribution, responsiveness and server-render loops. Use when checking that generated or ported Solid code is quiet, within budget and re-runs only for the right reasons.
+---
+
 # Agent loops with @solidjs/diagnostics
 
 Solid's dev builds expose two evidence channels — rule diagnostics (stable
@@ -226,9 +231,10 @@ curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"begin"}'
 # ...interact with the app in the browser...
 curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"whyDidRun","params":{"name":"TodoRow"}}'
 curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"costs"}'
-curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"feedback"}'
 curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"end"}'
 ```
 
-`GET` the endpoint for status. With several open tabs the first responder
-wins — keep one page under test.
+The endpoint serves `begin`, `end`, `active`, `whyDidRun` and `costs`; the
+holds and feedback tables come back in the `end` payload
+(`attribution.holds`, `attribution.feedback`). `GET` the endpoint for status.
+With several open tabs the first responder wins — keep one page under test.

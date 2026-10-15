@@ -1,3 +1,8 @@
+---
+name: reactivity-diagnostics
+description: Map a Solid 2.0 dev diagnostic code (STRICT_READ_UNTRACKED, REACTIVE_WRITE_IN_OWNED_SCOPE, LOADING_ON_OUTSIDE_HOLD, HOT_SCOPE_*, ...) to its repair. Use when a Solid console warning, test failure or @solidjs/diagnostics artifact reports a [CODE].
+---
+
 # Repairing Solid reactivity from diagnostic codes
 
 Solid's dev builds emit structured diagnostics with stable codes. When you see

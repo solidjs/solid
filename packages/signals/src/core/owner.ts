@@ -433,7 +433,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
  * const detached = runWithOwner(null, () => createRoot(d => d));
  * ```
  *
- * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
+ * @description https://v2.solidjs.com/reference/solid-js/advanced/owner-introspection/create-root
  */
 export function createRoot<T>(
   init: ((dispose: () => void) => T) | (() => T),

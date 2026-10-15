@@ -4,7 +4,7 @@
   "author": "Ryan Carniato",
   "license": "MIT",
   "version": "2.0.0-rc.15",
-  "homepage": "https://github.com/solidjs/solid/blob/main/packages/element#readme",
+  "homepage": "https://github.com/solidjs/solid/blob/next/packages/element#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/solidjs/solid.git",

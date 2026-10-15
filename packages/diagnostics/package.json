@@ -72,5 +72,13 @@
     "typescript": "^6.0.3",
     "vite": "^7.0.0",
     "vitest": "^4.1.6"
-  }
+  },
+  "keywords": [
+    "solid",
+    "solidjs",
+    "diagnostics",
+    "attribution",
+    "agents",
+    "tanstack-intent"
+  ]
 }

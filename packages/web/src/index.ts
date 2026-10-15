@@ -126,7 +126,7 @@ export type DynamicProps<T extends ValidComponent, P = ComponentProps<T>> = {
  * </Portal>
  * ```
  *
- * @description https://docs.solidjs.com/reference/components/portal
+ * @description https://v2.solidjs.com/reference/solid-web/components/portal
  */
 export function Portal(props: { mount?: Element; children: JSX.Element }): JSX.Element {
   // Everything the portal allocates (content memo, effects, anchor memo)
@@ -286,7 +286,7 @@ export { dynamicComponent } from "solid-js";
  * }
  * ```
  *
- * @description https://docs.solidjs.com/reference/components/dynamic
+ * @description https://v2.solidjs.com/reference/solid-web/components/dynamic
  */
 /**
  * A component from a reactive source. The source may answer with the

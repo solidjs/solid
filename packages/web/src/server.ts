@@ -7647,6 +7647,6 @@ export {
 
 function notSup() {
   throw new Error(
-    "Client-only API called on the server side. Run client-only code in onMount, or conditionally run client-only component with <Show>."
+    "Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
   );
 }

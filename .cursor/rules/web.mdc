@@ -12,25 +12,31 @@ Web-specific runtime providing DOM rendering, hydration, SSR methods, DOM operat
 
 ## Client Entry (`src/index.ts`)
 
-Re-exports from `client.js`:
-- `render`, `hydrate`, `insert`, `spread`, `getNextElement`, `SVGElements`, `clearDelegatedEvents`
+Re-exports everything from `client.js`: `render`, `hydrate`, `insert`, `spread`, `template`, `delegateEvents`, `getNextElement`, `setProperty`, `setAttribute`, `className`, `style`, `addEvent`, `useHead`, `getRequestEvent`, `getHydrationWriter`, `takeHydrationValue`, `getTraceContext`, the cookie codec, the server-function registry (`isServerFunction`, `getServerFunctionMetadata`, `getServerFunctionRPC`), element claims (`registerElementClaim`, `claimElement`, `claimElementTree`), and the DOM constant sets (`SVGElements`, `MathMLElements`, `DelegatedEvents`, …). Also re-exports `server-mock.js` (see below) and `response.js` (`redirect`, `reload`, `respond`, `markSafeError`, …).
 
 Additional exports:
-- `Portal`, `Dynamic`, `createDynamic`
-- Flow controls re-exported from `solid-js`
-- `isServer: false`, `isDev: boolean`
+- `Portal`, `Dynamic`, `dynamic`, `dynamicComponent`, `clientOnly`
+- `httpStatus`, `httpHeader` (no-ops on the client)
+- Flow controls re-exported from `solid-js`: `For`, `Show`, `Switch`, `Match`, `Errored`, `Loading`, `Repeat`, `Reveal`, `NoHydration`, `Hydration`
+- `isServer: false`, `isDev: boolean` (`_SOLID_DEV_`)
 
-## Server Entry (`server/index.ts`)
+## Server Entry (`src/index.server.ts`)
 
-Re-exports from `../src/server.js`:
-- `renderToString`, `renderToStringAsync`, `renderToStream`
-- SSR helpers: `ssr`, `ssrElement`, `ssrClassList`, `ssrStyle`, `ssrAttribute`, `escape`
+Re-exports everything from `server.js` and `response.js`:
+- `renderToString`, `renderToStream` (there is no `renderToStringAsync` — `renderToString` awaits async)
+- SSR helpers: `ssr`, `ssrElement`, `ssrElementAttribute`, `ssrAttribute`, `ssrClassName`, `ssrStyle`, `ssrStyleProperty`, `ssrStyleProperties`, `ssrGroup`, `ssrHydrationKey`, `ssrClaim`, `ssrLinkClaim`, `ssrSelectValues`, `resolveSSRNode`, `escape`
+- Request/response: `getRequestEvent`, `createRequestEvent`, `createResponseStub`, `createSSRResponse`, `commitEventResponse`, `composeMiddleware`, `configureServerErrors`, `reportRequestFailure`, plus `redirect`, `reload`, `respond` and the cookie codec
+- Hydration: `HydrationScript`, `generateHydrationScript`, `getHydrationWriter`, `takeHydrationValue`, `useHead`
+- The client-only DOM APIs (`render`, `hydrate`, `insert`, `spread`, `template`, `delegateEvents`, …) are exported as a `notSup` stub that throws when called on the server
 
 Additional:
-- Simplified `Dynamic` (no memoization — server is stateless)
+- Simplified `Dynamic`/`dynamic` (no memoization — server is stateless), `dynamicComponent`
 - `Portal` throws error (not supported server-side)
-- `isServer: true`, `isDev: false`
-- `provideRequestEvent` uses `AsyncLocalStorage` for request context
+- `clientOnly` (server half: renders the fallback, emits preload hints)
+- `httpStatus`, `httpHeader` (declare status/headers on the current request event)
+- Same flow-control re-exports from `solid-js` as the client entry
+- `isServer: true`, `isDev: boolean` (`_SOLID_DEV_`; the server has a dev build too, `dist/server.dev.js`)
+- Request-event scoping (`provideRequestEvent`, `AsyncLocalStorage`-backed) lives in `@solidjs/web/storage`, not in this entry
 
 ## Portal Component
 

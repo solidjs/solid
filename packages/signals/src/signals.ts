@@ -373,7 +373,7 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
  * setUser({ ...user(), name: "Alice" });
  * ```
  *
- * @description https://docs.solidjs.com/reference/basic-reactivity/create-signal
+ * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-signal
  */
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
@@ -414,7 +414,7 @@ export function createSignal<T>(
  * const [state, setState] = createOptimistic<T>(fn, options?: SignalOptions<T> & MemoOptions<T>);
  * ```
  *
- * @description https://docs.solidjs.com/reference/basic-reactivity/create-optimistic-signal
+ * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-optimistic
  */
 export function createOptimistic<T>(): Signal<T | undefined>;
 export function createOptimistic<T>(
@@ -470,7 +470,7 @@ export function createOptimistic<T>(
  * });
  * ```
  *
- * @description https://docs.solidjs.com/reference/basic-reactivity/create-memo
+ * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-memo
  */
 // NoInfer keeps the previous-value parameter from influencing T inference, so
 // the memo/effect result type is still driven by the compute return type.
@@ -557,7 +557,7 @@ export function createMemo<T>(
  * );
  * ```
  *
- * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
+ * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-effect
  */
 export function createEffect<const T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
@@ -611,7 +611,7 @@ export function createEffect<const T>(
  * }
  * ```
  *
- * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
+ * @description https://v2.solidjs.com/reference/solid-js/advanced/specialized-reactivity/create-render-effect
  */
 export function createRenderEffect<const T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
@@ -664,7 +664,7 @@ export function createRenderEffect<const T>(
  * });
  * ```
  *
- * @description https://docs.solidjs.com/reference/secondary-primitives/create-tracked-effect
+ * @description https://v2.solidjs.com/reference/solid-js/advanced/specialized-reactivity/create-tracked-effect
  */
 export function createTrackedEffect(
   compute: () => void | (() => void),
@@ -697,7 +697,7 @@ export function createTrackedEffect(
  * setCount(1); // logs once, reaction re-armed for next change
  * ```
  *
- * @description https://docs.solidjs.com/reference/secondary-primitives/create-reaction
+ * @description https://v2.solidjs.com/reference/solid-js/advanced/specialized-reactivity/create-reaction
  */
 export function createReaction(
   effectFn: EffectFunction<undefined> | EffectBundle<undefined>,

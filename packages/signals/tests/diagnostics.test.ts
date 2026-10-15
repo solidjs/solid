@@ -307,7 +307,7 @@ describe("diagnostics console footer", () => {
   it("DEV.guideUrl is the repair guide's section for a code", () => {
     const url = DEV!.guideUrl("STRICT_READ_UNTRACKED");
     expect(url).toMatch(
-      /^https:\/\/github\.com\/solidjs\/solid\/blob\/main\/.*SKILL\.md#strict_read_untracked$/
+      /^https:\/\/github\.com\/solidjs\/solid\/blob\/next\/.*SKILL\.md#strict_read_untracked$/
     );
     expect(DEV!.guideUrl("SILENT_HOLD")).toBe(url.replace(/#.*$/, "#silent_hold"));
   });
