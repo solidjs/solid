@@ -1357,8 +1357,13 @@ module.exports = [
     // the truth helpers out of lanes.ts, this bundle carried all of lanes.js
     // (+4.8 KB minified / +1.6 KB brotli over the core floor). Measured at
     // 8.056 KB, minified 22195.
-    limit: "8.07 KB",
-    capMinified: 22195
+    // Ratchet up (2026-10-15, merged with next @ b8617ecd): 8.07 -> 8.11 KB
+    // (22,195 -> 22,255 B minified), measured at 8,095 B. createDeferred
+    // (#4067) grew the signals core this bundle shares (+60 B minified); no
+    // lane code came back. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-15, "Ratchet up").
+    limit: "8.11 KB",
+    capMinified: 22255
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -4632,7 +4637,8 @@ module.exports = [
     // minified). A select value is reapplied when its options arrive,
     // including multiple. Cap set to that brotli, not above it. Hello world
     // on this merge is 9,939 B, under the 9.94 KB floor and under 10 KB.
-    // Size-Exception (morph drops a stale text node (2026-10-15): +71 B minified on the frozen page floor. When a
+    // Size-Exception (morph drops a stale text node, 2026-10-15): +71 B
+    // minified on the frozen page floor. When a
     // text hole empties (`<!--$--><!--/-->` has no text node), the reconcile
     // removed nothing and relocated the next element in front of the stale
     // text, so every cell that emptied re-inserted its following subtree.
@@ -4640,6 +4646,10 @@ module.exports = [
     // re-inserted per tick -> 0; main-thread busy 771-910 -> 571-705 ms/s.
     // Recorded minified (floor-caps.json) 106,704 -> 106,772; the brotli cap
     // is unchanged. Accepted by the maintainer (2026-10-15).
+    // Ratchet up (2026-10-15, merged with next @ b8617ecd): 106,772 -> 106,786
+    // recorded minified (floor-caps.json; the brotli cap is unchanged), re-recorded at what the tree measures after
+    // createDeferred (#4067) landed in the signals core. Accepted by the
+    // maintainer (2026-10-15, "Ratchet up").
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -4895,6 +4905,10 @@ module.exports = [
     // merged with next @ 617d19511 and measured at 38,146 B (118,990 B
     // minified). A select value is reapplied when its options arrive,
     // including multiple. Cap set to that brotli, not above it.
+    // Ratchet up (2026-10-15, merged with next @ b8617ecd): 118,990 -> 119,009
+    // recorded minified (floor-caps.json; the brotli cap is unchanged), re-recorded at what the tree measures after
+    // createDeferred (#4067) landed in the signals core. Accepted by the
+    // maintainer (2026-10-15, "Ratchet up").
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5212,8 +5226,12 @@ module.exports = [
     // server-dbmon, 400 rows, 10% changing, 4x CPU: 28 popover subtrees
     // re-inserted per tick -> 0; main-thread busy 771-910 -> 571-705 ms/s.
     // Recorded minified 130,591 -> 130,653 (the brotli cap is unchanged).
+    // Ratchet up (2026-10-15, merged with next @ b8617ecd): 130,653 -> 130,667
+    // recorded minified (the brotli cap is unchanged), re-recorded at what the tree measures after
+    // createDeferred (#4067) landed in the signals core. Accepted by the
+    // maintainer (2026-10-15, "Ratchet up").
     limit: "41.794 KB",
-    capMinified: 130653,
+    capMinified: 130667,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5313,8 +5331,12 @@ module.exports = [
     // server-dbmon, 400 rows, 10% changing, 4x CPU: 28 popover subtrees
     // re-inserted per tick -> 0; main-thread busy 771-910 -> 571-705 ms/s.
     // Recorded minified 144,124 -> 144,190 (the brotli cap is unchanged).
+    // Ratchet up (2026-10-15, merged with next @ b8617ecd): 144,190 -> 144,205
+    // recorded minified (the brotli cap is unchanged), re-recorded at what the tree measures after
+    // createDeferred (#4067) landed in the signals core. Accepted by the
+    // maintainer (2026-10-15, "Ratchet up").
     limit: "47.493 KB",
-    capMinified: 144190,
+    capMinified: 144205,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
