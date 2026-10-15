@@ -241,3 +241,32 @@ it("until() on a derivation of an optimistic store row confirmed by a fresh, equ
   await tick();
   expect(s.done).toBe(true);
 });
+
+// A truth reader waits on a derivation of an unconfirmed guess (D-31): the
+// value beneath it is the world before the guess, and the predicate must
+// not resolve from that either — the source has confirmed nothing yet.
+it("until() over a memo of an unconfirmed guess waits for the source, even when the pre-guess world satisfies it", async () => {
+  let setSource!: (v: number) => void;
+  let save!: () => Promise<unknown>;
+  createRoot(() => {
+    const [source, ss] = createSignal(1);
+    setSource = ss;
+    const [count, guess] = createOptimistic(() => source());
+    const doubled = createMemo(() => count() * 2);
+    createRenderEffect(doubled, () => {});
+    save = action(function* () {
+      guess(2);
+      yield Promise.resolve();
+      yield until(() => doubled() >= 2);
+    });
+  });
+  flush();
+  let done = false;
+  save().then(() => (done = true));
+  await tick();
+  expect(done).toBe(false);
+  setSource(2);
+  flush();
+  await tick();
+  expect(done).toBe(true);
+});

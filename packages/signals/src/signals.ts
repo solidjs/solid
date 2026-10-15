@@ -40,7 +40,8 @@ import {
 } from "./core/scheduler.js";
 import { REACTIVE_JOINED, STATUS_ERROR, STATUS_PENDING } from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
-import { optimisticWrite, truthConfirmed, truthRead } from "./core/lanes.js";
+import { optimisticWrite } from "./core/lanes.js";
+import { truthConfirmed, truthRead } from "./core/truth.js";
 
 /**
  * Low-level reactive-cleanup primitive. Registers a callback that runs when
