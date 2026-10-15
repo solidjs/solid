@@ -112,8 +112,8 @@ import (TS2882)._
               ┌──────────────────────────────┬──────────────────────────────┐
  client-heavy │ hackernews-spa   SPA + JSON  │ board            FLAGSHIP    │
  (affordances)│ todos            SPA + optim │   live data tier, optimistic │
-              │                              │   store, until, drag,        │
-              │                              │   presence                   │
+              │ chat-client      streaming   │   store, until, drag,        │
+              │   projection, request-scoped │   presence                   │
               ├──────────────────────────────┼──────────────────────────────┤
    (islands)  │ notes            RSC coord.  │                              │
               │   islands + single-flight    │                              │
@@ -127,11 +127,16 @@ import (TS2882)._
  retired:  room (both pages absorbed by the flagships)
 ```
 
-Twins: `hackernews` ↔ `hackernews-spa`; `todos-server` ↔ `todos`. The
-realistic pair on the right (`board`, `chat`) mirrors the pedagogical pair
-on the left (`hackernews`, `notes`), and is its own comparison: the same
-primitives with the client owning the markup (`board`) and with the server
-owning it (`chat`).
+Twins: `hackernews` ↔ `hackernews-spa`; `todos-server` ↔ `todos`;
+`chat` ↔ `chat-client`. The realistic pair on the right (`board`, `chat`)
+mirrors the pedagogical pair on the left (`hackernews`, `notes`), and is its
+own comparison: the same primitives with the client owning the markup
+(`board`) and with the server owning it (`chat`). `chat-client` is the
+guide-shaped reply: a `"use server"` async generator streamed into a
+projection, one store write per chunk, with a rerun-budget acceptance test;
+its README states the cancellation contract — a client abort fires
+`request.signal`, which a request-scoped reply forwards to the model and a
+durable job (`chat`) deliberately does not.
 
 ## Handoff (2026-10-12)
 

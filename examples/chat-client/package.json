@@ -1,0 +1,27 @@
+{
+  "name": "chat-client-example",
+  "description": "An AI chat the browser owns: a \"use server\" async generator streams text deltas into a projection, one store write per chunk; stopping is superseding the read, and the aborted request fires request.signal on the server, which the generator forwards to the model",
+  "version": "0.0.0",
+  "private": true,
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solidjs/web": "workspace:*",
+    "solid-js": "workspace:*"
+  },
+  "devDependencies": {
+    "@solidjs/diagnostics": "workspace:*",
+    "@solidjs/vite-plugin": "3.0.0-next.50",
+    "jsdom": "^25.0.1",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.6"
+  }
+}

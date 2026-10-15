@@ -165,6 +165,31 @@ importers:
         specifier: ^8.0.0
         version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
 
+  examples/chat-client:
+    dependencies:
+      '@solidjs/web':
+        specifier: workspace:*
+        version: link:../../packages/web
+      solid-js:
+        specifier: workspace:*
+        version: link:../../packages/solid
+    devDependencies:
+      '@solidjs/diagnostics':
+        specifier: workspace:*
+        version: link:../../packages/diagnostics
+      '@solidjs/vite-plugin':
+        specifier: 3.0.0-next.50
+        version: 3.0.0-next.50(@solidjs/web@packages+web)(@testing-library/jest-dom@6.9.1)(solid-js@packages+solid)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+      jsdom:
+        specifier: ^25.0.1
+        version: 25.0.1
+      vite:
+        specifier: ^8.0.0
+        version: 8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0)
+      vitest:
+        specifier: ^4.1.6
+        version: 4.1.6(@types/node@25.6.0)(@vitest/coverage-v8@4.1.6)(jsdom@25.0.1)(vite@8.1.5(@types/node@25.6.0)(esbuild@0.27.7)(terser@5.49.0))
+
   examples/effect:
     dependencies:
       effect:

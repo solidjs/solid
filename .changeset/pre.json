@@ -3,6 +3,7 @@
   "tag": "rc",
   "initialVersions": {
     "chat-example": "0.0.0",
+    "chat-client-example": "0.0.0",
     "hackernews-example": "0.0.0",
     "hackernews-spa-example": "0.0.0",
     "migrating-element-example": "0.0.0",
