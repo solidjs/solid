@@ -3288,6 +3288,14 @@ function reconcileChildren(
       newChild = nextNew;
       continue;
     }
+    // A stale text node (a text hole that went empty) holds no client state:
+    // drop it so what follows lines up again, instead of relocating the
+    // next element in front of it.
+    if (old.nodeType === TEXT_NODE && newChild.nodeType !== TEXT_NODE) {
+      oldChild = old.nextSibling;
+      old.remove();
+      continue;
+    }
     // Incompatible here — but a compatible element may sit further along:
     // content churn between versions (a placeholder where revealed content
     // was) shifts positions, and recreating a later match would destroy the

@@ -81,6 +81,39 @@ describe("row ops on a live For hole", () => {
     vi.restoreAllMocks();
   });
 
+  test("a text hole that empties drops its text node without moving what follows", async () => {
+    await prepareTier("wire");
+    const { container, items, send, done } = await mount();
+    send({
+      type: "hole",
+      key: "lh:0",
+      digest: "d1",
+      base: "d0",
+      rows: { n: 3, r: [[1, "<li><!--$-->1.5<!--/--><span>q</span></li>"]] }
+    });
+    await cycle();
+    const span = items()[1].querySelector("span")!;
+    const added: string[] = [];
+    const observer = new MutationObserver(records => {
+      for (const r of records) for (const n of r.addedNodes) added.push(n.nodeName);
+    });
+    observer.observe(container, { subtree: true, childList: true });
+    send({
+      type: "hole",
+      key: "lh:0",
+      digest: "d2",
+      base: "d1",
+      rows: { n: 3, r: [[1, "<li><!--$--><!--/--><span>q</span></li>"]] }
+    });
+    await cycle();
+    observer.disconnect();
+    expect(items()[1].innerHTML).toBe("<!--$--><!--/--><span>q</span>");
+    expect(items()[1].querySelector("span")).toBe(span);
+    // Dropping the stale text is the whole change: the span is not re-inserted.
+    expect(added).toEqual([]);
+    await done();
+  });
+
   test("morphs only the changed row, appends and truncates at the tail", async () => {
     await prepareTier("wire");
     const { items, send, done } = await mount();
