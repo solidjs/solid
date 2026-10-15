@@ -122,7 +122,7 @@
     "severity": ["warn"],
     "category": "perf",
     "trigger": "The live graph and what outlived each navigation climbed at a route's settle on 3 visits to 1.25× — something each visit leaves behind (attribution enabled)",
-    "repair": "The live graph, counted when each navigation settles, got bigger on every one of the last `data.history.length` visits to `data.route`, and so did the part of it that outlived each of those navigations (`data.survived`, beside `data.history`: what was alive when the navigation began and still is) — something each visit creates is never disposed.",
+    "repair": "The live graph, counted when each navigation settles, got bigger on every one of the last `data.history.length` visits to `data.route`, and so did the part of it that outlived each of those navigations (`data.survived`, beside `data.history`: what was alive as this or an earlier navigation began and still is) — something each visit creates is never disposed.",
     "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#graph_growth"
   },
   {
