@@ -142,6 +142,10 @@ export const CONFIG_VERDICT = 1 << 15;
  * promise over an expression (`resolve`/`until`, signals.ts: the pass reads
  * the error and rejects, or re-asks a pending source). */
 export const CONFIG_REDERIVE = 1 << 14;
+/** An answered `createDeferred` node (deferred.ts): held because a
+ * downstream hold staged its landing, its re-pass is a lagging question,
+ * not an answer, and joins no transaction (D-40). */
+export const CONFIG_LAGS = 1 << 19;
 /** The reader wants the truth, not the lane's guess (`until`, signals.ts):
  * a read of displayed optimism serves the base the guess covers, makes the
  * pass no lane's, and the truth landing wakes it even when it confirms the

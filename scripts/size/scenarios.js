@@ -576,6 +576,14 @@ module.exports = [
     // instead of the committed screen. Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-13; hello world stays under
     // 10 KB at 9,966 B. The cap is frozen again at 7.48 KB.
+    // Size-Exception (createDeferred, D-40, #4067, 2026-10-14): 7.48 -> 7.50 KB (floor-caps.json)
+    // (20,436 -> 20,469 B minified), measured at 7,481 B against `next`
+    // @ 0109a56 — +14 B minified: the D11 check in `recompute`'s held-node
+    // arm (a held deferred re-pass joins nothing, 12 B) and the
+    // `REACTIVE_REASK` mask (2 B); `next` already sat 18-19 B over the
+    // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-14. The cap is frozen
+    // again at 7.50 KB.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
@@ -1044,8 +1052,15 @@ module.exports = [
     // them their transaction instead of the committed screen. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-13.
-    limit: "14.94 KB",
-    capMinified: 45365,
+    // Size-Exception (createDeferred, D-40, 2026-10-15): 14.94 -> 15.00 KB,
+    // measured at 14,989 B with `next` @ b2c6e4ba merged in (45,365 ->
+    // 45,395 B minified). #4067's +17 B store share (the D11 check in
+    // `recompute`, the REACTIVE_REASK mask, the projection `fam` hook) plus
+    // #4073's seedless derived stores, each inside the 20 B allowance
+    // alone, together pass it. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-14).
+    limit: "15.00 KB",
+    capMinified: 45395,
     alias
   },
   {
@@ -1321,8 +1336,15 @@ module.exports = [
     // them their transaction instead of the committed screen. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-13.
-    limit: "9.77 KB",
-    capMinified: 27447,
+    // Size-Exception (createDeferred, D-40, #4067, 2026-10-14): 9.77 -> 9.79 KB
+    // (27,447 -> 27,480 B minified), measured at 9,773 B against `next`
+    // @ 0109a56 — +14 B minified: the D11 check in `recompute`'s held-node
+    // arm (a held deferred re-pass joins nothing, 12 B) and the
+    // `REACTIVE_REASK` mask (2 B); `next` already sat 18-19 B over the
+    // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-14.
+    limit: "9.79 KB",
+    capMinified: 27480,
     alias
   },
   {
@@ -1564,6 +1586,14 @@ module.exports = [
     // instead of the committed screen. Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer 2026-10-13; it stays under 10 KB. The
     // cap is frozen again at 9.98 KB.
+    // Size-Exception (createDeferred, D-40, #4067, 2026-10-14): 9.98 -> 10.01 KB (floor-caps.json)
+    // (27,945 -> 27,977 B minified), measured at 9,995 B against `next`
+    // @ 0109a56 — +14 B minified: the D11 check in `recompute`'s held-node
+    // arm (a held deferred re-pass joins nothing, 12 B) and the
+    // `REACTIVE_REASK` mask (2 B); `next` already sat 18-19 B over the
+    // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-14. Hello world stays
+    // under 10 KB at 9,995 B. The cap is frozen again at 10.01 KB.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -1932,6 +1962,13 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (floor-caps.json; the floors unchanged, 0 B minified).
+    // Size-Exception (createDeferred, D-40, 2026-10-15; floor-caps.json):
+    // 18.09 -> 18.11 KB, measured at 18,092 B (53,350 -> 53,386 B minified)
+    // with `next` @ eb4e0192 merged in. #4067's core share (the D11 check
+    // in `recompute`, the REACTIVE_REASK mask) plus #4075's still-streaming
+    // branch, each inside the 20 B allowance alone, together pass it.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-14).
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2452,8 +2489,15 @@ module.exports = [
     // branch of hydratedCreateLoadingBoundary skips the fallback when `$df`
     // already swapped the content in. Cap set at measured + 10 B rounded up
     // to 0.01 KB. Accepted by the maintainer 2026-10-15.
-    limit: "29.69 KB",
-    capMinified: 93753,
+    // Size-Exception (createDeferred, D-40, 2026-10-15): 29.69 -> 29.76 KB,
+    // measured at 29,747 B (93,753 -> 93,770 B minified) with
+    // `next` @ eb4e0192 merged in. #4067's core share (the D11 check
+    // in `recompute`, the REACTIVE_REASK mask) plus #4075's still-streaming
+    // branch, each inside the 20 B allowance alone, together pass it.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-14).
+    limit: "29.76 KB",
+    capMinified: 93770,
     alias
   },
   {
@@ -3567,8 +3611,15 @@ module.exports = [
     // them their transaction instead of the committed screen. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-13.
-    limit: "10.17 KB",
-    capMinified: 28475,
+    // Size-Exception (createDeferred, D-40, #4067, 2026-10-14): 10.17 -> 10.21 KB
+    // (28,475 -> 28,507 B minified), measured at 10.19 KB in CI against `next`
+    // @ 0109a56 — +14 B minified: the D11 check in `recompute`'s held-node
+    // arm (a held deferred re-pass joins nothing, 12 B) and the
+    // `REACTIVE_REASK` mask (2 B); `next` already sat 18-19 B over the
+    // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-14.
+    limit: "10.21 KB",
+    capMinified: 28507,
     alias
   },
   {
@@ -3797,8 +3848,15 @@ module.exports = [
     // branch of hydratedCreateLoadingBoundary skips the fallback when `$df`
     // already swapped the content in. Cap set at measured + 10 B rounded up
     // to 0.01 KB. Accepted by the maintainer 2026-10-15.
+    // createDeferred (D-40, 2026-10-15): recorded minified 101,369 -> 101,387
+    // (+18 B, measured at 31,821 B, under the cap) with
+    // `next` @ eb4e0192 merged in. #4067's core share (the D11 check
+    // in `recompute`, the REACTIVE_REASK mask) plus #4075's still-streaming
+    // branch, each inside the 20 B allowance alone, together pass it.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-14).
     limit: "31.89 KB",
-    capMinified: 101369,
+    capMinified: 101387,
     alias
   },
   {

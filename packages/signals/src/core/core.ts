@@ -28,6 +28,7 @@ import {
   CONFIG_PROMOTED,
   CONFIG_STAGED,
   CONFIG_HELD_FRAME,
+  CONFIG_LAGS,
   CAUGHT_REARMED,
   CONFIG_SYNC,
   CONFIG_TRANSPARENT,
@@ -324,7 +325,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // Held by a blocked lane: the frame joins nothing — a lane never holds
       // a sync write (#3460). The pass is the lane's if it reads the lane's
       // world (`read`), and has left it otherwise.
-      if (tx._lane) {
+      // An answered deferred node's re-pass is a lagging question (D-40):
+      // it joins nothing, so the write that reached it commits mainline.
+      if (tx._lane || el._config & CONFIG_LAGS) {
       } else if (isEffect !== EFFECT_RENDER && !(el._config & CONFIG_VERDICT))
         joinPassTx(tx, GlobalQueue._fresh?.(el, el._statusFlags & STATUS_UNINITIALIZED));
       else if (
@@ -380,7 +383,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // frame, and the splice/reawaken paths key off it. A zombie reruns for
   // live writes until the commit that disposes it, so every per-pass wipe
   // — here, the finally below, updateIfNecessary — carries it (#3543).
-  el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & REACTIVE_ZOMBIE);
+  el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & (REACTIVE_ZOMBIE | REACTIVE_REASK));
   el._time = clock;
   // The pass's previous value: its staging, else a lane node's lane value
   // when it has one (lanes.ts), else the committed one.

@@ -102,6 +102,7 @@ export {
   enableHydration,
   createRoot,
   createMemo,
+  createDeferred,
   createSignal,
   createStore,
   createProjection,
@@ -303,7 +304,6 @@ export {
   batch, // flush
   catchError, // old version handled by createErrorBoundary. new version is different helper.
   createComputed, // nope
-  createDeferred, // take it outside
   createResource, // all computations
   createSelector, // createProjection
   DevHooks,
