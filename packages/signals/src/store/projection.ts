@@ -260,17 +260,13 @@ export function runProjectionComputed<T extends object>(
           // A landing (not the sync pass's own commit): the readers held
           // pending on the derive settle.
           if (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) settleFamily(fam);
-        };
-        // A landing is the derive's change for the readers that observed its
-        // flight (linked by `pullFamily`), as a memo's landing is for its
-        // readers: one that caught the NotReady (a fallback value, not
-        // pending) re-runs too (#4070) — the pending ones the settle walk
-        // re-runs anyway.
-        const land = (v: void | T) => {
-          commit(v);
+          // A commit is the derive's change for the readers that observed its
+          // flight (linked by `pullFamily`; a settled pull does not link), as
+          // a memo's landing is for its readers: one that caught the NotReady
+          // (a fallback value, not pending) re-runs too (#4070).
           insertSubs(owner);
         };
-        const sync = handleAsync(owner, result, land, (error, pending) => {
+        const sync = handleAsync(owner, result, commit, (error, pending) => {
           // The flight rejected: the leaves' readers learn it from here —
           // they do not subscribe to the derive. Pending again (a NotReady
           // rejection): the wake, as for the pass. Errored: every live
