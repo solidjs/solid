@@ -231,9 +231,10 @@ curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"begin"}'
 # ...interact with the app in the browser...
 curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"whyDidRun","params":{"name":"TodoRow"}}'
 curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"costs"}'
-curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"feedback"}'
 curl -X POST localhost:3000/__solid/diagnostics -d '{"method":"end"}'
 ```
 
-`GET` the endpoint for status. With several open tabs the first responder
-wins — keep one page under test.
+The endpoint serves `begin`, `end`, `active`, `whyDidRun` and `costs`; the
+holds and feedback tables come back in the `end` payload
+(`attribution.holds`, `attribution.feedback`). `GET` the endpoint for status.
+With several open tabs the first responder wins — keep one page under test.
