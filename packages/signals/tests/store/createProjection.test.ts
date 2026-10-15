@@ -518,7 +518,7 @@ describe("projection over a store — chained backing (#2941)", () => {
       proj = createProjection(() => {
         derive();
         return store;
-      }, {}) as { a: number };
+      }) as { a: number };
       createEffect(
         () => proj.a,
         v => {
@@ -547,7 +547,7 @@ describe("projection over a store — chained backing (#2941)", () => {
     const dispose = createRoot(dispose => {
       const [store, set] = createStore({ top: "t1", nest: { deep: "d1" } });
       setStore = set;
-      const proj = createProjection(() => store, {}) as typeof store;
+      const proj = createProjection(() => store) as typeof store;
       createEffect(
         () => proj.top,
         v => {
@@ -587,7 +587,7 @@ describe("projection over a store — chained backing (#2941)", () => {
       const proj = createProjection(() => {
         const m = mode();
         return m === "a" ? a : m === "b" ? b : { v: "plain" };
-      }, {}) as { v: string };
+      }) as { v: string };
       createEffect(
         () => proj.v,
         v => {
@@ -676,7 +676,7 @@ describe("projection over a store — chained backing (#2941)", () => {
     const dispose = createRoot(dispose => {
       const [store, set] = createStore({ a: 1, nest: { b: 2 } });
       setStore = set;
-      proj = createProjection(() => store, {});
+      proj = createProjection(() => store);
       return dispose;
     });
     flush();

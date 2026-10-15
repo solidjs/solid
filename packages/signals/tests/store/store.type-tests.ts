@@ -65,23 +65,58 @@ import {
   store.count satisfies number;
 }
 
-// ── createStore (projection) — partial seed ───────────────────────────
+// ── createStore (projection) — seedless ───────────────────────────────
 
 {
-  const [store] = createStore(() => ({ foo: true }), {});
+  const [store] = createStore(() => ({ foo: true }));
   store.foo satisfies boolean;
 }
 
 {
-  const [store] = createStore(() => ({ a: 1, b: "hello" }), {});
+  const [store] = createStore(async () => ({ a: 1, b: "hello" }));
   store.a satisfies number;
   store.b satisfies string;
 }
 
 {
-  const [store] = createStore(() => ({ a: 1, b: "hello" }), { a: 0 });
+  const [store] = createStore(async function* () {
+    yield { a: 1 };
+  });
   store.a satisfies number;
-  store.b satisfies string;
+}
+
+{
+  // The seed slot takes `undefined` to reach the options.
+  const [store, setStore] = createStore(async () => ({ email: "a", n: 1 }), undefined, {
+    key: "email"
+  });
+  store.n satisfies number;
+  setStore(s => {
+    s.n satisfies number;
+  });
+}
+
+// @ts-expect-error A seed is a complete T; drop it for the seedless form.
+createStore(() => ({ a: 1, b: "hello" }), { a: 0 });
+
+// @ts-expect-error An empty object is not a complete T either.
+createStore(() => ({ a: 1 }), {});
+
+// @ts-expect-error A seedless derive takes no draft.
+createStore((s: { a: number }) => {
+  s.a = 1;
+});
+
+// @ts-expect-error A seedless root is a plain object; seed arrays with `[]`.
+createStore(async () => [{ id: 1 }]);
+
+// @ts-expect-error seedLoadingValue needs a seed to promote.
+createStore(() => ({ a: 1 }), undefined, { seedLoadingValue: true });
+
+{
+  // An array root keeps its `[]` seed.
+  const [store] = createStore(async () => [{ id: 1 }], []);
+  store[0].id satisfies number;
 }
 
 // ── createProjection — mutation only (void return, T from seed) ───────
@@ -108,17 +143,23 @@ import {
   store.active satisfies boolean;
 }
 
-// ── createProjection — partial seed ───────────────────────────────────
+// ── createProjection — seedless ───────────────────────────────────────
 
 {
-  const store = createProjection(() => ({ foo: true }), {});
+  const store = createProjection(() => ({ foo: true }));
   store.foo satisfies boolean;
 }
 
 {
-  const store = createProjection(() => ({ nested: { x: 1 } }), {});
+  const store = createProjection(async () => ({ nested: { x: 1 } }));
   store.nested.x satisfies number;
 }
+
+// @ts-expect-error A seed is a complete T.
+createProjection(() => ({ foo: true }), {});
+
+// @ts-expect-error A seedless root is a plain object.
+createProjection(() => [1, 2]);
 
 // ── createProjection — empty array seed ───────────────────────────────
 
@@ -146,12 +187,15 @@ import {
   proj.count satisfies number;
 }
 
-// ── createOptimisticStore (projection) — partial seed ─────────────────
+// ── createOptimisticStore (projection) — seedless ─────────────────────
 
 {
-  const [store] = createOptimisticStore(() => ({ foo: true }), {});
+  const [store] = createOptimisticStore(async () => ({ foo: true }));
   store.foo satisfies boolean;
 }
+
+// @ts-expect-error A seed is a complete T.
+createOptimisticStore(() => ({ foo: true }), {});
 
 // ── createOptimisticStore (projection) — seed matches return type ─────
 

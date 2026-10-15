@@ -27,6 +27,13 @@ import { DEV, OBSERVE } from "solid-js";
  * chunk may carry `tiers` (see `TierAnnouncement`).
  * @experimental
  */
+/**
+ * Row ops for a live hole whose value is a `For`'s rows (#4064): the new
+ * row count `n` and the rows that changed or were appended, as
+ * `[index, html]`. A count below the range's truncates it.
+ */
+export type HoleRows = { n: number; r: [number, string][] };
+
 export type FrameChunk = (
   | { type: "start"; id: string; version: number }
   | {
@@ -56,6 +63,9 @@ export type FrameChunk = (
       html: string;
       digest?: string;
       holes?: Record<string, string>;
+      /** Row ops for a `For` hole (#4064), against the emission `base`. */
+      rows?: HoleRows;
+      base?: string;
     }
   | {
       type: "attr";
@@ -107,7 +117,14 @@ export type FrameChunk = (
       id: string;
       version: number;
       ops: (
-        | { type: "hole"; key: string; html: string; digest?: string }
+        | {
+            type: "hole";
+            key: string;
+            html: string;
+            digest?: string;
+            rows?: HoleRows;
+            base?: string;
+          }
         | { type: "attr"; key: string; attrs: string; removed?: string[]; digest?: string }
       )[];
     }
@@ -677,7 +694,10 @@ export function chunkToRecords(chunk) {
           kind: "html",
           value: chunk.html,
           digest: chunk.digest,
-          holes: chunk.holes
+          holes: chunk.holes,
+          // Row ops against the emission digested `base` (#4064).
+          rows: chunk.rows,
+          base: chunk.base
         }
       };
     case "attr":
@@ -1254,6 +1274,28 @@ class FrameImpl {
   // to say (frames-rulings 2.4: its placeholder is gone once it swapped),
   // so no second ledger of revealed names exists beside this.
   #appliedHoles = new Map();
+  // Live-hole targets found by the last search, keyed `hole:<marker>` /
+  // `attr:<addr>`: a hole's open comment or an addressed element. A sweep
+  // re-emits the same holes every write, and a DFS for each over the whole
+  // frame grew with everything else the frame shows. An entry is trusted
+  // only while its node is still in this frame and still matches; the
+  // root morph and a version bump clear the map (ids restart per stream).
+  #liveTargets = new Map();
+  // What each live hole's range shows, by the digests the wire ledger
+  // keeps (kept here too, as the ledger is absent while the tier loads) —
+  // the base a row-op record must name to be applied (#4064).
+  #shows = {};
+  // The last full slot walk's result (#syncSlots' found map; dropped by a
+  // root morph and an empty write) and, during a flush, the ranges its
+  // live holes morphed — `[open, close]` for a hole, `[element]` for an
+  // attr patch.
+  #found;
+  #morphed;
+  // Content a reveal or a materialized fallback inserts (its first node),
+  // until a full walk has seen it in the frame: a reveal boundary whose
+  // fills pend inserts it later, outside any flush, and the sync after it
+  // lands must walk the whole frame.
+  #pendingReveals: Node[] = [];
   // The have-list (RFC 11 §9.5) — what this mount currently shows, by the
   // server's own digests — is the live wire tier's ledger (wire-tier.ts,
   // `have` / `haveOf`): this frame hands it every applied content record
@@ -1400,7 +1442,15 @@ class FrameImpl {
       this.#resetStreamState();
     }
 
-    for (const key in write.r) this.#store[key] = write.r[key];
+    // Only a root morph and a reveal change the frame's DOM outside the
+    // ranges live holes morph, so any other write — a sweep's `ops` unit, a
+    // re-sent slot record, the bulk of a live stream — has its slot sync
+    // walk just those ranges instead of the whole frame (see #syncSlots).
+    // An empty write is the "re-walk what you hold" signal (a tier
+    // install, the document face's reveal): it drops the last walk.
+    let key;
+    for (key in write.r) this.#store[key] = write.r[key];
+    if (key === undefined) this.#found = undefined;
     this.#flush();
   }
 
@@ -1467,6 +1517,9 @@ class FrameImpl {
     this.#store = Object.create(null);
     this.#appliedRoot = this.#appliedError = undefined;
     this.#appliedHoles.clear();
+    this.#liveTargets.clear();
+    this.#shows = {};
+    this.#pendingReveals = [];
   }
 
   #flush() {
@@ -1535,6 +1588,7 @@ class FrameImpl {
     // `frame:applied` must never read the DOM with one of its holes moved
     // and a sibling still showing the previous value).
     let morphed = false;
+    this.#morphed = [];
     for (const key in this.#store) {
       const record = this.#store[key];
       if (!record || this.#appliedHoles.get(key) === record) continue;
@@ -1543,7 +1597,7 @@ class FrameImpl {
           this.#appliedHoles.set(key, record);
           if ("_SOLID_DEV_")
             console.error(`Live hole ${key.slice(5, -6)} failed on the server; latched:`, record);
-        } else if (this.#applyHole(key.slice(5), record.value)) {
+        } else if (this.#applyHole(key.slice(5), record)) {
           this.#appliedHoles.set(key, record);
           this.#recordHave(key.slice(5), record);
           morphed = true;
@@ -1558,7 +1612,7 @@ class FrameImpl {
     }
     if (morphed) this.#applied(version, "morph");
 
-    this.#syncSlots();
+    this.#syncSlots(undefined, this.#morphed);
   }
 
   /**
@@ -1615,7 +1669,14 @@ class FrameImpl {
   // then the filled fragment is committed. Those occurrences mount here and are
   // skipped by the next full sync; the unmount sweep is full-frame-only (a
   // scoped fill only ADDS occurrences, never removes the frame's others).
-  #syncSlots(root) {
+  //
+  // `ranges`, when given, are the ranges a flush's live holes morphed
+  // (possibly none). Unless the last walk was dropped or a reveal's content
+  // landed since, nothing outside them changed, so discovery reuses the
+  // last full walk's result and walks only them (the bind tier's `reuse`):
+  // a live stream's every write otherwise re-walked, and re-parsed the
+  // binding markers of, everything the frame shows.
+  #syncSlots(root?, ranges?) {
     if (!this.#slots && !this.#outer) return;
 
     // Range-driven discovery: find every server-owned slot occurrence in this
@@ -1638,7 +1699,25 @@ class FrameImpl {
     const loading = tierLoads.bind;
     const elements = loading && !loading.r ? void (found.b = true) : found;
     if (root) collectSlots(root, found, elements);
-    else this.#collectSlots(found, elements);
+    else {
+      // The reuse is the bind tier's (`reuse`): consumer lists are what a
+      // walk costs and what reuse must keep exact. Without the tier the
+      // walk sees comments alone, which the platform steps natively.
+      const el = this.#element;
+      const pending = this.#pendingReveals;
+      const B = tierLoads.bind?.r;
+      if (
+        !ranges ||
+        !elements ||
+        !B ||
+        pending.some(n => el.contains(n)) ||
+        !B.reuse(this.#found, ranges, found, el)
+      ) {
+        this.#collectSlots(found, elements);
+        this.#pendingReveals = pending.filter(n => !el.contains(n));
+      }
+      this.#found = elements ? found : undefined;
+    }
     // Whether this sync leaves an occurrence WAITING to mount — for its
     // record, for a `{$ref}`'s data: a claim the frame owes the page and has
     // not made yet (see the hold at the end).
@@ -2116,6 +2195,9 @@ class FrameImpl {
    * full snapshot then (the degraded case, wire-tier.ts).
    */
   #recordHave(key, record) {
+    this.#shows = key
+      ? Object.assign(this.#shows, { [key]: record.digest }, record.holes)
+      : { ...record.holes };
     tierLoads.wire?.r?.have(this, key, record);
   }
 
@@ -2140,6 +2222,9 @@ class FrameImpl {
   }
 
   #applyRoot(html) {
+    this.#liveTargets.clear();
+    this.#shows = {};
+    this.#found = undefined;
     const fragment = parseFragment(html);
     const parent = this.#element;
     if (!this.#hasContent) {
@@ -2183,11 +2268,10 @@ class FrameImpl {
    * displaced-range index is needed. Returns whether the markers were
    * found and the morph ran.
    */
-  #applyHole(marker, html) {
+  #applyHole(marker, record) {
     if (!this.#hasContent) return false;
-    const open = findLiveTarget(
-      this.#element.firstChild,
-      null,
+    const open = this.#liveTarget(
+      "hole:" + marker,
       n => n.nodeType === COMMENT_NODE && n.data === marker
     );
     if (!open) return false;
@@ -2202,8 +2286,49 @@ class FrameImpl {
       }
       return false;
     }
-    reconcileChildren(open.parentNode, parseFragment(html), open, close, this.#claimTree);
+    const claim = this.#claimTree;
+    if (record.rows) {
+      // Row ops (#4064): only the rows that changed, applied by the wire
+      // tier (pending while it loads) where the range shows the emission
+      // they were taken against. Anywhere else (a fresh mount replaying
+      // the store, a record that landed on one that never applied) the
+      // live connection resumes, its have-list naming what the range
+      // shows, and the hole comes back whole.
+      const wire = tierReady("wire");
+      if (!wire) return false;
+      if (
+        this.#shows[marker] !== record.base ||
+        !wire.rows(
+          open,
+          close,
+          record.rows,
+          parseFragment,
+          (start, end, fragment) =>
+            reconcileChildren(start.parentNode, fragment, start, end, claim),
+          this.#morphed
+        )
+      ) {
+        // Once: the record is spent, the resume re-sends the hole whole.
+        this.#appliedHoles.set("hole:" + marker, record);
+        wire.cancel(this.#options.host, this.#options.id);
+        return false;
+      }
+    } else {
+      reconcileChildren(open.parentNode, parseFragment(record.value), open, close, claim);
+      this.#morphed.push([open, close]);
+    }
     return true;
+  }
+
+  /** A live-hole target: the cached node while it is still this frame's and
+   *  still matches, else a fresh search (cached when found). */
+  #liveTarget(key, test) {
+    const parent = this.#element;
+    let n = this.#liveTargets.get(key);
+    if (n && test(n) && parent.contains(n)) return n;
+    n = findLiveTarget(parent.firstChild, null, test);
+    n && this.#liveTargets.set(key, n);
+    return n;
   }
 
   /**
@@ -2222,12 +2347,12 @@ class FrameImpl {
    */
   #applyAttrs(addr, text, removed) {
     if (!this.#hasContent) return false;
-    const el = findLiveTarget(
-      this.#element.firstChild,
-      null,
+    const el = this.#liveTarget(
+      "attr:" + addr,
       n => n.nodeType === ELEMENT_NODE && n.getAttribute("data-lha") === addr
     );
     if (!el) return false;
+    this.#morphed.push([el]);
     const parsed = parseFragment(`<i${text}></i>`).firstChild;
     const keepOpen = preservesOpen(el);
     // Binding-slot positions the rebuilt text marks stay the client's, as in
@@ -2280,7 +2405,7 @@ class FrameImpl {
    * reveals once per content record and a mount seeding from a warm store
    * reveals what the store already holds.
    */
-  #revealSegments(root) {
+  #revealSegments(root?) {
     const version = this.#version;
     for (const key in this.#store) {
       const record = this.#store[key];
@@ -2395,6 +2520,7 @@ class FrameImpl {
         this.#syncSlots(materialized);
         this.#claimTree(materialized);
         this.#revealSegments(materialized);
+        if (materialized.firstChild) this.#pendingReveals.push(materialized.firstChild);
         return materialized;
       }
     });
@@ -2414,6 +2540,7 @@ class FrameImpl {
     if (!closing) return false;
     const fallback = tpl.content.cloneNode(true);
     this.#claimTree(fallback);
+    if (fallback.firstChild) this.#pendingReveals.push(fallback.firstChild);
     closing.parentNode.insertBefore(fallback, closing);
     return true;
   }
@@ -2671,7 +2798,8 @@ function findPlaceholder(n, end, id) {
  * element's interior are walked like any server content: they may hold
  * further occurrences of either kind.
  */
-function collectSlots(root, out, elements) {
+/** @internal (exported for the bind tier's `reuse`) */
+export function collectSlots(root, out, elements, from?, to?) {
   let announced;
   // `elements` is the found map or undefined; `tierLoads.bind` a promise or undefined.
   const bind =
@@ -2683,8 +2811,10 @@ function collectSlots(root, out, elements) {
   // `NodeFilter.SHOW_COMMENT`, `| SHOW_ELEMENT` — as literals (the same on
   // every platform).
   const w = root.ownerDocument.createTreeWalker(root, bind ? 0x81 : 0x80);
+  // A range walk (`from`/`to`, siblings under `root`): the nodes between.
+  if (from) w.currentNode = from;
   let n, p;
-  while ((n = w.nextNode())) {
+  while ((n = w.nextNode()) && n !== to) {
     if (n.nodeType !== COMMENT_NODE) {
       // An element (shown only when markers are looked for): a nested frame
       // is stepped over whole (below); any other with attributes is parsed

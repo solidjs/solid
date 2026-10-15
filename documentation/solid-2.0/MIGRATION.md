@@ -1062,7 +1062,7 @@ If you need a standard Observable/AsyncIterable interface for external consumers
 - **`produce`** → now the default store setter behavior (draft-first)
 - **`createMutable` / `modifyMutable`** → use `createStore` with draft setters
 - **`from` / `observable`** → async iterators
-- **`createDeferred`** → removed; handle outside Solid
+- **`createDeferred`** → same name, new meaning: an async memo that may lag but never leads (keeps its last answer while a refetch is in flight; `isPending` reports the refetch). 1.x's idle-time deferral and `timeoutMs` are gone; with a synchronous function it behaves like `createMemo`
 - **`indexArray`** → use `mapArray` with `keyed: false`
 - **`resetErrorBoundaries`** → no longer needed (error boundaries heal automatically)
 - **`enableScheduling`** → removed

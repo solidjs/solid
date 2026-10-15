@@ -1828,19 +1828,27 @@ export const createDeferred: {
  * (`"server"` | `"hybrid"` | `"client"`) for the same client-vs-server
  * tradeoffs as the other primitives. See {@link HydrationSsrFields}.
  */
-export const createProjection: <T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
-  options?: HydrationProjectionOptions
-) => Refreshable<Store<T>> = ((...args: any[]) => {
+export const createProjection: {
+  <T extends object = {}>(
+    fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+    seed?: null,
+    options?: Omit<HydrationProjectionOptions, "seedLoadingValue">
+  ): Refreshable<Store<T>>;
+  <T extends object = {}>(
+    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+    seed: NoFn<T> | Store<NoFn<T>>,
+    options?: HydrationProjectionOptions
+  ): Refreshable<Store<T>>;
+} = ((...args: any[]) => {
   // `hydrating` can only be true once enableHydration() installed the
   // adapter slot (see createOptimistic above for the retention story).
   return sharedConfig.hydrating
-    ? _hydrateStoreLike!(coreProjection, args[0], args[1], args[2])
+    ? _hydrateStoreLike!(coreProjection, args[0], args[1] ?? {}, args[2])
     : (coreProjection as Function)(...args);
 }) as any;
 
 type NoFn<T> = T extends Function ? never : T;
+type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
 
 /**
  * Creates a deeply-reactive store backed by a Proxy. Reads track each
@@ -1908,8 +1916,13 @@ export const createStore: {
     options?: StoreOptions
   ): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
+    fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+    seed?: null,
+    options?: Omit<HydrationProjectionOptions, "seedLoadingValue">
+  ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+  <T extends object = {}>(
     fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    seed: Partial<T> | Store<NoFn<T>>,
+    seed: NoFn<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => {
@@ -1972,8 +1985,13 @@ export const createOptimisticStore: {
     options?: StoreOptions
   ): [get: Store<T>, set: StoreSetter<T>];
   <T extends object = {}>(
+    fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+    seed?: null,
+    options?: Omit<HydrationProjectionOptions, "seedLoadingValue">
+  ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+  <T extends object = {}>(
     fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-    seed: Partial<T> | Store<NoFn<T>>,
+    seed: NoFn<T> | Store<NoFn<T>>,
     options?: HydrationProjectionOptions
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 } = ((...args: any[]) => {

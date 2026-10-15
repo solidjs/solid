@@ -46,13 +46,14 @@ function encoder(req, res) {
 // Static assets compress once at a higher quality — they're cached, not streamed.
 const staticBrotli = new Map();
 
-function webRequest(req) {
+function webRequest(req, signal) {
   const url = new URL(req.url || "/", `http://${req.headers.host || `localhost:${PORT}`}`);
   const method = req.method || "GET";
   const body = method === "GET" || method === "HEAD" ? undefined : Readable.toWeb(req);
   return new Request(url, {
     method,
     headers: req.headers,
+    signal,
     body,
     ...(body ? { duplex: "half" } : {})
   });
@@ -87,8 +88,11 @@ createServer(async (req, res) => {
     }
   }
 
+  // A tab that closes must end its render, so the thread's watcher stops.
+  const gone = new AbortController();
+  res.on("close", () => gone.abort());
   try {
-    const response = await handleRequest(webRequest(req));
+    const response = await handleRequest(webRequest(req, gone.signal));
     const cookies = response.headers.getSetCookie?.();
     response.headers.forEach((value, key) => {
       if (key !== "set-cookie") res.setHeader(key, value);
@@ -97,13 +101,19 @@ createServer(async (req, res) => {
     res.statusCode = response.status;
     const out = encoder(req, res) ?? res;
     if (response.body) {
-      for await (const chunk of response.body) {
-        out.write(chunk);
+      const reader = response.body.getReader();
+      gone.signal.addEventListener("abort", () => reader.cancel().catch(() => {}), { once: true });
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        out.write(value);
         if (out !== res) out.flush();
       }
     }
     out.end();
   } catch (e) {
+    // The tab went away mid-response: nothing to report.
+    if (gone.signal.aborted) return res.destroy();
     console.error(e);
     res.statusCode = 500;
     res.end(e.message);

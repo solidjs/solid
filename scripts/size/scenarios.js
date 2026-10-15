@@ -4246,8 +4246,30 @@ module.exports = [
     // allowance, so the cap stays. On top of #4033 (merged first): measured
     // at 11,540 B brotli / 34,499 B minified (+18 B brotli, +34 B minified
     // over 11,522 / 34,465). Accepted by the maintainer (2026-10-14).
-    limit: "11.54 KB",
-    capMinified: 34499,
+    // Scoped slot sync for live writes (2026-10-14): measured at 11,715 B
+    // brotli / 35,056 B minified locally (+175 B brotli, +557 B minified).
+    // Every write re-walked the whole frame and re-parsed every binding
+    // marker, and every live-hole apply searched the frame for its marker,
+    // so a live stream's per-write client cost grew with everything the
+    // frame showed. Now a write that is not a root morph, a reveal or an
+    // empty write walks only the ranges its holes morphed (the reuse itself
+    // is the lazy bind tier's), and hole markers are cached between applies.
+    // Chat example, 12 KB replies at 4x CPU, walk self time per reply:
+    // 0.34 / 0.78 / 1.03 / 1.58 s with 0-3 prior replies -> 0.18 / 0.22 /
+    // 0.19 / 0.28 s. Cap set to that measurement, not above it.
+    // Row ops for live `For` holes (#4064, 2026-10-14): measured at 11,838 B
+    // brotli / 35,395 B minified (+123 B brotli, +339 B minified). On a live
+    // response, a sweep that changed some rows of a `For` hole sends just
+    // those rows, against the digest of what the client shows; the eager
+    // client checks the range shows that base and hands the rows to the
+    // lazy wire tier, which morphs only their ranges. A range showing
+    // anything else resumes the live connection, which re-sends the hole
+    // whole. server-dbmon, 4x CPU, 5 ticks/s, main-thread busy ms/s with
+    // 10% of rows changing: 100 rows 305-319 -> 231-342; 400 rows 933-1001
+    // (saturated) -> 551-825. Wire (brotli q5) 1.7-1.9 -> 1.5-1.6 KB/s at
+    // 100 rows, 6.8-8.1 -> 5.1-6.0 KB/s at 400. Cap set to that measurement.
+    limit: "11.838 KB",
+    capMinified: 35395,
     alias: framesAlias,
     external: framesExternal
   },

@@ -34,7 +34,11 @@ function encoder(req, res) {
   let stream;
   if (/\bbr\b/.test(accepts)) {
     res.setHeader("Content-Encoding", "br");
-    stream = createBrotliCompress({ params: { [constants.BROTLI_PARAM_QUALITY]: 4 } });
+    // Common streaming settings: quality 5 with a 16 MB window, so a long-
+    // lived stream keeps finding what it already sent.
+    stream = createBrotliCompress({
+      params: { [constants.BROTLI_PARAM_QUALITY]: 5, [constants.BROTLI_PARAM_LGWIN]: 24 }
+    });
   } else if (/\bgzip\b/.test(accepts)) {
     res.setHeader("Content-Encoding", "gzip");
     stream = createGzip();
@@ -113,6 +117,8 @@ createServer(async (req, res) => {
     }
     out.end();
   } catch (e) {
+    // The tab went away mid-response: nothing to report.
+    if (gone.signal.aborted) return res.destroy();
     console.error(e);
     res.statusCode = 500;
     res.end(e.message);

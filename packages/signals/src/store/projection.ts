@@ -40,6 +40,7 @@ import {
   isWrappable,
   markRawIngest,
   setWriteOverride,
+  type NoArray,
   type NoFn,
   type ProjectionOptions,
   type Store
@@ -302,9 +303,12 @@ export function runProjectionComputed<T extends object>(
 
 function createProjectionInternal<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T>,
+  seed: T | null | undefined,
   options?: ProjectionOptions
 ) {
+  // Seedless (`fn` takes no draft): the root starts as an empty record. It is
+  // a draft like any seed, never observable before the first landing (A25).
+  seed ||= {} as T;
   const keyOption = options?.key === undefined ? "id" : options.key;
   const fam: StoreFamily = {
     map: new WeakMap(),
@@ -354,8 +358,18 @@ function createProjectionInternal<T extends object = {}>(
  * never an observable value, until the first landing (A25).
  */
 export function createProjection<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ProjectionOptions, "seedLoadingValue">
+): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed?: T | null,
   options?: ProjectionOptions
 ): Refreshable<Store<T>> {
   return createProjectionInternal(fn, seed, options).store;
@@ -364,7 +378,7 @@ export function createProjection<T extends object = {}>(
 /** `createStore(fn, seed, options)`: a projection with a user setter. */
 export function createStoreDerived<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: T | null | undefined,
   options?: ProjectionOptions
 ): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
   const { store } = createProjectionInternal(fn, seed, options);

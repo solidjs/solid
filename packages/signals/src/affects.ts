@@ -11,9 +11,9 @@
 // data joins nothing through it. A mark is never a re-ask, so a declared
 // reload's own `refresh()` cannot silence it; a real error outranks it.
 //
-// Representation: the mark core (affects-affects-marks.ts) — a count on the marked node,
-// coverage pull-derived at probe time, readers repolled at registration and
-// release. Here: each mark's scope (the transaction's `_marks`, or the
+// Representation: the mark core (affects-marks.ts) — a count on the marked
+// node, coverage pull-derived at probe time, readers repolled at registration
+// and release. Here: each mark's scope (the transaction's `_marks`, or the
 // ambient list) and the store half.
 //
 // Installed on `GlobalQueue` when imported: a program that never declares a
