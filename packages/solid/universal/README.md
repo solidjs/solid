@@ -79,7 +79,7 @@ export const {
     parent.insertBefore(node, anchor);
   },
   isTextNode(node) {
-    return node.type === 3;
+    return node.nodeType === 3;
   },
   removeNode(parent, node) {
     parent.removeChild(node);
