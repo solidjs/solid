@@ -121,9 +121,9 @@ These are the only words the fundamentals use. Internal names (transaction, stag
 
 **Immutable.** An error thrown by content under an `<Errored>` sends that boundary to its error fallback, which is then the display (F-3): readers behind it hold nothing. A pending read is never an error: `<Errored>` does not catch it and never shows its fallback for a wait, and `ASYNC_OUTSIDE_LOADING_BOUNDARY` is a warning, not a failure. An error that escapes every boundary halts the reactive system (`REACTIVITY_HALTED`); later writes are ignored. In effects, compute-phase errors can be intercepted (`createEffect`'s error arm) and are logged and skipped when they are not; effect-phase errors escalate to the nearest boundary.
 
-**What it does not say.** It does not say an error clears on the next write — the error fallback stays until a new answer replaces the errored one (D-39). It does not say an error shows before the frame it belongs to: an error is an answer — it ends the wait like a value, and it shows when a value would (D-40, proposed).
+**What it does not say.** It does not say an error clears on the next write — the error fallback stays until a new answer replaces the errored one (D-39). It does not say an error shows before the frame it belongs to: an error is an answer — it ends the wait like a value, and it shows when a value would (D-41).
 
-**Collapses:** A1–A6, §23.1 items 2–3 (2026-10-01), the 7b re-pin (2026-10-02), recovery 9.1/9.2. **Derived:** D-38, D-39, D-40 (proposed). **Scenarios:** S-38, S-41, S-42.
+**Collapses:** A1–A6, §23.1 items 2–3 (2026-10-01), the 7b re-pin (2026-10-02), recovery 9.1/9.2. **Derived:** D-38, D-39, D-41. **Scenarios:** S-38, S-42, S-43.
 
 ---
 

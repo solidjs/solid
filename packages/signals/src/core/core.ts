@@ -367,7 +367,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // settlePendingSource walk never runs for a landing that was preempted
   // (#3181).
   const wasPendingSource = el._x?._pendingSources?.has(el);
-  // D-40 (proposed): this pass's error is staged, not published (`stageError`).
+  // D-41: this pass's error is staged, not published (`stageError`).
   let stagedErr = false;
   // A19 exc. 2: a `refresh()` re-asks the question already answered — quiet
   // for the verdict — unless the question in flight is a new one, which the
@@ -446,14 +446,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // node is currently errored the error stays the answer until this
       // retry can actually run.
       parkLoadingWindow(el, e as NotReadyError);
-    } else if (!notReady && stageError(el, e, true)) {
-      stagedErr = true;
     } else {
-      if (notReady) ext(el)._blocked = true;
-      notifyStatus(el, notReady ? STATUS_PENDING : STATUS_ERROR, e);
-      // The replacement source is fully propagated now. If no new flight
-      // re-owned self, retire the superseded flight and its dependent copies.
-      if (notReady && wasPendingSource && !el._x?._inFlight) settlePendingSource(el);
+      // D-41: a pass of a held node, or one that read a staging of this
+      // flush, stages its error (`stageError`).
+      if (notReady || !(stagedErr = stageError(el, e, true))) {
+        if (notReady) ext(el)._blocked = true;
+        notifyStatus(el, notReady ? STATUS_PENDING : STATUS_ERROR, e);
+        // The replacement source is fully propagated now. If no new flight
+        // re-owned self, retire the superseded flight and its dependent copies.
+        if (notReady && wasPendingSource && !el._x?._inFlight) settlePendingSource(el);
+      }
       // A re-park drops what the earlier pass carried (#3456): a source this
       // pass no longer reaches — its branch switched, or a fresh flight
       // replaced the inputs' pending with its own — stays copied onto
@@ -461,8 +463,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // stops at this node (nothing left to retire) before it finds them. A
       // dependent then waits forever on a flight it has no path to. The
       // re-park twin of the unchanged-value recovery sweep below; dependents
-      // with another path keep the source (retryReaches).
-      if (notReady && outgoingPendingSources)
+      // with another path keep the source (retryReaches). A staged error
+      // answered what the pass carried: the same.
+      if ((notReady || stagedErr) && outgoingPendingSources)
         for (const source of outgoingPendingSources)
           if (source !== el && !el._x?._pendingSources?.has(source))
             settlePendingSource(el, source);
@@ -569,7 +572,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     let valueChanged = false;
     try {
       valueChanged =
-        (!isEffect && wasUninitialized) || !el._equals || !el._equals(compareValue, value);
+        (!isEffect && wasUninitialized) ||
+        el._x?._shownError !== undefined ||
+        !el._equals ||
+        !el._equals(compareValue, value);
     } catch (e) {
       // A throwing user comparator is an error of this node's computation.
       // Route it through the same status path as a compute-phase throw so
@@ -995,7 +1001,8 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _flushedAt: -1,
     _q: 0,
     _lane: NOT_PENDING,
-    _marks: 0
+    _marks: 0,
+    _shownError: undefined
   });
 }
 
@@ -1833,13 +1840,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
   // An errored derive throws for every late reader instead of silently
   // serving node values (memo parity, #2897 ruling).
-  // D-40 (proposed): a reader in the hold of a recovery staged over the
-  // shown error derives from the recovery (`serve`), not the error.
-  if (
-    (owner as Computed<any>)._fn &&
-    (owner as Computed<any>)._statusFlags & STATUS_ERROR &&
-    readerSeesCommitted(el, c as Computed<any> | null)
-  ) {
+  if ((owner as Computed<any>)._fn && (owner as Computed<any>)._statusFlags & STATUS_ERROR) {
     // Only a genuine reactive re-read may retry an errored async source:
     // - tracking: owned/tracked scope only (never events / `untrack` / effect side-effect phase)
     // - owner._time < clock: only on a later cycle than the one the error was found
@@ -1870,6 +1871,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (committed) return el._value as T;
+  // D-41: an untracked read reads the screen, and a shown error is on it
+  // until the answer that replaces it commits.
+  if (!c && el._x?._shownError !== undefined) throw el._x._shownError;
   const value = serve(el, c as Computed<any> | null) as T;
   if (
     !c &&
@@ -1924,7 +1928,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   )
     return el._value;
   stagedRead(c!, el);
-  // D-40 (proposed): the staged answer is an error (`stageError`).
+  // D-41: the staged answer is an error (`stageError`).
   if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
   return el._pendingValue;
 }
@@ -2034,10 +2038,11 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (el._config & CONFIG_HELD) joinFuture(txOf(el));
   // Uninitialized check first: the first commit has no previous value, so the
   // user comparator must not run against `undefined` (matches recompute).
-  // D-40 (proposed): a write over a shown error is a change whatever the
-  // last good value was — the error leaves (`commitPendingNode`).
+  // D-41: a write over a shown error is a change whatever the last good
+  // value was — the error leaves at its commit (`commitPendingNode`).
   const valueChanged =
-    !!((el as Computed<T>)._statusFlags & (STATUS_UNINITIALIZED | STATUS_ERROR)) ||
+    !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
+    el._x?._shownError !== undefined ||
     !el._equals ||
     !el._equals(currentValue, v);
   if (!valueChanged) return v;

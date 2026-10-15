@@ -111,6 +111,11 @@ export interface NodeExtension {
    * changes — `isPending` reads true for it and its derivations while any
    * is live. A count, never a hold. */
   _marks: number;
+  /** D-41: the error a node showed when a re-ask made it pending — still
+   * the display (D-39) until a new answer commits: an untracked read throws
+   * it, `isPending` reads a staged answer as a change over it, and a
+   * recovery equal to the last good value is still a new answer. */
+  _shownError: unknown;
 }
 
 export interface RawSignal<T> {

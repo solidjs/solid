@@ -211,7 +211,7 @@ function heldNotFinal(owner: Computed<any>): boolean {
     !latestActive &&
     !owner._x!._reask &&
     !(owner._statusFlags & STATUS_UNINITIALIZED) &&
-    ((owner._statusFlags & STATUS_ERROR) !== 0 ||
+    (owner._x!._shownError !== undefined ||
       !owner._equals ||
       !owner._equals(owner._value as any, owner._pendingValue as any))
   );
@@ -288,7 +288,7 @@ export function isPending(fn: () => any): boolean {
   }
 }
 
-/** The staging, or the staged error thrown (D-40, proposed). */
+/** The staging, or the staged error thrown (D-41). */
 function staged(el: Signal<any> | Computed<any>): unknown {
   if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
   return el._pendingValue;
@@ -411,7 +411,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // has not shown content) and answers for the commit, where it is final.
     if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
       if (probing && owned) joinPass(c!, el);
-      return el._pendingValue;
+      return staged(el);
     }
   } else if (el._pendingValue !== NOT_PENDING) {
     if (owner._statusFlags & STATUS_PENDING && !uninitialized)

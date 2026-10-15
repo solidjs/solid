@@ -334,9 +334,9 @@ An `<Errored>` flipping to its fallback is a boundary going back to its fallback
 
 ---
 
-### D-40. An error is an answer: it ends the wait like a value, and it shows when a value would
+### D-41. An error is an answer: it ends the wait like a value, and it shows when a value would
 
-**From:** F-2, F-1, F-12, D-39. **Scenarios:** S-41, S-42. **Proposed 2026-10-12, not ruled** (Q-6).
+**From:** F-2, F-1, F-12, D-39. **Scenarios:** S-42, S-43. **Ruled 2026-10-15** (Q-6 B, from #3886; first drafted as D-40 in #3995).
 
 A rejection, a compute-phase throw or a comparator throw is the answer to the question its node asked. As an answer it _settles_ the async: a hold never waits on an errored flight, and nothing here changes what a hold waits for. But settled is not shown. A value that lands on a held node is staged until the frame reveals (F-2); an error that lands on a held node is staged the same way, because the error fallback is content (F-4) and showing it beside the previous frame's other content is the torn screen F-1 forbids. Until the reveal: the screen keeps what it showed, an ordinary outside read serves the committed value (it reads the screen, D-29, D-34), `createEffect`'s error arm does not run, `<Errored>` does not flip, `resolve`/`until`/`refresh` do not reject (D-31), `isPending` of it is `true`, and `latest` of it throws the proposed error — the one way to see the answer early (F-6). At the reveal the error and everything that waited with it show as one frame: the arm runs, the boundary shows its fallback, the outside read throws, `isPending` is `false`.
 
@@ -346,7 +346,9 @@ A first load that rejects has no previous content to keep: born held (D-2), it s
 
 **What it does not say.** It does not say an error keeps a hold open. It does not say an unheld error waits: with nothing held, an error publishes at the flush that found it, like a value (S-38). It does not say `latest` hides the error. It does not change what a boundary catches (F-12), the effect arms (D-38), or the halt.
 
-**Deviation today.** A held node's error publishes at once while its value would wait: the effect's error arm runs (with no boundary between), the untracked read throws, `isPending` reads `false`, the promise helpers reject; under a scheduled render effect the screen itself does hold. During a retry the untracked read of a shown error serves the pre-error value, and a held recovery drops the shown error ahead of its frame. A recovery to the last good value after an async rejection never reaches the effect, held or not (its equality gate ran before the status changed). From #3886's audit, which also found the standalone cases listed in `OPEN-QUESTIONS.md` Q-6. Pinned `it.fails` in `tests/error-is-an-answer.test.ts`. **Status:** proposed.
+**Built 2026-10-15.** An error a held node's flight or pass finds is staged in `_pendingValue` (CONFIG_STAGED_ERROR) and committed with the frame, which publishes it through the ordinary error path; a held recovery keeps the shown error (`_shownError`) until its own commit, and a recovery equal to the last good value is a change of answer, held or not. `watch` (`resolve`, `until`, `refresh`) rejects at the landing. The duplicated immediate-publish path is gone. Pins: `tests/error-is-an-answer.test.ts`, `tests/watch-error-outcomes.test.ts` (GabbeV, #3886).
+
+**Deviation today.** An untracked read of a derived store's property (`createStore(fn)`, projections) throws a held rejection before its frame; the store's effect and the screen do wait. Pinned `it.fails` in `tests/error-is-an-answer.test.ts`. The standalone cases from #3886's audit (a write to a failed writable memo, error-wrapper formatting, comparator release, snapshot capture) are not this rule. **Status:** standing.
 
 ---
 

@@ -29,7 +29,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { landStatus, publishError, settleErroredDependents } from "./async.js";
+import { notifyStatus } from "./async.js";
 import { ext, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
@@ -1174,25 +1174,26 @@ export function commitPendingNode(n: Signal<any>): void {
   // commit beneath a flight publishes its inputs (A15 reveal corollary,
   // #3305): a reveal of it must observe, not show the pre-flight value.
   const inFlight = n._pendingValue === NOT_PENDING && (c._statusFlags! & STATUS_PENDING) !== 0;
-  const held = n._config & CONFIG_HELD;
+  const err = n._config & CONFIG_STAGED_ERROR;
+  // An answer commits: the error it replaces leaves the display (D-41).
+  if (!inFlight && c._x != null) c._x._shownError = undefined;
   n._config = inFlight
     ? (n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_INPUTS_PUBLISHED
-    : n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME | CONFIG_STAGED | CONFIG_INPUTS_PUBLISHED);
-  // D-40 (proposed): the staged answer is an error — published now, when a
-  // value would show (`stageError`).
-  if (n._config & CONFIG_STAGED_ERROR) {
+    : n._config &
+      ~(
+        CONFIG_HELD |
+        CONFIG_HELD_FRAME |
+        CONFIG_STAGED |
+        CONFIG_INPUTS_PUBLISHED |
+        CONFIG_STAGED_ERROR
+      );
+  // D-41: the staged answer is an error — published now, when a value would
+  // show, through the ordinary error path (`stageError`).
+  if (err) {
     const e = n._pendingValue;
     n._pendingValue = NOT_PENDING;
-    n._config &= ~CONFIG_STAGED_ERROR;
-    publishError(c as Computed<unknown>, e);
+    notifyStatus(c as Computed<unknown>, STATUS_ERROR, e);
   } else if (n._pendingValue !== NOT_PENDING) {
-    // A held recovery: the shown error leaves with the value that replaces
-    // it, and the dependents holding it re-run (`asyncWrite` kept it).
-    if (held && c._statusFlags! & STATUS_ERROR) {
-      const e = c._x!._error;
-      landStatus(c as Computed<unknown>);
-      settleErroredDependents(c as Computed<unknown>, e);
-    }
     n._value = n._pendingValue as any;
     n._pendingValue = NOT_PENDING;
     // A node born staged (recompute) initializes at this commit.

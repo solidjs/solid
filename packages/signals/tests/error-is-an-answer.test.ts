@@ -1,6 +1,6 @@
 /**
- * D-40 (proposed): an error is an answer — it ends the wait like a value and
- * shows when a value would. S-41, S-42. Shapes from #3886's audit (GabbeV).
+ * D-41: an error is an answer — it ends the wait like a value and shows when
+ * a value would. S-42, S-43. Shapes from #3886's audit (GabbeV).
  *
  * `data` and `slow` both re-ask on `count`; a scheduled render effect over
  * `slow` holds the frame (F-2). A rejection of `data` settles it — the hold
@@ -8,12 +8,13 @@
  * effect's error arm, the untracked read, the boundary and `isPending` all
  * keep the previous frame; `latest` is the one early view (F-6). Recovery is
  * the mirror (D-39), and recovering to the last good value is still a new
- * answer.
+ * answer, held or not.
  *
- * Pinned `it.fails` while D-40 is proposed, not ruled (OPEN-QUESTIONS Q-6).
- * The no-hold case at the end is a plain bug, pinned as a failing `it`.
+ * The derived-store case at the end is D-41's open deviation, pinned
+ * `it.fails`.
  */
 import { expect, it } from "vitest";
+import { createStore } from "../src/index.js";
 import {
   createEffect,
   createErrorBoundary,
@@ -95,7 +96,7 @@ function scene(boundary: boolean) {
 }
 
 it.each([true, false])(
-  "S-41: a held rejection reveals with its frame (boundary: %s)",
+  "S-42: a held rejection reveals with its frame (boundary: %s)",
   async boundary => {
     const s = scene(boundary);
     const shown = boundary ? "Error 2" : "no boundary";
@@ -137,7 +138,7 @@ it.each([true, false])(
 );
 
 it.each([true, false])(
-  "S-42: a held recovery keeps the shown error; the last good value is a new answer (boundary: %s)",
+  "S-43: a held recovery keeps the shown error; the last good value is a new answer (boundary: %s)",
   async boundary => {
     const s = scene(boundary);
     const shown = boundary ? "Error 2" : "no boundary";
@@ -184,10 +185,9 @@ it.each([true, false])(
   }
 );
 
-// No hold at all: the same recovery is a plain bug, not a rule question. The
-// landing equal to the last good value passes the equality gate while the
-// node is errored, so the effect never hears the recovery (#3886). Pinned
-// `it.fails` until its own fix lands.
+// No hold at all: the landing equal to the last good value used to pass the
+// equality gate while the node was errored, so the effect never heard the
+// recovery (#3886).
 it("recovering to the last good value after an async rejection reaches the effect", async () => {
   const boom = new Error("failed");
   const [count, setCount] = createSignal(0);
@@ -211,6 +211,58 @@ it("recovering to the last good value after an async rejection reaches the effec
     expect(data()).toBe(1);
     expect(isPending(data)).toBe(false);
     expect(log).toEqual([1, boom, 1]);
+  } finally {
+    dispose();
+    flush();
+  }
+});
+
+// Open deviation: the effect and the screen wait, but an untracked read of a
+// derived store's property throws a held rejection before its frame (the
+// family publishes the error at once).
+it.fails("D-41 deviation: a derived store's held rejection waits for its frame", async () => {
+  let request = deferred<{ v: number }>();
+  let sibling = deferred<number>();
+  const [count, setCount] = createSignal(1);
+  const log: unknown[] = [];
+  let shown = 0;
+  let store!: { v: number };
+  const dispose = createRoot(d => {
+    [store] = createStore(
+      async () => {
+        count();
+        return request.promise;
+      },
+      { v: 0 }
+    );
+    const slow = createMemo(() => {
+      count();
+      return sibling.promise;
+    });
+    createRenderEffect(slow, v => void (shown = v), { schedule: true });
+    createEffect(() => store.v, { effect: v => void log.push(v), error: e => void log.push(e) });
+    return d;
+  });
+  try {
+    flush();
+    request.resolve({ v: 1 });
+    sibling.resolve(1);
+    await tick();
+    expect(log).toEqual([1]);
+    request = deferred();
+    sibling = deferred();
+    setCount(2);
+    flush();
+    request.reject(new Error("2"));
+    await tick();
+    expect(shown).toBe(1);
+    expect(log).toEqual([1]);
+    expect(store.v).toBe(1);
+    sibling.resolve(2);
+    await tick();
+    expect(shown).toBe(2);
+    expect(log.length).toBe(2);
+    expect((log[1] as Error).message).toBe("2");
   } finally {
     dispose();
     flush();
