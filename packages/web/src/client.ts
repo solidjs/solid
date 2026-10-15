@@ -304,7 +304,7 @@ export function takeHydrationValue(key) {
  * Client stub — a render's link handler is set during server rendering
  * (see the server entry's `setLinkClaim`). Always `false` here, so a router
  * can call it unguarded from isomorphic setup code.
- * @experimental
+ * @internal
  */
 export function setLinkClaim(_handler: LinkClaimHandler | undefined): boolean {
   return false;
@@ -318,7 +318,7 @@ export function setLinkClaim(_handler: LinkClaimHandler | undefined): boolean {
  * and after hydration. `false` on a page rendered without the router — the
  * absence of link state on an anchor then means nothing, and a link
  * consumer must resolve it itself. Server: `false`.
- * @experimental
+ * @internal
  */
 export function hasServerLinkState(): boolean {
   const registry = globalThis._$HY && globalThis._$HY.r;
@@ -704,7 +704,10 @@ const claimAttributeSets = [];
 // when the two land in separately bundled copies of this module.
 const CLAIM_SEAM = Symbol.for("solid.element-claims");
 
-/** Options for `registerElementClaim`. */
+/**
+ * Options for `registerElementClaim`.
+ * @internal
+ */
 export type ElementClaimOptions = {
   /**
    * Attribute names whose compiler-owned writes re-claim an already claimed
