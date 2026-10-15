@@ -4161,6 +4161,10 @@ export function refresh<T>(
   }
 }
 
+/** On the server everything is a first load and the server always waits:
+ * `createDeferred` is `createMemo` (D-40). */
+export const createDeferred: typeof createMemo = createMemo;
+
 export function affects(_target: unknown, _key?: PropertyKey): void {
   return undefined;
 }

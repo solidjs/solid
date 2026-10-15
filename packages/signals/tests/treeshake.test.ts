@@ -80,6 +80,8 @@ describe("pay-for-use tree-shaking (#2883)", () => {
         "boundaries.ts",
         "map.ts",
         "affects.ts",
+        "affects-marks.ts",
+        "deferred.ts",
         "core/verdict.ts",
         "core/lanes.ts",
         "core/action.ts",
@@ -506,6 +508,37 @@ describe("pay-for-use tree-shaking (#2883)", () => {
       `export { createSignal, createEffect, createRoot, flush, createOptimistic } from "sigsrc";`
     );
     expect(retainedFrom(retained, ["core/lanes.ts"])).toEqual(["core/lanes.ts"]);
+  });
+
+  it("createDeferred loads the deferred module and the mark core, and nothing else new", async () => {
+    const { retained } = await bundleFixture(
+      `export { createSignal, createEffect, createRoot, flush, createDeferred } from "sigsrc";`
+    );
+    // The verdict is a mark on the node (affects-marks.ts, the core of the
+    // `affects()` channel), so the mark core comes with it; `affects()`
+    // itself and the verdict layer that reads the mark do not.
+    expect(retainedFrom(retained, ["deferred.ts", "affects-marks.ts"])).toEqual([
+      "deferred.ts",
+      "affects-marks.ts"
+    ]);
+    expect(
+      retainedFrom(retained, [
+        "store/",
+        "boundaries.ts",
+        "map.ts",
+        "affects.ts",
+        "core/verdict.ts",
+        "core/lanes.ts",
+        "core/action.ts"
+      ])
+    ).toEqual([]);
+  });
+
+  it("refresh/until carry none of the deferred module: its lag check is a hook slot", async () => {
+    const { retained } = await bundleFixture(
+      `export { createSignal, createMemo, createEffect, createRoot, flush, refresh, until } from "sigsrc";`
+    );
+    expect(retainedFrom(retained, ["deferred.ts", "affects-marks.ts", "affects.ts"])).toEqual([]);
   });
 
   it("isPending/latest load the verdict layer and nothing else new", async () => {
