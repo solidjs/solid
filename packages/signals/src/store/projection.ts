@@ -29,7 +29,7 @@ import {
 } from "../core/async.js";
 import { enqueueSub } from "../core/heap.js";
 import { getOwner, isDisposed } from "../core/owner.js";
-import { question, schedule, setQuestion } from "../core/scheduler.js";
+import { insertSubs, question, schedule, setQuestion } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { reconcileState } from "./reconcile.js";
@@ -260,6 +260,11 @@ export function runProjectionComputed<T extends object>(
           // A landing (not the sync pass's own commit): the readers held
           // pending on the derive settle.
           if (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) settleFamily(fam);
+          // A commit is the derive's change for the readers that observed its
+          // flight (linked by `pullFamily`; a settled pull does not link), as
+          // a memo's landing is for its readers: one that caught the NotReady
+          // (a fallback value, not pending) re-runs too (#4070).
+          insertSubs(owner);
         };
         const sync = handleAsync(owner, result, commit, (error, pending) => {
           // The flight rejected: the leaves' readers learn it from here —
