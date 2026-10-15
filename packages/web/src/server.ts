@@ -5649,7 +5649,7 @@ function claimInScope(mode) {
  * (`" data-active"`, `' data-active aria-current="page"'`), or `""`.
  * Synchronous and pure; the markup is the handler's own and is written
  * verbatim.
- * @experimental
+ * @internal
  */
 export type LinkClaimHandler = (attrs: Readonly<Record<string, unknown>>) => string;
 
@@ -6908,7 +6908,7 @@ const LINK_STATE_RECORD = "links";
  * // in <Router>'s server render
  * setLinkClaim(attrs => matchLink(attrs, location) ? ' data-active aria-current="page"' : "");
  * ```
- * @experimental
+ * @internal
  */
 export function setLinkClaim(handler: LinkClaimHandler | undefined): boolean;
 
@@ -6932,6 +6932,7 @@ export function setLinkClaim(handler) {
 /**
  * Server: `false`. The client reads the `links` hydration record a render
  * with a link handler wrote (`setLinkClaim`); see the client entry.
+ * @internal
  */
 export function hasServerLinkState(): boolean {
   return false;
@@ -7566,7 +7567,10 @@ export function composeMiddleware(middlewares) {
   };
 }
 
-/** Options for `registerElementClaim` (see the client entry); inert on the server. */
+/**
+ * Options for `registerElementClaim` (see the client entry); inert on the server.
+ * @internal
+ */
 export type ElementClaimOptions = {
   /**
    * Attribute names whose compiler-owned writes re-claim an already claimed
