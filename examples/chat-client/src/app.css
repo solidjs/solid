@@ -1,0 +1,147 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0e14;
+  --surface: #151a23;
+  --surface-2: #1c2330;
+  --border: #2a3342;
+  --text: #e6e9ef;
+  --muted: #8b95a7;
+  --accent: #4f88ff;
+  --error: #ff6b6b;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    15px/1.55 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+.chat {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 120px;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+
+.turns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.turn {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.turn.user {
+  align-self: flex-end;
+  background: var(--surface-2);
+  white-space: pre-wrap;
+}
+
+.turn p {
+  margin: 0 0 8px;
+}
+
+.turn p:last-child,
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md pre {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  overflow-x: auto;
+  font-size: 13px;
+}
+
+.md .bullet {
+  display: list-item;
+  list-style: disc inside;
+  margin: 0 0 4px 8px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.error {
+  color: var(--error);
+}
+
+.stop,
+.error button {
+  margin-left: 6px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.reply .stop {
+  margin: 8px 0 0;
+}
+
+.composer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 12px 16px 16px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.composer textarea {
+  flex: 1;
+  resize: none;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.composer button {
+  padding: 0 18px;
+  border-radius: 10px;
+  border: 0;
+  background: var(--accent);
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}

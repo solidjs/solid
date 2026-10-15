@@ -22,6 +22,7 @@
   "updateInternalDependencies": "patch",
   "ignore": [
     "chat-example",
+    "chat-client-example",
     "migrating-element-example",
     "rendering-example",
     "sierpinski-example",
