@@ -7,6 +7,7 @@ import {
   CONFIG_OVERRIDE,
   CONFIG_REDERIVE,
   CONFIG_STAGED,
+  CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
   EFFECT_TRACKED,
@@ -28,6 +29,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
+import { notifyStatus } from "./async.js";
 import { ext, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
@@ -1175,10 +1177,29 @@ export function commitPendingNode(n: Signal<any>): void {
   // commit beneath a flight publishes its inputs (A15 reveal corollary,
   // #3305): a reveal of it must observe, not show the pre-flight value.
   const inFlight = n._pendingValue === NOT_PENDING && (c._statusFlags! & STATUS_PENDING) !== 0;
+  const err = n._config & CONFIG_STAGED_ERROR;
+  // An answer commits: the error it replaces leaves the display (D-41).
+  if (!inFlight && c._x) c._x._shownError = undefined;
   n._config = inFlight
     ? (n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_INPUTS_PUBLISHED
-    : n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME | CONFIG_STAGED | CONFIG_INPUTS_PUBLISHED);
-  if (n._pendingValue !== NOT_PENDING) {
+    : n._config &
+      ~(
+        CONFIG_HELD |
+        CONFIG_HELD_FRAME |
+        CONFIG_STAGED |
+        CONFIG_INPUTS_PUBLISHED |
+        CONFIG_STAGED_ERROR
+      );
+  // D-41: the staged answer is an error — published now, when a value would
+  // show, through the ordinary error path (`stageError`). Its readers first
+  // see it in the cycle after this seam: a tracked re-read there is not a
+  // retry (`read`), or a boundary re-derived by it would retry it forever.
+  if (err) {
+    const e = n._pendingValue;
+    n._pendingValue = NOT_PENDING;
+    n._time = clock + 1;
+    notifyStatus(c as Computed<unknown>, STATUS_ERROR, e);
+  } else if (n._pendingValue !== NOT_PENDING) {
     n._value = n._pendingValue as any;
     n._pendingValue = NOT_PENDING;
     // A node born staged (recompute) initializes at this commit.

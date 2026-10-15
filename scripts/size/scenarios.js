@@ -584,6 +584,14 @@ module.exports = [
     // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer 2026-10-14. The cap is frozen
     // again at 7.50 KB.
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 7.50 -> 7.67 KB, measured locally at 7656 B against `next` @
+    // 4a1ed17's 7484 (+172 B; +437 B minified, 20469 ->
+    // 20906) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
@@ -1059,8 +1067,16 @@ module.exports = [
     // #4073's seedless derived stores, each inside the 20 B allowance
     // alone, together pass it. Cap set at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer (2026-10-14).
-    limit: "15.00 KB",
-    capMinified: 45395,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 15.00 -> 15.16 KB, measured locally at 15146 B against `next` @
+    // 4a1ed17's 14993 (+153 B; +442 B minified, 45401 ->
+    // 45843) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "15.16 KB",
+    capMinified: 45843,
     alias
   },
   {
@@ -1343,8 +1359,16 @@ module.exports = [
     // `REACTIVE_REASK` mask (2 B); `next` already sat 18-19 B over the
     // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer 2026-10-14.
-    limit: "9.79 KB",
-    capMinified: 27480,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 9.79 -> 9.98 KB, measured locally at 9968 B against `next` @
+    // 4a1ed17's 9781 (+187 B; +507 B minified, 27480 ->
+    // 27987) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "9.98 KB",
+    capMinified: 27987,
     alias
   },
   {
@@ -1362,8 +1386,16 @@ module.exports = [
     // (#4067) grew the signals core this bundle shares (+60 B minified); no
     // lane code came back. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer (2026-10-15, "Ratchet up").
-    limit: "8.11 KB",
-    capMinified: 22255
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 8.11 -> 8.29 KB, measured locally at 8279 B against `next` @
+    // 4a1ed17's 8095 (+184 B; +461 B minified, 22255 ->
+    // 22716) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "8.29 KB",
+    capMinified: 22716
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -1599,6 +1631,14 @@ module.exports = [
     // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer 2026-10-14. Hello world stays
     // under 10 KB at 9,995 B. The cap is frozen again at 10.01 KB.
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 10.01 -> 10.17 KB, measured locally at 10155 B against `next` @
+    // 4a1ed17's 9994 (+161 B; +437 B minified, 27977 ->
+    // 28414) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -1974,6 +2014,14 @@ module.exports = [
     // branch, each inside the 20 B allowance alone, together pass it.
     // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
     // maintainer (2026-10-14).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 18.11 -> 18.29 KB, measured locally at 18280 B against `next` @
+    // 4a1ed17's 18091 (+189 B; +445 B minified, 53386 ->
+    // 53831) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2501,8 +2549,16 @@ module.exports = [
     // branch, each inside the 20 B allowance alone, together pass it.
     // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
     // maintainer (2026-10-14).
-    limit: "29.76 KB",
-    capMinified: 93770,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 29.76 -> 29.91 KB, measured locally at 29894 B against `next` @
+    // 4a1ed17's 29721 (+173 B; +444 B minified, 93775 ->
+    // 94219) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "29.91 KB",
+    capMinified: 94219,
     alias
   },
   {
@@ -2773,8 +2829,16 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    limit: "13.20 KB",
-    capMinified: 37415,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 13.20 -> 13.36 KB, measured locally at 13348 B against `next` @
+    // 4a1ed17's 13194 (+154 B; +439 B minified, 37361 ->
+    // 37800) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "13.36 KB",
+    capMinified: 37800,
     alias
   },
   {
@@ -3082,8 +3146,16 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    limit: "14.79 KB",
-    capMinified: 41943,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 14.79 -> 14.95 KB, measured locally at 14935 B against `next` @
+    // 4a1ed17's 14772 (+163 B; +439 B minified, 41891 ->
+    // 42330) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "14.95 KB",
+    capMinified: 42330,
     alias: observeAlias
   },
   {
@@ -3550,8 +3622,16 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    limit: "29.38 KB",
-    capMinified: 88330,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 29.38 -> 29.56 KB, measured locally at 29546 B against `next` @
+    // 4a1ed17's 29340 (+206 B; +443 B minified, 88279 ->
+    // 88722) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "29.56 KB",
+    capMinified: 88722,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -3623,8 +3703,16 @@ module.exports = [
     // `REACTIVE_REASK` mask (2 B); `next` already sat 18-19 B over the
     // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
     // Accepted by the maintainer 2026-10-14.
-    limit: "10.21 KB",
-    capMinified: 28507,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 10.21 -> 10.36 KB, measured locally at 10341 B against `next` @
+    // 4a1ed17's 10178 (+163 B; +438 B minified, 28507 ->
+    // 28945) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "10.36 KB",
+    capMinified: 28945,
     alias
   },
   {
@@ -3725,8 +3813,16 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    limit: "25.92 KB",
-    capMinified: 81041,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 25.92 -> 26.12 KB, measured locally at 26104 B against `next` @
+    // 4a1ed17's 25934 (+170 B; +443 B minified, 81005 ->
+    // 81448) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "26.12 KB",
+    capMinified: 81448,
     alias
   },
   {
@@ -3860,8 +3956,16 @@ module.exports = [
     // branch, each inside the 20 B allowance alone, together pass it.
     // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
     // maintainer (2026-10-14).
-    limit: "31.89 KB",
-    capMinified: 101387,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 31.89 -> 32.03 KB, measured locally at 32014 B against `next` @
+    // 4a1ed17's 31891 (+123 B; +440 B minified, 101393 ->
+    // 101833) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "32.03 KB",
+    capMinified: 101833,
     alias
   },
   {
@@ -4662,6 +4766,14 @@ module.exports = [
     // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
     // saturates. Size-Exception:
     // recorded minified (floor-caps.json) 106,786 -> 106,814; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 34.33 -> 34.89 KB, measured locally at 34875 B against `next` @
+    // 4a1ed17's 34745 (+130 B; +432 B minified, 106814 ->
+    // 107246) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -4927,6 +5039,14 @@ module.exports = [
     // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
     // saturates. Size-Exception:
     // recorded minified (floor-caps.json) 119,009 -> 119,037; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 38.15 -> 38.70 KB, measured locally at 38684 B against `next` @
+    // 4a1ed17's 38620 (+64 B; +503 B minified, 119037 ->
+    // 119540) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5254,8 +5374,16 @@ module.exports = [
     // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
     // saturates. Recorded
     // minified 130,667 -> 130,695; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
-    limit: "41.794 KB",
-    capMinified: 130695,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 41.79 -> 42.22 KB, measured locally at 42206 B against `next` @
+    // 4a1ed17's 42100 (+106 B; +434 B minified, 130695 ->
+    // 131129) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "42.22 KB",
+    capMinified: 131129,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5365,8 +5493,16 @@ module.exports = [
     // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
     // saturates. Recorded
     // minified 144,205 -> 144,233; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
-    limit: "47.493 KB",
-    capMinified: 144233,
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 47.49 -> 48.05 KB, measured locally at 48036 B against `next` @
+    // 4a1ed17's 47857 (+179 B; +519 B minified, 144233 ->
+    // 144752) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "48.05 KB",
+    capMinified: 144752,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }

@@ -757,7 +757,7 @@ _Pinned: `tests/optimistic-lane-release.test.ts`, `tests/body-end-supersession-v
 
 ---
 
-## E. First loads, stores, errors (D-6, D-30, D-38–D-39)
+## E. First loads, stores, errors (D-6, D-30, D-38, D-39, D-41)
 
 ### S-36. A declared first paint is loading, not pending — D-30 (A27)
 
@@ -814,6 +814,42 @@ const data = createMemo(() => fetchOrFail(count()));     // rejects for every co
 | ✗   |                          | after 1: `1 \| loading` (the error clearing for a pending); or `0` held by the errored flight                |                                                                                                                             |
 
 `<Errored>` never catches a pending: `ASYNC_OUTSIDE_LOADING_BOUNDARY` is a warning (A6).
+
+### S-42. A held rejection reveals with its frame — D-41 (#3886)
+
+_Pinned: `tests/error-is-an-answer.test.ts`._
+
+```tsx
+const [count, setCount] = createSignal(1);
+const data = createMemo(() => fetchOrFail(count()));  // rejects for count 2
+const slow = createMemo(() => fetchSlow(count()));    // answers later than data
+<p>{count()}</p>
+<Errored fallback={e => `Error ${e().count}`}>{data()}</Errored>
+<p>{slow()}</p>
+createEffect(data, { effect: v => log(v), error: e => log(e) });
+```
+
+| #   | Action                   | Screen                                                                                           | `data()` untracked | `isPending(data)` | `latest(data)`   | effect log   | Notes                                                         |
+| --- | ------------------------ | ------------------------------------------------------------------------------------------------ | ------------------ | ----------------- | ---------------- | ------------ | ------------------------------------------------------------- |
+| 0   | both landed for 1        | `1 \| 1 \| 1`                                                                                    | 1                  | false             | 1                | `1`          |                                                               |
+| 1   | `setCount(2); flush()`   | `1 \| 1 \| 1` — held: `slow(2)` is in flight                                                     | 1                  | true              | throws NotReady  | `1`          | a change that needs async is held (F-2)                       |
+| 2   | `fetchOrFail(2)` rejects | `1 \| 1 \| 1` — still held on `slow(2)`; the error settled `data`                                | 1                  | true              | throws `Error 2` | `1`          | settled, not shown: the error is staged like a value would be |
+| 3   | `fetchSlow(2)` lands     | `2 \| Error 2 \| 2`                                                                              | throws `Error 2`   | false             | throws `Error 2` | `1, Error 2` | one frame: input, error fallback and sibling                  |
+| ✗   |                          | after 2: `1 \| Error 2 \| 1` with the arm already run — the screen before D-41, F-1's torn frame |                    |                   |                  |              |                                                               |
+
+The hold did not wait on the rejection: step 3 lands as soon as `slow(2)` does, whether `data(2)` rejected before or after it.
+
+### S-43. A held recovery keeps the shown error; recovering to the last good value is a change — D-41, D-39 (#3886)
+
+_Pinned: `tests/error-is-an-answer.test.ts`._ Continues S-42 from step 3; `fetchOrFail(3)` resolves to `1`, the value shown before the error.
+
+| #   | Action                        | Screen                                                                                                                                                                                                                                                                 | `data()` untracked | `isPending(data)` | effect log      | Notes                                                                  |
+| --- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ----------------- | --------------- | ---------------------------------------------------------------------- |
+| 3   | (S-42's end)                  | `2 \| Error 2 \| 2`                                                                                                                                                                                                                                                    | throws `Error 2`   | false             | `1, Error 2`    |                                                                        |
+| 4   | `setCount(3); flush()`        | `2 \| Error 2 \| 2` — held: both re-ask                                                                                                                                                                                                                                | throws `Error 2`   | true              | `1, Error 2`    | the error stays the display through the retry (D-39)                   |
+| 5   | `fetchOrFail(3)` resolves `1` | `2 \| Error 2 \| 2` — still held on `slow(3)`                                                                                                                                                                                                                          | throws `Error 2`   | true              | `1, Error 2`    | settled, not shown                                                     |
+| 6   | `fetchSlow(3)` lands          | `3 \| 1 \| 3`                                                                                                                                                                                                                                                          | 1                  | false             | `1, Error 2, 1` | `1` equals the last good value and is still a new answer: the arm runs |
+| ✗   |                               | after 5: `2 \| 1 \| 2` (the error clearing ahead of its frame); after 6: the arm never runs with `1` — before D-41, and then also with nothing held at all (an async landing equal to the last good value is swallowed by the equality gate while the node is errored) |                    |                   |                 |                                                                        |
 
 ## F. Declared lag (D-40)
 

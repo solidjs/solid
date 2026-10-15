@@ -2,7 +2,24 @@
 
 **Status: one batch, 2026-10-07.** These are the places where two sources genuinely disagree, or where a ruling was read two ways within a day. The worker did not decide them. Each is laid out as a sequence with the candidate screens side by side; the answer is a column letter. Where the record already leans one way, that is said, with the evidence — but the fundamental is fixed by your answer here, not by the record.
 
-Three sections were drafted. **Q** stays while a ruled screen is still written out here. A resolved confirmation is deleted once the rule carries it: Q-1 through Q-5, ruled 2026-10-09, are now carried by the fundamentals, the derived rules and the scenarios, and are deleted. **U** — ruled, not built (`it.fails` pins), confirm the ruling stands and say whether it is for 2.0. This file goes when U is answered.
+Three sections were drafted. **Q** stays while a ruled screen is still written out here; Q-7 (2026-10-12, from #3886) is open. A resolved confirmation is deleted once the rule carries it: Q-1 through Q-5, ruled 2026-10-09, and Q-6, ruled 2026-10-15 (B, now D-41), are carried by the fundamentals, the derived rules and the scenarios, and are deleted. **U** — ruled, not built (`it.fails` pins), confirm the ruling stands and say whether it is for 2.0. This file goes when U is answered.
+
+---
+
+## Q. Proposed, not ruled — the answer is a column letter
+
+### Q-7. `loadingValue` after a shown failure: does a pending retry serve the seed again? (from #3886)
+
+`createMemo(() => fetch(id()), { loadingValue: 42 })`; the first request rejects and the error shows; then `setId(2)` re-asks.
+
+|                                     | **A — today** (`loading-value.test.ts:268`, #2989)   | **B — #3886's contract change**                             |
+| ----------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------- |
+| screen while the retry is in flight | `42` — the seed serves again; `isPending` is `false` | the error stays; `isPending` is `true`                      |
+| the seed as memo `prev`             | `42`                                                 | `42` (unchanged: the seed stays the last successful `prev`) |
+
+**Where the record leans.** B is D-39's wording applied literally ("the error stays until a new answer replaces it; a pending is not a value"), and D-30 says a declared first paint is _loading_, not pending, which is A's ground: the seed is the first paint until a first answer. A revealed failure is a first answer, which favors B. A is pinned twice today and was ruled for #2989 before D-39 existed. D-41 (ruled) does not depend on it; decide on its own.
+
+**Answer format that is enough:** `Q-7 A` — or the line you prefer.
 
 ---
 
@@ -23,4 +40,4 @@ Each is pinned `it.fails`; the ruled screen is in `SCENARIOS.md`. Confirming her
 | **U-9**  | D-14 — a held tree under a re-armed boundary re-derives without a redraw loop                                                | `loading-fallback-in-flush-3540.test.ts:1020` (the loop), `:520` (re-armed held mounts), `:859` (committed content under a re-armed boundary); `loading-on-frame-following-3540.test.ts` §3b, §3c | built (2026-10-14): a re-arm owns what an earlier hold staged under it (`arm` records it, `heldUnder`), and a pass under it that reads a hold is the boundary's, not the tick's (`_fresh`): the fallback shows now, the content at that hold's commit, and the hold does not wait for it. A re-arm whose own flush joins that hold folds back into it (D-16): the seam drops a fallback staged into the very hold its readers wait on. The pins are plain `it` | 0 B minified on the floors (optional calls golfed in the core); +417 B minified on the boundary apps, caps raised (accepted 2026-10-14)                   |
 | **U-10** | F-1, F-6 — a memo that reads a verdict memo shows the verdict now, beside the held value it also reads (#4050)               | `verdict-memo-under-held-memo-4050.test.ts`; web `held-shell-pending-feedback-4050.spec.tsx` (a Provider's children memo over a router shell)                                                     | built (2026-10-14): a memo's tracked read of a verdict reader makes it one (`read`, core.ts; CONFIG_VERDICT shares REACTIVE_PROBED's bit), so it reads the held value as the screen and re-derives in the verdict lane, as the inline probe does; boundaries.ts `verdictDerived` folds into the owner's own mark                                                                                                                                               | +26 B minified on the floors (no cap raised: +18 B over the recorded minified, within the allowance), −66…−79 B minified on the boundary apps and pages   |
 
-**Answer format that is enough:** `U-1, U-3–U-9 stand, U-5 (#4071) and U-6 after 2.0` — or the line you prefer. U-2 is withdrawn with the direction rule's time half (once drafted as F-8; F-2). Q-1 through Q-5 are ruled and carried by the rules. C-1 is D-12. C-2 is D-7. C-3 is D-32.
+**Answer format that is enough:** `U-1, U-3–U-9 stand, U-5 (#4071) and U-6 after 2.0` — or the line you prefer. U-2 is withdrawn with the direction rule's time half (once drafted as F-8; F-2). Q-1 through Q-6 are ruled and carried by the rules. C-1 is D-12. C-2 is D-7. C-3 is D-32.

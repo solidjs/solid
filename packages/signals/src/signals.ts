@@ -778,13 +778,15 @@ function watch<T>(
   // after: the first pass's own error is the promise's rejection.)
   computed(
     () => {
-      let v: T;
+      let v: T,
+        failed = false;
       try {
         v = fn();
       } catch (e) {
         if (e instanceof NotReadyError) throw e;
-        queueMicrotask(() => onError(unwrapStatusError(e)));
-        return;
+        // An error is an answer (D-41): delivered by the same frame rule.
+        v = unwrapStatusError(e) as T;
+        failed = true;
       }
       const c = getOwner() as Computed<any>;
       // A truth reader waits out a `createDeferred` flight its value derives
@@ -801,6 +803,7 @@ function watch<T>(
         staleReader(c, resolveTx(joined));
         return;
       }
+      if (failed) return void queueMicrotask(() => onError(v));
       inPass?.(v);
       queueMicrotask(() => onValue(v));
     },

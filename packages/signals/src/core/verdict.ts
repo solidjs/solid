@@ -15,6 +15,7 @@ import {
   CONFIG_HELD,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
+  CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
@@ -210,7 +211,9 @@ function heldNotFinal(owner: Computed<any>): boolean {
     !latestActive &&
     !owner._x!._reask &&
     !(owner._statusFlags & STATUS_UNINITIALIZED) &&
-    (!owner._equals || !owner._equals(owner._value as any, owner._pendingValue as any))
+    (!!owner._x!._shownError ||
+      !owner._equals ||
+      !owner._equals(owner._value as any, owner._pendingValue as any))
   );
 }
 
@@ -285,12 +288,17 @@ export function isPending(fn: () => any): boolean {
   }
 }
 
+/** The staging, or the staged error thrown (D-41). */
+function staged(el: Signal<any> | Computed<any>): unknown {
+  if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
+  return el._pendingValue;
+}
 /** `latest()` of a held node: the flushed staging — the proposal — and, for
  * a tracked reader of a rewrite not yet flushed, the late-linker re-run in
  * the flush that carries it. */
 function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const u = unflushedValue(el);
-  if (u === NOT_PENDING) return el._pendingValue;
+  if (u === NOT_PENDING) return staged(el);
   if (c !== null) markLateLinker(c);
   return u;
 }
@@ -403,7 +411,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // has not shown content) and answers for the commit, where it is final.
     if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
       if (probing && owned) joinPass(c!, el);
-      return el._pendingValue;
+      return staged(el);
     }
   } else if (el._pendingValue !== NOT_PENDING) {
     if (owner._statusFlags & STATUS_PENDING && !uninitialized)
@@ -420,7 +428,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       // A28: an unflushed write is not what `latest` serves; a tracked
       // reader derived from the flushed world runs again in the carrying
       // flush.
-      if (globalQueue._running) return el._pendingValue;
+      if (globalQueue._running) return staged(el);
       if (c !== null) markLateLinker(c);
     }
     return el._value;

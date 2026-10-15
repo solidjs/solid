@@ -4,6 +4,8 @@ import {
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
   CONFIG_HELD,
+  CONFIG_STAGED,
+  CONFIG_STAGED_ERROR,
   CONFIG_SYNC,
   CONFIG_VERDICT,
   EFFECT_TRACKED,
@@ -11,6 +13,7 @@ import {
   NOT_PENDING,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
+  REACTIVE_STAGED_READ,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
@@ -27,6 +30,7 @@ import { cleanup } from "./owner.js";
 import {
   clock,
   flush,
+  flushTransaction,
   globalQueue,
   GlobalQueue,
   joinFuture,
@@ -167,6 +171,40 @@ export function releaseSettledDependents(el: Computed<any>): void {
 // (releaseSettledDependents shape): identity holders can sit below an
 // intermediate whose own error state has since been scrubbed or replaced
 // (e.g. an error boundary's tree node).
+/** D-41: an error a pass of a held node found is an answer of
+ * that frame — it ends the wait like a value and shows when a value would.
+ * Staged like one: `_pendingValue` carries it (CONFIG_STAGED_ERROR), readers
+ * in the hold derive from it (`serve` throws it), and the commit publishes
+ * it through the ordinary error path (`commitPendingNode` → `notifyStatus`),
+ * dependents included. Not for a lane pass, nor a node with no shown value
+ * (born held — its error has no frame to wait behind): those publish now,
+ * as before. Returns whether the error was staged. */
+export function stageError(el: Computed<any>, error: any, inPass?: boolean): boolean {
+  // Held, or — for a pass's own throw — derived from a staging of a flush
+  // that has joined a hold (REACTIVE_STAGED_READ is this pass's; a landing
+  // after the pass cannot read it, the flush it read a staging of has
+  // committed or parked since). A plain flush publishes now (S-38).
+  if (
+    !(
+      el._config & CONFIG_HELD ||
+      (inPass && el._flags & REACTIVE_STAGED_READ && flushTransaction)
+    ) ||
+    passLane
+  )
+    return false;
+  // The node answered (an error ends the wait — no longer pending, nor
+  // blocked); a shown error stays its display until the commit.
+  clearPendingSources(el);
+  if (el._x) el._x._blocked = false;
+  if (!((el._statusFlags &= STATUS_ERROR | STATUS_UNINITIALIZED) & STATUS_ERROR))
+    setPendingError(el);
+  el._pendingValue = error instanceof StatusError ? error : new StatusError(el, error);
+  el._config |= CONFIG_STAGED | CONFIG_STAGED_ERROR;
+  // Readers parked on the flight re-run and derive from the staging.
+  settlePendingSource(el);
+  return true;
+}
+
 export function settleErroredDependents(el: Computed<any>, error: any): void {
   let scheduled = false;
   const visited = new Set<Computed<any>>();
@@ -428,7 +466,11 @@ export function handleAsync<T>(
       el._time = clock;
       return;
     }
-    notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
+    // D-41: a held node's error is staged (`stageError`). A derived store's
+    // readers learn its error through the family, not the derive's
+    // dependents: it publishes now.
+    if (stillPending || setter || !stageError(el, error))
+      notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
     // A NotReady rejection is a landing into another pending source. The
     // rejected flight will never settle its self entry, so transfer ownership
     // after notifyStatus has propagated the replacement source.
@@ -460,6 +502,9 @@ export function handleAsync<T>(
         handleError(error);
         return;
       }
+      // A store derive's landing commits through its setter: unheld, the
+      // shown error leaves now; held, at the derive's commit.
+      if (!(el._config & CONFIG_HELD)) el._x!._shownError = undefined;
       if (wasUninitialized) landStatus(el, true);
       // Attribution hook: this path landed through the setter (derived
       // stores, projections), which does not go through setSignal, so the
@@ -813,6 +858,8 @@ export function notifyStatus(
 
   if (!blockStatus) {
     if (status === STATUS_PENDING && pendingSource) {
+      // D-41: a re-ask of a shown error keeps it the display (`_shownError`).
+      if (el._statusFlags & STATUS_ERROR) el._x!._shownError = el._x!._error;
       addPendingSource(el, pendingSource);
       el._statusFlags = STATUS_PENDING | (el._statusFlags & STATUS_UNINITIALIZED);
       // Preserve the current source on this propagation so readers park on

@@ -5,7 +5,8 @@ import {
   parkLoadingWindow,
   releaseFlightTeardown,
   settleErroredDependents,
-  settlePendingSource
+  settlePendingSource,
+  stageError
 } from "./async.js";
 import {
   $REFRESH,
@@ -30,6 +31,7 @@ import {
   CONFIG_HELD_FRAME,
   CONFIG_LAGS,
   CAUGHT_REARMED,
+  CONFIG_STAGED_ERROR,
   CONFIG_SYNC,
   CONFIG_TRANSPARENT,
   defaultContext,
@@ -368,6 +370,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // settlePendingSource walk never runs for a landing that was preempted
   // (#3181).
   const wasPendingSource = el._x?._pendingSources?.has(el);
+  // D-41: this pass's error is staged, not published (`stageError`).
+  let stagedErr = false;
   // A19 exc. 2: a `refresh()` re-asks the question already answered — quiet
   // for the verdict — unless the question in flight is a new one, which the
   // re-ask does not launder (a poll during a quiet confirm stays quiet).
@@ -446,11 +450,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // retry can actually run.
       parkLoadingWindow(el, e as NotReadyError);
     } else {
-      if (notReady) ext(el)._blocked = true;
-      notifyStatus(el, notReady ? STATUS_PENDING : STATUS_ERROR, e);
-      // The replacement source is fully propagated now. If no new flight
-      // re-owned self, retire the superseded flight and its dependent copies.
-      if (notReady && wasPendingSource && !el._x?._inFlight) settlePendingSource(el);
+      // D-41: a pass of a held node, or one that read a staging of this
+      // flush, stages its error (`stageError`).
+      if (notReady || !(stagedErr = stageError(el, e, true))) {
+        if (notReady) ext(el)._blocked = true;
+        notifyStatus(el, notReady ? STATUS_PENDING : STATUS_ERROR, e);
+        // The replacement source is fully propagated now. If no new flight
+        // re-owned self, retire the superseded flight and its dependent copies.
+        if (notReady && wasPendingSource && !el._x?._inFlight) settlePendingSource(el);
+      }
       // A re-park drops what the earlier pass carried (#3456): a source this
       // pass no longer reaches — its branch switched, or a fresh flight
       // replaced the inputs' pending with its own — stays copied onto
@@ -458,8 +466,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // stops at this node (nothing left to retire) before it finds them. A
       // dependent then waits forever on a flight it has no path to. The
       // re-park twin of the unchanged-value recovery sweep below; dependents
-      // with another path keep the source (retryReaches).
-      if (notReady && outgoingPendingSources)
+      // with another path keep the source (retryReaches). A staged error
+      // answered what the pass carried: the same.
+      if ((notReady || stagedErr) && outgoingPendingSources)
         for (const source of outgoingPendingSources)
           if (source !== el && !el._x?._pendingSources?.has(source))
             settlePendingSource(el, source);
@@ -530,13 +539,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let lane = passLane;
   // Listed before its staging, a pending pass included (the lane's own
   // flight is the lane's); false: the pass left the lane (lanes.ts).
-  const errored = !!el._x?._error;
+  const errored = !!el._x?._error || stagedErr;
   if (lane !== null) {
     if (GlobalQueue._laneStage!(el, lane, create, errored)) setPassLane(lane);
     else lane = null;
   }
 
-  if (!el._x?._error) {
+  if (!errored) {
     // Observe-tier fan-in (HUGE_FAN_IN): the validated prefix [_deps.._depsTail]
     // IS this pass's distinct sources — count it here rather than per link. A
     // begin/end bracket around the pass plus a per-link increment measured
@@ -566,7 +575,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     let valueChanged = false;
     try {
       valueChanged =
-        (!isEffect && wasUninitialized) || !el._equals || !el._equals(compareValue, value);
+        (!isEffect && wasUninitialized) ||
+        !!el._x?._shownError ||
+        !el._equals ||
+        !el._equals(compareValue, value);
     } catch (e) {
       // A throwing user comparator is an error of this node's computation.
       // Route it through the same status path as a compute-phase throw so
@@ -992,7 +1004,8 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _flushedAt: -1,
     _q: 0,
     _lane: NOT_PENDING,
-    _marks: 0
+    _marks: 0,
+    _shownError: undefined
   });
 }
 
@@ -1861,6 +1874,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
 
   if (committed) return el._value as T;
+  // D-41: an untracked read reads the screen, and a shown error is on it
+  // until the answer that replaces it commits.
+  if (!c && el._x?._shownError) throw el._x._shownError;
   const value = serve(el, c as Computed<any> | null) as T;
   if (
     !c &&
@@ -1915,6 +1931,8 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   )
     return el._value;
   stagedRead(c!, el);
+  // D-41: the staged answer is an error (`stageError`).
+  if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
   return el._pendingValue;
 }
 
@@ -2023,8 +2041,11 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   if (el._config & CONFIG_HELD) joinFuture(txOf(el));
   // Uninitialized check first: the first commit has no previous value, so the
   // user comparator must not run against `undefined` (matches recompute).
+  // D-41: a write over a shown error is a change whatever the last good
+  // value was — the error leaves at its commit (`commitPendingNode`).
   const valueChanged =
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
+    !!el._x?._shownError ||
     !el._equals ||
     !el._equals(currentValue, v);
   if (!valueChanged) return v;
