@@ -423,3 +423,12 @@ const template117 = <div style={{ color: color(), [key]: size(), "margin-right":
 const nullishAttributes = <div style={null} class={undefined} title={null} />;
 const nullableAttributes = <div style={props.style} class={props.class} title={props.title} />;
 const emptyAttributes = <div style={false} class="" />;
+
+// solidjs/solid#4081: a ref expression that calls something is evaluated
+// beside a spread too, as the template path evaluates it (`_ref$ = expr`), so
+// a ref factory's owned setup runs on both sides. It runs in the attrs thunk:
+// after the spread and the tail markup, before the children. A call-free ref
+// (`ref={link}`, template116) is not evaluated.
+const spreadRefFactory = <div {...spread} ref={refFactory()} />;
+const spreadRefTail = <div {...spread} ref={[refFactory(), props.ref]} class="row" />;
+const spreadRefDynamicTail = <input {...spread} ref={refFactory()} title={title()} />;

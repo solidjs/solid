@@ -975,23 +975,22 @@ function transformAttributes(
     results.templateValues.push(hole);
   }
   if (claims.length) {
+    // A ref that calls something runs ungated, as plain SSR's `_ref$ = expr`
+    // does: outside a server component's render the element hydrates, and a
+    // ref factory's owned setup must run on both sides (#4081).
+    const refs = claims
+      .filter(([pos, expr]) => pos === "ref" && callsOutsideFunctions(expr))
+      .map(([, expr]) => t.cloneNode(expr, true));
     const map = claimMap(claims);
     // `_$sharedConfig.context && _$sharedConfig.context.claims
     //    ? _$ssrClaim({...}) : ""`
     // — the claims flag is only set inside a server component's render
     // scope (and cleared inside suppressed fill windows), so ordinary SSR
-    // pays the property reads and never evaluates the expressions.
-    const sharedConfigId = registerImportMethod(path, "sharedConfig");
-    const contextRead = () =>
-      t.memberExpression(t.cloneNode(sharedConfigId), t.identifier("context"));
+    // pays the property reads and never evaluates the handler expressions.
     const guarded = t.conditionalExpression(
-      t.logicalExpression(
-        "&&",
-        contextRead(),
-        t.memberExpression(contextRead(), t.identifier("claims"))
-      ),
+      claimsArmed(path),
       t.callExpression(registerImportMethod(path, "ssrClaim"), [map]),
-      t.stringLiteral("")
+      refs.length ? t.sequenceExpression([...refs, t.stringLiteral("")]) : t.stringLiteral("")
     );
     results.template.push("");
     results.templateValues.push(hoistExpression(path, results, guarded));
@@ -1209,6 +1208,40 @@ function createElement(
   // keys.
   const tail: Array<string | babelTypes.Expression> = [];
   const skipKeys: string[] = [];
+  // Plain SSR evaluates a named `ref` expression without calling the ref, as
+  // the template path does (`_ref$ = expr`), so a ref factory's owned setup
+  // (`ref={tooltip()}`) runs on both sides and the hydration ids after it
+  // line up (#4081). The client evaluates it after applying the spread and
+  // before the children; `ssrElement` calls the `attrs` thunk at that point.
+  // Only an expression that calls something can run setup: `ref={el}` and
+  // `ref={props.ref}` stay out of the thunk.
+  // Under `serverComponents` the ref is also a claim, evaluated by the
+  // claim thunk inside a server component's render, so the thunk skips it
+  // there: `ctx && ctx.claims || ref`.
+  const refs: babelTypes.Expression[] = [];
+  for (const attribute of attributes) {
+    const node = attribute.node;
+    if (
+      t.isJSXAttribute(node) &&
+      t.isJSXIdentifier(node.name, { name: "ref" }) &&
+      t.isJSXExpressionContainer(node.value) &&
+      !t.isJSXEmptyExpression(node.value.expression) &&
+      callsOutsideFunctions(node.value.expression)
+    )
+      refs.push(
+        serverComponents ? t.cloneNode(node.value.expression, true) : node.value.expression
+      );
+  }
+  if (serverComponents && refs.length)
+    refs.splice(
+      0,
+      refs.length,
+      t.logicalExpression(
+        "||",
+        claimsArmed(path),
+        refs.length > 1 ? t.sequenceExpression(refs) : refs[0]
+      )
+    );
   if (
     propAttributes.length === 1 &&
     t.isJSXSpreadAttribute(propAttributes[0].node) &&
@@ -1351,25 +1384,73 @@ function createElement(
   // set) and attribute string — a literal when every part is static, else a
   // thunk concatenating the parts in source order. A `false` static bakes to
   // no markup but still skips its key.
-  if (skipKeys.length) {
+  if (skipKeys.length || refs.length) {
     let markup: babelTypes.Expression;
-    if (tail.every(part => typeof part === "string")) markup = t.stringLiteral(tail.join(""));
-    else {
+    if (tail.every(part => typeof part === "string")) {
+      markup = t.stringLiteral(tail.join(""));
+      // The refs run after the tail's (static) markup and return it.
+      if (refs.length)
+        markup = t.arrowFunctionExpression([], t.sequenceExpression([...refs, markup]));
+    } else {
       let concat: babelTypes.Expression | undefined;
       for (const part of tail) {
         const expr = typeof part === "string" ? t.stringLiteral(part) : part;
         concat = concat ? t.binaryExpression("+", concat, expr) : expr;
       }
+      // The tail's getters run first, as the client applies them with the
+      // spread before it evaluates the ref: `markup + (ref, "")`.
+      if (refs.length)
+        concat = t.binaryExpression(
+          "+",
+          concat!,
+          t.sequenceExpression([...refs, t.stringLiteral("")])
+        );
       markup = t.arrowFunctionExpression([], concat!);
     }
-    args.push(registerSkip(path, skipKeys), markup);
+    args.push(skipKeys.length ? registerSkip(path, skipKeys) : t.identifier("undefined"), markup);
   }
   if (claims.length) {
-    if (!skipKeys.length) args.push(t.identifier("undefined"), t.identifier("undefined"));
+    if (!skipKeys.length && !refs.length)
+      args.push(t.identifier("undefined"), t.identifier("undefined"));
     args.push(t.arrowFunctionExpression([], claimSegments(claims)));
   }
   const exprs = [t.callExpression(registerImportMethod(path, "ssrElement"), args)];
   return { exprs, template: "", declarations: [], dynamics: [], spreadElement: true };
+}
+
+/**
+ * `_$sharedConfig.context && _$sharedConfig.context.claims`: true only inside
+ * a server component's render, where `ssrClaim` evaluates the element's
+ * handler positions.
+ */
+function claimsArmed(path: BabelPath): babelTypes.Expression {
+  const sharedConfigId = registerImportMethod(path, "sharedConfig");
+  const contextRead = () =>
+    t.memberExpression(t.cloneNode(sharedConfigId), t.identifier("context"));
+  return t.logicalExpression(
+    "&&",
+    contextRead(),
+    t.memberExpression(contextRead(), t.identifier("claims"))
+  );
+}
+
+/** Does evaluating `node` call anything? A function's body does not run. */
+function callsOutsideFunctions(node: babelTypes.Node): boolean {
+  if (
+    t.isCallExpression(node) ||
+    t.isOptionalCallExpression(node) ||
+    t.isNewExpression(node) ||
+    t.isTaggedTemplateExpression(node)
+  )
+    return true;
+  if (t.isFunction(node)) return false;
+  for (const key of t.VISITOR_KEYS[node.type] ?? []) {
+    const child = (node as any)[key];
+    if (Array.isArray(child)) {
+      for (const c of child) if (c && callsOutsideFunctions(c)) return true;
+    } else if (child && typeof child.type === "string" && callsOutsideFunctions(child)) return true;
+  }
+  return false;
 }
 
 /**

@@ -75,6 +75,7 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     uses_ssr_group: bool,
     uses_apply_ref: bool,
     uses_ssr_claim: bool,
+    uses_shared_config: bool,
     uses_ssr_link_claim: bool,
     pub(crate) pending_this_capture: Option<String>,
     pub(crate) current_this_capture: Option<String>,
@@ -264,6 +265,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             uses_ssr_group: false,
             uses_apply_ref: false,
             uses_ssr_claim: false,
+            uses_shared_config: false,
             uses_ssr_link_claim: false,
             pending_this_capture: None,
             current_this_capture: None,
@@ -600,6 +602,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
         if self.uses_ssr_claim {
             statements.push(self.import_named("ssrClaim", "_$ssrClaim"));
+        }
+        if self.uses_ssr_claim || self.uses_shared_config {
             statements.push(self.import_named("sharedConfig", "_$sharedConfig"));
         }
         for built_in in &self.built_in_imports {
@@ -1534,6 +1538,54 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             element.span,
         )?;
         let children = self.spread_children_expression(&tag_name, element, do_not_escape)?;
+        // Plain SSR evaluates a named `ref` expression without calling the
+        // ref, as the template path does (`_ref$ = expr`), so a ref factory's
+        // owned setup (`ref={tooltip()}`) runs on both sides and the
+        // hydration ids after it line up (#4081). The client evaluates it
+        // after applying the spread and before the children; `ssrElement`
+        // calls the markup thunk at that point. Only an expression that
+        // calls something can run setup: `ref={el}` and `ref={props.ref}`
+        // stay out of the thunk. Under `serverComponents` the ref is also a
+        // claim, evaluated by the claim thunk inside a server component's
+        // render, so the thunk skips it there: `ctx && ctx.claims || ref`.
+        // Babel: `refs` in `createElement`.
+        let mut refs: std::vec::Vec<Expression<'a>> = element
+            .opening_element
+            .attributes
+            .iter()
+            .filter_map(|attr| match attr {
+                JSXAttributeItem::Attribute(attr)
+                    if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(name)
+                        if name.name == "ref") =>
+                {
+                    match &attr.value {
+                        Some(JSXAttributeValue::ExpressionContainer(container)) => container
+                            .expression
+                            .as_expression()
+                            .filter(|expression| calls_outside_functions(expression))
+                            .map(|expression| expression.clone_in(self.allocator)),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect();
+        if self.server_components && !refs.is_empty() {
+            self.uses_shared_config = true;
+            let evaluated = if refs.len() == 1 {
+                refs.pop().expect("one ref")
+            } else {
+                self.ast()
+                    .expression_sequence(element.span, self.ast().vec_from_iter(refs.drain(..)))
+            };
+            let armed = self.claims_armed(element.span);
+            refs.push(self.ast().expression_logical(
+                element.span,
+                armed,
+                oxc_ast::ast::LogicalOperator::Or,
+                evaluated,
+            ));
+        }
         let mut args = self.ast().vec_from_array([
             Argument::StringLiteral(self.ast().alloc_string_literal(
                 element.span,
@@ -1557,7 +1609,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 self.ast()
                     .expression_identifier(element.span, self.ast().ident(&skip)),
             ));
-            let markup = self.tail_markup(element.span, tail);
+            let markup = self.tail_markup(element.span, tail, refs);
+            args.push(expression_to_argument(markup));
+        } else if !refs.is_empty() {
+            args.push(expression_to_argument(self.ast().expression_identifier(
+                element.span,
+                self.ast().ident("undefined"),
+            )));
+            let markup = self.tail_markup(element.span, vec![TailPart::Text(String::new())], refs);
             args.push(expression_to_argument(markup));
         }
         // The claim map rides as a seventh argument, a thunk `ssrElement`
@@ -3152,7 +3211,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     /// refs), and the expressions only evaluate when the render context's
     /// claims flag is set —
     /// `_$sharedConfig.context && _$sharedConfig.context.claims
-    ///    ? _$ssrClaim({...}) : ""`.
+    ///    ? _$ssrClaim({...}) : ""`. A ref that calls something runs
+    /// ungated, as plain SSR's `_ref$ = expr` does: outside a server
+    /// component's render the element hydrates, and a ref factory's owned
+    /// setup must run on both sides (#4081) — `: (ref, "")`.
     fn ssr_claim_hole(
         &mut self,
         span: Span,
@@ -3160,7 +3222,39 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         template: &mut SsrTemplate<'a>,
     ) -> Expression<'a> {
         self.uses_ssr_claim = true;
+        let refs: std::vec::Vec<Expression<'a>> = claims
+            .iter()
+            .filter(|(pos, expression)| pos == "ref" && calls_outside_functions(expression))
+            .map(|(_, expression)| expression.clone_in(self.allocator))
+            .collect();
         let map = self.claim_map(span, claims);
+        let test = self.claims_armed(span);
+        let call = self.call_expression(
+            span,
+            self.ast()
+                .expression_identifier(span, self.ast().ident("_$ssrClaim")),
+            vec![map],
+        );
+        let empty = self
+            .ast()
+            .expression_string_literal(span, self.ast().str(""), None);
+        let otherwise = if refs.is_empty() {
+            empty
+        } else {
+            let mut sequence = self.ast().vec_from_iter(refs);
+            sequence.push(empty);
+            self.ast().expression_sequence(span, sequence)
+        };
+        let guarded = self
+            .ast()
+            .expression_conditional(span, test, call, otherwise);
+        self.hoist_expression(template, span, guarded, false, false)
+    }
+
+    /// `_$sharedConfig.context && _$sharedConfig.context.claims` (Babel's
+    /// `claimsArmed`): true only inside a server component's render, where
+    /// `ssrClaim` evaluates the element's handler positions.
+    fn claims_armed(&self, span: Span) -> Expression<'a> {
         let context_read = |transform: &Self| -> Expression<'a> {
             Expression::StaticMemberExpression(
                 transform.ast().alloc_static_member_expression(
@@ -3182,23 +3276,12 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 self.ast().identifier_name(span, self.ast().ident("claims")),
                 false,
             ));
-        let test = self.ast().expression_logical(
+        self.ast().expression_logical(
             span,
             context_read(self),
             oxc_ast::ast::LogicalOperator::And,
             claims_read,
-        );
-        let call = self.call_expression(
-            span,
-            self.ast()
-                .expression_identifier(span, self.ast().ident("_$ssrClaim")),
-            vec![map],
-        );
-        let empty = self
-            .ast()
-            .expression_string_literal(span, self.ast().str(""), None);
-        let guarded = self.ast().expression_conditional(span, test, call, empty);
-        self.hoist_expression(template, span, guarded, false, false)
+        )
     }
 
     /// A candidate anchor's `ssrLinkClaim` hole (Babel's `linkEntries`
@@ -4067,7 +4150,15 @@ impl<'a> AstSsrTransform<'a, '_> {
 
     /// The attribute-string argument for a tail: a string literal when every
     /// part is fixed, else `() => "…" + ssrElementAttribute(…) + …`.
-    fn tail_markup(&self, span: Span, tail: std::vec::Vec<TailPart<'a>>) -> Expression<'a> {
+    /// `refs` (a spread element's ref expressions, #4081) run after the
+    /// tail's markup: `() => (ref, "markup")` for static markup, `() =>
+    /// markup + (ref, "")` for a dynamic one.
+    fn tail_markup(
+        &self,
+        span: Span,
+        tail: std::vec::Vec<TailPart<'a>>,
+        refs: std::vec::Vec<Expression<'a>>,
+    ) -> Expression<'a> {
         let ast = self.ast();
         if tail.iter().all(|part| matches!(part, TailPart::Text(_))) {
             let text: String = tail
@@ -4077,7 +4168,17 @@ impl<'a> AstSsrTransform<'a, '_> {
                     TailPart::Dynamic(_) => unreachable!("all parts are text"),
                 })
                 .collect();
-            return ast.expression_string_literal(span, ast.str(&text), None);
+            let text = ast.expression_string_literal(span, ast.str(&text), None);
+            if refs.is_empty() {
+                return text;
+            }
+            let mut sequence = ast.vec_from_iter(refs);
+            sequence.push(text);
+            return crate::shared::ast::concise_arrow_thunk(
+                self.allocator,
+                span,
+                ast.expression_sequence(span, sequence),
+            );
         }
         let mut concat: Option<Expression<'a>> = None;
         for part in tail {
@@ -4095,12 +4196,57 @@ impl<'a> AstSsrTransform<'a, '_> {
                 None => expression,
             });
         }
-        crate::shared::ast::concise_arrow_thunk(
-            self.allocator,
-            span,
-            concat.expect("a tail has at least one part"),
-        )
+        let mut concat = concat.expect("a tail has at least one part");
+        if !refs.is_empty() {
+            let mut sequence = ast.vec_from_iter(refs);
+            sequence.push(ast.expression_string_literal(span, ast.str(""), None));
+            concat = ast.expression_binary(
+                span,
+                concat,
+                oxc_ast::ast::BinaryOperator::Addition,
+                ast.expression_sequence(span, sequence),
+            );
+        }
+        crate::shared::ast::concise_arrow_thunk(self.allocator, span, concat)
     }
+}
+
+/// Does evaluating `expression` call anything? A function's body does not
+/// run. Babel: `callsOutsideFunctions`.
+fn calls_outside_functions(expression: &Expression<'_>) -> bool {
+    use oxc_ast_visit::Visit;
+
+    struct CallFinder {
+        found: bool,
+    }
+    impl<'b> Visit<'b> for CallFinder {
+        fn visit_call_expression(&mut self, _it: &oxc_ast::ast::CallExpression<'b>) {
+            self.found = true;
+        }
+        fn visit_new_expression(&mut self, _it: &oxc_ast::ast::NewExpression<'b>) {
+            self.found = true;
+        }
+        fn visit_tagged_template_expression(
+            &mut self,
+            _it: &oxc_ast::ast::TaggedTemplateExpression<'b>,
+        ) {
+            self.found = true;
+        }
+        fn visit_function(
+            &mut self,
+            _it: &oxc_ast::ast::Function<'b>,
+            _flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            _it: &oxc_ast::ast::ArrowFunctionExpression<'b>,
+        ) {
+        }
+    }
+    let mut finder = CallFinder { found: false };
+    finder.visit_expression(expression);
+    finder.found
 }
 
 /// Serializes a static SSR attribute value: empty values become bare
