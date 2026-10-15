@@ -1326,6 +1326,19 @@ module.exports = [
     alias
   },
   {
+    name: "signals: + until/refresh (truth readers, no optimism)",
+    path: "../../packages/signals/dist/prod/index.js",
+    import: "{ createSignal, createMemo, createEffect, createRoot, flush, until, refresh }",
+    // The truth readers must not retain the lane engine: until()/refresh()
+    // read lane nodes only through `laneRead`, which exists once something
+    // installs lanes (createOptimistic, verdicts). Before core/truth.ts split
+    // the truth helpers out of lanes.ts, this bundle carried all of lanes.js
+    // (+4.8 KB minified / +1.6 KB brotli over the core floor). Measured at
+    // 8.056 KB, minified 22195.
+    limit: "8.07 KB",
+    capMinified: 22195
+  },
+  {
     name: "app: render + one signal (the simple-app floor)",
     // Missed-wake fix (#3037): the pinned 10 KB floor gives way to a P0
     // correctness hole — writes landing beneath a subscriber's own recompute
