@@ -26,7 +26,7 @@
     },
     "solid-js#build": {
       "dependsOn": ["@solidjs/signals#build", "@solidjs/signals#types"],
-      "outputs": ["dist/**", "**/dist/**"]
+      "outputs": ["dist/**", "**/dist/**", "skills/solid-2.0-cheatsheet/**"]
     },
     "solid-js#types": {
       "dependsOn": ["@solidjs/signals#types"],

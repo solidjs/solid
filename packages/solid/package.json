@@ -114,6 +114,7 @@
     "build": "npm-run-all -nl build:*",
     "build:clean": "rimraf dist/ coverage/",
     "build:js": "rollup -c",
+    "build:skills": "node ./scripts/build-cheatsheet-skill.mjs",
     "types": "npm-run-all -nl types:clean types:src",
     "types:clean": "rimraf types/",
     "types:src": "tsc --project ./tsconfig.build.json",
@@ -128,7 +129,8 @@
     "reactive",
     "components",
     "compiler",
-    "performance"
+    "performance",
+    "tanstack-intent"
   ],
   "dependencies": {
     "@solidjs/signals": "^2.0.0-rc.15",

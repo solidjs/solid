@@ -1,3 +1,8 @@
+---
+name: server-components
+description: Rules for writing Solid 2.0 server components ("use server" functions that return a template) and their slots with @solidjs/web. Use when writing or reviewing a server component, deciding what lives on the server versus the client, or wiring a slot.
+---
+
 # Writing Solid server components with slots
 
 A Solid server component is a `"use server"` function that returns a

@@ -61,7 +61,7 @@ Existing 1.x starter templates target 1.x — 2.0 starter templates are tracked 
 
 ## For LLMs / AI assistants
 
-If you're an AI tool or model generating Solid 2.0 code: the public API differs from any Solid examples that predate 2.0. Read [`CHEATSHEET.md`](./CHEATSHEET.md) before generating — it lives inside this package (`node_modules/solid-js/CHEATSHEET.md`) for that reason. The bottom of the cheatsheet enumerates the specific patterns that changed from 1.x.
+If you're an AI tool or model generating Solid 2.0 code: the public API differs from any Solid examples that predate 2.0. Start with the primer skill, [`skills/solid-2.0/SKILL.md`](./skills/solid-2.0/SKILL.md) (`node_modules/solid-js/skills/solid-2.0/SKILL.md`): the three rules that matter most, the 1.x → 2.0 corrections, and the primitives to reach for. Then read [`CHEATSHEET.md`](./CHEATSHEET.md) (`node_modules/solid-js/CHEATSHEET.md`, also shipped as the `solid-2.0-cheatsheet` skill) — the bottom enumerates the specific patterns that changed from 1.x. The Solid 2.0 docs are at [v2.solidjs.com](https://v2.solidjs.com) (`/llms.txt`, `/llms-full.txt`).
 
 The full migration guide is [`MIGRATION.md`](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md). The 2.0 RFCs covering each subsystem live alongside it under [`documentation/solid-2.0/`](https://github.com/solidjs/solid/tree/next/documentation/solid-2.0).
 

@@ -1,3 +1,8 @@
+---
+name: agent-loops
+description: Verify Solid 2.0 reactive code with evidence from @solidjs/diagnostics captureArtifact instead of reading it; generation, acceptance, attribution, responsiveness and server-render loops. Use when checking that generated or ported Solid code is quiet, within budget and re-runs only for the right reasons.
+---
+
 # Agent loops with @solidjs/diagnostics
 
 Solid's dev builds expose two evidence channels — rule diagnostics (stable
