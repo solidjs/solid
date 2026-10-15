@@ -20,6 +20,6 @@ The control-flow components from `solid-js` (`For`, `Show`, `Switch`/`Match`, `L
 
 ## More
 
-- [Documentation](https://docs.solidjs.com)
+- [Documentation](https://v2.solidjs.com)
 - [Cheatsheet (2.0 public API)](https://github.com/solidjs/solid/blob/next/packages/solid/CHEATSHEET.md)
 - [Migration guide (1.x → 2.0)](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md)

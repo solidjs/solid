@@ -10,7 +10,7 @@
 [![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
 [![Subreddit subscribers](https://img.shields.io/reddit/subreddit-subscribers/solidjs?style=for-the-badge)](https://www.reddit.com/r/solidjs/)
 
-**[Website](https://www.solidjs.com/) • [API Docs](https://docs.solidjs.com/) • [Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [Discord](https://discord.com/invite/solidjs)**
+**[Website](https://www.solidjs.com/) • [API Docs](https://v2.solidjs.com/) • [Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [Discord](https://discord.com/invite/solidjs)**
 
 > ### Solid 2.0 (Release Candidate)
 >
@@ -154,7 +154,7 @@ Built on JSX and TypeScript, integrates with the Vite ecosystem. Bare-metal abst
 
 ## More
 
-- [Documentation](https://docs.solidjs.com)
+- [Documentation](https://v2.solidjs.com)
 - [Examples](documentation/resources/examples.md)
 - [Tutorial](https://www.solidjs.com/tutorial/introduction_basics)
 
