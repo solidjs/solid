@@ -71,9 +71,10 @@ export type Ref<T> = T | ((val: T) => void);
 export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
   props: T,
-  _name?: string
+  _name?: string,
+  _loc?: string
 ): SolidElement {
-  if (IS_OBSERVE) return observedComponent(Comp, props, _name);
+  if (IS_OBSERVE) return observedComponent(Comp, props, _name, _loc);
   return Comp(props || ({} as T));
 }
 
@@ -89,14 +90,17 @@ export function createComponent<T extends Record<string, any>>(
  *
  * `name` is the source tag the compiler emitted under `sourceNames.components`; it
  * wins over `Comp.name`, which a minifier rewrites and a `lazy()` wrapper
- * hides. The dev tier adds the client's non-function check, so a JSX tag
- * that resolved to `undefined` names the mistake instead of failing inside
- * the runtime.
+ * hides. `loc` is the JSX site (`file:line:col`) the compiler emits beside
+ * it under the `locations` kind; the owner carries it as `_loc`, the
+ * fallback location of every finding raised under the component. The dev
+ * tier adds the client's non-function check, so a JSX tag that resolved to
+ * `undefined` names the mistake instead of failing inside the runtime.
  */
 function observedComponent<T extends Record<string, any>>(
   Comp: Component<T>,
   props: T,
-  name?: string
+  name?: string,
+  loc?: string
 ): SolidElement {
   if (IS_DEV && typeof Comp !== "function") {
     throw new Error(
@@ -107,7 +111,7 @@ function observedComponent<T extends Record<string, any>>(
   }
   if (!getOwner()) return Comp(props || ({} as T));
   name ||= Comp.name;
-  return runWithOwner(createComponentOwner(`<${name || "Anonymous"}>`), () =>
+  return runWithOwner(createComponentOwner(`<${name || "Anonymous"}>`, loc), () =>
     Comp(props || ({} as T))
   );
 }

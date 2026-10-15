@@ -76,13 +76,20 @@ export type Ref<T> = T | ((val: T) => void) | undefined | Ref<T>[];
  *   the component's owner with it — `Comp.name` is whatever the minifier left
  *   — so diagnostics and attribution paths read `<Home>` in production
  *   bundles. The production build ignores it.
+ * @param loc the JSX site as written in source (`"src/App.tsx:12:5"`,
+ *   root-relative `file:line:col`), emitted by the compiler's `sourceNames`
+ *   `locations` kind beside `name`. Dev and observe builds keep it on the
+ *   component's owner, so a diagnostic raised inside the component reports
+ *   `at src/App.tsx:12:5` when nothing closer was located. The production
+ *   build ignores it.
  */
 export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
   props: T,
-  name?: string
+  name?: string,
+  loc?: string
 ): SolidElement {
-  if (IS_OBSERVE) return observedComponent(Comp, props || ({} as T), name);
+  if (IS_OBSERVE) return observedComponent(Comp, props || ({} as T), name, loc);
   return untrack(() => Comp(props || ({} as T)));
 }
 
