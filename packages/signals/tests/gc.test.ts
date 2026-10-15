@@ -75,6 +75,24 @@ if (global.gc) {
     expect(ref.deref()).toBeUndefined();
   });
 
+  // #4095: the dispose function must not share createRoot's scope, which
+  // holds `init` — keeping it would keep everything `init` closes over.
+  it("a kept dispose function does not retain the root's init", async () => {
+    let ref!: WeakRef<object>;
+    const dispose = (() => {
+      const payload = {};
+      ref = new WeakRef(payload);
+      return createRoot(dispose => {
+        void payload;
+        return dispose;
+      });
+    })();
+
+    await gc();
+    expect(ref.deref()).toBeUndefined();
+    dispose();
+  });
+
   it("should gc effect lazily", async () => {
     let [$x, setX] = createSignal(0),
       ref!: WeakRef<any>;
