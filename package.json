@@ -22,7 +22,8 @@
     "bump": "changeset add",
     "version-packages": "changeset version && pnpm --filter @solidjs/compiler run napi:version && pnpm install --lockfile-only && pnpm install --frozen-lockfile --lockfile-only && node scripts/check-release-invariants.mjs",
     "release": "node scripts/release.mjs",
-    "format": "prettier --write --cache \"**/*.[tj]s?(x)\""
+    "format": "prettier --write --cache \"**/*.[tj]s?(x)\"",
+    "diagnostics:json": "node scripts/generate-diagnostics-json.mjs"
   },
   "devDependencies": {
     "@babel/core": "^7.20.12",

@@ -25,6 +25,7 @@
     "types",
     "package.json",
     "CHEATSHEET.md",
+    "diagnostics.json",
     "skills"
   ],
   "exports": {

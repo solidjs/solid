@@ -939,6 +939,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `CLEANUP_IN_FORBIDDEN_SCOPE`       | error      | lifecycle      | `onCleanup` inside trackedEffect/onSettled                                                                                                                        |
 | `SETTLED_CLEANUP_UNOWNED`          | error      | lifecycle      | `onSettled` returned a cleanup in an unowned (out-of-band) scope                                                                                                  |
 | `PRIMITIVE_IN_FORBIDDEN_SCOPE`     | error      | lifecycle      | Reactive primitive created inside trackedEffect/onSettled                                                                                                         |
+| `PRIMITIVE_IN_EFFECT_CALLBACK`     | error      | lifecycle      | Memo, effect, or root created inside an effect callback or its cleanup, where there is no ambient owner (throws)                                                  |
 | `ACTION_CALLED_IN_OWNED_SCOPE`     | error      | write          | `action()` invoked from a component body or computation                                                                                                           |
 | `MISSING_EFFECT_FN`                | error      | lifecycle      | `createEffect` called without the effect function                                                                                                                 |
 | `SYNC_NODE_RECEIVED_ASYNC`         | error      | lifecycle      | `sync: true` computation returned a Promise / AsyncIterable                                                                                                       |
@@ -996,7 +997,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `UNRECOGNIZED_INSERT_VALUE`        | warn       | render         | Value at an insert position the renderer cannot render; skipped (dev; server and client)                                                                          |
 | `UNSCOPED_HOLE_ALLOCATED_IDS`      | warn       | render         | Unscoped hole was handed a function whose content took ids at a position the other side does not share; keys permute (dev)                                        |
 | `LOWERCASE_EVENT_ATTRIBUTE`        | warn       | render         | A function was set on a lowercase `on*` (or `on:`) attribute, which is not an event handler in 2.0; use `onXxx` (dev; client)                                     |
-| `BINDING_SLOT_POSITION`            | warn/err   | ssr/render     | Binding-slot value where it cannot bind; `data.reason` names the position (spread is an error and throws), client reasons `orphan`/`fill-shape`                   |
+| `BINDING_SLOT_POSITION`            | warn/error | ssr/render     | Binding-slot value where it cannot bind; `data.reason` names the position (spread is an error and throws), client reasons `orphan`/`fill-shape`                   |
 
 ## Run attribution — "why did this run"
 
