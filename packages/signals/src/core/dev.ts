@@ -780,15 +780,14 @@ export function ownerPath(subject: DiagnosticSubject | null | undefined): string
  * `ownerPath` makes; `undefined` when nothing on the chain was located.
  */
 function locationOf(subject: DiagnosticSubject | null | undefined): string | undefined {
-  if (!subject) return undefined;
-  const own = (subject as any)._loc;
-  if (typeof own === "string" && own.length) return own;
-  let owner: Owner | null =
-    "_parent" in subject ? subject._parent : (((subject as any)._owner as Owner | null) ?? null);
-  for (; owner !== null; owner = owner._parent) {
-    const loc = (owner as any)._loc;
-    if (typeof loc === "string" && loc.length) return loc;
-  }
+  // Owners have a `_parent` key (null on a root); a signal has none and hops
+  // to its registering `_owner` instead.
+  for (
+    let node: any = subject;
+    node;
+    node = node._parent !== undefined ? node._parent : node._owner
+  )
+    if (node._loc) return node._loc;
   return undefined;
 }
 

@@ -406,8 +406,9 @@ export function getNode(
     // the hottest store path, and the disabled cost must stay one null
     // check (nodes created before enable() stay generically named).
     if (__OBSERVE__ && attrHooks !== null) {
-      (created as any)._name = storeLabel(target) + "." + String(key);
-      (created as any)._loc = storeLoc(target);
+      const root = storeRoot(target);
+      (created as any)._name = (storeNames!.get(root) ?? "store") + "." + String(key);
+      (created as any)._loc = storeLocs!.get(root);
       stampNodeOwner(created, target);
     }
     nodes[key] = node;
@@ -546,15 +547,10 @@ const storeNames: WeakMap<StoreTarget, string> | null = __OBSERVE__ ? new WeakMa
 const storeLocs: WeakMap<StoreTarget, string> | null = __OBSERVE__ ? new WeakMap() : null;
 export function nameStore(proxy: any, name: string | undefined, loc?: string): void {
   if (__OBSERVE__ && attrHooks !== null) {
-    if (name) storeNames!.set((proxy as any)[$TARGET] as StoreTarget, name);
-    if (loc) storeLocs!.set((proxy as any)[$TARGET] as StoreTarget, loc);
+    const target = (proxy as any)[$TARGET] as StoreTarget;
+    if (name) storeNames!.set(target, name);
+    if (loc) storeLocs!.set(target, loc);
   }
-}
-function storeLabel(target: StoreTarget): string {
-  return storeNames!.get(storeRoot(target)) ?? "store";
-}
-function storeLoc(target: StoreTarget): string | undefined {
-  return storeLocs!.get(storeRoot(target));
 }
 
 // ---------------------------------------------------------------------------
