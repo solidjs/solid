@@ -16,8 +16,9 @@
  *
  * Argless calls (address === id) mask the break, which is why the
  * adopted-slot suites never caught it: this spec pins the args-bearing case
- * by seeding an `_$SC.a` address record so the adopted frame binds a
- * hash-suffixed address while the markup's `_hk` keys carry the wire id.
+ * by mounting the call's BINDING (`_$SC.r(id, address)`, what a serialized
+ * reference resolves to) so the adopted frame binds a hash-suffixed address
+ * while the markup's `_hk` keys carry the wire id.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { flush } from "solid-js";
@@ -68,18 +69,18 @@ describe("adopted claim scope on an args-bearing call", () => {
     vi.stubGlobal("fetch", () => {
       throw new Error("fetch must not be called");
     });
-    installServerComponents(makeHost());
-    // The args-bearing call's address record (`_$SC.a`, address -> id), as
-    // the document's hydration references would have written it. This is
-    // what splits address from wire id: documentAddress() resolves the
-    // frame's store to ADDRESS while the page's keys stay under FID.
-    (globalThis as any)._$SC.a = { [ADDRESS]: FID };
+    const host = makeHost();
+    installServerComponents(host);
 
     const ssrNode = container.querySelector(".comment")!;
     const ssrButton = ssrNode.querySelector("button")!;
 
     const seen: any[] = [];
-    const Thread = (globalThis as any)._$SC.r(FID);
+    // The args-bearing call's BINDING, as the document's hydration reference
+    // resolves it (`_$SC.r(id, address)`): the mount binds the frame's store
+    // to ADDRESS — the address rides with the binding — while the page's
+    // keys stay under FID. This is what splits address from wire id.
+    const Thread = (globalThis as any)._$SC.r(FID, ADDRESS);
     const dispose = hydrate(
       () => (
         <Thread
@@ -109,6 +110,10 @@ describe("adopted claim scope on an args-bearing call", () => {
     expect(nowNode).toBe(ssrNode);
     expect(container.querySelector("button")).toBe(ssrButton);
     expect(document.querySelectorAll(".comment").length).toBe(1);
+    // ...under the call's ADDRESS (the store the binding named), not the
+    // wire id.
+    expect(host.get(ADDRESS)).toBeDefined();
+    expect(host.get(FID)).toBeUndefined();
 
     dispose();
     container.remove();

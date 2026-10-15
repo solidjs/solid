@@ -11,7 +11,7 @@ This is a short, practical guide for migrating from Solid 1.x to Solid 2.0’s A
 - **Lifecycle**: `onMount` is replaced by `onSettled` (and it can return cleanup).
 - **Async UI**: use `<Loading>` for first readiness; use `isPending(() => expr)` for “a change is on the way” indicators (input-driven refetches and `affects()` declarations — a bare `refresh()` is silent).
 - **Lists**: `Index` is gone; use `<For keyed={false}>`. Default `For` receives raw items, while `keyed={false}` receives item accessors and a stable numeric index.
-- **Stores**: prefer draft-first setters; `storePath(...)` exists as an opt-in helper for the old path-style ergonomics.
+- **Stores**: setters are draft-first; 1.x path-argument setters become draft writes to the same path.
 - **Plain values**: `snapshot(store)` replaces `unwrap(store)` when you need a plain non-reactive value.
 - **DOM**: `/*@once*/` and `use:` directives are removed from the public JSX model; use normal reactive JSX, `untrack` for intentional one-time JavaScript reads, and `ref` directive factories (including array refs). Previously tolerated `class:` / `style:` namespace syntax is no longer special; use `class` / `style` object values.
 - **Refs**: ref callbacks are now unowned — `getOwner()` is `null` inside them, so 1.x-style `onCleanup()` registration inside a ref callback no longer works. Keep lifecycle work in an owned scope: `onSettled` in the component body, or the setup half of a directive factory.
@@ -36,7 +36,7 @@ import { render, hydrate } from "@solidjs/web";
 import { createStore } from "solid-js/store";
 
 // 2.0 (stores are exported from solid-js)
-import { createStore, reconcile, snapshot, storePath } from "solid-js";
+import { createStore, reconcile, snapshot } from "solid-js";
 ```
 
 ```ts
@@ -403,7 +403,7 @@ const addTodo = action(function* (todo) {
 
 ## Stores
 
-### Draft-first setters (and `storePath` as an opt-in helper)
+### Draft-first setters
 
 ```js
 // 2.0 preferred: produce-style draft updates
@@ -411,8 +411,8 @@ setStore(s => {
   s.user.address.city = "Paris";
 });
 
-// Optional compatibility: old “path argument” ergonomics via storePath
-setStore(storePath("user", "address", "city", "Paris"));
+// 1.x path setters become draft writes to the same path:
+// setStore("user", "address", "city", "Paris")  →  the update above
 ```
 
 ### `unwrap(store)` → `snapshot(store)`
@@ -463,7 +463,7 @@ const [items] = createStore(() => api.listItems(), []);
 
 const [cache] = createStore(
   draft => {
-    draft.total = items().length;
+    draft.total = items.length;
   },
   { total: 0 }
 );
@@ -956,10 +956,18 @@ setStore(s => {
 });
 ```
 
-If you need the old path-style syntax, use `storePath`:
+A 1.x path setter maps onto a draft write to the same path — ranges and filters become loops, and setting `undefined` to remove a key becomes `delete`:
 
 ```js
-setStore(storePath("user", "name", "Alice"));
+// 1.x: setStore("user", "name", "Alice")
+setStore(s => {
+  s.user.name = "Alice";
+});
+
+// 1.x: setStore("todos", t => t.done, "archived", true)
+setStore(s => {
+  for (const t of s.todos) if (t.done) t.archived = true;
+});
 ```
 
 ### `createMutable` / `modifyMutable` → `createStore` with draft setters
@@ -1054,7 +1062,7 @@ If you need a standard Observable/AsyncIterable interface for external consumers
 - **`produce`** → now the default store setter behavior (draft-first)
 - **`createMutable` / `modifyMutable`** → use `createStore` with draft setters
 - **`from` / `observable`** → async iterators
-- **`createDeferred`** → removed; handle outside Solid
+- **`createDeferred`** → same name, new meaning: an async memo that may lag but never leads (keeps its last answer while a refetch is in flight; `isPending` reports the refetch). 1.x's idle-time deferral and `timeoutMs` are gone; with a synchronous function it behaves like `createMemo`
 - **`indexArray`** → use `mapArray` with `keyed: false`
 - **`resetErrorBoundaries`** → no longer needed (error boundaries heal automatically)
 - **`enableScheduling`** → removed

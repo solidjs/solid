@@ -2,6 +2,8 @@
 import {
   COMPOSED_BODY_FRAMING,
   ChildProperties,
+  DOMWithState,
+  LinkAttributes,
   isEventName,
   isHttpNavigationTarget
 } from "./constants.js";
@@ -26,6 +28,7 @@ import {
   ssrSanitizeError,
   reportServerError
 } from "solid-js/internal";
+import type { Owner } from "solid-js";
 import type { ServerErrorSite } from "solid-js/internal";
 import { effect, memo } from "./render.js";
 import { setRequestErrorHook } from "./request-error-hook.js";
@@ -79,6 +82,7 @@ import {
   evalHeadValue,
   resourceIdentity,
   asciiLowerCase,
+  headBodyText,
   replaceableIdentity,
   resolveHead,
   STYLESHEET_FETCH_META
@@ -216,9 +220,9 @@ export type AssetResolverFn = (
  * fallback reaches `script-src`. A nonce on a `useHead` tag's own props
  * always wins.
  *
- * Only `renderToString` / `renderToStream` take this shape. Surfaces that
- * emit one script (`HydrationScript`, `generateHydrationScript`,
- * `createSSRResponse`) take a string — project with `scriptNonce`.
+ * Surfaces that emit one script (`HydrationScript`,
+ * `generateHydrationScript`, `createSSRResponse`) take either shape and use
+ * its script half.
  */
 export type CSPNonce = string | { script: string | false; style: string | false };
 
@@ -321,8 +325,8 @@ export type {
 export interface SSRResponseOptions {
   /** Base head; the stub's status/headers win over it. */
   responseInit?: ResponseInit;
-  /** Nonce carried by the post-flush `<script>` redirect fallback. */
-  nonce?: string;
+  /** Nonce carried by the post-flush `<script>` redirect fallback (its script half). */
+  nonce?: CSPNonce;
   /** Rewrites each outgoing HTML chunk (entry script injection, ...). */
   transformChunk?: (chunk: string) => string;
 }
@@ -1346,6 +1350,11 @@ function renderShellHead(registry, nonce, isPendingFragment, noScripts, traceMet
   };
 }
 
+// Installed by useHead, the only way tags reach the registry, so a render
+// that never imports it (the server-render size floor) does not carry the
+// JSON script body escape.
+let headBodyHook;
+
 // Fragment flush: commit the boundary's registrations, re-resolve, and diff
 // against the flushed snapshot. Returns patch ops (or null) for the client
 // `$dh` helper: `["t", text]` retitle, `["r", identity]` remove owned tags,
@@ -1398,7 +1407,19 @@ function flushHeadFragment(registry, boundary, nonce) {
         if (value) attrs.nonce = String(value);
       }
       const children = t.props.children;
-      ops.push(["a", identity, t.tag, attrs, children == null ? null : String(children)]);
+      // Ops exist only after useHead installed the hook; the check is for
+      // bundles without useHead, where it is never assigned.
+      ops.push([
+        "a",
+        identity,
+        t.tag,
+        attrs,
+        children == null
+          ? null
+          : headBodyHook
+            ? headBodyHook(t.tag, t.props, String(children))
+            : String(children)
+      ]);
     }
   }
   return ops.length ? ops : null;
@@ -1425,21 +1446,8 @@ function normalizeNonce(nonce) {
 
 function destinationNonce(nonce, destination) {
   if (nonce == null) return undefined;
-  if (typeof nonce === "string") return nonce || undefined;
-  const value = nonce[destination];
+  const value = typeof nonce === "string" ? nonce : nonce[destination];
   return typeof value === "string" && value ? value : undefined;
-} /** The script-destination half of a render `nonce`. */
-export function scriptNonce(nonce?: CSPNonce): string | undefined;
-
-/** The script-destination half of a render `nonce`. */
-export function scriptNonce(nonce) {
-  return destinationNonce(nonce, "script");
-} /** The style-destination half of a render `nonce`. */
-export function styleNonce(nonce?: CSPNonce): string | undefined;
-
-/** The style-destination half of a render `nonce`. */
-export function styleNonce(nonce) {
-  return destinationNonce(nonce, "style");
 }
 
 // Attribute names are ASCII case-insensitive, so a caller-supplied `Nonce`
@@ -1532,6 +1540,7 @@ function renderHeadTagMarkup(tag, props, identity, nonce) {
   if (nonce && !hasNonceProp(props)) attrs += nonceAttr(nonce, nonceDestination(tag, props));
   if (tag === "meta" || tag === "link" || tag === "base") return `<${tag}${attrs}>`;
   let body = props.children == null ? "" : String(props.children);
+  if (headBodyHook) body = headBodyHook(tag, props, body);
   if (tag === "script") body = body.replace(/<\/(script)/gi, "<\\/$1");
   else if (tag === "style") body = escapeStyleContent(body);
   else body = escape(body);
@@ -1566,6 +1575,7 @@ export function useHead(tags) {
       );
     return;
   }
+  headBodyHook = headBodyText;
   ctx.registerHeadTags(tags);
 }
 
@@ -1575,7 +1585,8 @@ const VOID_ELEMENTS =
 // What `ssrElement` needs to know about a tag name, fixed per name and asked
 // on every render of a spread element: its opening and closing markup, and
 // whether it is void, a textarea (its value is content), or raw text
-// (`script`/`style`, whose content is not escaped). One lookup per element in
+// (`script`/`style`, whose content is not escaped), plus the default/attribute
+// names for input and option. One lookup per element in
 // place of a regex run, four string compares per key, and — the part that
 // shows — building `<tag` and `</tag>` from the name on every call: three
 // string allocations per element, a third of the walk's cost over a writer
@@ -1588,33 +1599,60 @@ interface TagInfo {
   isVoid: boolean;
   textarea: boolean;
   raw: boolean;
+  formDefaults: Record<string, string> | undefined;
+  formAttributes: Record<string, string> | undefined;
 }
+// What ends a tag or attribute name in the HTML tokenizer (whitespace, `/`,
+// `>`, `=`), what it reports as an error inside one (quotes, `<`, NUL), and
+// the other control characters. A name containing none of them, and starting
+// with an ASCII letter for a tag, is read back as exactly that one name.
+const NOT_NAME = /[\0-\x20\x7F-\x9F"'<>/=]/;
+const TAG_START = /^[a-zA-Z]/;
 const tagInfos = /*#__PURE__*/ new Map<string, TagInfo>();
 function tagInfo(tag: string): TagInfo {
   let info = tagInfos.get(tag);
   if (info === undefined) {
+    if (!TAG_START.test(tag) || NOT_NAME.test(tag))
+      throw new Error(`"${tag}" is not a valid tag name`);
+    let formDefaults, formAttributes;
+    if (tag === "input" || tag === "option") {
+      formDefaults = Object.create(null);
+      formAttributes = Object.create(null);
+      const state = DOMWithState[tag.toUpperCase()];
+      for (const prop in state) {
+        if (state[prop] === 2) {
+          const attr = prop.slice(7).toLowerCase();
+          formDefaults[attr] = prop;
+          formAttributes[prop] = attr;
+        }
+      }
+    }
     info = {
       open: "<" + tag,
       close: "</" + tag + ">",
       isVoid: VOID_ELEMENTS.test(tag),
       textarea: tag === "textarea",
-      raw: tag === "script" || tag === "style"
+      raw: tag === "script" || tag === "style",
+      formDefaults,
+      formAttributes
     };
     if (tagInfos.size < 512) tagInfos.set(tag, info);
   }
   return info;
 }
-// Attribute names a spread has already emitted unchanged. A spread's keys
-// are author-written names from a small vocabulary, repeated on every
-// element; `escape` runs a regex over each one every time, and a name that
-// escaped to itself once escapes to itself always. Names that DO escape are
-// never remembered, so a hit means "emit as is". Bounded like `tagInfos`.
+// Whether a spread key can be written as an attribute name: a runtime string
+// the parser would not read back as that one name is dropped, as the
+// client's setAttribute refuses it. Written as is otherwise — the tokenizer
+// decodes no character references in a name, so `&` stays `&`. A spread's
+// keys are author-written names from a small vocabulary, repeated on every
+// element, so the names that passed are remembered and a hit skips the
+// regex. Names that fail are never remembered. Bounded like `tagInfos`.
 const safeAttrNames = /*#__PURE__*/ new Set<string>();
-function attrName(prop: string): string {
-  if (safeAttrNames.has(prop)) return prop;
-  const escaped = escape(prop);
-  if (escaped === prop && safeAttrNames.size < 512) safeAttrNames.add(prop);
-  return escaped;
+function isAttrName(prop: string): boolean {
+  if (safeAttrNames.has(prop)) return true;
+  if (prop === "" || NOT_NAME.test(prop)) return false;
+  if (safeAttrNames.size < 512) safeAttrNames.add(prop);
+  return true;
 }
 // Fragment replacement helpers emitted into stream task scripts.
 //
@@ -1828,15 +1866,21 @@ export function renderToString(code, options = {}) {
       noScripts,
       traceMetaMarkup(context.trace)
     );
-    const document = assembleDocument(
-      resolveSSRSelectValues(html),
-      tracking.emittedAssets,
-      tracking.preloadLinks,
-      tracking.inlineStyles,
-      scripts.length ? scripts : "",
+    const document = withShellEnd(
+      assembleDocument(
+        resolveSSRSelectValues(html),
+        tracking.emittedAssets,
+        tracking.preloadLinks,
+        tracking.inlineStyles,
+        scripts.length ? scripts : "",
+        nonce,
+        head,
+        onHead
+      ),
+      context,
+      renderId,
       nonce,
-      head,
-      onHead
+      noScripts
     );
     // Head-freeze point: the request's response head commits right before
     // the render's final dispose — the same order as an awaited
@@ -2073,10 +2117,21 @@ export function renderToStream(code, options = {}) {
     const sink = writable;
     buffer = { write() {} };
     writable = { end() {} };
+    // Contained (#4029): an `onCleanup` that throws here must not escape the
+    // teardown. On the `signal` path this runs inside an `abort` listener,
+    // where a throw becomes an uncaught exception that takes the process down;
+    // on the `failRender` path it would cut the wind-down short. It is the
+    // render's failure, so it goes to the hook as one (`handling: "failed"`),
+    // and with no hook anywhere it is never silent.
     if (dispose) {
       const d = dispose;
       dispose = () => {};
-      d();
+      try {
+        d();
+      } catch (err) {
+        reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
+        if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
+      }
     }
     // Close the serializer AFTER `dead` is set: seroval's `close()` runs
     // each pending write's cleanup — a serialized async iterator gets its
@@ -2365,15 +2420,21 @@ export function renderToStream(code, options = {}) {
     // its head content before any body output it could flush.
     shell(shellHtml, meta) {
       buffer.write(
-        assembleDocument(
-          shellHtml,
-          meta.preloads,
-          meta.preloadLinks,
-          meta.inlineStyles,
-          meta.tasks.length ? meta.tasks : "",
+        withShellEnd(
+          assembleDocument(
+            shellHtml,
+            meta.preloads,
+            meta.preloadLinks,
+            meta.inlineStyles,
+            meta.tasks.length ? meta.tasks : "",
+            nonce,
+            meta.head,
+            onHead
+          ),
+          context,
+          renderId,
           nonce,
-          meta.head,
-          onHead
+          noScripts
         )
       );
     },
@@ -2456,11 +2517,13 @@ export function renderToStream(code, options = {}) {
   const pendingSerialized = new Map();
   // The wire policy on a channel: a thenable's rejection and an async
   // iterable's thrown step reach the client sanitized; a seroval stream
-  // (`__SEROVAL_STREAM__`, the container-trace carrier) is the codec's own
-  // and passes as-is; values pass as-is — an Error reached as a value was
-  // never thrown, so it is data and the author's (#3113's ruling). One guard
-  // per channel object, so a source serialized under two ids stays one
-  // channel for seroval's cross-references.
+  // (the container-trace carrier) is the codec's own and passes as-is — the
+  // `__SEROVAL_STREAM__` literal by its tag, seroval's untagged stream class
+  // (1.6.8+) as the class instance it is: no `.then`, no async iterator, and
+  // the border walk leaves it whole; values pass as-is — an Error reached
+  // as a value was never thrown, so it is data and the author's (#3113's
+  // ruling). One guard per channel object, so a source serialized under two
+  // ids stays one channel for seroval's cross-references.
   //
   // The verdict is read in the rejection's own microtask — no added tick on
   // the error path. This handler was attached at serialize time, ahead of
@@ -2850,7 +2913,7 @@ export function renderToStream(code, options = {}) {
           (stubBatch ||= new Map()).set(key + "_fr", p);
         else serializer.write(key + "_fr", p);
       }
-      return (value, error) => {
+      return (value, error, escaped) => {
         if (registry.has(key)) {
           const item = registry.get(key);
           registry.delete(key);
@@ -2860,6 +2923,19 @@ export function renderToStream(code, options = {}) {
           // `<key>_fr` rejection, a transport sink's error chunk — gets what
           // the wire policy allows (#3468).
           if (error) abandonSubtree(key, error);
+          // A failure that ESCAPED a server component (frames-rulings 3.3:
+          // no server <Errored> rendered an outcome for it; `value` is the
+          // boundary's own markup) is the frame's — one async value errored,
+          // the outward face: the frame sink's unkeyed error chunk
+          // (`:error`), or the document face's `sc:live` error op addressed
+          // to the component's frame. The fragment still settles below (its
+          // position never blanks; `_fr` still rejects — the diagnostic).
+          if (error && escaped) {
+            const wire = ssrSanitizeError(error, null);
+            const message = wire instanceof Error ? wire.message : String(wire);
+            if (sink.error) sink.error("", message);
+            else if (context.live && context.live.error) context.live.error(escaped.frame, message);
+          }
 
           // A settled nested fragment parked its markup here to be spliced
           // into this fragment's content. On the error path there is no
@@ -2907,7 +2983,12 @@ export function renderToStream(code, options = {}) {
               // (its protocol rejects `<key>_fr` via item.resolve below), but
               // transport sinks with no resume protocol need the signal.
               // Post-flush: the boundary told the hook before settling, so
-              // the verdict the chunk carries is the decided one.
+              // the verdict the chunk carries is the decided one. On the
+              // error path `value` is what the boundary rendered for the
+              // outcome — a server <Errored>'s fallback or the boundary's own
+              // markup inside a server component (frames-rulings 3.3) — and
+              // nothing outside one, where the client twin renders fresh over
+              // the blank.
               sink.fragment(key, resolveSSRSelectValues(value !== undefined ? value : " "), {
                 styles,
                 revealGroup,
@@ -2959,7 +3040,13 @@ export function renderToStream(code, options = {}) {
   // registry, the sink and the serializer, all declared above — and disarmed
   // by the render's final dispose, which every ending runs through.
   const signal = options.signal;
-  const onAbort = signal ? () => abandon("signal") : undefined;
+  // A reason carrying `quiet: true` is a teardown the response chose — a
+  // frame stream ending a plain response at its streaming bound (see
+  // frame-sink's `frameStream`) — not a client that left: no abandonment
+  // finding for it.
+  const onAbort = signal
+    ? () => abandon("signal", !!(signal.reason && signal.reason.quiet === true))
+    : undefined;
   let html = root(
     d => {
       dispose = () => {
@@ -3403,12 +3490,18 @@ export function renderToStream(code, options = {}) {
     }
   };
 }
-export function HydrationScript(props: { nonce?: string; eventNames?: string[] }): JSX.Element;
+export function HydrationScript(props: { nonce?: CSPNonce; eventNames?: string[] }): JSX.Element;
 
 // components
 export function HydrationScript(props) {
-  const nonce = scriptNonce(sharedConfig.context && sharedConfig.context.nonce);
-  return ssr(generateHydrationScript({ nonce, ...props }));
+  // The render owns its bootstrap, so its shell ends with the marker and the
+  // bootstrap declares the ledger hydrate() parks on (#3971).
+  if (sharedConfig.context) sharedConfig.context.bootstrap = true;
+  const { eventNames, nonce } = {
+    nonce: sharedConfig.context && sharedConfig.context.nonce,
+    ...props
+  };
+  return ssr(hydrationBootstrap(eventNames, destinationNonce(nonce, "script"), true));
 }
 export function ssrGroup<T extends () => any[]>(fn: T, n: number): T;
 
@@ -3439,6 +3532,13 @@ function buildAsyncWrap(err, node) {
   // re-suspension chain overflowed the stack (SSR stack-overflow diagnosis).
   if (node.$rw) return { fn: node, p };
   const owner = getOwner();
+  // The behavior-claims arming (`ctx.claims`) is per render CONTEXT, and a
+  // server component sets it on a context that is current only for its
+  // synchronous render. A retry is re-pulled by whatever boundary resumes
+  // it — on the document face, one outside the component — so it carries
+  // the escalation's arming forward, or the markup it finally renders
+  // drops every handler-position marker (`_s:on:click`).
+  const claims = sharedConfig.context && sharedConfig.context.claims;
   // A live hole's retry chain stays mint-suppressed end to end, and a
   // machinery-owned node's (`$lhSkip` — boundary outputs, slot getters)
   // stays opted out: every escalation re-wrap crosses this site, so
@@ -3456,7 +3556,20 @@ function buildAsyncWrap(err, node) {
     if (suppress) node.$lhSuppress = true;
     return { fn: node, p };
   }
-  const fn = () => runWithOwner(owner, node);
+  const fn = () => {
+    const ctx = sharedConfig.context;
+    if (!claims || !ctx || ctx.claims === claims) return runWithOwner(owner, node);
+    // Armed on a context DERIVED from the resuming one (prototype — every
+    // shared field and method reads through, as a Loading boundary's
+    // buffered context does), so that boundary's buffering and
+    // serialization stay its own.
+    (sharedConfig.context = Object.create(ctx)).claims = claims;
+    try {
+      return runWithOwner(owner, node);
+    } finally {
+      sharedConfig.context = ctx;
+    }
+  };
   fn.$rw = true;
   if (suppress) fn.$lhSuppress = true;
   if (node.$lhSkip) fn.$lhSkip = true;
@@ -3651,7 +3764,7 @@ function holeContentPositions(t) {
  * commit through the render core, and the response's end-latch sweep is
  * always the last one).
  */
-export function createLiveHoles(sink, scoped) {
+export function createLiveHoles(sink, scoped, settled) {
   let nextId = 0;
   const stamp = typeof creationStamp === "function" ? creationStamp : () => 0;
   // The document-face arming gate: one engine serves the whole render, but
@@ -3661,9 +3774,38 @@ export function createLiveHoles(sink, scoped) {
   const inScope =
     scoped && typeof inServerComponentScope === "function" ? inServerComponentScope : null;
   // Baselines compare marker-free: a first render's html carries nested
-  // holes' markers, while sweep re-evaluations are mint-suppressed and
-  // produce none — the equality gate must not read that as a change.
-  const stripMarkers = html => html.replace(/<!--lh:\/?\d+-->/g, "");
+  // holes' markers and its elements' attr addresses (`data-lha`), while
+  // sweep re-evaluations are mint-suppressed and produce neither — the
+  // equality gate must not read that as a change.
+  const stripMarkers = html => html.replace(/<!--lh:\/?\d+-->| data-lha="\d+"/g, "");
+  // Dev: a sweep's impurity gate closed a binding that was live (#4023). The
+  // first render escalated before the impure part ran, so the hole shipped
+  // its markers and then went quiet on its first re-evaluation — markup that
+  // silently stops updating. The cause is a scope the re-run creates that
+  // waits on async work (a memo over a fetch or a stream inside the hole),
+  // which every re-run would restart. Once per binding: a closed binding never sweeps again. The
+  // finding is located by the hole's owner (its component path); the hole's
+  // expression is not named, because keeping it on every scoped hole costs
+  // the render even in dev.
+  const latched = !"_SOLID_DEV_"
+    ? null
+    : (owner, cause, content) => {
+        devCheck(
+          {
+            code: "SSR_LIVE_HOLE_LATCHED",
+            kind: "ssr",
+            severity: "warn",
+            message:
+              `[SSR_LIVE_HOLE_LATCHED] A live ${content ? "markup hole" : "attribute"} stopped updating: ` +
+              `re-running it ${cause === "records" ? "emitted slot records" : "created a reactive scope that waits on async work (a memo over a fetch or a stream)"}, ` +
+              `so it cannot re-run and keeps the markup it last sent. ` +
+              `Create async sources outside markup that re-renders from a live source ` +
+              `(in the component body, not inside the hole's expression).`,
+            data: { cause }
+          },
+          owner
+        );
+      };
   // Sweeps re-evaluate under the mint-time render CONTEXT as well as the
   // owner. `runWithOwner` restores only the owner; everything a compiled
   // template reads off `sharedConfig.context` (the behavior-claims arming
@@ -3674,22 +3816,96 @@ export function createLiveHoles(sink, scoped) {
   // re-emissions there lost every context-derived byte: handler-position
   // slot markers (`_s:on:click`) vanished from late holes (a copy button
   // that compiled, streamed its markup, and never bound).
+  //
+  // Each sweep runs in a throwaway scope, disposed as soon as it returns. A
+  // re-evaluation that creates reactive scopes (a nested `<For>`, a
+  // compiler condition memo, a component) is still re-runnable: its scopes
+  // only served this render's markup, and disposing them keeps the owner
+  // tree from growing per commit. `engine.sweptOwners` records whether
+  // scopes were created (also when `fn` throws): the gate closes a hole only
+  // when those scopes are still waiting on async work, since a re-created
+  // async source would restart on every sweep.
   const swept = (owner, ctx, fn) => {
     const prev = sharedConfig.context;
     sharedConfig.context = ctx;
+    let dispose;
+    let before;
+    const run = () =>
+      root(
+        d => {
+          dispose = d;
+          before = stamp();
+          return fn();
+        },
+        { transparent: true }
+      );
     try {
-      return owner ? runWithOwner(owner, fn) : fn();
+      return owner ? runWithOwner(owner, run) : run();
     } finally {
       sharedConfig.context = prev;
+      engine.sweptOwners = before !== undefined && stamp() !== before;
+      if (dispose) dispose();
     }
   };
-  // Resolve a hole thunk's value to a `{ t, h, p }` result. NotReady
-  // escalations are absorbed into h/p (the caller decides pending
-  // semantics); real errors propagate.
+  // Row ops (#4064): a hole whose value is a `For`'s rows (tagged `$rows`
+  // by `mapArray` in a live render) marks each row with `<!--lr-->`, so a
+  // sweep that changed some rows can send just those rows, by index, and
+  // the client morphs just their ranges. `resolveValue` resolves a hole's
+  // value into `res` and returns the rows' html (marker-free, the form a
+  // sweep compares) — or null for any other value, or when a row is still
+  // pending.
+  const stripRow = html => html.replace(/<!--lh:\/?\d+-->| data-lha="\d+"|<!--lr-->/g, "");
+  // A hole's value, with a `For`'s rows kept as rows: an `escape`-wrapped
+  // hole (`escapeLate`) would join them into one string, so its wrapped
+  // function is read instead and every other value escaped as the wrapper
+  // would have. A retry (`$lhBinding`) runs as it is, under the owner it
+  // restores; the rows are then the wrapped function's value it just
+  // computed (`b.fn`, a memo read in the same pass).
+  const rowsOf = v => (Array.isArray(v) && v.$rows ? v : null);
+  function holeValue(hole) {
+    const b = hole.$lhBinding;
+    if (b) {
+      const v = hole();
+      return (b.fn && rowsOf(b.fn())) || v;
+    }
+    if (!hole.$fn) return hole();
+    const v = hole.$fn();
+    return rowsOf(v) || escape(v);
+  }
+  function resolveValue(value, res) {
+    if (!Array.isArray(value) || !value.$rows) {
+      resolveSSRNode(value, res);
+      return null;
+    }
+    let rows = [];
+    for (const row of value) {
+      const r = resolveSSRNode(escape(row));
+      res.t[res.t.length - 1] += "<!--lr-->" + r.t[0];
+      if (r.h.length) {
+        res.t.push(...r.t.slice(1));
+        res.h.push(...r.h);
+        res.p.push(...r.p);
+        rows = null;
+      } else if (rows) rows.push(engine.sweeping ? r.t[0] : stripRow(r.t[0]));
+    }
+    return rows;
+  }
+  // The row ops from `last` to `rows`: the rows that changed or were
+  // appended, by index, and the new count (a shorter count truncates).
+  // Null when every row changed: the whole hole is then no more to send.
+  function rowOps(last, rows) {
+    const ops = [];
+    for (let i = 0; i < rows.length; i++)
+      if (i >= last.length || rows[i] !== last[i]) ops.push([i, rows[i]]);
+    return ops.length < rows.length ? { n: rows.length, r: ops } : null;
+  }
+  // Resolve a hole thunk's value to a `{ t, h, p }` result (`rows` as
+  // `resolveValue` returns them). NotReady escalations are absorbed into
+  // h/p (the caller decides pending semantics); real errors propagate.
   function resolveHoleValue(hole) {
-    const result = { t: [""], h: [], p: [] };
+    const result = { t: [""], h: [], p: [], rows: null };
     try {
-      resolveSSRNode(hole(), result);
+      result.rows = resolveValue(holeValue(hole), result);
     } catch (err) {
       const wrap = buildAsyncWrap(err, hole);
       if (!wrap) throw err;
@@ -3719,15 +3935,17 @@ export function createLiveHoles(sink, scoped) {
     sweeping: false,
     parent: null,
     // The impurity gates. Slot/region records are emit-once (occurrence
-    // identity is positional), and reactive scopes are render-once (a memo
-    // re-created per sweep re-subscribes its sources — for an async
-    // iterable that is a fresh consumer and a fresh commit pump EVERY
-    // sweep, a multiplying feedback loop): an evaluation that does either
-    // is not re-runnable. First renders diff `recordStamp` / the
-    // creation stamp and latch the hole; sweep evaluations diff them and
-    // close the binding.
+    // identity is positional), and reactive scopes are render-once on the
+    // first render (they belong to the render tree). First renders diff
+    // `recordStamp` / the creation stamp and latch the hole. Sweeps run in a
+    // throwaway scope (see `swept`), so scopes they create are fine — unless
+    // one is still waiting on async work: a memo re-created per sweep
+    // re-subscribes its sources, and for an async iterable that is a fresh
+    // consumer and a fresh commit pump EVERY sweep, a feedback loop. Those
+    // sweeps, and any that emit records, close the binding.
     recordStamp: 0,
     gateHit: false,
+    sweptOwners: false,
     /**
      * Intercept a thunk content hole: resolve it, and — when the evaluation
      * proves re-runnable — mint an id, wrap the output in its marker pair,
@@ -3750,10 +3968,11 @@ export function createLiveHoles(sink, scoped) {
       // never saw would swallow a needed emission.
       if (hole.$lhSuppress) {
         const r = { t: [""], h: [], p: [] };
+        let rows = null;
         engine.suppressed++;
         try {
           try {
-            resolveSSRNode(hole(), r);
+            rows = resolveValue(holeValue(hole), r);
           } catch (err) {
             const wrap = buildAsyncWrap(err, hole);
             // Real error: contribute nothing, matching the resolver's
@@ -3770,6 +3989,7 @@ export function createLiveHoles(sink, scoped) {
         const b = hole.$lhBinding;
         if (b && !b.closed && !r.h.length && !engine.sweeping) {
           b.last = stripMarkers(r.t[0]);
+          b.rows = rows;
         }
         return r.h.length ? r : r.t[0];
       }
@@ -3790,13 +4010,16 @@ export function createLiveHoles(sink, scoped) {
         key: null,
         children: [],
         last: null,
+        // The rows the client shows, when the value is a `For`'s, and the
+        // function an `escape` wrapper hides them behind (see `holeValue`).
+        rows: null,
+        fn: hole.$fn,
         closed: false,
         sweep() {
           if (b.closed) return;
           const prevSweeping = engine.sweeping;
           engine.sweeping = true;
           engine.gateHit = false;
-          const sweepOwnersBefore = stamp();
           let res;
           try {
             res = swept(owner, holeCtx, () => resolveHoleValue(hole));
@@ -3810,11 +4033,12 @@ export function createLiveHoles(sink, scoped) {
           } finally {
             engine.sweeping = prevSweeping;
           }
-          // An impure re-evaluation (slot records or reactive-scope
-          // creation — reachable only when the first render escalated
-          // before its impure part ran): the hole is not re-runnable.
-          // Close and latch what the retry path shipped.
-          if (engine.gateHit || stamp() !== sweepOwnersBefore) {
+          // An impure re-evaluation (slot records, or reactive scopes still
+          // waiting on async work — reachable only when the first render
+          // escalated before its impure part ran): the hole is not
+          // re-runnable. Close and latch what the retry path shipped.
+          if (engine.gateHit || (engine.sweptOwners && res.h.length)) {
+            if ("_SOLID_DEV_") latched(owner, engine.gateHit ? "records" : "owners", true);
             b.closed = true;
             sink.closeBinding(b.key);
             return;
@@ -3832,9 +4056,14 @@ export function createLiveHoles(sink, scoped) {
           // would just re-ship what the splice is about to deliver.
           const html = res.t[0];
           if (b.last === null || html === b.last) return;
+          const ops = b.rows && res.rows && rowOps(b.rows, res.rows);
           b.last = html;
+          // Equal rows: the html differed only by the first render's markers.
+          if (ops && !ops.r.length && ops.n === b.rows.length) return;
+          b.rows = res.rows;
           closeChildren(b);
-          sink.hole(b.key, html);
+          // A sink that applies row ops takes them beside the html.
+          sink.hole(b.key, html, ops);
         }
       };
       if (engine.parent) engine.parent.children.push(b);
@@ -3848,7 +4077,7 @@ export function createLiveHoles(sink, scoped) {
       let value;
       let escalated = null;
       try {
-        value = hole();
+        value = holeValue(hole);
       } catch (err) {
         const wrap = buildAsyncWrap(err, hole);
         if (!wrap) {
@@ -3879,6 +4108,7 @@ export function createLiveHoles(sink, scoped) {
         return r.h.length ? r : r.t[0];
       }
       let res;
+      let rows = null;
       if (escalated) {
         // The retry chain resolves mint-suppressed (`$lhSuppress`, which
         // `resolveSSRNode` honors and propagates through re-wraps): a retry
@@ -3894,7 +4124,7 @@ export function createLiveHoles(sink, scoped) {
       } else {
         res = { t: [""], h: [], p: [] };
         try {
-          resolveSSRNode(value, res);
+          rows = resolveValue(value, res);
         } catch (_) {
           engine.parent = prevParent;
           closeChildren(b);
@@ -3912,12 +4142,21 @@ export function createLiveHoles(sink, scoped) {
       if (engine.recordStamp !== recordsBefore || stamp() !== ownersBefore) {
         return res.h.length ? res : res.t[0];
       }
+      // Nothing to move it (document face): until the render has served a
+      // value a later commit replaces (a pumped iterable, a loading value
+      // or seed — `settled` flips before any such value is readable), a
+      // hole that resolved synchronously read only final values. Its html
+      // is final: ship it unmarked and unbound (no op can ever address it,
+      // and no sweep need re-run it). An escalated hole still marks — its
+      // retry may land after the render is unsettled.
+      if (!res.h.length && settled && settled()) return res.t[0];
       const id = nextId++;
       const key = (b.key = "lh:" + id);
       const open = `<!--lh:${id}-->`;
       const close = `<!--lh:/${id}-->`;
       if (!res.h.length) {
         b.last = stripMarkers(res.t[0]);
+        b.rows = rows;
         sink.openBinding(key, b);
         return open + res.t[0] + close;
       }
@@ -3943,10 +4182,16 @@ export function createLiveHoles(sink, scoped) {
     },
     /** Whether interception may arm at the current evaluation point —
      *  `ssr()` asks before opening an attr capture (the `data-lha`
-     *  injection must not touch out-of-scope bytes; content holes are
-     *  gated inside `content()` itself). */
+     *  injection must not touch out-of-scope bytes, nor address an element
+     *  nothing can change; content holes are gated inside `content()`
+     *  itself). */
     active() {
-      return !inScope || inScope();
+      // An attr capture opens before its thunks run, so the settled gate
+      // is read up front. Nothing a thunk does can flip it in time to
+      // matter: a pump it arms leaves its own read pending (the tag
+      // latches anyway), and a loading value or seed flips the gate when
+      // its node is created, before any read.
+      return (!inScope || inScope()) && !(settled && settled());
     },
     /**
      * Register an element's attr-hole capture (built by `ssr()`'s in-tag
@@ -3972,7 +4217,6 @@ export function createLiveHoles(sink, scoped) {
           const prevSweeping = engine.sweeping;
           engine.sweeping = true;
           engine.gateHit = false;
-          const sweepOwnersBefore = stamp();
           let html = "";
           try {
             let group = null;
@@ -4000,8 +4244,15 @@ export function createLiveHoles(sink, scoped) {
             swept(owner, holeCtx, run);
           } catch (err) {
             // NotReady holds for a later commit (the end-latch sweep is the
-            // floor); a real error is terminal, same rule as content holes.
-            if (ssrHandleError(err, true)) return;
+            // floor), unless scopes this sweep created are what wait (see
+            // `swept`); a real error is terminal, same rule as content holes.
+            if (ssrHandleError(err, true)) {
+              if (!engine.sweptOwners) return;
+              if ("_SOLID_DEV_") latched(owner, "owners", false);
+              b.closed = true;
+              sink.closeBinding(b.key);
+              return;
+            }
             b.closed = true;
             sink.closeBinding(b.key);
             sink.error("lha:" + cap.id, wireErrorMessage(err));
@@ -4009,7 +4260,8 @@ export function createLiveHoles(sink, scoped) {
           } finally {
             engine.sweeping = prevSweeping;
           }
-          if (engine.gateHit || stamp() !== sweepOwnersBefore) {
+          if (engine.gateHit) {
+            if ("_SOLID_DEV_") latched(owner, "records", false);
             b.closed = true;
             sink.closeBinding(b.key);
             return;
@@ -4040,6 +4292,7 @@ function attrNames(text) {
   while ((m = re.exec(text))) names.push(m[1]);
   return names;
 }
+
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
 
 // rendering
@@ -4097,7 +4350,7 @@ export function ssr(t) {
       result.t[lastOpen.seg] = seg.slice(0, lastOpen.off) + inject + seg.slice(lastOpen.off);
       prefix = result.t[lastOpen.seg].slice(lastOpen.off + inject.length);
     }
-    cap = { id, parts: [prefix], base: prefix };
+    cap = { id, parts: [prefix], base: prefix, at: lastOpen.seg, inject };
     return true;
   };
   for (let i = 1; i < len; i++) {
@@ -4149,8 +4402,15 @@ export function ssr(t) {
           }
         } else {
           // Group escalation: the tag (if one is being captured) went
-          // async mid-attrs — it latches.
-          cap = null;
+          // async mid-attrs — it latches, and the address its capture
+          // spliced in goes with it (#4032): the resume re-renders the open
+          // tag and mints its own, so a leftover would sit beside it and
+          // move the element off its bound address on the first op. The
+          // address is unique, so the first match is the splice.
+          if (cap) {
+            result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
+            cap = null;
+          }
           result.h.push(ssrGroupSlot(lastGroupVal.fn, lastGroupIdx++));
           result.p.push(lastGroupVal.p);
           result.t.push("");
@@ -4219,7 +4479,9 @@ export function ssr(t) {
             cap.base += result.t[li].slice(before);
             cap.parts.push({ f: hole });
           } else {
-            // The hole escalated mid-attrs: the tag latches.
+            // The hole escalated mid-attrs: the tag latches, its address
+            // with it (see the group escalation above).
+            result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
             cap = null;
           }
         }
@@ -4235,8 +4497,12 @@ export function ssr(t) {
             cap.parts.push({ f: hole });
           }
         } else {
-          // The hole escalated mid-attrs: the tag latches.
-          if (capturing) cap = null;
+          // The hole escalated mid-attrs: the tag latches, its address
+          // with it (see the group escalation above).
+          if (capturing) {
+            s = s.replace(cap.inject, "");
+            cap = null;
+          }
           result = { t: [s], h: [], p: [] };
           s = "";
           appendResolvedNode(result, r);
@@ -4439,6 +4705,14 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   // as it did before binding slots existed.
   const ctx = renderConfig.context;
   const slots = ctx !== undefined && ctx.claims !== undefined;
+  // A spread anchor under a render with a link handler (`setLinkClaim`):
+  // the walk below collects the anchor's link-relevant attributes
+  // (`LinkAttributes`) from their winning sources into `link`, and the
+  // handler's markup is appended after the walk — the spread path's
+  // counterpart of the compiled `ssrLinkClaim` hole. The compiler keeps
+  // these attributes out of an anchor's baked tail so the walk sees them.
+  // Any other element, or a render with no handler, pays the two checks.
+  const link = tag === "a" && ctx !== undefined && ctx.linkClaim !== undefined ? {} : null;
   if (Array.isArray(props)) {
     if (slots && props.$slot === true) props = slotSpreadSource(tag, props);
     else {
@@ -4515,7 +4789,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
             : Object.keys(props);
     if (sources !== null) props = sources[s];
     nextKey: for (let i = 0; i < keys.length; i++) {
-      const prop = keys[i];
+      let prop = keys[i];
       if (typeof prop !== "string" || (skip !== undefined && skip(prop))) continue;
       // A view's key is read from the leaf that owns it (a plain leaf, or a
       // store proxy read through its trap).
@@ -4549,7 +4823,12 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
         }
         continue;
       }
-      const value = props[prop];
+      const key = prop;
+      if (info.formAttributes !== undefined) {
+        prop = spreadFormAttribute(prop, info, keys, keysOf, skip);
+        if (prop === undefined) continue;
+      }
+      const value = props[key];
       // Nullish is "not set" for every attribute, `style`/`class` included —
       // the client removes the attribute for `undefined`, and emitting
       // `style=""` here made the server disagree with it (#3382). A nullish
@@ -4593,6 +4872,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
           );
         continue;
       }
+      if (link !== null && LinkAttributes.has(prop)) link[prop] = value;
       if (slots && typeof value === "object") {
         result += spreadObjectAttribute(prop, value);
       } else if (prop === "style") {
@@ -4600,11 +4880,9 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
       } else if (prop === "class") {
         result += ` class="${ssrClassName(value)}"`;
       } else if (typeof value === "boolean") {
-        if (!value) continue;
-        result += ` ${attrName(prop)}`;
-      } else {
-        result +=
-          value === "" ? ` ${attrName(prop)}` : ` ${attrName(prop)}="${escape(value, true)}"`;
+        if (value && isAttrName(prop)) result += ` ${prop}`;
+      } else if (isAttrName(prop)) {
+        result += value === "" ? ` ${prop}` : ` ${prop}="${escape(value, true)}"`;
       }
     }
   }
@@ -4637,6 +4915,11 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
   if (slots && (behaviors !== null || claims !== undefined))
     result += spreadBehaviorMarkers(behaviors, claims, ctx.claims);
   if (attrs !== undefined) result += typeof attrs === "function" ? attrs() : attrs;
+  // The link handler's markup for a spread anchor (see `link` above): after
+  // every source and the tail, so the attributes it decided on are the
+  // element's final ones. `ssrLinkClaim` applies the author's `aria-current`
+  // precedence; a spread with no `href` is not a link.
+  if (link !== null && link.href !== undefined) result += ssrLinkClaim(link);
   // The hydration key is unquoted, so a void element needs the space before
   // `/>` or the slash becomes part of the key's value.
   if (skipChildren) return { t: result + " />" };
@@ -4660,6 +4943,27 @@ export function ssrElement(tag, props, children, needsId, skip, attrs, claims) {
     return { t: result + ">" + children.t + info.close };
   return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
 }
+
+// Keep form-default precedence outside the hot walk used by every spread tag.
+// Return the output attribute name, or undefined to skip the original key.
+function spreadFormAttribute(prop, info, keys, keysOf, skip) {
+  // Defaults supply the initial HTML; the bound property applies at
+  // hydration. Check presence across sources without reading getters.
+  const defaultProp = info.formDefaults[prop];
+  if (defaultProp !== undefined && (skip === undefined || !skip(defaultProp))) {
+    if (keysOf !== null) {
+      for (let j = 0; j < keysOf.length; j++) {
+        if (keysOf[j].includes(defaultProp)) return;
+      }
+    } else if (keys.includes(defaultProp)) return;
+  }
+  // A compiled attribute after the spread owns the output name, even
+  // when its value is false and the tail emits no markup for it.
+  const attr = info.formAttributes[prop];
+  if (attr !== undefined && skip !== undefined && skip(attr)) return;
+  return attr === undefined ? prop : attr;
+}
+
 export function ssrElementAttribute(key: string, value: any): string;
 
 export function ssrElementAttribute(key, value) {
@@ -4932,6 +5236,30 @@ function slotEntry(sv, name) {
 function slotMarker(position, entries) {
   return ` ${SLOT_MARKER}${position}="${entries}"`;
 }
+/**
+ * The replay-window stamp of an EVENT-SLOT consumer (frames savings pass
+ * C6, option (a) of the ruling): an element bound to a stand-in at a handler
+ * position (`_s:on:*`) on the DOCUMENT face carries a bare `_hk`, so the
+ * hydration bootstrap's nearest-`_hk` lookup files the element's events
+ * behind its OWN completion rather than the nearest page element's — which
+ * the page root's pass completes long before any frame tier lands, replaying
+ * the click into an element whose handler is not bound yet (lost). The bind
+ * tier completes the element at the bind and replays (bind-tier.ts). Bare
+ * (no key): the bootstrap tests presence, and no claim ever looks this
+ * element up — the ambient `_hk` sweep skips frame interiors (`data-fid`
+ * containment, client.ts `gatherHydratable`), a prefix-scoped gather
+ * (`[_hk^="sc-…"]`, a boundary id) cannot match the empty value, and the
+ * adopted frame's own key index (frames/src/client.ts `claimScope`) buckets
+ * it under the empty prefix no window's id names, so the dev completion
+ * sweep never reports it. Four bytes per element, document face
+ * only: the stream face arrives after hydration, when the bootstrap no
+ * longer queues (its `events` buffer is gone with `_$HY.done`). Server
+ * components render under NoHydration, so the element has no keyed `_hk`
+ * of its own to collide with.
+ */
+function eventSlotStamp(mode) {
+  return mode === CLAIMS_DOCUMENT ? " _hk" : "";
+}
 function propOfOccurrence(occurrence) {
   const i = occurrence.indexOf("#");
   return i === -1 ? occurrence : occurrence.slice(0, i);
@@ -5017,6 +5345,7 @@ function eventPosition(prop) {
  * (spreadBehaviorMarkers).
  */
 function spreadBehaviorPosition(behaviors, prop, value, mode, index, settle) {
+  if (!isAttrName(prop)) return behaviors;
   const pos = prop === "ref" ? "ref" : eventPosition(prop);
   const entries = value == null ? "" : claimEntries(pos, value, mode);
   if (!settle) {
@@ -5077,13 +5406,19 @@ function spreadBehaviorMarkers(behaviors, claims, mode) {
     }
   }
   let out = "";
+  let events = false;
   if (behaviors !== null) {
     for (const [pos, b] of behaviors) {
       const e = claims === undefined ? b : b.e;
-      if (e) out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, e);
+      if (!e) continue;
+      if (pos === "ref") out += slotMarker("ref", e);
+      else {
+        out += slotMarker("on:" + pos, e);
+        events = true;
+      }
     }
   }
-  return out;
+  return events ? out + eventSlotStamp(mode) : out;
 }
 
 /**
@@ -5150,8 +5485,9 @@ function spreadPropPosition(prop, value) {
  */
 function spreadObjectAttribute(prop, value) {
   if (prop === "style" || prop === "class") return slotClassOrStyle(prop, value);
-  if (value[SLOT_VALUE] !== undefined) return slotAttribute(attrName(prop), value);
-  return ` ${attrName(prop)}="${escape(value, true)}"`;
+  if (!isAttrName(prop)) return "";
+  if (value[SLOT_VALUE] !== undefined) return slotAttribute(prop, value);
+  return ` ${prop}="${escape(value, true)}"`;
 }
 
 /**
@@ -5185,7 +5521,9 @@ function slotSpreadSource(tag, source) {
  * drops handler and ref expressions from plain SSR output, so this is
  * where a stand-in at one of those positions is seen. A server-local
  * function there can never run (the server has no client to run it on);
- * dev says so, inside the component barrier only.
+ * dev says so, inside the component barrier only. An element with a
+ * handler position bound is an EVENT-SLOT consumer and carries the
+ * replay-window stamp beside its markers (`eventSlotStamp`).
  */
 export function ssrClaim(map: Record<string, unknown>): string;
 
@@ -5193,11 +5531,17 @@ export function ssrClaim(map) {
   const mode = sharedConfig.context && sharedConfig.context.claims;
   if (!mode) return "";
   let out = "";
+  let events = false;
   for (const pos in map) {
     const entries = claimEntries(pos, map[pos], mode);
-    if (entries) out += slotMarker(pos === "ref" ? "ref" : "on:" + pos, entries);
+    if (!entries) continue;
+    if (pos === "ref") out += slotMarker("ref", entries);
+    else {
+      out += slotMarker("on:" + pos, entries);
+      events = true;
+    }
   }
-  return out;
+  return events ? out + eventSlotStamp(mode) : out;
 }
 
 /**
@@ -5268,6 +5612,68 @@ function claimInScope(mode) {
     mode === CLAIMS_STREAM ||
     (typeof inServerComponentScope === "function" && inServerComponentScope())
   );
+}
+
+// --- Link claims (solidjs/solid#3878) -----------------------------------------
+//
+// The server half of the element-claim contract for anchors. The client
+// claims every `a[href]` at creation (`claimElement`) so a router can mark
+// the current page (`aria-current="page"`, `data-active`); claims never fire
+// during SSR, so the compiled SSR output gives each candidate anchor one
+// hole after its attributes — `ssrLinkClaim(attrs)` — and a render that
+// has a LINK HANDLER (`setLinkClaim`, set by the router from its server
+// render) gets the handler's attribute markup there. With no handler the
+// hole is `""`: one property read per anchor per render, zero bytes.
+//
+// The hole is a string, evaluated eagerly for a static anchor (a hoisted
+// attributes object, no allocation per render) and inside the element's
+// attribute group for a dynamic one, where it reuses the value the `href`
+// hole evaluated. It creates no owner and takes no hydration id, so the id
+// sequence of a render with the handler set is the one without it.
+//
+// The compiler emits the hole for every anchor it cannot rule out at
+// compile time: a static non-empty `target`, a `download`, a `rel` naming
+// `external`, an author-written `aria-current` or a non-HTTP scheme
+// (`mailto:`, `tel:`, `javascript:` …) can never be the current page, so
+// those anchors get no hole. Everything the handler needs to apply the same
+// rules at runtime travels in `attrs`: the six link-relevant attributes
+// (`LinkAttributes`, shared with the compilers) that are present, static
+// ones as literals, dynamic ones as the values the attribute holes evaluated
+// (raw, not attribute-escaped).
+
+/**
+ * A render's link handler (`setLinkClaim`): given an anchor's link-relevant
+ * attributes — `href`, and `target` / `rel` / `download` / `link` /
+ * `aria-current` when present, raw values as written — returns the extra
+ * attribute markup for the anchor, each attribute with its leading space
+ * (`" data-active"`, `' data-active aria-current="page"'`), or `""`.
+ * Synchronous and pure; the markup is the handler's own and is written
+ * verbatim.
+ * @internal
+ */
+export type LinkClaimHandler = (attrs: Readonly<Record<string, unknown>>) => string;
+
+/**
+ * Compiler-emitted hole after a candidate anchor's attributes in SSR output:
+ * the render's link handler's markup for the anchor (`setLinkClaim`), or
+ * `""` when the render has no handler. An author-written `aria-current`
+ * wins — the handler is not consulted for that anchor. Not for hand-written
+ * code.
+ * @internal
+ */
+export function ssrLinkClaim(attrs: Readonly<Record<string, unknown>>): string;
+
+export function ssrLinkClaim(attrs) {
+  // Read off the CURRENT context, as the compiled `ssrClaim` guard does:
+  // the handler sits on the render's root context, and every context a
+  // render derives from it (a Loading boundary's buffered context, the
+  // frame renderer's document-face scope — `Object.create(page)`) reads it
+  // through the prototype, so server-component markup is marked like the
+  // page around it. A render with no handler pays this read and nothing
+  // else.
+  const ctx = renderConfig.context;
+  if (ctx === undefined || ctx.linkClaim === undefined || attrs["aria-current"] != null) return "";
+  return ctx.linkClaim(attrs);
 }
 
 // --- <select value> resolution (solidjs/solid#3013) ---------------------------
@@ -5521,12 +5927,12 @@ function escapeLate(fn) {
   if (fn.$esc) return fn;
   const w = () => escape(fn());
   w.$esc = true;
-  // Dev: the wrapped function and the counter position it was registered
-  // at, for `UNSCOPED_HOLE_ALLOCATED_IDS` (`checkUnscopedHole`).
-  if ("_SOLID_DEV_") {
-    w.$fn = fn;
-    w.$reg = devPeekId();
-  }
+  // The wrapped function: a live hole reads a `For`'s rows through it
+  // before `escape` joins them (the engine's `holeValue`), and dev's
+  // `UNSCOPED_HOLE_ALLOCATED_IDS` (`checkUnscopedHole`) names it.
+  w.$fn = fn;
+  // Dev: the counter position it was registered at.
+  if ("_SOLID_DEV_") w.$reg = devPeekId();
   if (fn.$lhSkip) w.$lhSkip = true;
   if (fn.$lhSuppress) w.$lhSuppress = true;
   if (fn.$lhBinding) w.$lhBinding = fn.$lhBinding;
@@ -5650,7 +6056,7 @@ export function applyRef(r, element) {
   Array.isArray(r) ? r.flat(Infinity).forEach(f => f && f(element)) : r(element);
 }
 export function generateHydrationScript(options?: {
-  nonce?: string;
+  nonce?: CSPNonce;
   eventNames?: string[];
 }): string;
 
@@ -5659,12 +6065,21 @@ export function generateHydrationScript(options?: {
 // its fallback, or keyed outside any boundary — would otherwise raise
 // `unhandledrejection` from the inline script alone, and a handler attached
 // later only revokes the report. A consumer still meets the rejection.
-export function generateHydrationScript({ eventNames = ["click", "input"], nonce } = {}) {
+export function generateHydrationScript({ eventNames, nonce } = {}) {
+  return hydrationBootstrap(eventNames, destinationNonce(nonce, "script"), false);
+}
+
+// `ledger` (#3971): only an in-render <HydrationScript /> declares `_$HY.s`,
+// because only that render writes the shell-end marker it records. A
+// host-placed bootstrap (generateHydrationScript: hand-built documents,
+// islands hosts like Astro, which await each island's children themselves)
+// declares none, so hydrate() never parks under it.
+function hydrationBootstrap(eventNames = ["click", "input"], nonce, ledger) {
   return `<script${
     nonce ? ` nonce="${escape(String(nonce), true)}"` : ""
   }>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute("_hk")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));["${eventNames.join(
     '","'
-  )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),fe(){}});</script><!--xs-->`;
+  )}"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),${ledger ? "s:{}," : ""}fe(){}});</script><!--xs-->`;
 }
 
 function queue(fn) {
@@ -5688,6 +6103,28 @@ function allSettled(promises) {
     if (promises.size !== size) return allSettled(promises);
     return size;
   });
+}
+
+// The shell-end marker (#3971): the last bytes of a render's shell, after
+// its records script. Scripts run in parse order, so once it has run every
+// node of the shell is in the DOM, and a `hydrate()` that started mid-parse
+// (an `async` entry) and parked on it may claim. Written only by a render
+// that emitted `<HydrationScript />`: that is the document whose entry may
+// be `async` (a hand-built document's entry must be deferred, see
+// 12-ssr-http.md), and it keeps every other render's bytes unchanged.
+// Ends a shell with its marker (#4030): after every shell node, but inside
+// the document — spliced before `</body>` when the shell has one, appended
+// otherwise (a body-only or embedded render). Appended to a whole document it
+// landed after `</html>`, a parse error the browser repairs. Only the tail is
+// searched (a negative start reads as 0): at shell time nothing but `</html>`
+// and whitespace follows `</body>`, and a render without one (the embedded
+// case) must not pay a scan of the whole shell for a needle that isn't there.
+function withShellEnd(html, context, renderId, nonce, noScripts) {
+  if (noScripts || !context || !context.bootstrap) return html;
+  const id = JSON.stringify(renderId).replace(/</g, "\\u003C");
+  const marker = `<script${nonceAttr(nonce, "script")}>_$HY.s[${id}]=1,_$HY.sw&&_$HY.sw(${id})</script>`;
+  const at = html.indexOf("</body>", html.length - 512);
+  return at < 0 ? html + marker : html.slice(0, at) + marker + html.slice(at);
 }
 
 // Single-pass document assembly. This replaced four sequential inject passes
@@ -6421,13 +6858,84 @@ function createHydrationWriter(context, isOpen) {
 export function getHydrationWriter(): HydrationWriter | undefined;
 
 export function getHydrationWriter() {
+  const ctx = currentRenderContext();
+  return ctx && ctx.writer;
+}
+
+// The render the caller belongs to: through the owner chain, else (no
+// owner) through the request scope when exactly one render is open for
+// that request. Never another request's render.
+function currentRenderContext() {
   let ctx = renderContextOf(getOwner());
   if (!ctx) {
     const event = peekRequestEvent();
     const renders = event && eventRenders.get(event);
     if (renders && renders.size === 1) for (const c of renders) ctx = c;
   }
-  return ctx && ctx.writer;
+  return ctx;
+}
+
+/**
+ * The hydration record a render writes once when a link handler is set
+ * (`setLinkClaim`): `_$HY.r.links = 1`. Its presence tells the client that
+ * the document's anchors carry the server's link state; its absence that no
+ * handler ran (a page rendered without the router), so the client resolves
+ * link state itself. Read on the client with `hasServerLinkState()`.
+ */
+const LINK_STATE_RECORD = "links";
+
+/**
+ * Sets the link handler of the render the caller belongs to — found through
+ * the caller's owner (component setup), else through the request scope when
+ * exactly one render is open for it — so every candidate anchor rendered
+ * from here on carries the handler's markup (`aria-current="page"`,
+ * `data-active`) in the server HTML. Returns `false` outside any render.
+ *
+ * Scoped to the render: concurrent renders never share a handler, and it is
+ * gone with the render. Set once per render, typically from a router's
+ * server render with its request's location; `undefined` clears it. Anchors
+ * serialized BEFORE the call (a document shell above the router) are not
+ * marked. Server components inline in the document render under the page's
+ * handler; a server component's own frame stream has none unless its render
+ * sets one.
+ *
+ * The first call with a handler writes the `links` hydration record once for
+ * the response (`hasServerLinkState()` on the client), the signal that the
+ * anchors' link state is the server's and can be trusted at hydration.
+ *
+ * @example
+ * ```ts
+ * // in <Router>'s server render
+ * setLinkClaim(attrs => matchLink(attrs, location) ? ' data-active aria-current="page"' : "");
+ * ```
+ * @internal
+ */
+export function setLinkClaim(handler: LinkClaimHandler | undefined): boolean;
+
+export function setLinkClaim(handler) {
+  const ctx = currentRenderContext();
+  if (!ctx) {
+    if ("_SOLID_DEV_")
+      console.warn(
+        "setLinkClaim was called outside a render: no render was found through the current owner or the request scope. Call it during component setup."
+      );
+    return false;
+  }
+  ctx.linkClaim = handler;
+  // The record rides the shell's hydration script (document face) or the
+  // first flush (frame stream); `write` is first-write-wins, so it is one
+  // record however often the handler is set.
+  if (handler !== undefined) ctx.writer.write(LINK_STATE_RECORD, 1);
+  return true;
+}
+
+/**
+ * Server: `false`. The client reads the `links` hydration record a render
+ * with a link handler wrote (`setLinkClaim`); see the client entry.
+ * @internal
+ */
+export function hasServerLinkState(): boolean {
+  return false;
 }
 
 /** Server stub — the registry is the client's. See the client entry. */
@@ -7057,11 +7565,27 @@ export function composeMiddleware(middlewares) {
     }
     return dispatch(0, request);
   };
-} /**
+}
+
+/**
+ * Options for `registerElementClaim` (see the client entry); inert on the server.
+ * @internal
+ */
+export type ElementClaimOptions = {
+  /**
+   * Attribute names whose compiler-owned writes re-claim an already claimed
+   * element, as plain names (`href` covers `prop:href` and `xlink:href`).
+   * Defaults to `["href", "action"]`.
+   */
+  attributes?: readonly string[];
+}; /**
  * Server no-op: element claims are a client-only concern, but consumers may
  * register isomorphically. Returns a no-op unregister function.
  */
-export function registerElementClaim(handler: (element: Element) => void): () => void;
+export function registerElementClaim(
+  handler: (element: Element) => void,
+  options?: ElementClaimOptions
+): () => void;
 
 // Element claims are a client-only concern (compiled DOM output claims
 // navigation-relevant elements for consumers like a router's link-state
@@ -7071,7 +7595,7 @@ export function registerElementClaim() {
   return noopCleanup;
 }
 function noopCleanup() {} /** Server no-op: returns `node` unchanged. Claims never fire during SSR. */
-export function claimElement<T extends Element>(node: T): T;
+export function claimElement<T extends Element>(node: T, owner?: Owner | null): T;
 
 export function claimElement(node) {
   return node;
@@ -7080,6 +7604,13 @@ export function claimElementTree<T extends Node>(root: T): T;
 
 export function claimElementTree(root) {
   return root;
+}
+
+/** Server: `fn()`. No event is dispatched during SSR, so there is no interaction to join. */
+export function dispatchAsInteraction<T>(_e: Event, fn: () => T): T;
+
+export function dispatchAsInteraction(_e, fn) {
+  return fn();
 }
 
 // client-only APIs
@@ -7116,6 +7647,6 @@ export {
 
 function notSup() {
   throw new Error(
-    "Client-only API called on the server side. Run client-only code in onMount, or conditionally run client-only component with <Show>."
+    "Client-only API called on the server side. Run client-only code in onSettled, or conditionally run client-only component with <Show>."
   );
 }

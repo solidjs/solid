@@ -1,0 +1,283 @@
+:root {
+  --bg: #1d2125;
+  --list: #101204;
+  --card: #22272b;
+  --text: #b6c2cf;
+  --strong: #dee4ea;
+  --muted: #8c9bab;
+  --accent: #579dff;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.4 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+.board {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.board-loading {
+  margin: 24px;
+  color: var(--muted);
+}
+
+.board-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.board-head h1 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--strong);
+}
+
+.lists {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 16px 16px;
+  overflow-x: auto;
+}
+
+.list {
+  flex: 0 0 272px;
+  background: var(--list);
+  border-radius: 12px;
+  padding: 8px;
+}
+
+.list-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 8px;
+}
+
+.list-head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--strong);
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-height: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--card);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 40%);
+  color: var(--text);
+}
+
+.card:focus-visible,
+.editable:focus-visible,
+.archive:focus-visible,
+.add input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+/* A title and its editor take the same box, so starting an edit moves nothing. */
+.editable {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+input.editable {
+  background: var(--bg);
+  color: var(--strong);
+}
+
+.archive {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.card:hover > .archive,
+.list-head:hover > .archive,
+.archive:focus-visible {
+  opacity: 1;
+}
+
+.archive:hover {
+  background: rgb(255 255 255 / 10%);
+  color: var(--strong);
+}
+
+.add input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+}
+
+.add input::placeholder {
+  color: var(--muted);
+}
+
+.add input:hover,
+.add input:focus {
+  background: var(--card);
+}
+
+.add-list {
+  flex: 0 0 272px;
+  background: rgb(255 255 255 / 6%);
+  border-radius: 12px;
+  padding: 0 8px 8px;
+}
+
+.error {
+  margin: 8px 4px 0;
+  color: #f87168;
+  font-size: 13px;
+}
+
+.board-head .error {
+  margin: 0;
+}
+
+.board-head h1 .editable {
+  width: auto;
+}
+
+/* Dragging. The lifted row leaves the flow and follows the pointer; the
+   row it would land in front of makes room. */
+.card,
+.list-head {
+  touch-action: none;
+}
+
+.card {
+  cursor: grab;
+}
+
+.dragging,
+.dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.lifted {
+  rotate: 2deg;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 50%);
+}
+
+.card.gap-before {
+  margin-top: var(--gap);
+}
+
+.cards.gap-end {
+  padding-bottom: var(--gap);
+}
+
+.list.gap-before,
+.add-list.gap-before {
+  margin-left: var(--gap);
+}
+
+/* Who is here, and the wire. */
+.people {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.people li {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--strong);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.people li.me {
+  outline: 2px solid var(--accent);
+}
+
+/* Said only once it has lasted: a reconnect that takes under a second is
+   not worth a word. */
+.wire {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  animation: wire-appears 0s 1s both;
+}
+
+@keyframes wire-appears {
+  from {
+    visibility: hidden;
+  }
+}
+
+.app-error {
+  margin: 24px;
+  color: var(--strong);
+}

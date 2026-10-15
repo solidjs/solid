@@ -21,6 +21,7 @@ import {
 } from "../../src/response.js";
 import { COMPOSED_BODY_FRAMING, isHttpNavigationTarget } from "../../src/constants.js";
 import { RequestContext, commitEventResponse, getRequestEvent } from "../../src/server.js";
+import { traceForEvent } from "../../src/trace.js";
 import { reportServerError } from "solid-js/internal";
 import { requestErrorHook } from "../../src/request-error-hook.js";
 import { observeInvocation } from "../../src/server-observe.js";
@@ -1374,20 +1375,34 @@ export function createServerReference({ id, fn, name }) {
       // provideEventOnce): a broken hook used to double-commit or skip the
       // body silently during a render, where there is no status line to
       // notice it by.
-      let result = provideEventOnce(provideEvent, evt, () => {
-        const run = () => fn.apply(thisArg, args);
-        // The wrapper must return run()'s value (this path stays
-        // synchronous for synchronous functions). Observed as a whole —
-        // policy included — as the `"invocation"` record on `OBSERVE.records`;
-        // a no-op with no listener and outside observe builds.
-        return observeInvocation({ id, direct: true, event: evt, args }, () =>
-          reportDirectFailure(
-            () => (wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()),
-            id,
-            hook
-          )
-        );
-      });
+      let result;
+      try {
+        result = provideEventOnce(provideEvent, evt, () => {
+          const run = () => fn.apply(thisArg, args);
+          // The wrapper must return run()'s value (this path stays
+          // synchronous for synchronous functions). Observed as a whole —
+          // policy included — as the `"invocation"` record on `OBSERVE.records`;
+          // a no-op with no listener and outside observe builds.
+          return observeInvocation({ id, direct: true, event: evt, args }, () =>
+            reportDirectFailure(
+              () => (wrap ? wrap(run, { id, args, event: evt, direct: true }) : run()),
+              id,
+              hook
+            )
+          );
+        });
+      } catch (error) {
+        throw directEnvelopeValue(error, evt);
+      }
+      result =
+        result && typeof result.then === "function"
+          ? result.then(
+              value => directEnvelopeValue(value, evt),
+              error => {
+                throw directEnvelopeValue(error, evt);
+              }
+            )
+          : directEnvelopeValue(result, evt);
       // A generator or stream body runs when the caller pulls it, after the
       // call-time scope above has gone. Bind the WRAPPER'S result (not merely
       // fn's) so a deferred wrapInvocation keeps the same semantics.
@@ -3289,7 +3304,16 @@ function encodeResult(value, headers, status, codec, signal, scope) {
   // where a throw would escape the handler entirely.
   if (NULL_BODY_STATUSES.has(status)) {
     if (value === undefined || value === null) {
-      headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
+      // 204/205 are the stored answer, so the void tag is how the client
+      // tells a runtime-encoded empty body from an untagged peer. A 304 is
+      // not a stored response (#3134): RFC 9111 §3.2 freshens the cached
+      // entry with the header fields the 304 carries, and the body stays
+      // the one already stored. Stamping a format here replaces the cached
+      // representation's tag — the replay is still the original payload,
+      // decoded under Void, which is `undefined` (#3897). An author who
+      // echoes the stored tag on the 304 is left alone; the runtime simply
+      // does not invent one.
+      if (status !== 304) headers.set(BODY_FORMAT_HEADER, BodyFormat.Void);
       return new Response(null, { status, headers });
     }
     const error = new Error(
@@ -3500,10 +3524,12 @@ function currentEvent() {
  * Reports a direct call's failure as the function's (`direct: true`) through
  * `hook` (its request's render's) and rethrows the ORIGINAL: the render that
  * made the call contains it, and the wire policy there reuses the verdict
- * decided here.
+ * decided here. Thrown Responses and envelopes bypass this report, matching
+ * HTTP dispatch.
  */
 function reportDirectFailure(run, id, hook) {
   const report = error => {
+    if (error instanceof Response || isResponseEnvelope(error)) throw error;
     reportServerError(
       error,
       { kind: "server-function", handling: "thrown", functionId: id, direct: true },
@@ -3519,6 +3545,28 @@ function reportDirectFailure(run, id, hook) {
     report(error);
   }
   return result && typeof result.then === "function" ? result.then(undefined, report) : result;
+}
+
+/**
+ * A `respond()` envelope a direct call returned or threw, as its caller
+ * receives it: the value, exactly as an HTTP caller decodes it — the
+ * in-process leg has no Response to hand over. Of the metadata, only
+ * `Set-Cookie` reaches the render's response head: a cookie is state the
+ * function established, and the browser must receive it whichever leg ran
+ * the call. The rest describes the function's own address (a GET's
+ * `Cache-Control` is about that url, not the page composed from it) and the
+ * status is the page's, so neither is applied to the document.
+ */
+function directEnvelopeValue(result, event) {
+  if (!isResponseEnvelope(result)) return result;
+  const { response, value } = result;
+  const stub = event.response;
+  if (response && stub && stub.headers && response.headers.getSetCookie) {
+    for (const cookie of response.headers.getSetCookie()) {
+      stub.headers.append("Set-Cookie", cookie);
+    }
+  }
+  return value;
 }
 
 export function sanitizeServerError(value) {
@@ -4236,8 +4284,27 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // the next request carried stale credentials with the failure pointing at
   // the wrong place. Committing here also arms the stub's late-write
   // instrumentation, same as the dispatch tail.
+  //
+  // The commit is also where the request's trace reaches the head
+  // (`Server-Timing`, see ../../src/trace.ts) — except on a read a shared
+  // cache may store (#3985): that one answer is replayed to every viewer,
+  // and handing each of them the trace of the request that filled the cache
+  // would parent every viewer's browser spans to it. Decided BEFORE the
+  // commit, from the `Cache-Control` the response will leave with, so no
+  // trace byte is ever written there; `getTraceContext()` still answers the
+  // function body and anything forwarding the trace downstream.
+  const commitResponse = raw => {
+    if (
+      (method === "GET" || method === "HEAD") &&
+      (sharedCacheMayStore(departingHeader(raw, event, "Cache-Control")) ||
+        cdnMayStore(departingHeader(raw, event, "CDN-Cache-Control")))
+    ) {
+      withholdTrace(event);
+    }
+    return commitEventResponse(raw, event);
+  };
   const refuseCommitted = raw => {
-    const response = commitEventResponse(raw, event);
+    const response = commitResponse(raw);
     return finish(protectsRequest ? withCSRFVary(response) : response);
   };
   const provide = options.provideEvent || provideEvent;
@@ -4415,8 +4482,10 @@ export async function handleServerFunctionRequest(request, options = {}) {
       if (isResponseEnvelope(result)) {
         const { response, value } = result;
         // consumers without the client runtime get the carried response
-        // whole — e.g. respond()'s real JSON body (invisible PE)
-        if (!scripted && !handleNoJS && response && response.body) {
+        // whole — e.g. respond()'s real JSON body (invisible PE) — when JSON
+        // carries the value faithfully; otherwise the value negotiates like
+        // a plain return below (a bigint would error that body, #4060)
+        if (!scripted && !handleNoJS && response && response.body && isJSONSafe(value)) {
           return response;
         }
         if (response && response.headers) {
@@ -4655,11 +4724,92 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // mutate freely instead of auditing every write site, and covers every
   // foreign-response path at once (raw passthrough, unscripted returns and
   // throws, custom handleNoJS results, envelope-carried responses).
-  const response = commitEventResponse(
-    enforceComposedHeaderInvariants(ownResponse(await dispatch())),
-    event
-  );
+  const response = commitResponse(enforceComposedHeaderInvariants(ownResponse(await dispatch())));
   return finish(protectsRequest ? withCSRFVary(response) : response);
+}
+
+// A header a response leaves the handler with: its own, else the event
+// stub's — `commitEventResponse` gap-fills a stub header the response does
+// not answer, and an already-committed stub folds nothing. The transport
+// tail only ever adds `Cache-Control: no-store` where neither said anything.
+function departingHeader(response, event, name) {
+  const own = response.headers.get(name);
+  if (own !== null) return own;
+  const stub = event.response;
+  return stub && stub.headers && !stub.committed ? stub.headers.get(name) : null;
+}
+
+// A CDN that honours `CDN-Cache-Control` (RFC 9213) reads it in place of
+// `Cache-Control`, and a CDN is a shared cache: a present field it may store
+// under — anything but `no-store` or an unqualified `private` — lets it keep
+// the response whatever `Cache-Control` tells browsers.
+function cdnMayStore(cdnCacheControl) {
+  return cdnCacheControl !== null && !forbidsStoring(cdnCacheControl);
+}
+
+// Whether a shared cache may store a response under `cacheControl` — the
+// author asked for one with `public` or `s-maxage` (#3985). Directives are
+// matched whole and case-insensitively (RFC 9111 §5.2), never as substrings,
+// and a quoted argument may carry commas. What forbids a shared cache wins
+// over what asks for one: `no-store` (no cache may keep it), and an
+// unqualified `private` (§5.2.2.7: a shared cache MUST NOT store it, whatever
+// `s-maxage` says — the response stays one viewer's, so its trace stays
+// too). A qualified `private="…"` keeps only the named fields out of a shared
+// cache, so the rest of the response — `Server-Timing` included — may still
+// be stored.
+function sharedCacheMayStore(cacheControl) {
+  let shared = false;
+  return (
+    !!cacheControl &&
+    !eachDirective(cacheControl, name => {
+      if (name === "public" || name === "s-maxage") shared = true;
+    }) &&
+    shared
+  );
+}
+
+// `no-store` or an unqualified `private`.
+function forbidsStoring(value) {
+  return eachDirective(value, () => {});
+}
+
+// Walks `value`'s directives (names matched whole and lower-cased, quoted
+// arguments may carry commas), handing each name to `visit`; true as soon
+// as one forbids storing — `no-store` or an unqualified `private`.
+function eachDirective(value, visit) {
+  let start = 0;
+  let quoted = false;
+  for (let i = 0; i <= value.length; i++) {
+    const c = value[i];
+    if (quoted) {
+      if (c === "\\") i++;
+      else if (c === '"') quoted = false;
+      continue;
+    }
+    if (c === '"') {
+      quoted = true;
+      continue;
+    }
+    if (c !== "," && i < value.length) continue;
+    const directive = value.slice(start, i);
+    start = i + 1;
+    const eq = directive.indexOf("=");
+    const name = (eq === -1 ? directive : directive.slice(0, eq)).trim().toLowerCase();
+    if (name === "no-store" || (name === "private" && eq === -1)) return true;
+    visit(name);
+  }
+  return false;
+}
+
+// The request's trace stays off this response's head: the record's `emit`
+// is what `appendTraceServerTiming` reads at commit (the record is shared
+// across bundle copies, so the commit seam's copy sees it). Every entry
+// goes — `traceparent` and a provider's vendor pair alike — while the
+// context itself is untouched for `getTraceContext()`. Nothing to withhold
+// once the stub has committed: its head already left.
+function withholdTrace(event) {
+  if (event.response && event.response.committed) return;
+  traceForEvent(event).emit = false;
 }
 
 // A fresh Response around the same body: status, statusText and headers are

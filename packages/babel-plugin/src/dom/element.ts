@@ -57,6 +57,7 @@ type DOMSetAttrOptions = {
   tagName?: string;
   styleProperty?: boolean;
   classProperty?: boolean;
+  checkableInput?: boolean;
 };
 type SpreadOptions = {
   elem: babelTypes.Expression;
@@ -207,6 +208,7 @@ export function transformElement(
       declarations: [],
       exprs: [],
       dynamics: [],
+      claims: [],
       postExprs: [],
       isImportNode,
       isWrapped,
@@ -284,23 +286,34 @@ export function transformElement(
   if (!info.skipId) {
     results.id = path.scope.generateUidIdentifier("el$");
   }
-  // Claim contract: a[href] / form[action] elements are claimed at creation
-  // so registered consumers (e.g. a router's link-state layer) see them.
-  // detectExpressions forces the id chain, so claim targets always have one.
-  // Emitted ahead of the attribute expressions — writes to the claimed
-  // attribute recheck through the runtime's setAttribute, so order stays
-  // correct either way, but "claim at creation" reads first.
-  if (results.id && isClaimTarget(path.node)) {
-    results.exprs.push(
-      t.expressionStatement(
-        t.callExpression(
-          registerImportMethod(path, "claimElement", getRendererConfig(path, "dom").moduleName),
-          [results.id]
-        )
-      )
-    );
-  }
+  // Claim contract (#3923): a[href] / form[action] elements are claimed ONCE,
+  // after their initial attributes are applied, so registered consumers
+  // (e.g. a router's link-state layer) see the element they will manage.
+  // Decided before the attributes are lowered — processSpreads folds a
+  // spread's attributes away — and emitted after: a fully static element
+  // (attributes in the template, writes at creation) is claimed at creation,
+  // after those writes and its refs; an element with dynamic bindings at the
+  // tail of the template root's binding effect, whose first run applies
+  // them (wrapDynamics); a spread element by the spread runtime after the
+  // spread's first application — no compiled claim. detectExpressions forces
+  // the id chain, so claim targets always have one.
+  const claimTarget =
+    !!results.id &&
+    isClaimTarget(path.node) &&
+    !path.node.openingElement.attributes.some(attr => t.isJSXSpreadAttribute(attr));
   transformAttributes(path, results);
+  if (claimTarget) {
+    if (results.dynamics.length) results.claims.push(results.id!);
+    else
+      results.exprs.push(
+        t.expressionStatement(
+          t.callExpression(
+            registerImportMethod(path, "claimElement", getRendererConfig(path, "dom").moduleName),
+            [results.id!]
+          )
+        )
+      );
+  }
   if (config.contextToCustomElements && (tagName === "slot" || hasCustomElement)) {
     contextToCustomElement(path, results);
   }
@@ -342,7 +355,7 @@ export function setAttr(
   elem: babelTypes.Expression,
   name: string,
   value: babelTypes.Expression,
-  { dynamic, prevId, tagName, styleProperty, classProperty }: DOMSetAttrOptions = {}
+  { dynamic, prevId, tagName, styleProperty, classProperty, checkableInput }: DOMSetAttrOptions = {}
 ): babelTypes.Expression {
   // pull out namespace
   const config = getConfig(path);
@@ -413,8 +426,21 @@ export function setAttr(
     // Locked/stateful DOM properties (value/checked/...) must go through the
     // runtime in hydratable builds so the hydration claim pass can adopt
     // pre-hydration user state instead of overwriting it (#3182). setProperty
-    // carries the select-microtask and input/textarea nullish special cases.
-    if (config.hydratable && (isLocked || namespace !== "prop")) {
+    // carries the select-value retry and input/textarea nullish special cases.
+    // `<select value>` always goes through it: a microtask only sees options
+    // inserted in the same turn, so options that arrive later never get
+    // selected (#3928). So does a non-literal value/defaultValue on an input
+    // that may be a checkbox or radio: a nullish value must remove the
+    // attribute so the checked box submits its native "on" (#4009, #4017),
+    // and setProperty already tests the live `type` for that.
+    if (
+      (config.hydratable && (isLocked || namespace !== "prop")) ||
+      (name === "value" && tagName === "select") ||
+      (checkableInput &&
+        (name === "value" || name === "defaultValue") &&
+        !t.isStringLiteral(value) &&
+        !t.isNumericLiteral(value))
+    ) {
       return t.callExpression(registerImportMethod(path, "setProperty"), [
         elem,
         t.stringLiteral(name),
@@ -427,24 +453,14 @@ export function setAttr(
       t.memberExpression(elem, t.identifier(name)),
       value
     );
-    // handle select/options... TODO: consider other ways in the future
-    // TODO: there may be a race condition here
-    if (name === "value" && tagName === "select") {
-      return t.logicalExpression(
-        "||",
-        t.callExpression(t.identifier("queueMicrotask"), [
-          t.arrowFunctionExpression([], assignment)
-        ]),
-        assignment
-      );
-    }
     if (
       (name === "value" || name === "defaultValue") &&
       (tagName === "input" || tagName === "textarea") &&
       !t.isStringLiteral(value) &&
       !t.isNumericLiteral(value)
     ) {
-      // prevents undefined on input/textarea.value/defaultValue, fallback to empty string
+      // prevents undefined on text input/textarea.value/defaultValue, fallback
+      // to empty string (#2957)
       return t.assignmentExpression(
         "=",
         t.memberExpression(elem, t.identifier(name)),
@@ -485,6 +501,35 @@ function detectResolvableEventHandler(
   return t.isFunction(handler);
 }
 
+/**
+ * Whether an `<input>` may be a checkbox or radio, whose nullish
+ * value/defaultValue removes the `value` attribute (restoring the native "on"
+ * submission value) instead of clearing it to "" like a text field (#4017).
+ * Only a plain `type` written as a string literal is resolved here; a missing
+ * `type` is a text input. Anything else (an expression, `prop:type`,
+ * `attr:type`, a spread) is unknown and treated as possibly checkable, which
+ * stays correct because setProperty tests the live `type`. Mirrored by the
+ * native compiler's `input_may_be_checkable` (dom/attrs.rs).
+ */
+function inputMayBeCheckable(node: babelTypes.JSXElement): boolean {
+  let checkable = false;
+  for (const attribute of node.openingElement.attributes) {
+    if (t.isJSXSpreadAttribute(attribute)) return true;
+    const name = attribute.name;
+    if (t.isJSXNamespacedName(name)) {
+      if (name.name.name === "type") return true;
+      continue;
+    }
+    if (name.name !== "type") continue;
+    let value: babelTypes.Node | null | undefined = attribute.value;
+    if (t.isJSXExpressionContainer(value)) value = value.expression;
+    if (value == null) checkable = false;
+    else if (t.isStringLiteral(value)) checkable = /^(checkbox|radio)$/i.test(value.value);
+    else return true;
+  }
+  return checkable;
+}
+
 function transformAttributes(
   path: BabelPath<babelTypes.JSXElement>,
   results: DOMTransformResult
@@ -497,7 +542,8 @@ function transformAttributes(
   const tagName = getTagName(path.node),
     hasChildren = path.node.children.length > 0,
     hasSpread = attributes.some(attribute => t.isJSXSpreadAttribute(attribute.node)),
-    config = getConfig(path);
+    config = getConfig(path),
+    checkableInput = tagName === "input" && inputMayBeCheckable(path.node);
   const refs: babelTypes.Statement[] = [];
 
   // preprocess spreads
@@ -1175,6 +1221,7 @@ function transformAttributes(
             key,
             value: value.expression,
             tagName,
+            checkableInput,
             styleProperty: isStyleProperty,
             classProperty: isClassProperty
           });
@@ -1183,6 +1230,7 @@ function transformAttributes(
             t.expressionStatement(
               setAttr(attribute, elem, key, value.expression, {
                 tagName,
+                checkableInput,
                 styleProperty: isStyleProperty,
                 classProperty: isClassProperty
               })
@@ -1231,7 +1279,10 @@ function transformAttributes(
         ) {
           results.exprs.push(
             t.expressionStatement(
-              setAttr(attribute, elem, key, staticValue as babelTypes.Expression, { tagName })
+              setAttr(attribute, elem, key, staticValue as babelTypes.Expression, {
+                tagName,
+                checkableInput
+              })
             )
           );
         } else {
@@ -1398,6 +1449,7 @@ function transformChildren(
       results.declarations.push(...(child.declarations as babelTypes.VariableDeclarator[]));
       results.exprs.push(...(child.exprs as babelTypes.Statement[]));
       results.dynamics.push(...child.dynamics);
+      if (child.claims) results.claims.push(...child.claims);
       childPostExprs.push(...(child.postExprs || []));
       results.hasHydratableEvent =
         results.hasHydratableEvent || (child as DOMTransformResult).hasHydratableEvent;

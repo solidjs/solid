@@ -481,63 +481,60 @@ describe("#3743 unchanged presence under an open action", () => {
   // mid-hold writes `a.value` and `b.value` while an action holds `b.flag`.
   // A34 (1): an explicit repeat of the held key is a proposal and joins; a
   // key the setter did NOT write is not — `a.value` publishes with the
-  // mainline tick, `b.flag` stays held. Current L2 joins: the written keys
-  // `notifyWrites` visits are `t.wk`, retained for the pending fold and
-  // CUMULATIVE across the batch's setters, so the later setter re-notifies
-  // the held `flag` node with its unchanged value and `setSignal` joins
-  // before the equality gate (the write is a proposal). The fix direction is
-  // per-setter written keys: the notify visits the keys THIS setter wrote,
-  // the fold keeps the batch's union.
-  it.fails(
-    "a later mainline setter that does not write the held key publishes on the mainline tick",
-    async () => {
-      type State = { a: { value: number }; b: { value: number; flag: boolean } };
-      const values: number[] = [];
-      const flags: boolean[] = [];
-      let state!: State;
-      let setState!: (fn: (draft: State) => void) => void;
-      createRoot(() => {
-        [state, setState] = createStore<State>({ a: { value: 0 }, b: { value: 0, flag: true } });
-        createRenderEffect(
-          () => state.a.value,
-          v => void values.push(v)
-        );
-        createRenderEffect(
-          () => state.b.flag,
-          v => void flags.push(v)
-        );
-      });
-      flush();
-      expect(values).toEqual([0]);
-      expect(flags).toEqual([true]);
+  // mainline tick, `b.flag` stays held. L2 joined once: the written keys
+  // `notifyWrites` visited were `t.wk`, retained for the pending fold and
+  // cumulative across the batch's setters, so the later setter re-notified
+  // the held `flag` node with its unchanged value and `setSignal` joined
+  // before the equality gate (the write is a proposal). A setter's written
+  // keys are its own set now, the batch's earlier chained behind (U-8): the
+  // notify visits the keys THIS setter wrote, the fold keeps the union.
+  it("a later mainline setter that does not write the held key publishes on the mainline tick", async () => {
+    type State = { a: { value: number }; b: { value: number; flag: boolean } };
+    const values: number[] = [];
+    const flags: boolean[] = [];
+    let state!: State;
+    let setState!: (fn: (draft: State) => void) => void;
+    createRoot(() => {
+      [state, setState] = createStore<State>({ a: { value: 0 }, b: { value: 0, flag: true } });
+      createRenderEffect(
+        () => state.a.value,
+        v => void values.push(v)
+      );
+      createRenderEffect(
+        () => state.b.flag,
+        v => void flags.push(v)
+      );
+    });
+    flush();
+    expect(values).toEqual([0]);
+    expect(flags).toEqual([true]);
 
-      const gate = deferred();
-      const toggle = action(function* toggle() {
-        setState(draft => {
-          draft.b.flag = false;
-        });
-        yield gate.promise;
-      });
-      const run = toggle();
-      flush();
-      expect(flags).toEqual([true]);
-
+    const gate = deferred();
+    const toggle = action(function* toggle() {
       setState(draft => {
-        draft.a.value = 1;
-        draft.b.value = 1;
+        draft.b.flag = false;
       });
-      flush();
-      // Spec: `a.value` is nobody's proposal — it publishes now; the held
-      // key stays held.
-      expect(values).toEqual([0, 1]);
-      expect(flags).toEqual([true]);
+      yield gate.promise;
+    });
+    const run = toggle();
+    flush();
+    expect(flags).toEqual([true]);
 
-      gate.resolve();
-      await run;
-      await Promise.resolve();
-      flush();
-      expect(values).toEqual([0, 1]);
-      expect(flags).toEqual([true, false]);
-    }
-  );
+    setState(draft => {
+      draft.a.value = 1;
+      draft.b.value = 1;
+    });
+    flush();
+    // Spec: `a.value` is nobody's proposal — it publishes now; the held
+    // key stays held.
+    expect(values).toEqual([0, 1]);
+    expect(flags).toEqual([true]);
+
+    gate.resolve();
+    await run;
+    await Promise.resolve();
+    flush();
+    expect(values).toEqual([0, 1]);
+    expect(flags).toEqual([true, false]);
+  });
 });

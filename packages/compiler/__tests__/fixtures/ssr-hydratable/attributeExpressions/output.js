@@ -12,8 +12,13 @@ import { ssrStyleProperties as _$ssrStyleProperties } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
 import { ssrElementAttribute as _$ssrElementAttribute } from "r-server";
+import { ssrLinkClaim as _$ssrLinkClaim } from "r-server";
 var _ref$, _v$, _v$2, _v$49, _v$51, _v$53, _v$55, _v$56, _v$58;
-var _tmpl$ = ["<a href=\"/\" class=\"", "\">Welcome</a>"];
+var _tmpl$ = [
+	"<a href=\"/\" class=\"",
+	"\"",
+	">Welcome</a>"
+];
 var _tmpl$2 = ["<div>", "</div>"];
 var _tmpl$3 = "<div><div/></div>";
 var _tmpl$4 = [
@@ -182,6 +187,7 @@ var _tmpl$53 = [
 	"></div>"
 ];
 var _tmpl$54 = ["<div", " class></div>"];
+var _lk$ = { href: "/" };
 var _sk$ = (k) => k === "foo" || k === "disabled" || k === "title" || k === "style" || k === "class";
 var _sk$2 = (k) => k === "class" || k === "style";
 var _sk$3 = (k) => k === "something";
@@ -191,6 +197,8 @@ var _sk$6 = (k) => k === "class" || k === "data-kind";
 var _sk$7 = (k) => k === "class" || k === "data-id";
 var _sk$8 = (k) => k === "id";
 var _sk$9 = (k) => k === "disabled" || k === "type" || k === "tabindex" || k === "style";
+var _sk$10 = (k) => k === "class";
+var _sk$11 = (k) => k === "title";
 _$ssrSelectValues();
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
@@ -201,7 +209,7 @@ let id = "my-h1";
 let link;
 const template = _$ssrElement("div", [{ id: "main" }, results], () => {
 	return _$ssrElement("h1", [{ id }, results], () => {
-		return _ref$ = link, _$ssr(_tmpl$, "ccc ddd");
+		return _ref$ = link, _$ssr(_tmpl$, "ccc ddd", _$ssrLinkClaim(_lk$));
 	}, false, _sk$, () => " foo disabled" + _$ssrElementAttribute("title", welcoming()) + _$ssrElementAttribute("style", {
 		"background-color": color(),
 		"margin-right": "40px"
@@ -612,3 +620,11 @@ var _v$146 = _$ssrHydrationKey(), _g$4 = _$ssrGroup(() => {
 const nullableAttributes = _$ssr(_tmpl$53, _v$146, _g$4, _g$4, _g$4);
 var _v$152 = _$ssrHydrationKey();
 const emptyAttributes = _$ssr(_tmpl$54, _v$152);
+// solidjs/solid#4081: a ref expression that calls something is evaluated
+// beside a spread too, as the template path evaluates it (`_ref$ = expr`), so
+// a ref factory's owned setup runs on both sides. It runs in the attrs thunk:
+// after the spread and the tail markup, before the children. A call-free ref
+// (`ref={link}`, template116) is not evaluated.
+const spreadRefFactory = _$ssrElement("div", spread, undefined, true, undefined, () => (refFactory(), ""));
+const spreadRefTail = _$ssrElement("div", spread, undefined, true, _sk$10, () => ([refFactory(), props.ref], " class=\"row\""));
+const spreadRefDynamicTail = _$ssrElement("input", spread, undefined, true, _sk$11, () => _$ssrElementAttribute("title", title()) + (refFactory(), ""));

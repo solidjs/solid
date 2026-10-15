@@ -58,7 +58,7 @@ const narrowedError = (name: string) =>
  * </For>
  * ```
  *
- * @description https://docs.solidjs.com/reference/components/for
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/for
  */
 export function For<T extends readonly any[], U extends SolidElement>(props: {
   each: T | undefined | null | false;
@@ -121,7 +121,7 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
  * </Repeat>
  * ```
  *
- * @description https://docs.solidjs.com/reference/components/repeat
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/repeat
  */
 export function Repeat<T extends SolidElement>(props: {
   count: number;
@@ -159,7 +159,7 @@ export function Repeat<T extends SolidElement>(props: {
  * </Show>
  * ```
  *
- * @description https://docs.solidjs.com/reference/components/show
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/show
  */
 export function Show<T>(props: {
   when: T | undefined | null | false;
@@ -215,9 +215,18 @@ export function Show<T>(props: {
             }
           : { equals: (a, b) => !a === !b, sync: true }
       );
+  // Truthiness that selected the child. The accessor runs from a binding:
+  // `untrack(condition)` there serves the committed frame (undefined on the
+  // first mount of `when={latest(x)}`, #3948), and an ownerless read serves
+  // that same frame for a value staged this flush, so a live branch looks
+  // stale and halts. The flag is the selecting read, updated when selection
+  // re-runs — not a second read, and not a `latest()` import (that pulls the
+  // lane engine into every Show bundle).
+  let shown: T | undefined | null | boolean = false;
   return createMemo(
     () => {
       const c = condition();
+      shown = c;
       if (c) {
         const child = props.children;
         const fn = typeof child === "function" && child.length > 0;
@@ -227,7 +236,7 @@ export function Show<T>(props: {
             : untrack(
                 () =>
                   (child as any)(() => {
-                    if (!untrack(condition)) throw narrowedError("Show");
+                    if (!shown) throw narrowedError("Show");
                     return conditionValue();
                   }),
                 IS_DEV && "<Show>"
@@ -259,7 +268,7 @@ type EvalConditions = readonly [number, unknown, Accessor<unknown>, AnyMatchProp
  * </Switch>
  * ```
  *
- * @description https://docs.solidjs.com/reference/components/switch-and-match
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/switch-and-match
  */
 export function Switch(props: { fallback?: SolidElement; children: SolidElement }): SolidElement {
   const chs = children(() => props.children);
@@ -370,7 +379,7 @@ export type AnyMatchProps<T> =
  * </Switch>
  * ```
  *
- * @description https://docs.solidjs.com/reference/components/switch-and-match
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/switch-and-match
  */
 export function Match<T>(props: {
   when: T | undefined | null | false;
@@ -410,7 +419,7 @@ export function Match<T>(props: AnyMatchProps<T>) {
  * </Errored>
  * ```
  *
- * @description https://docs.solidjs.com/reference/components/error-boundary
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/errored
  */
 export function Errored(props: {
   fallback: SolidElement | ((err: ErrorAccessor, reset: () => void) => SolidElement);
@@ -498,7 +507,7 @@ export function Errored(props: {
  * </Loading>
  * ```
  *
- * @description https://docs.solidjs.com/reference/components/suspense
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/loading
  */
 export function Loading(props: {
   fallback?: SolidElement;
@@ -557,7 +566,7 @@ export type RevealProps = {
  * </Reveal>
  * ```
  *
- * @description https://docs.solidjs.com/reference/components/reveal
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/reveal
  */
 export function Reveal(props: RevealProps): SolidElement {
   return createRevealOrder(() => props.children, {

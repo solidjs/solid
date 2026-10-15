@@ -15,6 +15,9 @@ pub(crate) struct SetAttrOptions<'a> {
     pub(crate) tag_name: String,
     pub(crate) style_property: bool,
     pub(crate) class_property: bool,
+    /// The element is an `<input>` that may be a checkbox or radio (see
+    /// `input_may_be_checkable`).
+    pub(crate) checkable_input: bool,
 }
 
 impl<'a> AstDomTransform<'a, '_> {
@@ -140,9 +143,24 @@ impl<'a> AstDomTransform<'a, '_> {
             // Locked/stateful DOM properties (value/checked/...) must go
             // through the runtime in hydratable builds so the hydration claim
             // pass can adopt pre-hydration user state instead of overwriting
-            // it (#3182). setProperty carries the select-microtask and
+            // it (#3182). setProperty carries the select-value retry and
             // input/textarea nullish special cases.
-            if self.hydratable && (is_locked || namespace != Some("prop")) {
+            // `<select value>` always goes through it, hydratable or not: a
+            // microtask only sees options inserted in the same turn, so
+            // options that arrive later never get selected (#3928). So does a
+            // non-literal value/defaultValue on an input that may be a
+            // checkbox or radio: a nullish value must remove the attribute so
+            // the checked box submits its native "on" (#4009, #4017), and
+            // setProperty already tests the live `type` for that.
+            if (self.hydratable && (is_locked || namespace != Some("prop")))
+                || (name == "value" && options.tag_name == "select")
+                || (options.checkable_input
+                    && (name == "value" || name == "defaultValue")
+                    && !matches!(
+                        value,
+                        Expression::StringLiteral(_) | Expression::NumericLiteral(_)
+                    ))
+            {
                 self.template_state.uses_set_property = true;
                 return self.call_identifier(
                     span,
@@ -155,31 +173,6 @@ impl<'a> AstDomTransform<'a, '_> {
                     ],
                 );
             }
-
-            // handle select/options... mirrors Babel's queueMicrotask race
-            // workaround for `<select value>`.
-            if name == "value" && options.tag_name == "select" {
-                let assignment = self.member_assignment_expression(
-                    span,
-                    elem.clone_in(self.allocator),
-                    &name,
-                    value.clone_in(self.allocator),
-                );
-                let queued = self.call_expression(
-                    span,
-                    self.identifier_expression(span, "queueMicrotask"),
-                    vec![self.arrow_return_expression(
-                        span,
-                        self.member_assignment_expression(span, elem, &name, value),
-                    )],
-                );
-                return self.ast().expression_logical(
-                    span,
-                    queued,
-                    LogicalOperator::Or,
-                    assignment,
-                );
-            }
             if (name == "value" || name == "defaultValue")
                 && (options.tag_name == "input" || options.tag_name == "textarea")
                 && !matches!(
@@ -187,7 +180,8 @@ impl<'a> AstDomTransform<'a, '_> {
                     Expression::StringLiteral(_) | Expression::NumericLiteral(_)
                 )
             {
-                // prevents undefined on input/textarea.value, fallback to ""
+                // prevents undefined on text input/textarea.value, fallback
+                // to "" (#2957)
                 let value = self.ast().expression_logical(
                     span,
                     value,

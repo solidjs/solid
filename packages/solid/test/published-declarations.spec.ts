@@ -32,10 +32,13 @@ const WEB_ENTRY = { "@solidjs/web": resolve(webDir, "types/index.d.ts") };
 
 // The public hydration API, typed as the published declarations must type it.
 const HYDRATION_API = `
-import { isHydrating, isHydratable } from "solid-js";
+import { isHydrating, isHydratable, onHydrationEnd } from "solid-js";
 const hydrating: boolean = isHydrating();
 const hydratable: boolean = isHydratable();
-void hydrating, hydratable;
+const ended: void = onHydrationEnd(() => {});
+// @ts-expect-error — the callback takes no arguments
+onHydrationEnd((_: string) => {});
+void hydrating, hydratable, ended;
 `;
 const WEB_HYDRATION_API = `
 import { getHydrationWriter, takeHydrationValue } from "@solidjs/web";

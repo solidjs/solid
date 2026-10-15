@@ -179,9 +179,11 @@ pub fn transform_directives(
     crate::directives::transform_directives(code, options)
 }
 
-/// The `lazy()` module-URL pass — injects `__SOLID_LAZY_MODULE__:` placeholder
-/// arguments into `lazy(() => import("..."))` calls for the bundler plugin to
-/// resolve. Ported from vite-plugin-solid's `lazy-module-url` Babel plugin.
+/// The `lazy()` / `lazyModule()` module-URL pass — injects
+/// `__SOLID_LAZY_MODULE__:` placeholder arguments into
+/// `lazy(() => import("..."))` and `lazyModule(() => import("..."))` calls
+/// for the bundler plugin to resolve. Ported from vite-plugin-solid's
+/// `lazy-module-url` Babel plugin.
 #[napi]
 pub fn transform_lazy(
     code: String,

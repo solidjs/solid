@@ -36,14 +36,42 @@ const INTERNAL = [
   "inServerComponentScope",
   "creationStamp",
   "getProjectionTrace",
-  "materializeContainerTrace",
   // boundary primitives behind Errored/Loading/Reveal (#3709)
   "createErrorBoundary",
   "createLoadingBoundary",
   "createRevealOrder",
   // hydration/SSR coordination object and the dev component brand
   "sharedConfig",
-  "$DEVCOMP"
+  "$DEVCOMP",
+  // tag-arm core behind dynamicComponent / @solidjs/web dynamic (#3907)
+  "dynamicCore",
+  // the server-component half of client hydration (real on the client
+  // entry, a no-op on the server), installed by @solidjs/web/frames' client
+  "enableServerComponentHydration"
+];
+
+// The container-trace materializer's seams: exported from the client entry at
+// runtime (so `solid-js/internal/container-trace` shares this module's
+// state), `@internal`, and declared NOWHERE public — that entry types them
+// itself. The patch protocol, and the hydration helpers the store adapter
+// module that entry bundles its own copy of (client/store-hydration.ts)
+// reads back from the one `solid-js` instance. Checked against the main
+// declarations only.
+const CONTAINER_TRACE_SEAMS = [
+  "applyPatches",
+  "forwardIteratorReturn",
+  "readSerializedOrCompute",
+  "subFetch",
+  "readHydratedValue",
+  "wrapFirstYield",
+  "adoptedAnswerStream",
+  "withHydrationGate",
+  "noHydrationId",
+  "markTopLevelSnapshotScope",
+  "hasLoadingWindow",
+  "isAsyncIterable",
+  "syncThenable",
+  "UNASKED"
 ];
 
 const typesDir = resolve(import.meta.dirname, "../types");
@@ -57,12 +85,36 @@ test.each([
   ["server", "server/index.d.ts"]
 ])("no internal name reaches the %s entry's declarations", (_tier, file) => {
   const declarations = read(file);
-  const leaked = INTERNAL.filter(name => mentions(declarations, name));
+  const leaked = [...INTERNAL, ...CONTAINER_TRACE_SEAMS, "materializeContainerTrace"].filter(name =>
+    mentions(declarations, name)
+  );
   expect(leaked).toEqual([]);
+});
+
+// Once seams, now public (`@experimental`): `onHydrationEnd` left the
+// container-trace list above when it became API (#4000). Both entries must
+// declare it, or a consumer's import would type-check on one tier only.
+const PUBLIC_FORMER_SEAMS = ["onHydrationEnd"];
+
+test.each([
+  ["client", "index.d.ts"],
+  ["server", "server/index.d.ts"]
+])("former seams made public reach the %s entry's declarations", (_tier, file) => {
+  const declarations = read(file);
+  expect(PUBLIC_FORMER_SEAMS.filter(name => !mentions(declarations, name))).toEqual([]);
 });
 
 test("solid-js/internal's declarations carry the protocol and the seams", () => {
   const declarations = read("internal.d.ts");
   const missing = INTERNAL.filter(name => !mentions(declarations, name));
   expect(missing).toEqual([]);
+});
+
+// The materializer is its own entry (the store engine it builds on must be
+// assignable to a lazy chunk, which a re-export from the flat main module or
+// from `solid-js/internal` would prevent); the subpath declares it, and
+// neither eager entry does.
+test("solid-js/internal/container-trace declares the materializer; solid-js/internal does not", () => {
+  expect(mentions(read("client/container-trace.d.ts"), "materializeContainerTrace")).toBe(true);
+  expect(mentions(read("internal.d.ts"), "materializeContainerTrace")).toBe(false);
 });

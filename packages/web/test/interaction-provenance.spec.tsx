@@ -26,6 +26,7 @@ afterEach(() => {
   for (const off of offs.splice(0)) off();
   attribution.disable();
   flush();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -107,6 +108,8 @@ describe("interaction provenance", () => {
   });
 
   test("the interaction is dated from the event's timeStamp when it is on the performance clock", () => {
+    // A DOM event's interaction is recorded at the task after its dispatch.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     arm();
     const [n, setN] = createSignal(0, { name: "n" });
     let interaction: any;
@@ -130,6 +133,7 @@ describe("interaction provenance", () => {
     Object.defineProperty(ev, "timeStamp", { value: created });
     container.querySelector("button")!.dispatchEvent(ev);
     flush();
+    vi.advanceTimersByTime(1);
 
     expect(interaction.at).toBe(created);
     expect(interaction.inputDelayMs).toBeGreaterThanOrEqual(30);
@@ -140,6 +144,8 @@ describe("interaction provenance", () => {
   });
 
   test("an epoch-clock timeStamp (jsdom, legacy browsers) is ignored: dated at dispatch", () => {
+    // A DOM event's interaction is recorded at the task after its dispatch.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     arm();
     const [n, setN] = createSignal(0, { name: "n" });
     let interaction: any;
@@ -161,6 +167,7 @@ describe("interaction provenance", () => {
     const before = performance.now();
     container.querySelector("button")!.dispatchEvent(ev);
     flush();
+    vi.advanceTimersByTime(1);
 
     expect(interaction.at).toBeGreaterThanOrEqual(before);
     expect(interaction.inputDelayMs).toBeUndefined();

@@ -12,8 +12,9 @@ import { escape as _$escape } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
 import { ssrElementAttribute as _$ssrElementAttribute } from "r-server";
 import { ssr as _$ssr } from "r-server";
+import { ssrLinkClaim as _$ssrLinkClaim } from "r-server";
 var _ref$, _v$, _v$2, _v$47, _v$49, _v$51, _v$53, _v$54, _v$56;
-var _tmpl$ = ['<a href="/" class="', '">Welcome</a>'],
+var _tmpl$ = ['<a href="/" class="', '"', ">Welcome</a>"],
   _tmpl$2 = ["<div>", "</div>"],
   _tmpl$3 = "<div><div/></div>",
   _tmpl$4 = ["<div", " foo", ' style="', '"', ">", "</div>"],
@@ -80,6 +81,9 @@ var _tmpl$ = ['<a href="/" class="', '">Welcome</a>'],
   ],
   _tmpl$51 = ["<div", "", "", "", "></div>"],
   _tmpl$52 = ["<div", " class></div>"];
+var _lk$ = {
+  href: "/"
+};
 var _sk$ = k => k === "foo" || k === "disabled" || k === "title" || k === "style" || k === "class",
   _sk$2 = k => k === "class" || k === "style",
   _sk$3 = k => k === "something",
@@ -88,7 +92,9 @@ var _sk$ = k => k === "foo" || k === "disabled" || k === "title" || k === "style
   _sk$6 = k => k === "class" || k === "data-kind",
   _sk$7 = k => k === "class" || k === "data-id",
   _sk$8 = k => k === "id",
-  _sk$9 = k => k === "disabled" || k === "type" || k === "tabindex" || k === "style";
+  _sk$9 = k => k === "disabled" || k === "type" || k === "tabindex" || k === "style",
+  _sk$0 = k => k === "class",
+  _sk$1 = k => k === "title";
 _$ssrSelectValues();
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
@@ -114,7 +120,7 @@ const template = _$ssrElement(
         },
         results
       ],
-      () => ((_ref$ = link), _$ssr(_tmpl$, "ccc ddd")),
+      () => ((_ref$ = link), _$ssr(_tmpl$, "ccc ddd", _$ssrLinkClaim(_lk$))),
       false,
       _sk$,
       () =>
@@ -800,3 +806,33 @@ var _v$144 = _$ssrHydrationKey(),
 const nullableAttributes = _$ssr(_tmpl$51, _v$144, _g$4, _g$4, _g$4);
 var _v$150 = _$ssrHydrationKey();
 const emptyAttributes = _$ssr(_tmpl$52, _v$150);
+
+// solidjs/solid#4081: a ref expression that calls something is evaluated
+// beside a spread too, as the template path evaluates it (`_ref$ = expr`), so
+// a ref factory's owned setup runs on both sides. It runs in the attrs thunk:
+// after the spread and the tail markup, before the children. A call-free ref
+// (`ref={link}`, template116) is not evaluated.
+const spreadRefFactory = _$ssrElement(
+  "div",
+  spread,
+  undefined,
+  true,
+  undefined,
+  () => (refFactory(), "")
+);
+const spreadRefTail = _$ssrElement(
+  "div",
+  spread,
+  undefined,
+  true,
+  _sk$0,
+  () => ([refFactory(), props.ref], ' class="row"')
+);
+const spreadRefDynamicTail = _$ssrElement(
+  "input",
+  spread,
+  undefined,
+  true,
+  _sk$1,
+  () => _$ssrElementAttribute("title", title()) + (refFactory(), "")
+);

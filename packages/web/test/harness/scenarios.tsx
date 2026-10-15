@@ -24,10 +24,13 @@
 import {
   createSignal,
   createMemo,
+  createDeferred,
   createEffect,
   onSettled,
   createProjection,
   createStore,
+  merge,
+  omit,
   Show,
   Switch,
   Match,
@@ -38,6 +41,7 @@ import {
 } from "solid-js";
 import {
   Portal,
+  Dynamic,
   dynamic,
   httpStatus,
   httpHeader,
@@ -252,6 +256,32 @@ function AsyncSettledDiv() {
   const [version, setVersion] = createSignal(0);
   refreshAsyncDiv = () => setVersion(v => v + 1);
   const data = createMemo(async () => {
+    const v = version();
+    await sleep(5);
+    return 42 + v;
+  });
+  return (
+    <Loading fallback={<p>loading</p>}>
+      <div>Value: {data()}</div>
+    </Loading>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 10a. createDeferred under Loading (docs/create-deferred.md D5/D7): the
+// server renders it as the memo it wraps (one pass, no previous answer), so
+// the chunk shape and the client's claim are scenario 10's; the serialized
+// value is the client's commit #0. The post-hydration update is the one
+// thing that differs: the refetch is CLAMPED — the claimed DOM keeps "Value:
+// 42" while the flight is up (the update signal committed; nothing held it)
+// and swaps to 43 at the landing. The harness sees the landing; the lag is
+// pinned by test/hydration/create-deferred-lag.spec.tsx over this scenario's
+// artifact.
+let refreshDeferredDiv!: () => void;
+function DeferredSettledDiv() {
+  const [version, setVersion] = createSignal(0);
+  refreshDeferredDiv = () => setVersion(v => v + 1);
+  const data = createDeferred(async () => {
     const v = version();
     await sleep(5);
     return 42 + v;
@@ -1554,6 +1584,40 @@ function ErroredThunkFallbackInElement() {
     </Errored>
   );
 }
+// #3920: a shared children slot retries after the following async sibling
+// settles. Its already-rendered error fallback must keep the original ids.
+function RetriedFallbackLayout(props: { children: JSX.Element }) {
+  return <div data-retried-fallback>{props.children}</div>;
+}
+function RetriedFallbackAsyncContent() {
+  const value = createMemo(async () => {
+    await sleep(5);
+    return "ready";
+  });
+  return <p>{value()}</p>;
+}
+function RetriedFallbackWithAsyncContent() {
+  return (
+    <>
+      <ThunkFallback />
+      <RetriedFallbackAsyncContent />
+    </>
+  );
+}
+function ErroredFallbackInRetriedSlot(props: { asyncFallback?: boolean }) {
+  return (
+    <RetriedFallbackLayout>
+      <Errored
+        fallback={() =>
+          props.asyncFallback ? <RetriedFallbackWithAsyncContent /> : <ThunkFallback />
+        }
+      >
+        <ThrowsSync />
+      </Errored>
+      <RetriedFallbackAsyncContent />
+    </RetriedFallbackLayout>
+  );
+}
 // Same consumer shape with a different producer: Show hands back its
 // fallback thunk unresolved too. (`fallback` is typed as an element; the
 // thunk is a runtime-accepted shape, hence the cast.)
@@ -2213,6 +2277,37 @@ function DynamicChildrenKeyBeforePropMemo() {
   return <Comp children={<i>icon</i>} aria-label={n() ? `a ${n()}` : `b ${n()}`} />;
 }
 
+// #3797: a conditional prop on <Dynamic> must not shift the child's
+// hydration key between server rendering and client hydration.
+let setDynamicConditionalLabel!: (v: boolean) => void;
+function ForwardDynamic(props: Record<string, any>) {
+  const rest = omit(props, "as");
+  return <Dynamic component={props.as} {...rest} />;
+}
+function ConditionalButton(props: Record<string, any>) {
+  const merged = merge({ type: "button" }, props);
+  return <ForwardDynamic as="button" {...merged} />;
+}
+function ConditionalTrigger(props: Record<string, any>) {
+  const rest = omit(props, "onClick");
+  return <ConditionalButton {...rest} />;
+}
+function DynamicConditionalPropBeforeChild() {
+  const [active, set] = createSignal(false);
+  setDynamicConditionalLabel = set;
+  const activeLabel = () => "active";
+  const idleLabel = () => "idle";
+  return (
+    <ConditionalTrigger
+      aria-label={active() && active() ? activeLabel() : idleLabel()}
+      title={active() && active() ? activeLabel() : idleLabel()}
+      data-state={active() && active() ? activeLabel() : idleLabel()}
+    >
+      <span>{active() ? "active" : "idle"}</span>
+    </ConditionalTrigger>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
@@ -2328,6 +2423,15 @@ export const scenarios: Scenario[] = [
     async: true,
     expectedText: "Value: 42",
     update: () => refreshAsyncDiv(),
+    expectedTextAfterUpdate: "Value: 43",
+    stableSelector: "div"
+  },
+  {
+    name: "deferred-settled-element",
+    App: DeferredSettledDiv,
+    async: true,
+    expectedText: "Value: 42",
+    update: () => refreshDeferredDiv(),
     expectedTextAfterUpdate: "Value: 43",
     stableSelector: "div"
   },
@@ -2768,6 +2872,26 @@ export const scenarios: Scenario[] = [
     stableSelector: "section, main, b, button, span"
   },
   {
+    name: "errored-fallback-in-retried-slot",
+    App: () => <ErroredFallbackInRetriedSlot />,
+    async: true,
+    expectedText: "fellCount: 0ready",
+    update: () =>
+      document.querySelector<HTMLButtonElement>("[data-retried-fallback] button")!.click(),
+    expectedTextAfterUpdate: "fellCount: 1ready",
+    stableSelector: "main, b, button, p"
+  },
+  {
+    name: "errored-async-fallback-in-retried-slot",
+    App: () => <ErroredFallbackInRetriedSlot asyncFallback />,
+    async: true,
+    expectedText: "fellCount: 0readyready",
+    update: () =>
+      document.querySelector<HTMLButtonElement>("[data-retried-fallback] button")!.click(),
+    expectedTextAfterUpdate: "fellCount: 1readyready",
+    stableSelector: "main, b, button, p"
+  },
+  {
     name: "show-thunk-fallback-under-errored",
     App: ShowThunkFallbackUnderErrored,
     expectedText: "fellCount: 0",
@@ -3067,6 +3191,15 @@ export const scenarios: Scenario[] = [
     expectedText: "icon",
     update: () => setDynamicLabelCountFirst(1),
     stableSelector: "button, i",
+    adoptAll: true
+  },
+  {
+    name: "dynamic-conditional-prop-before-child",
+    App: DynamicConditionalPropBeforeChild,
+    expectedText: "idle",
+    update: () => setDynamicConditionalLabel(true),
+    expectedTextAfterUpdate: "active",
+    stableSelector: "button, span",
     adoptAll: true
   }
 ];

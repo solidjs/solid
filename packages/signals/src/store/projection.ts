@@ -16,6 +16,7 @@
  * (uninitialized / pending / errored) and the reader's height, by the
  * rules a memo's read follows. No per-leaf back-pointer, nothing in core.
  */
+import { attrHooks } from "../core/attribution-hooks.js";
 import { CONFIG_AUTO_DISPOSE, STATUS_PENDING, STATUS_UNINITIALIZED } from "../core/constants.js";
 import { computed } from "../core/core.js";
 import { NotReadyError } from "../core/error.js";
@@ -28,16 +29,18 @@ import {
 } from "../core/async.js";
 import { enqueueSub } from "../core/heap.js";
 import { getOwner, isDisposed } from "../core/owner.js";
-import { question, schedule, setQuestion } from "../core/scheduler.js";
+import { insertSubs, question, schedule, setQuestion } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { reconcileState } from "./reconcile.js";
 import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
-import type { StoreFamily, StoreTarget } from "./target.js";
+import { setLookup, storeOwners, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
+  isWrappable,
   markRawIngest,
   setWriteOverride,
+  type NoArray,
   type NoFn,
   type ProjectionOptions,
   type Store
@@ -116,7 +119,12 @@ function wrapDraft(
         Reflect.defineProperty(inner, prop, desc);
       })
   };
-  return new Proxy(Array.isArray(inner) ? [] : {}, traps);
+  const px = new Proxy(Array.isArray(inner) ? [] : {}, traps);
+  // The wrapper stands for its store proxy wherever the derive's result
+  // carries it (`wrap`, `unwrapValue`, reconcile's slot matching).
+  const t: StoreTarget | undefined = inner[$TARGET];
+  if (t !== undefined) setLookup(px, t);
+  return px;
 }
 
 function cloneState<T extends object>(v: T, shallow: boolean): T {
@@ -252,6 +260,11 @@ export function runProjectionComputed<T extends object>(
           // A landing (not the sync pass's own commit): the readers held
           // pending on the derive settle.
           if (!first || !(owner._statusFlags & STATUS_UNINITIALIZED)) settleFamily(fam);
+          // A commit is the derive's change for the readers that observed its
+          // flight (linked by `pullFamily`; a settled pull does not link), as
+          // a memo's landing is for its readers: one that caught the NotReady
+          // (a fallback value, not pending) re-runs too (#4070).
+          insertSubs(owner);
         };
         const sync = handleAsync(owner, result, commit, (error, pending) => {
           // The flight rejected: the leaves' readers learn it from here —
@@ -274,7 +287,9 @@ export function runProjectionComputed<T extends object>(
     // A flight went up (NotReady out of the pass — the derive's own, with
     // the derive as its source): the leaves' readers learn it from here —
     // they do not subscribe to the derive.
-    if (e instanceof NotReadyError && !first) wakeFamily(fam, e);
+    // A synchronous error the same way (#3956: a rerun that finds the
+    // entry failed throws): every live reader re-derives and meets it.
+    if (!first) e instanceof NotReadyError ? wakeFamily(fam, e) : errorFamily(fam);
     throw e;
   }
   // A pass that returned with a flight up (an iterator's sync first yield):
@@ -293,14 +308,26 @@ export function runProjectionComputed<T extends object>(
 
 function createProjectionInternal<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T>,
+  seed: T | null | undefined,
   options?: ProjectionOptions
 ) {
+  // Seedless (`fn` takes no draft): the root starts as an empty record. It is
+  // a draft like any seed, never observable before the first landing (A25).
+  seed ||= {} as T;
+  const keyOption = options?.key === undefined ? "id" : options.key;
   const fam: StoreFamily = {
     map: new WeakMap(),
     node: null,
     live: new Set(),
-    shallow: !!options?.shallow
+    shallow: !!options?.shallow,
+    // The row key, for a child paired after the adoption (store.ts
+    // `adoptChild`, #3712) as the adoption pairs them.
+    key:
+      typeof keyOption === "function"
+        ? keyOption
+        : keyOption === null
+          ? null
+          : (row: any) => (isWrappable(row) ? row[keyOption] : undefined)
   };
   const store = wrap(seed as any, null, null, fam) as Store<T>;
   if (fam.shallow) {
@@ -309,16 +336,23 @@ function createProjectionInternal<T extends object = {}>(
   }
   let nodeOptions: { name?: string; loadingValue?: void } | undefined;
   if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
+  if (__OBSERVE__ && attrHooks !== null)
+    // As createStore: the owner in scope stamps the projection's property
+    // nodes, so attribution places them under it (#4035).
+    storeOwners!.set((store as any)[$TARGET] as StoreTarget, getOwner());
   if (__OBSERVE__ && options?.name) {
     nodeOptions = { ...nodeOptions, name: options.name };
     nameStore(store, options.name);
   }
   const node = computed(() => {
     if (!fam.node) fam.node = getOwner() as Computed<any>;
-    runProjectionComputed(store, fn, options?.key === undefined ? "id" : options.key);
+    runProjectionComputed(store, fn, keyOption);
   }, nodeOptions);
   node._config &= ~CONFIG_AUTO_DISPOSE;
   fam.node = node;
+  // The derive's leaves are not its dependents: a mark's repoll
+  // (affects-marks.ts) reaches their readers through this.
+  (node as any).fam = fam;
   return { store, node } as { store: Refreshable<Store<T>>; node: Computed<void | T> };
 }
 
@@ -329,8 +363,18 @@ function createProjectionInternal<T extends object = {}>(
  * never an observable value, until the first landing (A25).
  */
 export function createProjection<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ProjectionOptions, "seedLoadingValue">
+): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed?: T | null,
   options?: ProjectionOptions
 ): Refreshable<Store<T>> {
   return createProjectionInternal(fn, seed, options).store;
@@ -339,7 +383,7 @@ export function createProjection<T extends object = {}>(
 /** `createStore(fn, seed, options)`: a projection with a user setter. */
 export function createStoreDerived<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: T | null | undefined,
   options?: ProjectionOptions
 ): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
   const { store } = createProjectionInternal(fn, seed, options);

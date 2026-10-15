@@ -1,0 +1,9 @@
+---
+"@solidjs/web": patch
+---
+
+`respond()` is typed as its value and its envelope is a real `Response`; direct calls unwrap it.
+
+- **Direct calls unwrap envelopes.** A server function called in-process during SSR that returned `respond(value)` handed its caller the `ResponseEnvelope` itself, while an HTTP caller decoded `value` — and a server component wrapped for its headers (`respond(View, { headers })`) reached the render as an object, so the frames policy never branded it and the hydration serializer failed on the envelope. The direct leg now resolves with the value (a thrown envelope rejects with it) before `transformDirectResult` runs. Of the metadata, `Set-Cookie` is appended to the render's response head; other headers describe the function's own address and the status is the page's, so neither is applied to the document.
+- **The envelope is a `Response`.** `ResponseEnvelope` now extends `Response`, carrying the given response's body, status and headers, so a consumer with no Solid knowledge (a fetch-style API dispatch) answers with it as-is instead of JSON-encoding the wrapper. `new ResponseEnvelope(response, value)` keeps its signature; `response` is the envelope itself, or `undefined` when constructed without one. Solid's own consumers still recognize it with `isResponseEnvelope()`.
+- **The helpers are typed by what they mean to the caller.** `respond<T>()` returns `T`, and `redirect()`/`reload()` are `<T = never>(…): T` — control flow, not values, so they vanish from the returning function's inferred type, while an annotated return or a `Response`-typed request handler supplies `T` (a literal `never` would also mark code after a bare call unreachable). A bare `"use server"` function's own signature is therefore its callers' type, with no wrapper narrowing (`NarrowResponse`) needed. At runtime the helpers are unchanged.

@@ -31,12 +31,13 @@ import {
   notifyFoldTail,
   notifyKeyDiff,
   notifyKeyValue,
-  optHooks,
   sameKey,
+  sameRow,
   targetsEqual,
   unwrapValue,
   userWriting
 } from "./store.js";
+import { optHooks } from "./hooks.js";
 import { $TARGET, isRawValue, isWrappable, markRawIngest, rawValuesUsed } from "./types.js";
 
 type KeyFn = (item: any) => any;
@@ -126,17 +127,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       for (const end = Math.min(plen, nlen); i < end; i++) {
         const nv = nextRows[i];
         const pvRaw = prevRows[i];
-        if (
-          pvRaw !== nv &&
-          !(
-            pvRaw !== null &&
-            typeof pvRaw === "object" &&
-            nv !== null &&
-            typeof nv === "object" &&
-            sameKey(keyFn(pvRaw), keyFn(nv))
-          )
-        )
-          break; // misaligned: fall to the keyed remainder below
+        if (pvRaw !== nv && !sameRow(pvRaw, nv, keyFn)) break; // misaligned: fall to the keyed remainder below
         if (
           (pvRaw !== nv || (nv !== null && typeof nv === "object" && isOwned(nv))) &&
           nv !== null &&

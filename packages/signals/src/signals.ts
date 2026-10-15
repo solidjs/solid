@@ -7,6 +7,7 @@ import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_FRESH_READ,
+  CONFIG_GUESS,
   createRoot,
   dispose,
   effect,
@@ -30,15 +31,17 @@ import {
   dirtyQueue,
   flushTransaction,
   globalQueue,
+  GlobalQueue,
   joinFuture,
   passTx,
   resolveTx,
   staleReader,
   type Transaction
 } from "./core/scheduler.js";
-import { REACTIVE_JOINED } from "./core/constants.js";
+import { REACTIVE_JOINED, STATUS_ERROR, STATUS_PENDING } from "./core/constants.js";
 import { unwrapStatusError } from "./core/error.js";
 import { optimisticWrite } from "./core/lanes.js";
+import { truthConfirmed, truthRead } from "./core/truth.js";
 
 /**
  * Low-level reactive-cleanup primitive. Registers a callback that runs when
@@ -370,7 +373,7 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
  * setUser({ ...user(), name: "Alice" });
  * ```
  *
- * @description https://docs.solidjs.com/reference/basic-reactivity/create-signal
+ * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-signal
  */
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
@@ -411,7 +414,7 @@ export function createSignal<T>(
  * const [state, setState] = createOptimistic<T>(fn, options?: SignalOptions<T> & MemoOptions<T>);
  * ```
  *
- * @description https://docs.solidjs.com/reference/basic-reactivity/create-optimistic-signal
+ * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-optimistic
  */
 export function createOptimistic<T>(): Signal<T | undefined>;
 export function createOptimistic<T>(
@@ -467,7 +470,7 @@ export function createOptimistic<T>(
  * });
  * ```
  *
- * @description https://docs.solidjs.com/reference/basic-reactivity/create-memo
+ * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-memo
  */
 // NoInfer keeps the previous-value parameter from influencing T inference, so
 // the memo/effect result type is still driven by the compute return type.
@@ -554,7 +557,7 @@ export function createMemo<T>(
  * );
  * ```
  *
- * @description https://docs.solidjs.com/reference/basic-reactivity/create-effect
+ * @description https://v2.solidjs.com/reference/solid-js/reactivity/create-effect
  */
 export function createEffect<const T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
@@ -608,7 +611,7 @@ export function createEffect<const T>(
  * }
  * ```
  *
- * @description https://docs.solidjs.com/reference/secondary-primitives/create-render-effect
+ * @description https://v2.solidjs.com/reference/solid-js/advanced/specialized-reactivity/create-render-effect
  */
 export function createRenderEffect<const T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
@@ -661,7 +664,7 @@ export function createRenderEffect<const T>(
  * });
  * ```
  *
- * @description https://docs.solidjs.com/reference/secondary-primitives/create-tracked-effect
+ * @description https://v2.solidjs.com/reference/solid-js/advanced/specialized-reactivity/create-tracked-effect
  */
 export function createTrackedEffect(
   compute: () => void | (() => void),
@@ -694,7 +697,7 @@ export function createTrackedEffect(
  * setCount(1); // logs once, reaction re-armed for next change
  * ```
  *
- * @description https://docs.solidjs.com/reference/secondary-primitives/create-reaction
+ * @description https://v2.solidjs.com/reference/solid-js/advanced/specialized-reactivity/create-reaction
  */
 export function createReaction(
   effectFn: EffectFunction<undefined> | EffectBundle<undefined>,
@@ -765,21 +768,31 @@ function watch<T>(
   inPass?: (v: T) => void,
   own: Transaction | null = flushTransaction
 ): void {
+  if (config & CONFIG_AUTHORITATIVE) {
+    GlobalQueue._truth = truthRead;
+    GlobalQueue._confirmed = truthConfirmed;
+  }
   // `config` is on the node for its first pass too (the pass runs inside
   // `computed()`): `until`'s predicate is authoritative from its first read,
   // or an already-displayed guess would satisfy it in a later slice. (REDERIVE
   // after: the first pass's own error is the promise's rejection.)
   computed(
     () => {
-      let v: T;
+      let v: T,
+        failed = false;
       try {
         v = fn();
       } catch (e) {
         if (e instanceof NotReadyError) throw e;
-        queueMicrotask(() => onError(unwrapStatusError(e)));
-        return;
+        // An error is an answer (D-41): delivered by the same frame rule.
+        v = unwrapStatusError(e) as T;
+        failed = true;
       }
       const c = getOwner() as Computed<any>;
+      // A truth reader waits out a `createDeferred` flight its value derives
+      // from, which serves everyone else the stale answer (D-40).
+      const lag = config & CONFIG_AUTHORITATIVE && GlobalQueue._lagging?.(c);
+      if (lag) throw new NotReadyError(lag);
       // (Outside a flush a mainline pass joins through `passTx`.)
       const joined = flushTransaction ?? passTx;
       if (
@@ -790,6 +803,7 @@ function watch<T>(
         staleReader(c, resolveTx(joined));
         return;
       }
+      if (failed) return void queueMicrotask(() => onError(v));
       inPass?.(v);
       queueMicrotask(() => onValue(v));
     },
@@ -907,17 +921,27 @@ export function refresh<T>(
   const own = flushTransaction;
   const promise = new Promise<any>((res, rej) => {
     queueMicrotask(() => {
-      // No createRoot: the microtask has no ambient owner, so the watcher is
-      // naturally detached, and settle disposes the node directly (dev keeps
-      // a root husk purely to stay quiet about the missing owner). The
-      // capture runs inside the watcher's own pass, where the ambient owner
-      // IS the watcher — exactly what dispose() takes.
+      // The root is load-bearing: an ownerless computed is auto-disposing,
+      // and the settle walk releases an unobserved one instead of re-running
+      // it, so the waiter would never see the refetch land (#3888). Settle
+      // disposes the waiter directly; the capture runs inside the watcher's
+      // own pass, where the ambient owner IS the watcher — exactly what
+      // dispose() takes.
       let waiter: Computed<unknown> | null = null;
       const make = () =>
         watch(
           () => {
             if (waiter === null) waiter = getOwner() as Computed<unknown>;
-            return read(node);
+            // Authoritative: the truth beneath a guess (`until`'s view). A
+            // guessed node's own re-ask is not answered by it (#3895): park
+            // on that flight, or reject with its error.
+            const v = read(node!);
+            if (
+              node!._config & CONFIG_GUESS &&
+              node!._statusFlags & (STATUS_PENDING | STATUS_ERROR)
+            )
+              throw node!._x?._error;
+            return v;
           },
           value => {
             res(typeof target === "function" ? value : target);
@@ -927,11 +951,11 @@ export function refresh<T>(
             rej(err);
             dispose(waiter!);
           },
-          CONFIG_FRESH_READ,
+          CONFIG_FRESH_READ | CONFIG_AUTHORITATIVE,
           undefined,
           own
         );
-      __DEV__ ? createRoot(make) : make();
+      createRoot(make);
     });
   });
   // Fire-and-forget refresh must not turn a failed refetch into an unhandled

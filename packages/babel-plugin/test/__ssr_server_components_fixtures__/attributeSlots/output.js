@@ -4,6 +4,7 @@ import { escape as _$escape } from "r-server";
 import { ssrElementAttribute as _$ssrElementAttribute } from "r-server";
 import { ssrElement as _$ssrElement } from "r-server";
 import { ssr as _$ssr } from "r-server";
+import { ssrLinkClaim as _$ssrLinkClaim } from "r-server";
 import { ssrClaim as _$ssrClaim } from "r-server";
 import { sharedConfig as _$sharedConfig } from "r-server";
 var _tmpl$ = [
@@ -11,6 +12,7 @@ var _tmpl$ = [
     ">Copy</button><input",
     "><span",
     '>warns at render when the gate is open</span><a href="/x"',
+    "",
     ">multiple refs merge to an array</a></div>"
   ],
   _tmpl$2 = ["<li", "", "", ">", "</li>"],
@@ -22,8 +24,13 @@ var _tmpl$ = [
     "",
     '><span class="static stays">',
     "</span></li>"
-  ];
-var _sk$ = k => k === "class";
+  ],
+  _tmpl$4 = ["<div", ">", "", "</div>"];
+var _lk$ = {
+  href: "/x"
+};
+var _sk$ = k => k === "class",
+  _sk$2 = k => k === "title";
 var _v$ =
     _$sharedConfig.context && _$sharedConfig.context.claims
       ? _$ssrClaim({
@@ -53,8 +60,8 @@ var _v$ =
 // Attribute slots (principles §9.2.3). Ref/event positions on server intrinsics
 // compile to one guarded whole-attribute claim hole per element, gated on
 // the render context's claims flag so plain SSR never evaluates the
-// expressions.
-const template = _$ssr(_tmpl$, _v$, _v$2, _v$3, _v$4);
+// handler expressions.
+const template = _$ssr(_tmpl$, _v$, _v$2, _v$3, _$ssrLinkClaim(_lk$), _v$4);
 
 // A spread element's named `ref`/`on*` compile to the same claim map a
 // template element's do — duplicate refs merged, a tuple kept whole, a
@@ -159,3 +166,44 @@ var _g$2 = _$ssrGroup(
   _v$12 = () => _$escape(label()),
   _v$1 = () => _$ssrAttribute("checked", _$escape(row.done, true));
 const objects = _$ssr(_tmpl$3, _g$2, _g$2, _v$1, _v$10, _v$11, _v$12);
+
+// solidjs/solid#4081: a ref that calls something (a ref factory's owned
+// setup) also runs outside a server component's render, where the element
+// hydrates and the client runs it too; inside one the claim evaluates it.
+var _v$13 =
+    _$sharedConfig.context && _$sharedConfig.context.claims
+      ? _$ssrClaim({
+          ref: refFactory(),
+          click: props.onPick
+        })
+      : (refFactory(), ""),
+  _v$14 = _$ssrElement(
+    "span",
+    rest,
+    undefined,
+    false,
+    undefined,
+    () => ((_$sharedConfig.context && _$sharedConfig.context.claims) || refFactory(), ""),
+    () => ({
+      1: {
+        ref: refFactory()
+      }
+    })
+  ),
+  _v$15 = _$ssrElement(
+    "p",
+    rest,
+    undefined,
+    false,
+    _sk$2,
+    () => (
+      (_$sharedConfig.context && _$sharedConfig.context.claims) || [refFactory(), props.ref],
+      ' title="t"'
+    ),
+    () => ({
+      1: {
+        ref: [refFactory(), props.ref]
+      }
+    })
+  );
+const refFactories = _$ssr(_tmpl$4, _v$13, _v$14, _v$15);

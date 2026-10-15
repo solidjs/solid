@@ -1,3 +1,8 @@
+---
+name: reactivity-diagnostics
+description: Map a Solid 2.0 dev diagnostic code (STRICT_READ_UNTRACKED, REACTIVE_WRITE_IN_OWNED_SCOPE, LOADING_ON_OUTSIDE_HOLD, HOT_SCOPE_*, ...) to its repair. Use when a Solid console warning, test failure or @solidjs/diagnostics artifact reports a [CODE].
+---
+
 # Repairing Solid reactivity from diagnostic codes
 
 Solid's dev builds emit structured diagnostics with stable codes. When you see
@@ -277,24 +282,32 @@ The always-on backstop: one computation tracked 2000 or more sources in a
 single pass, so it re-runs when any of them change. The message names the
 computation and the count (`data: { count }`); it does NOT list the sources.
 To see which sources, enable the attribution engine and read
-[WIDE_SCOPE_DEPS](#wide_scope_deps), which fires far earlier (30 sources)
+[WIDE_SCOPE_DEPS](#wide_scope_deps), which fires earlier (200 sources)
 and names up to 12 of them. The repair is the same: narrow the reads or
 split the derivation into smaller memos that each track only what they need.
 
 #### WIDE_SCOPE_DEPS
 
-Attribution engine only: a scope is subscribed to 30 or more sources (it
-re-warns on 50% further growth). The message lists up to 12 of them — start
-there, and narrow the reads or split the scope as described under
-[HUGE_FAN_IN](#huge_fan_in).
+Attribution engine cost checks only: a scope is subscribed to 200 or more
+sources (it re-warns on 50% further growth). HMR plumbing sources are not
+counted, and in dev the renderer's insert child-resolution pass (which tracks
+each row's resolved child) is not judged — `HUGE_FAN_IN` still is. The
+message lists up to 12 of them — start there, and narrow the reads or split
+the scope as described under [HUGE_FAN_IN](#huge_fan_in).
 
 ### GRAPH_GROWTH
 
-The live graph got bigger on every one of the last `data.history.length`
-visits to `data.route`, and it did not shrink on the visits in between —
-something each visit creates is never disposed. This is the leak a heap
-snapshot finds; the engine finds it by measuring the reactive graph at each
-navigation's settle. `data.grew` says which measure climbed, and that names
+The live graph, counted when each navigation settles, got bigger on every
+one of the last `data.history.length` visits to `data.route`, and so did the
+part of it that outlived each of those navigations (`data.survived`, beside
+`data.history`: what was alive when the navigation began and still is) —
+something each visit creates is never disposed. A page that is merely bigger
+on one visit than the last does not report: its content is new at each
+arrival, so it is not in `data.survived`. Navigations that only change a
+route's params or query continue the visit and are not compared. This is the
+leak a heap snapshot finds; the engine finds it by measuring the reactive
+graph as each navigation opens and at its settle. `data.grew` says which
+measure climbed, and that names
 the leak: `owners` is an undisposed root or a Portal mounted per visit;
 `computations` with `owners` flat is an effect or memo created with no
 owner, kept alive only by the sources it reads; `edges` alone is a
@@ -311,6 +324,10 @@ culprit is on one of them. Look for, in order:
   pair it with `onCleanup`.
 - A `Portal`, a panel or a modal mounted on each visit into a long-lived
   root, never removed when the route leaves.
+- A cache (entities kept by key, each under its own root) that only ever
+  adds. Its entries outlive every navigation, so to the walk it is the same
+  growth as a leak, and it is: memory that never comes back. Bound it or
+  evict entries no visit still reads; an evicting cache stays quiet.
 
 Do NOT reach for `dispose()` on the app root or a periodic sweep; the fix is
 ownership — create the thing under the owner whose lifetime it should share.
@@ -853,6 +870,19 @@ produces. Declare the server function `live(...)` — the document then takes
 each source's first value and closes it, and the client connects for the
 rest after hydration — or bound the source. Frame-stream renders (a live
 connection) are never judged.
+
+### SSR_LIVE_HOLE_LATCHED
+
+A live markup hole (or attribute) in a server component shipped its markers
+and then stopped updating: re-running it created a reactive scope still
+waiting on async work (`data.cause: "owners"`) or emitted slot records
+(`"records"`), so the runtime closed it and the client keeps the markup it
+last received. Scopes that finish synchronously (a nested `<For>`, a
+condition memo such as `{m.usage && …}`, a component) are fine: each re-run
+gets a throwaway scope. The usual cause is a memo over a fetch or a stream
+created inside the markup that re-renders, which would restart on every
+re-run. Create the async source in the component body instead. The finding
+is located by the component the hole is in.
 
 ### LAZY_ASSET_UNMAPPED
 

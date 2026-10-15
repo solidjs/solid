@@ -159,7 +159,7 @@ function runEffect(node: Effect<any>, type: number): void {
   // hidden subtree. The synchronous first render on creation is not a queued
   // run and goes through. `_modified` stays set; the boundary re-queues the
   // run (`release`).
-  if (GlobalQueue._heldRun && GlobalQueue._heldRun(node)) return;
+  if (GlobalQueue._heldRun?.(node)) return;
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in
   // this same imperative, writable scope. Unwrap the StatusError used for
@@ -262,7 +262,7 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     // pass, but several passes in one flush each enqueue `_run` into the same
     // user queue, and this gate is what collapses them into one run.
     if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
-    if (GlobalQueue._heldRun && GlobalQueue._heldRun(node)) return;
+    if (GlobalQueue._heldRun?.(node)) return;
     if (__DEV__) setTrackedQueueCallback(true);
     try {
       node._modified = false;

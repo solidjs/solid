@@ -1,0 +1,5 @@
+---
+"@solidjs/web": patch
+---
+
+Frames client: every slot fill is placed by `insert` — the fill's output has the core's lifecycle (created under the fill's owner, claimed in place under hydration through `insertExpression`'s claim pass, disposed with the owner) instead of a frame-side copy of it. The Solid binding's static path (`normalizeSlotContent`, `isReactiveContent`, the in-place `settle` test) and the frame runtime's own range writer (`#replaceRange`) are gone; a static fill is one `insert` of a non-function value (no effect created), a reactive one binds the range as before. `createFrame` / `createFrameElement`: the frame element IS the range — the never-used comment-marker range mode of the runtime is removed. **`Slot` (`FrameOptions.slots`, `@experimental`) changes shape:** a callback owns its range — it places or binds its output before `ctx.range.end` over `ctx.existing` — and its return value is no longer read (before: returned nodes were placed by the frame; `undefined` claimed). A slot range missing its end marker (`FRAME_MARKER_CORRUPTED`) is left as the server rendered it instead of being filled at the parent's end.

@@ -144,17 +144,18 @@ describe("isPending() over several async siblings of an optimistic value", () =>
     run();
     await settle();
     await advanceTo(9000);
-    // Optimistic phase (3000–5000): every indicator flips with its own
-    // reads. The revert (6000) reloads the truth as an ordinary held
-    // transaction, so the indicators clear together when it commits (8000),
-    // exactly as they do for a plain signal write.
+    // Every indicator flips with its own reads, in the optimistic phase
+    // (3000–5000) and after the revert (6000) alike: only probes read `a` and
+    // `b`, and a probe alone does not hold (2026-10-09), so the revert's
+    // reload is not held — each flight's verdict clears when it lands.
     expect(frames(log, when)).toEqual([
       "2000: A: false | B: false | Combined: false",
       "3000: A: true | B: true | Combined: true",
       "4000: A: false",
       "5000: B: false | Combined: false",
       "6000: A: true | B: true | Combined: true",
-      "8000: A: false | B: false | Combined: false"
+      "7000: A: false",
+      "8000: B: false | Combined: false"
     ]);
   });
 });

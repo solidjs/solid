@@ -13,7 +13,9 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_HELD,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
+  CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
@@ -29,7 +31,9 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import {
+  bornInto,
   context,
+  joinPass,
   markLateLinker,
   pullComputed,
   setVerdict,
@@ -97,12 +101,21 @@ function route(c: Computed<any>, t: Transaction): void {
  * the seam as if it had gone pending here, so the transaction has an entry
  * for what it now shows a reader of. Held by nothing, it landed at this very
  * seam and its `_reruns` re-derived the reader into the same observation,
- * every flush (fuzzer F12). */
-function observeFlight(c: Computed<any>, el: Computed<any>): void {
-  if (!globalQueue._running) return;
-  joinFuture(null);
-  if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
-  verdictRead(c, flushTransaction!, true);
+ * every flush (fuzzer F12). True when the reader is served the committed
+ * value — not over a flight committed beneath inputs already on screen (A15
+ * reveal corollary, #3305): that value would tear against them, and the
+ * reveal observes the flight. Nor for a reader born into the flight's
+ * transaction (`bornInto`, #4010): it has no screen — it waits on the flight
+ * with the rest of its frame. */
+function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
+  if (el._config & CONFIG_INPUTS_PUBLISHED || (el._config & CONFIG_HELD && bornInto(c, txOf(el))))
+    return false;
+  if (globalQueue._running) {
+    joinFuture(null);
+    if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
+    verdictRead(c, flushTransaction!, true);
+  }
+  return true;
 }
 
 /** Verdict windows. Inside `latest(fn)` a read of a held node serves the
@@ -122,9 +135,10 @@ let probeFound = false;
  * reader re-derives there. `latest` shows the proposal that lands — a
  * rewrite or a landing reaches its reader through the link it holds — so a
  * re-run would only repeat the frame. */
-function verdictRead(c: Computed<any>, t: Transaction, rerun = probing): void {
+function verdictRead(c: Computed<any>, t: Transaction, plain?: boolean): void {
   route(c, t);
-  if (rerun) staleReader(c, t);
+  if (plain) staleReader(c, t);
+  else if (probing && t._reruns[t._reruns.length - 1] !== c) t._reruns.push(c);
 }
 
 /** A verdict read of a node staged or in flight but not held yet: whether it
@@ -197,7 +211,9 @@ function heldNotFinal(owner: Computed<any>): boolean {
     !latestActive &&
     !owner._x!._reask &&
     !(owner._statusFlags & STATUS_UNINITIALIZED) &&
-    (!owner._equals || !owner._equals(owner._value as any, owner._pendingValue as any))
+    (!!owner._x!._shownError ||
+      !owner._equals ||
+      !owner._equals(owner._value as any, owner._pendingValue as any))
   );
 }
 
@@ -212,11 +228,14 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
 }
 
 /** The pass entering a verdict window is a verdict reader (CONFIG_VERDICT):
- * a dependency going pending re-derives it, the verdict having changed. */
+ * a dependency going pending re-derives it, the verdict having changed. Not
+ * an untracked window: that is a snapshot, like any untracked read (#3946 —
+ * a router's link claim probing inside the computation that creates the
+ * anchor). A throw still reaches the pass through `untrack`. */
 function markVerdictReader(window: number): void {
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
-  if (c !== null) {
+  if (c !== null && tracking) {
     c._config |= CONFIG_VERDICT;
     (c as Computed<any>)._flags |= REACTIVE_PROBED;
     // Observe tier: which windows this pass entered (1 `isPending`, 2
@@ -242,6 +261,38 @@ export function latest<T>(fn: () => T): T {
   }
 }
 
+/**
+ * Reports whether what `fn` reads is still waiting on an update. Read the
+ * values in question inside `fn`: the probe answers `true` while any of
+ * them depends on a change that is in flight — a write or an async source
+ * that has started producing a new value whose result has not landed yet —
+ * and `false` once the latest value is the one on screen. The answer is
+ * tracked like any read, so a memo or effect that calls `isPending` re-runs
+ * when it flips.
+ *
+ * A read that has no value yet is loading, not pending: inside `fn` it
+ * follows the surrounding `Loading` path like any other read, and the probe
+ * reports only updates to a value that already exists. A bare `refresh()`
+ * does not flip `isPending`; pair it with `affects()` to make the re-ask
+ * visible.
+ *
+ * @param fn expression to probe; read the values in question inside it
+ *
+ * @returns `true` while a read inside `fn` depends on a change that has not committed yet
+ *
+ * @example
+ * ```ts
+ * const [query, setQuery] = createSignal("");
+ * const results = createMemo(() => searchProducts(query()));
+ * const stale = createMemo(() => isPending(results));
+ *
+ * setQuery("shoes");
+ * // stale() is true until the new results land, while results() keeps
+ * // serving the previous list — dim it instead of showing a spinner.
+ * ```
+ *
+ * @description https://v2.solidjs.com/reference/solid-js/reactivity/is-pending
+ */
 export function isPending(fn: () => any): boolean {
   markVerdictReader(1);
   const prevProbing = probing;
@@ -269,12 +320,17 @@ export function isPending(fn: () => any): boolean {
   }
 }
 
+/** The staging, or the staged error thrown (D-41). */
+function staged(el: Signal<any> | Computed<any>): unknown {
+  if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
+  return el._pendingValue;
+}
 /** `latest()` of a held node: the flushed staging — the proposal — and, for
  * a tracked reader of a rewrite not yet flushed, the late-linker re-run in
  * the flush that carries it. */
 function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const u = unflushedValue(el);
-  if (u === NOT_PENDING) return el._pendingValue;
+  if (u === NOT_PENDING) return staged(el);
   if (c !== null) markLateLinker(c);
   return u;
 }
@@ -301,7 +357,8 @@ function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): u
  * - an errored derivation throws for every reader (#2897). */
 function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const owner = el as Computed<any>;
-  const tracked = c !== null && tracking && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  const owned = c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  const tracked = owned && tracking;
   if (c !== null && tracking) {
     link(el, c);
     if (owner._fn !== undefined) {
@@ -380,9 +437,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       }
       return el._value;
     }
-    // Born into the future: its staging is its only value.
-    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING))
-      return el._pendingValue;
+    // Born into the future: its staging is its only value. It has no
+    // committed value, so no verdict: `isPending` reads it as its read does —
+    // the owner joins the hold (held with it, or caught by a boundary that
+    // has not shown content) and answers for the commit, where it is final.
+    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
+      if (probing && owned) joinPass(c!, el);
+      return staged(el);
+    }
   } else if (el._pendingValue !== NOT_PENDING) {
     if (owner._statusFlags & STATUS_PENDING && !uninitialized)
       pendingVerdict(tracked ? c : null, owner);
@@ -398,7 +460,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       // A28: an unflushed write is not what `latest` serves; a tracked
       // reader derived from the flushed world runs again in the carrying
       // flush.
-      if (globalQueue._running) return el._pendingValue;
+      if (globalQueue._running) return staged(el);
       if (c !== null) markLateLinker(c);
     }
     return el._value;

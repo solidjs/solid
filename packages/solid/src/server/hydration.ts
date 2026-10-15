@@ -12,7 +12,9 @@ import {
   RevealGroupContext,
   reportServerError,
   throwerOf,
-  ownerId
+  ownerId,
+  onCleanup,
+  inServerComponentScope
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
@@ -73,6 +75,13 @@ export function createLoadingBoundary<T, U>(
   ) as unknown as Accessor<T | U>;
 }
 
+// Which registration owns a fragment id (#3750). An `<Errored>` retry, or a
+// hole re-pull, disposes the pass that created a pending boundary and
+// re-creates it under the same id; the stream's registry entry for that id
+// is shared, so only the latest registration may settle it. Keyed by the
+// render's `registerFragment`, which every context clone of a render shares.
+const fragmentOwners = /* @__PURE__ */ new WeakMap<Function, Record<string, Function>>();
+
 function ssrLoadingBoundary(
   currentCtx: HydrationContext,
   fn: () => any,
@@ -107,7 +116,7 @@ function ssrLoadingBoundary(
   const flattenId = id + (hasOn ? "02" : "01");
   (o as any).id = contentId;
 
-  let done: ((value?: string, error?: any) => boolean) | undefined;
+  let done: ReturnType<HydrationContext["registerFragment"]> | undefined;
   let handledRenderError: any;
   let retryPromise: Promise<any> | undefined;
 
@@ -301,12 +310,59 @@ function ssrLoadingBoundary(
     if (modules) ctx.serialize(id + "_assets", { ...modules });
   }
 
+  // What the fragment carries for a failure once it is registered (its
+  // channel owns the routing — see runLoadingPhase). Outside a server
+  // component: nothing — the blank the client twin renders fresh over, as
+  // always (`hydratedCreateLoadingBoundary`'s rejected arm). Inside one
+  // (frames-rulings 3.3, A0 corollary 4 inward — the position shows what the
+  // SERVER rendered for the outcome, never a blank, never a client-invented
+  // state; there is no twin): the nearest server `<Errored>`'s fallback for
+  // the error, rendered at this boundary's position (asked through the
+  // handler chain's `outcome` mode; a `<Loading>` between passes the
+  // question up); with none, the error ESCAPES the component — the frame as
+  // one async value errors (the outward face; the renderer's sink carries
+  // it) and the position keeps the boundary's own markup, its fallback.
+  // Hydration ids inside the rendered fallback are the component's own
+  // hydration-free scope's; its head and asset registrations drop with the
+  // error, as the error path drops them today.
+  function errorOutcome(err: any): { value?: string; escaped?: { frame?: string } } | undefined {
+    if (!inServerComponentScope(o as any)) return undefined;
+    const rendered = parentHandler ? parentHandler(err, true) : undefined;
+    if (typeof rendered === "string") return { value: rendered };
+    return { value: plainFallback(), escaped: { frame: ctx.frameId } };
+  }
+  // Settle the fragment with the failure. The server error hook hears of it
+  // first (the `_fr` rejection and a transport sink's error chunk read the
+  // verdict it decides) — as `handling: "client"` when the client is where
+  // it goes, unless a server `<Errored>` just reported it as its own
+  // (`"fallback"`, once per error); `report` is false where the caller
+  // defers that to the parent handler (the pre-flush path).
+  // Whether the last failure's outcome was rendered by a server <Errored>
+  // (its own finding names it; the "client re-renders" one would be wrong).
+  let outcomeRendered = false;
+  function failFragment(err: any, report: boolean): boolean {
+    const outcome = errorOutcome(err);
+    outcomeRendered = !!outcome && outcome.value !== undefined && !outcome.escaped;
+    if (report && !outcomeRendered) {
+      reportServerError(
+        err,
+        { kind: "render", handling: "client", boundary: id },
+        o,
+        ctx.errorPolicy
+      );
+    }
+    return done!(outcome && outcome.value, err, outcome && outcome.escaped);
+  }
+
   function runLoadingPhase<T>(render: () => T): T {
     handledRenderError = undefined;
     return runWithBoundaryErrorContext(
       o,
       render,
-      (err: any, parentHandler) => {
+      (err: any, handler, outcome) => {
+        // The outcome question (see errorOutcome) is a `<Loading>`'s to pass
+        // up: it owns no fallback for an error.
+        if (outcome) return handler ? handler(err, true) : undefined;
         handledRenderError = err;
         if (done) {
           // Once the fragment is registered, its channel owns error routing:
@@ -318,18 +374,11 @@ function ssrLoadingBoundary(
           // so its only lasting effect is serializing the error at the
           // Errored id, which makes the hydrating client render the error
           // fallback expecting server DOM that was never emitted, derailing
-          // hydration before the fragment channel can engage.
-          reportRouted(err, "client");
-          // The server error hook hears of it here, before the channel
-          // carries it (the `_fr` rejection, a transport sink's error chunk
-          // read the verdict the hook decides).
-          reportServerError(
-            err,
-            { kind: "render", handling: "client", boundary: id },
-            o,
-            ctx.errorPolicy
-          );
-          streamedOnError = done(undefined, err);
+          // hydration before the fragment channel can engage. (Inside a
+          // server component the nearest server `<Errored>` IS asked — for
+          // its rendered outcome, not to route; see errorOutcome.)
+          streamedOnError = failFragment(err, true);
+          if (!outcomeRendered) reportRouted(err, "client");
           throw err;
         }
         // Synchronous discovery (no fragment yet): the enclosing Errored's
@@ -371,15 +420,8 @@ function ssrLoadingBoundary(
       // when it delivers) and the failure is met next by the parent handler
       // — an <Errored> rendering its fallback — or fails the request below.
       const streamed = ctx.flushed !== undefined && ctx.flushed();
-      if (streamed)
-        reportServerError(
-          err,
-          { kind: "render", handling: "client", boundary: id },
-          o,
-          ctx.errorPolicy
-        );
-      if (done(undefined, err)) {
-        reportRouted(err, "client");
+      if (failFragment(err, streamed)) {
+        if (!outcomeRendered) reportRouted(err, "client");
         record("error", true, err);
         return;
       }
@@ -551,6 +593,22 @@ function ssrLoadingBoundary(
   if (ctx.async) {
     const regOpts = revealGroup ? { revealGroup: revealGroup.id } : undefined;
     done = ctx.registerFragment(id, regOpts);
+    let owners = fragmentOwners.get(ctx.registerFragment);
+    if (!owners) fragmentOwners.set(ctx.registerFragment, (owners = {}));
+    owners[id] = done;
+    // Armed on the creation owner: `o` is reset on every discovery pass.
+    // Once the creating pass is disposed this instance stops retrying; with
+    // no successor at its id it releases the entry (its placeholder left the
+    // document with the pass), so the response can end. A successor
+    // registered in the same re-run owns the entry and its reveal slot.
+    let disposed = false;
+    let superseded = false;
+    onCleanup(() => (disposed = true));
+    const abandon = () => {
+      if (owners![id] !== done) return (superseded = true);
+      delete owners![id];
+      done!();
+    };
     // A final hole surfacing only now: an earlier real async read masked it
     // during the initial discovery, or the hole was reached through a
     // derived async computation, whose FINAL classification lands a
@@ -599,6 +657,7 @@ function ssrLoadingBoundary(
           if (hasFinalHole()) return clientHandoff();
           checkBudget();
           await retryPromise.catch(() => {});
+          if (disposed) return abandon();
           ret = runDiscovery();
         }
         commitBoundaryState();
@@ -607,6 +666,7 @@ function ssrLoadingBoundary(
           if (hasFinalHole()) return clientHandoff();
           checkBudget();
           await Promise.all(pending.p).catch(() => {});
+          if (disposed) return abandon();
           passes++;
           ret = runLoadingPhase(() => resolveIn(() => ctx.ssr(pending.t, ...pending.h))) as any;
         }
@@ -622,7 +682,7 @@ function ssrLoadingBoundary(
         // template write. Skipping release on error parks a sequential
         // frontier on this boundary forever, so resolved later siblings never
         // get their activation script (#2776).
-        if (revealGroup) revealGroup.onResolved(id);
+        if (revealGroup && !superseded) revealGroup.onResolved(id);
       }
     })();
     return skipLive(() => fallbackResult);
@@ -652,6 +712,16 @@ export function NoHydration(props: { children: SolidElement }): SolidElement {
 /** Server: always `false` — nothing is claimed here. See the client entry. */
 export function isHydrating(): boolean {
   return false;
+}
+
+/**
+ * Server: runs `callback` in the next microtask — nothing hydrates here. See
+ * the client entry.
+ *
+ * @experimental
+ */
+export function onHydrationEnd(callback: () => void): void {
+  queueMicrotask(callback);
 }
 
 /**

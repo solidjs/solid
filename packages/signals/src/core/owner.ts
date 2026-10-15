@@ -433,12 +433,15 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
  * const detached = runWithOwner(null, () => createRoot(d => d));
  * ```
  *
- * @description https://docs.solidjs.com/reference/reactive-utilities/create-root
+ * @description https://v2.solidjs.com/reference/solid-js/advanced/owner-introspection/create-root
  */
 export function createRoot<T>(
   init: ((dispose: () => void) => T) | (() => T),
   options?: { id?: string; transparent?: boolean }
 ): T {
   const owner = createOwner(options);
-  return runWithOwner(owner, () => init(() => owner.dispose()));
+  // A bound function, not an arrow: an arrow would share this scope, which
+  // holds `init`, so keeping `dispose` would keep `init` and all it closes
+  // over alive (#4095).
+  return runWithOwner(owner, () => init(disposeRootSelf.bind(owner, true)));
 }

@@ -11,84 +11,34 @@
 // data joins nothing through it. A mark is never a re-ask, so a declared
 // reload's own `refresh()` cannot silence it; a real error outranks it.
 //
-// Representation: a count on the marked node (`_x._marks`), listed with its
-// scope (the transaction's `_marks`, or the ambient list). Coverage of the
-// derivations is pull-derived at probe time — `isPending`'s read walks the
-// probed node's dependencies for a marked one (verdict.ts → `_marked`) — so
-// nothing is stored downstream and a mid-window recompute strands nothing.
-// The push half is the verdict readers' re-derivation at registration and at
-// release (`repoll`): the only notification a mark makes.
+// Representation: the mark core (affects-marks.ts) — a count on the marked
+// node, coverage pull-derived at probe time, readers repolled at registration
+// and release. Here: each mark's scope (the transaction's `_marks`, or the
+// ambient list) and the store half.
 //
 // Installed on `GlobalQueue` when imported: a program that never declares a
 // mark carries none of this.
 
-import {
-  REACTIVE_RECOMPUTING_DEPS,
-  STATUS_ERROR,
-  STATUS_PENDING,
-  CONFIG_SLOT_NODE,
-  CONFIG_VERDICT,
-  $REFRESH
-} from "./core/constants.js";
-import { ext } from "./core/core.js";
+import { STATUS_PENDING, CONFIG_SLOT_NODE, $REFRESH } from "./core/constants.js";
 import { emitDiagnostic } from "./core/dev.js";
-import { enqueueSub } from "./core/heap.js";
 import { flushTransaction, GlobalQueue, resolveTx, schedule } from "./core/scheduler.js";
-import type { Computed, Signal } from "./core/types.js";
+import type { Computed } from "./core/types.js";
+import { mark, repoll, unmark, type Marked } from "./affects-marks.js";
 import type { Accessor } from "./signals.js";
+import { installStoreAffects, releaseMarkScope, storeMarks } from "./store/affects.js";
 import { $TARGET, type Store } from "./store/types.js";
 
-type Marked = Signal<any> | Computed<any>;
-
-/** Live marks, every scope — the gate on the probe's walk. */
-let active = 0;
 /** Marks declared outside a transaction: released at the next seam. */
 const ambient: Marked[] = [];
-
-/** The verdict readers downstream of `node` — through derivations, stopping
- * at effects — re-derive: the mark's one notification (a probe's answer
- * changed with no value notifying anyone). */
-function repoll(node: Marked, seen = new Set<Computed<any>>()): void {
-  for (let s = node._subs; s !== null; s = s._nextSub) {
-    const sub = s._sub;
-    if (seen.has(sub)) continue;
-    seen.add(sub);
-    if (sub._config & CONFIG_VERDICT) enqueueSub(sub);
-    if (!(sub as any)._type) repoll(sub, seen);
-  }
-}
-
-/** A node is covered by a live mark iff it carries one, or derives — through
- * its current dependencies — from one that does. A real error outranks an
- * inherited mark (A24 (c)): coverage does not flow through an errored node
- * (a direct mark on one still reads pending). Mid-recompute, only the
- * validated prefix of the dependency list is this pass's. */
-function marked(el: Marked, seen: Set<Marked>): boolean {
-  if (el._x !== null && el._x._marks !== 0) return true;
-  const c = el as Computed<any>;
-  if (c._statusFlags & STATUS_ERROR || seen.has(el)) return false;
-  seen.add(el);
-  const tail = c._flags & REACTIVE_RECOMPUTING_DEPS ? c._depsTail : undefined;
-  if (tail !== null)
-    for (let d = c._deps ?? null; d !== null; d = d._nextDep) {
-      if (marked(d._dep, seen)) return true;
-      if (d === tail) break;
-    }
-  return false;
-}
 
 /** Releases one scope's marks (a landed transaction's, the ambient list at
  * the seam): a node whose last mark drops re-derives its verdict readers. */
 function release(nodes: Marked[]): void {
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
-    active--;
-    if (--n._x!._marks === 0) {
-      repoll(n);
-      // A store mark's carrier: its scope (and the marks the nodes born in
-      // its window inherited) goes with it.
-      GlobalQueue._releaseMarkScope?.(n);
-    }
+    // A store mark's carrier: its scope (and the marks the nodes born in
+    // its window inherited) goes with the last mark.
+    if (unmark(n)) releaseMarkScope(n);
   }
   nodes.length = 0;
 }
@@ -104,10 +54,6 @@ function register(node: Marked): void {
     (u._marks ??= []).push(node);
   }
   repoll(node);
-}
-function mark(node: Marked): void {
-  ext(node)._marks++;
-  active++;
 }
 
 /**
@@ -146,7 +92,8 @@ export function affects(target: any, key?: PropertyKey): void {
   // record's carrier and every live node under it.
   const t = target?.[$TARGET];
   if (t !== undefined) {
-    const nodes = GlobalQueue._storeMarks!(t, key);
+    installStoreAffects();
+    const nodes = storeMarks(t, key);
     for (let i = 0; i < nodes.length; i++) register(nodes[i]);
     schedule();
     return;
@@ -175,8 +122,6 @@ function invalid(detail: string): never {
   throw new Error(message);
 }
 
-GlobalQueue._marked = el => active !== 0 && marked(el, new Set());
-GlobalQueue._mark = mark;
 GlobalQueue._releaseMarks = release;
 GlobalQueue._releaseAmbientMarks = parked => {
   if (ambient.length === 0) return;

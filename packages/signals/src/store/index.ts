@@ -4,6 +4,7 @@
  * return on later steps (plan sec. 31.5).
  */
 export type {
+  NoArray,
   NoFn,
   NotWrappable,
   ProjectionOptions,
@@ -25,7 +26,6 @@ export type {
   ArrayFilterFn
 } from "./storePath.js";
 
-import "./affects.js";
 import { createOptimisticStore } from "./optimistic.js";
 import { createProjection, createStoreDerived } from "./projection.js";
 import { reconcileState } from "./reconcile.js";
@@ -35,6 +35,7 @@ import {
   snapshot as snapshotStore
 } from "./store.js";
 import type {
+  NoArray,
   NoFn,
   ProjectionOptions,
   ProjectionStoreReturn,
@@ -78,14 +79,25 @@ export type { SourceKind } from "./utils.js";
  * Create a reactive store: a proxy over plain data with fine-grained
  * subscriptions per read path, written through its setter's draft — or, in
  * the derived form, a projection with a setter.
+ *
+ * The derived form comes in two shapes. Seedless, `createStore(fn)`: `fn`
+ * takes no draft and every answer is a complete `T` (plain-object roots only;
+ * pass `undefined` for the seed to reach the options). Seeded,
+ * `createStore(fn, seed)`: the seed is a complete `T` the derive drafts
+ * against — `[]` for an array.
  */
 export function createStore<T extends object = {}>(
   initialValue: NoFn<T>,
   options?: StoreOptions
 ): StoreReturn<T>;
 export function createStore<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ProjectionOptions, "seedLoadingValue">
+): ProjectionStoreReturn<T>;
+export function createStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ProjectionOptions
 ): ProjectionStoreReturn<T>;
 export function createStore(first: any, second?: any, third?: any): any {

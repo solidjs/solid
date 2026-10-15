@@ -66,7 +66,14 @@ export interface ProjectionOptions extends StoreOptions {
   seedLoadingValue?: boolean;
 }
 
+/** @internal */
 export type NoFn<T> = T extends Function ? never : T;
+/**
+ * Rejects array roots on the seedless derived form: a store's root shape is
+ * fixed when it is created, and `[]` is already a complete seed for an array.
+ * @internal
+ */
+export type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
 
 /** Brand keys the proxy answers directly (never user data). */
 export const $TRACK = Symbol(__DEV__ ? "STORE_TRACK" : 0),

@@ -12,6 +12,7 @@ import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { claimElement as _$claimElement } from "r-dom";
+import { setProperty as _$setProperty } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div><h1><a href=/>Welcome`);
@@ -69,6 +70,12 @@ var _tmpl$51 = /* @__PURE__ */ _$template(`<div><video muted></video><video></vi
 var _tmpl$52 = /* @__PURE__ */ _$template(`<video src=test.mp4 muted>`);
 var _tmpl$53 = /* @__PURE__ */ _$template(`<div class=todo>`);
 var _tmpl$54 = /* @__PURE__ */ _$template(`<div class="todo item">`);
+var _tmpl$55 = /* @__PURE__ */ _$template(`<input type=checkbox name=agree checked>`);
+var _tmpl$56 = /* @__PURE__ */ _$template(`<input type=radio name=choice>`);
+var _tmpl$57 = /* @__PURE__ */ _$template(`<input type=text>`);
+var _tmpl$58 = /* @__PURE__ */ _$template(`<input>`);
+var _tmpl$59 = /* @__PURE__ */ _$template(`<input type=Checkbox>`);
+var _tmpl$60 = /* @__PURE__ */ _$template(`<input type=email>`);
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
 function refFn() {}
@@ -110,12 +117,12 @@ _$spread(_el$2, [
 		}
 	}
 ], true);
-_$claimElement(_el$3);
 _$className(_el$3, { "ccc ddd": true });
 var _ref$ = link;
 typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
 	return _ref$;
 }, _el$3) : link = _el$3;
+_$claimElement(_el$3);
 const template = _el$;
 var _el$4 = _tmpl$2();
 var _el$5 = _el$4.firstChild;
@@ -249,7 +256,6 @@ _$effect(() => "t" in test, (_v$) => {
 });
 const template23 = _el$30;
 var _el$31 = _tmpl$16();
-_$claimElement(_el$31);
 _$spread(_el$31, [props, { something: true }], false);
 const template24 = _el$31;
 var _el$32 = _tmpl$17();
@@ -257,7 +263,6 @@ var _el$33 = _el$32.firstChild;
 _$insert(_el$32, () => {
 	return props.children;
 }, _el$33);
-_$claimElement(_el$33);
 _$spread(_el$33, [props, { something: true }], false);
 const template25 = _el$32;
 var _el$34 = _tmpl$18();
@@ -368,9 +373,7 @@ _$effect(() => {
 		a: Color.Blue
 	};
 }, ({ e, t, a }, _p$) => {
-	queueMicrotask(() => {
-		return _el$55.value = e;
-	}) || (_el$55.value = e);
+	_$setProperty(_el$55, "value", e);
 	_el$56.value = t;
 	_el$57.value = a;
 });
@@ -683,4 +686,62 @@ _$effect(() => [
 	_$className(_el$125, _v$, _$p);
 });
 const template99 = _el$125;
+var _el$126 = _tmpl$55();
+_$effect(() => value(), (_v$) => {
+	_$setProperty(_el$126, "value", _v$);
+});
+// #4017: a nullish value/defaultValue on a checkbox or radio (or an input whose
+// type is not statically known) removes the attribute; text inputs clear to "".
+const template100 = _el$126;
+var _el$127 = _tmpl$56();
+_$effect(() => value(), (_v$) => {
+	_$setProperty(_el$127, "defaultValue", _v$);
+});
+const template101 = _el$127;
+var _el$128 = _tmpl$57();
+_$effect(() => value(), (_v$) => {
+	_el$128.value = _v$ ?? "";
+});
+const template102 = _el$128;
+var _el$129 = _tmpl$58();
+_$effect(() => value(), (_v$) => {
+	_el$129.value = _v$ ?? "";
+});
+const template103 = _el$129;
+var _el$130 = _tmpl$58();
+_$effect(() => {
+	return {
+		e: kind(),
+		t: value()
+	};
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$130, "type", e);
+	_$setProperty(_el$130, "value", t);
+});
+const template104 = _el$130;
+var _el$131 = _tmpl$59();
+_$setProperty(_el$131, "value", value);
+const template105 = _el$131;
+var _el$132 = _tmpl$9();
+_$effect(() => {
+	return {
+		e: value(),
+		t: other()
+	};
+}, ({ e, t }, _p$) => {
+	_$setProperty(_el$132, "value", e);
+	t !== _p$?.t && _$setProperty(_el$132, "defaultValue", t);
+});
+const template106 = _el$132;
+var _el$133 = _tmpl$60();
+_$effect(() => {
+	return {
+		e: value(),
+		t: other()
+	};
+}, ({ e, t }, _p$) => {
+	_el$133.value = e ?? "";
+	t !== _p$?.t && (_el$133.defaultValue = t ?? "");
+});
+const template107 = _el$133;
 _$delegateEvents(["click", "input"]);

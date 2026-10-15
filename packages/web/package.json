@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/web",
   "description": "Solid's web runtime: client rendering, hydration, SSR, and DOM-specific control flow (Portal, Dynamic).",
-  "version": "2.0.0-rc.13",
+  "version": "2.0.0-rc.15",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -333,6 +333,30 @@
       "types": "./types/frames/client.d.ts",
       "default": "./frames/dist/client.js"
     },
+    "./frames/trace": {
+      "types": "./types/frames/trace-tier.d.ts",
+      "default": "./frames/dist/trace.js"
+    },
+    "./frames/regions": {
+      "types": "./types/frames/regions-tier.d.ts",
+      "default": "./frames/dist/regions.js"
+    },
+    "./frames/assets": {
+      "types": "./types/frames/assets-tier.d.ts",
+      "default": "./frames/dist/assets.js"
+    },
+    "./frames/bind": {
+      "development": {
+        "types": "./types/frames/bind-tier.d.ts",
+        "default": "./frames/dist/bind.dev.js"
+      },
+      "types": "./types/frames/bind-tier.d.ts",
+      "default": "./frames/dist/bind.js"
+    },
+    "./frames/wire": {
+      "types": "./types/frames/wire-tier.d.ts",
+      "default": "./frames/dist/wire.js"
+    },
     "./types/*": "./types/*"
   },
   "scripts": {
@@ -350,21 +374,31 @@
     "types:web-performance-tracks": "tsc --project ./performance-tracks/tsconfig.build.json",
     "test": "vitest run && vitest run --config vite.config.server.mjs && vitest run --config vite.config.hydrate.mjs",
     "test:server": "vitest run --config vite.config.server.mjs",
+    "consistency:fuzz": "CONSISTENCY_FUZZ=1 vitest run --config vite.config.hydrate.mjs test/consistency/harness",
     "coverage": "vitest run --coverage",
     "bench": "vitest bench --run",
     "bench:server": "vitest bench --run --config vite.config.server-bench.mjs",
     "test-types": "tsc --project tsconfig.test.json && tsc --project tsconfig.test.augment.json"
   },
   "dependencies": {
-    "seroval": "~1.6.7",
-    "seroval-plugins": "~1.6.7"
+    "seroval": "1.6.7",
+    "seroval-plugins": "1.6.7"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.0-rc.13"
+    "solid-js": "^2.0.0-rc.15"
   },
   "devDependencies": {
     "@codspeed/vitest-plugin": "^5.4.0",
     "@solidjs/signals": "workspace:*",
+    "fast-check": "3.23.2",
     "solid-js": "workspace:*"
-  }
+  },
+  "keywords": [
+    "solid",
+    "solidjs",
+    "dom",
+    "ssr",
+    "hydration",
+    "tanstack-intent"
+  ]
 }

@@ -10,17 +10,20 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { attribution, graphSize } from "../src/attribution.js";
-import type { GraphEvent, NavigationEvent } from "../src/attribution.js";
+import type { GraphEvent, GraphSize, NavigationEvent } from "../src/attribution.js";
 import {
   createEffect,
   createMemo,
+  createRenderEffect,
   createRoot,
   createSignal,
   flush,
+  getOwner,
   OBSERVE,
   runWithOwner,
   untrack
 } from "../src/index.js";
+import type { Accessor, Owner } from "../src/index.js";
 import type { DiagnosticEvent, RecordListener, RecordType } from "../src/core/dev.js";
 
 // The engine's records arrive on the channel, whose subscriptions are the
@@ -317,6 +320,79 @@ describe("GRAPH_GROWTH", () => {
     dispose();
   });
 
+  it.each([false, true])(
+    "a navigation held for its data counts the graph after the landing disposes the page left (#3989, leak: %s)",
+    async leak => {
+      const { findings, graphs } = arm({ visits: 3, ratio: 1.25 });
+      const [shared] = createSignal(0, { name: "shared" });
+      const [location, setLocation] = createSignal("/", { name: "location" });
+      const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+      const detached: (() => void)[] = [];
+      // A big page: rows reading the long-lived signal, so its parked frame is
+      // reachable through `shared`'s subscribers until the landing disposes it.
+      const rows = (n: number) => () => {
+        const list = Array.from({ length: n }, () => createMemo(() => shared()));
+        return () => list.reduce((sum, row) => sum + row(), 0);
+      };
+      // The small page fetches on every visit, so its arrival is held.
+      const small = () => {
+        // The positive control: a detached root per visit that nobody disposes.
+        if (leak)
+          runWithOwner(null, () =>
+            createRoot(d => {
+              detached.push(d);
+              for (let i = 0; i < 10; i++) createMemo(() => shared());
+            })
+          );
+        const data = createMemo(async () => (await wait(2), 1));
+        return () => data() + shared();
+      };
+      const pages: Record<string, () => () => unknown> = { "/small": small };
+      for (const n of [20, 40, 80]) pages[`/rows-${n}`] = rows(n);
+      const dispose = createRoot(dispose => {
+        const page = createMemo(() => {
+          const mount = pages[location()];
+          return mount ? untrack(mount) : () => null;
+        });
+        createRenderEffect(
+          () => page()(),
+          () => {}
+        );
+        return dispose;
+      });
+      flush();
+      const go = async (to: string) => {
+        OBSERVE!.attribution.withOrigin({ kind: "navigation", name: to, to }, () =>
+          setLocation(to)
+        );
+        flush();
+        await wait(10);
+        flush();
+        return graphSize().computations;
+      };
+      const after: number[] = [];
+      for (const n of [20, 40, 80]) {
+        await go(`/rows-${n}`);
+        after.push(await go("/small"));
+      }
+      const settles = graphs.filter(g => g.route === "/small");
+      expect(settles.map(g => g.navigation.outcome)).toEqual(["held", "held", "held"]);
+      // The settle sees the graph the route settled into, not the page just left.
+      expect(settles.map(g => g.computations)).toEqual(after);
+      if (leak) {
+        expect(after.map(c => c - after[0])).toEqual([0, 10, 20]);
+        expect(findings).toHaveLength(1);
+        expect(findings[0].data).toMatchObject({ route: "/small" });
+      } else {
+        expect(new Set(after).size).toBe(1);
+        expect(findings).toHaveLength(0);
+      }
+      dispose();
+      for (const d of detached) d();
+      flush();
+    }
+  );
+
   it("`false` disables the check, and without a listener no walk is made", () => {
     const { findings, graphs } = arm(false);
     // No graph listener from here on: drop ours and re-enable without one.
@@ -337,5 +413,224 @@ describe("GRAPH_GROWTH", () => {
     void graphs;
     for (const d of leaked) d();
     dispose();
+  });
+
+  /**
+   * The routes of #4007: a memo owns the current page's rows and a render
+   * effect reads them. A, C and D only change how much correctly owned
+   * content each visit has; B, E and F also leave a detached root behind on
+   * every `/rows/:count` visit.
+   */
+  type Variant = "A" | "B" | "C" | "D" | "E" | "F";
+  function visits(variant: Variant) {
+    const leak = variant === "B" || variant === "E" || variant === "F";
+    const leaked: (() => void)[] = [];
+    const [location, setLocation] = createSignal({ rows: false, count: 0 });
+    const [shared] = createSignal(1);
+    const dispose = createRoot(dispose => {
+      const page = createMemo(() => {
+        const current = location();
+        const n = current.count;
+        if (n === 0) return shared;
+        if (current.rows && leak)
+          runWithOwner(null, () =>
+            createRoot(dispose => {
+              leaked.push(dispose);
+              createRenderEffect(shared, () => {});
+            })
+          );
+        const rows = Array.from({ length: n }, () => createMemo(shared));
+        return () => rows.reduce((sum, row) => sum + row(), 0);
+      });
+      createRenderEffect(
+        () => page()(),
+        () => {}
+      );
+      return dispose;
+    });
+    flush();
+    const counts = variant === "F" ? [5, 3, 1] : [1, 3, 5];
+    counts.forEach((n, index) => {
+      OBSERVE!.attribution.withOrigin(
+        { kind: "navigation", name: "/rows/:count", to: `/rows/${n}`, params: { count: `${n}` } },
+        () => setLocation({ rows: true, count: n })
+      );
+      flush();
+      if (variant === "C") return;
+      const other = variant === "D" ? n : variant === "E" ? [101, 51, 1][index] : 0;
+      OBSERVE!.attribution.withOrigin(
+        {
+          kind: "navigation",
+          name: other ? "/other/:count" : "/rest",
+          to: other ? `/other/${other}` : "/rest"
+        },
+        () => setLocation({ rows: false, count: other })
+      );
+      flush();
+    });
+    return () => {
+      dispose();
+      for (const d of leaked) d();
+      flush();
+    };
+  }
+
+  it.each([
+    ["A", "growing content, a fixed route between visits"],
+    ["C", "growing content, consecutive parameter changes"],
+    ["D", "both routes' content grows"]
+  ] as const)(
+    "content that differs per visit but is disposed on leaving does not report (%s: %s)",
+    (variant, _) => {
+      const before = graphSize();
+      const { findings, graphs } = arm();
+      const cleanup = visits(variant);
+      try {
+        // The totals at the arrivals really climb — the page has more rows each time…
+        const rows = graphs.filter(g => g.route === "/rows/:count").map(g => g.owners);
+        expect(rows).toHaveLength(3);
+        expect(rows[1]).toBeGreaterThan(rows[0]);
+        expect(rows[2]).toBeGreaterThan(rows[1]);
+        // …but nothing a visit created outlived the navigation away from it.
+        expect(findings).toHaveLength(0);
+      } finally {
+        cleanup();
+      }
+      expect(graphSize()).toEqual(before);
+    }
+  );
+
+  it.each([
+    ["B", "a root per visit", "/rows/:count"],
+    ["E", "a root per visit while the intervening content shrinks", "/rows/:count"],
+    ["F", "a root per visit while its own content shrinks", "/rest"]
+  ] as const)("a root each visit leaves behind still reports (%s: %s)", (variant, _, route) => {
+    const before = graphSize();
+    const { findings } = arm();
+    const cleanup = visits(variant);
+    try {
+      expect(findings).toHaveLength(1);
+      const data = findings[0].data as {
+        route: string;
+        grew: string[];
+        history: GraphSize[];
+        survived: GraphSize[];
+      };
+      expect(data.route).toBe(route);
+      expect(data.grew).toContain("owners");
+      expect(data.survived).toHaveLength(3);
+      // What outlived each navigation climbs by the leaked root (its owner and
+      // its render effect) per visit; the totals include the page too.
+      expect(data.survived.map(s => s.owners - data.survived[0].owners)).toEqual([0, 2, 4]);
+      for (let i = 0; i < 3; i++)
+        expect(data.survived[i].owners).toBeLessThanOrEqual(data.history[i].owners);
+      const series = (of: GraphSize[]) => of.map(s => s.owners).join(" → ");
+      expect(findings[0].message).toContain(
+        `owners ${series(data.survived)} (of ${series(data.history)})`
+      );
+    } finally {
+      cleanup();
+    }
+    expect(graphSize()).toEqual(before);
+  });
+
+  it("a signal kept per visit and read by a long-lived computation reports signals and edges", () => {
+    const before = graphSize();
+    const { findings } = arm();
+    const [location, setLocation] = createSignal("/");
+    // The mistake: a module-level list each visit appends a signal to, read by
+    // a computation that lives as long as the app.
+    const kept: Accessor<number>[] = [];
+    const dispose = createRoot(dispose => {
+      const page = createMemo(() => {
+        const route = location();
+        if (route === "/orders") {
+          const [selection] = createSignal(0);
+          kept.push(selection);
+        }
+        return route;
+      });
+      createRenderEffect(
+        () => (page(), kept.reduce((sum, s) => sum + s(), 0)),
+        () => {}
+      );
+      return dispose;
+    });
+    flush();
+    try {
+      for (let i = 0; i < 3; i++) {
+        navigate(setLocation, "/orders");
+        navigate(setLocation, "/home");
+      }
+      expect(findings).toHaveLength(1);
+      const data = findings[0].data as { route: string; grew: string[]; survived: GraphSize[] };
+      expect(data.route).toBe("/orders");
+      expect(data.grew).toEqual(["signals", "edges"]);
+      expect(data.survived.map(s => s.signals - data.survived[0].signals)).toEqual([0, 1, 2]);
+      expect(data.survived.map(s => s.edges - data.survived[0].edges)).toEqual([0, 1, 2]);
+    } finally {
+      dispose();
+      flush();
+    }
+    expect(graphSize()).toEqual(before);
+  });
+
+  it("a page kept across navigations within its route, growing a row per query, does not report", () => {
+    const before = graphSize();
+    const { findings, graphs } = arm();
+    const [location, setLocation] = createSignal({ route: "/", q: "" });
+    const [shared] = createSignal(1);
+    const dispose = createRoot(dispose => {
+      const route = createMemo(() => location().route);
+      const query = createMemo(() => location().q);
+      // Keyed on the route pattern: a query change keeps the page.
+      const page = createMemo(() => {
+        if (route() !== "/search") return () => 0;
+        const owner = getOwner() as Owner;
+        const rows: Accessor<number>[] = [];
+        // Each query asked adds a row the page owns until it leaves.
+        createRenderEffect(
+          () => {
+            query();
+            untrack(() => runWithOwner(owner, () => rows.push(createMemo(shared))));
+          },
+          () => {}
+        );
+        return () => rows.reduce((sum, row) => sum + row(), 0);
+      });
+      createRenderEffect(
+        () => page()(),
+        () => {}
+      );
+      return dispose;
+    });
+    flush();
+    const go = (route: string, q = "") => {
+      OBSERVE!.attribution.withOrigin(
+        { kind: "navigation", name: route, to: q ? `${route}?q=${q}` : route },
+        () => setLocation({ route, q })
+      );
+      flush();
+    };
+    try {
+      go("/home");
+      for (const q of ["a", "b", "c", "d"]) go("/search", q);
+      const totals = graphs.filter(g => g.route === "/search").map(g => g.owners);
+      // The page grows on every query: the totals alone read that as a leak.
+      expect(totals).toHaveLength(4);
+      for (let i = 1; i < totals.length; i++) expect(totals[i]).toBeGreaterThan(totals[i - 1]);
+      // Navigations within the route continue the visit: the page they kept
+      // outlived each of them by design, so they are not compared.
+      expect(findings).toHaveLength(0);
+      // Leaving disposes the page with every row it kept; coming back starts over.
+      go("/home");
+      go("/search", "e");
+      expect(graphs[graphs.length - 1].owners).toBe(totals[0]);
+      expect(findings).toHaveLength(0);
+    } finally {
+      dispose();
+      flush();
+    }
+    expect(graphSize()).toEqual(before);
   });
 });

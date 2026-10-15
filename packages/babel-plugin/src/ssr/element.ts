@@ -2,7 +2,7 @@ import * as babelTypes from "@babel/types";
 
 const t = babelTypes;
 import { decode } from "html-entities";
-import { ChildProperties, VoidElements } from "../../../web/src/constants.js";
+import { ChildProperties, LinkAttributes, VoidElements } from "../../../web/src/constants.js";
 import {
   evaluateAndInline,
   getTagName,
@@ -25,7 +25,7 @@ import {
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
 import { decodedAttrValue } from "../universal/element";
-import { createTemplate, registerSkip } from "./template";
+import { createTemplate, linkAttrsKey, registerLinkAttrs, registerSkip } from "./template";
 import { markPropsLiteral } from "./props";
 import type {
   BabelPath,
@@ -534,6 +534,93 @@ function normalizeAttributes(path: BabelPath<babelTypes.JSXElement>): JSXAttribu
   return attributes;
 }
 
+/**
+ * The compile-time value of a JSX attribute, as the SSR static branch sees
+ * it: `null` for a bare attribute (`<a link>`), the literal for a string /
+ * number / boolean (quoted or in a container), `undefined` when the value is
+ * an expression the compiler cannot see through (dynamic, or an empty
+ * container the attribute drops out for).
+ */
+function staticAttributeValue(
+  value: babelTypes.JSXAttribute["value"]
+): string | number | boolean | null | undefined {
+  if (value == null) return null;
+  if (t.isStringLiteral(value)) return value.value;
+  if (!t.isJSXExpressionContainer(value)) return undefined;
+  const expression = value.expression;
+  if (t.isStringLiteral(expression) || t.isNumericLiteral(expression)) return expression.value;
+  if (t.isBooleanLiteral(expression)) return expression.value;
+  return undefined;
+}
+
+// A URL scheme at the start of an href. `http:`/`https:` (and a
+// protocol-relative `//host`) may still be this origin — only the handler,
+// which knows the request, can say — so only another scheme rules an
+// anchor out at compile time.
+const HREF_SCHEME = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
+
+/**
+ * Whether an anchor (the template path's, no spread) gets the `ssrLinkClaim`
+ * hole (solidjs/solid#3878): it has an `href`, and nothing the compiler can
+ * see rules it out as the current page — the anchors a link handler would
+ * answer `""` for however the request looks. A static non-empty `target`,
+ * a `download`, a `rel` naming `external`, an author-written `aria-current`
+ * (hers to keep), an empty href or one with a non-HTTP scheme (`mailto:`,
+ * `tel:`, `javascript:` …) get no hole and no per-render call; a dynamic
+ * value in any of these positions is the handler's to judge at runtime.
+ * Mirrors the DOM transform's `isClaimTarget` (`a[href]`), narrowed.
+ */
+function isLinkClaimCandidate(attributes: JSXAttributePath[]): boolean {
+  let href = false;
+  for (const attribute of attributes) {
+    const node = attribute.node;
+    if (!t.isJSXAttribute(node) || !t.isJSXIdentifier(node.name)) continue;
+    const key = node.name.name;
+    if (!LinkAttributes.has(key)) continue;
+    if (t.isJSXExpressionContainer(node.value) && t.isJSXEmptyExpression(node.value.expression))
+      continue;
+    const value = staticAttributeValue(node.value);
+    if (key === "href") {
+      if (value === false) continue;
+      href = true;
+      if (value === undefined) continue;
+      // bare `href`, `href=""`, `href={true}`: an empty href is no link
+      if (value === null || value === true || value === "") return false;
+      const scheme = typeof value === "string" ? HREF_SCHEME.exec(value) : null;
+      if (scheme && scheme[1].toLowerCase() !== "http" && scheme[1].toLowerCase() !== "https")
+        return false;
+      continue;
+    }
+    // A dynamic value is the handler's to judge; `={false}` omits the attribute.
+    if (value === undefined || value === false) continue;
+    switch (key) {
+      case "target":
+        // A bare `target`, `target=""` or `target={true}` is the empty
+        // target — still a link.
+        if (value !== null && value !== true && value !== "") return false;
+        break;
+      case "rel":
+        if (typeof value === "string" && value.split(/\s+/).includes("external")) return false;
+        break;
+      case "download":
+      case "aria-current":
+        // Present in any form: a download, or the author's own current marker.
+        return false;
+      // `link`: the explicit-links opt-in marker — the handler reads it.
+    }
+  }
+  return href;
+}
+
+/**
+ * The attribute entries of a candidate anchor's `ssrLinkClaim` hole,
+ * collected by `transformAttributes` as it writes each attribute: a static
+ * value as the string it serializes to, a dynamic value as the function-local
+ * temp its attribute hole assigns (`_lv$N`), flagged when that hole is a
+ * thunk (`isDynamic`) so the link hole is one too and reads the temp after it.
+ */
+type LinkClaimEntry = [key: string, value: string | babelTypes.Identifier, dynamic: boolean];
+
 function transformAttributes(
   path: BabelPath<babelTypes.JSXElement> & { doNotEscape?: boolean },
   results: SSRTransformResult,
@@ -544,6 +631,16 @@ function transformAttributes(
   const hasChildren = path.node.children.length > 0,
     attributes = normalizeAttributes(path);
   let children: babelTypes.JSXExpressionContainer | undefined;
+  // Link claims (solidjs/solid#3878): a candidate anchor gets one hole after
+  // its attributes — `ssrLinkClaim(attrs)` — where a render's link handler
+  // writes the anchor's link state (`aria-current="page"`, `data-active`)
+  // into the server HTML, and `""` otherwise. `attrs` is the anchor's
+  // link-relevant attributes: a static anchor's are a hoisted object, so the
+  // hole is one eager call with no allocation per render; a dynamic one's
+  // join the element's attribute group and reuse the values its attribute
+  // holes evaluated. The hole never takes a hydration id.
+  const linkEntries: LinkClaimEntry[] | null =
+    tagName === "a" && isLinkClaimCandidate(attributes) ? [] : null;
   // Server-components handler positions: ref/on* expressions on
   // server-rendered intrinsics collect here and emit as one guarded
   // whole-attribute hole after the loop, where `ssrClaim` turns attribute-slot
@@ -629,6 +726,22 @@ function transformAttributes(
           checkMember: true,
           checkTags: true
         });
+        // A candidate anchor's dynamic link attribute: the hole evaluates the
+        // raw value ONCE into a function-local temp (`_$escape(_lv$ = expr,
+        // true)`) that the link hole reads after it — the handler sees the
+        // value as written, not attribute-escaped. A template literal keeps
+        // its inline-quoted slot: the whole value is escaped at runtime
+        // instead of its parts, the same bytes (escaping is per character),
+        // and a template literal is never nullish.
+        let linkTemplate = false;
+        if (linkEntries !== null && LinkAttributes.has(key)) {
+          const expression = value.expression as babelTypes.Expression;
+          linkTemplate = t.isTemplateLiteral(expression);
+          const temp = path.scope.generateUidIdentifier("lv$");
+          path.scope.push({ id: temp, kind: "var" });
+          value.expression = t.assignmentExpression("=", temp, expression);
+          linkEntries.push([key, t.cloneNode(temp), !!isDynamicValue]);
+        }
         // Server components (principles §9.2.3) need a whole-attribute
         // serializer that can emit a position marker for a binding-slot
         // value. The ordinary class/style serializers cannot bind slots.
@@ -770,7 +883,7 @@ function transformAttributes(
           ) as babelTypes.Expression;
         const expression = value.expression as babelTypes.Expression;
 
-        if (!(doEscape || isBoolean) || t.isLiteral(expression)) {
+        if (!(doEscape || isBoolean) || t.isLiteral(expression) || linkTemplate) {
           if (isBoolean) {
             t.isBooleanLiteral(expression) &&
               expression.value === true &&
@@ -799,6 +912,16 @@ function transformAttributes(
       const isBoolean = !!booleanLiteral;
       if (booleanLiteral && !booleanLiteral.value) return;
       appendToTemplate(results.template, ` ${key}`);
+      // A candidate anchor's static link attribute travels as the string the
+      // attribute carries: a bare attribute's is `""`.
+      if (linkEntries !== null && LinkAttributes.has(key))
+        linkEntries.push([
+          key,
+          !staticValue || isBoolean
+            ? ""
+            : String((staticValue as babelTypes.StringLiteral | babelTypes.NumericLiteral).value),
+          false
+        ]);
       if (!staticValue) return;
       let text = isBoolean
         ? ""
@@ -817,24 +940,57 @@ function transformAttributes(
       );
     }
   });
+  if (linkEntries !== null) {
+    const ssrLinkClaim = registerImportMethod(path, "ssrLinkClaim");
+    let hole: babelTypes.Expression;
+    if (linkEntries.every(([, value]) => typeof value === "string")) {
+      // Every link attribute static: `_$ssrLinkClaim(_lk$N)` over the hoisted
+      // object, evaluated in argument position like a hydration key.
+      hole = t.callExpression(ssrLinkClaim, [
+        registerLinkAttrs(
+          path,
+          linkEntries.map(([key, value]) => [key, value as string])
+        )
+      ]);
+    } else {
+      // `_$ssrLinkClaim({ href: _lv$, rel: "noopener" })`, built per render.
+      // A thunk when any captured attribute hole is one — it must run after
+      // them — and groupable, so it joins the element's attribute group.
+      hole = t.callExpression(ssrLinkClaim, [
+        t.objectExpression(
+          linkEntries.map(([key, value]) =>
+            t.objectProperty(
+              linkAttrsKey(key),
+              typeof value === "string" ? t.stringLiteral(value) : value
+            )
+          )
+        )
+      ]);
+      if (linkEntries.some(([, , dynamic]) => dynamic))
+        hole = hoistExpression(path, results, t.arrowFunctionExpression([], hole), {
+          group: true
+        });
+    }
+    results.template.push("");
+    results.templateValues.push(hole);
+  }
   if (claims.length) {
+    // A ref that calls something runs ungated, as plain SSR's `_ref$ = expr`
+    // does: outside a server component's render the element hydrates, and a
+    // ref factory's owned setup must run on both sides (#4081).
+    const refs = claims
+      .filter(([pos, expr]) => pos === "ref" && callsOutsideFunctions(expr))
+      .map(([, expr]) => t.cloneNode(expr, true));
     const map = claimMap(claims);
     // `_$sharedConfig.context && _$sharedConfig.context.claims
     //    ? _$ssrClaim({...}) : ""`
     // — the claims flag is only set inside a server component's render
     // scope (and cleared inside suppressed fill windows), so ordinary SSR
-    // pays the property reads and never evaluates the expressions.
-    const sharedConfigId = registerImportMethod(path, "sharedConfig");
-    const contextRead = () =>
-      t.memberExpression(t.cloneNode(sharedConfigId), t.identifier("context"));
+    // pays the property reads and never evaluates the handler expressions.
     const guarded = t.conditionalExpression(
-      t.logicalExpression(
-        "&&",
-        contextRead(),
-        t.memberExpression(contextRead(), t.identifier("claims"))
-      ),
+      claimsArmed(path),
       t.callExpression(registerImportMethod(path, "ssrClaim"), [map]),
-      t.stringLiteral("")
+      refs.length ? t.sequenceExpression([...refs, t.stringLiteral("")]) : t.stringLiteral("")
     );
     results.template.push("");
     results.templateValues.push(hoistExpression(path, results, guarded));
@@ -1052,6 +1208,40 @@ function createElement(
   // keys.
   const tail: Array<string | babelTypes.Expression> = [];
   const skipKeys: string[] = [];
+  // Plain SSR evaluates a named `ref` expression without calling the ref, as
+  // the template path does (`_ref$ = expr`), so a ref factory's owned setup
+  // (`ref={tooltip()}`) runs on both sides and the hydration ids after it
+  // line up (#4081). The client evaluates it after applying the spread and
+  // before the children; `ssrElement` calls the `attrs` thunk at that point.
+  // Only an expression that calls something can run setup: `ref={el}` and
+  // `ref={props.ref}` stay out of the thunk.
+  // Under `serverComponents` the ref is also a claim, evaluated by the
+  // claim thunk inside a server component's render, so the thunk skips it
+  // there: `ctx && ctx.claims || ref`.
+  const refs: babelTypes.Expression[] = [];
+  for (const attribute of attributes) {
+    const node = attribute.node;
+    if (
+      t.isJSXAttribute(node) &&
+      t.isJSXIdentifier(node.name, { name: "ref" }) &&
+      t.isJSXExpressionContainer(node.value) &&
+      !t.isJSXEmptyExpression(node.value.expression) &&
+      callsOutsideFunctions(node.value.expression)
+    )
+      refs.push(
+        serverComponents ? t.cloneNode(node.value.expression, true) : node.value.expression
+      );
+  }
+  if (serverComponents && refs.length)
+    refs.splice(
+      0,
+      refs.length,
+      t.logicalExpression(
+        "||",
+        claimsArmed(path),
+        refs.length > 1 ? t.sequenceExpression(refs) : refs[0]
+      )
+    );
   if (
     propAttributes.length === 1 &&
     t.isJSXSpreadAttribute(propAttributes[0].node) &&
@@ -1127,7 +1317,11 @@ function createElement(
           return;
         }
         if (key.startsWith("prop:")) return;
-        if (i > lastSpread) {
+        // An anchor's link-relevant attributes stay a source, never baked
+        // markup: `ssrElement` collects them from the walk for the render's
+        // link handler (solidjs/solid#3878), and a baked tail is invisible to
+        // it.
+        if (i > lastSpread && !(tagName === "a" && LinkAttributes.has(key))) {
           const part = tailAttribute(path, tagName, key, node);
           if (part !== undefined) {
             if (typeof part === "string" && typeof tail[tail.length - 1] === "string")
@@ -1190,25 +1384,73 @@ function createElement(
   // set) and attribute string — a literal when every part is static, else a
   // thunk concatenating the parts in source order. A `false` static bakes to
   // no markup but still skips its key.
-  if (skipKeys.length) {
+  if (skipKeys.length || refs.length) {
     let markup: babelTypes.Expression;
-    if (tail.every(part => typeof part === "string")) markup = t.stringLiteral(tail.join(""));
-    else {
+    if (tail.every(part => typeof part === "string")) {
+      markup = t.stringLiteral(tail.join(""));
+      // The refs run after the tail's (static) markup and return it.
+      if (refs.length)
+        markup = t.arrowFunctionExpression([], t.sequenceExpression([...refs, markup]));
+    } else {
       let concat: babelTypes.Expression | undefined;
       for (const part of tail) {
         const expr = typeof part === "string" ? t.stringLiteral(part) : part;
         concat = concat ? t.binaryExpression("+", concat, expr) : expr;
       }
+      // The tail's getters run first, as the client applies them with the
+      // spread before it evaluates the ref: `markup + (ref, "")`.
+      if (refs.length)
+        concat = t.binaryExpression(
+          "+",
+          concat!,
+          t.sequenceExpression([...refs, t.stringLiteral("")])
+        );
       markup = t.arrowFunctionExpression([], concat!);
     }
-    args.push(registerSkip(path, skipKeys), markup);
+    args.push(skipKeys.length ? registerSkip(path, skipKeys) : t.identifier("undefined"), markup);
   }
   if (claims.length) {
-    if (!skipKeys.length) args.push(t.identifier("undefined"), t.identifier("undefined"));
+    if (!skipKeys.length && !refs.length)
+      args.push(t.identifier("undefined"), t.identifier("undefined"));
     args.push(t.arrowFunctionExpression([], claimSegments(claims)));
   }
   const exprs = [t.callExpression(registerImportMethod(path, "ssrElement"), args)];
   return { exprs, template: "", declarations: [], dynamics: [], spreadElement: true };
+}
+
+/**
+ * `_$sharedConfig.context && _$sharedConfig.context.claims`: true only inside
+ * a server component's render, where `ssrClaim` evaluates the element's
+ * handler positions.
+ */
+function claimsArmed(path: BabelPath): babelTypes.Expression {
+  const sharedConfigId = registerImportMethod(path, "sharedConfig");
+  const contextRead = () =>
+    t.memberExpression(t.cloneNode(sharedConfigId), t.identifier("context"));
+  return t.logicalExpression(
+    "&&",
+    contextRead(),
+    t.memberExpression(contextRead(), t.identifier("claims"))
+  );
+}
+
+/** Does evaluating `node` call anything? A function's body does not run. */
+function callsOutsideFunctions(node: babelTypes.Node): boolean {
+  if (
+    t.isCallExpression(node) ||
+    t.isOptionalCallExpression(node) ||
+    t.isNewExpression(node) ||
+    t.isTaggedTemplateExpression(node)
+  )
+    return true;
+  if (t.isFunction(node)) return false;
+  for (const key of t.VISITOR_KEYS[node.type] ?? []) {
+    const child = (node as any)[key];
+    if (Array.isArray(child)) {
+      for (const c of child) if (c && callsOutsideFunctions(c)) return true;
+    } else if (child && typeof child.type === "string" && callsOutsideFunctions(child)) return true;
+  }
+  return false;
 }
 
 /**

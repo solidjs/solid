@@ -11,6 +11,21 @@
 // tree-shaking regressed (or a deliberate feature landed — bump the limit in
 // the same PR and say why).
 //
+// Minified allowance (2026-10-05): a PR fails a scenario only when it is over
+// its brotli limit AND grew more than gate.mjs's MINIFIED_ALLOWANCE (20 B)
+// minified over its base; over the limit within the allowance is brotli
+// layout noise and passes with a warning. An optional `minifiedAllowance`
+// overrides it per scenario. Limits are lowered (never raised) per RC by
+// ratchet.mjs, which writes a dated `Ratchet` line above each one it moves.
+//
+// Recorded minified (2026-10-06): `capMinified` (floor-caps.json's
+// `minified` for the floors) is the minified size measured when the limit
+// was set; the allowance is measured against it rather than per PR, so
+// growth cannot creep across PRs. Set it with the limit, from the same CI
+// measurement. Seeded for every scenario from CI on next @ fff1615ee (Size run
+// 37443080193), limits unchanged; the base comparison is the fail-safe for a
+// limit without one.
+//
 // Bundler switch (2026-09-26): the harness measured with esbuild through
 // size-limit until this date; it now measures with Rolldown, the bundler Vite
 // ships, pinned exactly in package.json. Every cap was re-based on that day
@@ -37,7 +52,15 @@ const alias = {
 // without a `Size-Exception:` line in its body. Lowering is always allowed.
 // The dated notes on each scenario below remain the ledger of how the
 // floor got here.
-const floorCaps = require("./floor-caps.json");
+// Each entry is { cap, minified }: the brotli cap and the minified size
+// measured when it was set (the gate measures minified growth against it).
+const floorFile = require("./floor-caps.json");
+const floorCaps = Object.fromEntries(
+  Object.entries(floorFile).map(([name, e]) => [name, typeof e === "string" ? e : e.cap])
+);
+const floorMinified = Object.fromEntries(
+  Object.entries(floorFile).map(([name, e]) => [name, e.minified])
+);
 
 // Server-component PAGES (audit §1): everything such a page ships eagerly,
 // nothing external — the frames client and the server-function transport
@@ -46,9 +69,33 @@ const floorCaps = require("./floor-caps.json");
 // Rolldown splits it the same way, so it shows up in the report as a lazy
 // chunk at its true size and stays out of the cap. (Under size-limit the
 // specifiers resolved to a stub because esbuild did not split there.) The
-// "frames: eager client consumer" scenario measures the package; these
-// measure the page. Subpath aliases first (see above).
+// frames client's TRACES TIER (`@solidjs/web/frames/trace` — plan step C3,
+// 2026-10-06: solid's container-trace materializer, reached through its own
+// `solid-js/internal/container-trace` entry, plus the plugin's client half;
+// the store engine's one edge into these pages) is its second dynamic import
+// and reports the same way: `trace.js` is the tier + the engine, lazy, not
+// counted; its REGIONS TIER (`@solidjs/web/frames/regions` — plan step C4,
+// 2026-10-06: nested server-content regions) is the third, `regions.js`,
+// and its ASSETS TIER (`@solidjs/web/frames/assets` — plan step C5,
+// 2026-10-06: the stylesheet gate, module / typed preloads, inline styles)
+// the fourth, `assets.js`, and its BIND TIER (`@solidjs/web/frames/bind` —
+// plan step C6, 2026-10-06: binding-slot positions, `assign` with them)
+// the fifth, `bind.js`, and its LIVE WIRE TIER (`@solidjs/web/frames/wire`
+// — plan step C2, 2026-10-06: a `live()` loop's connection — join / open /
+// supersede, the SSE reader, the lifetime told to the loop, the have-list
+// ledger and the resume request) the sixth, `wire.js` — each lazy, not
+// counted. The "frames: eager client consumer" scenario measures the
+// package; these measure the page.
+// Subpath aliases first (see above) — the tier specifiers before
+// `@solidjs/web/frames` and `solid-js/internal`, which would otherwise
+// swallow them.
 const pageAlias = {
+  "@solidjs/web/frames/trace": "../../packages/web/frames/dist/trace.js",
+  "@solidjs/web/frames/regions": "../../packages/web/frames/dist/regions.js",
+  "@solidjs/web/frames/assets": "../../packages/web/frames/dist/assets.js",
+  "@solidjs/web/frames/bind": "../../packages/web/frames/dist/bind.js",
+  "@solidjs/web/frames/wire": "../../packages/web/frames/dist/wire.js",
+  "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/server-functions": "../../packages/web/server-functions/dist/client.js",
   "@solidjs/web/frames": "../../packages/web/frames/dist/client.js",
@@ -56,6 +103,22 @@ const pageAlias = {
   "@solidjs/web/serialization": "../../packages/web/serialization/dist/serialization.js",
   ...alias
 };
+
+// The `solid` export condition (2026-10-08): how a Vite application resolves
+// `@solidjs/router` — @solidjs/vite-plugin puts `solid` ahead of the client
+// defaults (`['solid', ...defaultClientConditions]`), so the router's
+// `exports["."]` selects `dist/index.jsx` and its per-module output (two of
+// them JSX, compiled by the app's compiler — here the measured checkout's,
+// hydratable, through the scenario's `compile`) instead of the flat
+// `default` build, `dist/index.js`. The flat build is rolled up with
+// `inlineDynamicImports`, which turns `data/events`' lazy
+// `import("./serverForms.js")` — the server-form fallback — into a static
+// edge to `data/action`, `data/query`, signals' `action` and the flight
+// consumer; a Vite app ships that as a lazy chunk. Rolldown's own browser set
+// is `["import", "browser", "default"]`; `conditions` replaces it, so the set
+// is spelled out with `solid` first. Only the router has a `solid` condition
+// in these graphs — seroval and everything else resolve as before.
+const solidConditions = ["solid", "import", "browser", "default"];
 
 // Observe tier (documentation/plans/observe-tier-plan.md): the artifacts the
 // `observe` export condition selects — wiring kept (attribution hook sites,
@@ -88,6 +151,17 @@ const framesAlias = {
 const framesExternal = [
   "solid-js",
   "solid-js/internal",
+  // The traces tier: lazily imported by the frames client (plan step C3,
+  // 2026-10-06) — external like the codec, so this scenario keeps measuring
+  // the eager graph alone; its own `solid-js` entry rides with it. The
+  // regions tier (C4), the assets tier (C5), the bind tier (C6) and the live
+  // wire tier (C2) likewise.
+  "solid-js/internal/container-trace",
+  "@solidjs/web/frames/trace",
+  "@solidjs/web/frames/regions",
+  "@solidjs/web/frames/assets",
+  "@solidjs/web/frames/bind",
+  "@solidjs/web/frames/wire",
   "@solidjs/web",
   "@solidjs/web/serialization",
   "@solidjs/web/serialization/decode"
@@ -469,7 +543,57 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 7.35 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 7.35 KB, recorded minified 20,133 B (first record);
+    // CI-measured at 7,361 B (20,133 B minified). Lower only: cap at measured +
+    // 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 7.35 KB -> 7.40 KB (floor-caps.json), measured at 7,384 B
+    // by CI (Size run 37642512669) against `next` @ 53ef0e69e's 7,374 (+10 B;
+    // 34 B over the cap; +34 B minified, 20,144 -> 20,178; recorded 20,133 ->
+    // 20,178) — the signals core: a first pass seated in its creator's guess
+    // lane, the verdict-lane filter, lane work over a pending flight entering
+    // (#3843), a verdict lane's mount born held for a staged read, and
+    // verdict-lane stagedReaders. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen again
+    // at 7.40 KB.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 7.40 KB -> 7.45 KB (floor-caps.json),
+    // measured at 7,432 B by CI (Size run 37684843282) against `next` @
+    // dafad1db3's 7,382 (+50 B; 32 B over the cap; +139 B minified, 20,177 ->
+    // 20,316; recorded 20,178 -> 20,316) — the signals core: a pending first
+    // pass records the transaction it was born into (`_bornIn`), and its first
+    // landing stages into it while it is live (`liveTx`, `holdNode`). Cap set
+    // at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-07 on the condition hello world stays under 10 KB. The cap is
+    // frozen again at 7.45 KB.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 7.45 KB -> 7.48 KB (floor-caps.json),
+    // measured at 7,468 B against `next` @ be845cb9's 7,443 (+25 B; 18 B over
+    // the cap; +89 B minified; recorded 20,316 -> 20,436) — the signals core:
+    // `holdFrame` tags a held frame's members (CONFIG_HELD_FRAME) so
+    // `recompute`, `frameRead` and `stagedScreen` serve them their transaction
+    // instead of the committed screen. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-13; hello world stays under
+    // 10 KB at 9,966 B. The cap is frozen again at 7.48 KB.
+    // Size-Exception (createDeferred, D-40, #4067, 2026-10-14): 7.48 -> 7.50 KB (floor-caps.json)
+    // (20,436 -> 20,469 B minified), measured at 7,481 B against `next`
+    // @ 0109a56 — +14 B minified: the D11 check in `recompute`'s held-node
+    // arm (a held deferred re-pass joins nothing, 12 B) and the
+    // `REACTIVE_REASK` mask (2 B); `next` already sat 18-19 B over the
+    // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-14. The cap is frozen
+    // again at 7.50 KB.
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 7.50 -> 7.67 KB, measured locally at 7656 B against `next` @
+    // 4a1ed17's 7484 (+172 B; +437 B minified, 20469 ->
+    // 20906) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
+    capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
   },
   {
@@ -887,7 +1011,72 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 14.56 KB.
-    limit: "14.56 KB",
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 14.56 KB, recorded minified 44,396 B (first record);
+    // CI-measured at 14,540 B (44,396 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 14.56 KB -> 14.62 KB, measured at 14,606 B by CI (Size run
+    // 37642512669) against `next` @ 53ef0e69e's 14,603 (+3 B; 46 B over the
+    // cap; +32 B minified, 44,407 -> 44,439; recorded 44,396 -> 44,439) — the
+    // signals core: a first pass seated in its creator's guess lane, the
+    // verdict-lane filter, lane work over a pending flight entering (#3843), a
+    // verdict lane's mount born held for a staged read, and verdict-lane
+    // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 14.62 KB -> 14.68 KB, measured at
+    // 14,667 B by CI (Size run 37684843282) against `next` @ dafad1db3's 14,603
+    // (+64 B; 47 B over the cap; +145 B minified, 44,437 -> 44,582; recorded
+    // 44,439 -> 44,582) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // Size-Exception (an optimistic view reads a property its inner store
+    // removed as undefined, #3883, 2026-10-07): 14.68 KB -> 14.70 KB, measured
+    // at 14,687 B by CI (Size run 37704068417) against `next` @ 3086f1b77's
+    // 14,671 (+16 B; 7 B over the cap; +40 B minified, 44,597 -> 44,637;
+    // recorded 44,582 -> 44,637) — the store `get` trap: an absent key on a
+    // chained target reads through to the inner store (`serveDataKey`). Cap
+    // set at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-07: store scenarios only, hello world unchanged.
+    // #3884 (2026-10-08): measured at 14,707 B brotli / 44,669 B minified by CI
+    // (Size run 37873447222). Cap set to that brotli size, rounded up to 0.01 KB.
+    // Size-Exception (a row first read under a held adoption is paired with
+    // its old row, #3712, 2026-10-12): 14.71 KB -> 14.89 KB, measured locally
+    // at 14,879 B against `next` @ 49a765cc's 14,702 (+177 B; +584 B minified,
+    // 44,692 -> 45,276) — `adoptChild` and the shared `sameRow` predicate on
+    // the held read path, the per-frame raw sets that keep a swapped raw its
+    // own row, and the derived store's family recording its row key. The
+    // hold's unit goes from the key to the leaf; the end of the
+    // container -> key -> leaf series. Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-12.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 14.89 -> 14.94 KB, measured at 14,927 B
+    // against `next` @ be845cb9's 14,879 (+48 B; 37 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    // Size-Exception (createDeferred, D-40, 2026-10-15): 14.94 -> 15.00 KB,
+    // measured at 14,989 B with `next` @ b2c6e4ba merged in (45,365 ->
+    // 45,395 B minified). #4067's +17 B store share (the D11 check in
+    // `recompute`, the REACTIVE_REASK mask, the projection `fam` hook) plus
+    // #4073's seedless derived stores, each inside the 20 B allowance
+    // alone, together pass it. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-14).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 15.00 -> 15.16 KB, measured locally at 15146 B against `next` @
+    // 4a1ed17's 14993 (+153 B; +442 B minified, 45401 ->
+    // 45843) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "15.16 KB",
+    capMinified: 45843,
     alias
   },
   {
@@ -1128,8 +1317,85 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 9.49 KB.
-    limit: "9.49 KB",
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 9.49 KB, recorded minified 26,828 B (first record);
+    // CI-measured at 9,513 B (26,828 B minified). Lower only: cap at measured +
+    // 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (L2 fuzz regressions under existing rules, #3853,
+    // 2026-10-07): 9.49 -> 9.58 KB, measured at 9,561 B by CI (Size run
+    // 37596666473) against `next` @ 721eb0676's 9,521 (+40 B; 71 B over the
+    // cap; +120 B minified, 26,842 -> 26,962; recorded 26,828 -> 26,962) —
+    // the pending-seat check in laneStage's leaf branch (+83), the
+    // observeFlight guard for a flight committed beneath published inputs
+    // (+21), the landing's pending-derivation mark (+9) and the correction's
+    // drop of parked runs (+7). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 9.58 KB -> 9.65 KB, measured at 9,634
+    // B by CI (Size run 37684843282) against `next` @ dafad1db3's 9,570 (+64 B;
+    // 54 B over the cap; +135 B minified, 27,020 -> 27,155; recorded 26,962 ->
+    // 27,155) — the signals core: a pending first pass records the transaction
+    // it was born into (`_bornIn`), and its first landing stages into it while
+    // it is live (`liveTx`, `holdNode`). Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-07 on the condition hello
+    // world stays under 10 KB.
+    // #3892 (2026-10-08): measured at 9,672 B brotli / 27,234 B minified by CI
+    // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3898 stacks on this; its combined size is remeasured before merge.
+    // #3898 stacked on next (2026-10-08): measured at 9,727 B brotli / 27,398 B minified
+    // by CI (Size run 37877131816). Cap set to that brotli size, rounded up to 0.01 KB.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 9.73 -> 9.77 KB, measured at 9,753 B
+    // against `next` @ be845cb9's 9,706 (+47 B; 23 B over the cap; +121 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    // Size-Exception (createDeferred, D-40, #4067, 2026-10-14): 9.77 -> 9.79 KB
+    // (27,447 -> 27,480 B minified), measured at 9,773 B against `next`
+    // @ 0109a56 — +14 B minified: the D11 check in `recompute`'s held-node
+    // arm (a held deferred re-pass joins nothing, 12 B) and the
+    // `REACTIVE_REASK` mask (2 B); `next` already sat 18-19 B over the
+    // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-14.
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 9.79 -> 9.98 KB, measured locally at 9968 B against `next` @
+    // 4a1ed17's 9781 (+187 B; +507 B minified, 27480 ->
+    // 27987) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "9.98 KB",
+    capMinified: 27987,
     alias
+  },
+  {
+    name: "signals: + until/refresh (truth readers, no optimism)",
+    path: "../../packages/signals/dist/prod/index.js",
+    import: "{ createSignal, createMemo, createEffect, createRoot, flush, until, refresh }",
+    // The truth readers must not retain the lane engine: until()/refresh()
+    // read lane nodes only through `laneRead`, which exists once something
+    // installs lanes (createOptimistic, verdicts). Before core/truth.ts split
+    // the truth helpers out of lanes.ts, this bundle carried all of lanes.js
+    // (+4.8 KB minified / +1.6 KB brotli over the core floor). Measured at
+    // 8.056 KB, minified 22195.
+    // Ratchet up (2026-10-15, merged with next @ b8617ecd): 8.07 -> 8.11 KB
+    // (22,195 -> 22,255 B minified), measured at 8,095 B. createDeferred
+    // (#4067) grew the signals core this bundle shares (+60 B minified); no
+    // lane code came back. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-15, "Ratchet up").
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 8.11 -> 8.29 KB, measured locally at 8279 B against `next` @
+    // 4a1ed17's 8095 (+184 B; +461 B minified, 22255 ->
+    // 22716) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "8.29 KB",
+    capMinified: 22716
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -1318,7 +1584,63 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 9.86 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 9.86 KB, recorded minified 27,687 B (first record);
+    // CI-measured at 9,856 B (27,687 B minified). Lower only: cap at measured +
+    // 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 9.86 KB -> 9.88 KB (floor-caps.json), measured at 9,867 B
+    // by CI (Size run 37642512669) against `next` @ 53ef0e69e's 9,884 (-17 B;
+    // 7 B over the cap; +33 B minified, 27,698 -> 27,731; recorded 27,687 ->
+    // 27,731) — the signals core: a first pass seated in its creator's guess
+    // lane, the verdict-lane filter, lane work over a pending flight entering
+    // (#3843), a verdict lane's mount born held for a staged read, and
+    // verdict-lane stagedReaders. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen again
+    // at 9.88 KB.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 9.88 KB -> 9.93 KB (floor-caps.json),
+    // measured at 9,914 B by CI (Size run 37684843282) against `next` @
+    // dafad1db3's 9,878 (+36 B; 34 B over the cap; +142 B minified, 27,730 ->
+    // 27,872; recorded 27,731 -> 27,872) — the signals core: a pending first
+    // pass records the transaction it was born into (`_bornIn`), and its first
+    // landing stages into it while it is live (`liveTx`, `holdNode`). Cap set
+    // at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-07 on the condition hello world stays under 10 KB. The cap is
+    // frozen again at 9.93 KB.
+    // Size-Exception (#3884, 2026-10-08): 9.93 -> 9.94 KB, measured at 9,936 B
+    // brotli / 27,895 B minified by CI (Size run 37873447222). Cap set to that
+    // brotli size, rounded up to 0.01 KB. Hello world stays under 10 KB.
+    // #3928 (2026-10-09): the select-value retry, including multiple, measured
+    // 9,938 B / 27,891 B on the pre-merge branch and does not move this floor
+    // past #3884's 9.94 KB.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 9.94 KB -> 9.98 KB (floor-caps.json),
+    // measured at 9,966 B against `next` @ be845cb9's 9,919 (+47 B; 26 B over
+    // the cap; +89 B minified; recorded 27,895 -> 27,945) — the signals core:
+    // `holdFrame` tags a held frame's members (CONFIG_HELD_FRAME) so
+    // `recompute`, `frameRead` and `stagedScreen` serve them their transaction
+    // instead of the committed screen. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-13; it stays under 10 KB. The
+    // cap is frozen again at 9.98 KB.
+    // Size-Exception (createDeferred, D-40, #4067, 2026-10-14): 9.98 -> 10.01 KB (floor-caps.json)
+    // (27,945 -> 27,977 B minified), measured at 9,995 B against `next`
+    // @ 0109a56 — +14 B minified: the D11 check in `recompute`'s held-node
+    // arm (a held deferred re-pass joins nothing, 12 B) and the
+    // `REACTIVE_REASK` mask (2 B); `next` already sat 18-19 B over the
+    // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-14. Hello world stays
+    // under 10 KB at 9,995 B. The cap is frozen again at 10.01 KB.
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 10.01 -> 10.17 KB, measured locally at 10155 B against `next` @
+    // 4a1ed17's 9994 (+161 B; +437 B minified, 27977 ->
+    // 28414) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
+    capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
   },
   {
@@ -1639,7 +1961,69 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 17.71 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 17.71 KB, recorded minified 52,567 B (first record);
+    // CI-measured at 17,672 B (52,567 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 17.71 -> 17.73 KB
+    // (floor-caps.json), measured at 17,728 B against `next` @ 49a8dca84's
+    // 17,672 (+56 B; 18 B over the cap; +59 B minified, 52,567 -> 52,626) —
+    // the C3 hold (frames-rulings 3.1, ruled: hydration-done counts the
+    // frames client's holds): `sharedConfig.holdBoundary` in solid-js, one
+    // assignment wrapping initBoundaryResume + checkHydrationComplete. Cap set
+    // at the 0.01 KB step at or below measured + 10 B; recorded minified
+    // 52,626 B. Accepted by the maintainer (2026-10-06, "pay the cost for
+    // correctness"). The cap is frozen again at 17.73 KB.
+    // Size-Exception (frames A0 correctness pass, part 2, #3849, 2026-10-07):
+    // 17.73 -> 17.85 KB (floor-caps.json), measured at 17,840 B by CI (Size
+    // run 37666601776) against `next` @ 3c7631a0e's 17,713 (+127 B; 110 B over
+    // the cap; +168 B minified, 52,673 -> 52,841; recorded 52,626 -> 52,841) —
+    // `sharedConfig.hydrateWindow` in solid-js (A2b, frames-rulings 3.2 "Cost
+    // as landed": the claim window's scope capture for post-done claim
+    // fidelity) and the fragment ownership predicate `_$HY.fa` read by
+    // `fragmentPolicy` (A5′, rulings 3.3 claimant by rendering). Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-06, "I will follow recommendations here"; A5′ within the budget
+    // he set). The cap is frozen again at 17.85 KB.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 17.85 KB -> 17.91 KB
+    // (floor-caps.json), measured at 17,892 B by CI (Size run 37684843282)
+    // against `next` @ dafad1db3's 17,840 (+52 B; 42 B over the cap; +136 B
+    // minified, 52,841 -> 52,977; recorded 52,841 -> 52,977) — the signals
+    // core: a pending first pass records the transaction it was born into
+    // (`_bornIn`), and its first landing stages into it while it is live
+    // (`liveTx`, `holdNode`). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07 on the condition hello world stays
+    // under 10 KB. The cap is frozen again at 17.91 KB.
+    // Size-Exception (#3884, 2026-10-08): 17.91 -> 17.93 KB, measured at 17,922 B
+    // brotli / 52,998 B minified by CI (Size run 37873447222). Cap set to that
+    // brotli size, rounded up to 0.01 KB.
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 17.93 -> 18.09 KB, CI measured
+    // 18,074 B against `next` @ c818604's 17,887 (+187 B; 144 B over the
+    // cap; +417 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (floor-caps.json; the floors unchanged, 0 B minified).
+    // Size-Exception (createDeferred, D-40, 2026-10-15; floor-caps.json):
+    // 18.09 -> 18.11 KB, measured at 18,092 B (53,350 -> 53,386 B minified)
+    // with `next` @ eb4e0192 merged in. #4067's core share (the D11 check
+    // in `recompute`, the REACTIVE_REASK mask) plus #4075's still-streaming
+    // branch, each inside the 20 B allowance alone, together pass it.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-14).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 18.11 -> 18.29 KB, measured locally at 18280 B against `next` @
+    // 4a1ed17's 18091 (+189 B; +445 B minified, 53386 ->
+    // 53831) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
+    capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
   },
   {
@@ -2056,7 +2440,125 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 28.84 KB.
-    limit: "28.84 KB",
+    // Size-Exception (fuzz Batch C, #3806, 2026-10-05): 28.84 -> 28.87 KB,
+    // measured at 28,857 B by CI against `next` @ b07fed550's 28,829
+    // (+28 B; 17 B over the cap; +13 B minified) — the lane-membership
+    // ruling: F8's stale-reader arm in laneRead (+9) and adopted staging's
+    // render-effect mark in laneDirty (+4). Cap set at measured + 10 B
+    // rounded up to 0.01 KB. Accepted by the maintainer (2026-10-05). The
+    // cap is frozen again at 28.87 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 28.87 KB, recorded minified 91,625 B (first record);
+    // CI-measured at 28,888 B (91,625 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 28.87 -> 28.93 KB,
+    // measured at 28,924 B against `next` @ 49a8dca84's 28,888 (+36 B; 54 B
+    // over the cap; +59 B minified, 91,625 -> 91,684) — the C3 hold
+    // (frames-rulings 3.1): `sharedConfig.holdBoundary` in solid-js (the
+    // hydrating floor's note). Cap set at the 0.01 KB step at or below
+    // measured + 10 B; recorded minified 91,684 B. Accepted by the maintainer
+    // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
+    // at 28.93 KB.
+    // Size-Exception (L2 fuzz regressions under existing rules, #3853,
+    // 2026-10-07): 28.93 -> 28.97 KB, measured at 28,951 B by CI (Size run
+    // 37596666473) against `next` @ 721eb0676's 28,886 (+65 B; 21 B over the
+    // cap; +96 B minified, 91,702 -> 91,798; recorded 91,684 -> 91,798) —
+    // the same signals fixes as the + isPending/latest note (this app
+    // retains isPending/latest). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07.
+    // Size-Exception (optimistic writes over a writable derived store, #3855,
+    // 2026-10-07): 28.97 -> 29.02 KB, measured at 29,003 B by CI (Size run
+    // 37602728903) against `next` @ fd9f381cc's 28,951 (+52 B; 33 B over the
+    // cap; +84 B minified, 91,798 -> 91,882) — `store/optimistic.ts`: the
+    // optimistic writer's baseline and draft are built from each chained
+    // link's committed frame (composing that link's guesses), not from the
+    // backing proxy, which exposes a derived store's held staging. Store
+    // engine only; every other scenario byte-identical. Cap set at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07.
+    // Size-Exception (frames A0 correctness pass, part 2, #3849, 2026-10-07):
+    // 29.02 -> 29.09 KB, measured at 29,079 B by CI (Size run 37666601776)
+    // against `next` @ 3c7631a0e's 29,020 (+59 B; 59 B over the cap; +174 B
+    // minified, 91,940 -> 92,114; recorded 91,882 -> 92,114) —
+    // `sharedConfig.hydrateWindow` (A2b, frames-rulings 3.2) and `_$HY.fa`
+    // (A5′, rulings 3.3) in solid-js (the hydrating floor's note). Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-06).
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 29.09 KB -> 29.19 KB, measured at
+    // 29,179 B by CI (Size run 37684843282) against `next` @ dafad1db3's 29,079
+    // (+100 B; 89 B over the cap; +149 B minified, 92,114 -> 92,263; recorded
+    // 92,114 -> 92,263) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // #3892 (2026-10-08): measured at 29,252 B brotli / 92,410 B minified by CI
+    // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3898 stacked on #3884 (2026-10-08): measured at 29,281 B brotli / 92,619 B minified
+    // by CI (Size run 37878629674). Cap set to that brotli size, rounded up to 0.01 KB.
+    // Size-Exception (#3928, 2026-10-09): 29.29 -> 29.274 KB. Against next @
+    // 0c7090761 this measured 29,336 B brotli / 92,649 B minified (Size run
+    // 37912369653), 46 B over 29.29 KB, and the recorded 92,619 B already held
+    // next's +13 B so this PR's +17 B minified failed the 20 B allowance.
+    // Merged with next @ b083833f (#3948) it measures 29,274 B brotli / 92,655 B
+    // minified. Cap and recorded minified set to those bytes, not above them.
+    // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): 29.274 KB
+    // -> 29.36 KB, measured locally at 29,350 B against `next` @ 49a765cc's
+    // 29,205 (+145 B; +587 B minified, 92,291 -> 92,878). Cap set at measured
+    // + 10 B rounded up to 0.01 KB.
+    // Size-Exception (#4002, 2026-10-13): 29.36 -> 29.50 KB, measured by CI at
+    // 29,481 B against `next` @ 4f8daa2d (+131 B; 121 B over the cap; +298 B
+    // minified, 92,878 -> 93,176). The client cost of the #3971 park block in
+    // `hydrate()`: a hydrate() started mid-parse waits for the shell-end
+    // marker. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by
+    // the maintainer (2026-10-13) with the renderToString floor raise.
+    // Size-Exception (a lazy() load started during the hydration trace is not
+    // cached, #4013, 2026-10-13): 29.50 -> 29.52 KB, measured at 29,506 B
+    // against `next` @ c9027a90's 29,440 (+66 B; 6 B over the cap; +34 B
+    // minified, 93,304 -> 93,338) — the same `lazy()`/`lazyModule()` guard
+    // as the compiled hydrating note. Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-13.
+    // Size-Exception (a later store setter's written keys are its own set,
+    // D-8/U-8, #4039, 2026-10-14): 29.52 -> 29.57 KB, CI measured 29,559 B
+    // against `next` @ d1cb8013's 29,509 (+50 B; 39 B over the cap) with
+    // −16 B minified (93,396 -> 93,380). The minified growth over the
+    // recorded 93,338 is `next`'s own (+58 B from the U-4 `arm` sweep, #4031,
+    // which stayed under this cap); this PR's bytes are brotli layout against
+    // that base. Cap set at measured + 10 B rounded up to 0.01 KB, recorded
+    // minified at the head's bytes. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B).
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 29.57 -> 29.65 KB, CI measured
+    // 29,631 B against `next` @ c818604's 29,537 (+94 B; 61 B over the
+    // cap; +417 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    // Size-Exception (a fragment revealed before its _fr settles hydrates the
+    // revealed content, #4074, #4075, 2026-10-15): 29.65 -> 29.69 KB, CI measured
+    // 29,678 B (+30 B minified, 93,714 -> 93,753) — the still-streaming
+    // branch of hydratedCreateLoadingBoundary skips the fallback when `$df`
+    // already swapped the content in. Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-15.
+    // Size-Exception (createDeferred, D-40, 2026-10-15): 29.69 -> 29.76 KB,
+    // measured at 29,747 B (93,753 -> 93,770 B minified) with
+    // `next` @ eb4e0192 merged in. #4067's core share (the D11 check
+    // in `recompute`, the REACTIVE_REASK mask) plus #4075's still-streaming
+    // branch, each inside the 20 B allowance alone, together pass it.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-14).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 29.76 -> 29.91 KB, measured locally at 29894 B against `next` @
+    // 4a1ed17's 29721 (+173 B; +444 B minified, 93775 ->
+    // 94219) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "29.91 KB",
+    capMinified: 94219,
     alias
   },
   {
@@ -2278,7 +2780,65 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 12.86 KB.
-    limit: "12.86 KB",
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 12.86 KB, recorded minified 36,568 B (first record);
+    // CI-measured at 12,905 B (36,568 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 12.86 KB -> 12.88 KB, measured at 12,866 B by CI (Size run
+    // 37642512669) against `next` @ 53ef0e69e's 12,890 (-24 B; 6 B over the
+    // cap; +33 B minified, 36,584 -> 36,617; recorded 36,568 -> 36,617) — the
+    // signals core: a first pass seated in its creator's guess lane, the
+    // verdict-lane filter, lane work over a pending flight entering (#3843), a
+    // verdict lane's mount born held for a staged read, and verdict-lane
+    // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 12.88 KB -> 12.96 KB, measured at
+    // 12,945 B by CI (Size run 37684843282) against `next` @ dafad1db3's 12,863
+    // (+82 B; 65 B over the cap; +139 B minified, 36,616 -> 36,755; recorded
+    // 36,617 -> 36,755) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // #3928 merged with next @ 617d19511 (2026-10-09): measured at 12,976 B
+    // (36,793 B minified). Cap set to that brotli, not above it.
+    // Size-Exception (a boundary's fallback is instantiated once per show,
+    // #3991, 2026-10-12): 12.976 KB -> 13.03 KB, measured locally at 13,020 B
+    // against `next`'s 12,946 (+74 B; +186 B minified, 36,746 -> 36,932) —
+    // boundaries.ts: the fallback is built in a computed of its own beside
+    // the output and kept across the output's re-derives while it shows
+    // (`_fb`), disposed by a queued run once the content that replaces it is
+    // on screen. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
+    // by the maintainer 2026-10-12.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 13.03 -> 13.07 KB, measured at 13,051 B
+    // against `next` @ be845cb9's 13,005 (+46 B; 21 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 13.07 -> 13.20 KB, CI measured
+    // 13,181 B against `next` @ c818604's 13,041 (+140 B; 111 B over the
+    // cap; +416 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 13.20 -> 13.36 KB, measured locally at 13348 B against `next` @
+    // 4a1ed17's 13194 (+154 B; +439 B minified, 37361 ->
+    // 37800) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "13.36 KB",
+    capMinified: 37800,
     alias
   },
   {
@@ -2550,7 +3110,52 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 14.46 KB.
-    limit: "14.46 KB",
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 14.46 KB, recorded minified 41,091 B (first record);
+    // CI-measured at 14,449 B (41,091 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 14.46 KB -> 14.53 KB, measured at
+    // 14,515 B by CI (Size run 37684843282) against `next` @ dafad1db3's 14,448
+    // (+67 B; 55 B over the cap; +138 B minified, 41,146 -> 41,284; recorded
+    // 41,091 -> 41,284) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // #3884 stacked on next (2026-10-08): measured at 14,552 B brotli / 41,305 B minified
+    // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
+    // Size-Exception (#3991, 2026-10-12; the CSR note): 14.56 KB -> 14.59 KB,
+    // measured locally at 14,573 B against `next`'s 14,565 (+8 B; +186 B
+    // minified, 41,274 -> 41,460). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-12.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 14.59 -> 14.64 KB, measured at 14,623 B
+    // against `next` @ be845cb9's 14,621 (+2 B; 33 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 14.64 -> 14.79 KB, CI measured
+    // 14,778 B against `next` @ c818604's 14,639 (+139 B; 138 B over the
+    // cap; +416 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 14.79 -> 14.95 KB, measured locally at 14935 B against `next` @
+    // 4a1ed17's 14772 (+163 B; +439 B minified, 41891 ->
+    // 42330) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "14.95 KB",
+    capMinified: 42330,
     alias: observeAlias
   },
   {
@@ -2934,8 +3539,434 @@ module.exports = [
     // is brotli layout (the same change measured -10 B against 203ab1a43).
     // Engine-only: every prod scenario byte-identical, the observe tier
     // scenario above did not move.
-    limit: "28.62 KB",
+    // Size-Exception (fuzz Batch C, #3806, 2026-10-05): 28.62 -> 28.66 KB,
+    // measured at 28,642 B by CI against `next` @ b07fed550's 28,611
+    // (+31 B; 22 B over the cap; +4 B minified) — the lane-membership
+    // ruling (F8's laneRead arm, adopted staging's laneDirty mark), signals
+    // core only; brotli layout over the engine's bundle. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-05). The cap is frozen again at 28.66 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 28.66 KB, recorded minified 86,419 B (first record);
+    // CI-measured at 28,639 B (86,419 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (L2 fuzz regressions under existing rules, #3853,
+    // 2026-10-07): 28.66 -> 28.70 KB, measured at 28,686 B by CI (Size run
+    // 37596666473) against `next` @ 721eb0676's 28,635 (+51 B; 26 B over the
+    // cap; -4 B minified, 86,445 -> 86,441; recorded 86,419 -> 86,441). The
+    // PR's own minified change here is -4 B; the minified allowance was
+    // used up by earlier growth on `next` (#3850's dev-cost checks among
+    // it), and the brotli move is layout. Cap set at measured + 10 B
+    // rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07.
+    // Size-Exception (one interaction frame per event, #3877, 2026-10-07):
+    // 28.70 -> 28.82 KB, measured at 28,804 B by CI (Size run 37674837403)
+    // against `next` @ 3c1d51267's 28,651 (+153 B; +300 B minified, 86,473 ->
+    // 86,773; recorded 86,441 -> 86,773). The engine's per-event join: frames
+    // with the same `InteractionRef.event` re-enter one record, which stays
+    // joinable until the next task and settles at the instant it would have.
+    // Engine-only: every prod scenario byte-identical, the observe tier
+    // scenario above moved -7 B. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 28.82 KB -> 28.89 KB, measured at
+    // 28,876 B by CI (Size run 37684843282) against `next` @ dafad1db3's 28,804
+    // (+72 B; 56 B over the cap; +138 B minified, 86,773 -> 86,911; recorded
+    // 86,773 -> 86,911) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // Re-base (until() through a derivation of confirmed guesses, #3943,
+    // 2026-10-11): 28.89 KB -> 28.91 KB, measured at 28,897 B by CI (Size run
+    // 38127091137) against the PR's base, `next` @ c51c5c95c's 28,841 (+56 B;
+    // 7 B over the cap; +0 B minified, 86,937 -> 86,937; recorded 86,911 ->
+    // 86,937). The PR adds nothing minified here — the truth read sits behind
+    // GlobalQueue hooks the first `until`/`refresh` installs — and the brotli
+    // move is layout. The 26 B over the recorded minified was already on
+    // `next` (+12 B before #3977, +14 B from it), which had used up the 20 B
+    // allowance. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
+    // by the maintainer 2026-10-11.
+    // Re-base (#3994 and #3992 landing together, 2026-10-12): 28.91 KB ->
+    // 28.96 KB, measured at 28,942 B by CI (Size run on #3986 @ c0789ed6)
+    // against `next` @ 49a765cc, where the same 28,942 B left `next`'s own
+    // `check` red. #3994 counts a held navigation's graph after its landing
+    // (+92 B minified) and #3992 builds a boundary's fallback once per show
+    // (+186 B); each fit alone, and together they took the scenario 279 B over
+    // the recorded minified (86,937 -> 87,216). Both merged with the
+    // maintainer's go-ahead 2026-10-12. Cap set at measured + 10 B rounded up
+    // to 0.01 KB.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 28.96 -> 29.00 KB, measured at 28,984 B
+    // against `next` @ be845cb9's 28,930 (+54 B; 24 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    // Size-Exception (GRAPH_GROWTH also requires what outlived each
+    // navigation to climb, #4007, 2026-10-13): 29.00 KB -> 29.24 KB, measured
+    // locally at 29,230 B against `next` @ c9027a90's 28,984 (+246 B; 230 B
+    // over the cap; +594 B minified, 87,305 -> 87,899). Engine-only: the
+    // navigation's snapshot walk (a WeakSet of what was alive as it opened),
+    // the settle walk's count of what survived it, the same-pattern visit
+    // rule, and the finding's `survived` series and message. Every prod
+    // artifact byte-identical; the observe tier scenario above did not move.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer 2026-10-13.
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 29.24 -> 29.38 KB, CI measured
+    // 29,370 B against `next` @ c818604's 29,232 (+138 B; 130 B over the
+    // cap; +417 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 29.38 -> 29.56 KB, measured locally at 29546 B against `next` @
+    // 4a1ed17's 29340 (+206 B; +443 B minified, 88279 ->
+    // 88722) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "29.56 KB",
+    capMinified: 88722,
     alias: observeAlias
+  },
+  // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
+  // are hand-written runtime calls that return the flow components as
+  // values; none of them compiles a template, so the attribute runtime
+  // (`spread`, `className`, `style`, `setAttribute`, `addEvent`,
+  // `delegateEvents`) and the hydratable walk helpers (`getNextElement`,
+  // `getNextMarker`, `runHydrationEvents`, `scope`) were never on the gate
+  // (documentation/plans/solid-web-size-audit.md §1.3, §2.4). These three are
+  // JSX under fixtures/compiled/, compiled by the measured checkout's native
+  // @solidjs/compiler at measure time (bundle.mjs, `compile`) and bundled
+  // like every other scenario. The compiled app's own modules report as the
+  // `app` package, so the runtime's bytes are separable. Not frozen floors
+  // yet: their caps are inline, measured + 10 B rounded up to 0.01 KB.
+  {
+    name: "app: compiled floor (one template, one text hole, one delegated click)",
+    // The compiled counterpart of the "render + one signal" floor: a
+    // counter button through `template`, a text-hole `insert`, a delegated
+    // `_$$click` and `delegateEvents`. Its delta against that floor is what
+    // the first real template costs over a hand-written app.
+    //
+    // Added 2026-10-05: first compiled-template scenarios; CI-measured on
+    // next @ a8c98bd2e (Linux): 10,033 B (28,188 B minified; signals=21,602
+    // web=6,099 solid=260 app=229) — +187 B brotli / +531 B minified over
+    // the hand-written floor's 9,846: `template`, `delegateEvents` and the
+    // delegated-handler branch of the dispatcher, and the compiled
+    // component itself. (Measured locally at 10,019 / 28,184 on next @
+    // b07fed550 before #3806's +4 B minified in the signals scheduler
+    // landed; the compiled app's own bytes are identical on both.) Cap at
+    // CI-measured + 10 B rounded up to 0.01 KB.
+    path: "fixtures/compiled/floor.jsx",
+    compile: { hydratable: false },
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 10.05 KB, recorded minified 28,218 B (first record);
+    // CI-measured at 10,031 B (28,218 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 10.05 KB -> 10.07 KB, measured at 10,058 B by CI (Size run
+    // 37642512669) against `next` @ 53ef0e69e's 10,042 (+16 B; 8 B over the
+    // cap; +32 B minified, 28,229 -> 28,261; recorded 28,218 -> 28,261) — the
+    // signals core: a first pass seated in its creator's guess lane, the
+    // verdict-lane filter, lane work over a pending flight entering (#3843), a
+    // verdict lane's mount born held for a staged read, and verdict-lane
+    // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 10.07 KB -> 10.13 KB, measured at
+    // 10,118 B by CI (Size run 37684843282) against `next` @ dafad1db3's 10,068
+    // (+50 B; 48 B over the cap; +143 B minified, 28,260 -> 28,403; recorded
+    // 28,261 -> 28,403) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // #3928 merged with next @ 617d19511 (2026-10-09): measured at 10,134 B
+    // (28,443 B minified). Cap set to that brotli, not above it.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 10.134 -> 10.17 KB, measured at 10,151 B
+    // against `next` @ be845cb9's 10,135 (+16 B; 17 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    // Size-Exception (createDeferred, D-40, #4067, 2026-10-14): 10.17 -> 10.21 KB
+    // (28,475 -> 28,507 B minified), measured at 10.19 KB in CI against `next`
+    // @ 0109a56 — +14 B minified: the D11 check in `recompute`'s held-node
+    // arm (a held deferred re-pass joins nothing, 12 B) and the
+    // `REACTIVE_REASK` mask (2 B); `next` already sat 18-19 B over the
+    // recorded minified. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-14.
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 10.21 -> 10.36 KB, measured locally at 10341 B against `next` @
+    // 4a1ed17's 10178 (+163 B; +438 B minified, 28507 ->
+    // 28945) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "10.36 KB",
+    capMinified: 28945,
+    alias
+  },
+  {
+    name: "app: compiled CSR (JSX todo app: spread/merge/omit, events, class/style, keyed For, Show, Loading + lazy, store)",
+    // fixtures/compiled/app.jsx through render(), compiled in client DOM
+    // mode: the production build of a plain SPA. What it adds over the
+    // hand-written CSR app is the DOM attribute runtime — and the store
+    // view machinery (`merge`/`omit` views in signals' store/utils) that
+    // `spread` reads a source through, whether or not the app calls
+    // `merge` itself (audit §1.3 finding 2).
+    //
+    // Added 2026-10-05: first compiled-template scenarios; CI-measured on
+    // next @ a8c98bd2e (Linux): 25,070 B (78,807 B minified; signals=62,632
+    // web=12,167 app=2,575 solid=1,431; lazy stats.js 182 B brotli). (Locally
+    // 25,128 / 78,803 on next @ b07fed550, before #3806's +4 B minified in
+    // the signals scheduler; the brotli layout moved -58 B over it.) The
+    // store engine is ~24 KB minified of the signals figure (the app uses
+    // createStore, as the `+ createStore` scenario measures); the same app
+    // on signals alone measures 54,467 / 18,097 — the audit's §1.3 fixture,
+    // compiled by the Babel plugin, measured 51,898 / 17,498. The props machinery —
+    // element spread + the compiler's mergeProps + merge/omit — retains
+    // 14,751 B minified / 3,918 B brotli of this scenario (measured on
+    // edited copies of the compiled output: spread alone 6,390 / 1,877 with
+    // merge still used; merge/omit/mergeProps alone 5,139 / 1,171; the
+    // spread alone retains 9.6 KB minified when nothing else uses merge,
+    // because it reads sources through the merge/omit view records). Cap at
+    // CI-measured + 10 B rounded up to 0.01 KB.
+    // Bumped 2026-10-05: #3807 (a retained projection draft row resolves to
+    // its store proxy) moved signals bytes between the PR's measurement and
+    // its merge (signals 62,632 -> 62,699 minified; +61 B minified and
+    // +44 B brotli on the bundle); CI-measured on next @ a52615c53: 25,114 B
+    // (78,868 B minified; signals=62,699 web=12,164 app=2,574 solid=1,431).
+    // Cap at CI-measured + 10 B rounded up to 0.01 KB.
+    path: "fixtures/compiled/csr.jsx",
+    compile: { hydratable: false },
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 25.13 KB, recorded minified 78,898 B (first record);
+    // CI-measured at 25,129 B (78,898 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 25.13 KB -> 25.22 KB, measured at 25,207 B by CI (Size run
+    // 37642512669) against `next` @ 53ef0e69e's 25,197 (+10 B; 77 B over the
+    // cap; +33 B minified, 78,913 -> 78,946; recorded 78,898 -> 78,946) — the
+    // signals core: a first pass seated in its creator's guess lane, the
+    // verdict-lane filter, lane work over a pending flight entering (#3843), a
+    // verdict lane's mount born held for a staged read, and verdict-lane
+    // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 25.22 KB -> 25.24 KB, measured at
+    // 25,222 B by CI (Size run 37684843282) against `next` @ dafad1db3's 25,187
+    // (+35 B; 2 B over the cap; +141 B minified, 78,944 -> 79,085; recorded
+    // 78,946 -> 79,085) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // #3892 (2026-10-08): measured at 25,263 B brotli / 79,149 B minified by CI
+    // (Size run 37873440136). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3884 stacked on next (2026-10-08): measured at 25,293 B brotli / 79,170 B minified
+    // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3898 stacked on this cap (Size run 37878629674) and stayed under it.
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 25,465 B brotli
+    // (79,753 B minified). Cap set to that brotli, not above it.
+    // Size-Exception (#3991, 2026-10-12; the CSR note): the todo app's
+    // Loading pays the once-per-show fallback — 25.465 KB -> 25.51 KB,
+    // measured locally at 25,491 B against `next`'s 25,424 (+67 B; +186 B
+    // minified, 79,719 -> 79,905). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-12.
+    // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): the todo
+    // app's store pays the held-read pairing — 25.51 KB -> 25.65 KB, measured
+    // locally at 25,637 B against `next` @ 49a765cc's 25,492 (+145 B; +586 B
+    // minified, 79,919 -> 80,505). Cap set at measured + 10 B rounded up to
+    // 0.01 KB.
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 25.65 -> 25.75 KB, measured at 25,736 B
+    // against `next` @ be845cb9's 25,643 (+93 B; 86 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    // Size-Exception (an outer `on`-reset boundary does not wait for a flight
+    // its nested boundary catches, D-14/U-4, #4031, 2026-10-13): 25.75 ->
+    // 25.79 KB, CI measured 25,778 B against `next` @ eae6e038's 25,736
+    // (+42 B; 28 B over the cap; +59 B minified, 80,664 -> 80,723) — the
+    // signals core: `arm` takes what a re-armed boundary collects off the
+    // boundaries above it; a `record` helper folds the four reader-record
+    // sites to pay for most of it. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-13 (the floors unchanged).
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 25.79 -> 25.92 KB, CI measured
+    // 25,904 B against `next` @ c818604's 25,802 (+102 B; 114 B over the
+    // cap; +417 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 25.92 -> 26.12 KB, measured locally at 26104 B against `next` @
+    // 4a1ed17's 25934 (+170 B; +443 B minified, 81005 ->
+    // 81448) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "26.12 KB",
+    capMinified: 81448,
+    alias
+  },
+  {
+    name: "app: compiled hydrating (the same JSX todo app through hydrate(), compiled hydratable)",
+    // The same app.jsx entered through hydrate(), compiled with
+    // `hydratable: true`: the client half of an SSR build. The delta against
+    // the compiled CSR scenario is hydration's cost on a compiled app — the
+    // runtime's claim walk and adapters (as the hand-written hydrating
+    // scenario measures) plus the compiled output's own growth
+    // (`getNextElement`/`getNextMarker` destructures, `scope()` wrappers,
+    // `runHydrationEvents()` calls, `addEvent` in place of the `_$$click`
+    // property form).
+    //
+    // Added 2026-10-05: first compiled-template scenarios; CI-measured on
+    // next @ a8c98bd2e (Linux): 30,899 B (99,068 B minified; signals=62,815
+    // solid=16,600 web=16,594 app=3,058; lazy stats.js 195 B brotli):
+    // +5,829 B brotli / +20,261 B minified over the compiled CSR scenario —
+    // solid +15,169 (client/hydration.ts, including the store adapters the
+    // store import reaches), web +4,427 (`hydrate`, the claim walk,
+    // `getNextElement`/`getNextMarker`/`runHydrationEvents`/`setProperty`),
+    // app +483 (the compiled output's own growth). (Locally 30,898 / 99,064
+    // on next @ b07fed550, before #3806.) Cap at CI-measured + 10 B rounded
+    // up to 0.01 KB.
+    // Bumped 2026-10-05: #3807 moved signals bytes between the PR's
+    // measurement and its merge (signals 62,815 -> 62,880 minified; +61 B
+    // minified and +19 B brotli on the bundle); CI-measured on next @
+    // a52615c53: 30,918 B (99,129 B minified; signals=62,880 solid=16,597
+    // web=16,591 app=3,058). Cap at CI-measured + 10 B rounded up to 0.01 KB.
+    path: "fixtures/compiled/hydrating.jsx",
+    compile: { hydratable: true },
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 30.93 KB, recorded minified 99,198 B (first record);
+    // CI-measured at 30,957 B (99,198 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 30.93 -> 31.03 KB,
+    // measured at 31,023 B against `next` @ 49a8dca84's 30,957 (+66 B; 93 B
+    // over the cap; +59 B minified, 99,198 -> 99,257) — the C3 hold
+    // (frames-rulings 3.1): `sharedConfig.holdBoundary` in solid-js (the
+    // hydrating floor's note). Cap set at the 0.01 KB step at or below
+    // measured + 10 B; recorded minified 99,257 B. Accepted by the maintainer
+    // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
+    // at 31.03 KB.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 31.03 KB -> 31.06 KB, measured at 31,050 B by CI (Size run
+    // 37642512669) against `next` @ 53ef0e69e's 30,958 (+92 B; 20 B over the
+    // cap; +33 B minified, 99,272 -> 99,305; recorded 99,257 -> 99,305) — the
+    // signals core: a first pass seated in its creator's guess lane, the
+    // verdict-lane filter, lane work over a pending flight entering (#3843), a
+    // verdict lane's mount born held for a staged read, and verdict-lane
+    // stagedReaders. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07.
+    // Size-Exception (frames A0 correctness pass, part 2, #3849, 2026-10-07):
+    // 31.06 -> 31.09 KB, measured at 31,079 B by CI (Size run 37666601776)
+    // against `next` @ 3c7631a0e's 31,027 (+52 B; 19 B over the cap; +174 B
+    // minified, 99,303 -> 99,477; recorded 99,305 -> 99,477) —
+    // `sharedConfig.hydrateWindow` (A2b, frames-rulings 3.2) and `_$HY.fa`
+    // (A5′, rulings 3.3) in solid-js (the hydrating floor's note). Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-06).
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 31.09 KB -> 31.12 KB, measured at
+    // 31,105 B by CI (Size run 37684843282) against `next` @ dafad1db3's 31,079
+    // (+26 B; 15 B over the cap; +140 B minified, 99,477 -> 99,617; recorded
+    // 99,477 -> 99,617) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // Size-Exception (an optimistic view reads a property its inner store
+    // removed as undefined, #3883, 2026-10-07): 31.12 KB -> 31.17 KB, measured
+    // at 31,155 B by CI (Size run 37704068417) against `next` @ 3086f1b77's
+    // 31,155 (+0 B; 35 B over the cap; +40 B minified, 99,632 -> 99,672;
+    // recorded 99,617 -> 99,672) — the store `get` trap: an absent key on a
+    // chained target reads through to the inner store (`serveDataKey`). Cap
+    // set at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-07: store scenarios only, hello world unchanged.
+    // #3884 (2026-10-08): measured at 31,195 B brotli / 99,702 B minified by CI
+    // (Size run 37873447222). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 31,386 B brotli
+    // (100,248 B minified). Cap set to that brotli, not above it.
+    // Size-Exception (#3712, 2026-10-12; the `+ createStore` note): 31.386 KB
+    // -> 31.48 KB, measured locally at 31,466 B against `next` @ 49a765cc's
+    // 31,215 (+251 B; +587 B minified, 99,808 -> 100,395). Cap set at measured
+    // + 10 B rounded up to 0.01 KB.
+    // Size-Exception (#4002, 2026-10-13): 31.48 -> 31.53 KB, measured by CI at
+    // 31,511 B against `next` @ 4f8daa2d (+45 B; 31 B over the cap; +298 B
+    // minified, 100,395 -> 100,693). The same #3971 park block in `hydrate()`
+    // as the store-family note. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-13).
+    // Size-Exception (#4009, 2026-10-13): 31.53 -> 31.58 KB, measured by CI at
+    // 31,561 B on `next` @ d8ba741d after #4009 merged against an older cap
+    // (+50 B over #4002's 31,511; +145 B minified, 100,693 -> 100,838). The
+    // hydratable checkbox/radio `checked`/`value` runtime handling. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-13).
+    // Size-Exception (a Show branch mounted by a held write reads its own
+    // transaction, #4010, 2026-10-13): 31.58 -> 31.62 KB, measured at 31,610 B
+    // against `next` @ be845cb9's 31,561 (+49 B; 30 B over the cap; +89 B
+    // minified) — the signals core: `holdFrame` tags a held frame's members
+    // (CONFIG_HELD_FRAME) so `recompute`, `frameRead` and `stagedScreen` serve
+    // them their transaction instead of the committed screen. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    // Size-Exception (a lazy() load started during the hydration trace is not
+    // cached, #4013, 2026-10-13): 31.62 -> 31.64 KB, measured at 31,622 B
+    // against `next` @ c9027a90's 31,610 (+12 B; 2 B over the cap; +34 B
+    // minified, 100,927 -> 100,961) — `lazy()`/`lazyModule()` drop a loader
+    // promise built from the trace's never-settling Promise stub. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-13.
+    // Size-Exception (a re-armed boundary owns content another hold staged,
+    // D-14/D-16/U-9, #4059, 2026-10-14): 31.64 -> 31.78 KB, CI measured
+    // 31,765 B against `next` @ c818604's 31,694 (+71 B; 125 B over the
+    // cap; +418 B minified) — the signals boundaries: `arm` records what an
+    // earlier hold staged under a re-armed boundary (`heldUnder`), `_fresh`
+    // keeps a pass under it the boundary's, and the seam folds a re-arm
+    // whose own flush joins that hold back into it. Cap set at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
+    // (the floors unchanged, 0 B minified).
+    // Size-Exception (a fragment revealed before its _fr settles hydrates the
+    // revealed content, #4074, #4075, 2026-10-15): 31.78 -> 31.89 KB, CI measured
+    // 31,871 B (+30 B minified, 101,338 -> 101,369) — the still-streaming
+    // branch of hydratedCreateLoadingBoundary skips the fallback when `$df`
+    // already swapped the content in. Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-15.
+    // createDeferred (D-40, 2026-10-15): recorded minified 101,369 -> 101,387
+    // (+18 B, measured at 31,821 B, under the cap) with
+    // `next` @ eb4e0192 merged in. #4067's core share (the D11 check
+    // in `recompute`, the REACTIVE_REASK mask) plus #4075's still-streaming
+    // branch, each inside the 20 B allowance alone, together pass it.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-14).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 31.89 -> 32.03 KB, measured locally at 32014 B against `next` @
+    // 4a1ed17's 31891 (+123 B; +440 B minified, 101393 ->
+    // 101833) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "32.03 KB",
+    capMinified: 101833,
+    alias
   },
   {
     name: "frames: eager client consumer (frames client + transport, lazy codec)",
@@ -3142,7 +4173,279 @@ module.exports = [
     // reads the new response's refs before the commit. Accepted by the
     // maintainer (2026-10-04). The cap is frozen again at 13.78 KB (head +
     // 10 B).
-    limit: "13.78 KB",
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 13.78 KB, recorded minified 43,310 B (first record);
+    // CI-measured at 13,770 B (43,310 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 13.78 -> 13.79 KB,
+    // measured at 13,787 B against `next` @ 49a8dca84's 13,770 (+17 B; 7 B
+    // over the cap; +104 B minified, 43,310 -> 43,414). The pass's net on the
+    // frames client: S-flush −187 B min (the address is an async source —
+    // `FrameHost.landing`; the store is one response's; `boundaryComponent`'s
+    // and `adoptBoundary`'s hand-rolled gates, `followAddress`'s re-arm +
+    // frameless waiter, `argsEquivalent` and `clearStreamRecords` deleted),
+    // the C3 hold and C5's data guard +291 together (`FrameOptions.hold`,
+    // `#syncSlots`' waiting flag, `adoptBoundary`'s `sharedConfig.holdBoundary`
+    // wiring — frames-rulings 3.1, ruled; `chunk.version < store.version` on
+    // the data path). Cap set at the 0.01 KB step at or below measured +
+    // 10 B; recorded minified 43,414 B. Accepted by the maintainer
+    // (2026-10-06, "pay the cost for correctness"). The cap is frozen again
+    // at 13.79 KB.
+    // Size-Exception (#3846, 2026-10-07): 13.79 -> 13.98 KB, measured at
+    // 13,969 B against `next` @ 721eb0676's 13,787 (+182 B; 179 B over the
+    // cap; +518 B minified, 43,414 -> 43,932; sf shared slice +597, frames
+    // client -79). The server-function/frames `ChunkReader` hardening:
+    // cancel ends a read mid-frame and is rechecked after every read, strict
+    // `;0x` + 8 hex digit headers, a fatal UTF-8 decoder, the body cancelled
+    // on a failed drain or first frame, the store released after a large
+    // frame, and `createChunk`'s 4 GiB `RangeError`. Measured after a shave
+    // (regex header check, one `try/catch` in `deserializeStream`, inlined
+    // store release, shared done result) that took the PR from +849 B
+    // minified to +518. Cap set at measured + 10 B rounded up to 0.01 KB;
+    // recorded minified 43,932 B. Accepted by the maintainer (2026-10-07:
+    // server-function/frames reader correctness). The cap is frozen again at
+    // 13.98 KB.
+    // Size-Exception (single-flight slices settle before delivery, #3865,
+    // 2026-10-07): 13.98 -> 14.02 KB, measured at 14,003 B by CI (Size run
+    // 37605412983) against `next` @ fa371c3e7's 13,969 (+34 B; 23 B over the
+    // cap; +100 B minified, 43,932 -> 44,032) — `deliverFlightData` awaits
+    // `Promise.allSettled` over every slice entry before running consumers,
+    // so a mutation call resolves only after the values its collector folded
+    // still pending have streamed in. Folded into one expression (from a
+    // helper) before measuring. Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer 2026-10-07.
+    // Frames savings pass C3 — the traces tier (2026-10-06): measured at
+    // 13,866 B against the Phase B head e05ba0283's 13,949 (-83 B; -484 B
+    // minified, 43,452 -> 42,968) and `next` @ 9d89df731's 13,787 (+79 B;
+    // -446 B minified). The container tier's client half left for the lazy
+    // `@solidjs/web/frames/trace` chunk (solid's materializer + the plugin's
+    // revive walk, memo and marker test: -951 B minified / -239 B brotli,
+    // measured on an edited dist copy); the trigger left behind — the loader
+    // entry and the container probe, the held-set predicate (`needsTrace`:
+    // the marker walk while the tier is absent), the `claiming` thread and
+    // the held-record mount — costs +467 / +156. Still 76 B over the 13.79 KB
+    // cap by Phase A's and B's own bytes (their notes); the minified size is
+    // below the recorded 43,414 B, so the gate passes by its minified rule.
+    // Cap unchanged (over it); recorded minified lowered to 42,968 B (the
+    // ratchet: a cap not lowered only ever has its recorded minified
+    // lowered).
+    // Frames savings pass C4 — the regions tier (2026-10-06): 13.79 -> 13.64 KB,
+    // measured at 13,629 B against the C3 head 89954fa1b's 13,866 (-237 B;
+    // -1,078 B minified, 42,968 -> 41,890) and `next` @ 9d89df731's 13,787
+    // (-158 B; -1,524 B minified). Nested server-content regions left for the
+    // lazy `@solidjs/web/frames/regions` chunk (the per-frame region cache,
+    // discovery in an adopted interior, the `{$frame}` arm of arg
+    // resolution with the wire-name rename, the bind of a frame over each
+    // region element, disposal: -1,596 B minified / -423 B brotli, measured
+    // on an edited dist copy); the glue left behind — the installed-module
+    // table, the loader entry, the `needsRegions` wait at the fresh-mount
+    // and update sites, the tier calls at bind / resolve / unmount / the
+    // staged preview, the `options` getter and the `parent` thread-up —
+    // costs +518 / +186. First time under the cap since Phase A: cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 41,890 B.
+    // Frames savings pass C5 — the assets tier (2026-10-06, measured on its
+    // own branch off the C3 head): 13,332 B against 89954fa1b's 13,866
+    // (-534 B; -1,913 B minified, 42,968 -> 41,055) and `next` @ 9d89df731's
+    // 13,787 (-455 B; -2,359 B minified). The head mirror a segment's assets
+    // record drives (the stylesheet gate, module / typed preloads, inline
+    // styles) left for the lazy `@solidjs/web/frames/assets` chunk (2,040 B
+    // minified / 783 B brotli); the whole group measured -2,419 / -666 on an
+    // edited dist copy, and what stays eager — the record cases (+208 min),
+    // the reveal-readiness term with the load trigger and the assets walk's
+    // dispatch (+300 min) — costs +508 / +131.
+    // C5 follow-up (2026-10-06): the readiness term holds a segment whose
+    // record carries INLINE styles too while the tier is absent (its
+    // `<style>` is the tier's to land — revealing before the install was the
+    // unstyled window the term exists to prevent). Measured on the edited
+    // dist first: +22 min / +14 br; built the same on C5's branch, 13,346 B
+    // (41,077 B minified).
+    // Frames savings pass — Phases B + C3 + C4 + C5 integrated
+    // (2026-10-06, `wip/frames-tiers-integration`): 13.35 -> 13.10 KB,
+    // measured at 13,083 B (40,000 B minified) against the Phase A base
+    // 0aab93230's 13,804 (-721 B; -2,979 B minified, 42,979 -> 40,000) and
+    // `next` @ 9d89df731's 13,787 (-704 B; -3,414 B minified). The four
+    // steps' minified deltas sum to -2,980; the integration's one byte is
+    // the dispatch unification (C4's installed-module table folded into
+    // C5's resident stamp, `tierLoads[name].r = module`). Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 40,000 B.
+    // Frames savings pass C6 (2026-10-06, the bind tier): 13.10 -> 11.92 KB,
+    // measured at 11,901 B (36,007 B minified) against the integration base
+    // 6b7213d64's 13,086 (-1,185 B; -4,005 B minified, 40,012 -> 36,007)
+    // and `next` @ 9d89df731's 13,787 (-1,886 B; -7,407 B minified).
+    // Binding-slot positions — the consumer walk, the per-frame consumer
+    // sets and rebinders, the owned-position arms of the morph, the fill's
+    // bind (`assign` with it) — are `bind.js` (4,771 B minified / 1,844 B
+    // brotli, lazy, not counted). The eager client keeps the marker
+    // detection at the walk (`hasSlotMarker` → the 3.1 hold), the text-pair
+    // arm of `reconcileChildren` (a client-owned text node must survive a
+    // morph the tier has not seen — the pin at frames-binding-slots "a
+    // refetch re-sends the empty pairs"), `isAsyncValue` (shared with the
+    // tier through the entry) and the loader entry. The delegated-event
+    // replay window is the server's ` _hk` stamp on event-slot consumers
+    // (0 eager bytes; +106 min / +48 br in the chunk). Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 36,007 B.
+    // Frames residue pass, step 1 (2026-10-06): 11.92 -> 11.67 KB, measured
+    // at 11,654 B (35,250 B minified): the D list without the mirror
+    // (`documentAddress`, one dispose map, the zombie heuristic + `#slotNodes`,
+    // the default reveal seam, `showing`'s brand), `FRAME_HAVE_*` off the
+    // entry's export list, and the lean re-ask (`ctx.retry` from the sf
+    // client in place of the RPC-seam re-ask) — −757 min / −247 br. The
+    // capture arm stays (pinned by `lifecycle-matrix/remount`). Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 35,250 B.
+    // Frames residue pass, step 3 (2026-10-06): 11.67 -> 11.38 KB, measured
+    // at 11,367 B (34,272 B minified): every fill through `insert` — the
+    // Solid binding's static path (`normalizeSlotContent`,
+    // `isReactiveContent`, `settle`) and the runtime's own range writer
+    // (`#replaceRange`, the returned-nodes path) gone, the fill owns its
+    // range through `ctx.range`; the runtime's never-used comment-marker
+    // range mode (`#start` / `#end`) gone, the frame element IS the range —
+    // −978 min / −287 br. Cap set at measured + 10 B at the 0.01 KB step
+    // (the ratchet); recorded minified 34,272 B.
+    // Frames residue pass, step 4 (2026-10-06): 11.38 -> 11.21 KB, measured
+    // at 11,193 B (33,767 B minified): S-ref's pending read moved into the
+    // lazy decode table — a `{$ref}` to a key the response has not
+    // delivered is answered by the table with a promise it settles at the
+    // key's `data` chunk and rejects when the response ends (`closeData`);
+    // the host's `pendingRef` / `settleWait` / per-store waits are gone,
+    // what stays eager is the `record.pending` count and one fan-out
+    // helper — −505 min / −174 br (the decode chunk, lazy, +420 / +161).
+    // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 33,767 B.
+    // Frames savings pass, C2 (2026-10-07): 11.21 -> 10.90 KB, measured at
+    // 10,888 B (32,802 B minified): the live wire moved into a lazy tier
+    // (`wire.js`, 1,922 / 934, reported not counted) — the connection
+    // bookkeeping (open-frame count, join of two loops on one address,
+    // supersession cancel), the have-list ledger and its encoder, the
+    // resume shape; what stays eager is the arm that awaits the tier's
+    // residency and the preload-at-call hook (`responseHandler.onLive`),
+    // ≈ +467 min / +162 br of carrier over the −1,432 / −472 ceiling —
+    // −965 min / −305 br. Cap set at measured + 10 B at the 0.01 KB step
+    // (the ratchet); recorded minified 32,802 B.
+    // Frames tiers, merged onto `next` @ 3c1d51267 (#3860, 2026-10-07):
+    // `next`'s 14.02 KB -> 11.13 KB, measured at 11,112 B by CI (Size run
+    // 37671002618) against `next`'s 14,012 (-2,900 B; -10,178 B minified,
+    // 43,596 -> 33,418). The branch's own ratchets above were measured on
+    // its pre-merge base; `next`'s bytes since (#3846's ChunkReader, #3865,
+    // #3874) land under them (+616 B minified, +224 B brotli over the C2
+    // note's 32,802 / 10,888). Cap set at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified 33,418 B.
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 11.13 -> 11.28 KB,
+    // measured at 11,264 B by CI (Size run 37756065705) against `next` @
+    // 8d23a5a13's 11,112 (+152 B; 134 B over the cap; +333 B minified,
+    // 33,418 -> 33,751; recorded 33,418 -> 33,751) — the adopt-time walk's
+    // `_s:` marker scan gated on the page's `sc:tiers` announcement (an
+    // announced page that did not name `bind` is never scanned for binding
+    // slots, never loads the tier), and the recursive per-node walk replaced
+    // by one `TreeWalker` by `whatToShow` (comments; elements only when
+    // markers may exist) with a `startsWith("slot:")` test before the regex.
+    // The gate expression alone is ≈ 75 B minified, so no variant of the
+    // change fit the 20 B allowance; the gate-only variant (+94 B minified,
+    // under the cap) was measured at 9.92 ms against this one's 5.35 ms on
+    // the HN twins' story page (`next`: 14.23 ms). Cap set at measured + 10 B
+    // rounded up to 0.01 KB. Accepted by the maintainer (2026-10-08, "perf is
+    // important enough — it's the point here": the full walker variant).
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 11.28 -> 11.39 KB, measured at
+    // 11,375 B by CI (Size run 37765150570) against #3913's e9c233c81's
+    // 11,264 (+111 B; 95 B over the cap; +361 B minified, 33,751 -> 34,112;
+    // recorded 33,751 -> 34,112; the two PRs together: +263 B brotli / +694 B
+    // minified over `next` @ 8d23a5a13's 11,112 / 33,418) — `adoptBoundary`
+    // builds the boundary's claim index at adoption (one `[_hk]` query over
+    // the adopted element, every keyed node bucketed by its occurrence
+    // prefix — the key's last dash), the window's `gather(id)` is a map
+    // lookup narrowed by `startsWith` to nodes still in the document, and
+    // the fragment-reveal callback extends the index with the revealed
+    // parent before the apply — in place of one `querySelectorAll('[_hk^=…]')`
+    // over the whole hydration root per occurrence (652 on the HN twins'
+    // story page: `gatherHydratable` 42–52 ms -> < 1 ms, total hydration
+    // ≈ 77 -> ≈ 42 ms). The `[_hk^=…]` selector path stays for the streamed
+    // boundary's resume at page level, so the index is additive. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here").
+    // #3889 (2026-10-08): measured at 11,406 B brotli / 34,172 B minified by CI
+    // (Size run 37873449521). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3904 (2026-10-09): measured at 11,426 B brotli / 34,211 B minified by CI
+    // (Size run 37980542815) against the 11.41 KB / 34,172 B cap — 16 B over
+    // the brotli cap, +39 B minified (19 B past the 20 B allowance), +44 B
+    // minified over the PR base. The frames client calls
+    // installServerComponentHydration from installRevealHook. Cap set to that
+    // measurement, not above it.
+    // Nested-region claim dedupe (2026-10-14): measured at 11,461 B brotli /
+    // 34,318 B minified locally against the 11.426 KB / 34,211 B cap (+35 B
+    // brotli, +107 B minified). Adopting a slot region swept every claimable
+    // element inside it, and each enclosing region's frame swept it again,
+    // so a link N regions deep was claimed N + 1 times (the router re-parses
+    // and re-matches its URL on every claim: ~116 ms at 4x CPU on the HN
+    // story page with a client toggle per comment). `adoptedBy` records
+    // which live frame's adoption claimed an element; other adoption sweeps
+    // skip it. Cap set to that measurement, not above it.
+    // #4042 (2026-10-14): measured at 11,495 B brotli / 34,411 B minified
+    // locally on top of the claim dedupe (+34 B brotli, +93 B minified). A
+    // document mount picks the unclaimed site whose `data-fa` matches its
+    // call's arguments, so sites minted out of mount order bind their own
+    // frames. Cap set to that measurement, not above it. Accepted by the
+    // maintainer (2026-10-14).
+    // #4033 (2026-10-14): measured at 11,522 B brotli / 34,465 B minified
+    // locally (+27 B brotli, +54 B minified). A boundary wait made under a
+    // hydration trace is not cached, and waits are released when hydration
+    // ends as well as on reveals, so a data server function called during
+    // hydration reaches the network. Cap set to that measurement, not above
+    // it. Accepted by the maintainer (2026-10-14).
+    // Bind-tier single scan (2026-10-14): measured at 11,509 B brotli /
+    // 34,449 B minified locally (+14 B brotli, +38 B minified). While the bind
+    // tier is loading but not resident, the slot sync marks the frame held
+    // and walks comments only instead of scanning every element for `_s:*`
+    // attributes; the install's flush does the one scan with the tier in
+    // place (HN story page with binding slots: 20,750 -> 10,375 elements
+    // visited, 15,308 -> 7,658 attribute reads). Cap set to that
+    // measurement, not above it. Accepted by the maintainer (2026-10-14).
+    // The final shape (the check moved into the sync, leaving the walk as it
+    // was) measures 11,515 B brotli / 34,445 B minified: within the minified
+    // allowance, so the cap stays. On top of #4033 (merged first): measured
+    // at 11,540 B brotli / 34,499 B minified (+18 B brotli, +34 B minified
+    // over 11,522 / 34,465). Accepted by the maintainer (2026-10-14).
+    // Scoped slot sync for live writes (2026-10-14): measured at 11,715 B
+    // brotli / 35,056 B minified locally (+175 B brotli, +557 B minified).
+    // Every write re-walked the whole frame and re-parsed every binding
+    // marker, and every live-hole apply searched the frame for its marker,
+    // so a live stream's per-write client cost grew with everything the
+    // frame showed. Now a write that is not a root morph, a reveal or an
+    // empty write walks only the ranges its holes morphed (the reuse itself
+    // is the lazy bind tier's), and hole markers are cached between applies.
+    // Chat example, 12 KB replies at 4x CPU, walk self time per reply:
+    // 0.34 / 0.78 / 1.03 / 1.58 s with 0-3 prior replies -> 0.18 / 0.22 /
+    // 0.19 / 0.28 s. Cap set to that measurement, not above it.
+    // Row ops for live `For` holes (#4064, 2026-10-14): measured at 11,838 B
+    // brotli / 35,395 B minified (+123 B brotli, +339 B minified). On a live
+    // response, a sweep that changed some rows of a `For` hole sends just
+    // those rows, against the digest of what the client shows; the eager
+    // client checks the range shows that base and hands the rows to the
+    // lazy wire tier, which morphs only their ranges. A range showing
+    // anything else resumes the live connection, which re-sends the hole
+    // whole. server-dbmon, 4x CPU, 5 ticks/s, main-thread busy ms/s with
+    // 10% of rows changing: 100 rows 305-319 -> 231-342; 400 rows 933-1001
+    // (saturated) -> 551-825. Wire (brotli q5) 1.7-1.9 -> 1.5-1.6 KB/s at
+    // 100 rows, 6.8-8.1 -> 5.1-6.0 KB/s at 400. Cap set to that measurement.
+    // Morph drops a stale text node (2026-10-15): +71 B minified. When a
+    // text hole empties (`<!--$--><!--/-->` has no text node), the reconcile
+    // removed nothing and relocated the next element in front of the stale
+    // text, so every cell that emptied re-inserted its following subtree.
+    // server-dbmon, 400 rows, 10% changing, 4x CPU: 28 popover subtrees
+    // re-inserted per tick -> 0; main-thread busy 771-910 -> 571-705 ms/s.
+    // Measured at 11,856 B brotli / 35,466 B minified. Cap set to that
+    // measurement.
+    // Morph skips an identical subtree (2026-10-15): +28 B minified. A
+    // whole-range morph walked every unchanged element in JS; one native
+    // `isEqualNode` compare now skips it. server-dbmon, row ops off, 4x CPU:
+    // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
+    // saturates. Measured at
+    // 11,873 B brotli / 35,494 B minified; cap set to that measurement. Accepted by the maintainer (2026-10-15).
+    limit: "11.873 KB",
+    capMinified: 35494,
     alias: framesAlias,
     external: framesExternal
   },
@@ -3301,7 +4604,179 @@ module.exports = [
     // +16, observeFlight first-observer hold +17); brotli layout. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-05). The cap is frozen again at 44.84 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 44.84 KB, recorded minified 145,599 B (first record);
+    // CI-measured at 44,864 B (145,599 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 44.84 -> 44.89 KB
+    // (floor-caps.json), measured at 44,882 B against `next` @ 49a8dca84's
+    // 44,864 (+18 B; 42 B over the cap; +158 B minified, 145,599 -> 145,757)
+    // — the frames client's net +104 (the frames note: S-flush −187, the C3
+    // hold and C5 +291) and the C3 hold's `sharedConfig.holdBoundary` in
+    // solid-js (+59, the hydrating floor's note). Cap set at the 0.01 KB step
+    // at or below measured + 10 B; recorded minified 145,757 B. Accepted by
+    // the maintainer (2026-10-06, "pay the cost for correctness"). The cap is
+    // frozen again at 44.89 KB.
+    // Size-Exception (#3846, 2026-10-07): 44.89 -> 45.12 KB
+    // (floor-caps.json), measured at 45,102 B against `next` @ 721eb0676's
+    // 44,968 (+134 B; 212 B over the cap; +519 B minified, 145,757 recorded
+    // -> 146,295) — the `ChunkReader` hardening (the frames note). Cap set
+    // at measured + 10 B rounded up to 0.01 KB; recorded minified 146,295 B.
+    // Accepted by the maintainer (2026-10-07: server-function/frames reader
+    // correctness). The cap is frozen again at 45.12 KB.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 45.12 KB -> 45.14 KB (floor-caps.json), measured at 45,130
+    // B by CI (Size run 37642512669) against `next` @ 53ef0e69e's 45,117 (+13
+    // B; 10 B over the cap; +33 B minified, 146,391 -> 146,424; recorded
+    // 146,295 -> 146,424) — the signals core: a first pass seated in its
+    // creator's guess lane, the verdict-lane filter, lane work over a pending
+    // flight entering (#3843), a verdict lane's mount born held for a staged
+    // read, and verdict-lane stagedReaders. Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen
+    // again at 45.14 KB.
+    // Frames savings pass C3 — the traces tier (2026-10-06): 44.89 -> 38.61 KB
+    // (floor-caps.json), measured at 38,598 B against the Phase B head
+    // e05ba0283's 45,210 (-6,612 B; -24,069 B minified, 146,097 -> 122,028)
+    // and `next` @ 9d89df731's 44,882 (-6,284 B). The store engine (signals
+    // `store/*`), solid's container-trace materializer (its own entry,
+    // `solid-js/internal/container-trace`) and the plugin's client half leave
+    // this page's eager chunk for `trace.js` — reported above as lazy, not
+    // counted, 25,409 B minified / 8,170 B brotli — which the frames client
+    // fetches when the document announces the tier (`_$HY.r["sc:tiers"]`) or
+    // an adopt-time record's args carry a trace. What stays: the store
+    // hydration adapters (`enableHydration`'s on every hydrating page, as
+    // before), the store symbols the chunk shares with the eager one, and
+    // the tier's trigger in the frames client (its note). Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 122,028 B.
+    // Frames savings pass C4 — the regions tier (2026-10-06): 38.61 -> 38.33 KB
+    // (floor-caps.json), measured at 38,317 B against the C3 head
+    // 89954fa1b's 38,598 (-281 B; -1,083 B minified, 122,028 -> 120,945) and
+    // `next` @ 9d89df731's 44,882 (-6,565 B). Nested server-content regions
+    // leave this page's eager chunk for `regions.js` — reported above as
+    // lazy, not counted, 1,872 B minified / 805 B brotli — which the frames
+    // client fetches when the document announces the tier or a record names
+    // a `{$frame}` region (the frames note). Cap set at measured + 10 B at
+    // the 0.01 KB step (the ratchet); recorded minified 120,945 B.
+    // Frames savings pass C5 — the assets tier (2026-10-06, measured on its
+    // own branch off the C3 head): 37,970 B (120,102 B minified): -628 /
+    // -1,926 against the C3 head, -6,912 / -25,655 against `next` @
+    // 9d89df731. The head mirror leaves for the lazy `assets.js` chunk
+    // (783 B brotli, reported, not counted). The C5 follow-up (inline styles
+    // hold while the tier is absent): 37,969 B (120,124 B minified), +22 min
+    // / -1 br.
+    // Frames savings pass — Phases B + C3 + C4 + C5 integrated
+    // (2026-10-06, `wip/frames-tiers-integration`): 37.98 -> 37.79 KB
+    // (floor-caps.json), measured at 37,772 B (119,044 B minified) against
+    // the Phase A base 0aab93230's 45,033 (-7,261 B; -26,575 B minified)
+    // and `next` @ 9d89df731's 44,882 (-7,110 B; -26,713 B minified). The
+    // three tier chunks ride beside the eager one — reported above as lazy,
+    // not counted: `trace.js` 25,419 B minified / 8,176 B brotli,
+    // `regions.js` 1,872 / 805, `assets.js` 2,040 / 783. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 119,044 B.
+    // Frames savings pass C6 (2026-10-06, the bind tier): 37.79 -> 36.66 KB
+    // (floor-caps.json), measured at 36,647 B (115,087 B minified) against
+    // the integration base 6b7213d64's 37,747 (-1,100 B; -3,969 B minified)
+    // and `next` @ 9d89df731's 44,882 (-8,235 B; -30,670 B minified). The
+    // fourth tier chunk rides beside the eager one — reported above as
+    // lazy, not counted: `bind.js` 4,771 B minified / 1,844 B brotli. Cap
+    // set at measured + 10 B at the 0.01 KB step (the ratchet); recorded
+    // minified 115,087 B.
+    // Frames residue pass, step 1 (2026-10-06): 36.66 -> 36.50 KB, measured
+    // at 36,488 B (114,422 B minified): the frames client's D list, the lean
+    // re-ask (the sf client carries the `retry` thunks, +≈ 80 B minified,
+    // and the page still shrinks) — −665 min / −159 br. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 114,422 B.
+    // Frames residue pass, step 3 (2026-10-06): 36.50 -> 36.29 KB, measured
+    // at 36,271 B (113,443 B minified): every fill through `insert`, the
+    // frame element as the range — −979 min / −217 br. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 113,443 B.
+    // Frames residue pass, step 4 (2026-10-06): 36.29 -> 36.09 KB, measured
+    // at 36,071 B (112,938 B minified): S-ref's pending read in the decode
+    // table (lazy `decode.js` +420 / +161) — −505 min / −200 br. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 112,938 B.
+    // Frames savings pass, C2 (2026-10-07): 36.09 -> 35.74 KB, measured at
+    // 35,722 B (112,003 B minified): the live wire in a lazy tier (`wire.js`
+    // 1,922 / 934, reported not counted) — −935 min / −349 br. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 112,003 B.
+    // `dynamicComponent` (B.3-sync, 2026-10-07): 35.74 -> 33.58 KB, measured
+    // at 33,570 B (104,586 B minified): the fixture mounts its server
+    // component through `dynamicComponent`, the component-only sibling of
+    // `dynamic` (documentation/plans/frames-b3-sync.md), so `dynamic`'s
+    // string-tag arm — `staticElement`, `createElement`, `spread`, the
+    // prop-collection helpers, the SVG/MathML tables — is no longer
+    // reachable from this page: −7,417 min / −2,152 br (the edited-dist
+    // model said −7,423 / −2,158). `assign` and below stay for the lazy bind
+    // chunk. Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 104,586 B.
+    // Frames tiers, merged onto `next` @ 3c1d51267 (#3860, 2026-10-07):
+    // `next`'s 45.14 KB -> 33.92 KB (floor-caps.json), measured at 33,908 B
+    // by CI (Size run 37671002618) against `next`'s 45,291 (-11,383 B;
+    // -41,032 B minified, 146,284 -> 105,252). `next`'s bytes since the
+    // branch's base land under the `dynamicComponent` note's 33,570 /
+    // 104,586 (+666 B minified, +338 B brotli). Cap set at measured + 10 B
+    // rounded up to 0.01 KB; recorded minified 105,252 B.
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 33.92 -> 34.06 KB
+    // (floor-caps.json), measured at 34,047 B by CI (Size run 37756065705)
+    // against `next` @ 8d23a5a13's 33,910 (+137 B; 127 B over the cap; +334 B
+    // minified, 105,413 -> 105,747; recorded 105,252 -> 105,747) — the frames
+    // client's bytes from the frames eager note above (the `sc:tiers`-gated
+    // marker scan, the `TreeWalker` walk); this page carries the client
+    // whole. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by
+    // the maintainer (2026-10-08, "perf is important enough — it's the point
+    // here"): `collectSlots` 14.23 -> 5.35 ms on the HN twins' story page.
+    // The cap is frozen again at 34.06 KB.
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 34.06 -> 34.22 KB
+    // (floor-caps.json), measured at 34,209 B by CI (Size run 37765150570)
+    // against #3913's e9c233c81's 34,047 (+162 B; 149 B over the cap; +360 B
+    // minified, 105,747 -> 106,107; recorded 105,747 -> 106,107; the two PRs
+    // together: +299 B brotli / +694 B minified over `next` @ 8d23a5a13's
+    // 33,910 / 105,413) — the adoption-time claim index from the frames
+    // eager note (the frames client carries the index; `@solidjs/web`'s
+    // page-level gather and resume path are unchanged, comments only — the
+    // non-SC hydrating scenarios measure 0). Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here"): total
+    // hydration ≈ 77 -> ≈ 42 ms on the HN twins' story page. The cap is
+    // frozen again at 34.22 KB.
+    // Size-Exception (#3928, 2026-10-09): 34.22 -> 34.334 KB (floor-caps.json),
+    // merged with next @ 617d19511 and measured at 34,334 B (106,704 B
+    // minified). A select value is reapplied when its options arrive,
+    // including multiple. Cap set to that brotli, not above it. Hello world
+    // on this merge is 9,939 B, under the 9.94 KB floor and under 10 KB.
+    // Size-Exception (morph drops a stale text node, 2026-10-15): +71 B
+    // minified on the frozen page floor. When a
+    // text hole empties (`<!--$--><!--/-->` has no text node), the reconcile
+    // removed nothing and relocated the next element in front of the stale
+    // text, so every cell that emptied re-inserted its following subtree.
+    // server-dbmon, 400 rows, 10% changing, 4x CPU: 28 popover subtrees
+    // re-inserted per tick -> 0; main-thread busy 771-910 -> 571-705 ms/s.
+    // Recorded minified (floor-caps.json) 106,704 -> 106,772; the brotli cap
+    // is unchanged. Accepted by the maintainer (2026-10-15).
+    // Ratchet up (2026-10-15, merged with next @ b8617ecd): 106,772 -> 106,786
+    // recorded minified (floor-caps.json; the brotli cap is unchanged), re-recorded at what the tree measures after
+    // createDeferred (#4067) landed in the signals core. Accepted by the
+    // maintainer (2026-10-15, "Ratchet up").
+    // Morph skips an identical subtree (2026-10-15): +28 B minified. A
+    // whole-range morph walked every unchanged element in JS; one native
+    // `isEqualNode` compare now skips it. server-dbmon, row ops off, 4x CPU:
+    // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
+    // saturates. Size-Exception:
+    // recorded minified (floor-caps.json) 106,786 -> 106,814; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 34.33 -> 34.89 KB, measured locally at 34875 B against `next` @
+    // 4a1ed17's 34745 (+130 B; +432 B minified, 106814 ->
+    // 107246) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
+    capMinified:
+      floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
     alias: pageAlias
   },
   {
@@ -3408,8 +4883,629 @@ module.exports = [
     // lane re-stage +13, verdict pull +1). Cap set at measured + 10 B rounded
     // up to 0.01 KB. Accepted by the maintainer (2026-10-05). The cap is
     // frozen again at 48.51 KB.
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 48.51 KB, recorded minified 157,562 B (first record);
+    // CI-measured at 48,527 B (157,562 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (frames A0 correctness pass, 2026-10-06): 48.51 -> 48.60 KB
+    // (floor-caps.json), measured at 48,595 B against `next` @ 49a8dca84's
+    // 48,527 (+68 B; 85 B over the cap; +158 B minified, 157,562 -> 157,720)
+    // — the same bytes as the base page (the frames client's net +104, the
+    // C3 hold's `sharedConfig.holdBoundary` +59). Cap set at the 0.01 KB step
+    // at or below measured + 10 B; recorded minified 157,720 B. Accepted by
+    // the maintainer (2026-10-06, "pay the cost for correctness"). The cap is
+    // frozen again at 48.60 KB.
+    // Size-Exception (#3846, 2026-10-07): 48.60 -> 48.82 KB
+    // (floor-caps.json), measured at 48,803 B against `next` @ 721eb0676's
+    // 48,573 (+230 B; 203 B over the cap; +519 B minified, 157,720 recorded
+    // -> 158,257) — the same bytes as the base page. Cap set at measured +
+    // 10 B rounded up to 0.01 KB; recorded minified 158,257 B. Accepted by
+    // the maintainer (2026-10-07: server-function/frames reader
+    // correctness). The cap is frozen again at 48.82 KB.
+    // Size-Exception (L2 fuzz regressions under existing rules, #3853,
+    // 2026-10-07): 48.82 -> 48.89 KB (floor-caps.json), measured at 48,873 B
+    // by CI (Size run 37599458941) against `next` @ 2eb6e00c0's 48,803
+    // (+70 B; 53 B over the cap; +120 B minified, 158,257 -> 158,377) — the
+    // signals fixes of the + isPending/latest note, which this page
+    // retains. Cap set at measured + 10 B rounded up to 0.01 KB; recorded
+    // minified 158,377 B. Accepted by the maintainer 2026-10-07. The cap is
+    // frozen again at 48.89 KB.
+    // Size-Exception (first-pass lane seating, #3869 — #3835/#3851,
+    // 2026-10-07): 48.89 KB -> 48.91 KB (floor-caps.json), measured at 48,892
+    // B by CI (Size run 37642512669) against `next` @ 53ef0e69e's 48,831 (+61
+    // B; 2 B over the cap; +60 B minified, 158,477 -> 158,537; recorded
+    // 158,377 -> 158,537) — the signals core: a first pass seated in its
+    // creator's guess lane, the verdict-lane filter, lane work over a pending
+    // flight entering (#3843), a verdict lane's mount born held for a staged
+    // read, and verdict-lane stagedReaders. Cap set at measured + 10 B rounded
+    // up to 0.01 KB. Accepted by the maintainer 2026-10-07. The cap is frozen
+    // again at 48.91 KB.
+    // Frames savings pass C3 — the traces tier (2026-10-06): 48.60 -> 42.16 KB
+    // (floor-caps.json), measured at 42,147 B against the Phase B head
+    // e05ba0283's 48,873 (-6,726 B; -24,161 B minified, 158,060 -> 133,899)
+    // and `next` @ 9d89df731's 48,595 (-6,448 B). The same split as the base
+    // page (its note): the store engine, the materializer and the plugin's
+    // client half leave for `trace.js` (lazy, not counted, 25,409 B minified
+    // / 8,158 B brotli); the store hydration adapters stay. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 133,899 B.
+    // Frames savings pass C4 — the regions tier (2026-10-06): 42.16 -> 41.90 KB
+    // (floor-caps.json), measured at 41,886 B against the C3 head
+    // 89954fa1b's 42,147 (-261 B; -1,083 B minified, 133,899 -> 132,816) and
+    // `next` @ 9d89df731's 48,595 (-6,709 B). The same split as the base page
+    // (its note): regions leave for `regions.js` (lazy, not counted, 1,872 B
+    // minified / 802 B brotli). Cap set at measured + 10 B at the 0.01 KB
+    // step (the ratchet); recorded minified 132,816 B.
+    // Frames savings pass C5 — the assets tier (2026-10-06, measured on its
+    // own branch off the C3 head): 41,651 B (131,973 B minified): -496 /
+    // -1,926 against the C3 head, -6,944 / -25,747 against `next` @
+    // 9d89df731; the same cut as the base page. The C5 follow-up (inline
+    // styles hold while the tier is absent): 41,650 B (131,995 B minified),
+    // +22 min / -1 br.
+    // Frames savings pass — Phases B + C3 + C4 + C5 integrated
+    // (2026-10-06, `wip/frames-tiers-integration`): 41.67 -> 41.44 KB
+    // (floor-caps.json), measured at 41,427 B (130,915 B minified) against
+    // the Phase A base 0aab93230's 48,715 (-7,288 B; -26,667 B minified)
+    // and `next` @ 9d89df731's 48,595 (-7,168 B; -26,805 B minified). The
+    // same split as the base page (its note); the chunks here: `trace.js`
+    // 25,419 / 8,173, `regions.js` 1,872 / 802, `assets.js` 2,040 / 783.
+    // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 130,915 B.
+    // Frames savings pass C6 (2026-10-06, the bind tier): 41.44 -> 40.30 KB
+    // (floor-caps.json), measured at 40,286 B (126,964 B minified) against
+    // the integration base 6b7213d64's 41,396 (-1,110 B; -3,963 B minified)
+    // and `next` @ 9d89df731's 48,595 (-8,309 B; -30,756 B minified). The
+    // chunk here: `bind.js` 4,771 / 1,843 (it imports the eager frames
+    // entry, so Rolldown attaches it to the page's graph instead of
+    // splitting the shared runtime out of the entry — see bind-tier.ts).
+    // Cap set at measured + 10 B at the 0.01 KB step (the ratchet);
+    // recorded minified 126,964 B.
+    // Frames residue pass, step 1 (2026-10-06): 40.30 -> 40.14 KB, measured
+    // at 40,125 B (126,294 B minified): the frames client's D list and the
+    // lean re-ask — −670 min / −161 br. Cap set at measured + 10 B at the
+    // 0.01 KB step (the ratchet); recorded minified 126,294 B.
+    // Frames residue pass, step 3 (2026-10-06): 40.14 -> 39.92 KB, measured
+    // at 39,904 B (125,315 B minified): every fill through `insert`, the
+    // frame element as the range — −979 min / −221 br. Cap set at measured
+    // + 10 B at the 0.01 KB step (the ratchet); recorded minified 125,315 B.
+    // Frames residue pass, step 4 (2026-10-06): 39.92 -> 39.76 KB, measured
+    // at 39,747 B (124,810 B minified): S-ref's pending read in the decode
+    // table (lazy `decode.js` +420 / +161) — −505 min / −157 br. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 124,810 B.
+    // Frames savings pass, C2 (2026-10-07): 39.76 -> 39.43 KB, measured at
+    // 39,412 B (123,903 B minified): the live wire in a lazy tier (`wire.js`
+    // 1,922 / 933, reported not counted — this page LOADS it at its first
+    // `live()` call, so its total transfer is 39,412 + 933 = 40,345 br
+    // against the base's 39,747) — −907 min / −335 br eager. Cap set at
+    // measured + 10 B at the 0.01 KB step (the ratchet); recorded minified
+    // 123,903 B.
+    // `dynamicComponent` (B.3-sync, 2026-10-07): 39.43 -> 37.26 KB, measured
+    // at 37,241 B (116,485 B minified): the fixture mounts through
+    // `dynamicComponent`, shedding `dynamic`'s string-tag arm as on the base
+    // page — −7,418 min / −2,171 br. Cap set at measured + 10 B at the
+    // 0.01 KB step (the ratchet); recorded minified 116,485 B.
+    // Frames tiers, merged onto `next` @ 3c1d51267 (#3860, 2026-10-07):
+    // `next`'s 48.91 KB -> 37.53 KB (floor-caps.json), measured at 37,512 B
+    // by CI (Size run 37671002618) against `next`'s 48,962 (-11,450 B;
+    // -41,096 B minified, 158,397 -> 117,301). `next`'s bytes since the
+    // branch's base land under the `dynamicComponent` note's 37,241 /
+    // 116,485 (+816 B minified, +271 B brotli). Cap set at measured + 10 B
+    // rounded up to 0.01 KB; recorded minified 117,301 B.
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 37.53 KB -> 37.59 KB
+    // (floor-caps.json), measured at 37,578 B by CI (Size run 37684843282)
+    // against `next` @ dafad1db3's 37,512 (+66 B; 48 B over the cap; +140 B
+    // minified, 117,301 -> 117,441; recorded 117,301 -> 117,441) — the signals
+    // core: a pending first pass records the transaction it was born into
+    // (`_bornIn`), and its first landing stages into it while it is live
+    // (`liveTx`, `holdNode`). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer 2026-10-07 on the condition hello world stays
+    // under 10 KB. The cap is frozen again at 37.59 KB.
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 37.59 -> 37.77 KB
+    // (floor-caps.json), measured at 37,759 B by CI (Size run 37756065705)
+    // against `next` @ 8d23a5a13's 37,610 (+149 B; 169 B over the cap; +334 B
+    // minified, 117,456 -> 117,790; recorded 117,441 -> 117,790) — the frames
+    // client's bytes from the frames eager note (the `sc:tiers`-gated marker
+    // scan, the `TreeWalker` walk). Cap set at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-08, "perf is important
+    // enough — it's the point here"). The cap is frozen again at 37.77 KB.
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 37.77 -> 37.94 KB
+    // (floor-caps.json), measured at 37,924 B by CI (Size run 37765150570)
+    // against #3913's e9c233c81's 37,759 (+165 B; 154 B over the cap; +360 B
+    // minified, 117,790 -> 118,150; recorded 117,790 -> 118,150; the two PRs
+    // together: +314 B brotli / +694 B minified over `next` @ 8d23a5a13's
+    // 37,610 / 117,456) — the adoption-time claim index from the frames
+    // eager note. Cap set at measured + 10 B rounded up to 0.01 KB. Accepted
+    // by the maintainer (2026-10-08, "perf is important enough — it's the
+    // point here"). The cap is frozen again at 37.94 KB.
+    // Size-Exception (#3898 stacked on #3884, 2026-10-08): 37.94 -> 37.98 KB
+    // (floor-caps.json), measured at 37,975 B brotli / 118,409 B minified by CI
+    // (Size run 37878629674). Cap set to that brotli size, rounded up to 0.01 KB.
+    // Hello world stays under 10 KB.
+    // Size-Exception (#3928, 2026-10-09): 37.98 -> 38.146 KB (floor-caps.json),
+    // merged with next @ 617d19511 and measured at 38,146 B (118,990 B
+    // minified). A select value is reapplied when its options arrive,
+    // including multiple. Cap set to that brotli, not above it.
+    // Ratchet up (2026-10-15, merged with next @ b8617ecd): 118,990 -> 119,009
+    // recorded minified (floor-caps.json; the brotli cap is unchanged), re-recorded at what the tree measures after
+    // createDeferred (#4067) landed in the signals core. Accepted by the
+    // maintainer (2026-10-15, "Ratchet up").
+    // Morph skips an identical subtree (2026-10-15): +28 B minified. A
+    // whole-range morph walked every unchanged element in JS; one native
+    // `isEqualNode` compare now skips it. server-dbmon, row ops off, 4x CPU:
+    // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
+    // saturates. Size-Exception:
+    // recorded minified (floor-caps.json) 119,009 -> 119,037; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 38.15 -> 38.70 KB, measured locally at 38684 B against `next` @
+    // 4a1ed17's 38620 (+64 B; +503 B minified, 119037 ->
+    // 119540) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
+    capMinified:
+      floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
     alias: pageAlias
+  },
+  // Compiled server-component PAGES (2026-10-07): the two page scenarios
+  // above are hand-written — they keep the runtime alive as values and never
+  // compile a template, so the attribute runtime a compiled template imports
+  // (`className`, `style`, `setAttribute`, `addEvent`, `delegateEvents`)
+  // reaches them only through the bind tier's `assign` edge, and a change
+  // that "removes" it from those pages removes nothing from a page an
+  // application ships. These two are the same pages as JSX under
+  // fixtures/compiled/ (sc-base.jsx, sc-live.jsx, the shared sc-shell.jsx),
+  // compiled hydratable by the measured checkout's @solidjs/compiler like
+  // the `app: compiled hydrating` scenario, with the templates a real page
+  // has — and NO element spread: the maintainer's ruling (2026-10-07) is
+  // that most server-component apps do not have client element spreads, so
+  // the compiled baseline must not carry one (`spread` must be absent from
+  // the rendered web.js of both pages; the notes record the check). The
+  // hand-written pages stay as the frames-only floor (frozen caps); these
+  // carry inline caps like the compiled app scenarios: measured + 10 B
+  // rounded up to 0.01 KB, with the minified recorded from the same run.
+  {
+    name: "page: compiled base server components (the base page as JSX: templates with class/style/attributes/events, For/Show; no spread)",
+    // sc-base-app.js as a compiled page: the same server-component mount
+    // (`dynamicComponent()` over a server-function reference, the frames
+    // transport installed), the same client signal + memo, `lazy()` child,
+    // Show / For / Loading / Errored — inside a compiled shell: links with
+    // `href` (`setAttribute`), a dynamic `class` and `style` value
+    // (`className`, `style`, and the `readShallow` the compiler wraps them
+    // in), a handler passed through as a prop (`addEvent`, `delegateEvents`),
+    // a search input with a `value` binding (`setProperty`), `<For>`, `<Show>`
+    // with a function child. The delta against the hand-written base page is
+    // what the compiled templates retain of @solidjs/web plus the compiled
+    // app's own bytes.
+    //
+    // Added 2026-10-07 on feat/web-dynamic-component @ 99915141a (#3870's
+    // head; the stack beneath is #3860 -> #3849 -> next). Measured locally
+    // (macOS, Node 26): 34,869 B (108,634 B minified; signals=33,849
+    // web/frames=26,261 solid=17,675 web=16,521 web/server-functions=12,364
+    // app=1,966) — +1,299 B brotli / +4,048 B minified over the hand-written
+    // base page's 33,570 / 104,586 on the same build: web +1,083
+    // (`template`/`getNextElement`/`getNextMarker` 632, `readShallow` 238,
+    // `setProperty` 217, `scope` 35), signals +1,192 (store/utils.js 1,071:
+    // `readShallow` calls `sourceKeys(value, SOURCE_PROXY)`, which retains
+    // the leaf/merge key walkers of the merge/omit view records — the one
+    // store-view cost left on a spread-free page; `merge`/`omit` themselves
+    // are absent), app +1,966. `spread` is absent (992 B with the spread the
+    // fixture first carried; store/utils.js was 3,510 then). The attribute
+    // runtime proper (`className` 713, `style` 454, `setAttribute` 368,
+    // `addEvent` 282, `delegateEvents` 184, `eventHandler` 1,108, `assign`
+    // 283 + `assignProp` 921 minified) is on BOTH pages: the hand-written one
+    // reaches all of it through the bind tier's `assign` import (Rolldown
+    // attaches bind.js to the entry graph); here the templates import
+    // everything but `assign`/`assignProp` directly — which is why a cut
+    // that drops the bind edge from the hand-written page saves only
+    // `assign`/`assignProp` here. On `next` @ 11e9fb653 (same harness; the
+    // fixture mounts with `dynamic`, which is all `next` has): 45,900 /
+    // 148,820 — the stack is −11,031 B brotli / −40,186 B minified on this
+    // page (−11,569 / −41,837 on the hand-written one). Mounted with
+    // `dynamic` instead of `dynamicComponent` on this head: 36,550 / 114,446
+    // — the sibling saves 1,681 B brotli / 5,812 B minified on this page,
+    // against 2,152 / 7,417 on the hand-written one (the templates already
+    // carry `readShallow` and the walk helpers `dynamic`'s tag arm shares).
+    // Cap at local measured + 10 B at the 0.01 KB step; CI (Linux, Node 24)
+    // must confirm — lower only.
+    // Merged onto `next` @ 3c1d51267 (#3860, 2026-10-07): 34.88 -> 35.09 KB,
+    // measured at 35,079 B by CI (Size run 37671002618; 109,300 B minified).
+    // The 34.88 KB above was local bytes on the branch's pre-merge base;
+    // `next`'s bytes since (#3846's ChunkReader, #3865, #3874 — the same
+    // +666 B minified as the hand-written base page) land under it. No cap
+    // on `next` (a new scenario; `next` cannot bundle the fixture). Cap set
+    // at CI measured + 10 B rounded up to 0.01 KB; recorded minified
+    // 109,300 B.
+    path: "fixtures/compiled/sc-base.jsx",
+    compile: { hydratable: true },
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 35.09 KB -> 35.13 KB, measured at
+    // 35,120 B by CI (Size run 37684843282) against `next` @ dafad1db3's 35,079
+    // (+41 B; 30 B over the cap; +146 B minified, 109,300 -> 109,446; recorded
+    // 109,300 -> 109,446) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 35.13 -> 35.34 KB,
+    // measured at 35,323 B by CI (Size run 37756065705) against `next` @
+    // 8d23a5a13's 35,146 (+177 B; 193 B over the cap; +334 B minified,
+    // 109,461 -> 109,795; recorded 109,446 -> 109,795) — the frames client's
+    // bytes from the frames eager note (the `sc:tiers`-gated marker scan, the
+    // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-08, "perf is important enough —
+    // it's the point here").
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 35.34 -> 35.47 KB, measured at
+    // 35,459 B by CI (Size run 37765150570) against #3913's e9c233c81's
+    // 35,323 (+136 B; 119 B over the cap; +360 B minified, 109,795 -> 110,155;
+    // recorded 109,795 -> 110,155; the two PRs together: +313 B brotli /
+    // +694 B minified over `next` @ 8d23a5a13's 35,146 / 109,461) — the
+    // adoption-time claim index from the frames eager note. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here").
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 35,660 B brotli
+    // (110,717 B minified). Cap set to that brotli, not above it.
+    limit: "35.660 KB",
+    capMinified: 110717,
+    alias: pageAlias
+  },
+  {
+    name: "page: compiled live server components (the compiled base page + live/GET + action + isPending/latest)",
+    // sc-live-app.js as a compiled page: the compiled base page plus
+    // `live(GET(...))` on the reference, an `action` dispatched from a
+    // compiled click handler, `isPending` / `latest` read in a template's
+    // `class` and a text hole. Still no client stores, no spread.
+    //
+    // Added 2026-10-07 on feat/web-dynamic-component @ 99915141a. Measured
+    // locally (macOS, Node 26): 40,266 B (121,963 B minified; signals=41,889
+    // web/frames=27,502 solid=17,173 web/server-functions=16,912 web=16,047
+    // app=2,439). This page's eager graph is TWO chunks (bundle.mjs): with
+    // `isPending` on the page, the frames tiers (trace.js, bind.js) and the
+    // lazy comments route all reaching the core, Rolldown hoists the shared
+    // runtime — signals core, solid-js, @solidjs/web, 66,354 B minified —
+    // into a `web.js` the entry imports statically (entry 55,609 / 18,354 +
+    // web.js 66,354 / 21,912). It ships eagerly, so it is counted; the two
+    // compressions cost ≈ 1,223 B brotli over one chunk (39,043 concatenated)
+    // and the export glue ≈ 1.3 KB minified. The hand-written live page does
+    // not split only because its lazy page is empty: the same page with a
+    // template in its lazy route splits the same way. +5,397 B brotli /
+    // +13,329 B minified over the compiled base page (the hand-written pair
+    // is +3,671 / +11,899). `spread` absent, as on the base page. On `next`
+    // @ 11e9fb653 (same harness, `dynamic` mount, one chunk — no tiers to
+    // share with): 49,721 / 161,233 — the stack is −9,455 B brotli / −39,270
+    // B minified on this page (−11,647 / −42,051 on the hand-written one).
+    // Mounted with `dynamic` on this head: 42,002 / 127,779 (−1,736 /
+    // −5,816 for `dynamicComponent`). Cap at local measured + 10 B at the
+    // 0.01 KB step; CI (Linux, Node 24) must confirm — lower only.
+    // Merged onto `next` @ 3c1d51267 (#3860, 2026-10-07): 40.28 -> 40.61 KB,
+    // measured at 40,593 B by CI (Size run 37671002618; 122,779 B minified,
+    // the statically-imported web.js chunk counted). The 40.28 KB above was
+    // local bytes on the branch's pre-merge base; `next`'s bytes since land
+    // under it (+816 B minified, as on the hand-written live page). No cap
+    // on `next` (a new scenario; `next` cannot bundle the fixture). Cap set
+    // at CI measured + 10 B rounded up to 0.01 KB; recorded minified
+    // 122,779 B.
+    path: "fixtures/compiled/sc-live.jsx",
+    compile: { hydratable: true },
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 40.61 KB -> 40.66 KB, measured at
+    // 40,645 B by CI (Size run 37684843282) against `next` @ dafad1db3's 40,593
+    // (+52 B; 35 B over the cap; +139 B minified, 122,779 -> 122,918; recorded
+    // 122,779 -> 122,918) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 40.66 -> 40.83 KB,
+    // measured at 40,819 B by CI (Size run 37756065705) against `next` @
+    // 8d23a5a13's 40,651 (+168 B; 159 B over the cap; +332 B minified,
+    // 122,933 -> 123,265; recorded 122,918 -> 123,265) — the frames client's
+    // bytes from the frames eager note (the `sc:tiers`-gated marker scan, the
+    // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-08, "perf is important enough —
+    // it's the point here").
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): 40.83 -> 40.95 KB, measured at
+    // 40,932 B by CI (Size run 37765150570) against #3913's e9c233c81's
+    // 40,819 (+113 B; 102 B over the cap; +363 B minified, 123,265 -> 123,628;
+    // recorded 123,265 -> 123,628; the two PRs together: +281 B brotli /
+    // +695 B minified over `next` @ 8d23a5a13's 40,651 / 122,933) — the
+    // adoption-time claim index from the frames eager note. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here").
+    // #3884 stacked on next (2026-10-08): measured at 41,057 B brotli / 123,713 B minified
+    // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3898 stacked on this cap (Size run 37878629674) and stayed under it.
+    // #3923 stacked on #3898 (Size run 37879895994) and stayed under it.
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 41,214 B brotli
+    // (124,433 B minified). Cap set to that brotli, not above it.
+    limit: "41.214 KB",
+    capMinified: 124433,
+    alias: pageAlias
+  },
+  {
+    name: "page: base + router (base page + @solidjs/router: createRouter, two routes, preload, useNavigate)",
+    // The base page as an application ships it: with a router. The two page
+    // floors above carry no router, so the "base case" they gate is a page
+    // nobody deploys; this scenario is the same composition plus
+    // `@solidjs/router` 2.0 (`2.0.0-next.35` at landing, `2.0.0-next.37`
+    // since 2026-10-08, pinned exactly in this directory's package.json —
+    // the Solid 2 line; a router upgrade is a re-base recorded like a
+    // Rolldown upgrade, below) with `createRouter`, two
+    // routes (one `preload`, one lazy), the instance as the hydrated root
+    // and `useNavigate` in a route component. Not a floor: an inline cap,
+    // and the router's growth is the router's — this scenario attributes it
+    // (the `other` package in the report is the router).
+    // Landing (2026-10-06, next @ 49a8dca84): measured locally at 57,001 B
+    // (184,378 B minified) against the base page's 44,864 (145,599) — the
+    // router's contribution +12,137 B br / +38,779 B minified: the router's
+    // own 28,008 minified (`createRouterContext`, `setupNativeEvents` incl.
+    // the form-action path, `query`'s preload cache, `setupLinkClaims`,
+    // scroll restoration, `browserHistory`) plus what it retains of ours —
+    // signals +8,583 (`action` and the optimistic lanes: `verdictValue`,
+    // `dissolveLane`, `laneRead`, `isPending`/`latest`, `createEffect`,
+    // `onSettled`), sf +1,188 (`subscribeFlightData`, `decodeResponsePayload`,
+    // the redirect header, `parseServerFunctionAddress`), web +1,137
+    // (`takeHydrationValue`, `registerElementClaim`), solid +364
+    // (`createContext`, `children`). The router standalone, with solid-js /
+    // @solidjs/web external, is 32,430 / 11,216 B.
+    // Re-based onto `next` @ 7233451ee (#3838, 2026-10-07), after the frames
+    // tiers (#3860): measured at 45,940 B (144,082 B minified) against the
+    // base page's 33,908 (105,252) — the router's contribution +12,032 B br
+    // / +38,830 B minified, the same as at landing; the page under it is
+    // what #3860 cut. The fixture now mounts through `dynamicComponent`, the
+    // documented server-component mount the base page uses (#3870); with
+    // `dynamic` it measures 48,272 / 151,551 (+2,332 / +7,469: `dynamic`'s
+    // tag arm keeps the element runtime). The router does not retain that
+    // runtime itself — its `serverRouteComponent` helper mounts with
+    // `dynamic`, but this page does not use it. Cap at measured + 10 B
+    // rounded up to 0.01 KB; recorded minified 144,082 B (CI-confirmed).
+    path: "sc-router-app.js",
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 45.95 KB -> 46.02 KB, measured at
+    // 46,010 B by CI (Size run 37684843282) against `next` @ dafad1db3's 45,940
+    // (+70 B; 60 B over the cap; +141 B minified, 144,082 -> 144,223; recorded
+    // 144,082 -> 144,223) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // Router 2.0.0-next.35 -> 2.0.0-next.37 and the `solid` condition
+    // (2026-10-08, next @ 8d23a5a13): 46.02 KB -> 41.26 KB. Two changes,
+    // measured apart (local bytes; minified exact, brotli ±tens vs CI):
+    // 1. next.37 (solid-router#660, pay-for-use `isRouting`): on the flat
+    //    build 45,996 / 144,238 -> 43,931 / 137,617 (−2,065 B br / −6,621
+    //    B minified). The router's navigation core no longer reads
+    //    `isPending` / `latest` — intent, the redirect hop count, the
+    //    leave-guard destination and scroll restoration use its own
+    //    location writes and `onSettled` — so signals' verdict machinery
+    //    left this page entirely: `core/lanes.js` −5,150 and
+    //    `core/verdict.js` −2,585 (signals 41,698 -> 34,081). The router's
+    //    own bytes grew +487 (27,395 -> 27,882): scroll restoration now
+    //    hands a server-rendered document load back to the browser's
+    //    native restore and settles traversals through `onSettled`
+    //    (`routers/scrollRestoration.js` 868 -> 1,238 under `solid`), and
+    //    the settle-based coordination replaces the verdict reads
+    //    (`routing.js` itself shrank, 6,915 -> 6,531); `pending.js` — the
+    //    opt-in readers — is exported and shaken. `data-pending` on plain
+    //    anchors is opt-in now
+    //    (`createRouter({ routes, links: pendingLinks })`); this fixture
+    //    never opted in — next.35 applied it by default — so it measures
+    //    the default. With the opt-in (measured, not a scenario): +8,635 /
+    //    +4,301 under `solid` — `pending.js` 532 and lanes + verdict back
+    //    (≈7.5 K minified), plus Rolldown hoisting the shared runtime into a
+    //    statically-imported chunk again (two brotli streams). That is the
+    //    shape the live + router scenario already carries, so no third
+    //    router scenario.
+    // 2. The `solid` export condition (solidConditions above; this is what
+    //    a Vite app ships): 43,931 / 137,617 -> 41,244 / 129,175 (−2,687 /
+    //    −8,442). The flat `default` build inlines the server-form fallback;
+    //    under `solid` it is the lazy `serverForms.js` chunk (8,972 B
+    //    minified / 3,583 B br: `data/serverForms`, `data/action`,
+    //    `data/query`, signals' `core/action.js`, the flight consumer).
+    //    The router is 20,237 B minified eager here (`routing.js` 6,531,
+    //    `utils.js` 2,785, `routers/factory.jsx` 2,622, `data/events.js`
+    //    2,068, `routers/components.jsx` 1,338, `claims.js` 1,263,
+    //    `routers/scrollRestoration.js` 1,238, `routers/history.js` 1,051,
+    //    `paths.js` 460, `serverRouteShared.js` 435), 28,327 on the flat
+    //    build. On next.35 the condition alone was worth −623 / −7,195
+    //    (45,373 / 137,043; there the entry split into two eager chunks).
+    //    The ledger before this line is flat-build bytes; deltas must not
+    //    be read across it.
+    // Against the base page's 33,910 / 105,413 the router's marginal is
+    // now +7,334 B br / +23,762 B minified (was +12,086 / +38,825). One
+    // eager chunk. Cap at measured + 10 B rounded up to 0.01 KB; recorded
+    // minified 129,175 B. CI-confirmed to the byte (Size run 37751396603:
+    // 41,244 / 129,175).
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 46.02 -> 46.13 KB,
+    // measured at 46,120 B by CI (Size run 37756065705) against `next` @
+    // 8d23a5a13's 45,996 (+124 B; 100 B over the cap; +334 B minified,
+    // 144,238 -> 144,572; recorded 144,223 -> 144,572) — the frames client's
+    // bytes from the frames eager note (the `sc:tiers`-gated marker scan, the
+    // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-08, "perf is important enough —
+    // it's the point here").
+    // Re-derived on #3909's base (router next.37 + the `solid` condition,
+    // `next` @ 893834ca5, 2026-10-08): 41.26 -> 41.40 KB, measured at 41,386 B
+    // by CI (Size run 37805628234) against #3909's 41,244 (+142 B; +334 B
+    // minified, 129,175 -> 129,509; recorded 129,175 -> 129,509) — the same
+    // frames bytes as above. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): measured on the pre-#3909 router
+    // at 46,282 B / 144,932 minified (Size run 37765150570; +162 B brotli /
+    // +360 B minified over #3913's 46,120 / 144,572) — the adoption-time
+    // claim index from the frames eager note. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here").
+    // Re-derived onto #3913's post-#3909 cap (41,386 / 129,509) by that same
+    // delta: 41,548 B / 129,869 minified. Cap at that sum + 10 B rounded up
+    // to 0.01 KB.
+    // #3923 (2026-10-08): measured at 41,536 B brotli / 129,943 B minified by CI
+    // (Size run 37873448792). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3923 stacked on #3884 (2026-10-08): measured at 41,562 B brotli / 130,010 B minified
+    // by CI (Size run 37878630604). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 41,794 B brotli
+    // (130,591 B minified). Cap set to that brotli, not above it.
+    // Morph drops a stale text node (2026-10-15): +71 B minified. When a
+    // text hole empties (`<!--$--><!--/-->` has no text node), the reconcile
+    // removed nothing and relocated the next element in front of the stale
+    // text, so every cell that emptied re-inserted its following subtree.
+    // server-dbmon, 400 rows, 10% changing, 4x CPU: 28 popover subtrees
+    // re-inserted per tick -> 0; main-thread busy 771-910 -> 571-705 ms/s.
+    // Recorded minified 130,591 -> 130,653 (the brotli cap is unchanged).
+    // Ratchet up (2026-10-15, merged with next @ b8617ecd): 130,653 -> 130,667
+    // recorded minified (the brotli cap is unchanged), re-recorded at what the tree measures after
+    // createDeferred (#4067) landed in the signals core. Accepted by the
+    // maintainer (2026-10-15, "Ratchet up").
+    // Morph skips an identical subtree (2026-10-15): +28 B minified. A
+    // whole-range morph walked every unchanged element in JS; one native
+    // `isEqualNode` compare now skips it. server-dbmon, row ops off, 4x CPU:
+    // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
+    // saturates. Recorded
+    // minified 130,667 -> 130,695; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 41.79 -> 42.22 KB, measured locally at 42206 B against `next` @
+    // 4a1ed17's 42100 (+106 B; +434 B minified, 130695 ->
+    // 131129) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "42.22 KB",
+    capMinified: 131129,
+    alias: pageAlias,
+    conditions: solidConditions,
+    compile: { hydratable: true }
+  },
+  {
+    name: "page: live + router (live page + @solidjs/router: createRouter, two routes, preload, useNavigate)",
+    // The live page with the same router (see the base + router note).
+    // Landing (2026-10-06, next @ 49a8dca84): measured locally at 58,243 B
+    // (188,800 B minified) against the live page's 48,527 (157,562) — the
+    // router's contribution +9,716 B br / +31,238 B minified, less than on
+    // the base page because the live page already carries `action` and
+    // `isPending`/`latest`, which the router retains on every page.
+    // Re-based onto `next` @ 7233451ee (#3838, 2026-10-07), after the frames
+    // tiers (#3860): measured at 47,197 B (148,526 B minified) against the
+    // live page's 37,512 (117,301) — the router's contribution +9,685 B br /
+    // +31,225 B minified. Mounted through `dynamicComponent` as the live page
+    // is (the base + router note); with `dynamic`: 49,475 / 155,995. Cap at
+    // measured + 10 B rounded up to 0.01 KB; recorded minified 148,526 B
+    // (CI-confirmed).
+    path: "sc-live-router-app.js",
+    // Size-Exception (a new async memo created over a hold lands its first
+    // answer into it, #3800, 2026-10-07): 47.21 KB -> 47.29 KB, measured at
+    // 47,277 B by CI (Size run 37684843282) against `next` @ dafad1db3's 47,197
+    // (+80 B; 67 B over the cap; +142 B minified, 148,526 -> 148,668; recorded
+    // 148,526 -> 148,668) — the signals core: a pending first pass records the
+    // transaction it was born into (`_bornIn`), and its first landing stages
+    // into it while it is live (`liveTx`, `holdNode`). Cap set at measured + 10
+    // B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-07 on the
+    // condition hello world stays under 10 KB.
+    // Router 2.0.0-next.35 -> 2.0.0-next.37 and the `solid` condition
+    // (2026-10-08, next @ 8d23a5a13; see the base + router note): 47.29 KB
+    // -> 46.93 KB. Measured apart (local bytes):
+    // 1. next.37 on the flat build: 47,326 / 148,683 -> 47,347 / 148,933
+    //    (+21 B br / +250 B minified). Nothing left: this page reads
+    //    `isPending` / `latest` on its own signal and ships an `action`, so
+    //    signals' lanes (5,171) and verdict (2,596) are the page's, not the
+    //    router's — what left the base page is exactly what this page keeps
+    //    for itself. The +250 is the router's own (27,512 -> 27,801), the
+    //    price of the pay-for-use seam on a page that pays for use.
+    // 2. The `solid` condition: 47,347 / 148,933 -> 46,919 / 142,472 (−428
+    //    / −6,461). The server-form fallback is the lazy `serverForms.js`
+    //    chunk (8,283 / 3,310; smaller than on the base page because
+    //    signals' `action` is already eager here). The eager graph is TWO
+    //    chunks on this page: Rolldown hoists the runtime the entry shares
+    //    with that lazy chunk into `client.js` (85,618 / 27,801), imported
+    //    statically by the entry (56,854 / 19,118) — counted, as bundle.mjs
+    //    counts it (the compiled live page splits the same way). Two brotli
+    //    streams cost 1,393 B over the same bytes as one (45,526), which is
+    //    why −6,461 minified is only −428 br. The base + router page does
+    //    not split: with lanes/verdict out of its entry, nothing the lazy
+    //    chunk needs is shared.
+    //    With `links: pendingLinks` (measured, not a scenario): +516 /
+    //    +154 — `pending.js` 532 and the claims plugin's wiring; the verdict
+    //    machinery is already here.
+    // Against the live page's 37,610 / 117,456 the router's marginal is
+    // now +9,309 B br / +25,016 B minified (was +9,716 / +31,227). Cap at
+    // measured + 10 B rounded up to 0.01 KB; recorded minified 142,472 B.
+    // CI-confirmed to the byte, two chunks included (Size run 37751396603:
+    // 46,919 / 142,472; `client.js` 85,618 / 27,801).
+    // Size-Exception (frames: announcement-gated slot/region scans, one
+    // TreeWalker pass for `collectSlots`, #3913, 2026-10-08): 47.29 -> 47.47 KB,
+    // measured at 47,460 B by CI (Size run 37756065705) against `next` @
+    // 8d23a5a13's 47,326 (+134 B; 170 B over the cap; +334 B minified,
+    // 148,683 -> 149,017; recorded 148,668 -> 149,017) — the frames client's
+    // bytes from the frames eager note (the `sc:tiers`-gated marker scan, the
+    // `TreeWalker` walk). Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Accepted by the maintainer (2026-10-08, "perf is important enough —
+    // it's the point here").
+    // Re-derived on #3909's base (router next.37 + the `solid` condition,
+    // `next` @ 893834ca5, 2026-10-08): 46.93 -> 47.10 KB, measured at 47,084 B
+    // by CI (Size run 37805628234) against #3909's 46,919 (+165 B; +332 B
+    // minified, 142,472 -> 142,804; recorded 142,472 -> 142,804) — the same
+    // frames bytes as above. Cap set at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (hydration: gather hydratable nodes once per adoption,
+    // #3916, 2026-10-08, stacked on #3913): measured on the pre-#3909 router
+    // at 47,556 B / 149,377 minified (Size run 37765150570; +96 B brotli /
+    // +360 B minified over #3913's 47,460 / 149,017) — the adoption-time
+    // claim index from the frames eager note. Accepted by the maintainer
+    // (2026-10-08, "perf is important enough — it's the point here").
+    // Re-derived onto #3913's post-#3909 cap. The carried +96 B brotli delta
+    // landed at 47.19 KB; CI on this merge (Size run 37852899252) measured
+    // 47,281 B / 143,158 minified (+197 B brotli / +354 B minified over
+    // #3913's 47,084 / 142,804). Cap at measured + 10 B rounded up to 0.01 KB.
+    // #3884 stacked on next (2026-10-08): measured at 47,306 B brotli / 143,256 B minified
+    // by CI (Size run 37877131031). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3923 stacked on #3884 (2026-10-08): measured at 47,329 B brotli / 143,381 B minified
+    // by CI (Size run 37878630604). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3923 stacked on #3898 (2026-10-08): measured at 47,337 B brotli / 143,543 B minified
+    // by CI (Size run 37879895994). Cap set to that brotli size, rounded up to 0.01 KB.
+    // #3928 (2026-10-09): a select value is reapplied when its options arrive,
+    // including multiple. Merged with next @ 617d19511: 47,493 B brotli
+    // (144,124 B minified). Cap set to that brotli, not above it.
+    // Morph drops a stale text node (2026-10-15): +71 B minified. When a
+    // text hole empties (`<!--$--><!--/-->` has no text node), the reconcile
+    // removed nothing and relocated the next element in front of the stale
+    // text, so every cell that emptied re-inserted its following subtree.
+    // server-dbmon, 400 rows, 10% changing, 4x CPU: 28 popover subtrees
+    // re-inserted per tick -> 0; main-thread busy 771-910 -> 571-705 ms/s.
+    // Recorded minified 144,124 -> 144,190 (the brotli cap is unchanged).
+    // Ratchet up (2026-10-15, merged with next @ b8617ecd): 144,190 -> 144,205
+    // recorded minified (the brotli cap is unchanged), re-recorded at what the tree measures after
+    // createDeferred (#4067) landed in the signals core. Accepted by the
+    // maintainer (2026-10-15, "Ratchet up").
+    // Morph skips an identical subtree (2026-10-15): +28 B minified. A
+    // whole-range morph walked every unchanged element in JS; one native
+    // `isEqualNode` compare now skips it. server-dbmon, row ops off, 4x CPU:
+    // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
+    // saturates. Recorded
+    // minified 144,205 -> 144,233; brotli cap unchanged. Accepted by the maintainer (2026-10-15).
+    // Size-Exception (a held error waits for its frame, D-41, #4085, 2026-10-15):
+    // 47.49 -> 48.05 KB, measured locally at 48036 B against `next` @
+    // 4a1ed17's 47857 (+179 B; +519 B minified, 144233 ->
+    // 144752) — the signals core: an error a held node finds is staged like a
+    // value and published at its frame's commit, a shown error stays the
+    // display through its retry, `latest` throws a staged error. Cap set at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // 2026-10-15 (golf first, then raise by what is left).
+    limit: "48.05 KB",
+    capMinified: 144752,
+    alias: pageAlias,
+    conditions: solidConditions,
+    compile: { hydratable: true }
   },
   {
     name: "server: floor (getRequestEvent + isServer)",
@@ -3431,7 +5527,12 @@ module.exports = [
     // shaking.
     path: "../../packages/web/dist/server.js",
     import: "{ getRequestEvent, isServer }",
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 1.34 KB, recorded minified 3,324 B (first record);
+    // CI-measured at 1,331 B (3,324 B minified). Lower only: cap at measured +
+    // 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["server: floor (getRequestEvent + isServer)"],
+    capMinified: floorMinified["server: floor (getRequestEvent + isServer)"],
     alias: serverAlias,
     platform: "node",
     conditions: serverConditions
@@ -3461,9 +5562,54 @@ module.exports = [
     // heard as `request`. The cost is the `catch` and its one
     // `reportServerError` call (already retained here). Accepted by the
     // maintainer. The cap is frozen again at 20.42 KB.
+    // Size-Exception (#4002, 2026-10-13): 20.42 -> 20.48 KB, measured at
+    // 20,473 B against `next` @ 6232d18e's 20,403 (+70 B; 53 B over the cap;
+    // +199 B minified, 71,813 -> 72,012). A render that emits
+    // `<HydrationScript />` ends its shell with the #3971 marker script and
+    // its bootstrap declares the `_$HY.s` ledger, so a `hydrate()` started
+    // mid-parse by an `async` entry parks until the whole shell is parsed.
+    // The cost is the marker helper, the bootstrap split and the ledger
+    // flag, all retained by renderToString. Accepted by the maintainer
+    // (2026-10-13). The cap is frozen again at 20.48 KB.
+    // Size-Exception (#4030, 2026-10-13): 20.48 -> 20.51 KB, measured at
+    // 20,497 B against `next` @ 9f4174b6's 20,473 (+24 B; 17 B over the cap;
+    // +75 B minified, 72,012 -> 72,087). The shell-end marker is spliced in
+    // before `</body>` instead of appended after `</html>`, so a whole
+    // document ends with `</html>` again; the cost is the tail search and
+    // splice in the marker helper, retained by renderToString. Accepted by
+    // the maintainer (2026-10-13). The cap is frozen again at 20.51 KB.
+    // Size-Exception (#4043, 2026-10-14): 20.51 -> 20.55 KB, measured at
+    // 20,531 B against `next` @ d1cb8013's 20,497 (+34 B; 21 B over the cap;
+    // +155 B minified, 72,087 -> 72,242). A hole that escalates inside a
+    // server component carries the component's claims arming into its
+    // retry, so a boundary outside the component that resumes it still
+    // writes handler-position markers (`_s:on:click`); the cost is the arm
+    // in `buildAsyncWrap`'s retry wrapper, retained by renderToString.
+    // Accepted by the maintainer (2026-10-14), together with #4055's growth
+    // under one combined cap of about 20.58 KB: whichever of the two merges
+    // second re-measures on top of the first (#4055, below).
+    // Size-Exception (#4032, 2026-10-14): 20.51 -> 20.56 KB, measured
+    // locally at 20,555 B against `next` @ c8186046's 20,497 (+58 B; 45 B over
+    // the cap; +131 B minified, 72,087 -> 72,218). An in-tag hole that
+    // escalates drops the `data-lha` its attr capture spliced in, so the
+    // resume's own address is the element's only one; the cost is the
+    // capture's splice record and the removal written inline at the three
+    // escalation sites (a closure in `ssr()` was 10 B smaller but cost ~13%
+    // on the link-claim bench, one allocation per template instance),
+    // retained by renderToString. Accepted by the maintainer (2026-10-14) as
+    // one combined cap with #4043 (+34 B); whichever of the two merges
+    // second re-measures and sets the cap. Merged second, on top of #4043:
+    // measured at 20,570 B against `next` @ f048691f's 20,531 (+39 B;
+    // +131 B minified, 72,242 -> 72,373). The combined cap is frozen at
+    // 20.58 KB, as the maintainer accepted.
     path: "../../packages/web/dist/server.js",
     import: "{ renderToString }",
+    // Ratchet (2026-10-06, seed, next @ fff1615ee, Size run 37443080193): cap
+    // unchanged at 20.42 KB, recorded minified 71,813 B (first record);
+    // CI-measured at 20,412 B (71,813 B minified). Lower only: cap at measured
+    // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["server: renderToString (the server-render floor)"],
+    capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,
     platform: "node",
     conditions: serverConditions

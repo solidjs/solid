@@ -92,14 +92,23 @@ describe("single-flight delivery over the frames transport (#3638)", () => {
   });
 
   function handler() {
-    const streams: string[] = [];
+    const host = createFrameHost();
     const created = createServerComponentHandler({
-      host: createFrameHost(),
-      component: (fnId: string) => fnId as any,
-      onStream: address => {
-        streams.push(address);
-      }
+      host,
+      component: (fnId: string) => fnId as any
     });
+    // The addresses whose resident store holds a landing: a region streamed
+    // into an address nothing shows warms its store, and a mount registered
+    // afterwards is seeded from it — the one write that seed is, observed
+    // through a probe registration.
+    const streams = (...addresses: string[]) =>
+      addresses.filter(address => {
+        let seeded = false;
+        const probe: any = { apply: () => (seeded = true) };
+        host.register(address, probe);
+        host.unregister(address, probe);
+        return seeded;
+      });
     return { handler: created, streams };
   }
 
@@ -140,7 +149,7 @@ describe("single-flight delivery over the frames transport (#3638)", () => {
     // the caller gets the mutation's value, like a plain body
     expect(result).toBe("ok");
     // the region streamed into the address the entry references
-    expect(streams).toEqual(["view"]);
+    expect(streams("view", "mutate")).toEqual(["view"]);
     // the unnamed consumer got ITS slice — not the keyed envelope — with the
     // component resolved to the call's binding (the value a boundary showing
     // that call holds, so a cache seeded with it passes the equals-gate)
@@ -226,7 +235,7 @@ describe("single-flight delivery over the frames transport (#3638)", () => {
     );
     expect(typeof bound).toBe("function");
     expect(bound[COMPONENT_BINDING]).toEqual({ component: "view-1", address: "view-1" });
-    expect(streams).toEqual(["view-1"]);
+    expect(streams("view-1")).toEqual(["view-1"]);
     expect(unnamed).toHaveBeenCalledWith({ "route-data[]": { title: "x" } }, expect.anything());
 
     // The failure the issue reported, pinned as the contrast: the same body

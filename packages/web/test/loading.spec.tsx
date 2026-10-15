@@ -892,10 +892,7 @@ describe("Testing Loading", () => {
 // root insert until the fetch landed: the page stayed blank — not even
 // content OUTSIDE the boundary mounted — and the fallback never showed.
 describe("<Loading> around an optimistic store's first flight", () => {
-  // Real timers: the fetches below settle on their own schedule.
-  beforeEach(() => {
-    vi.useRealTimers();
-  });
+  const FETCH_MS = 10;
   const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
   type Item = { id: number; label: string; votes: number };
@@ -905,7 +902,7 @@ describe("<Loading> around an optimistic store's first flight", () => {
     const [list] = make<Item[]>(async () => {
       tick();
       const n = ++fetches;
-      await wait(10);
+      await wait(FETCH_MS);
       return [{ id: 1, label: "Tacos", votes: n - 1 }];
     }, [] as Item[]);
     return { list, setTick };
@@ -952,17 +949,17 @@ describe("<Loading> around an optimistic store's first flight", () => {
     const { html, dispose, refetch } = mount(createOptimisticStore);
     expect(html()).toBe("<h1>Poll</h1><div>Loading...</div>");
 
-    await wait(30);
+    await vi.advanceTimersByTimeAsync(FETCH_MS);
     flush();
     expect(html()).toBe("<h1>Poll</h1><ul><li>Tacos - 0</li></ul>");
 
     // Refetch: stale-while-revalidate — no fallback, then the new truth.
     refetch();
     flush();
-    await wait(2);
+    await vi.advanceTimersByTimeAsync(FETCH_MS - 1);
     flush();
     expect(html()).toBe("<h1>Poll</h1><ul><li>Tacos - 0</li></ul>");
-    await wait(30);
+    await vi.advanceTimersByTimeAsync(1);
     flush();
     expect(html()).toBe("<h1>Poll</h1><ul><li>Tacos - 1</li></ul>");
     dispose();
@@ -971,7 +968,7 @@ describe("<Loading> around an optimistic store's first flight", () => {
   test("control: createStore(fn, seed) in the same spot", async () => {
     const { html, dispose } = mount(createStore);
     expect(html()).toBe("<h1>Poll</h1><div>Loading...</div>");
-    await wait(30);
+    await vi.advanceTimersByTimeAsync(FETCH_MS);
     flush();
     expect(html()).toBe("<h1>Poll</h1><ul><li>Tacos - 0</li></ul>");
     dispose();

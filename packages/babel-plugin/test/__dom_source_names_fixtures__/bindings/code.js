@@ -32,3 +32,10 @@ const componentChild = (
 const spread = <div {...props} />;
 const spreadWithChildren = <section {...props}>{children()}</section>;
 const spreadMixed = <a href={href()} {...rest} title="static" />;
+
+// A claim target with bindings → its claim is the tail of the named effect.
+const link = (
+  <a href={href()} target={target()}>
+    Link
+  </a>
+);

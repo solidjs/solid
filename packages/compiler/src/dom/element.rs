@@ -88,6 +88,7 @@ pub(crate) struct AstDomTransform<'a, 'source> {
     pub(crate) this_index: usize,
     pub(crate) ref_index: usize,
     pub(crate) condition_index: usize,
+    pub(crate) owner_index: usize,
     /// Span of the JSX root currently being lowered via the visitor entry.
     /// Babel keeps a raw `this` in the tag callee of the root element of each
     /// `transformJSX` call; only descendants use the `_self$` capture.
@@ -176,6 +177,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             this_index: 0,
             ref_index: 0,
             condition_index: 0,
+            owner_index: 0,
             jsx_root_span: None,
         }
     }
@@ -270,7 +272,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         let mut template = crate::dom::template::TemplateHtml::open_tag(&tag_name);
         let mut declarations = std::vec::Vec::new();
         let mut operations = std::vec::Vec::new();
-        let mut dynamics = std::vec::Vec::new();
+        let mut dynamics = crate::dom::dynamics::DynamicsBatch::default();
         let element_id = self.next_element_id();
 
         let saved_skip_xmlns = self.skip_xmlns_attribute;
@@ -335,8 +337,15 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             }
         }
         // All dynamic attribute bindings collected across this template root
-        // batch into one effect, appended after the other expressions.
-        if let Some(statement) = self.wrap_dynamics_statement(dynamics) {
+        // batch into one effect, appended after the other expressions. Claim
+        // targets among the bound elements are claimed at its tail, under the
+        // owner captured here, at creation (Babel's `createTemplate`).
+        let owner_id = (!dynamics.claims.is_empty()).then(|| {
+            let owner_id = self.next_owner_id();
+            declarations.push(self.owner_capture_statement(&owner_id));
+            owner_id
+        });
+        if let Some(statement) = self.wrap_dynamics_statement(dynamics, owner_id.as_deref()) {
             operations.push(statement);
         }
         if self.should_close_tag(&tag_name, CloseTagContext::root()) {

@@ -29,7 +29,8 @@ use crate::shared::condition::{
     zero_arg_call_thunk,
 };
 use crate::shared::constants::{
-    DomPropertyState, child_properties, dom_with_state, is_event_name, reserved_namespace,
+    DomPropertyState, child_properties, dom_with_state, is_event_name, is_link_attribute,
+    reserved_namespace,
 };
 use crate::shared::utils::{
     child_slot_allocates_ids, decode_html_entities, element_name, escape_html_attribute,
@@ -74,6 +75,8 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     uses_ssr_group: bool,
     uses_apply_ref: bool,
     uses_ssr_claim: bool,
+    uses_shared_config: bool,
+    uses_ssr_link_claim: bool,
     pub(crate) pending_this_capture: Option<String>,
     pub(crate) current_this_capture: Option<String>,
     pub(crate) function_parent_stack: std::vec::Vec<crate::shared::transform::FunctionParentKind>,
@@ -95,6 +98,13 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// by key set (Babel's `ssrSkips` scope data): (keys, local name).
     skips: std::vec::Vec<(std::vec::Vec<String>, String)>,
     skip_index: usize,
+    /// Hoisted link-attributes objects of static anchors' `ssrLinkClaim`
+    /// holes, deduped by entries (Babel's `ssrLinkAttrs` scope data):
+    /// (entries, local name).
+    link_attrs: std::vec::Vec<(std::vec::Vec<(String, String)>, String)>,
+    link_attrs_index: usize,
+    /// Counter for the `_lv$N` temps a dynamic link attribute's hole assigns.
+    link_value_index: usize,
     /// Bare `var` names hoisted to program top for expression-position
     /// temp assignments (Babel's `path.scope.push`).
     hoisted_var_names: std::vec::Vec<String>,
@@ -172,6 +182,15 @@ struct VarScope {
     names: std::vec::Vec<String>,
 }
 
+/// One entry of a candidate anchor's `ssrLinkClaim` hole (Babel's
+/// `LinkClaimEntry`): the attribute's static value as the string it
+/// serializes to, or the function-local temp its attribute hole assigns
+/// (`_lv$N`), flagged when that hole is a thunk so the link hole is one too.
+enum LinkValue {
+    Static(String),
+    Temp(String, bool),
+}
+
 /// A `textContent`/`innerHTML` attribute redirected into the element's
 /// children (Babel's ChildProperties handling in the SSR generate).
 struct AttrChildren<'a> {
@@ -246,6 +265,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             uses_ssr_group: false,
             uses_apply_ref: false,
             uses_ssr_claim: false,
+            uses_shared_config: false,
+            uses_ssr_link_claim: false,
             pending_this_capture: None,
             current_this_capture: None,
             function_parent_stack: std::vec::Vec::new(),
@@ -261,6 +282,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             templates: std::vec::Vec::new(),
             skips: std::vec::Vec::new(),
             skip_index: 0,
+            link_attrs: std::vec::Vec::new(),
+            link_attrs_index: 0,
+            link_value_index: 0,
             hoisted_var_names: std::vec::Vec::new(),
             props_sites: None,
             module_capture_iifes: std::collections::HashSet::new(),
@@ -513,6 +537,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             && !self.uses_apply_ref
             && self.templates.is_empty()
             && self.skips.is_empty()
+            && self.link_attrs.is_empty()
             && self.hoisted_var_names.is_empty()
             && self.hoisted_props.is_empty()
             && self.built_in_imports.is_empty()
@@ -572,8 +597,13 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         if self.uses_apply_ref {
             statements.push(self.import_named("applyRef", "_$applyRef"));
         }
+        if self.uses_ssr_link_claim {
+            statements.push(self.import_named("ssrLinkClaim", "_$ssrLinkClaim"));
+        }
         if self.uses_ssr_claim {
             statements.push(self.import_named("ssrClaim", "_$ssrClaim"));
+        }
+        if self.uses_ssr_claim || self.uses_shared_config {
             statements.push(self.import_named("sharedConfig", "_$sharedConfig"));
         }
         for built_in in &self.built_in_imports {
@@ -596,6 +626,18 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             } else {
                 self.template_array_expression(SPAN, &parts)
             };
+            statements.push(variable_statement(
+                self.allocator,
+                SPAN,
+                oxc_ast::ast::VariableDeclarationKind::Var,
+                &name,
+                init,
+            ));
+        }
+        // Static anchors' link-attributes objects right after the templates
+        // (Babel's `appendLinkAttrs`): `var _lk$N = { href: "/about" };`.
+        for (entries, name) in std::mem::take(&mut self.link_attrs) {
+            let init = self.link_attrs_object(SPAN, &entries);
             statements.push(variable_statement(
                 self.allocator,
                 SPAN,
@@ -678,6 +720,42 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             crate::shared::utils::next_unique_local("_sk", &mut self.skip_index, &self.bindings);
         self.skips.push((keys.to_vec(), name.clone()));
         name
+    }
+
+    /// Registers the link-attributes object of a static anchor's
+    /// `ssrLinkClaim` hole, deduped by entries, and returns the `_lk$N` local
+    /// (Babel's `registerLinkAttrs`).
+    fn register_link_attrs(&mut self, entries: &[(String, String)]) -> String {
+        if let Some((_, name)) = self
+            .link_attrs
+            .iter()
+            .find(|(existing, _)| existing == entries)
+        {
+            return name.clone();
+        }
+        let name = crate::shared::utils::next_unique_local(
+            "_lk",
+            &mut self.link_attrs_index,
+            &self.bindings,
+        );
+        self.link_attrs.push((entries.to_vec(), name.clone()));
+        name
+    }
+
+    /// `{ href: "/about", rel: "noopener" }` over a static anchor's entries.
+    fn link_attrs_object(&self, span: Span, entries: &[(String, String)]) -> Expression<'a> {
+        let mut properties = self.ast().vec();
+        for (name, value) in entries {
+            let literal = self
+                .ast()
+                .expression_string_literal(span, self.ast().str(value), None);
+            properties.push(self.object_property(span, name, literal));
+        }
+        self.ast().expression_object(span, properties)
+    }
+
+    fn next_link_value_id(&mut self) -> String {
+        crate::shared::utils::next_unique_local("_lv", &mut self.link_value_index, &self.bindings)
     }
 
     /// `k => k === "a" || k === "b"` over the baked keys.
@@ -1460,6 +1538,54 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             element.span,
         )?;
         let children = self.spread_children_expression(&tag_name, element, do_not_escape)?;
+        // Plain SSR evaluates a named `ref` expression without calling the
+        // ref, as the template path does (`_ref$ = expr`), so a ref factory's
+        // owned setup (`ref={tooltip()}`) runs on both sides and the
+        // hydration ids after it line up (#4081). The client evaluates it
+        // after applying the spread and before the children; `ssrElement`
+        // calls the markup thunk at that point. Only an expression that
+        // calls something can run setup: `ref={el}` and `ref={props.ref}`
+        // stay out of the thunk. Under `serverComponents` the ref is also a
+        // claim, evaluated by the claim thunk inside a server component's
+        // render, so the thunk skips it there: `ctx && ctx.claims || ref`.
+        // Babel: `refs` in `createElement`.
+        let mut refs: std::vec::Vec<Expression<'a>> = element
+            .opening_element
+            .attributes
+            .iter()
+            .filter_map(|attr| match attr {
+                JSXAttributeItem::Attribute(attr)
+                    if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(name)
+                        if name.name == "ref") =>
+                {
+                    match &attr.value {
+                        Some(JSXAttributeValue::ExpressionContainer(container)) => container
+                            .expression
+                            .as_expression()
+                            .filter(|expression| calls_outside_functions(expression))
+                            .map(|expression| expression.clone_in(self.allocator)),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect();
+        if self.server_components && !refs.is_empty() {
+            self.uses_shared_config = true;
+            let evaluated = if refs.len() == 1 {
+                refs.pop().expect("one ref")
+            } else {
+                self.ast()
+                    .expression_sequence(element.span, self.ast().vec_from_iter(refs.drain(..)))
+            };
+            let armed = self.claims_armed(element.span);
+            refs.push(self.ast().expression_logical(
+                element.span,
+                armed,
+                oxc_ast::ast::LogicalOperator::Or,
+                evaluated,
+            ));
+        }
         let mut args = self.ast().vec_from_array([
             Argument::StringLiteral(self.ast().alloc_string_literal(
                 element.span,
@@ -1483,7 +1609,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 self.ast()
                     .expression_identifier(element.span, self.ast().ident(&skip)),
             ));
-            let markup = self.tail_markup(element.span, tail);
+            let markup = self.tail_markup(element.span, tail, refs);
+            args.push(expression_to_argument(markup));
+        } else if !refs.is_empty() {
+            args.push(expression_to_argument(self.ast().expression_identifier(
+                element.span,
+                self.ast().ident("undefined"),
+            )));
+            let markup = self.tail_markup(element.span, vec![TailPart::Text(String::new())], refs);
             args.push(expression_to_argument(markup));
         }
         // The claim map rides as a seventh argument, a thunk `ssrElement`
@@ -1736,7 +1869,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         } else {
             name
         };
-        if in_tail && let Some(part) = self.tail_attribute(tag_name, &name, attr) {
+        // An anchor's link-relevant attributes stay a source, never baked
+        // markup: `ssrElement` collects them from the walk for the render's
+        // link handler (solidjs/solid#3878), and a baked tail is invisible
+        // to it.
+        if in_tail
+            && !(tag_name == "a" && is_link_attribute(&name))
+            && let Some(part) = self.tail_attribute(tag_name, &name, attr)
+        {
             return Ok(Some(SpreadProp::Tail(name, part)));
         }
         match &attr.value {
@@ -2011,6 +2151,17 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         // collected across the element's attributes (Babel's `claims`),
         // emitted as one `ssrClaim` hole that marks attribute-slot reads.
         let mut claims: std::vec::Vec<(String, Expression<'a>)> = std::vec::Vec::new();
+        // Link claims (solidjs/solid#3878, Babel's `linkEntries`): a candidate
+        // anchor gets one hole after its attributes — `ssrLinkClaim(attrs)` —
+        // where a render's link handler writes the anchor's link state into
+        // the server HTML, and `""` otherwise. `attrs` is the anchor's
+        // link-relevant attributes: a static anchor's are a hoisted object,
+        // so the hole is one eager call with no allocation per render; a
+        // dynamic one's join the element's attribute group and reuse the
+        // values its attribute holes evaluated. The hole never takes a
+        // hydration id.
+        let mut link_entries: Option<std::vec::Vec<(String, LinkValue)>> =
+            (tag_name == "a" && is_link_claim_candidate(&outcome.plans)).then(std::vec::Vec::new);
         for plan in outcome.plans {
             self.append_planned_attribute(
                 &tag_name,
@@ -2020,7 +2171,12 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 &mut attr_children,
                 &mut child_do_not_escape,
                 &mut claims,
+                &mut link_entries,
             )?;
+        }
+        if let Some(entries) = link_entries {
+            let hole = self.ssr_link_claim_hole(element.span, entries, &mut template);
+            template.push_expr(hole);
         }
         if !claims.is_empty() {
             let hole = self.ssr_claim_hole(element.span, claims, &mut template);
@@ -2055,12 +2211,17 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         attr_children: &mut Option<AttrChildren<'a>>,
         child_do_not_escape: &mut bool,
         claims: &mut std::vec::Vec<(String, Expression<'a>)>,
+        link_entries: &mut Option<std::vec::Vec<(String, LinkValue)>>,
     ) -> Result<()> {
         let key = plan.key;
         let span = plan.span;
         let reserved = key
             .split_once(':')
             .is_some_and(|(prefix, _)| reserved_namespace(prefix));
+        // A candidate anchor's link attribute is recorded for its hole: a
+        // static one as the string the attribute carries (a bare attribute's
+        // is `""`), a dynamic one as the temp its hole assigns.
+        let link = link_entries.is_some() && is_link_attribute(&key);
 
         // Babel wraps reserved/child-property literal values into expression
         // containers so they take the dynamic branch; a missing value becomes
@@ -2074,6 +2235,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     return Ok(());
                 }
                 template.current_mut().push_str(&format!(" {key}"));
+                if link {
+                    record_link_static(link_entries, &key, String::new());
+                }
                 return Ok(());
             }
             PlanValue::Literal(text) => {
@@ -2083,6 +2247,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 } else {
                     if key == "$ServerOnly" {
                         return Ok(());
+                    }
+                    if link {
+                        record_link_static(link_entries, &key, text.clone());
                     }
                     let text = normalize_static_attribute_value(&key, &text);
                     append_ssr_static_attribute(template.current_mut(), &key, &text);
@@ -2109,14 +2276,23 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 Expression::BooleanLiteral(literal) => {
                     if literal.value {
                         template.current_mut().push_str(&format!(" {key}"));
+                        if link {
+                            record_link_static(link_entries, &key, String::new());
+                        }
                     }
                 }
                 Expression::StringLiteral(literal) => {
+                    if link {
+                        record_link_static(link_entries, &key, literal.value.to_string());
+                    }
                     let text = normalize_static_attribute_value(&key, &literal.value);
                     append_ssr_static_attribute(template.current_mut(), &key, &text);
                 }
                 Expression::NumericLiteral(literal) => {
                     let text = format_number(literal.value);
+                    if link {
+                        record_link_static(link_entries, &key, text.clone());
+                    }
                     append_ssr_static_attribute(template.current_mut(), &key, &text);
                 }
                 _ => unreachable!("static branch only sees literals"),
@@ -2167,6 +2343,35 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
 
         let is_dynamic_value =
             !plan.marker_static && self.classify().is_dynamic(None, &expression, true);
+        // A candidate anchor's dynamic link attribute (Babel's `linkTemplate`
+        // block): the hole evaluates the raw value ONCE into a function-local
+        // temp (`_$escape(_lv$ = expr, true)`) that the link hole reads after
+        // it — the handler sees the value as written, not attribute-escaped.
+        // A template literal keeps its inline-quoted slot: the whole value is
+        // escaped at runtime instead of its parts, the same bytes (escaping
+        // is per character), and a template literal is never nullish.
+        let mut link_template = false;
+        let expression = if link {
+            link_template = matches!(expression, Expression::TemplateLiteral(_));
+            let temp = self.next_link_value_id();
+            self.push_scope_var(temp.clone());
+            let target = oxc_ast::ast::AssignmentTarget::AssignmentTargetIdentifier(
+                self.ast()
+                    .alloc_identifier_reference(span, self.ast().ident(&temp)),
+            );
+            link_entries
+                .as_mut()
+                .expect("link entries exist for a link attribute")
+                .push((key.clone(), LinkValue::Temp(temp, is_dynamic_value)));
+            self.ast().expression_assignment(
+                span,
+                oxc_ast::ast::AssignmentOperator::Assign,
+                target,
+                expression,
+            )
+        } else {
+            expression
+        };
         // Server components (principles §9.2.3) need a whole-attribute
         // serializer that can emit a position marker for a binding-slot
         // value. The ordinary class/style serializers cannot bind slots.
@@ -2234,7 +2439,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             value = self.escape_expression_recursive(value, true, false);
         }
 
-        if !(do_escape || is_boolean) || is_literal_expression(&value) {
+        if !(do_escape || is_boolean) || is_literal_expression(&value) || link_template {
             if is_boolean {
                 if matches!(&value, Expression::BooleanLiteral(literal) if literal.value) {
                     template.current_mut().push_str(&format!(" {key}"));
@@ -3006,7 +3211,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     /// refs), and the expressions only evaluate when the render context's
     /// claims flag is set —
     /// `_$sharedConfig.context && _$sharedConfig.context.claims
-    ///    ? _$ssrClaim({...}) : ""`.
+    ///    ? _$ssrClaim({...}) : ""`. A ref that calls something runs
+    /// ungated, as plain SSR's `_ref$ = expr` does: outside a server
+    /// component's render the element hydrates, and a ref factory's owned
+    /// setup must run on both sides (#4081) — `: (ref, "")`.
     fn ssr_claim_hole(
         &mut self,
         span: Span,
@@ -3014,7 +3222,39 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         template: &mut SsrTemplate<'a>,
     ) -> Expression<'a> {
         self.uses_ssr_claim = true;
+        let refs: std::vec::Vec<Expression<'a>> = claims
+            .iter()
+            .filter(|(pos, expression)| pos == "ref" && calls_outside_functions(expression))
+            .map(|(_, expression)| expression.clone_in(self.allocator))
+            .collect();
         let map = self.claim_map(span, claims);
+        let test = self.claims_armed(span);
+        let call = self.call_expression(
+            span,
+            self.ast()
+                .expression_identifier(span, self.ast().ident("_$ssrClaim")),
+            vec![map],
+        );
+        let empty = self
+            .ast()
+            .expression_string_literal(span, self.ast().str(""), None);
+        let otherwise = if refs.is_empty() {
+            empty
+        } else {
+            let mut sequence = self.ast().vec_from_iter(refs);
+            sequence.push(empty);
+            self.ast().expression_sequence(span, sequence)
+        };
+        let guarded = self
+            .ast()
+            .expression_conditional(span, test, call, otherwise);
+        self.hoist_expression(template, span, guarded, false, false)
+    }
+
+    /// `_$sharedConfig.context && _$sharedConfig.context.claims` (Babel's
+    /// `claimsArmed`): true only inside a server component's render, where
+    /// `ssrClaim` evaluates the element's handler positions.
+    fn claims_armed(&self, span: Span) -> Expression<'a> {
         let context_read = |transform: &Self| -> Expression<'a> {
             Expression::StaticMemberExpression(
                 transform.ast().alloc_static_member_expression(
@@ -3036,23 +3276,68 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 self.ast().identifier_name(span, self.ast().ident("claims")),
                 false,
             ));
-        let test = self.ast().expression_logical(
+        self.ast().expression_logical(
             span,
             context_read(self),
             oxc_ast::ast::LogicalOperator::And,
             claims_read,
-        );
-        let call = self.call_expression(
-            span,
-            self.ast()
-                .expression_identifier(span, self.ast().ident("_$ssrClaim")),
-            vec![map],
-        );
-        let empty = self
-            .ast()
-            .expression_string_literal(span, self.ast().str(""), None);
-        let guarded = self.ast().expression_conditional(span, test, call, empty);
-        self.hoist_expression(template, span, guarded, false, false)
+        )
+    }
+
+    /// A candidate anchor's `ssrLinkClaim` hole (Babel's `linkEntries`
+    /// emission): every attribute static → `_$ssrLinkClaim(_lk$N)` over the
+    /// hoisted object, evaluated in argument position like a hydration key;
+    /// else `_$ssrLinkClaim({ href: _lv$, rel: "noopener" })` built per
+    /// render — a groupable thunk when any captured attribute hole is one (it
+    /// must run after them), an eager call otherwise.
+    fn ssr_link_claim_hole(
+        &mut self,
+        span: Span,
+        entries: std::vec::Vec<(String, LinkValue)>,
+        template: &mut SsrTemplate<'a>,
+    ) -> Expression<'a> {
+        self.uses_ssr_link_claim = true;
+        if entries
+            .iter()
+            .all(|(_, value)| matches!(value, LinkValue::Static(_)))
+        {
+            let statics: std::vec::Vec<(String, String)> = entries
+                .into_iter()
+                .map(|(key, value)| match value {
+                    LinkValue::Static(text) => (key, text),
+                    LinkValue::Temp(..) => unreachable!("all entries are static"),
+                })
+                .collect();
+            let name = self.register_link_attrs(&statics);
+            let object = self
+                .ast()
+                .expression_identifier(span, self.ast().ident(&name));
+            return self.helper_call(span, "_$ssrLinkClaim", vec![object]);
+        }
+        let mut dynamic = false;
+        let mut properties = self.ast().vec();
+        for (key, value) in entries {
+            let value = match value {
+                LinkValue::Static(text) => {
+                    self.ast()
+                        .expression_string_literal(span, self.ast().str(&text), None)
+                }
+                LinkValue::Temp(name, is_dynamic) => {
+                    dynamic |= is_dynamic;
+                    self.ast()
+                        .expression_identifier(span, self.ast().ident(&name))
+                }
+            };
+            properties.push(self.object_property(span, &key, value));
+        }
+        let object = self.ast().expression_object(span, properties);
+        let call = self.helper_call(span, "_$ssrLinkClaim", vec![object]);
+        if dynamic {
+            let arrow = self.arrow_return_expression(span, call);
+            self.hoist_expression(template, span, arrow, true, false)
+        } else {
+            call
+        }
     }
 
     fn ssr_hydration_key_call(&mut self, span: Span) -> Expression<'a> {
@@ -3865,7 +4150,15 @@ impl<'a> AstSsrTransform<'a, '_> {
 
     /// The attribute-string argument for a tail: a string literal when every
     /// part is fixed, else `() => "…" + ssrElementAttribute(…) + …`.
-    fn tail_markup(&self, span: Span, tail: std::vec::Vec<TailPart<'a>>) -> Expression<'a> {
+    /// `refs` (a spread element's ref expressions, #4081) run after the
+    /// tail's markup: `() => (ref, "markup")` for static markup, `() =>
+    /// markup + (ref, "")` for a dynamic one.
+    fn tail_markup(
+        &self,
+        span: Span,
+        tail: std::vec::Vec<TailPart<'a>>,
+        refs: std::vec::Vec<Expression<'a>>,
+    ) -> Expression<'a> {
         let ast = self.ast();
         if tail.iter().all(|part| matches!(part, TailPart::Text(_))) {
             let text: String = tail
@@ -3875,7 +4168,17 @@ impl<'a> AstSsrTransform<'a, '_> {
                     TailPart::Dynamic(_) => unreachable!("all parts are text"),
                 })
                 .collect();
-            return ast.expression_string_literal(span, ast.str(&text), None);
+            let text = ast.expression_string_literal(span, ast.str(&text), None);
+            if refs.is_empty() {
+                return text;
+            }
+            let mut sequence = ast.vec_from_iter(refs);
+            sequence.push(text);
+            return crate::shared::ast::concise_arrow_thunk(
+                self.allocator,
+                span,
+                ast.expression_sequence(span, sequence),
+            );
         }
         let mut concat: Option<Expression<'a>> = None;
         for part in tail {
@@ -3893,12 +4196,57 @@ impl<'a> AstSsrTransform<'a, '_> {
                 None => expression,
             });
         }
-        crate::shared::ast::concise_arrow_thunk(
-            self.allocator,
-            span,
-            concat.expect("a tail has at least one part"),
-        )
+        let mut concat = concat.expect("a tail has at least one part");
+        if !refs.is_empty() {
+            let mut sequence = ast.vec_from_iter(refs);
+            sequence.push(ast.expression_string_literal(span, ast.str(""), None));
+            concat = ast.expression_binary(
+                span,
+                concat,
+                oxc_ast::ast::BinaryOperator::Addition,
+                ast.expression_sequence(span, sequence),
+            );
+        }
+        crate::shared::ast::concise_arrow_thunk(self.allocator, span, concat)
     }
+}
+
+/// Does evaluating `expression` call anything? A function's body does not
+/// run. Babel: `callsOutsideFunctions`.
+fn calls_outside_functions(expression: &Expression<'_>) -> bool {
+    use oxc_ast_visit::Visit;
+
+    struct CallFinder {
+        found: bool,
+    }
+    impl<'b> Visit<'b> for CallFinder {
+        fn visit_call_expression(&mut self, _it: &oxc_ast::ast::CallExpression<'b>) {
+            self.found = true;
+        }
+        fn visit_new_expression(&mut self, _it: &oxc_ast::ast::NewExpression<'b>) {
+            self.found = true;
+        }
+        fn visit_tagged_template_expression(
+            &mut self,
+            _it: &oxc_ast::ast::TaggedTemplateExpression<'b>,
+        ) {
+            self.found = true;
+        }
+        fn visit_function(
+            &mut self,
+            _it: &oxc_ast::ast::Function<'b>,
+            _flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            _it: &oxc_ast::ast::ArrowFunctionExpression<'b>,
+        ) {
+        }
+    }
+    let mut finder = CallFinder { found: false };
+    finder.visit_expression(expression);
+    finder.found
 }
 
 /// Serializes a static SSR attribute value: empty values become bare
@@ -3910,6 +4258,137 @@ fn append_ssr_static_attribute(template: &mut String, name: &str, value: &str) {
     } else {
         template.push_str(&format!(" {}=\"{}\"", name, escape_html_attribute(value)));
     }
+}
+
+/// Records a candidate anchor's static link attribute for its hole.
+fn record_link_static(
+    link_entries: &mut Option<std::vec::Vec<(String, LinkValue)>>,
+    key: &str,
+    value: String,
+) {
+    link_entries
+        .as_mut()
+        .expect("link entries exist for a link attribute")
+        .push((key.to_string(), LinkValue::Static(value)));
+}
+
+/// The compile-time value of a planned link attribute, as Babel's
+/// `staticAttributeValue` sees it: `Some(None)` for a bare attribute (or
+/// `={true}`), `Some(Some(text))` for a literal, `None` when dynamic. A
+/// `={false}` omits the attribute and reports as absent (`Some(None)` with
+/// `omitted`).
+enum LinkStatic {
+    Bare,
+    Text(String),
+    Omitted,
+}
+
+fn link_static_value(value: &PlanValue<'_>) -> Option<LinkStatic> {
+    match value {
+        PlanValue::None => Some(LinkStatic::Bare),
+        PlanValue::Literal(text) => Some(LinkStatic::Text(text.clone())),
+        PlanValue::Expr(Expression::StringLiteral(literal)) => {
+            Some(LinkStatic::Text(literal.value.to_string()))
+        }
+        PlanValue::Expr(Expression::NumericLiteral(literal)) => {
+            Some(LinkStatic::Text(format_number(literal.value)))
+        }
+        PlanValue::Expr(Expression::BooleanLiteral(literal)) => Some(if literal.value {
+            LinkStatic::Bare
+        } else {
+            LinkStatic::Omitted
+        }),
+        PlanValue::Expr(_) => None,
+    }
+}
+
+/// Whether an anchor (the template path's, no spread) gets the
+/// `ssrLinkClaim` hole (Babel's `isLinkClaimCandidate`, solidjs/solid#3878):
+/// it has an `href`, and nothing the compiler can see rules it out as the
+/// current page — the anchors a link handler would answer `""` for however
+/// the request looks. A static non-empty `target`, a `download`, a `rel`
+/// naming `external`, an author-written `aria-current` (hers to keep), an
+/// empty href or one with a non-HTTP scheme (`mailto:`, `tel:`,
+/// `javascript:` …) get no hole and no per-render call; a dynamic value in
+/// any of these positions is the handler's to judge at runtime. `http:` /
+/// `https:` (and a protocol-relative `//host`) may still be this origin —
+/// only the handler, which knows the request, can say.
+fn is_link_claim_candidate(plans: &[AttrPlan<'_>]) -> bool {
+    let mut href = false;
+    for plan in plans {
+        let key = plan.key.as_str();
+        if !is_link_attribute(key) {
+            continue;
+        }
+        let value = link_static_value(&plan.value);
+        if key == "href" {
+            if matches!(value, Some(LinkStatic::Omitted)) {
+                continue;
+            }
+            href = true;
+            match value {
+                None => continue,
+                // bare `href`, `href=""`, `href={true}`: an empty href is no link
+                Some(LinkStatic::Bare) => return false,
+                Some(LinkStatic::Text(text)) => {
+                    if text.is_empty() {
+                        return false;
+                    }
+                    if let Some(scheme) = href_scheme(&text) {
+                        let scheme = scheme.to_ascii_lowercase();
+                        if scheme != "http" && scheme != "https" {
+                            return false;
+                        }
+                    }
+                }
+                Some(LinkStatic::Omitted) => unreachable!("handled above"),
+            }
+            continue;
+        }
+        // A dynamic value is the handler's to judge; `={false}` omits the
+        // attribute.
+        let value = match value {
+            None | Some(LinkStatic::Omitted) => continue,
+            Some(value) => value,
+        };
+        match key {
+            // A bare `target`, `target=""` or `target={true}` is the empty
+            // target — still a link.
+            "target" => {
+                if let LinkStatic::Text(text) = &value
+                    && !text.is_empty()
+                {
+                    return false;
+                }
+            }
+            "rel" => {
+                if let LinkStatic::Text(text) = &value
+                    && text.split_whitespace().any(|token| token == "external")
+                {
+                    return false;
+                }
+            }
+            // Present in any form: a download, or the author's own current
+            // marker.
+            "download" | "aria-current" => return false,
+            // `link`: the explicit-links opt-in marker — the handler reads it.
+            _ => {}
+        }
+    }
+    href
+}
+
+/// The URL scheme at the start of an href (`^[a-zA-Z][a-zA-Z0-9+.-]*:`),
+/// without the colon.
+fn href_scheme(href: &str) -> Option<&str> {
+    let bytes = href.as_bytes();
+    if bytes.is_empty() || !bytes[0].is_ascii_alphabetic() {
+        return None;
+    }
+    let end = bytes
+        .iter()
+        .position(|b| !(b.is_ascii_alphanumeric() || matches!(b, b'+' | b'.' | b'-')))?;
+    (bytes[end] == b':').then(|| &href[..end])
 }
 
 /// Babel `t.isLiteral` over the shapes the SSR attribute inline branch can

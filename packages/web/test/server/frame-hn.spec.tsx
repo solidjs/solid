@@ -12,7 +12,7 @@
 // serialization between html and slot args (transport dispatch case
 // 1) — and the request carries only the story id (client collapse state is
 // server-invisible).
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error jsdom ships no types; used only to fabricate a document
 import { JSDOM } from "jsdom";
 globalThis.document = new JSDOM("<body></body>").window.document;
@@ -24,7 +24,29 @@ import {
   registerServerFunction
 } from "../../server-functions/src/server.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
-import { createFrame, createFrameHost } from "../../frames/src/frame-client.js";
+import {
+  createFrame,
+  createFrameHost,
+  prepareTier,
+  tierLoaders
+} from "../../frames/src/frame-client.js";
+
+// The client half here is the frame RUNTIME alone (frame-client.ts), not
+// the frames client entry — so the entry's built-in tier loaders are not
+// registered. The nested regions this slice is about are the REGIONS TIER's
+// (`@solidjs/web/frames/regions`, frames savings pass §3 row C4): wire its
+// loader as the entry does and warm it, so every region binds as it would
+// on a page that announced it.
+tierLoaders.regions = () => import("../../frames/src/regions-tier.js");
+beforeAll(() => prepareTier("regions"));
+
+// A raw slot callback owns its range: it places its output before the
+// range's end marker over `ctx.existing` (the frame never writes an
+// interior — the Solid binding does the same through `insert`).
+function fillRange(ctx: any, node: Node) {
+  for (const n of ctx.existing) n.remove();
+  ctx.range.end.before(node);
+}
 
 type CommentData = { id: number; text: string; replies: CommentData[] };
 
@@ -130,7 +152,7 @@ describe("HN slice — the no-double-serialization proof over the real wire", ()
       host,
       id: "story-pane",
       slots: {
-        comment: (p: any) => {
+        comment: (p: any, ctx: any) => {
           const wrap = document.createElement("div");
           wrap.className = "comment";
           wrap.dataset.cid = String(p.cid);
@@ -138,7 +160,7 @@ describe("HN slice — the no-double-serialization proof over the real wire", ()
           toggle.className = "collapse";
           toggle.addEventListener("click", () => wrap.classList.toggle("collapsed"));
           wrap.append(toggle, p.children);
-          return wrap;
+          fillRange(ctx, wrap);
         }
       }
     });
@@ -164,11 +186,11 @@ describe("HN slice — the no-double-serialization proof over the real wire", ()
       host,
       id: "story-pane",
       slots: {
-        comment: (p: any) => {
+        comment: (p: any, ctx: any) => {
           const wrap = document.createElement("div");
           wrap.className = "comment collapsed-by-default";
           wrap.appendChild(p.children);
-          return wrap;
+          fillRange(ctx, wrap);
         }
       }
     });

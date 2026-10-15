@@ -398,17 +398,35 @@ impl<'a> AstDomTransform<'a, '_> {
         self.call_expression(span, self.identifier_expression(span, callee), args)
     }
 
-    /// `_$claimElement(_el$)` — the element-claim contract statement emitted
-    /// for `a[href]` / `form[action]` at element creation.
-    pub(crate) fn claim_element_statement(&mut self, element_id: &str) -> Statement<'a> {
+    /// `_$claimElement(_el$)` / `_$claimElement(_el$, _o$)` — the
+    /// element-claim contract's mount claim for an `a[href]` /
+    /// `form[action]`: at creation after its attribute writes (no owner
+    /// argument — the creating owner is current), or at the tail of the
+    /// binding effect that applies its dynamic bindings, with `owner` the
+    /// local the root captured at creation.
+    pub(crate) fn claim_element_statement(
+        &mut self,
+        element_id: &str,
+        owner: Option<&str>,
+    ) -> Statement<'a> {
         self.template_state.uses_claim_element = true;
         let span = oxc_span::SPAN;
-        let call = self.call_identifier(
-            span,
-            "_$claimElement",
-            vec![self.identifier_expression(span, element_id)],
-        );
+        let mut args = vec![self.identifier_expression(span, element_id)];
+        if let Some(owner) = owner {
+            args.push(self.identifier_expression(span, owner));
+        }
+        let call = self.call_identifier(span, "_$claimElement", args);
         self.ast().statement_expression(span, call)
+    }
+
+    /// `var _o$ = _$getOwner();` — a template root's creation-time owner
+    /// capture, declared after its positional walks, for the claims at the
+    /// tail of its binding effect (`wrap_dynamics_statement`).
+    pub(crate) fn owner_capture_statement(&mut self, owner_id: &str) -> Statement<'a> {
+        self.template_state.uses_get_owner = true;
+        let span = oxc_span::SPAN;
+        let init = self.call_identifier(span, "_$getOwner", std::vec::Vec::new());
+        self.variable_statement(span, owner_id, init)
     }
 
     pub(crate) fn call_expression(

@@ -130,22 +130,23 @@ thing here.
 
 ## Using it from the client
 
-There is no server-component API on the client. `dynamic` — the same
-utility you'd use to swap any component — is the whole surface:
+There is no server-component API on the client. `dynamicComponent` — the
+component-only form of `dynamic`, the same utility you'd use to swap any
+component — is the whole surface:
 
 ```tsx
-import { dynamic } from "@solidjs/web";
+import { dynamicComponent } from "solid-js";
 
 function StoryPage(props) {
   const [collapsedAll, setCollapsedAll] = createSignal(false);
 
   // The source is tracked: when props.storyId changes it re-calls the
   // server function. Every call for the same (function, args) resolves to
-  // the IDENTICAL component — a refetch passes dynamic's equals-gate, so
+  // the IDENTICAL component — a refetch passes the equals-gate, so
   // nothing remounts and the stream morphs the boundary in place. A new
   // storyId resolves that story's own boundary and the site swaps to it,
   // seeded from retained content when the story has shown before.
-  const Story = dynamic(() => getStory(props.storyId));
+  const Story = dynamicComponent(() => getStory(props.storyId));
 
   return (
     <Story
@@ -223,7 +224,7 @@ own:
 
 - **Wrap the section function in `query`** and route-level `preload` warms
   it on intent — the response's chunks buffer until a boundary mounts,
-  then drain. The `dynamic()` read resolves through the same cached
+  then drain. The `dynamicComponent()` read resolves through the same cached
   in-flight call, and a later fresh cache hit re-materializes the boundary
   from retained state with no request at all — back/forward navigation
   renders like a bfcache restore.
@@ -365,7 +366,7 @@ must not break:
 ### What a router does with this
 
 A router integration is thin by design: translate URL changes into
-server-function calls and let a `dynamic` source (or
+server-function calls and let a `dynamicComponent` source (or
 `applyFrameResponse(response, host, { as })` directly) read them — the
 router names nothing, because the calls themselves name the boundaries
 (invariant 3). Wrapping the section functions in the router's `query`
@@ -394,6 +395,35 @@ indiscriminately per the attribute contract — filtering (external links,
 `download`, `target`, base paths) belongs to the consumer — and the whole
 mechanism is dormant (one property read per apply) without a registered
 consumer.
+
+**The server half: link state in the HTML (#3878).** Claims never fire
+during SSR, so compiled SSR output gives every candidate `<a href>` one
+hole after its attributes, `ssrLinkClaim(attrs)`, where the render's
+**link handler** writes the anchor's link state — the router sets one from
+its server render with `setLinkClaim(attrs => markup)`, scoped to that
+render through the owner chain (`getHydrationWriter()`'s lookup), so
+concurrent requests never share one. `attrs` is the anchor's link-relevant
+attributes (`href`, `target`, `rel`, `download`, `link`, `aria-current`;
+raw values as written), a hoisted object for a static anchor, the values
+the attribute holes evaluated for a dynamic one; `ssrElement` collects the
+same set from a spread anchor's winning sources. Anchors the compiler can
+rule out — a static non-empty `target`, a `download`, a `rel` naming
+`external`, an author-written `aria-current`, an empty href or a non-HTTP
+scheme — get no hole; without a handler every hole is `""`, so an app
+without a router pays one property read per anchor and zero bytes, and the
+hydration ids are untouched either way. Server components inline in the
+document render under the page's handler (the document-face scope derives
+from the page's context); a server component's own frame stream has none
+unless its render sets one, so refetched content arrives unmarked and the
+client's re-claim after the morph reasserts the state, as before.
+
+The render that sets a handler writes the `links` hydration record once
+(`_$HY.r.links = 1`; `hasServerLinkState()` on the client). It is the
+router's contract: with the record, an anchor claimed while the document
+hydrates (a server node — `isHydrating()`, connected) carries the server's
+link state and can be registered without resolving its URL, deferring the
+resolution to the first routing change; without it, or for an anchor
+created after hydration, the consumer resolves at claim as it does today.
 
 ## What it costs
 

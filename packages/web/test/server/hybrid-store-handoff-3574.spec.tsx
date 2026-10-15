@@ -9,37 +9,8 @@
  * and the answer's resolver runs before the fragment swap in the late chunk.
  */
 import { describe, expect, test } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { renderToStream } from "@solidjs/web";
 import { variants } from "../harness/hybrid-store-handoff-3574.jsx";
-
-const artifactsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../harness/__artifacts__");
-mkdirSync(artifactsDir, { recursive: true });
-
-function collectChunks(code: () => any): Promise<{ shell: string; rest: string }> {
-  return new Promise(resolvePromise => {
-    const chunks: string[] = [];
-    let shell = "";
-    let shellDone = false;
-    renderToStream(code, {
-      onCompleteShell() {
-        shellDone = true;
-      }
-    }).pipe({
-      write(chunk: string) {
-        chunks.push(chunk);
-        if (shellDone && !shell) shell = chunks.join("");
-      },
-      end() {
-        const full = chunks.join("");
-        if (!shell) shell = full;
-        resolvePromise({ shell, rest: full.slice(shell.length) });
-      }
-    });
-  });
-}
+import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
 const visibleText = (html: string) =>
   html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]*>/g, "");
@@ -47,7 +18,7 @@ const visibleText = (html: string) =>
 describe("hybrid store under a streamed Loading (#3574) — server render", () => {
   for (const variant of variants) {
     test(`${variant.name}: suspends into the shell, streams the answer, writes the artifact`, async () => {
-      const { shell, rest } = await collectChunks(() => <variant.App />);
+      const { shell, rest } = await recordStream(() => <variant.App />);
 
       // The store has no loading window, so the boundary flushes its
       // fallback into the shell and the content arrives as a fragment.
@@ -62,10 +33,7 @@ describe("hybrid store under a streamed Loading (#3574) — server render", () =
       expect(swap).toBeGreaterThan(-1);
       expect(rest.slice(0, swap)).toContain("ready");
 
-      writeFileSync(
-        resolve(artifactsDir, `${variant.name}.json`),
-        JSON.stringify({ name: variant.name, shell, rest }, null, 2)
-      );
+      writeArtifact(variant.name, { name: variant.name, shell, rest });
     });
   }
 });

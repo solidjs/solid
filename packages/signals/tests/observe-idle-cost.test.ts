@@ -9,16 +9,16 @@
  *
  * Relative tripwire, same discipline as heap-mark-incremental: absolute
  * wall-clock bounds do not survive CI, so the SAME workload runs against the
- * built prod and observe artifacts in one process, interleaved, best-of-k,
- * and the observe/prod ratio is what is capped. Both tiers see the same
- * machine load, and best-of-k picks the quiet run for each.
+ * built prod and observe artifacts in one worker thread, as paired samples,
+ * and the median of the per-pair observe/prod ratios is what is capped. A
+ * pair sees one machine load for both tiers, so contention largely cancels
+ * within it; the median drops the pairs it doesn't.
  */
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import { describe, expect, test } from "vitest";
-
-type Tier = typeof import("../src/index.js");
 
 // The built artifacts — what apps actually resolve. Gitignored, so the test
 // skips when they haven't been built (run `pnpm build`); resolved paths rather
@@ -26,80 +26,60 @@ type Tier = typeof import("../src/index.js");
 const here = dirname(fileURLToPath(import.meta.url));
 const PROD = resolve(here, "../dist/prod/index.js");
 const OBSERVE = resolve(here, "../dist/observe/index.js");
+const WORKER = resolve(here, "observe-idle-cost.worker.mjs");
 
-/**
- * A graph-heavy workload with no hooks installed: N chains of
- * signal → memo → memo → effect, then K write passes that touch every chain,
- * then teardown. Reads, writes, recomputes, effect runs and creation all
- * cross the observe wiring; nothing observes.
- */
-function workload(tier: Tier, N: number, K: number): number {
-  const { createEffect, createMemo, createRoot, createSignal, flush } = tier;
-  let ms = 0;
-  createRoot(dispose => {
-    const setters: ((v: number) => void)[] = [];
-    let sink = 0;
-    for (let i = 0; i < N; i++) {
-      const [a, setA] = createSignal(i);
-      const b = createMemo(() => a() * 2);
-      const c = createMemo(() => b() + 1);
-      createEffect(
-        () => c(),
-        v => {
-          sink += v;
-        }
-      );
-      setters.push(setA);
-    }
-    flush();
-    const start = performance.now();
-    for (let k = 1; k <= K; k++) {
-      for (let i = 0; i < N; i++) setters[i](i + k);
-      flush();
-    }
-    ms = performance.now() - start;
-    dispose();
-    if (sink === Infinity) throw new Error("unreachable");
+type Samples = {
+  observeDefined: boolean;
+  prodDefined: boolean;
+  prodMs: number[];
+  observeMs: number[];
+};
+
+function measure(): Promise<Samples> {
+  return new Promise((done, fail) => {
+    const worker = new Worker(WORKER, {
+      workerData: {
+        prodUrl: pathToFileURL(PROD).href,
+        observeUrl: pathToFileURL(OBSERVE).href,
+        // ~13ms a sample locally; 2×(warmup + pairs) samples per round.
+        N: 1000,
+        K: 40,
+        warmup: 5,
+        pairs: 21
+      }
+    });
+    worker.once("message", done);
+    worker.once("error", fail);
   });
-  return ms;
 }
+
+const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1];
 
 describe.skipIf(!existsSync(PROD) || !existsSync(OBSERVE))("observe tier idle cost", () => {
   test("no hooks installed: the observe artifact runs the same graph within the cap of prod", async () => {
-    const prod = (await import(PROD)) as Tier;
-    const observe = (await import(OBSERVE)) as Tier;
-    expect((prod as any).OBSERVE).toBeUndefined();
-    expect((observe as any).OBSERVE).toBeDefined();
-
-    // ~15ms a sample locally; under a loaded CI worker a full three rounds
-    // stays well inside the explicit timeout below.
-    const N = 1000;
-    const K = 10;
-    // Warm both (JIT, allocator) before anything is timed.
-    workload(prod, N, 2);
-    workload(observe, N, 2);
-    // Measured 2026-09-16 (M-series, five samples): 1.03–1.09 — the wiring
-    // is 3–9% on a graph that does nothing but cross it. The cap trips when
-    // the wiring costs ~3x what it does today (25%), which is the regression
-    // this exists to catch — a hook site that stopped being a null check.
-    // Noise: the suite runs this beside other files on worker
-    // threads, so one tier can draw the busy slots; a round is best-of-k
-    // interleaved, and a round over the cap is re-measured (a regression is
-    // over the cap every round, contention is not).
+    // Measured 2026-10-05 (M-series, Node loading the artifacts directly):
+    // median pair ratio 0.96–1.05. The cap trips when the wiring costs a
+    // quarter of the graph's own work, which is the regression this exists
+    // to catch — a hook site that stopped being a null check. For scale, a
+    // WeakMap bump per write and per recompute reads 1.23–1.28.
+    // Noise: the suite runs this beside other files on worker threads, so
+    // the machine's load shifts under the measurement. Pairing cancels the
+    // shift a pair sees, the median drops the outliers, and a round over
+    // the cap is re-measured (a regression is over the cap every round,
+    // contention is not).
     const CAP = 1.25;
     let best = Infinity;
     let detail = "";
     for (let round = 0; round < 3 && best >= CAP; round++) {
-      let prodMs = Infinity;
-      let observeMs = Infinity;
-      for (let i = 0; i < 5; i++) {
-        prodMs = Math.min(prodMs, workload(prod, N, K));
-        observeMs = Math.min(observeMs, workload(observe, N, K));
-      }
-      const ratio = observeMs / prodMs;
+      const s = await measure();
+      expect(s.prodDefined).toBe(false);
+      expect(s.observeDefined).toBe(true);
+      const ratio = median(s.observeMs.map((o, i) => o / s.prodMs[i]));
       if (ratio < best) {
         best = ratio;
-        detail = `observe ${observeMs.toFixed(1)}ms / prod ${prodMs.toFixed(1)}ms`;
+        detail = `median pair ratio over ${s.prodMs.length} pairs; observe ${median(
+          s.observeMs
+        ).toFixed(1)}ms / prod ${median(s.prodMs).toFixed(1)}ms (medians)`;
       }
     }
     expect(best, detail).toBeLessThan(CAP);

@@ -55,7 +55,8 @@ const domElements = [
   "noscript",
   "select",
   "option",
-  "video"
+  "video",
+  "form"
 ];
 
 // Option sets mirror the per-mode suites in packages/babel-plugin/test/

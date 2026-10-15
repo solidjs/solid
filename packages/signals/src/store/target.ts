@@ -44,6 +44,12 @@ export interface StoreFamily {
   woke?: boolean;
 }
 
+/** One setter's written keys; `u` is the batch's earlier setters' (the
+ * fold's union), present only once a second setter writes the target. */
+export interface WrittenKeys extends Set<PropertyKey> {
+  u?: WrittenKeys;
+}
+
 export interface StoreTarget {
   /** Committed backing: source object (shared) or owned clone. */
   v: Record<PropertyKey, any>;
@@ -61,19 +67,22 @@ export interface StoreTarget {
   /** Lazy CONTAINER node: membership/iteration/`$TRACK`/`length`
    * subscriptions (§6) and the backing's staging home (plan sec. 31.3). */
   k: Signal<any> | null;
-  /** Keys written through the traps since the last fold commit. Bounds the
-   * setter notify/hold-check to O(written) instead of O(subscribed nodes) —
-   * a record with thousands of per-key subscriptions (selection maps) would
-   * otherwise pay a full node scan on every write. null = no trap writes
-   * this batch (bulk paths fall back to the full scan); WK_ALL = bound
-   * unusable (array length write). LOAD-BEARING SHAPE RULE: array proxy
-   * targets carry their fields as named properties on a real array, and V8
+  /** Keys written through the traps by the current setter, with the earlier
+   * setters' of the batch chained behind (`u`) until the fold commit. Bounds
+   * the setter notify/hold-check to O(written) instead of O(subscribed
+   * nodes) — a record with thousands of per-key subscriptions (selection
+   * maps) would otherwise pay a full node scan on every write — and to THIS
+   * setter's keys (D-8: a key an earlier setter of the batch wrote is told
+   * once, #3743). null = no trap writes this batch (bulk paths fall back to
+   * the full scan); WK_ALL = bound unusable (array length write).
+   * LOAD-BEARING SHAPE RULE: array proxy targets carry their fields as named
+   * properties on a real array, and V8
    * normalizes an array to dictionary properties as the named count grows
    * (empirically at counts ≡ 0 mod 3 from 18 up on V8 13.x) — every trap
    * field read then becomes a hash lookup (~15% uibench, tree suites
    * worst). Future write-side state MUST ride an extension object, not new
    * named fields. */
-  wk: Set<PropertyKey> | null;
+  wk: WrittenKeys | null;
   /** Lazy deep-witness node: `deep()` subscribes ONE node per record instead
    * of one per path; write paths bump it only when it exists. Separate from
    * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */
@@ -138,6 +147,10 @@ export const $OWNER: unique symbol = Symbol(__DEV__ ? "STORE_OWNER" : 0);
 /** raw → target for plain (family-less) stores. Family stores use their own
  * map so one raw can wrap once per family (§7b). */
 export const storeLookup = new WeakMap<object, StoreTarget>();
+
+export function setLookup(raw: object, t: StoreTarget): void {
+  (t.fam?.map ?? storeLookup).set(raw, t);
+}
 
 export function isOwned(raw: object): boolean {
   return (raw as any)[$OWNER] !== undefined;

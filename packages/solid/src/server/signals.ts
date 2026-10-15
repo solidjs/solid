@@ -685,6 +685,9 @@ interface ServerComputation<T = any> {
   // hook (`ctx.commitEpoch`) only exists where a binding ledger is live.
   sync?: boolean;
   epoch?: number;
+  // The value can change between live-hole sweeps: the result is async, or
+  // a compute read something that is (see asyncReads).
+  moving?: boolean;
   // Runs when the owner disposes the compute (see `armDispose`), for work
   // that cannot wait for its next pull to notice `disposed`: a pumped
   // iterator parked on a `next()` that will not settle until the world
@@ -881,6 +884,7 @@ type ServerMemoOptions<T> = MemoOptions<T> & {
 };
 type ServerSignalOptions<T> = SignalOptions<T>;
 type NoFn<T> = T extends Function ? never : T;
+type NoArray<T> = Extract<T, readonly unknown[]> extends never ? unknown : never;
 
 /**
  * The pending source for BARE `ssrSource: "client"` (no declared commit #0):
@@ -1049,6 +1053,17 @@ const SLOTS = /* @__PURE__ */ Symbol("settledSlots");
 // fresh one per pass. Same lifetime and keying rationale as SLOTS above.
 const PROJECTION_SLOTS = /* @__PURE__ */ Symbol("projectionSlots");
 
+function adoptSlot(comp: ServerComputation<any>, slot: SlotRecord) {
+  if (slot.s === 1) {
+    comp.value = slot.v;
+    comp.error = undefined;
+    comp.errored = false;
+  } else {
+    comp.error = slot.v;
+    comp.errored = true;
+  }
+}
+
 function settleServerAsync<T, U>(
   initial: T | PromiseLike<T>,
   rerun: () => T | PromiseLike<T>,
@@ -1167,6 +1182,13 @@ function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
   });
 }
 
+// Reads of values that can change between two live-hole sweeps, counted so
+// a sweep can tell a `For` row that read one (see mapArray). Only async
+// sources move on the server — a plain signal or store has no writer once
+// the render runs — so this counts reads of async memos and async
+// projections, and of any memo whose last compute read one of those.
+let asyncReads = 0;
+
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 // Commit #0 (loadingValue) removes the uninitialized window: never undefined
@@ -1260,6 +1282,11 @@ export function createMemo<T>(
     options != null && typeof options === "object" && "loadingValue" in options
       ? { value: (options as any).loadingValue as T, served: false }
       : undefined;
+  // A loading value served ahead of its landing is a value a later commit
+  // replaces (server-owned renders advance past it). Told at creation —
+  // before the first read, lazy or not — so a document's live holes know
+  // the render is no longer settled before any hole can read it.
+  if (loadingState) ctx?.unsettled?.();
   const comp: ServerComputation<T> = {
     owner,
     value: undefined as any,
@@ -1299,10 +1326,22 @@ export function createMemo<T>(
     else o._disposal = [o._disposal, flag];
   }
 
-  // Hoisted once — previously re-allocated per update() invocation.
+  // Hoisted once — previously re-allocated per update() invocation. Runs
+  // under the creating render's context: a retry (a source settling) runs
+  // after another request may have set its own, and everything the pass
+  // creates — a sync memo it pulls, a slot's content — would take that
+  // render's ids (#3972).
   const run = () => {
     resetOwnerForRerun(owner);
-    return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
+    const prev = sharedConfig.context;
+    sharedConfig.context = ctx;
+    const reads = asyncReads;
+    try {
+      return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
+    } finally {
+      sharedConfig.context = prev;
+      if (asyncReads !== reads) comp.moving = true;
+    }
   };
 
   function update() {
@@ -1320,8 +1359,10 @@ export function createMemo<T>(
         typeof result === "object" &&
         (typeof (result as any)[Symbol.asyncIterator] === "function" ||
           typeof (result as any).then === "function")
-      )
+      ) {
+        comp.moving = true;
         armDispose();
+      }
       processResult(
         comp,
         result,
@@ -1386,6 +1427,7 @@ export function createMemo<T>(
       // as epoch comparison, no subscriber graph needed.
       update();
     }
+    if (comp.moving) asyncReads++;
     if (comp.errored) {
       // A client hole read outside a Loading discovery pass must fail loudly
       // rather than wedge the stream (see clientHoleRead). Identity check on
@@ -1446,6 +1488,8 @@ function createSyncMemo<T>(
   let cached = false;
   // The commit epoch `value`/`error` was computed at (frame renders only).
   let epoch: number | undefined;
+  // See ServerComputation.moving.
+  let moving = false;
 
   function pull(): T | undefined {
     // Inlined `runWithOwner` — avoids the per-pull `() => compute(value)`
@@ -1461,6 +1505,7 @@ function createSyncMemo<T>(
     // created by the eventual successful pull drift ahead of the client's
     // (#2801, generalized to all retry paths in #2900).
     resetOwnerForRerun(owner);
+    const reads = asyncReads;
     try {
       value = compute(value) as T;
       error = undefined;
@@ -1478,6 +1523,7 @@ function createSyncMemo<T>(
       throw err;
     } finally {
       currentOwner = prev;
+      if (asyncReads !== reads) moving = true;
     }
   }
 
@@ -1490,6 +1536,7 @@ function createSyncMemo<T>(
   }
 
   return (() => {
+    if (moving) asyncReads++;
     if (cached && (!ctx?.commitEpoch || ctx.commitEpoch() === epoch)) {
       if (errored) throw error;
       return value;
@@ -1615,6 +1662,15 @@ function processResult<T>(
   // from `currentOwner`, because a stream arriving through a promise is
   // classified in a continuation where no owner is current.
   const scopeOwner = owner as unknown as SSROwner;
+  const recordSlot = (s: 0 | 1 | 2, v: any, d?: DeferredPromise<any>) => {
+    if (!id || !ctx) return;
+    const store = ((ctx as any)[SLOTS] ||= Object.create(null));
+    const prev: SlotRecord | undefined = store[id];
+    if (prev) {
+      prev.s = s;
+      prev.v = v;
+    } else store[id] = { s, v, d };
+  };
 
   // Async-iterable takes precedence over thenable, mirroring the client
   // runtime's detection order (`handleAsync` in @solidjs/signals core/async.ts).
@@ -1670,30 +1726,22 @@ function processResult<T>(
       // Observe its rejection so a rejecting duplicate doesn't surface as an
       // unhandled rejection (fatal under --unhandled-rejections=strict).
       (result as any).then(undefined, () => {});
-      if (slot.s === 1) {
-        comp.value = slot.v;
-        comp.error = undefined;
-        comp.errored = false;
-      } else {
-        comp.error = slot.v;
-        comp.errored = true;
-      }
+      adoptSlot(comp, slot);
       return;
     }
-    const recordSlot = (s: 0 | 1 | 2, v: any, d?: DeferredPromise<any>) => {
-      if (!id || !ctx) return;
-      const store = ((ctx as any)[SLOTS] ||= Object.create(null));
-      const prev: SlotRecord | undefined = store[id];
-      if (prev) {
-        prev.s = s;
-        prev.v = v;
-      } else store[id] = { s, v, d };
-    };
     const deferred: DeferredPromise<T> = slot ? slot.d! : createDeferredPromise<T>();
     const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
     if (!slot) {
       recordSlot(0, undefined, deferred);
       if (serializes) ctx.serialize(id, deferred.promise, deferStream);
+    } else {
+      // Joined flight (#3815): the slot may settle from the earlier node's
+      // promise, which never touches this comp — adopt it, or readers retry
+      // on that settled promise in microtasks forever.
+      const settle = () => {
+        if (slot.s !== 1 || !(loadingState?.served && serializes)) adoptSlot(comp, slot);
+      };
+      deferred.promise.then(settle, settle);
     }
     // Flatten one async level, mirroring the client core's handleAsync: a
     // thenable that RESOLVES to an AsyncIterable — the shape an async stub
@@ -1849,6 +1897,32 @@ function processResult<T>(
   const iterator = result?.[Symbol.asyncIterator];
   if (typeof iterator === "function") {
     const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
+    // Slot memory, as for thenables (#3734): a retry pass re-creates the
+    // node, and the source may hand back a fresh iterable per call (a
+    // subscriber, `liveQuery()`). The slot's first consumption stays its one
+    // consumer and serialized channel: a re-creation adopts its answer, or
+    // joins its flight, without opening this pass's iterable. Not a
+    // server-owned pump (a frame render's binding ledger), whose later
+    // yields drive the creating node.
+    const slotted = !!(id && ctx) && (serializes || !pumpsInScope(ctx, scopeOwner));
+    const slot: SlotRecord | undefined = slotted ? (ctx as any)[SLOTS]?.[id!] : undefined;
+    if (slot) {
+      if (slot.s) return adoptSlot(comp, slot);
+      // A known answer lands in this node too; under a served loading value
+      // the markup stays at commit #0 (the first-value lock).
+      const settle = () => {
+        if (slot.s !== 1 || !(loadingState?.served && serializes)) adoptSlot(comp, slot);
+      };
+      slot.d!.promise.then(settle, settle);
+      if (loadingState) {
+        loadingState.served = true;
+        comp.value = loadingState.value;
+      } else {
+        comp.error = new NotReadyError(slot.d!.promise);
+        comp.errored = true;
+      }
+      return;
+    }
     // Same effective-mode rule as the thenable flatten above: the live
     // brand selects hybrid under server mode, except in a server-owned
     // frame render where the pump keeps the standing answer connected.
@@ -1860,6 +1934,7 @@ function processResult<T>(
       let currentResult = result;
       let iter: AsyncIterator<T>;
       const deferred = createDeferredPromise<T>();
+      if (slotted) recordSlot(0, undefined, deferred);
       const runFirst = () => {
         const source = currentResult ?? (rerun ? rerun() : result);
         currentResult = undefined;
@@ -1880,6 +1955,7 @@ function processResult<T>(
         runFirst,
         deferred,
         (value: T) => {
+          if (slotted) recordSlot(1, value);
           // First-value lock for commit #0 (see thenable branch).
           if (!(loadingState?.served && serializes)) {
             comp.value = value;
@@ -1890,6 +1966,7 @@ function processResult<T>(
           return value;
         },
         (error: any) => {
+          if (slotted) recordSlot(2, error);
           comp.error = error;
           comp.errored = true;
           ctx?.commit?.();
@@ -1911,6 +1988,7 @@ function processResult<T>(
       let iter: AsyncIterator<T>;
       let firstResult: IteratorResult<T> | undefined;
       const deferred = createDeferredPromise<void>();
+      if (slotted) recordSlot(0, undefined, deferred);
       const runFirst = () => {
         const source = currentResult ?? (rerun ? rerun() : result);
         currentResult = undefined;
@@ -1933,6 +2011,7 @@ function processResult<T>(
         deferred,
         () => {
           const resolved = firstResult;
+          if (slotted) recordSlot(1, resolved && !resolved.done ? resolved.value : undefined);
           // First-value lock for commit #0: with a loading value on a
           // serialized stream, HTML stays at commit #0 and the first yield
           // (like every later one) is the client's to apply.
@@ -1947,6 +2026,7 @@ function processResult<T>(
           return undefined;
         },
         (error: any) => {
+          if (slotted) recordSlot(2, error);
           comp.error = error;
           comp.errored = true;
           ctx?.commit?.();
@@ -2099,6 +2179,7 @@ function pumpIterator<T>(
   iterator: () => AsyncIterator<T>,
   start: Promise<unknown>
 ) {
+  ctx.unsettled?.();
   const release = openPumpHold(ctx, comp.owner, () => !comp.disposed);
   const close = () => {
     closeAsyncIterator(iterator());
@@ -2204,8 +2285,12 @@ function serverEffect<T>(
         // discovery pass — the read throws loudly anywhere else) escalates
         // the suspension to the boundary, which hands off to the client.
         if (isClientHole(source)) throw err;
+        // The retry runs after another request may have set its own context:
+        // run it, and the effect, under this render's (#3972, as the memo's).
         const retry = () => {
           if (comp.disposed) return;
+          const prev = sharedConfig.context;
+          sharedConfig.context = ctx;
           try {
             resetOwnerForRerun(owner);
             const result = runWithOwner(owner, () =>
@@ -2226,6 +2311,8 @@ function serverEffect<T>(
             const handler = getContext(ErrorContext, owner);
             if (handler) handler(retryErr);
             else throw retryErr;
+          } finally {
+            sharedConfig.context = prev;
           }
         };
         ctx.block(source.then(retry, () => {}));
@@ -2333,13 +2420,18 @@ export function createStore<T extends object = {}>(
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ServerProjectionOptions, "seedLoadingValue">
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ServerProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createStore<T extends object = {}>(
   first: T | Store<T> | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: T | Store<T>,
+  second?: T | Store<T> | null,
   third?: ServerProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   if (typeof first === "function") {
@@ -2349,7 +2441,7 @@ export function createStore<T extends object = {}>(
     // The impl signature stays loose; the public overload above enforces the
     // client/seedLoadingValue pairing, and createProjection re-checks at
     // runtime.
-    const store = createProjection(first as any, second as Partial<T>, third as any);
+    const store = (createProjection as Function)(first, second, third);
     return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
@@ -2378,13 +2470,18 @@ export function createOptimisticStore<T extends object = {}>(
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ServerProjectionOptions, "seedLoadingValue">
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createOptimisticStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ServerProjectionOptions
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
 export function createOptimisticStore<T extends object = {}>(
   first: T | Store<T> | ((store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
-  second?: T | Store<T>,
+  second?: T | Store<T> | null,
   third?: ServerProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   // Same no-op rationale as createOptimistic above: optimistic writes are
@@ -2407,7 +2504,7 @@ function createPendingProxy<T extends object>(
   let status: 0 | 1 | 2 = 0;
   let error: any;
   let readTarget: T = state;
-  const gate = () => {
+  const open = () => {
     if (status > 1) {
       // A derive that landed on a client hole (settleServerAsync's FINAL
       // reclassification, #3659) errors with the tagged NotReady: the same
@@ -2420,6 +2517,11 @@ function createPendingProxy<T extends object>(
     // read path (see clientHoleRead).
     if (source === CLIENT_HOLE) clientHoleRead();
     throw new NotReadyError(source);
+  };
+  // Every read counts as an async read (see asyncReads), ready or not.
+  const gate = () => {
+    asyncReads++;
+    open();
   };
   const proxy = new Proxy(state, {
     get(obj, key, receiver) {
@@ -2537,13 +2639,18 @@ function replaceState<T extends object>(target: T, next: T): void {
 }
 
 export function createProjection<T extends object = {}>(
+  fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ServerProjectionOptions, "seedLoadingValue">
+): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed: NoFn<T> | Store<NoFn<T>>,
   options?: ServerProjectionOptions
 ): Refreshable<Store<T>>;
 export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
-  seed: Partial<T> | Store<NoFn<T>>,
+  seed?: T | null,
   options?: ServerProjectionOptions
 ): Store<T> {
   const ctx = sharedConfig.context;
@@ -2575,7 +2682,8 @@ export function createProjection<T extends object = {}>(
     if (slots) slots[slotId!] = proxy;
     return proxy;
   };
-  const [state] = createStore(seed as NoFn<T>);
+  // Seedless: the root starts as an empty record (the client's base too).
+  const [state] = createStore((seed || {}) as NoFn<T>);
 
   if (options?.ssrSource === "client") {
     // seedLoadingValue = declared commit #0: the seed renders. Bare = the
@@ -2653,8 +2761,11 @@ export function createProjection<T extends object = {}>(
   // rest pumps once that value has landed (`pendingPump`, fired by the
   // settle below — the pump must not race the first value's apply).
   let pendingPump: (() => void) | undefined;
-  const takeFirst = (source: AsyncIterable<void | T>, pumpRest: boolean) =>
-    Promise.resolve().then(() => {
+  const takeFirst = (source: AsyncIterable<void | T>, pumpRest: boolean) => {
+    // Before the first value lands: holes minted from here on may read
+    // what this pump keeps moving.
+    if (pumpRest) ctx?.unsettled?.();
+    return Promise.resolve().then(() => {
       const iter = source[Symbol.asyncIterator]();
       return Promise.resolve(iter.next()).then((first: IteratorResult<void | T>) => {
         if (first.done) return undefined;
@@ -2676,6 +2787,7 @@ export function createProjection<T extends object = {}>(
         return first.value;
       });
     });
+  };
   const normalizeAsync = (value: any) =>
     Promise.resolve(value).then(value =>
       // A bounded Promise→AsyncIterable on the document face needs the
@@ -2719,10 +2831,23 @@ export function createProjection<T extends object = {}>(
   // the same line, and hydration claims against the plain seed).
   const seedLoading = !!options?.seedLoadingValue;
   const frozenSeed = seedLoading ? cloneState(state, options?.shallow) : undefined;
+  // Under the frame pump a seeded read follows the live state once the
+  // landing applies, so the seed served until then is a value a later
+  // commit replaces.
+  if (seedLoading && pumps) ctx?.unsettled?.();
 
+  // Under the creating render's context: a re-derive after a pending source
+  // settles runs after another request may have set its own (#3972, as the
+  // memo's `run`).
   const runProjection = () => {
     resetOwnerForRerun(owner);
-    return runWithOwner(owner, () => fn(draft));
+    const prev = sharedConfig.context;
+    sharedConfig.context = ctx;
+    try {
+      return runWithOwner(owner, () => fn(draft));
+    } finally {
+      sharedConfig.context = prev;
+    }
   };
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   try {
@@ -2912,6 +3037,7 @@ export function createProjection<T extends object = {}>(
       if (serializes) {
         ctx.serialize(id, subscribe(), options?.deferStream);
       } else if (pumps) {
+        ctx?.unsettled?.();
         // The frame pump (see `pumps`): drive the SHARED pump — a slot-border
         // trace subscriber may be pulling the same iterator — so the source
         // has one consumer; each batch applied is a commit. With no
@@ -3072,10 +3198,34 @@ export function mapArray<T, U>(
   // per evaluation (#2976). Evaluating it in the row id space would both
   // misplace that allocation and shift the row base by one.
   const rowOwner = createOwner() as unknown as SSROwner;
+  // Rows kept across live-hole sweeps (#4056). A markup hole that re-emits
+  // (a live response, a standing source) re-evaluates its whole value on
+  // every commit, and without this every row re-ran `mapFn` each time — a
+  // list's render cost paid per write. During a sweep a row whose item at
+  // the same index is unchanged reuses the row it rendered on the previous
+  // sweep. Unchanged is deep equality with a copy of the item taken when the
+  // row rendered — a live source usually hands back a fresh snapshot, and a
+  // server store may edit the same object in place. A row reused must also
+  // have read no async source while rendering (an async memo or projection,
+  // or a memo derived from one: see asyncReads), since only those change
+  // between sweeps; such a row renders again every sweep. This is the
+  // client's rule at row grain: a row is kept while its item is, and what
+  // else it read re-runs it. Sweeps
+  // only: a sweep's evaluation is mint-suppressed and owner-free (the engine's
+  // impurity gate closes any hole that creates owners), so a row from one
+  // sweep carries no markers or bindings that another could duplicate. The
+  // first render and its retries never read or fill the cache, so their
+  // ids and minting are exactly as before.
+  let kept: { items: unknown[]; rows: U[]; pure: boolean[] } | null = null;
   const read = createMemo(
     () => {
       const items = list();
       const s: U[] = [];
+      const live = (sharedConfig.context as any)?.liveHoles;
+      const sweeping = !!(live && live.sweeping);
+      const prev = sweeping ? kept : null;
+      const snaps: unknown[] = [];
+      const pure: boolean[] = [];
       // Reset per pass so retries re-synthesize row/fallback ids from 0,
       // like the client's fresh row owners on its first successful pass.
       rowOwner._childCount = 0;
@@ -3086,6 +3236,18 @@ export function mapArray<T, U>(
           const origId = ownerId(rowOwner);
           try {
             for (let i = 0, len = items.length; i < len; i++) {
+              if (
+                prev &&
+                i < prev.items.length &&
+                prev.pure[i] &&
+                sameItem(prev.items[i], items[i])
+              ) {
+                s.push(prev.rows[i]);
+                snaps.push(prev.items[i]);
+                pure.push(true);
+                continue;
+              }
+              const reads = asyncReads;
               if (origId !== undefined) {
                 rowOwner.id = formatChildId(origId, i);
               }
@@ -3106,6 +3268,10 @@ export function mapArray<T, U>(
                       ? (mapFn as (v: T, i: Accessor<number>) => U)(items[i], () => i)
                       : (mapFn as (v: T) => U)(items[i])
               );
+              if (sweeping) {
+                snaps.push(copyItem(items[i], 0));
+                pure.push(asyncReads === reads);
+              }
             }
           } finally {
             rowOwner.id = origId;
@@ -3116,11 +3282,43 @@ export function mapArray<T, U>(
         const fo = runWithOwner(rowOwner as unknown as Owner, () => createOwner());
         s.push(runWithOwner(fo, () => options.fallback!()) as U);
       }
+      kept = sweeping && items && items.length ? { items: snaps, rows: s, pure } : null;
+      // In a live render the rows are tagged as rows: a live hole whose
+      // value this is marks each row, so a sweep can send only the rows
+      // that changed (#4064).
+      if (live && items && items.length) (s as any).$rows = true;
       return s;
     },
     { sync: true }
   );
   return read;
+}
+
+// A sweep's row reuse test (see mapArray): `a` is the copy `copyItem` took
+// when the row rendered, `b` the item now; deep equality over plain objects
+// and arrays. Past the depth limit (or a cycle) the copy holds NOT_COPIED,
+// which equals nothing, so the row renders again.
+const NOT_COPIED = {};
+const COPY_DEPTH = 8;
+function copyItem(v: any, depth: number): unknown {
+  if (!v || typeof v !== "object") return v;
+  if (depth > COPY_DEPTH) return NOT_COPIED;
+  if (Array.isArray(v)) return v.map(x => copyItem(x, depth + 1));
+  const proto = Object.getPrototypeOf(v);
+  // Class instances (a Date, a Map) are not copied: the row renders again.
+  if (proto !== Object.prototype && proto !== null) return NOT_COPIED;
+  const out: Record<string, unknown> = {};
+  for (const k in v) out[k] = copyItem(v[k], depth + 1);
+  return out;
+}
+function sameItem(a: any, b: any): boolean {
+  if (a === b) return a !== NOT_COPIED;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (a === NOT_COPIED || Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) if (!(k in b) || !sameItem(a[k], b[k])) return false;
+  return true;
 }
 
 export function repeat<T>(
@@ -3167,7 +3365,20 @@ export function repeat<T>(
 
 // === Boundary primitives ===
 
-const ErrorContext: Context<((err: any) => void) | null> = {
+/**
+ * The error handler a boundary installs for its subtree. Called with the
+ * error alone it routes it (an `<Errored>` renders its fallback and throws;
+ * a `<Loading>` channels it). Called with `outcome: true` it is asked for
+ * the SERVER's rendered outcome for a post-flush failure inside a server
+ * component (frames-rulings 3.3 — the position shows what the server
+ * rendered, never a blank): the nearest server `<Errored>` answers with
+ * its fallback as markup; a `<Loading>` passes the question up; a handler
+ * that belongs to no server `<Errored>` answers `undefined` — the error
+ * escapes the component.
+ */
+export type BoundaryErrorHandler = (err: any, outcome?: true) => string | undefined | void;
+
+const ErrorContext: Context<BoundaryErrorHandler | null> = {
   id: Symbol("ErrorContext"),
   defaultValue: null
 };
@@ -3214,7 +3425,11 @@ export const RevealGroupContext: Context<ServerRevealGroup | null> = {
 export function runWithBoundaryErrorContext<T>(
   owner: Owner,
   render: () => T,
-  onError: (err: any, parentHandler: ((err: any) => void) | null) => void,
+  onError: (
+    err: any,
+    parentHandler: BoundaryErrorHandler | null,
+    outcome?: true
+  ) => string | undefined | void,
   context?: NonNullable<typeof sharedConfig.context>,
   boundaryId?: string
 ): T {
@@ -3240,7 +3455,7 @@ export function runWithBoundaryErrorContext<T>(
   try {
     return runWithOwner(owner, () => {
       const parentHandler = getContext(ErrorContext);
-      setContext(ErrorContext, err => onError(err, parentHandler));
+      setContext(ErrorContext, (err, outcome) => onError(err, parentHandler, outcome));
       return render();
     }) as T;
   } finally {
@@ -3560,6 +3775,8 @@ export function createErrorBoundary<T, U>(
       // the outer Loading boundary must see the tag to hand off instead of
       // awaiting it (see CLIENT_HOLE).
       const all: any = Promise.all(pending.p);
+      // A slot retry can drop this aggregate; the boundary still handles the rejection.
+      all.catch(() => {});
       if (pending.p.some(p => (p as any).$clientHole)) all.$clientHole = true;
       throw new NotReadyError(all);
     }
@@ -3579,6 +3796,16 @@ export function createErrorBoundary<T, U>(
           () => err,
           () => {}
         );
+  // A children-slot retry re-invokes this accessor after the boundary has
+  // already rendered its fallback: a sibling in the same `{props.children}`
+  // hole suspended, or the fallback's own async hole did. `disposeOwner`
+  // resets `owner` but not `outputOwner`, so a second `renderFallback`
+  // continues that owner's child ids while the client renders the fallback
+  // once — the server markup's keys never match (#3920). Keep the fallback
+  // produced for this request (its ids, its still-pending holes, and the
+  // one serialized error) and hand that same value back.
+  let fallbackResult: any;
+  let fallbackSettled = false;
   // The boundary's own id, read once: an error lands mid-resolve, while
   // `owner.id` is rewritten to the resolve scope's (see `resolveIn`), and the
   // client looks the record up at the boundary id.
@@ -3623,6 +3850,7 @@ export function createErrorBoundary<T, U>(
   // sanitized record under a fallback rendered from the original would
   // mismatch). See `ssrSanitizeError`.
   const handleError = (err: any) => {
+    if (fallbackSettled) return fallbackResult;
     reportContained(err);
     const wire = ssrSanitizeError(
       err,
@@ -3631,7 +3859,39 @@ export function createErrorBoundary<T, U>(
       ctx && ctx.errorPolicy
     );
     serializeError(wire);
-    return renderFallback(wire);
+    fallbackResult = renderFallback(wire);
+    fallbackSettled = true;
+    return fallbackResult;
+  };
+  // The server's rendered OUTCOME for a post-flush failure inside a server
+  // component (frames-rulings 3.3, A0 corollary 4 inward; asked through the
+  // handler's `outcome` mode by the `<Loading>` whose fragment failed): this
+  // boundary's fallback for the error, as finished markup, rendered at the
+  // asking boundary's position — this boundary's own subtree is already in
+  // the shell, so its fallback replacing the placeholder is the one layout
+  // the fragment can express. Only a SERVER `<Errored>` answers — one inside
+  // the component's scope, whose ids the client never claims (the scope is
+  // hydration-free) and whose record nothing adopts; an `<Errored>` outside
+  // the component (the app's, at t = 0 — a client twin) answers nothing, and
+  // the error escapes the component as the frame's own error (the outward
+  // face). A fallback still resolving (an async hole in it) has no finished
+  // markup to answer with and escapes the same way.
+  const renderOutcome = (err: any): string | undefined => {
+    if (!ctx || !inServerComponentScope(owner as unknown as SSROwner)) return undefined;
+    // Rendered from a resume loop, where the render context the compiled
+    // template reads has long moved past this boundary's: restore it.
+    const prevCtx = sharedConfig.context;
+    sharedConfig.context = ctx;
+    try {
+      const resolved: any = ctx.resolve(ctx.escape(handleError(err)));
+      if (!resolved || (resolved.h && resolved.h.length)) return undefined;
+      const t = resolved.t;
+      return Array.isArray(t) ? t[0] : t;
+    } catch {
+      return undefined;
+    } finally {
+      sharedConfig.context = prevCtx;
+    }
   };
   // `$lhSkip`: boundary machinery owns this position (see ssrLoadingBoundary)
   // — a live binding over the boundary's output would re-run resolve(),
@@ -3640,13 +3900,17 @@ export function createErrorBoundary<T, U>(
     () => {
       let result: any;
       let handled = false;
+      // Already showing the fallback for this request. Re-running would
+      // allocate new fallback ids and serialize the error again (#3920).
+      if (fallbackSettled) return fallbackResult;
       // Disposing while resuming would tear down the very computations the
       // stashed holes read from (marking them disposed drops their settlement).
       if (ctx && !pending) disposeOwner(owner, false);
       try {
         result = ctx
-          ? runWithBoundaryErrorContext(owner, resolve, err => {
+          ? runWithBoundaryErrorContext(owner, resolve, (err, _parent, outcome) => {
               if (err instanceof NotReadyError) throw err;
+              if (outcome) return renderOutcome(err);
               handled = true;
               result = handleError(err);
               throw err;
@@ -3896,6 +4160,10 @@ export function refresh<T>(
     return Promise.resolve(undefined as any);
   }
 }
+
+/** On the server everything is a first load and the server always waits:
+ * `createDeferred` is `createMemo` (D-40). */
+export const createDeferred: typeof createMemo = createMemo;
 
 export function affects(_target: unknown, _key?: PropertyKey): void {
   return undefined;

@@ -60,7 +60,7 @@ function arm(code: DiagnosticCode, opts: AttributionOptions = {}) {
 const CLICK = { type: "click", target: 'button#next "Next →"' };
 
 /** A controllable async source; `read: false` leaves it to a boundary to read. */
-function pagedFeed(name = "posts", read = true) {
+function pagedFeed(name = "posts", read = true, supersedes = false) {
   const [page, setPage] = createSignal(1, { name: `${name}Page` });
   let resolve: ((v: string) => void) | null = null;
   const posts = createMemo(
@@ -68,7 +68,7 @@ function pagedFeed(name = "posts", read = true) {
       const p = page();
       return new Promise<string>(r => (resolve = v => r(`${v}-p${p}`)));
     },
-    { name }
+    { name, _supersedes: supersedes } as any
   );
   const shown: string[] = [];
   if (read)
@@ -151,6 +151,27 @@ describe("ABANDONED_FLIGHTS", () => {
     expect(off.findings).toHaveLength(0);
     other.resolve("z");
     await until(() => other.shown.includes("z-p5"), "other landing");
+  });
+
+  it("a node superseding its own flights by design (_supersedes) is not judged; its flights are still recorded", async () => {
+    const { findings } = arm("ABANDONED_FLIGHTS");
+    const outcomes: string[] = [];
+    const off = OBSERVE!.records.subscribe("flight", e => {
+      if (e.nodeName === "slotArg") outcomes.push(e.outcome);
+    });
+    const feed = pagedFeed("slotArg", true, true);
+    flush();
+    feed.resolve("a");
+    await until(() => feed.shown.includes("a-p1"), "initial load");
+    for (const p of [2, 3, 4, 5]) {
+      feed.setPage(p);
+      flush();
+    }
+    expect(findings).toHaveLength(0);
+    expect(outcomes).toEqual(["landed", "abandoned", "abandoned", "abandoned"]);
+    feed.resolve("z");
+    await until(() => feed.shown.includes("z-p5"), "the last flight to land");
+    off();
   });
 });
 

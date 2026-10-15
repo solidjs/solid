@@ -47,6 +47,11 @@ const createStoreObject = (amount: number) => {
   return state;
 };
 
+// The harness times `await fn()`: a returned merge/omit view would have its
+// `.then` probed through the proxy traps inside the timed window. Subjects
+// hand their result here instead, which also keeps it live.
+let sink: unknown;
+
 type Test = {
   title: string;
   benchs: { title: string; func: any }[];
@@ -79,7 +84,9 @@ function createTest<G extends (...args: any[]) => any>(options: {
       for (const subject of options.subjects) {
         test.benchs.push({
           title: subject.name,
-          func: () => subject.func(...args)
+          func: () => {
+            sink = subject.func(...args);
+          }
         });
       }
       tests.push(test);

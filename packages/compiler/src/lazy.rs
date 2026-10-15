@@ -1,21 +1,23 @@
-//! `lazy()` module-URL pass, ported from the Babel implementation in
-//! vite-plugin-solid (`src/lazy-module-url.ts`). Detects
-//! `lazy(() => import("specifier"))` calls where `lazy` is a named import
-//! from `solid-js` and appends a placeholder string argument
-//! (`"__SOLID_LAZY_MODULE__:<specifier>"`). The placeholder format is a
-//! frozen contract: the bundler plugin's `resolveLazyModuleUrls` regex
-//! (`"__SOLID_LAZY_MODULE__:([^"]+)"`) rewrites it to a resolved
-//! project-relative path afterwards — that half stays in the plugin.
+//! `lazy()` / `lazyModule()` module-URL pass, ported from the Babel
+//! implementation in vite-plugin-solid (`src/lazy-module-url.ts`). Detects
+//! `lazy(() => import("specifier"))` and `lazyModule(() => import("specifier"))`
+//! calls where the callee is a named import from `solid-js`, and appends a
+//! placeholder string argument (`"__SOLID_LAZY_MODULE__:<specifier>"`). The
+//! placeholder format is a frozen contract: the bundler plugin's
+//! `resolveLazyModuleUrls` regex (`"__SOLID_LAZY_MODULE__:([^"]+)"`) rewrites
+//! it to a resolved project-relative path afterwards — that half stays in
+//! the plugin.
 //!
 //! The same pass recognizes `clientOnly(() => import("specifier"))` where
 //! `clientOnly` is a named import from `@solidjs/web`, so the server half
 //! can emit early modulepreload hints for the browser-only module.
 //!
-//! Both runtimes take an options bag in second position (`lazy`'s
-//! `{ export }`, `clientOnly`'s `{ lazy, export }`), so the placeholder is
+//! `lazy` and `clientOnly` take an options bag in second position (`lazy`'s
+//! `{ export }`, `clientOnly`'s `{ lazy, export }`), so their placeholder is
 //! appended as a *third* argument, padding the options slot with `void 0`
 //! when the call site omits it — the runtime's `moduleUrl` parameter is
-//! positionally stable either way.
+//! positionally stable either way. `lazyModule` has no options bag: the
+//! placeholder is the second argument.
 
 use crate::shared::ast_builder::AstBuilder;
 use napi::bindgen_prelude::*;
@@ -117,18 +119,21 @@ struct Target {
     pad_options: bool,
 }
 
-/// A `Target` for every eligible `lazy(...)` / `clientOnly(...)` call.
-/// Eligibility mirrors the Babel plugin exactly:
-/// - callee is the bare identifier `lazy` (resp. `clientOnly`),
+/// A `Target` for every eligible `lazy(...)` / `lazyModule(...)` /
+/// `clientOnly(...)` call. Eligibility mirrors the Babel plugin exactly:
+/// - callee is the bare identifier `lazy`, `lazyModule`, or `clientOnly`,
 /// - it resolves to a *named* import specifier whose declaration imports
-///   from `solid-js` (resp. `@solidjs/web`) — local shadowing wins;
-///   default/namespace imports and aliased locals don't match because the
-///   callee must be spelled with the canonical name,
+///   from `solid-js` (`lazy` / `lazyModule`) or `@solidjs/web`
+///   (`clientOnly`) — local shadowing wins; default/namespace imports and
+///   aliased locals don't match because the callee must be spelled with the
+///   canonical name,
 /// - the first argument is a function/arrow whose body is directly
 ///   `import("literal")` (or a block whose sole statement returns one),
-/// - the call takes one argument (options omitted — the placeholder needs a
-///   `void 0` filler) or two (the second being the options bag). More
-///   arguments mean the call is already annotated and is left untouched.
+/// - `lazy` / `clientOnly` take one argument (options omitted — the
+///   placeholder needs a `void 0` filler) or two (the second being the
+///   options bag). `lazyModule` takes one argument; the placeholder is
+///   appended as the second. More arguments mean the call is already
+///   annotated and is left untouched.
 fn collect_targets(program: &Program<'_>) -> Vec<Target> {
     let semantic = SemanticBuilder::new().build(program).semantic;
     let scoping = semantic.scoping();
@@ -200,8 +205,11 @@ fn eligible_target(
     let Expression::Identifier(callee) = &call.callee else {
         return None;
     };
+    // `lazyModule` has no options bag, so its placeholder is argument 2.
+    // `lazy` / `clientOnly` keep the third-argument slot.
+    let lazy_module = callee.name.as_str() == "lazyModule";
     let eligible = match callee.name.as_str() {
-        "lazy" => lazy_symbols,
+        "lazy" | "lazyModule" => lazy_symbols,
         "clientOnly" => client_only_symbols,
         _ => return None,
     };
@@ -213,12 +221,17 @@ fn eligible_target(
         return None;
     }
     // Babel: bail on more arguments than the bare form takes (already
-    // annotated) and on 0 arguments.
-    if call.arguments.is_empty() || call.arguments.len() > 2 {
+    // annotated) and on 0 arguments. `lazyModule`'s bare form is one
+    // argument; a second argument is already a moduleUrl.
+    if lazy_module {
+        if call.arguments.len() != 1 {
+            return None;
+        }
+    } else if call.arguments.is_empty() || call.arguments.len() > 2 {
         return None;
     }
     // A spread in the options slot hides the real arity — leave it alone.
-    if call.arguments.len() == 2 && call.arguments[1].as_expression().is_none() {
+    if !lazy_module && call.arguments.len() == 2 && call.arguments[1].as_expression().is_none() {
         return None;
     }
     let argument = call.arguments[0].as_expression()?;
@@ -226,9 +239,10 @@ fn eligible_target(
     Some(Target {
         span: call.span,
         specifier,
-        // The placeholder always lands in the third slot; a callsite
-        // without an options bag gets `void 0` filler.
-        pad_options: call.arguments.len() == 1,
+        // `lazy` / `clientOnly`: the placeholder lands in the third slot; a
+        // callsite without an options bag gets `void 0` filler.
+        // `lazyModule`: the placeholder is the second argument.
+        pad_options: !lazy_module && call.arguments.len() == 1,
     })
 }
 

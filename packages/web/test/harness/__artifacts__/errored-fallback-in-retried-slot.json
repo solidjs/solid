@@ -1,0 +1,5 @@
+{
+  "name": "errored-fallback-in-retried-slot",
+  "shell": "<div _hk=0 data-retried-fallback><main _hk=110><b>fell</b><button>Count: <!--$-->0<!--/--></button></main><p _hk=13>ready</p></div><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"10\"]=$R[0]=new Error(\"sync render failure\");_$HY.r[\"12\"]=$R[1]=($R[2]=($R[3]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;($R[4]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[2],\"ready\");</script>",
+  "rest": ""
+}

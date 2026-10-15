@@ -4,6 +4,7 @@ import {
   createRoot,
   createSignal,
   createMemo,
+  createDeferred,
   createEffect,
   createRenderEffect,
   createTrackedEffect,
@@ -172,6 +173,12 @@ describe("Server createMemo", () => {
 });
 
 // === createEffect ===
+describe("Server createDeferred", () => {
+  test("is createMemo: the server always waits (D-40)", () => {
+    expect(createDeferred).toBe(createMemo);
+  });
+});
+
 describe("Server createEffect", () => {
   test("runs compute but not effectFn on the server", () => {
     const compute = vi.fn(() => 1);

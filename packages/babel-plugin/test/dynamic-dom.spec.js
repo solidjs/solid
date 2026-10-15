@@ -48,6 +48,7 @@ runFixtures({
           "select",
           "option",
           "video",
+          "form",
           // mathml
           "math",
           "annotation",

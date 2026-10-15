@@ -182,7 +182,20 @@ there is nothing to diff.)
   adoption's. A get/has/descriptor read of any other key is served from the
   backing to every reader and is not born holding. Keyless reads (`ownKeys`,
   `$TRACK`, `deep()`), chained backings, optimistic families and a swapped
-  or non-plain prototype hold the whole container.
+  or non-plain prototype hold the whole container. Below the key, the unit
+  is the **leaf** (#3712): a row first read during the hold, which the
+  adoption never paired because nothing had proxied it, is paired at that
+  read as `applyAdopt` would have paired it (`adoptChild`: the family's key
+  for an array row, the key name for a record's; `sameRow` is the one
+  predicate both use) — one target, the old raw its committed frame, the
+  new raw its staging, held by the same transaction — and its own leaves
+  decide. Pairing at read time rather than at the adoption is the design,
+  not a gap: nodes are lazy, the adoption records nothing, and a hold is the
+  rare path, so what a hold asks is answered from the two backings when it
+  is asked. Container → key → leaf is the end of this series; there is no
+  finer unit. Not paired (the hold stands): a shallow family, a reorder (the
+  keys differ), and a `reconcile()` in a plain setter, whose key the target
+  does not carry.
 
 ## 4. Identity rules
 

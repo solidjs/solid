@@ -36,10 +36,24 @@ export type HydrationContext = {
   escape(value: any): string;
   replace: (id: string, replacement: () => any) => void;
   block: (p: Promise<any>) => void;
+  /**
+   * Register a deferred fragment; the resolver settles it: `v` its markup,
+   * `err` the failure it settled with, `escaped` that the failure escaped a
+   * server component (no server `<Errored>` rendered an outcome for it) —
+   * the renderer surfaces it as the frame's own error, the outward face;
+   * `escaped.frame` names the component's frame where the channel needs it
+   * (the document face's `sc:live` op).
+   */
   registerFragment: (
     v: string,
     options?: { revealGroup?: string }
-  ) => (v?: string, err?: any) => boolean;
+  ) => (v?: string, err?: any, escaped?: { frame?: string }) => boolean;
+  /**
+   * @internal The frame id of the server component this context renders
+   * inside, on the document face (set by the frames server runtime on the
+   * component's render context; inherited by every clone below it).
+   */
+  frameId?: string;
   revealFragments?: (groupOrKeys: string | string[]) => void;
   revealFallbacks?: (groupOrKeys: string | string[]) => void;
   /** Register a client-side asset discovered during SSR (e.g. from lazy()). */
@@ -152,6 +166,16 @@ export type HydrationContext = {
    * @solidjs/web's render core; holds gate only the end of the response.
    */
   hold?: () => () => void;
+  /**
+   * Document renders only (set alongside `commit` by @solidjs/web's
+   * document live-hole arming): told when the render serves something a
+   * later commit in this response will replace — a server-owned async
+   * iterable classified to pump, a loading value or seed served ahead of
+   * its landing. Called before that value can be read, so a hole minted
+   * while it has never been called read only final values, and ships
+   * unmarked.
+   */
+  unsettled?: () => void;
 };
 
 export const NoHydrateContext: Context<boolean> = {

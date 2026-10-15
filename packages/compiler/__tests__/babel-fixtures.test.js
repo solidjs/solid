@@ -18,6 +18,7 @@ const fixtureParity = {
   components: parityLevel.subset,
   conditionalExpressions: parityLevel.subset,
   customElements: parityLevel.subset,
+  elementClaims: parityLevel.subset,
   eventExpressions: parityLevel.subset,
   fragments: parityLevel.subset,
   insertChildren: parityLevel.subset,
@@ -135,6 +136,8 @@ function supportedSubset(fixture) {
     case "conditionalExpressions":
       return source;
     case "customElements":
+      return source;
+    case "elementClaims":
       return source;
     case "fragments":
       return source;

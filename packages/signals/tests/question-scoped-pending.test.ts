@@ -138,9 +138,10 @@ describe("same-question motion is silent", () => {
     // (#3026). The lift must keep the re-ask classification — dropping it
     // made the refetch a NEW question that pended every leaf (both rows'
     // ids, labels, the array length), and the row-scoped affects() could not
-    // narrow it. Verdicts are observed through tracked readers, as JSX reads
-    // them: the subscribed reader is what keeps the action's transaction —
-    // and its mark — alive until the refetch lands.
+    // narrow it. The list is rendered plainly, as a <For> would: that reader
+    // is what keeps the hold — and the action's mark — alive until the
+    // refetch lands. The verdict readers alone hold nothing (a probe alone
+    // does not hold, 2026-10-09).
     type Row = { id: number; label: string; votes: number };
     const db: Row[] = [
       { id: 1, label: "Tacos", votes: 0 },
@@ -178,6 +179,10 @@ describe("same-question motion is silent", () => {
       watch("burritos.votes", () => row("Burritos")?.votes);
       watch("burritos.label", () => row("Burritos")?.label);
       watch("length", () => list.length);
+      createRenderEffect(
+        () => list.map(r => r.votes).join(),
+        () => {}
+      );
     });
     flush();
     fetcher.resolveAll();

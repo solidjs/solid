@@ -33,6 +33,8 @@ function Profile() {
 
 This pushes “loading state” to UI structure (boundaries) instead of leaking into every type.
 
+**Setting before the first value.** A writable async source (function-form `createSignal`/`createStore`, `createProjection`, the optimistic variants) can be written before its first answer lands. Absolute writes apply as usual. A function-form setter runs immediately against the raw base: `prev` is `undefined` for a signal or optimistic computed, and the draft is the seed (or `{}` for a seedless store). This holds for 2.x; the updater is not deferred until a value exists, because that would add a check and a queue to every setter call. The base itself is never readable (reads throw until something is written or lands). When the first answer lands, a return-form derive replaces the write; a derive that mutates its draft keeps it. If an updater can run in this window, guard it (`set(prev => (prev ?? 0) + 1)`).
+
 ### `Loading` is the UI boundary
 
 `Loading` shows fallback while the subtree needs unresolved async values.
@@ -46,6 +48,8 @@ Importantly, `Loading` is intended to cover **branch readiness**: it handles a s
 ```
 
 Nested `Loading` boundaries can be used to avoid blocking large subtrees and to control where loading UI appears.
+
+A `Loading` that has not shown content yet owns what is under it. Content there that reads a value a still-running change holds (a write inside an `action`, data another change is loading) is not part of that change: the boundary shows its fallback now, and the content appears when the change commits. The change does not wait for it. The exception is a boundary mounted by the change itself, for example a `<Show when={x()}>` where `x` is the held write: it appears with that change's commit, with no fallback. While the fallback shows, `isPending()` of the boundary is `false`, as for any first load.
 
 #### `Loading` `on` prop: dependencies that show the fallback again
 
@@ -81,6 +85,8 @@ The shell keeps showing A until `product(2)` lands; the spinner arrives with B, 
 
 One shape shows no fallback at all: when the data the boundary is waiting on is also read outside it (a sibling `<Loading>` over the same `comments(id)`, an `isPending` on it in the header), or the write's `action` stays open until the data lands. The frame waits on that read, so by the time it commits the content is ready and the fallback was never needed. The first of these is structural — no ordering of the flights can show that fallback — and in development the `LOADING_ON_OUTSIDE_HOLD` diagnostic names the source; the fix is to move the outside read under the boundary so one hold owns the data. The second is a race the fallback may still win (an action that ends first shows it with the commit), and is not reported: during an `action`, show the wait with `isPending()` or an optimistic value, which is what a hold's stale content is for. The old content is on screen and valid the whole time; a `Loading` fallback says it is not.
 
+_Note (2026-10-06):_ how a re-armed boundary treats data an earlier change still holds is deferred to a separate change; until then a re-arm behaves as described here.
+
 It is possible to show the fallback beside the still-held frame anyway: a display-ahead read in `on` — `latest(id)`, `isPending()`, an optimistic signal — says the change is already on screen, so the fallback lands there too:
 
 ```
@@ -89,7 +95,7 @@ on={latest(id)}: [A] → [A + spinner]  →  [B + spinner]  →  [B + comments]
 
 That is a capability, not a recommendation. The `[A + spinner]` frame is B's loading state inside A's page, for a change nothing else on the page reflects yet; reach for it only when that is what you mean.
 
-Because only the notification matters, the value returned by `on` is never compared: `on={() => { id(); return 1; }}` notifies whenever `id` changes, and an expression that reads nothing reactive never does. Optimistic writes to a dependency notify like any other write. A zero-argument function is a tracked accessor, not a callback.
+Because only the notification matters, the value of `on` is never compared: `on={(id(), 1)}` notifies whenever `id` changes even though its value is always `1`, and an expression that reads nothing reactive never does. Optimistic writes to a dependency notify like any other write. `on` takes a value, not a function: the compiler already wraps the expression so its reads are tracked, so `on={() => id()}` hands the boundary a function that nothing calls — it reads nothing and never notifies. Write the reads directly: `on={id()}`.
 
 ### `isPending(fn)` (in-flight change queries)
 
@@ -339,7 +345,7 @@ navigate(`/todos/${todos.at(-1).id}`);
 
 The promise is safe to ignore — fire-and-forget `refresh()` is unchanged, and a failed refetch never surfaces an unhandled rejection from an ignored promise. The semantics are quiescence, not flight identity: if a second refresh (or any invalidation) supersedes this one mid-flight, the promise waits for — and delivers — whatever finally lands. A failed re-ask rejects with the error. Awaiting does not change the quiet-re-ask contract: `isPending` still stays `false` for a bare refresh.
 
-Refresh granularity is the granularity of the _derive function_: refreshing a nested store node re-asks the whole family projection (there is no per-path refetch to re-run), though the promise still resolves with the node you passed. Inside actions, `yield refresh(x)` is the mutate-then-refetch sequencing primitive — see RFC 06.
+Refresh granularity is the granularity of the _derive function_: there is no per-path refetch to re-run, so refresh a derived store by passing its root (`refresh(todos)`, not `refresh(todos.items[0])`) — that re-asks the whole projection, and reads through any nested node after the `await` are fresh. Inside actions, `yield refresh(x)` is the mutate-then-refetch sequencing primitive — see RFC 06.
 
 #### `resource.mutate` → `createOptimisticStore` / `action`
 

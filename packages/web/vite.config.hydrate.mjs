@@ -19,7 +19,13 @@ export default defineConfig({
     environment: "jsdom",
     pool: "threads",
     globals: true,
-    include: ["test/hydration/**/*.spec.tsx"]
+    // test/consistency: the frames/hydration consistency contract's pins and
+    // property harness (documentation/server-components/frames-consistency-
+    // contract.md). Hydratable + dev is the superset posture every pin needs
+    // (claims, `_hk` keys, the dev findings the oracle listens for); the pins
+    // that never hydrate run unchanged under it. The harness's generated
+    // campaign is opt-in: CONSISTENCY_FUZZ=1 (see harness/README.md).
+    include: ["test/hydration/**/*.spec.tsx", "test/consistency/**/*.spec.tsx"]
   },
   resolve: {
     conditions: ["development", "browser"],
@@ -36,10 +42,14 @@ export default defineConfig({
         rootDir,
         "serialization/src/serializer-decode.ts"
       ),
-      "@solidjs/web/serialization": resolve(
-        rootDir,
-        "serialization/src/serializer.ts"
-      ),
+      "@solidjs/web/serialization": resolve(rootDir, "serialization/src/serializer.ts"),
+      // The frames client's tiers (lazy, through the packaged specifiers) —
+      // to the source, for the same single-instance reason.
+      "@solidjs/web/frames/trace": resolve(rootDir, "frames/src/trace-tier.ts"),
+      "@solidjs/web/frames/regions": resolve(rootDir, "frames/src/regions-tier.ts"),
+      "@solidjs/web/frames/assets": resolve(rootDir, "frames/src/assets-tier.ts"),
+      "@solidjs/web/frames/bind": resolve(rootDir, "frames/src/bind-tier.ts"),
+      "@solidjs/web/frames/wire": resolve(rootDir, "frames/src/wire-tier.ts"),
       "@solidjs/web": resolve(rootDir, "src/index.ts")
     }
   }

@@ -587,8 +587,10 @@ const v = await resolve(() => user());
 // Throw to signal "not ready" through the reactive graph (library authors).
 throw new NotReadyError();
 
-// 1.x-style path setter compat. Use only when migrating; draft-first is canonical.
-setStore(storePath("user", "address", "city", "Paris"));
+// 1.x path setters (setStore("user", "address", "city", "Paris")) become draft writes.
+setStore(s => {
+  s.user.address.city = "Paris";
+});
 ```
 
 ---
@@ -655,7 +657,7 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 - **Stores: setters take a draft callback** — mutate the draft in place by default. Returning a new value is shallow (array index-replace, object top-level diff); reach for it for filter/remove. Keyed reconcile is a _projection-fn_ feature, not a setter feature.
 - **`undefined` is a real value in `merge`** — it overrides rather than "skip this key".
 - **Async lives in computations** — return a Promise/AsyncIterable from `createMemo`/`createStore(fn)`/`createProjection`. Pending reads participate in `<Loading>`.
-- **`Loading` covers unresolved branches** — once content has rendered, revalidation keeps it visible. Use `isPending(() => x())` for in-flight-change indicators or render guards; it reads `x` and participates in Loading like that read. `<Loading on={id()}>` is a dependency list, not a key: its value is never compared; a change to anything it reads makes the boundary stop waiting on its current content and show the fallback if something under it is pending (nothing otherwise). The fallback _follows the frame_: it lands with the change that caused it — immediately when nothing else holds that frame, together with the rest of the new page during a held navigation (never a spinner beside a page the change has not reached). `on={[a(), b()]}` for several. If the same data is also read outside the boundary, the frame waits on it and the fallback can never be seen — DEV warns `LOADING_ON_OUTSIDE_HOLD`; fix the structure (move the outside read under the boundary so one hold owns the data). A frame held past the content's landing by something else (the write's action, other pending data) shows no fallback either — a race, not reported; show the wait with `isPending()`. A display-ahead read in `on` (`on={latest(id)}`) shows the fallback _now_, beside the still-held frame — a capability, not the recommended shape. A fallback that names what is loading should read `latest(id)`, since `id()` is still the committed value while the new one loads.
+- **`Loading` covers unresolved branches** — once content has rendered, revalidation keeps it visible. Use `isPending(() => x())` for in-flight-change indicators or render guards; it reads `x` and participates in Loading like that read. `<Loading on={id()}>` is a dependency list, not a key: its value is never compared; a change to anything it reads makes the boundary stop waiting on its current content and show the fallback if something under it is pending (nothing otherwise). The fallback _follows the frame_: it lands with the change that caused it — immediately when nothing else holds that frame, together with the rest of the new page during a held navigation (never a spinner beside a page the change has not reached). `on={[a(), b()]}` for several. If the same data is also read outside the boundary, the frame waits on it and the fallback can never be seen — DEV warns `LOADING_ON_OUTSIDE_HOLD`; fix the structure (move the outside read under the boundary so one hold owns the data). A frame held past the content's landing by something else (the write's action, other pending data) shows no fallback either — a race, not reported; show the wait with `isPending()`. A display-ahead read in `on` (`on={latest(id)}`) shows the fallback _now_, beside the still-held frame — a capability, not the recommended shape. A fallback that names what is loading should read `latest(id)`, since `id()` is still the committed value while the new one loads. (2026-10-06: how a re-armed boundary treats data an earlier change still holds is deferred to a separate change; the above stands until then.)
 - **`isPending` ≠ 1.x `.loading`** — it fires while a value _change_ is in flight (an input changed, or `affects()` declared one), not for every fetch. A bare `refresh()`/poll re-asks the same question and is silent. For a reload that should read as pending: `affects(x); refresh(x)`. For a "saving…" affordance: a co-written optimistic flag.
 - **No `Suspense.Provider` or single error path** — async errors flow to `<Errored>` (or effect `error`); no inline `resource.error` branching.
 - **`createRoot` is owned by parent by default** — disposed when parent disposes. To detach: `runWithOwner(null, fn)`.
@@ -670,5 +672,5 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 
 ## See also
 
-- [`MIGRATION.md`](https://github.com/solidjs/solid/blob/main/documentation/solid-2.0/MIGRATION.md) — full migration guide.
-- [Solid 2.0 RFCs](https://github.com/solidjs/solid/tree/main/documentation/solid-2.0) — deep-dive design docs by subsystem.
+- [`MIGRATION.md`](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md) — full migration guide.
+- [Solid 2.0 RFCs](https://github.com/solidjs/solid/tree/next/documentation/solid-2.0) — deep-dive design docs by subsystem.

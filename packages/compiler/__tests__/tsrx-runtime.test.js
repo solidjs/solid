@@ -105,7 +105,7 @@ async function loadRuntimeModule(code, generate) {
               path: aliases.get(args.path)
             })
           );
-          esbuild.onLoad({ filter: /\/universal\/test\/custom\.js$/ }, args => ({
+          esbuild.onLoad({ filter: /[\\/]universal[\\/]test[\\/]custom\.js$/ }, args => ({
             contents: fs.readFileSync(args.path, "utf8") + '\nexport * from "solid-js";',
             loader: "js",
             resolveDir: path.dirname(args.path)

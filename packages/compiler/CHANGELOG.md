@@ -1,5 +1,45 @@
 # @solidjs/compiler
 
+## 2.0.0-rc.15
+
+### Patch Changes
+
+- 617d195: Emit element claims after the element's initial attributes are applied (#3923), at parity across both compilers.
+
+  A fully static `a[href]` / `form[action]` is claimed at the end of its creation statements (after static writes and refs). An element with dynamic bindings captures its owner at creation (`var _o$ = _$getOwner()`) and is claimed as the last statement of its binding effect's callback — `_$claimElement(_el$, _o$)` — in both the single-binding and the multi-binding shapes, so the claim observes the applied values on the first run whether that run is synchronous or lands from a held flush. An element carrying a spread emits no compiled claim: the `spread` runtime claims it after the first application.
+
+- ca15970: Non-hydratable client builds now remove the `value` attribute when a checkbox or radio input binds a nullish `value` or `defaultValue`, matching the runtime fix from #4009, so a checked box submits `"on"` instead of `""`. Both compilers route these bindings through `setProperty` when the input's static `type` is `checkbox` or `radio`, or when its `type` cannot be known at compile time (an expression, `prop:type`, `attr:type`). Text inputs, inputs without a `type`, and textareas still clear to `""` inline (#2957).
+- 43570f8: Reapply a select's bound value when its options arrive after the value was written.
+- 15e1228: The native compiler no longer drops a component `ref` whose value is wrapped in a TypeScript `as` cast, non-null `!` or `satisfies`, such as `ref={[setRef, props.ref] as any}`; it classified the wrapper instead of the value inside and emitted no `ref` prop. The universal generate also keeps array refs on components and unwraps `as` and `!` on element refs, so `<view ref={myRef as any} />` assigns the element to `myRef`, as the Babel plugin does.
+- 0c4bff7: Add `lazyModule()` so a lazy module that is not a component can be preloaded and hydrated by module id.
+- 22f942d: SSR: a router can mark links in server HTML (#3878). Element claims never fire during SSR, so plain anchors arrived without `aria-current="page"` / `data-active` — late on hydrated pages, never on pages that do not hydrate. Both compilers now give every candidate `<a href>` in SSR output one hole after its attributes, `ssrLinkClaim(attrs)`, where a render's **link handler** writes the anchor's link state and `""` otherwise. A static anchor's hole is one eager call over a hoisted attributes object (no allocation per render); a dynamic anchor's joins the element's attribute group and reuses the raw value its `href` hole evaluated. Anchors the compiler can rule out — a static non-empty `target`, a `download`, a `rel` naming `external`, an author-written `aria-current`, an empty href or a non-HTTP scheme — get no hole at all. The hole creates no owner and takes no hydration id. A spread anchor's link attributes are collected by `ssrElement` from its winning sources (an anchor's trailing link attributes stay a source instead of baked tail markup).
+
+  New server API (`@experimental`): `setLinkClaim(handler)` sets the handler of the render the caller belongs to — found through the owner chain like `getHydrationWriter()`, so concurrent renders never share one — and returns `false` outside a render; `undefined` clears it. The handler, `(attrs) => string`, receives the anchor's link-relevant attributes (`href`, `target`, `rel`, `download`, `link`, `aria-current`, raw values as written) and returns its attribute markup. An author-written `aria-current` always wins. Server components inline in the document render under the page's handler; a server component's own frame stream has none unless its render sets one.
+
+  Trust marker: the first `setLinkClaim` of a render writes the `links` hydration record once (`_$HY.r.links = 1`, with the shell's hydration script on the document face, a data record on a frame stream). `hasServerLinkState()` (client; `false` on the server) reads it non-destructively, so a link consumer can tell "this page's anchors carry the server's link state" from "no handler ran" and trust the HTML at hydration instead of resolving every anchor's URL at claim. Without a handler the HTML and the hydration ids are byte-for-byte what they were.
+
+## 2.0.0-rc.14
+
+### Patch Changes
+
+- ba8c593: Restore Clippy and rustfmt checks for the native compiler and apply the resulting lint and formatting cleanups
+- 3c1f809: Preserve `/* istanbul ignore … */` and `/* c8 ignore … */` block comments written as JSX children on the generated component `children` getter. Line comments are not carried.
+- 5dbe29a: Count all JavaScript line terminators in scoped style and refresh locations and DOM and server-function diagnostics. Report diagnostic columns in UTF-16 units.
+- a8c98bd: Preserve the source location of captured references in SSR props constructors so source maps point to the authored expression instead of the start of the JSX element, matching `@solidjs/babel-plugin`.
+- 59fb244: SSR `hoistProps` no longer captures names in TypeScript type positions (type parameters, annotations, `as`/`satisfies` targets, type arguments, `typeof x` queries, local `type`/`interface` declarations, `implements`/`extends` heritage) as constructor arguments, which threw `ReferenceError` once the types were stripped (#3828). A `type` or `interface` that shares a value's name no longer makes that value count as redeclared, so its site still hoists.
+- ab57910: Report correct TSRX diagnostic positions after Unicode line separators and carriage returns, preserving UTF-16 columns and treating CRLF as one line break.
+- 41be120: The `@solidjs/compiler-wasm32-wasi` fallback loads on Android (Termux), where the filesystem root cannot be opened: its generated loader no longer preopens `/` there (it failed with `UVWASI_EACCES, uvwasi_init`). The loader is regenerated by `@napi-rs/cli` 3.10.6, which maps the WASI root to the working directory on Android.
+- c8aac88: Fix native TSRX compilation of parenthesized keys, iterables, and conditions, including annotated `@for` loops used directly in a component body. Map comments back to the authored source to prevent invalid JavaScript and Unicode panics when source maps are enabled.
+- 98b916d: Fix compiled SSR output that renders `style=""` or `class=""` for `null` and `undefined`. Babel and the native compiler now omit these attributes on elements without a spread.
+- 98d35b9: Fix computed keys in compiled SSR `style` objects (builds without `serverComponents`). A computed key's name got no `;`, so `style={{ color: "red", [k]: v }}` rendered `color:redtop:1px` and the browser dropped both declarations. Hydration keeps the server's inline style, so they stayed dropped. A nullish first value also no longer leaves a leading `;`. Both compilers now pass a multi-entry object to a new `ssrStyleProperties(name, value, …)` helper, which writes the separator only between the entries it writes; a single entry keeps `ssrStyleProperty`.
+- ea5f1da: Fix native TSRX compilation when a setup statement has no semicolon before markup.
+- 4f67697: **Breaking:** only `on` followed by an uppercase letter (`onClick`, `onPointerDown`) is an event handler. Lowercase `on*` names (`onclick`, `onmouseover`) are plain attributes everywhere:
+  - Both compilers compile `onclick={expr}` like any other attribute (`setAttribute`, reactive when `expr` is dynamic) instead of binding a delegated or native event, and SSR renders it as an escaped attribute instead of dropping it. A leftover 1.x `on:click={fn}` is likewise a plain namespaced attribute (it previously compiled to `addEventListener(":click", fn)`).
+  - `@solidjs/web` `spread`/`assign` set lowercase `on*` keys as attributes, the server spread walk renders them, and `useHead` applies lowercase `on*` attributes (camelCase handler names stay skipped). `ssrAttribute` escapes a function value instead of interpolating its source raw.
+  - `@solidjs/html` and `@solidjs/h` elements wrap a function passed to a lowercase `on*` in a getter like any other attribute; only `onXxx` and `ref` are exempt.
+  - `@solidjs/html` components follow `@solidjs/h`'s rule: every zero-argument function prop, `onXxx` handlers and `ref` included, is a getter, so a component handler must declare its event argument (`onClick=${e => …}`).
+  - New dev-only check `LOWERCASE_EVENT_ATTRIBUTE` (added to the `DiagnosticCode` union): warns once per attribute name when a function is set on a lowercase `on*` (or `on:`) attribute, naming the camelCase handler to use.
+
 ## 2.0.0-rc.13
 
 ## 2.0.0-rc.12

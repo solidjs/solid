@@ -83,60 +83,58 @@ describe("fuzz findings on L2 — holds and boundaries", () => {
   // (`createLoadingBoundary.test.ts` "nested boundaries - inner catches
   // async" is the mount-time form). On L2 the outer records the inner's
   // reader too (catchStatus walks every boundary while none is armed yet) and
-  // keeps its fallback until the inner's flight lands.
-  it.fails(
-    "F1: an outer on-reset boundary does not wait for a flight its nested on-reset boundary catches (A33, B5)",
-    async () => {
-      const [a, setA] = createSignal(0);
-      const [b, setB] = createSignal(0);
-      const gates = new Map<string, () => void>();
-      let outer: unknown, inner: unknown;
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const ma = createMemo(() => gated(gates, `a:${a()}`, a()));
-        const mb = createMemo(() => gated(gates, `b:${b()}`, b()));
-        const outerView = createLoadingBoundary(
-          () => {
-            createRenderEffect(ma, () => {}); // a binding inside the outer content
-            const innerView = createLoadingBoundary(
-              () => {
-                createRenderEffect(mb, () => {}); // a binding inside the inner content
-                return "inner-content";
-              },
-              () => "inner-loading",
-              { on: a }
-            );
-            createRenderEffect(innerView, v => {
-              inner = v;
-            });
-            return "outer-content";
-          },
-          () => "outer-loading",
-          { on: a }
-        );
-        createRenderEffect(outerView, v => {
-          outer = v;
-        });
+  // kept its fallback until the inner's flight landed; what an `on` re-arm
+  // collects is that boundary's alone now (`arm`, boundaries.ts).
+  it("F1: an outer on-reset boundary does not wait for a flight its nested on-reset boundary catches (A33, B5)", async () => {
+    const [a, setA] = createSignal(0);
+    const [b, setB] = createSignal(0);
+    const gates = new Map<string, () => void>();
+    let outer: unknown, inner: unknown;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const ma = createMemo(() => gated(gates, `a:${a()}`, a()));
+      const mb = createMemo(() => gated(gates, `b:${b()}`, b()));
+      const outerView = createLoadingBoundary(
+        () => {
+          createRenderEffect(ma, () => {}); // a binding inside the outer content
+          const innerView = createLoadingBoundary(
+            () => {
+              createRenderEffect(mb, () => {}); // a binding inside the inner content
+              return "inner-content";
+            },
+            () => "inner-loading",
+            { on: a }
+          );
+          createRenderEffect(innerView, v => {
+            inner = v;
+          });
+          return "outer-content";
+        },
+        () => "outer-loading",
+        { on: a }
+      );
+      createRenderEffect(outerView, v => {
+        outer = v;
       });
-      flush();
-      gates.get("a:0")!();
-      gates.get("b:0")!();
-      await drain();
-      expect([outer, inner]).toEqual(["outer-content", "inner-content"]);
-      setA(1);
-      setB(1); // both boundaries re-arm on `a`; both flights are up
-      await drain();
-      expect(outer).toBe("outer-loading");
-      gates.get("a:1")!();
-      await drain();
-      // The outer's own work landed; the inner's flight is the inner's fallback.
-      expect([outer, inner]).toEqual(["outer-content", "inner-loading"]);
-      dispose();
-      gates.get("b:1")!();
-      await drain();
-    }
-  );
+    });
+    flush();
+    gates.get("a:0")!();
+    gates.get("b:0")!();
+    await drain();
+    expect([outer, inner]).toEqual(["outer-content", "inner-content"]);
+    setA(1);
+    setB(1); // both boundaries re-arm on `a`; both flights are up
+    await drain();
+    expect(outer).toBe("outer-loading");
+    gates.get("a:1")!();
+    await drain();
+    // The outer's own work landed; the inner's flight is the inner's fallback.
+    expect([outer, inner]).toEqual(["outer-content", "inner-loading"]);
+    dispose();
+    gates.get("b:1")!();
+    await drain();
+  });
 
   // F2. A15 reveal corollary: "a write that makes a render reader read a
   // pending node for the first time … the reveal holds and joins the
@@ -148,6 +146,8 @@ describe("fuzz findings on L2 — holds and boundaries", () => {
   // lands — and its stale-reader re-derivation then discovers flight(0) with
   // `src=0` visible. The landing published `show=true` beside a panel that can
   // only say "hidden": a torn frame the reveal corollary forbids.
+  // Deferred (#4071): the fix re-derives the stale reader before the
+  // landing, which costs the core floor.
   it.fails(
     "F2: a landing does not reveal a gate its stale reader re-derives onto a new flight (A15 reveal corollary)",
     async () => {
@@ -322,28 +322,143 @@ describe("fuzz findings on L2 — lanes", () => {
   // state as a unit)"; lanes stage (#3479): "the lane's readers … see the
   // optimistic frame … and neither is torn". A second guess on a lane that
   // has shown re-asks the derivation chain; the lane should hold its readers
-  // on the shown frame until the new derivation lands. Instead the reader
-  // publishes the new guess beside the previous guess's derivation.
+  // on the shown frame until the new derivation lands. The reader's first
+  // pass after the guess was the lane's (the guess dirtied it) and went
+  // pending on `d1`; the landing of `d0`'s re-ask woke it with no lane seat
+  // (a leaf carries no lane value), so it ran as a stale reader and
+  // published the new guess beside the previous guess's derivation. A leaf
+  // left waiting on the lane's flight now runs its next pass as the lane's
+  // (A31: "a member the lane's re-staging dirtied runs as the lane's") —
+  // brenelz's #3794 mark — and a pass interrupted before it reached the
+  // lane's world does not count as leaving it (A30).
+  it("F5: a second guess on a shown lane does not tear against the first guess's derivation (A17)", async () => {
+    const [source, setSource] = createSignal(0);
+    const frames: string[] = [];
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const [view, setView] = createOptimistic(() => source());
+      const d0 = createMemo(() => Promise.resolve(view()));
+      const d1 = createMemo(() => {
+        const v = d0();
+        return Promise.resolve(v);
+      });
+      createRenderEffect(
+        () => [view(), d1()],
+        t => {
+          frames.push(t.join(","));
+        }
+      );
+      run = action(function* () {
+        setView(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setView(2);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setSource(0);
+      });
+    });
+    await drain();
+    expect(frames).toEqual(["0,0"]);
+    const p = run();
+    await drain(6);
+    expect(frames).toEqual(["0,0", "1,1"]);
+    resume(); // second guess: 2
+    await drain(6);
+    // Every delivered frame is coherent: d1 derived from the view beside it.
+    for (const f of frames) {
+      const [v, d] = f.split(",");
+      expect(d, `frame ${f}`).toBe(v);
+    }
+    resume();
+    await p;
+    await drain(6);
+    dispose();
+  });
+
+  // F5 (held reader leaves): the reader the lane took over above was born
+  // held by the mount's transaction; a lane pass of it that reads none of
+  // the lane's world leaves the lane, and with it the hold the lane took over
+  // (#3698: lane work never makes its node transaction work). Before, the
+  // hold flag outlived the lane stamp and the next pass resolved a null
+  // transaction (`txOf` → `resolveTx(null)`; fuzzer optimistic-readiness
+  // seed 3289 case 112 under the first version of the mark).
+  it("F5 (held reader leaves): a born-held reader the lane took over leaves it whole (A17, #3698)", async () => {
+    let out: unknown = "absent";
+    let release!: () => void;
+    let setOn!: (v: boolean) => void;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const [s] = createSignal(0);
+      const [on, set] = createSignal(true);
+      setOn = set;
+      const slow = createMemo(() => {
+        const v = s();
+        return new Promise<number>(r => (release = () => r(v)));
+      });
+      const fast = createMemo(() => Promise.resolve(s()));
+      const late = createMemo(() => Promise.resolve(slow()));
+      const verdict = createMemo(() => isPending(() => [fast(), late()]));
+      createRenderEffect(
+        () => (on() ? `${verdict()}:${late()}` : "off"),
+        v => {
+          out = v;
+        }
+      );
+    });
+    await drain(4);
+    setOn(false);
+    await drain(4);
+    expect(out).toBe("off");
+    release();
+    await drain(4);
+    setOn(true);
+    await drain(4);
+    expect(out).toBe("false:0");
+    dispose();
+  });
+
+  // F5b. The same rule seen from a reader the guess does not hold: a render
+  // effect on a shown lane re-run by an unrelated write while the lane is
+  // held on a re-guess's derivation is a stale reader (#3460) and should show
+  // the screen — the guess the lane revealed — not the re-guess the lane has
+  // not revealed yet, which no other reader shows. `display()` serves a
+  // guess's lane slot once the lane has shown, and a re-guess writes that
+  // slot directly (a derivation of a shown lane stages instead).
   it.fails(
-    "F5: a second guess on a shown lane does not tear against the first guess's derivation (A17)",
+    "F5b: a stale reader of a held re-guess shows the revealed guess (A17 #3460)",
     async () => {
       const [source, setSource] = createSignal(0);
-      const frames: string[] = [];
+      const [t, setT] = createSignal(0);
+      const gates: (() => void)[] = [];
+      let a = "",
+        b = "";
       let resume!: () => void;
       let run!: () => Promise<void>;
       let dispose!: () => void;
       createRoot(d => {
         dispose = d;
         const [view, setView] = createOptimistic(() => source());
-        const d0 = createMemo(() => Promise.resolve(view()));
-        const d1 = createMemo(() => {
-          const v = d0();
-          return Promise.resolve(v);
+        const d0 = createMemo(() => {
+          const v = view();
+          return new Promise<number>(r => gates.push(() => r(v)));
         });
         createRenderEffect(
-          () => [view(), d1()],
-          t => {
-            frames.push(t.join(","));
+          () => [t(), view()],
+          v => {
+            a = v.join(",");
+          }
+        );
+        createRenderEffect(
+          () => [view(), d0()],
+          v => {
+            b = v.join(",");
           }
         );
         run = action(function* () {
@@ -358,21 +473,26 @@ describe("fuzz findings on L2 — lanes", () => {
           setSource(0);
         });
       });
+      flush();
+      gates.shift()!();
       await drain();
-      expect(frames).toEqual(["0,0"]);
       const p = run();
-      await drain(6);
-      expect(frames).toEqual(["0,0", "1,1"]);
-      resume(); // second guess: 2
-      await drain(6);
-      // Every delivered frame is coherent: d1 derived from the view beside it.
-      for (const f of frames) {
-        const [v, d] = f.split(",");
-        expect(d, `frame ${f}`).toBe(v);
-      }
+      await drain();
+      gates.shift()!();
+      await drain();
+      expect([a, b]).toEqual(["0,1", "1,1"]);
+      resume(); // re-guess 2: the lane holds on d0's re-ask
+      await drain();
+      setT(1); // an unrelated write re-runs the first reader
+      await drain();
+      expect([a, b]).toEqual(["1,1", "1,1"]);
+      gates.shift()!();
+      await drain();
+      expect([a, b]).toEqual(["1,2", "2,2"]);
       resume();
       await p;
-      await drain(6);
+      for (const g of gates) g();
+      await drain();
       dispose();
     }
   );
@@ -385,139 +505,286 @@ describe("fuzz findings on L2 — lanes", () => {
   // boundary's tree is the subscriber and the blocker predicate sees no frame
   // reader: the lane is judged unblocked, `latest=1` shows beside
   // `details=0`, and when `details(1)` lands it never displays — the stale
-  // frame stays until the action ends.
-  it.fails(
-    "F6: a retaining boundary between a lane's derivation and its reader does not unblock the lane (A17)",
-    async () => {
-      const [$id, setId] = createSignal(0);
-      const gates = new Map<string, () => void>();
-      let resume!: () => void;
-      let run!: () => Promise<void>;
-      let L = 0;
-      let D: unknown = "?";
-      const frames: string[] = [];
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const details = createMemo(() => {
-          const id = latest($id);
-          return gated(gates, `d:${id}`, id);
-        });
-        createRenderEffect(
-          () => latest($id),
-          v => {
-            L = v;
-            frames.push(`L=${L} D=${D}`);
-          }
-        );
-        const view = createLoadingBoundary(details, () => "loading" as const);
-        createRenderEffect(view, v => {
-          D = v;
-          frames.push(`L=${L} D=${D}`);
-        });
-        run = action(function* () {
-          setId(1);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
-          setId(2);
-        });
+  // frame stays until the action ends. A33/B5 and the lane-membership ruling
+  // (2026-10-05, reading A): a boundary showing content is transparent — the
+  // lane holds through it. A boundary output forwarding its tree's pending
+  // (CONFIG_REDERIVE, itself pending) now counts as a frame reader in
+  // `blockedBy`'s one hop over the pending tree; one showing its fallback is
+  // not pending and still holds nothing.
+  it("F6: a lane holds through a Loading boundary showing content, revealing with the derivation under it (A17, A33)", async () => {
+    const [$id, setId] = createSignal(0);
+    const gates = new Map<string, () => void>();
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let L = 0;
+    let D: unknown = "?";
+    const frames: string[] = [];
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const details = createMemo(() => {
+        const id = latest($id);
+        return gated(gates, `d:${id}`, id);
       });
-      flush();
-      gates.get("d:0")!();
-      await drain();
-      expect([L, D]).toEqual([0, 0]);
-      const p = run();
-      await drain();
-      // The lane is held by details' flight: no frame shows latest=1 alone.
-      expect([L, D]).toEqual([0, 0]);
-      gates.get("d:1")!();
-      await drain();
-      // The derivation landed: the lane reveals both.
-      expect([L, D]).toEqual([1, 1]);
-      resume();
-      gates.get("d:2")?.();
-      await p;
-      await drain();
-      dispose();
-    }
-  );
+      createRenderEffect(
+        () => latest($id),
+        v => {
+          L = v;
+          frames.push(`L=${L} D=${D}`);
+        }
+      );
+      const view = createLoadingBoundary(details, () => "loading" as const);
+      createRenderEffect(view, v => {
+        D = v;
+        frames.push(`L=${L} D=${D}`);
+      });
+      run = action(function* () {
+        setId(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setId(2);
+      });
+    });
+    flush();
+    gates.get("d:0")!();
+    await drain();
+    expect([L, D]).toEqual([0, 0]);
+    const p = run();
+    await drain();
+    // The lane is held by details' flight: no frame shows latest=1 alone.
+    expect([L, D]).toEqual([0, 0]);
+    gates.get("d:1")!();
+    await drain();
+    // The derivation landed: the lane reveals both.
+    expect([L, D]).toEqual([1, 1]);
+    resume();
+    gates.get("d:2")?.();
+    await p;
+    await drain();
+    dispose();
+  });
 
   // F8. A15 lanes corollary (#3460): "a render effect OFF the lane that reads
   // what the lane is revealing … shows the committed value, publishes now,
-  // entangles nothing — and re-derives at the release"; ruling 1: a flush
-  // parks as a whole. A mainline mount whose child reads a lane-held pending
-  // derivation publishes the mount control (`mounted=true`) while the child
-  // never attaches until the action ends — neither the committed value now
-  // nor a held frame: a torn mount (fuzzer S2 "mount control").
-  it.fails(
-    "F8: a mainline mount reading a lane-held pending derivation shows with its mount control (A15 lanes corollary)",
-    async () => {
-      const [source, setSource] = createSignal(0);
-      const [mounted, setMounted] = createSignal(false);
-      const gates = new Map<string, () => void>();
-      let resume!: () => void;
-      let run!: () => Promise<void>;
-      let shownMounted: unknown;
-      let child: unknown = "absent";
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const derived = createMemo(() => {
-          const v = latest(source);
-          return gated(gates, `d:${v}`, v);
+  // entangles nothing — and re-derives at the release"; the lane-membership
+  // ruling (2026-10-05, reading A): a stale reader of the lane "whether or
+  // not the lane is held at that moment". A mainline mount whose child reads
+  // a lane derivation whose re-ask nobody had observed (the seam left the
+  // lane unheld) published the mount control while the child entered the
+  // lane and waited on the flight — a torn mount (fuzzer S2 "mount
+  // control"). `laneRead`'s stale-reader arm was gated on `_held`; it now
+  // also takes a leaf reading a lane member whose own flight is up: the
+  // child shows the screen (the lane's revealed derivation) beside its
+  // control, and re-derives at the reveal. Through a memo the mount is born
+  // held instead (A29, #3761): the next pin.
+  it("F8: a mainline mount over a lane derivation in flight shows its child as a stale reader beside its mount control (A15 lanes corollary)", async () => {
+    const [source, setSource] = createSignal(0);
+    const [mounted, setMounted] = createSignal(false);
+    const gates = new Map<string, () => void>();
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let shownMounted: unknown;
+    let child: unknown = "absent";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const derived = createMemo(() => {
+        const v = latest(source);
+        return gated(gates, `d:${v}`, v);
+      });
+      createRenderEffect(mounted, v => {
+        shownMounted = v;
+      });
+      createRenderEffect(
+        () =>
+          mounted()
+            ? createRoot(dd => {
+                createRenderEffect(derived, v => {
+                  child = v;
+                });
+                onCleanup(() => {
+                  child = "absent";
+                });
+                return dd;
+              })
+            : undefined,
+        dd => {
+          if (dd) onCleanup(dd);
+        }
+      );
+      run = action(function* () {
+        setSource(1);
+        yield new Promise<void>(r => {
+          resume = r;
         });
-        createRenderEffect(mounted, v => {
-          shownMounted = v;
-        });
-        createRenderEffect(
-          () =>
-            mounted()
-              ? createRoot(dd => {
-                  createRenderEffect(derived, v => {
-                    child = v;
-                  });
-                  onCleanup(() => {
-                    child = "absent";
-                  });
-                  return dd;
-                })
-              : undefined,
-          dd => {
-            if (dd) onCleanup(dd);
-          }
-        );
-        run = action(function* () {
-          setSource(1);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
-          setSource(2);
-          yield new Promise<void>(r => {
-            resume = r;
-          });
+        setSource(2);
+        yield new Promise<void>(r => {
+          resume = r;
         });
       });
-      flush();
-      gates.get("d:0")!();
-      await drain();
-      const p = run();
-      await drain();
-      gates.get("d:1")!(); // the lane's first derivation lands
-      await drain();
-      resume(); // source=2: the derivation re-asks, the lane is held again
-      await drain();
-      setMounted(true); // a mainline mount over the held derivation
-      await drain();
-      // The mount control and its child are one frame: both show, or neither.
-      expect(shownMounted === true).toBe(child !== "absent");
-      gates.get("d:2")!();
-      resume();
-      await p;
-      await drain();
-      dispose();
-    }
-  );
+    });
+    flush();
+    gates.get("d:0")!();
+    await drain();
+    const p = run();
+    await drain();
+    gates.get("d:1")!(); // the lane's first derivation lands
+    await drain();
+    resume(); // source=2: the derivation re-asks, the lane is held again
+    await drain();
+    setMounted(true); // a mainline mount over the held derivation
+    await drain();
+    // The control publishes; the child shows the lane's screen beside it.
+    expect([shownMounted, child]).toEqual([true, 1]);
+    gates.get("d:2")!();
+    await drain();
+    expect([shownMounted, child]).toEqual([true, 2]); // re-derived at the reveal
+    resume();
+    await p;
+    await drain();
+    dispose();
+  });
+
+  it("F8 (memo between): a mainline mount deriving from a lane derivation in flight is born held, control and child together (A29, #3761)", async () => {
+    const [source, setSource] = createSignal(0);
+    const [mounted, setMounted] = createSignal(false);
+    const gates = new Map<string, () => void>();
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let shownMounted: unknown;
+    let child: unknown = "absent";
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const derived = createMemo(() => {
+        const v = latest(source);
+        return gated(gates, `d:${v}`, v);
+      });
+      createRenderEffect(mounted, v => {
+        shownMounted = v;
+      });
+      createRenderEffect(
+        () =>
+          mounted()
+            ? createRoot(dd => {
+                createRenderEffect(
+                  createMemo(() => derived()),
+                  v => {
+                    child = v;
+                  }
+                );
+                onCleanup(() => {
+                  child = "absent";
+                });
+                return dd;
+              })
+            : undefined,
+        dd => {
+          if (dd) onCleanup(dd);
+        }
+      );
+      run = action(function* () {
+        setSource(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+        setSource(2);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+      });
+    });
+    flush();
+    gates.get("d:0")!();
+    await drain();
+    const p = run();
+    await drain();
+    gates.get("d:1")!(); // the lane's first derivation lands
+    await drain();
+    resume(); // source=2: the derivation re-asks, the lane is held again
+    await drain();
+    setMounted(true); // a mainline mount over the held derivation
+    await drain();
+    // A derivation carries the future: the whole mount waits for it.
+    expect([shownMounted, child]).toEqual([false, "absent"]);
+    gates.get("d:2")!();
+    await drain();
+    expect([shownMounted, child]).toEqual([true, 2]); // revealed together
+    resume();
+    await p;
+    await drain();
+    dispose();
+  });
+
+  // Adopted staging (ex-"R-oracle", latest cohort). The lane-membership
+  // ruling (2026-10-05, reading A): an on-screen render effect whose removal
+  // an adopted write has staged follows the lane's re-derivation of a memo
+  // it reads; A15 #3463: a zombie is live for every hold until the commit
+  // that disposes it; A28 (1): wrapping a `latest` read in a memo does not
+  // change what it answers. An action writes `source = 1`; the same tick
+  // withdraws the mount around `E` (adopted, O1), so `E` is a zombie of the
+  // action's frame. The lane recomputes `m = [latest(source)]`; `E`'s pass
+  // was deferred as a zombie's and the park cancelled it — `E` kept `[0]`
+  // while a sibling reader of `m` showed `[1]` (the direct `latest()` twin
+  // already re-ran, #3444). The lane's re-staging of `m` marks `E` too
+  // (`laneDirty`: a render effect on no lane), so its zombie pass is a live
+  // write and runs now, as the lane's dirty members do.
+  it("adopted staging: a reader whose removal an action adopted follows the lane's re-derivation of a memo it reads (A15 #3463, A28 (1))", async () => {
+    const [source, setSource] = createSignal(0);
+    const [mounted, setMounted] = createSignal(true);
+    let resume!: () => void;
+    let run!: () => Promise<void>;
+    let E: unknown = "absent",
+      S: unknown,
+      M: unknown;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m = createMemo(() => [latest(source)]);
+      createRenderEffect(m, v => {
+        S = JSON.stringify(v);
+      });
+      createRenderEffect(mounted, v => {
+        M = v;
+      });
+      createRenderEffect(
+        () =>
+          mounted()
+            ? createRoot(dd => {
+                createRenderEffect(m, v => {
+                  E = JSON.stringify(v);
+                });
+                onCleanup(() => {
+                  E = "absent";
+                });
+                return dd;
+              })
+            : undefined,
+        dd => {
+          if (dd) onCleanup(dd);
+        }
+      );
+      run = action(function* () {
+        setSource(1);
+        yield new Promise<void>(r => {
+          resume = r;
+        });
+      });
+    });
+    flush();
+    expect([M, E, S]).toEqual([true, "[0]", "[0]"]);
+    const p = run();
+    setMounted(false); // the action's tick: the withdrawal rides with it (O1)
+    await drain();
+    // The withdrawal is held: E is still on screen, and shows the lane's frame.
+    expect([M, E, S]).toEqual([true, "[1]", "[1]"]);
+    resume();
+    await p;
+    await drain();
+    expect([M, E, S]).toEqual([false, "absent", "[1]"]);
+    dispose();
+  });
 
   // F13. A29 (creation-time form): a reader born held is "staged into [the
   // transaction], committed with it" — `recompute`'s own note: "An effect

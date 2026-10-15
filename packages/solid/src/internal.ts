@@ -26,9 +26,21 @@
  *    read back the same way (real on both entries), for renderers that
  *    build boundaries without the components, and so are `sharedConfig`
  *    (the hydration/SSR coordination object) and the `$DEVCOMP` brand.
+ *
+ * Not here: the container-trace materializer. It lives in its own entry,
+ * `solid-js/internal/container-trace`, so the store engine it builds on can
+ * be a lazy chunk — a re-export from this (eagerly imported) module would
+ * weld the engine back into the main chunk.
  */
 import * as core from "solid-js";
-import type { Accessor, RevealOrder, ServerErrorHook, ServerErrorSite } from "solid-js";
+import type {
+  Accessor,
+  Component,
+  DynamicOptions,
+  RevealOrder,
+  ServerErrorHook,
+  ServerErrorSite
+} from "solid-js";
 import type { HydrationContext } from "./server/shared.js";
 
 export {
@@ -122,12 +134,6 @@ export const getProjectionTrace: (
 export const shareAsyncIterable: <T>(source: AsyncIterable<T>) => AsyncIterable<T> =
   core.shareAsyncIterable;
 
-/** Client: rebuild a store from a serialized container-trace marker. Server: stub. */
-export const materializeContainerTrace: (marker: {
-  $tr: AsyncIterable<any> | { __SEROVAL_STREAM__: true };
-  $ta?: number;
-}) => unknown = core.materializeContainerTrace as any;
-
 /** The primitive behind `<Errored>`: `fn()`, or `fallback(error, reset)` once something under it throws. */
 export const createErrorBoundary: <T, U>(
   fn: () => T,
@@ -146,6 +152,18 @@ export const createRevealOrder: <T>(
   fn: () => T,
   options?: { order?: () => RevealOrder; collapsed?: () => boolean }
 ) => T = core.createRevealOrder;
+
+/**
+ * The core behind `dynamicComponent` and `@solidjs/web`'s `dynamic`. `tagArm`
+ * is the renderer's string-tag path (`staticElement` on the client,
+ * `ssrElement` on the server); omit it and a string resolution renders
+ * nothing. Not application API.
+ */
+export const dynamicCore: (
+  source: () => any,
+  options?: DynamicOptions,
+  tagArm?: (tag: string, props: any) => any
+) => Component<any> = core.dynamicCore;
 
 /**
  * The shape `sharedConfig` has on either entry. The two objects share the
@@ -207,6 +225,20 @@ interface SharedConfig {
  * — the client entry's or the server entry's, whichever the app runs.
  */
 export const sharedConfig: SharedConfig = core.sharedConfig;
+
+/**
+ * Client: installs the server-component half of hydration on `sharedConfig`
+ * and the page's `_$HY` — `holdBoundary` (a client hold on adopted markup
+ * counted as a pending boundary, frames-rulings 3.1), `hydrateWindow` (the
+ * claim window an adopted occurrence re-enters hydration through), fragment
+ * ownership by rendering (the `_$HY.fa` term of the reveal policy) and the
+ * ledger's published answer `_$HY.fr` ({ pending, subscribe }). For the
+ * integration that owns server-rendered markup wholesale (`@solidjs/web/frames`'
+ * `installServerComponents`), which calls it where it installs its reveal
+ * hook; idempotent, before or after `hydrate()`. A page without server
+ * components never calls it and carries none of it. Server: no-op.
+ */
+export const enableServerComponentHydration: () => void = core.enableServerComponentHydration;
 
 /**
  * Dev builds: the brand the component wrapper sets on every component it

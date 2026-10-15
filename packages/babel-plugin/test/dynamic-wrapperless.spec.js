@@ -57,6 +57,7 @@ runFixtures({
           "select",
           "option",
           "video",
+          "form",
           "math",
           "merror",
           "mfrac",
