@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
-    "@solidjs/router": "2.0.0-next.39",
+    "@solidjs/router": "2.0.0-next.40",
     "@solidjs/web": "workspace:*",
     "highlight.js": "^11.11.1",
     "marked": "^12.0.2",
