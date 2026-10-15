@@ -410,7 +410,8 @@ describe("binding slots — stream face", () => {
     // build does. A page element with a spread is still plain SSR: the claim
     // thunk is read only under an armed render context, so a handler
     // expression there is as unevaluated as the template path's guarded
-    // hole leaves it.
+    // hole leaves it. A ref is the exception: the element hydrates, so its
+    // expression runs as plain SSR's `_ref$ = expr` does (next spec).
     let evaluated = 0;
     const handler = () => {
       evaluated++;
@@ -418,7 +419,7 @@ describe("binding slots — stream face", () => {
     };
     const Page = () => (
       <div>
-        <button {...{ "data-k": "v" }} onClick={handler()} ref={handler()}>
+        <button {...{ "data-k": "v" }} onClick={handler()} ref={el => el}>
           x
         </button>
         <a onClick={handler()} href="/">
@@ -435,6 +436,36 @@ describe("binding slots — stream face", () => {
     // A nullish handler key in a plain-SSR spread walks as before: skipped.
     expect(html).toContain('<i data-i="1">z</i>');
     expect(evaluated).toBe(0);
+  });
+
+  it("a ref expression evaluates once, on the server, in either render (#4081)", async () => {
+    // A ref factory's owned setup (`ref={tooltip()}`) runs on the client as
+    // the element hydrates, so plain SSR runs it too or the hydration ids
+    // after it shift; the ref it returns is never called. Inside a server
+    // component's render the claim evaluates it instead, so it never runs
+    // twice.
+    let setups = 0;
+    let calls = 0;
+    const factory = () => {
+      setups++;
+      return () => calls++;
+    };
+    const Elements = () => (
+      <div>
+        <b ref={factory()}>a</b>
+        <i {...{ "data-i": "1" }} ref={factory()}>
+          b
+        </i>
+        <u {...{ "data-u": "1" }} ref={[factory(), factory()]} title="t" />
+      </div>
+    );
+    const html = await document(() => <Elements />);
+    expect(html).toContain('<i data-i="1">b</i>');
+    expect(setups).toBe(4);
+    setups = 0;
+    await collect(renderServerComponent(Elements, { frame: { id: "ds4081" } }));
+    expect(setups).toBe(4);
+    expect(calls).toBe(0);
   });
 
   it("a handler position inside a live hole carries its marker on every re-emission, with an unrelated render interleaved", async () => {

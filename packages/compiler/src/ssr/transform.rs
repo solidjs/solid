@@ -75,6 +75,7 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     uses_ssr_group: bool,
     uses_apply_ref: bool,
     uses_ssr_claim: bool,
+    uses_shared_config: bool,
     uses_ssr_link_claim: bool,
     pub(crate) pending_this_capture: Option<String>,
     pub(crate) current_this_capture: Option<String>,
@@ -264,6 +265,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             uses_ssr_group: false,
             uses_apply_ref: false,
             uses_ssr_claim: false,
+            uses_shared_config: false,
             uses_ssr_link_claim: false,
             pending_this_capture: None,
             current_this_capture: None,
@@ -600,6 +602,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
         if self.uses_ssr_claim {
             statements.push(self.import_named("ssrClaim", "_$ssrClaim"));
+        }
+        if self.uses_ssr_claim || self.uses_shared_config {
             statements.push(self.import_named("sharedConfig", "_$sharedConfig"));
         }
         for built_in in &self.built_in_imports {
@@ -1541,32 +1545,47 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         // after applying the spread and before the children; `ssrElement`
         // calls the markup thunk at that point. Only an expression that
         // calls something can run setup: `ref={el}` and `ref={props.ref}`
-        // stay out of the thunk. Babel: `refs` in `createElement`.
-        let refs: std::vec::Vec<Expression<'a>> = if self.server_components {
-            std::vec::Vec::new()
-        } else {
-            element
-                .opening_element
-                .attributes
-                .iter()
-                .filter_map(|attr| match attr {
-                    JSXAttributeItem::Attribute(attr)
-                        if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(name)
-                            if name.name == "ref") =>
-                    {
-                        match &attr.value {
-                            Some(JSXAttributeValue::ExpressionContainer(container)) => container
-                                .expression
-                                .as_expression()
-                                .filter(|expression| calls_outside_functions(expression))
-                                .map(|expression| expression.clone_in(self.allocator)),
-                            _ => None,
-                        }
+        // stay out of the thunk. Under `serverComponents` the ref is also a
+        // claim, evaluated by the claim thunk inside a server component's
+        // render, so the thunk skips it there: `ctx && ctx.claims || ref`.
+        // Babel: `refs` in `createElement`.
+        let mut refs: std::vec::Vec<Expression<'a>> = element
+            .opening_element
+            .attributes
+            .iter()
+            .filter_map(|attr| match attr {
+                JSXAttributeItem::Attribute(attr)
+                    if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(name)
+                        if name.name == "ref") =>
+                {
+                    match &attr.value {
+                        Some(JSXAttributeValue::ExpressionContainer(container)) => container
+                            .expression
+                            .as_expression()
+                            .filter(|expression| calls_outside_functions(expression))
+                            .map(|expression| expression.clone_in(self.allocator)),
+                        _ => None,
                     }
-                    _ => None,
-                })
-                .collect()
-        };
+                }
+                _ => None,
+            })
+            .collect();
+        if self.server_components && !refs.is_empty() {
+            self.uses_shared_config = true;
+            let evaluated = if refs.len() == 1 {
+                refs.pop().expect("one ref")
+            } else {
+                self.ast()
+                    .expression_sequence(element.span, self.ast().vec_from_iter(refs.drain(..)))
+            };
+            let armed = self.claims_armed(element.span);
+            refs.push(self.ast().expression_logical(
+                element.span,
+                armed,
+                oxc_ast::ast::LogicalOperator::Or,
+                evaluated,
+            ));
+        }
         let mut args = self.ast().vec_from_array([
             Argument::StringLiteral(self.ast().alloc_string_literal(
                 element.span,
@@ -3192,7 +3211,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     /// refs), and the expressions only evaluate when the render context's
     /// claims flag is set —
     /// `_$sharedConfig.context && _$sharedConfig.context.claims
-    ///    ? _$ssrClaim({...}) : ""`.
+    ///    ? _$ssrClaim({...}) : ""`. A ref that calls something runs
+    /// ungated, as plain SSR's `_ref$ = expr` does: outside a server
+    /// component's render the element hydrates, and a ref factory's owned
+    /// setup must run on both sides (#4081) — `: (ref, "")`.
     fn ssr_claim_hole(
         &mut self,
         span: Span,
@@ -3200,7 +3222,39 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         template: &mut SsrTemplate<'a>,
     ) -> Expression<'a> {
         self.uses_ssr_claim = true;
+        let refs: std::vec::Vec<Expression<'a>> = claims
+            .iter()
+            .filter(|(pos, expression)| pos == "ref" && calls_outside_functions(expression))
+            .map(|(_, expression)| expression.clone_in(self.allocator))
+            .collect();
         let map = self.claim_map(span, claims);
+        let test = self.claims_armed(span);
+        let call = self.call_expression(
+            span,
+            self.ast()
+                .expression_identifier(span, self.ast().ident("_$ssrClaim")),
+            vec![map],
+        );
+        let empty = self
+            .ast()
+            .expression_string_literal(span, self.ast().str(""), None);
+        let otherwise = if refs.is_empty() {
+            empty
+        } else {
+            let mut sequence = self.ast().vec_from_iter(refs);
+            sequence.push(empty);
+            self.ast().expression_sequence(span, sequence)
+        };
+        let guarded = self
+            .ast()
+            .expression_conditional(span, test, call, otherwise);
+        self.hoist_expression(template, span, guarded, false, false)
+    }
+
+    /// `_$sharedConfig.context && _$sharedConfig.context.claims` (Babel's
+    /// `claimsArmed`): true only inside a server component's render, where
+    /// `ssrClaim` evaluates the element's handler positions.
+    fn claims_armed(&self, span: Span) -> Expression<'a> {
         let context_read = |transform: &Self| -> Expression<'a> {
             Expression::StaticMemberExpression(
                 transform.ast().alloc_static_member_expression(
@@ -3222,23 +3276,12 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 self.ast().identifier_name(span, self.ast().ident("claims")),
                 false,
             ));
-        let test = self.ast().expression_logical(
+        self.ast().expression_logical(
             span,
             context_read(self),
             oxc_ast::ast::LogicalOperator::And,
             claims_read,
-        );
-        let call = self.call_expression(
-            span,
-            self.ast()
-                .expression_identifier(span, self.ast().ident("_$ssrClaim")),
-            vec![map],
-        );
-        let empty = self
-            .ast()
-            .expression_string_literal(span, self.ast().str(""), None);
-        let guarded = self.ast().expression_conditional(span, test, call, empty);
-        self.hoist_expression(template, span, guarded, false, false)
+        )
     }
 
     /// A candidate anchor's `ssrLinkClaim` hole (Babel's `linkEntries`

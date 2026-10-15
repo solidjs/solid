@@ -1,7 +1,7 @@
 // Attribute slots (principles §9.2.3). Ref/event positions on server intrinsics
 // compile to one guarded whole-attribute claim hole per element, gated on
 // the render context's claims flag so plain SSR never evaluates the
-// expressions.
+// handler expressions.
 const template = (
   <div>
     <button class="copy" onClick={props.onCopy} ref={props.btn}>
@@ -55,4 +55,14 @@ const objects = (
     <input type="checkbox" checked={row.done} hidden={row.removed} onInput={row.toggle} />
     <span class="static stays">{label()}</span>
   </li>
+);
+
+// solidjs/solid#4081: a ref that calls something (a ref factory's owned
+// setup) also runs outside a server component's render, where the element
+// hydrates and the client runs it too; inside one the claim evaluates it.
+const refFactories = (
+  <div ref={refFactory()} onClick={props.onPick}>
+    <span {...rest} ref={refFactory()} />
+    <p {...rest} ref={[refFactory(), props.ref]} title="t" />
+  </div>
 );
