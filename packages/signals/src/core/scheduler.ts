@@ -1046,6 +1046,10 @@ function land(u: Transaction): void {
     n._x!._transaction = null;
     commitPendingNode(n);
   }
+  // A cleanup those commits ran that wrote a node `u` still held joined
+  // `u`, which has left `transactions`: the write is this landing's, and
+  // the next flush must not park in it (#4089).
+  if (flushTransaction === u) flushTransaction = null;
   releaseQueues(u);
 }
 
