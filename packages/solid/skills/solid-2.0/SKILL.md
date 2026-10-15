@@ -90,8 +90,8 @@ Also:
   `LOADING_ON_OUTSIDE_HOLD`, …). Fix the cause; never suppress a code.
 - Evidence loops: `node_modules/@solidjs/diagnostics/skills/agent-loops/SKILL.md`
   (`captureArtifact`). With `@solidjs/vite-plugin`'s `diagnostics` option the
-  dev server answers `POST /__solid/diagnostics` (`begin`, `whyDidRun`,
-  `costs`, `feedback`, `end`).
+  dev server answers `POST /__solid/diagnostics` (`begin`, `active`, `whyDidRun`,
+  `costs`, `end`).
 - Lint: `eslint-plugin-solid`, config `v2`
   (`import solid from "eslint-plugin-solid/configs/v2"`) or `v2-strict`.
 - Docs: https://v2.solidjs.com (Solid 2.0 docs; `/llms.txt` and
