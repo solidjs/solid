@@ -1188,10 +1188,13 @@ export function commitPendingNode(n: Signal<any>): void {
         CONFIG_STAGED_ERROR
       );
   // D-41: the staged answer is an error — published now, when a value would
-  // show, through the ordinary error path (`stageError`).
+  // show, through the ordinary error path (`stageError`). Its readers first
+  // see it in the cycle after this seam: a tracked re-read there is not a
+  // retry (`read`), or a boundary re-derived by it would retry it forever.
   if (err) {
     const e = n._pendingValue;
     n._pendingValue = NOT_PENDING;
+    n._time = clock + 1;
     notifyStatus(c as Computed<unknown>, STATUS_ERROR, e);
   } else if (n._pendingValue !== NOT_PENDING) {
     n._value = n._pendingValue as any;
