@@ -5234,7 +5234,19 @@ function slotEntry(sv, name) {
   return `${sv[SLOT_VALUE]}:${encodeSlotKey(sv.k)}${name !== undefined ? "=" + encodeSlotKey(name) : ""}`;
 }
 function slotMarker(position, entries) {
-  return ` ${SLOT_MARKER}${position}="${entries}"`;
+  // SPIKE (lazy binding, env SC_MARK): beside the position marker, a fixed
+  // `_s` attribute naming the element's occurrences, so the client can find
+  // a consumer natively (`querySelectorAll('[_s~="occ"]')`, `closest("[_s]")`)
+  // instead of walking the tree for marker names. Emitted once per position
+  // here, so an element with several positions repeats it and the parser
+  // keeps the first: a real version writes it once per element.
+  let mark = "";
+  if ((globalThis as any).process?.env?.SC_MARK) {
+    const ids = new Set<string>();
+    for (const e of entries.split(",")) ids.add(e.slice(0, e.indexOf(":")));
+    mark = ` _s="${[...ids].join(" ")}"`;
+  }
+  return ` ${SLOT_MARKER}${position}="${entries}"` + mark;
 }
 /**
  * The replay-window stamp of an EVENT-SLOT consumer (frames savings pass

@@ -51,6 +51,7 @@ import {
   liveFrameList,
   prepareTier,
   setDeferBind,
+  setQsaBind,
   slotShapeFinding,
   tierLoaders,
   tierLoads,
@@ -1667,7 +1668,48 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
   // it), then every live frame's full walk and mounts in idle slices of a
   // few milliseconds. Later interactions during the slices bind their own
   // occurrence the same way, ahead of the slices.
-  if (typeof document !== "undefined" && /\bsc-resume=1\b/.test(document.cookie)) {
+  // SPIKE (lazy binding, cookie `sc-lazy=1`, server marker env SC_MARK): the
+  // walk never looks for markers. The bind tier is warmed at idle (its
+  // bytes arrive after load; nothing binds). A document-level capture
+  // listener resolves, on an event, the occurrences the target's nearest
+  // `_s`-marked ancestor consumes: their consumers by one native query, the
+  // fill once, their positions written — then the event bubbles into the
+  // delegated handler just bound. Untouched occurrences keep the server's
+  // values for the page's life, so this is only right for state local to
+  // the occurrence. Cookie `sc-qsa=1` instead binds every occurrence at
+  // load, discovered by one query: the eager path without the walk.
+  const lazy = typeof document !== "undefined" && /\bsc-lazy=1\b/.test(document.cookie);
+  const qsa = typeof document !== "undefined" && /\bsc-qsa=1\b/.test(document.cookie);
+  if (lazy || qsa) {
+    setDeferBind(true);
+    g.__scFrames = liveFrameList;
+    announced?.filter(t => t !== "bind").forEach(prepareTier);
+    if (qsa) {
+      // Every full sync discovers by query (frame-client.ts `#syncSlots`);
+      // the tier's install flush is the first with the tier resident.
+      setQsaBind(true);
+      prepareTier("bind");
+    } else {
+      const warm = () => prepareTier("bind", false);
+      typeof requestIdleCallback === "function" ? requestIdleCallback(warm) : setTimeout(warm, 0);
+      const resolved = new WeakSet<Element>();
+      const types = ["click", "input", "change", "keydown", "pointerdown", "submit", "focusin"];
+      const onEvent = (e: Event) => {
+        const el = e.target instanceof Element ? e.target.closest("[_s]") : null;
+        if (!el || resolved.has(el)) return;
+        const frame = liveFrameAt(el);
+        if (!frame) return;
+        const ids = el.getAttribute("_s")!.split(" ");
+        const load = prepareTier("bind", false);
+        // Resident: bind now, in the capture phase, so the delegated handler
+        // is on the element when the event bubbles. Not yet: the element's
+        // `_hk` queued the event; the bind's write replays it.
+        const go = () => frame.bindLazy(ids, resolved);
+        load.r ? go() : load.then(go);
+      };
+      types.forEach(t => document.addEventListener(t, onEvent, true));
+    }
+  } else if (typeof document !== "undefined" && /\bsc-resume=1\b/.test(document.cookie)) {
     setDeferBind(true);
     announced?.filter(t => t !== "bind").forEach(prepareTier);
     const types = ["click", "input", "change", "keydown", "pointerdown", "submit", "focusin"];

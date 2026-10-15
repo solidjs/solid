@@ -1178,6 +1178,13 @@ export function liveFrameList(): any[] {
 export function isLiveFrame(frame: any): boolean {
   return liveFrames.has(frame);
 }
+// SPIKE (eager binding by query): while set, every full sync discovers the
+// frame's consumers by one native query (`bindAll`) in place of the walk.
+export let qsaBind = false;
+/** @internal */
+export function setQsaBind(v: boolean) {
+  qsaBind = v;
+}
 /** @internal The innermost live frame whose element contains `node`. */
 export function liveFrameAt(node: Node): any {
   let hit;
@@ -1764,6 +1771,14 @@ class FrameImpl {
       // `complete`/`:error`, the tier by its load settling.
       if (waiting && !this.#hold) this.#hold = this.#options.hold?.();
       else if (!waiting && this.#hold) this.#releaseHold();
+      // SPIKE (eager binding by query): the walk above saw comments alone;
+      // the consumers come from one query, at the same point the walk's
+      // would have mounted.
+      if (qsaBind && tierLoads.bind?.r) {
+        const t0 = performance.now();
+        this.bindAll();
+        ((globalThis as any).__scBound ||= []).push(performance.now() - t0);
+      }
     }
   }
 
@@ -2004,6 +2019,37 @@ class FrameImpl {
     const found: any = new Map();
     found.only = only;
     collectSlots(this.#element, found, found);
+    this.#mountFound(found);
+  }
+
+  /**
+   * SPIKE (lazy binding): bind the given occurrences, their consumers found
+   * natively by the fixed `_s` marker (server.ts `slotMarker`, env SC_MARK):
+   * no walk. Elements resolved are added to `resolved`.
+   */
+  bindLazy(ids: string[], resolved: WeakSet<Element>) {
+    if (!this.#slots && !this.#outer) return;
+    const B = tierLoads.bind.r;
+    const found: any = new Map();
+    found.only = new Set(ids);
+    for (const id of ids)
+      for (const el of this.#element.querySelectorAll(`[_s~="${id}"]`)) {
+        B.positions(el, found);
+        resolved.add(el);
+      }
+    this.#mountFound(found);
+  }
+
+  /**
+   * SPIKE (eager binding by query): every consumer the fixed `_s` marker
+   * names, found natively, mounted at once — the eager path with the walk
+   * replaced by one `querySelectorAll`.
+   */
+  bindAll() {
+    if (!this.#slots && !this.#outer) return;
+    const B = tierLoads.bind.r;
+    const found: any = new Map();
+    for (const el of this.#element.querySelectorAll("[_s]")) B.positions(el, found);
     this.#mountFound(found);
   }
 
