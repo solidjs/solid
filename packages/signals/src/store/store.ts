@@ -88,7 +88,8 @@ import {
   queuePendingNode,
   schedule,
   txOf,
-  type Transaction
+  type Transaction,
+  installStoreHooks
 } from "../core/scheduler.js";
 import type { Computed, Owner, Signal } from "../core/types.js";
 import {
@@ -461,7 +462,7 @@ export function getContainerNode(target: StoreTarget): Signal<any> {
  * staging: nothing allocates, nothing is swept at the commit (dbmon's tick
  * re-created, queued, swept and dropped ~7000 container nodes). If the
  * flush parks, the seam materializes and holds the node then
- * (`_storePark`) — the one case the staging home exists for. */
+ * (`storeParkHook`) — the one case the staging home exists for. */
 function stageOn(target: StoreTarget, pb: Record<PropertyKey, any>): void {
   if (
     target.k === null &&
@@ -486,7 +487,7 @@ function deriveHolds(target: StoreTarget): boolean {
   return fw != null && !userWrite && (fw._config & CONFIG_HELD) !== 0;
 }
 
-GlobalQueue._storePark = t => {
+const storePark = (t: Transaction): void => {
   for (let i = 0; i < foldList.length; i++) {
     const target = foldList[i];
     if (target.k === null && target.pb !== null) holdNode(getContainerNode(target), t);
@@ -923,10 +924,10 @@ GlobalQueue._slotCovered = (n: Signal<any>): unknown => {
   }
   return n._value;
 };
-GlobalQueue._storeCommit = () => {
+installStoreHooks(storePark, () => {
   drainFolds();
   optHooks?.sweep();
-};
+});
 /** The store half of `affects()` (store/affects.ts) makes its marks' nodes
  * and walks records through these: it never imports the engine. */
 GlobalQueue._storeNode = getNode;

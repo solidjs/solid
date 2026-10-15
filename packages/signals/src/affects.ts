@@ -21,7 +21,13 @@
 
 import { STATUS_PENDING, CONFIG_SLOT_NODE, $REFRESH } from "./core/constants.js";
 import { emitDiagnostic } from "./core/dev.js";
-import { flushTransaction, GlobalQueue, resolveTx, schedule } from "./core/scheduler.js";
+import {
+  flushTransaction,
+  GlobalQueue,
+  resolveTx,
+  schedule,
+  installMarkHooks
+} from "./core/scheduler.js";
 import type { Computed } from "./core/types.js";
 import { mark, repoll, unmark, type Marked } from "./affects-marks.js";
 import type { Accessor } from "./signals.js";
@@ -122,8 +128,7 @@ function invalid(detail: string): never {
   throw new Error(message);
 }
 
-GlobalQueue._releaseMarks = release;
-GlobalQueue._releaseAmbientMarks = parked => {
+installMarkHooks(release, parked => {
   if (ambient.length === 0) return;
   // The flush parked: the declaration's window is the frame's — the marks
   // are its transaction's ("nothing async below ⇒ no window").
@@ -146,7 +151,7 @@ GlobalQueue._releaseAmbientMarks = parked => {
   }
   ambient.length = kept;
   if (done.length !== 0) release(done);
-};
+});
 function inFlight(n: Marked): boolean {
   return (
     ((n as Computed<any>)._statusFlags & STATUS_PENDING) !== 0 ||

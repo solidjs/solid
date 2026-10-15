@@ -59,7 +59,8 @@ import {
   stagedReaders,
   staleReader,
   txOf,
-  type Transaction
+  type Transaction,
+  installVerdictHooks
 } from "./scheduler.js";
 import type { Computed, Root, Signal } from "./types.js";
 
@@ -483,7 +484,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
 // Installed at module evaluation — present exactly when something imports
 // `latest` or `isPending`. (`read` dispatches to `verdictValue` through
 // `verdict`, set while a window is open.)
-GlobalQueue._observeFlight = observeFlight;
+installVerdictHooks(observeFlight);
 /** A store read inside an untracked `isPending` probe found a live mark on
  * a record with no node to carry it (store/affects.ts): not final. */
 GlobalQueue._witnessMark = () => {

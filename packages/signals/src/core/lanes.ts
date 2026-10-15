@@ -87,7 +87,8 @@ import {
   schedule,
   setPassLane,
   txOf,
-  type Transaction
+  type Transaction,
+  installLaneHooks
 } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -786,20 +787,16 @@ function answered(el: Computed<any>): number {
   return q;
 }
 
-GlobalQueue._laneRead = laneRead;
-GlobalQueue._laneStage = laneStage;
-GlobalQueue._laneOutcome = laneOutcome;
-GlobalQueue._laneWrite = laneWrite;
 /** The lanes alive before this seam's guesses opened theirs (a prefix of
  * `lanes`; nothing dissolves one between here and the seam loop): a lane
  * born at the seam has no work to judge yet (its passes run next round) —
  * it is neither shown nor blocked until it has. */
 let judged = 0;
-GlobalQueue._applyGuesses = parent => {
+const applyGuessesAt = (parent: Transaction | null): void => {
   judged = lanes.length;
   if (pendingGuesses.length !== 0) applyGuesses(parent);
 };
-GlobalQueue._laneSeams = leaks => {
+const laneSeams = (leaks: Computed<any>[] | null): void => {
   // Passes that read a write the parked frame holds as the screen
   // (`stagedReaders`: lane work, a verdict reader before the verdict): they
   // re-derive on the committed world next round (and register as stale
@@ -837,8 +834,17 @@ GlobalQueue._laneSeams = leaks => {
   for (let k = Math.min(judged, lanes.length) - 1; k >= 0; k--)
     laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
 };
-GlobalQueue._laneCorrections = () => lanes.length !== 0 && laneCorrections();
-GlobalQueue._endLanes = endLanes;
+installLaneHooks(
+  laneRead,
+  laneStage,
+  laneOutcome,
+  laneWrite,
+  applyGuessesAt,
+  laneSeams,
+  () => lanes.length !== 0 && laneCorrections(),
+  endLanes,
+  lanesBlocked
+);
 if (__OBSERVE__)
   GlobalQueue._laneGuesses = t => {
     const out: Signal<any>[] = [];
@@ -851,5 +857,4 @@ if (__OBSERVE__)
     }
     return out;
   };
-GlobalQueue._lanesBlocked = lanesBlocked;
 GlobalQueue._verdictLane = verdictLane;

@@ -33,7 +33,7 @@ const shown = (text: string) =>
 
 // Wall-clock findings (hot scopes, a fallback shown "too briefly") measure
 // the test's fake clock, not the app: off, as in the runtime's own suites.
-const attribution = { hotTime: false, fallbackFlashes: false } as const;
+const attribution = { hotTime: false, fallbackFlashes: false, wastedRecompute: false } as const;
 
 let root: HTMLDivElement;
 let dispose: () => void;
