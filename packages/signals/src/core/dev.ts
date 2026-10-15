@@ -700,7 +700,7 @@ export function isSuppressed(entry: DiagnosticEvent): boolean {
 // one section per code, at its stable GitHub path. GitHub heading anchors
 // are lowercased with underscores kept (`### SILENT_HOLD` → `#silent_hold`).
 const GUIDE_URL =
-  "https://github.com/solidjs/solid/blob/main/packages/solid/skills/reactivity-diagnostics/SKILL.md";
+  "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md";
 
 export const DEV: Dev = __DEV__
   ? {

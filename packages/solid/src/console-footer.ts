@@ -26,7 +26,7 @@
 // else has a footer to register.
 import { DEV, setConsoleFooter } from "@solidjs/signals";
 
-const SKILLS_URL = "https://github.com/solidjs/solid/blob/main/packages";
+const SKILLS_URL = "https://github.com/solidjs/solid/blob/next/packages";
 
 /** Dev-only; the callers gate on their build's dev literal, where `DEV` is defined. */
 export function installConsoleFooter(): void {

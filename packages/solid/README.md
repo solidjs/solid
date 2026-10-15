@@ -6,7 +6,7 @@
 [![](https://img.shields.io/npm/dm/solid-js.svg?style=for-the-badge)](https://www.npmjs.com/package/solid-js)
 [![Discord](https://img.shields.io/discord/722131463138705510?style=for-the-badge)](https://discord.com/invite/solidjs)
 
-**[Website](https://www.solidjs.com/) • [API Docs](https://docs.solidjs.com/) • [Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [GitHub](https://github.com/solidjs/solid) • [Discord](https://discord.com/invite/solidjs)**
+**[Website](https://www.solidjs.com/) • [API Docs](https://v2.solidjs.com/) • [Tutorial](https://www.solidjs.com/tutorial/introduction_basics) • [GitHub](https://github.com/solidjs/solid) • [Discord](https://discord.com/invite/solidjs)**
 
 > **You are looking at Solid 2.0 (Release Candidate).**
 > Public surface differs from 1.x — split-phase `createEffect`, microtask batching, `Loading`/`Errored` boundaries, draft-first store setters, async-in-computations, removed `solid-js/web` and `solid-js/store` subpaths, and more.
@@ -68,8 +68,8 @@ The full migration guide is [`MIGRATION.md`](https://github.com/solidjs/solid/bl
 ## Learn more
 
 - **Why Solid, key features, browser support, community, sponsors** — see the [repository README](https://github.com/solidjs/solid#readme).
-- **Full documentation** — [docs.solidjs.com](https://docs.solidjs.com).
-- **Examples** — [documentation/resources/examples.md](https://github.com/solidjs/solid/blob/next/documentation/resources/examples.md).
+- **Full documentation** — [v2.solidjs.com](https://v2.solidjs.com).
+- **Examples** — the [`examples/`](https://github.com/solidjs/solid/tree/next/examples) folder (see [`documentation/plans/examples-grid-plan.md`](https://github.com/solidjs/solid/blob/next/documentation/plans/examples-grid-plan.md) for the grid they cover).
 - **Discord** — [discord.com/invite/solidjs](https://discord.com/invite/solidjs).
 
 ---

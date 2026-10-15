@@ -40,7 +40,7 @@ type ForOptions<T> = {
 
 /**
  * Creates a list of elements from a list
- * @description https://docs.solidjs.com/reference/components/for
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/for
  */
 export function For<T extends readonly any[], U extends SolidElement>(props: {
   each: T | undefined | null | false;
@@ -80,7 +80,7 @@ export function For<T extends readonly any[], U extends SolidElement>(props: {
 /**
  * Creates a list elements from a count
  *
- * @description https://docs.solidjs.com/reference/components/repeat
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/repeat
  */
 export function Repeat<T extends SolidElement>(props: {
   count: number;
@@ -100,7 +100,7 @@ export function Repeat<T extends SolidElement>(props: {
 
 /**
  * Conditionally render its children or an optional fallback component
- * @description https://docs.solidjs.com/reference/components/show
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/show
  */
 export function Show<T>(props: {
   when: T | undefined | null | false;
@@ -167,7 +167,7 @@ type EvalConditions = readonly [number, unknown, AnyMatchProps<unknown>];
 
 /**
  * Switches between content based on mutually exclusive conditions
- * @description https://docs.solidjs.com/reference/components/switch-and-match
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/switch-and-match
  */
 export function Switch(props: { fallback?: SolidElement; children: SolidElement }): SolidElement {
   const chs = children(() => props.children);
@@ -244,7 +244,7 @@ export type AnyMatchProps<T> =
 
 /**
  * Selects a content based on condition when inside a `<Switch>` control flow
- * @description https://docs.solidjs.com/reference/components/switch-and-match
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/switch-and-match
  */
 export function Match<T>(props: {
   when: T | undefined | null | false;
@@ -269,7 +269,7 @@ export function Match<T>(props: AnyMatchProps<T>) {
 
 /**
  * Catches uncaught errors inside components and renders a fallback content
- * @description https://docs.solidjs.com/reference/components/error-boundary
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/errored
  */
 export function Errored(props: {
   fallback: SolidElement | ((err: () => any, reset: () => void) => SolidElement);
@@ -290,7 +290,7 @@ export function Errored(props: {
 
 /**
  * Tracks all resources inside a component and renders a fallback until they are all resolved
- * @description https://docs.solidjs.com/reference/components/suspense
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/loading
  */
 export function Loading(props: {
   fallback?: SolidElement;
@@ -347,7 +347,7 @@ export type RevealProps = {
  * See `documentation/solid-2.0/03-control-flow.md` for the full outer/inner
  * nesting matrix and the "minimally ready" definition per order.
  *
- * @description https://docs.solidjs.com/reference/components/reveal
+ * @description https://v2.solidjs.com/reference/solid-js/components-jsx/reveal
  */
 export function Reveal(props: RevealProps): SolidElement {
   const o = createOwner();

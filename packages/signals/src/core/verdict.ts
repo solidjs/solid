@@ -261,6 +261,38 @@ export function latest<T>(fn: () => T): T {
   }
 }
 
+/**
+ * Reports whether what `fn` reads is still waiting on an update. Read the
+ * values in question inside `fn`: the probe answers `true` while any of
+ * them depends on a change that is in flight — a write or an async source
+ * that has started producing a new value whose result has not landed yet —
+ * and `false` once the latest value is the one on screen. The answer is
+ * tracked like any read, so a memo or effect that calls `isPending` re-runs
+ * when it flips.
+ *
+ * A read that has no value yet is loading, not pending: inside `fn` it
+ * follows the surrounding `Loading` path like any other read, and the probe
+ * reports only updates to a value that already exists. A bare `refresh()`
+ * does not flip `isPending`; pair it with `affects()` to make the re-ask
+ * visible.
+ *
+ * @param fn expression to probe; read the values in question inside it
+ *
+ * @returns `true` while a read inside `fn` depends on a change that has not committed yet
+ *
+ * @example
+ * ```ts
+ * const [query, setQuery] = createSignal("");
+ * const results = createMemo(() => searchProducts(query()));
+ * const stale = createMemo(() => isPending(results));
+ *
+ * setQuery("shoes");
+ * // stale() is true until the new results land, while results() keeps
+ * // serving the previous list — dim it instead of showing a spinner.
+ * ```
+ *
+ * @description https://v2.solidjs.com/reference/solid-js/reactivity/is-pending
+ */
 export function isPending(fn: () => any): boolean {
   markVerdictReader(1);
   const prevProbing = probing;
