@@ -1949,6 +1949,13 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (floor-caps.json; the floors unchanged, 0 B minified).
+    // Size-Exception (createDeferred, D-40, 2026-10-15; floor-caps.json):
+    // 18.09 -> 18.11 KB, measured at 18,092 B (53,350 -> 53,386 B minified)
+    // with `next` @ eb4e0192 merged in. #4067's core share (the D11 check
+    // in `recompute`, the REACTIVE_REASK mask) plus #4075's still-streaming
+    // branch, each inside the 20 B allowance alone, together pass it.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-14).
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2463,15 +2470,21 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    // Size-Exception (createDeferred, D-40, 2026-10-15): 29.65 -> 29.71 KB,
-    // measured at 29,697 B with `next` @ b2c6e4ba merged in (93,714 ->
-    // 93,740 B minified). #4067's +17 B store share (the D11 check in
-    // `recompute`, the REACTIVE_REASK mask, the projection `fam` hook) plus
-    // #4073's seedless derived stores, each inside the 20 B allowance
-    // alone, together pass it. Cap set at measured + 10 B rounded up to
-    // 0.01 KB. Accepted by the maintainer (2026-10-14).
-    limit: "29.71 KB",
-    capMinified: 93740,
+    // Size-Exception (a fragment revealed before its _fr settles hydrates the
+    // revealed content, #4074, #4075, 2026-10-15): 29.65 -> 29.69 KB, CI measured
+    // 29,678 B (+30 B minified, 93,714 -> 93,753) — the still-streaming
+    // branch of hydratedCreateLoadingBoundary skips the fallback when `$df`
+    // already swapped the content in. Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-15.
+    // Size-Exception (createDeferred, D-40, 2026-10-15): 29.69 -> 29.76 KB,
+    // measured at 29,747 B (93,753 -> 93,770 B minified) with
+    // `next` @ eb4e0192 merged in. #4067's core share (the D11 check
+    // in `recompute`, the REACTIVE_REASK mask) plus #4075's still-streaming
+    // branch, each inside the 20 B allowance alone, together pass it.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-14).
+    limit: "29.76 KB",
+    capMinified: 93770,
     alias
   },
   {
@@ -3816,15 +3829,21 @@ module.exports = [
     // whose own flush joins that hold back into it. Cap set at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer 2026-10-14
     // (the floors unchanged, 0 B minified).
-    // Size-Exception (createDeferred, D-40, 2026-10-15): 31.78 -> 31.84 KB,
-    // measured at 31,823 B with `next` @ b2c6e4ba merged in (101,338 ->
-    // 101,357 B minified). #4067's +17 B store share (the D11 check in
-    // `recompute`, the REACTIVE_REASK mask, the projection `fam` hook) plus
-    // #4073's seedless derived stores, each inside the 20 B allowance
-    // alone, together pass it. Cap set at measured + 10 B rounded up to
-    // 0.01 KB. Accepted by the maintainer (2026-10-14).
-    limit: "31.84 KB",
-    capMinified: 101357,
+    // Size-Exception (a fragment revealed before its _fr settles hydrates the
+    // revealed content, #4074, #4075, 2026-10-15): 31.78 -> 31.89 KB, CI measured
+    // 31,871 B (+30 B minified, 101,338 -> 101,369) — the still-streaming
+    // branch of hydratedCreateLoadingBoundary skips the fallback when `$df`
+    // already swapped the content in. Cap set at measured + 10 B rounded up
+    // to 0.01 KB. Accepted by the maintainer 2026-10-15.
+    // createDeferred (D-40, 2026-10-15): recorded minified 101,369 -> 101,387
+    // (+18 B, measured at 31,821 B, under the cap) with
+    // `next` @ eb4e0192 merged in. #4067's core share (the D11 check
+    // in `recompute`, the REACTIVE_REASK mask) plus #4075's still-streaming
+    // branch, each inside the 20 B allowance alone, together pass it.
+    // Cap set at measured + 10 B rounded up to 0.01 KB. Accepted by the
+    // maintainer (2026-10-14).
+    limit: "31.89 KB",
+    capMinified: 101387,
     alias
   },
   {
