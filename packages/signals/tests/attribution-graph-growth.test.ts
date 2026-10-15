@@ -575,6 +575,109 @@ describe("GRAPH_GROWTH", () => {
     expect(graphSize()).toEqual(before);
   });
 
+  it("components shared with the page just left, through HMR plumbing, do not report (#4101)", () => {
+    const before = graphSize();
+    const { findings, graphs } = arm();
+    const [location, setLocation] = createSignal("/");
+    // solid-refresh's registry: a signal per component, as long-lived as its
+    // module, read by a plumbing memo in each rendered instance.
+    const registry = ["Title", "Card", "Button"].map(
+      name => createSignal({ current: name }, { name })[0]
+    );
+    const instance = (i: number) =>
+      createMemo(() => registry[i]().current, { _plumbing: true } as never);
+    let visit = 0;
+    const pages: Record<string, () => unknown> = {
+      // Each page the target is reached from renders more of its components.
+      "/from-0": () => [],
+      "/from-1": () => [instance(0)],
+      "/from-2": () => [instance(0), instance(1)],
+      // The target renders the same components each visit, and content that
+      // differs per visit: a row more each time, owned by the page.
+      "/target": () => {
+        visit++;
+        const rows = Array.from({ length: visit }, (_, i) => createSignal(i)[0]);
+        return [instance(0), instance(1), instance(2), createMemo(() => rows.map(row => row()))];
+      }
+    };
+    const dispose = createRoot(dispose => {
+      const page = createMemo(() => {
+        const mount = pages[location()];
+        return mount ? untrack(mount) : [];
+      });
+      createRenderEffect(
+        () => (page() as (() => unknown)[]).map(read => read()),
+        () => {}
+      );
+      return dispose;
+    });
+    flush();
+    try {
+      for (const from of ["/from-0", "/from-1", "/from-2"]) {
+        navigate(setLocation, from);
+        navigate(setLocation, "/target");
+      }
+      // The page is bigger each visit, and the registry signals of the
+      // components the previous page shared were alive before each arrival.
+      const totals = graphs.filter(g => g.route === "/target").map(g => g.signals);
+      expect(totals[1]).toBeGreaterThan(totals[0]);
+      expect(totals[2]).toBeGreaterThan(totals[1]);
+      expect(findings).toHaveLength(0);
+    } finally {
+      dispose();
+      flush();
+    }
+    expect(graphSize()).toEqual(before);
+  });
+
+  it("a long-lived source the page just left also read is not what a visit left behind", () => {
+    const before = graphSize();
+    const { findings, graphs } = arm();
+    const [location, setLocation] = createSignal("/");
+    // Module-level state, alive the whole session: the walk reaches each
+    // only through a page that reads it.
+    const globals = Array.from({ length: 6 }, (_, i) => createSignal(i, { name: `g${i}` })[0]);
+    let visit = 0;
+    const pages: Record<string, () => unknown> = {
+      // Each page between visits reads more of what the target reads.
+      "/a-1": () => globals.slice(0, 1).map(g => createMemo(g)),
+      "/a-2": () => globals.slice(0, 3).map(g => createMemo(g)),
+      "/a-3": () => globals.slice(0, 5).map(g => createMemo(g)),
+      "/target": () => {
+        visit++;
+        // Content that differs per visit, owned by the page.
+        const rows = Array.from({ length: visit * 2 }, (_, i) => createSignal(i)[0]);
+        return [...globals.map(g => createMemo(g)), createMemo(() => rows.map(row => row()))];
+      }
+    };
+    const dispose = createRoot(dispose => {
+      const page = createMemo(() => {
+        const mount = pages[location()];
+        return mount ? untrack(mount) : [];
+      });
+      createRenderEffect(
+        () => (page() as (() => unknown)[]).map(read => read()),
+        () => {}
+      );
+      return dispose;
+    });
+    flush();
+    try {
+      for (const from of ["/a-1", "/a-2", "/a-3"]) {
+        navigate(setLocation, from);
+        navigate(setLocation, "/target");
+      }
+      const totals = graphs.filter(g => g.route === "/target").map(g => g.signals);
+      expect(totals[2]).toBeGreaterThan(totals[1]);
+      expect(totals[1]).toBeGreaterThan(totals[0]);
+      expect(findings).toHaveLength(0);
+    } finally {
+      dispose();
+      flush();
+    }
+    expect(graphSize()).toEqual(before);
+  });
+
   it("a page kept across navigations within its route, growing a row per query, does not report", () => {
     const before = graphSize();
     const { findings, graphs } = arm();

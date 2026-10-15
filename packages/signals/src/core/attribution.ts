@@ -3115,8 +3115,7 @@ function checkOptimisticRevert(
 
 /**
  * Per route: at its last `visits` compared settles, oldest first, the
- * graph's size and the part of it that was already alive when that
- * navigation opened.
+ * graph's size and the part of it already alive as a navigation opened.
  */
 const routeCounts = new Map<string, { size: GraphSize; survived: GraphSize }[]>();
 /**
@@ -3124,6 +3123,12 @@ const routeCounts = new Map<string, { size: GraphSize; survived: GraphSize }[]>(
  * its params or query change) continues the visit and is not compared.
  */
 let visitRoute: string | undefined;
+/**
+ * Every node met as a navigation opened, weakly, for the session: one set,
+ * not one per navigation (see `trackGraph`). Never reset — a node in it was
+ * alive as a navigation opened whichever window met it.
+ */
+const opened = new WeakSet<object>();
 
 /**
  * The live graph's size — a walk, not a counter: nothing is charged at node
@@ -3146,7 +3151,7 @@ export function graphSize(): GraphSize {
  * The walk behind `graphSize()`. Given `before` alone, it adds every node it
  * meets to that set: what is alive as a navigation opens. Given `before` and
  * `survived`, it also counts into `survived` the nodes it meets that are in
- * the set, and an edge when both its ends are: what outlived the navigation.
+ * the set, and an edge when both its ends are: what outlived a navigation.
  * Nothing is retained — the set is weak.
  */
 function walkGraph(before?: WeakSet<object>, survived?: GraphSize): GraphSize {
@@ -3202,12 +3207,12 @@ function walkGraph(before?: WeakSet<object>, survived?: GraphSize): GraphSize {
 
 /**
  * openNavigation, while the growth check is on: what is alive as a
- * navigation opens, for its settle to tell apart from what it created.
+ * navigation opens, added to what earlier ones met, for its settle to tell
+ * apart from what it created.
  */
 function snapshotGraph(): WeakSet<object> {
-  const before = new WeakSet<object>();
-  walkGraph(before);
-  return before;
+  walkGraph(opened);
+  return opened;
 }
 
 /**
@@ -3221,10 +3226,19 @@ function snapshotGraph(): WeakSet<object> {
  *
  * A count taken at an arrival also holds everything the visit just created,
  * so a page whose correctly owned content is bigger each visit climbs too.
- * What tells the two apart is what outlived the navigation: the nodes alive
- * when it opened (`NavState.before`) that are still alive at its settle. A
- * visit's own content is not among them; what an earlier visit left behind
- * is, whatever the content does. A series reports only when both climb.
+ * What tells the two apart is what outlived a navigation: the nodes alive
+ * as this or any earlier navigation opened (`opened`) that are still alive
+ * at this settle. A visit's own content is not among them; what an earlier
+ * visit left behind is, whatever the content does. A series reports only
+ * when both climb.
+ *
+ * The set is the session's, not this navigation's own snapshot: the walk
+ * meets a long-lived source only through a page that reads it, so a
+ * per-navigation snapshot holds a module-level signal (an HMR registry, a
+ * global store) only when the page just left read it too, and arriving from
+ * pages that share ever more with this one read as growth (#4101). Kept
+ * across navigations, such a source counts at every settle once met, the
+ * same each visit; only what keeps accumulating climbs.
  */
 const GRAPH_SERIES: (keyof GraphSize)[] = ["owners", "computations", "signals", "edges"];
 
@@ -3547,8 +3561,9 @@ interface NavState {
   /** `drainSeq` at its last write — a later drain committed it. */
   writeDrain: number;
   /**
-   * While `graphGrowth` is on: every node alive when it opened, weakly, for
-   * its settle's count of what outlived it (see `trackGraph`). Dropped there.
+   * While `graphGrowth` is on: the session's `opened` set, now holding every
+   * node alive when it opened, for its settle's count of what outlived a
+   * navigation (see `trackGraph`). Dropped there.
    */
   before?: WeakSet<object>;
 }
