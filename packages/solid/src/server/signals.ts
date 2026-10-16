@@ -3367,15 +3367,7 @@ export function mapArray<T, U>(
       if (live && items && items.length) (s as any).$rows = true;
       return s;
     },
-    // Lazy: the list's rows render when the template reads the accessor
-    // (the hole right after `<For>`'s creation), not while the enclosing
-    // `ssr()` call's arguments are still being evaluated. Ids are the same —
-    // the memo's owner, and so its rows' id prefix, is allocated at creation
-    // — and a pass that suspends on the list's source throws once, at the
-    // hole, instead of once here (swallowed) and once there. The other flow
-    // memos stay eager: their children's order against eagerly called
-    // sibling components is observable (reveal groups, head, assets).
-    { sync: true, lazy: true }
+    { sync: true }
   );
   return read;
 }
@@ -3444,8 +3436,7 @@ export function repeat<T>(
       });
       return out;
     },
-    // Lazy, as mapArray's (see there).
-    { sync: true, lazy: true }
+    { sync: true }
   );
   return read;
 }
