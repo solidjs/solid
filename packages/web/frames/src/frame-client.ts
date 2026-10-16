@@ -2145,8 +2145,11 @@ class FrameImpl {
     let i = found.i_ || 0;
     while (i < keys.length) {
       const part = new Map();
-      for (const stop = Math.min(i + 16, keys.length); i < stop; i++)
-        part.set(keys[i], found.get(keys[i]));
+      // One occurrence per deadline check: a top-level mount binds its
+      // regions (a frame each, with its claim sweep and record drain), so a
+      // batch of several can run far past a 12 ms budget.
+      part.set(keys[i], found.get(keys[i]));
+      i++;
       this.#mountFound(part);
       if (i < keys.length && performance.now() > deadline) {
         found.i_ = i;
