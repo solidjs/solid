@@ -7936,3 +7936,542 @@ Cost sheet, measured (this machine; jantimon's cores are ~2.8× slower):
   it). The thing the sidecar buys — 15 kB gz / 8 kB br off the critical
   path before hydration can start, ~45–85 ms at slow-4G — is exactly
   what neither board measures. Hence the gate on target 8.
+
+## Octane Board Refresh (2026-10-15): upstream 0.13.8, rebased fixtures, new baseline
+
+The first board since 2026-09-17. Solid `next` at `3e94215b4` (466 commits
+and ~13k lines moved under `packages/signals/src` since the Sep 17 board's
+`dd908fc12` — the core rewrite), Octane upstream at 0.13.8. Everything
+below is from `~/Development/octane-fork/benchmarks/results-next-oct15`
+(26 suites), the quick pass `results-smoke-oct15` (uibench, 2 iterations),
+and `results-next-sep17`. Numbers from the two suites the machine load
+invalidated (below) are marked as such.
+
+### Instruments, what changed
+
+- **The fork was rebased** onto `octanejs/octane` `main` at 0.13.8
+  (`91dae8d73`, 781 commits past the 0.2.13 the Sep boards used): branch
+  `bench/next-linked-oct15`, our seven fixture commits on top. Upstream's
+  edits to the Solid fixtures' `package.json` / `vite.config.js` were
+  byte-identical to our rc.8 pin commit, so that commit dropped out and the
+  only conflicts were `pnpm-workspace.yaml` / `pnpm-lock.yaml` (upstream's
+  side taken). Pins upstream moved: `solid-js` / `@solidjs/web` rc.14,
+  `@solidjs/vite-plugin` 3.0.0-next.49, `vue` 3.6.0-rc.1 → **rc.10**,
+  `svelte` 5.56.7 → 5.57.2. Unchanged: React 19.2.7, Playwright 1.61.1.
+  Recipe in [`benchmarking-strategy.md` → Octane board
+  workflow](./benchmarking-strategy.md#octane-board-workflow).
+- **The `next` link had to be rebuilt.** `~/Development/solid-next-bench`
+  no longer existed; recreated at `3e94215b4` on branch `bench/next-oct15`,
+  compiler rc.15 built from source. Vite plugin next.49 drives it.
+- **Upstream's js-framework harness now batches sub-millisecond ops**
+  (`select`, `swap`, `select_lots`) inside each sample. Those ops read
+  10–40× smaller than in September for every framework; the millisecond ops
+  (`run`, `runlots`, `add`, `replace`, `clear`) are unchanged. Cross-board
+  comparisons of sub-ms ops are only valid for uibench, which always
+  repeated its small cases.
+- **Board exit 1, Octane's own gates again**: recursive-context's `work`
+  sub-run "produced no targets"; hydration-interactivity's `octane-tsrx`
+  "hydration replaced a server-rendered article". Every Solid gate in all
+  26 suites passed.
+- **Two suites are invalid.** The board's last two timed suites,
+  streaming-ssr and uibench, ran while a game and a Chrome renderer each
+  held more than half a core. The tell is the reference frameworks' drift
+  against Sep 17 (pins unchanged): React / Inferno / Svelte / Preact sit at
+  0.97–1.05 on every suite through lifecycle-memory, then 1.3–1.5 on
+  streaming-ssr and **4.3–4.9 on uibench** (Solid 2.6 / 5.3 vs the quick
+  pass). Load does not cancel in the ratio: uibench read 1.90× Octane on the
+  board against 1.63× in the clean quick pass an hour earlier. Both suites
+  are rerun as part of the A/B below; uibench numbers in this section are
+  the quick pass unless stated.
+- `benchmarks/uibench/tools/prof.mjs` (fork, untracked): CPU + allocation
+  profile of one uibench case under the harness's own protocol, windowed to
+  the timed commit. See the strategy doc.
+
+### The board
+
+`board-compare` (timed ops only), lower = Solid faster. Sep 17 = `next` at
+`dd908fc12` vs Octane 0.2.13 / Vapor rc.1; Oct 15 = `3e94215b4` vs 0.13.8 /
+rc.10.
+
+| suite                   | vs Octane Sep 17 |     Oct 15 | vs Vapor Sep 17 |    Oct 15 |
+| ----------------------- | ---------------: | ---------: | --------------: | --------: |
+| js-framework            |            0.91× |      1.16× |           1.09× |     1.38× |
+| js-framework-reorder    |            0.81× |      1.01× |           0.49× |     1.10× |
+| dbmon                   |            1.04× |      1.03× |           1.21× |     1.12× |
+| todomvc                 |            0.78× |      0.88× |           1.30× |     1.04× |
+| chat-stream             |            1.07× |      0.79× |           0.97× |     1.21× |
+| svg-dashboard           |            0.85× |      1.25× |               — |         — |
+| signal-favoring         |            0.63× |      0.86× |           2.47× |     1.54× |
+| effectful-list          |            0.47× |      1.11× |           0.67× |     1.13× |
+| memo-wall               |            0.20× |      0.66× |           0.99× |     1.16× |
+| store-selector-fanout   |            0.59× |      0.61× |           0.95× |     0.87× |
+| scaling-curves          |            0.83× |      0.76× |           1.11× |     0.99× |
+| spa-navigation          |            0.31× |      0.87× |           0.51× |     0.37× |
+| recursive-context       |            0.82× |      0.98× |           0.92× |     0.87× |
+| external-store-fanout   |            0.75× |      0.72× |           1.00× |     1.00× |
+| controlled-form         |            0.93× |      0.90× |           0.94× |     0.92× |
+| event-delegation        |            0.87× |      0.84× |           0.91× |     1.33× |
+| application-composition |            0.90× |      0.87× |           1.01× |     0.98× |
+| suspense-recovery       |            0.98× |      0.98× |           1.00× |     0.98× |
+| scheduler-responsiveness|            1.00× |      0.99× |           1.02× |     0.98× |
+| hydration-interactivity |                — |          — |           1.14× |     1.08× |
+| lifecycle-memory        |            0.61× |      0.61× |           1.00× |     0.99× |
+| streaming-ssr           |            1.29× |      1.35× |               — |         — |
+| uibench                 |            1.20× |      1.65× |           1.16× |     1.60× |
+| **overall geomean**     |       **0.739×** | **0.898×** |      **0.981×** | **1.020×** |
+
+(Overall rows as `board-compare` prints them from the board run: 21 suites vs
+Octane including the board's invalid streaming-ssr reading of 1.45× — 0.877×
+without it — and 20 vs Vapor; uibench is outside its list. The streaming-ssr
+and uibench rows above are from the clean same-day rerun in the A/B below,
+not from the board run.)
+
+### Why the ratios moved: they got faster, we did not move
+
+Absolute drift Oct 15 / Sep 17 on ops ≥ 0.5 ms (timer-floor safe), geomean
+over every valid suite: **Solid 0.99 (96 ops)**, React 0.98, Inferno 1.01,
+Svelte 0.99, Preact 1.00 — the machine and harness are comparable at the
+millisecond scale — **Octane 0.83 (74 ops)**, Vapor 1.00 overall but 0.43 on
+js-framework-reorder, 0.72 on effectful-list, 0.63 on chat-stream.
+
+- Octane 0.13.8 fixed what the Sep 17 caveat flagged ("Octane regressed in
+  that run") and more: memo-wall 0.64, spa-navigation 0.32, svg-dashboard
+  0.61, js-framework 0.83, todomvc 0.79 of its own Sep 17 times. The 0.739×
+  overall that flattered us is gone; 0.88–0.90× is the honest number.
+- Vapor rc.10 ships a real list-reconciliation improvement: reverse and
+  shuffle 1.1 → 0.6 ms, the displace ops 0.21 → 0.065 ms,
+  `remove_100_scattered` 1.06 → 0.32 ms. Our small-move fast path's 4×
+  lead over Vapor on displace/rotate (Sep) is now ~1.2×.
+- Solid's own moves: todomvc 0.81 (the per-row ternary fixture plus a month
+  of `next`; the Sep 4× `add100` outlier is gone — 1.25× Vapor now),
+  chat-stream 0.78 (every framework 0.8–0.9 there), dbmon 1.33 (Inferno
+  1.36, Svelte 1.14 — suite-wide, not ours).
+- **Cross-board, there is no sign of a Solid regression from the rewrite at
+  the ±5% level on millisecond ops, and the clean uibench quick pass says
+  the same for sub-ms ops (Solid 0.976 over 96 cases).** That is not an
+  A/B. The same-harness A/B — `dd908fc12` built in
+  `~/Development/solid-sep17-bench` and linked into the same fork, same
+  day, same Octane and Vapor — is set up and approved, pending an idle
+  machine. It is the only read that does not depend on the harness having
+  stood still, and it did not.
+
+### The shape of the gap, within the Oct 15 run
+
+- **Single-item structural ops on large lists are the gap, against both.**
+  js-framework `swap` 60 µs vs Octane 21 / Vapor 15 (2.9× / 3.9×);
+  js-framework-reorder `removefirst` 62 vs 25 / 15 µs (2.5× / 4.1×);
+  uibench one-item tree ops (quick pass) 20–30 µs vs 5–6 / 9–13 µs (4–6× /
+  2–3×); memo-wall `one_change` 1.85× Vapor; effectful-list
+  `remove_100_scattered` 2.3× Vapor (1.35× Octane). September's uibench
+  reading (2× Octane, parity with Vapor) is now 5× / 2.5×: the gap did not
+  grow — Solid's absolutes are flat — the others closed theirs.
+- **Bulk ops hold or lead.** js-framework `run` / `runlots` / `add` /
+  `replace` / `clear` 0.96× Vapor as a group and 1.0–1.14× Octane;
+  reorder `displace*` / `rotate*` 0.76–0.91× both; effectful-list mount
+  0.85× Vapor; memo-wall mount 0.62× Vapor; spa-navigation 0.37× / 0.87×;
+  uibench renders fastest of every target (quick pass, as in Sep).
+- **Disposal (Sep open target 1) still shows, behind the one-item ops:**
+  uibench `removeAll` 3–5× Octane / 1.1–3× Vapor (quick pass); jfb `clear`
+  1.04× / 1.08×; effectful-list `clear` 1.23× / 1.04×.
+- **streaming-ssr** `shell_staggered` 2.4× Octane with equal totals (Sep
+  2.6×) — invalid run, but the same single-op shape as Sep open target 4.
+- Working hypothesis for the one-item ops, **unprofiled**: not the
+  disposal or creation of the one row but the per-row constant across the
+  O(n) passes every list commit pays — `updateKeyedMap`'s copy of
+  mappings + nodes into fresh arrays and `newItems.slice(0)`,
+  `normalize`'s fresh array over the mapped nodes, and `reconcileArrays`'s
+  prefix / suffix scans with `isLive`'s `parentNode` + `$$SLOT` probe per
+  element. Three to four passes over 500–1000 rows at 10–20 ns per element
+  per pass is the whole 40–50 µs difference. The profile (`tools/prof.mjs`:
+  `tree/[500]/[removeLast(1)]`, `[insertLast(1)]`, `tree/[10,50]/removeAll`,
+  `table/[100,4]/removeAll`; jfb `swap` by click) decides.
+
+### Bundle size
+
+js-framework fixture, brotli: **Solid 21.9 KB** (Sep 17: 23.9 — down 8%
+across the rewrite), Octane 26.1 (Sep: 43), Svelte 14.0, Ripple 13.1,
+Inferno 9.4, Preact 8.9, React 53.8. todomvc: Solid 13.9 vs Vapor 20.0,
+Octane 30.1, Svelte 14.2. The app/framework split is meaningless under
+local links (framework shows 328 B); totals are fine.
+
+### Pending, in order
+
+1. Same-harness A/B, Sep 17 `dd908fc12` vs today, eight suites (uibench,
+   js-framework, js-framework-reorder, effectful-list, memo-wall, todomvc,
+   dbmon, streaming-ssr), each side ~15–18 min — approved, waits for an idle
+   machine. Side B also replaces the two invalid suites.
+2. Profile the single-item ops (above) and jfb `swap`; then the first
+   optimization, one change at a time, Tier-2 validated.
+3. Re-rank the open targets after the profile; the Sep list (disposal,
+   one-item keyed ops, create floor, `shell_staggered`, `Show` memos,
+   chat-stream fixture) stands until then.
+
+### Same-harness A/B: Sep 17 `next` vs today (2026-10-15, 15:50–16:11)
+
+The question the drift table could not answer: did the core rewrite move
+Solid's own numbers? Side A is the Sep 17 board's `next` (`dd908fc12`, built
+in `~/Development/solid-sep17-bench`) with `@solidjs/vite-plugin`
+3.0.0-next.43 — the Sep 17 compiler rejects the `sourceNames` option next.49
+passes, so A is that era's toolchain end to end; side B is `3e94215b4` with
+next.49. Same fork (0.13.8), same Octane / Vapor / React builds, same
+Chromium, one idle machine, 21 minutes apart; the fork was relinked between
+sides and the runner rebuilt the fixtures. Results in
+`results-ab-sep17` / `results-ab-oct15`; reader `ab-compare.mjs` applies the
+runner's own noise rule (regression iff median > 1.15× **and** min > 1.10×).
+Octane's own B/A drift is the machine check — nothing but Solid changed.
+
+| suite                | Solid B/A (ops) | Octane B/A | flagged                                                   |
+| -------------------- | --------------: | ---------: | --------------------------------------------------------- |
+| uibench              |     0.960 (96)  |      1.008 | none; one-item tree ops 0.76–0.89, worst cases 0.83–0.91  |
+| js-framework         |     0.999 (10)  |      0.985 | none                                                      |
+| js-framework-reorder |     1.051 (14)  |      0.970 | none; append100 1.37 / insertmid100 1.22 / prepend100 1.11 by median with **mins unchanged** (0.30 → 0.30) — bimodal 8-sample medians, rerun interleaved |
+| effectful-list       |      1.009 (6)  |      0.970 | none                                                      |
+| memo-wall            |      0.987 (7)  |      0.986 | none                                                      |
+| todomvc              |      0.896 (8)  |      0.855 | `complete25` 0.76 and `filterCycle` 0.70 improved (Octane moved 0.86 too — part machine) |
+| dbmon                |      1.044 (6)  |      1.011 | none                                                      |
+| streaming-ssr        |      1.503 (4)  |      1.235 | `shell_allfast` 0.143 → 0.360 ms and `shell_staggered` 0.535 → 1.287 **regressed** |
+| **overall**          | **0.985 (151)** |            | 2 regressed (both streaming-ssr shells), 2 improved       |
+
+**DOM lanes: the rewrite did not cost anything measurable.** Every browser
+suite is within noise of Sep 17 on the same harness, uibench is 4% better
+with the one-item ops 10–25% better, todomvc is better. The 1.20× → 1.65×
+move on uibench is entirely Octane's and Vapor's: on today's harness the
+Sep 17 build reads 1.72× Octane / 1.66× Vapor, today's 1.65× / 1.60×.
+
+**Server lane: a probable time-to-shell regression, unconfirmed.** Read the
+mins, not the medians: Solid's `shell_allfast` min went 0.111 → 0.244 ms
+while every other target's held (React 0.090 → 0.091, Preact 0.120 → 0.117,
+Octane 0.142 → 0.146, Ripple 0.032 → 0.052, Inferno 0.070 → 0.086); the
+totals did not move (`total_allfast` 0.83, `total_staggered` 1.01), so it is
+the first flush, not the render. `shell_staggered` moved for **every** target
+(Preact 2.16×, Octane 1.85×, Inferno 1.67×, React 1.57×) between the two
+sides — Spotlight's `mds_stores` was indexing the new worktrees at 24% of a
+core in one load snapshot — so that op is run noise and says nothing yet.
+The suite is Node-only and ~1 min per side; confirm with an interleaved
+B A B A before bisecting. If it holds, the field is the 196 commits since
+`dd908fc12` under `packages/web/src/server.ts`, `response.ts` and
+`packages/solid/src/server/` — the shell-end marker splice (#4030), the
+suspended-shell wait (#3771), the `createSSRResponse` settle changes, the
+frames tiers (#3860), Stage 8's live transport (#3653, #3660) — none
+implicated yet. The fixture is `renderToStream(...).pipe({ write, end })`
+from `@solidjs/web`, a `.tsrx` page with ten `@try/@pending` cards over
+`createMemo(() => promise)`; shell = time to the first `write`.
+
+### Interleaved confirmation (21:01–21:12): the shell "regression" was run drift
+
+B A B A over streaming-ssr and js-framework-reorder, relinking between each
+run (`results-il-{oct15-1,sep17-1,oct15-2,sep17-2}`; reader `il-compare.mjs`).
+Solid, median | min per run, B = today, A = Sep 17:
+
+| op                     |            B1 |            A1 |            B2 |            A2 | B/A med | B/A min |
+| ---------------------- | ------------: | ------------: | ------------: | ------------: | ------: | ------: |
+| `shell_allfast`        | 0.250 / 0.191 | 0.260 / 0.243 | 0.288 / 0.221 | 0.355 / 0.192 |    0.81 |    1.00 |
+| `shell_staggered`      | 0.994 / 0.636 | 1.163 / 0.703 | 1.107 / 0.821 | 1.087 / 0.701 |    0.95 |    0.91 |
+| reorder `insertmid100` | 0.380 / 0.300 | 0.420 / 0.400 | 0.340 / 0.300 | 0.440 / 0.400 |    0.86 |    0.75 |
+| reorder `append100`    | 0.400 / 0.300 | 0.360 / 0.300 | 0.380 / 0.300 | 0.420 / 0.300 |    0.95 |    1.00 |
+| reorder `removefirst`  | 0.061 / 0.055 | 0.062 / 0.060 | 0.076 / 0.070 | 0.081 / 0.070 |    0.94 |    0.92 |
+
+**Not a regression.** Alternated, the Sep 17 build reads the same shell
+times as today's; the A/B's 2.5× was the suite moving between its two
+regimes — the same Sep 17 build read 0.143 / 0.111 at 15:50 and 0.260 /
+0.243 at 21:03. Octane's own `shell_allfast` min wandered 0.10–0.17 across
+the four runs. Rule for this suite: a shell-op delta is real only when it
+reproduces alternated within one session; single A/B sides are not enough
+even with the min. The reorder bulk inserts are flat on min in every
+pairing, as the A/B's unflagged reading said.
+
+**Closing the question the rewrite raised: no measurable regression on any
+lane measured** — browser DOM suites 0.985 B/A over 151 ops, SSR shell at
+parity alternated — across 466 commits and the core rewrite.
+
+What the suite does say, for both builds today: Solid's `shell_staggered`
+is 0.64–0.82 ms min against Octane's 0.15–0.22 and React's 0.25–0.29 —
+3–5× on first-flush latency under staggered boundaries with equal totals.
+That is Sep open target 4 (`shell_staggered` 2.6× then), unchanged by the
+rewrite and still open.
+
+### Pending, revised
+
+1. Profile the single-item list ops with `tools/prof.mjs` (uibench
+   `tree/[500]/[removeLast(1)]`, `[insertLast(1)]`, `tree/[10,50]/removeAll`,
+   `table/[100,4]/removeAll`) and jfb `swap`; then the first optimization.
+2. Re-rank the open targets after the profile; `shell_staggered` keeps its
+   Sep rank.
+
+### Candidate 1 — `mapArray` subsequence fast paths (2026-10-15 evening, kept pending review)
+
+**Profile first** (`tools/prof.mjs`, unminified `dist-prof`, CDP 50 µs
+sampling, 200 reps, today's `next`; the first pass had the sentinel spin
+loops counted inside the window — fixed, the numbers below are windowed on
+the whole stack). `tree/[500]/[removeLast(1)]`, ~15 µs attributed per
+commit: `updateKeyedMap` body 8.3 µs (55%), `insertExpression` →
+`reconcileArrays` 2.2 (its `isLive` probe per prefix element 0.6),
+`normalize` → `flattenArray` 1.4, `disposeChildren` 1.1, `setSignal` +
+queue 1.3. Allocation, sampled at 256 B: **15–20 KB per one-item op**, all
+of it list-sized arrays — the staged `temp` / `tempNodes` / `rows` (8.0 KB
+sampled), `flattenArray`'s copy of the 500 mapped nodes (5.4 KB), the
+`newItems.slice(0)` (2.0 KB), and a chain array `new Array(newEnd + 1)`
+sized to the edit's POSITION rather than the window — a full-length
+allocation for an edit at the tail. The edit itself — one owner created or
+disposed, one DOM node moved — is a few hundred nanoseconds.
+`tree/[10,50]/removeAll` is a different animal: `disposeChildren` 53 µs
+self (44%, ~2,600 owners at ~20 ns each), `cleanChildren` 33 µs (27%, the
+native DOM teardown), nothing else above 2%; the lever there is the owner
+count per row, not the per-owner cost.
+
+Why the staging exists: the #2903 strong-abort work made every pass build
+its result into fresh full-length arrays so a mapper that throws
+`NotReadyError` leaves `_mappings` / `_nodes` / `_rows` untouched. The
+small-move path (2026-09-02) then took the reorders out of that cost but
+gated itself to windows over 64 rows in plain mode — one-item edits, every
+key-fn / index-signal list, and every sparse removal fell through to the
+staging path. Not the diff algorithm (O(window), trims a one-item edit to a
+window of one) — the commit.
+
+**The change** (worktree `~/Development/solid-next-bench`, branch
+`perf/map-array-subsequence`, `packages/signals/src/map.ts`): two fast
+paths in the general branch, after the small-move probe so its pinned
+shapes stay with it, and only when the length changed.
+
+- *Pure removal* (`isRemovalOnly`: the new window is an ordered
+  subsequence of the old — two pointers, one key call per item, pure reads):
+  `commitRemoval` compacts `_nodes` / `_rows` / `_indexes` IN PLACE from
+  `start` (a survivor's new index is its write index), rebuilds only
+  `_mappings` (its fresh identity is the change signal downstream), writes
+  survivors' row signals (same key, maybe a new object) and index signals,
+  shrinks the lengths, disposes the leavers last.
+- *Pure insertion* (`isInsertionOnly`, the mirror): the new rows are
+  created FIRST into created-sized stage arrays (the mapper now writes
+  `rows![slot]` / `indexes![slot]`, `slot` = `j` on the full-length paths),
+  so an abort disposes only them with the live arrays untouched; then
+  `commitInsertion` spreads the live arrays in place from the tail (writing
+  index `j` never passes an unread old index, `i <= j` throughout).
+- The strong-abort contract holds by ORDER (verify → create → mutate), not
+  by copying. Every mode: identity, key fn, row signals, index signals,
+  `keyed: false` (whose edits are always tail-only after the prefix loop).
+- The general path's chain array is window-sized (`newEnd - start + 1`,
+  offset by `start`).
+- `__subsequenceHits`, dev-only, like `__smallMoveHits`.
+
+Tests: `tests/mapArray-subsequence.test.ts`, 15 — engagement per shape and
+mode, duplicates (`[A,A,B]` ↔ `[A,B]`), fall-through shapes (replace, swap,
+reverse, remove-plus-insert), small-move precedence on its pinned shrink
+shape, two 300-round randomized oracles (plain: one of the two fast paths
+takes every round; index mode: the subsequence path takes every round,
+indices re-read correct), and the NotReadyError abort on an insertion (the
+aborted row's owner disposed with the pass, state untouched, retry lands,
+owners balance). Full suites green: signals 5,327 / web 1,732 + 511.
+
+**Measured** (batch of three, machine idle, 22:00–22:05):
+
+| lane | op | before | after | note |
+| --- | --- | --- | --- | --- |
+| Tier-1 `single-item-ops.bench.tsx` (jsdom, µs per remove+insert pair, mean of two alternated runs) | tail | 97.9 | 88.8 | −9% |
+| | head | 89.3 | 85.2 | −5% |
+| | middle (500) | 101.3 | 95.4 | −6% |
+| | scattered (every 10th ×100) | 2,233 | 2,155 | −4% |
+| | tail, keyed by fn | 116.8 | 106.2 | −9% |
+| uibench fixture, unminified, `prof.mjs --mode=time` (ms median, two rounds) | `tree/[500]/[removeLast(1)]` | 0.060 / 0.065 | 0.050 / 0.050 | −20%, min 0.040 → 0.025 |
+| | `tree/[500]/[insertLast(1)]` | 0.060 / 0.060 | 0.045 / 0.045 | −25% |
+| | `tree/[500]/[removeFirst(1)]` | 0.065 / 0.065 | 0.050 / 0.045 | −27% |
+| | `table/[100,4]/filter/4` | 0.095 / 0.095 | 0.085 / 0.090 | −8% |
+| | `tree/[10,50]/removeAll` (control) | 0.260 / 0.270 | 0.275 / 0.270 | flat |
+| | `tree/[500]/[react_worst_case]` (control) | 0.150 / 0.140 | 0.155 / 0.150 | flat |
+| Octane harness, same day (`results-ab-oct15` / `results-il-oct15-2` → `results-cand1-oct15`) | uibench, 96 ops | 1.654× Octane, 1.602× Vapor | **1.521× / 1.455×** | Solid 0.919 of itself, Octane's own drift 1.000 |
+| | uibench one-item insert/remove (16) | 3.13× / 1.82× | 2.64× / 1.51× | Solid 0.84; `tree/[500]` removeFirst 0.57, insertFirst 0.60, insertLast 0.66, removeLast 0.72 |
+| | uibench table filters (16) | 1.84× / 2.82× | 1.23× / 1.87× | Solid 0.68 |
+| | uibench removeAll / renders / one-item moves / activate / anim / no_change (controls) | | | Solid 1.01 / 1.00 / 1.00 / 1.04 / 0.98 / 1.00 |
+| | uibench worst-case reorders (4) | 2.37× | 2.66× | Solid 1.09 — see below |
+| | js-framework-reorder, 14 ops | 1.012× / 1.122× | **0.983× / 1.040×** | `removefirst` 0.071–0.090, `removeevery10` 0.80–0.82, the 100-row inserts 0.82–0.91 |
+| | effectful-list, 6 ops | 1.274× | 1.322× | Octane's own drift 0.897 that run; Solid 0.93 of itself, `remove_100_scattered` 0.97 — its cost is 100 disposals, not arrays |
+
+Nothing flagged by the runner's rule in either direction. The Tier-1
+deltas are small because jsdom's DOM dominates a pair there; the fixture
+and the harness agree on 20–40% off the one-item ops on 500-row lists and
+~30% off the sparse filters, scaling with list length (the nested 50-row
+lists in `tree/[10,50]` move within noise — the saved allocation is 10×
+smaller against the same fixed cost).
+
+**Open on this candidate.**
+
+1. The four worst-case reorders read 1.09 as a group (medians +9–15%, two
+   mins up) while every other control was flat and Octane did not move. Two
+   candidate causes: the gate ran `isInsertionOnly`'s scan on equal-length
+   passes (a reorder is never a subsequence, so a wasted O(window) with
+   key calls — fixed afterwards: `dif !== 0 &&`), and 8-sample bimodality
+   on 60 µs ops. Rerun in isolation, old vs candidate alternated, before
+   the PR.
+2. The remaining one-item cost is ~17 µs against Octane's 6: a fixed
+   per-update floor (`setSignal` → queue → `flush` → `recompute` → the
+   insert's two effects → one owner disposal, ~10 µs) plus the two O(n)
+   passes still paid per commit — `normalize`'s `flattenArray` copy of the
+   mapped nodes and `reconcileArrays`' prefix / suffix scan with `isLive`.
+   `normalize` adopting an array `mapArray` already owns is the next
+   allocation to remove; the floor wants a finer profile (20 µs sampling,
+   800 reps) on the candidate build.
+
+### Candidate 2 — window staging + in-place commit via `copyWithin` (2026-10-15, reverted)
+
+Candidate 1 measured well but cost +1,590 B minified / +480–760 B brotli on
+every list-bearing scenario (`scripts/size`, candidate vs base): four new
+functions beside the general path — the class the Props lane ruling named
+as the one that balloons. Candidate 2 kept the intent and moved it INTO the
+general path: stage only the changed window (`tempNodes`, `rows`, `indexes`
+sized `newEnd - start + 1`), commit the bookkeeping arrays in place with
+the suffix shifted by `Array.prototype.copyWithin`, rebuild only
+`_mappings`. +166–192 B minified, +81–118 B brotli — a tenth of candidate 1.
+Tests all green (the candidate-1 test file rewritten behavior-only as
+`mapArray-window-commit.test.ts`; the engagement counter is gone with the
+separate paths).
+
+Measured the same way (batch, idle machine, 22:35–22:48): **a step back.**
+
+| | base → cand 2 |
+| --- | --- |
+| fixture `tree/[500]/[removeLast(1)]` / `[insertLast(1)]` (median, 3 rounds) | 0.92 / 0.83 — the tail still wins |
+| fixture `tree/[500]/[removeFirst(1)]` | **1.23** (min 1.22) |
+| fixture worst-case reorders (4) | 1.04–1.12 |
+| Tier-1 head / middle pair | 1.30 / 1.15; tail 0.94, keyed tail 0.90 |
+| uibench suite | 1.654× → **1.691×** Octane; one-item group 1.05 (heads 1.2, tails 0.85) |
+| js-framework-reorder | 1.012× → 1.060× |
+
+Two causes, both then measured in Node (`micro-shift.mjs`, 1k object refs):
+
+- **`copyWithin` is not a memmove in V8.** Two shifts of 999 refs: 31.4 µs
+  via `copyWithin`, **0.97 µs** via a plain JS loop (32×), 2.6 µs via
+  `slice` + `unshift`. It is a generic per-element builtin. That is the
+  whole head-op regression; candidate 1's in-place loops were the right
+  mechanism.
+- **In-place stores into a long-lived array are NOT slower** than stores
+  into a fresh one (0.35 vs 0.43 µs per 500) — the write-barrier
+  explanation for the worst-case drift is wrong. What candidates 1 and 2
+  share on full-window reorders (no shifts, no creations) is a larger
+  `updateKeyedMap` body, and the small-move note already recorded that
+  inlining into that body deoptimized the general path. Working hypothesis:
+  keep the body no larger than base.
+
+### Candidate 3 — window staging, JS shift loops, commit in its own function (2026-10-15, measuring)
+
+Candidate 2 with the two findings applied: `commitWindow(data, newItems,
+newLen, start, end, newEnd, tempNodes, rows, indexes)` shifts the suffix
+with a loop walked from the side that never overwrites an unread slot (tail
+first for growth, window end first for shrink), lands the staged window,
+writes survivors' row and index signals; `updateKeyedMap`'s own body loses
+the per-array prefix / suffix copies and gains one call. +218–232 B
+minified, +99–389 B brotli (brotli's layout noise, ±50–90 B, is a third of
+that spread). All suites green. The measurement batch is the same as the
+others', into `results-cand3-oct15`.
+
+#### Candidates 3 and 4, measured (23:20–23:55) — the four-way table
+
+Same batch each (idle machine; Octane's own drift per run within 0.97–1.03
+on every group, so the Solid columns are read raw). Solid candidate / base
+per uibench op group; suite rows are `solid/octane` and `solid/vapor`.
+
+| | size, minified / brotli over cap (per list scenario) | one-item insert/remove (16) | `tree/[500]` one-item (4) | table filters (16) | worst-case reorders (4) | removeAll / renders / moves / activate / anim / no_change | uibench suite | jfb-reorder suite | jfb `removefirst` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| base | — | — | 5.04× Octane | 1.84× | 2.37× | — | 1.654× / 1.602× | 1.012× / 1.122× | 3.30× |
+| c1 subsequence paths | +1,590 B / ~+500 B | 0.84 | 0.64 | 0.68 | 1.09 | 1.01 / 1.00 / 1.00 / 1.04 / 0.98 / 1.00 | 1.521× / 1.455× | 0.983× / 1.040× | 0.71–0.90 |
+| c2 `copyWithin` | +170 B / ~+100 B | 1.05 | — | 1.02 | 1.11 | flat | 1.691× / 1.653× | 1.060× / 1.118× | 0.96 |
+| c3 loop shifts + commit helper | +220 B / ~+180 B | 0.93 | 0.78 | 0.98 | **1.03** | 1.00 / 1.02 / 1.00 / 1.04 / 0.98 / 0.99 | 1.654× / 1.586× | 1.026× / 1.148× | 0.72 |
+| c4 = c3 + Map-free pure removal + length-first growth | +645 B / ~+310 B | 0.91 | 0.75 | **0.70** | 1.11 | 1.00 / 1.00 / 0.98 / 1.03 / 0.99 / 0.99 | **1.530× / 1.482×** | 1.001× / 1.090× | 0.70 |
+
+Fixture timing (unminified, 3 rounds, medians) agrees on the wins —
+c4: `removeLast` 0.85, `insertLast` 0.83, `removeFirst` 0.77,
+`table/[100,4]/filter/4` 0.83 — and reads the worst-case reorders **flat**
+for every candidate (c4: 1.00–1.04; c3: 0.96–1.00; c1 earlier: flat), while
+the harness, on the minified build, reads them +9–12% for c1, c2 and c4 and
+flat for c3. The one structural difference c3 has from the other three is
+the smallest `updateKeyedMap` body (the commit left it; nothing came back in),
+which is the small-move note's finding again: the general path is sensitive
+to the size of that function — most likely through what V8 still inlines
+into it — and the full-window reorders are where the general path is all of
+the op. It needs an isolated old-vs-new read on the MINIFIED build before
+either c4 or that hypothesis is believed. `remove_100_scattered` 0.87 and
+`removeevery10` 0.86 under c4 are the Map-free stager at work; jfb
+`prepend100` / `insertmid100` read 1.18–1.21 under c3 and c4 but their
+minimum flips between 0.30 and 0.40 ms across identical builds in the
+afternoon's interleave, so they are "rerun alternated", not a verdict.
+
+Reading: c3 is the conservative PR — smallest, nothing slower anywhere on
+either instrument, half the one-item win, filters untouched. c4 is c1's
+result at 40% of its bytes, with the filter class (16 ops, 1.84× → 1.29×
+Octane) and the sparse removals on top, pending the worst-case isolation.
+Both patches are saved (`cand1-subsequence.patch`, `cand4-map.patch`;
+c3 = c4 without `stageRemoval` and the length-first lines).
+
+#### Prior art checked against candidates 3 and 4
+
+- `a7d42f655` (2026-07-22, "mapArray: swap-commit update pass + no-change
+  fast path") is the direct predecessor: before it the general path staged
+  full-length arrays, copied the whole range from `start` back into the live
+  arrays and re-sliced `_mappings` (~4 passes per edit); it removed the
+  copy-back and the slice by swapping the staged arrays in — the swap
+  supplying the fresh identity — and measured todomvc `toggleAll` ~2× and
+  keyed-reorder rotate ops ~35% faster. It kept the full-length staging.
+  Candidates 3/4 keep both of its wins (fresh `_mappings` by swap; the
+  no-change return untouched) and remove the staging it kept; a reorder is
+  the same write count with three fewer allocations (rotate ops flat under
+  c4, 1.01–1.03), and `toggleAll` goes into the final validation since no
+  batch tonight ran todomvc.
+- The May `mapArray` probes do not intersect: the `runWithOwner` lift was
+  reverted as neutral (creation side), Investigations 5–8 are the SSR
+  `mapArray`. The 2026-08-18 positional-prefix keyed walk is the store
+  reconciler. The keyed-list-driver proposal is the abandoned patch-channel
+  direction. No earlier attempt at an in-place client commit is recorded.
+
+#### Candidate 4 — final validation and the board (2026-10-16, 00:20–00:35) — KEPT, to PR
+
+Isolated on the minified build (`isolate-worst.sh`, base vs candidate, 3
+rounds alternated): the four worst-case reorders 1.08 / 1.04 / 0.98 / 0.96
+by median, mins 1.00 / 1.13 / 0.94 / 1.07 — the harness's +11% did not
+reproduce; the group averages +1.5%, inside what the same ops show between
+identical builds. `removeFirst(1)` 0.79 and `filter/4` 0.90 reproduce.
+
+Validation on the suites not yet run under the candidate (Octane's own
+drift per suite in brackets): **js-framework 1.002 [1.02], nothing flagged**
+(`swap` unchanged — a permutation, the small-move path's); **dbmon 1.03
+[0.99], nothing flagged**; **todomvc 0.84 [1.10]** — `toggleAllOn` 0.55,
+`toggleAllOff` 0.78, `clearCompleted` 0.76, `destroy25` 0.82, `filterCycle`
+0.83, `edit10` 0.86 (five improved by the runner's rule; the July `toggleAll`
+win is intact), `complete25` 1.23 on a 0.3 → 0.5 ms min — no structural edit
+in that op, the sub-ms bimodal class (see `add100`, 2026-09-18): rerun in
+isolation, not a verdict. jfb-reorder `insertmid100` / `prepend100` are the
+same class (their min flipped 0.30 ↔ 0.40 between identical builds in the
+afternoon's interleave).
+
+**The board**, Solid / competitor geomean over timed ops, each suite from
+its clean same-day run (22 suites vs Octane, 21 vs Vapor, uibench and the
+clean streaming-ssr rerun included):
+
+| | vs Octane | vs Vapor |
+| --- | ---: | ---: |
+| Sep 17 (Octane's bad run) | 0.754× | 0.988× |
+| today, before | 0.945× | 1.044× |
+| today, after candidate 4 | **0.926×** | **1.039×** |
+
+Where it moved: uibench 1.65× → 1.53× / 1.60× → 1.48×, js-framework-reorder
+1.07× → 1.00× / 1.13× → 1.09×, todomvc 0.95× → 0.72× / 1.01× → 0.88×. The
+op class moved 20–40%; the suite geomeans dilute it over 96 ops of which 32
+are the target; the board dilutes it again over 16 suites that never make a
+structural list edit.
+
+Decision: candidate 4 goes to the PR (`perf/map-array-inplace-commit` in
+`~/Development/solid-next-bench`): +635–654 B minified, +234–327 B brotli
+per list-bearing scenario; eleven inline caps raised and three frozen
+floors re-based with dated ledger lines (`Size-Exception` in the PR body),
+from local bytes — CI's measurement re-bases them if it differs. Candidate
+1's patch stays on file for the record; candidate 3 is candidate 4 minus
+`stageRemoval` and the length-first lines.
+
+Remaining one-item cost after this (uibench `tree/[500]` ops 3.4–4.2×
+Octane, 1.9–2.4× Vapor): a fixed per-update floor of ~10 µs (`setSignal` →
+queue → `flush` → `recompute` → the insert's two effects → one owner
+disposal) and two O(n) passes still paid per commit on the DOM side —
+`normalize`'s `flattenArray` copy of the mapped nodes and `reconcileArrays`'
+prefix / suffix scan with the `isLive` probe. Next in order: `normalize`
+adopting an array `mapArray` already owns; a 20 µs-sampled profile of the
+floor on this build; then the September list (disposal / owner count per
+row for removeAll, `Show`'s second memo, the compiler's static-child insert,
+`shell_staggered`). Fixture pass queued: effectful-list to the shallow-store
+shape, todomvc's `editing` to an id-keyed selector.
