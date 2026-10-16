@@ -259,6 +259,8 @@ export function installServerWithOrigin(observe: Observe): void {
     },
     withInteraction: slot.withInteraction,
     currentOrigin: slot.currentOrigin,
+    markFlight: slot.markFlight,
+    flightOrigin: slot.flightOrigin,
     withOrigin<T>(ref: NavigationRef, fn: () => T): T {
       if (ref.initial === true) sharedConfig.context?._declareRoute?.(ref);
       return inner(ref, fn);

@@ -2047,7 +2047,6 @@ module.exports = [
     // 52,593 B; measured locally (linux) at 17,855 B (52,593 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 17.87 -> 18.19 KB, measured at 18,172 B brotli / 53,236 B minified (+302 B brotli over the cap, +643 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Frozen floor: Size-Exception in the PR body. Local measurement; CI's bytes re-base this cap.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2587,7 +2586,7 @@ module.exports = [
     // -> 93,933 B; measured locally (linux) at 29,908 B (93,933 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 29.91 -> 30.09 KB, measured at 30,075 B brotli / 94,579 B minified (+165 B brotli over the cap, +646 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 29.91 -> 30.09 KB, measured at 30,075 B brotli / 94,579 B minified (+165 B brotli over the cap, +646 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     limit: "30.09 KB",
     capMinified: 94579,
     alias
@@ -2872,7 +2871,7 @@ module.exports = [
     // 36,256 B; measured locally (linux) at 12,857 B (36,256 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 12.87 -> 13.14 KB, measured at 13,122 B brotli / 36,900 B minified (+252 B brotli over the cap, +644 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 12.87 -> 13.14 KB, measured at 13,122 B brotli / 36,900 B minified (+252 B brotli over the cap, +644 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     limit: "13.14 KB",
     capMinified: 36900,
     alias
@@ -3203,9 +3202,16 @@ module.exports = [
     // binding name. Golfed first (-116 B minified: one owner walk, the store
     // lookup inlined), then the cap raised by what is left: measured + 10 B
     // rounded up to 0.01 KB.
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 14.51 -> 14.80 KB, measured at 14,783 B brotli / 41,633 B minified (+273 B brotli over the cap, +649 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "14.80 KB",
-    capMinified: 41633,
+    // Flight start stamps on the core slot (#4105, 2026-10-16): 14.51 ->
+    // 14.60 KB, measured locally at 14,588 B against `next` @ 4a99c844's
+    // 14,498 (+90 B; +228 B minified, 40,984 -> 41,212) — observe tier only:
+    // `OBSERVE.attribution.markFlight`/`flightOrigin` move into the core so a
+    // router or cache can stamp without the engine, and `lazy()` stamps its
+    // import and the read wrapper. Prod unchanged. Cap at measured + 10 B
+    // rounded up to 0.01 KB.
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 14.60 -> 14.91 KB, measured at 14,892 B brotli / 41,859 B minified (+292 B brotli over the cap, +647 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "14.91 KB",
+    capMinified: 41859,
     alias: observeAlias
   },
   {
@@ -3688,9 +3694,14 @@ module.exports = [
     // measured locally at 29,108 B (87,372 B minified; +209 B minified). The
     // observe tier's cost above, unchanged by the engine. Cap at measured +
     // 10 B rounded up to 0.01 KB.
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 29.12 -> 29.43 KB, measured at 29,415 B brotli / 88,023 B minified (+295 B brotli over the cap, +651 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "29.43 KB",
-    capMinified: 88023,
+    // Flight start stamps on the core slot (#4105, 2026-10-16): 29.12 ->
+    // 29.19 KB, measured locally at 29,180 B against `next` @ 4a99c844's
+    // 29,108 (+72 B; +210 B minified, 87,372 -> 87,582) — the observe scenario's
+    // change (the slot's stamps, `lazy()`'s marks) less the engine's own
+    // origin map, which now delegates to the slot.
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 29.19 -> 29.48 KB, measured at 29,462 B brotli / 88,235 B minified (+272 B brotli over the cap, +653 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "29.48 KB",
+    capMinified: 88235,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -3888,7 +3899,7 @@ module.exports = [
     // 80,206 B; measured locally (linux) at 25,646 B (80,206 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 25.66 -> 25.95 KB, measured at 25,940 B brotli / 80,846 B minified (+280 B brotli over the cap, +640 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 25.66 -> 25.95 KB, measured at 25,940 B brotli / 80,846 B minified (+280 B brotli over the cap, +640 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     limit: "25.95 KB",
     capMinified: 80846,
     alias
@@ -4036,7 +4047,7 @@ module.exports = [
     // 100,760 B; measured locally (linux) at 31,705 B (100,760 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 31.72 -> 31.96 KB, measured at 31,950 B brotli / 101,408 B minified (+230 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 31.72 -> 31.96 KB, measured at 31,950 B brotli / 101,408 B minified (+230 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     limit: "31.96 KB",
     capMinified: 101408,
     alias
@@ -4851,7 +4862,6 @@ module.exports = [
     // 106,175 B; measured locally (linux) at 34,601 B (106,175 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 34.62 -> 34.84 KB, measured at 34,825 B brotli / 106,829 B minified (+205 B brotli over the cap, +654 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Frozen floor: Size-Exception in the PR body. Local measurement; CI's bytes re-base this cap.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5125,7 +5135,6 @@ module.exports = [
     // display through its retry, `latest` throws a staged error. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-15 (golf first, then raise by what is left).
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 38.70 -> 39.01 KB, measured at 38,991 B brotli / 120,185 B minified (+291 B brotli over the cap, +645 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Frozen floor: Size-Exception in the PR body. Local measurement; CI's bytes re-base this cap.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5236,7 +5245,7 @@ module.exports = [
     // 109,100 B; measured locally (linux) at 35,353 B (109,100 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 35.37 -> 35.78 KB, measured at 35,768 B brotli / 109,754 B minified (+398 B brotli over the cap, +654 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 35.37 -> 35.78 KB, measured at 35,768 B brotli / 109,754 B minified (+398 B brotli over the cap, +654 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     limit: "35.78 KB",
     capMinified: 109754,
     alias: pageAlias
@@ -5317,7 +5326,7 @@ module.exports = [
     // 124,433 -> 124,010 B; measured locally (linux) at 41,483 B (124,010 B
     // minified). Lower only: cap at measured + 10 B rounded up to 0.01 KB;
     // recorded minified never raised.
-    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ 4a99c8446 after #4104's ratchet): 41.21 -> 41.77 KB, measured at 41,758 B brotli / 124,658 B minified (+544 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 41.21 -> 41.77 KB, measured at 41,758 B brotli / 124,658 B minified (+544 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     limit: "41.77 KB",
     capMinified: 124658,
     alias: pageAlias
