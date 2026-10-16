@@ -3191,8 +3191,15 @@ module.exports = [
     // 40,780 B; measured locally (linux) at 14,444 B (40,780 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "14.46 KB",
-    capMinified: 40780,
+    // Flight start stamps on the core slot (#4105, 2026-10-16): 14.46 ->
+    // 14.51 KB, measured locally at 14,499 B against the ratchet's 14,444
+    // (+55 B; +228 B minified, 40,780 -> 41,008) — observe tier only:
+    // `OBSERVE.attribution.markFlight`/`flightOrigin` move into the core so a
+    // router or cache can stamp without the engine, and `lazy()` stamps its
+    // import and the read wrapper. Prod unchanged. Cap at measured + 10 B
+    // rounded up to 0.01 KB.
+    limit: "14.51 KB",
+    capMinified: 41008,
     alias: observeAlias
   },
   {
@@ -3671,8 +3678,13 @@ module.exports = [
     // 87,163 B; measured locally (linux) at 29,073 B (87,163 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "29.09 KB",
-    capMinified: 87163,
+    // Flight start stamps on the core slot (#4105, 2026-10-16): 29.09 ->
+    // 29.14 KB, measured locally at 29,130 B against the ratchet's 29,073
+    // (+57 B; +215 B minified, 87,163 -> 87,378) — the observe scenario's
+    // change (the slot's stamps, `lazy()`'s marks) less the engine's own
+    // origin map, which now delegates to the slot.
+    limit: "29.14 KB",
+    capMinified: 87378,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above

@@ -27,6 +27,16 @@ export const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
  */
 export const $DEVCOMP = Symbol(IS_DEV ? "COMPONENT_DEV" : 0);
 
+/**
+ * Observe: stamps `flight` with when its work started — `from`'s start, or
+ * now — so a reader that meets it later isn't read as a waterfall link (see
+ * `OBSERVE.attribution.markFlight`). Call sites gate on `IS_OBSERVE`.
+ */
+export function markFlight(flight: object, from?: object): void {
+  const slot = OBSERVE!.attribution;
+  slot.markFlight(flight, from && slot.flightOrigin(from));
+}
+
 // Magic type that when used at sites where generic types are inferred from, will prevent those sites from being involved in the inference.
 // https://github.com/microsoft/TypeScript/issues/14829
 // TypeScript Discord conversation: https://discord.com/channels/508357248330760243/508357248330760249/911266491024949328

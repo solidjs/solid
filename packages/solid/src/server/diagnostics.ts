@@ -18,14 +18,20 @@ export const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
 export type Finding = Omit<DiagnosticEvent, "sequence">;
 
 /**
- * Dev only: the promises a render waits on that are module CODE — a
- * `lazy()`/`lazyModule()` chunk import or its asset resolution — not data.
- * A `<Loading>` boundary's waterfall check leaves passes that waited only on
- * these out of its count: a cold module cache resolves nested route chunks
- * one level per pass even when the router started every import together,
- * and the data advice doesn't apply to code (#4105).
+ * Dev: stamps `flight` with when its work started (the core's
+ * `OBSERVE.attribution.markFlight`, which the client engine reads too). The
+ * `<Loading>` waterfall check reads the stamps back with `flightOrigin` to
+ * tell a wait on work that was already running from one that could only
+ * start after the previous wait landed (#4105). Call sites gate on `IS_DEV`.
  */
-export const codeWaits: WeakSet<object> | undefined = IS_DEV ? new WeakSet() : undefined;
+export function markFlight(flight: object, startedAt?: number): void {
+  OBSERVE!.attribution.markFlight(flight, startedAt);
+}
+
+/** Dev: the stamp `markFlight` left on `flight`, if any. */
+export function flightOrigin(flight: object): number | undefined {
+  return OBSERVE!.attribution.flightOrigin(flight);
+}
 
 /**
  * Records a finding on `OBSERVE.diagnostics` — observe and dev tiers — and,

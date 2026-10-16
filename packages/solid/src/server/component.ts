@@ -10,7 +10,14 @@ import {
   createComponentOwner,
   type Owner
 } from "./signals.js";
-import { IS_DEV, IS_OBSERVE, codeWaits, devCheck, errorText } from "./diagnostics.js";
+import {
+  IS_DEV,
+  IS_OBSERVE,
+  devCheck,
+  errorText,
+  flightOrigin,
+  markFlight
+} from "./diagnostics.js";
 import { sharedConfig, callerRenderContext, type ResolvedAssets } from "./shared.js";
 import type { Element as SolidElement } from "../types.js";
 
@@ -204,6 +211,9 @@ function resolveLazyAssets(
   } else {
     assets = ctx.resolveAssets!(id);
     cache.set(id, assets);
+    // Dev: the lookup starts here — at a `preload()` hint, the render reuses
+    // it — and the gate below inherits the stamp (#4105).
+    if (IS_DEV && assets && typeof (assets as any).then === "function") markFlight(assets);
   }
   if (assets && typeof (assets as Promise<ResolvedAssets | null>).then === "function") {
     // Restore the boundary that owned this call — by the time the resolver
@@ -211,7 +221,7 @@ function resolveLazyAssets(
     // the finding a rejection raises.
     const boundary = ctx._currentBoundaryId;
     const owner = getOwner();
-    return (assets as Promise<ResolvedAssets | null>).then(
+    const gate = (assets as Promise<ResolvedAssets | null>).then(
       resolved => {
         // Upgrade the memoized entry to the settled VALUE. Leaving the promise
         // in the cache made every post-settle re-creation mint a fresh pending
@@ -235,6 +245,8 @@ function resolveLazyAssets(
         lazyAssetUnmapped(id, err, owner);
       }
     );
+    if (IS_DEV) markFlight(gate, flightOrigin(assets as object));
+    return gate;
   }
   apply(assets as ResolvedAssets | null);
 }
@@ -292,7 +304,8 @@ export function lazy<T extends Component<any>>(
   let load = () => {
     if (p) return p;
     const cur = (p = fn() as LoadingModule);
-    if (IS_DEV) codeWaits!.add(cur);
+    // Dev: the import starts now, whoever reads it later (#4105).
+    if (IS_DEV) markFlight(cur);
     cur.then(
       (mod: any) => {
         // The full namespace is kept alongside the resolved component so a
@@ -400,14 +413,18 @@ export function lazy<T extends Component<any>>(
               ctx._currentBoundaryId = current;
             }
           });
+          // Dev: chained on the import, so it started with it (#4105).
+          if (IS_DEV) markFlight(assetsPending, flightOrigin(cur));
         }
       }
       if (assetsPending) {
         const clear = () => {
           assetsPending = undefined;
         };
+        const lookup = assetsPending;
         assetsPending = assetsPending.then(clear, clear);
-        if (IS_DEV) codeWaits!.add(assetsPending);
+        // Dev: the gate started when its lookup did (#4105).
+        if (IS_DEV) markFlight(assetsPending, flightOrigin(lookup));
       }
     }
     // The module load is CODE, not data: the shell's "no new async discovered
@@ -559,7 +576,8 @@ export function lazyModule<T extends Record<string, any>>(
   const load = (): Loading => {
     if (p) return p;
     const cur = (p = fn() as Loading);
-    if (IS_DEV) codeWaits!.add(cur);
+    // Dev: the import starts now, whoever reads it later (#4105).
+    if (IS_DEV) markFlight(cur);
     cur.then(
       (mod: T) => {
         cur.mod = mod;
@@ -618,14 +636,18 @@ export function lazyModule<T extends Record<string, any>>(
               ctx._currentBoundaryId = current;
             }
           });
+          // Dev: chained on the import, so it started with it (#4105).
+          if (IS_DEV) markFlight(assetsPending, flightOrigin(cur));
         }
       }
       if (assetsPending) {
         const clear = () => {
           assetsPending = undefined;
         };
+        const lookup = assetsPending;
         assetsPending = assetsPending.then(clear, clear);
-        if (IS_DEV) codeWaits!.add(assetsPending);
+        // Dev: the gate started when its lookup did (#4105).
+        if (IS_DEV) markFlight(assetsPending, flightOrigin(lookup));
       }
     }
     if (ctx.async && ((cur.mod === undefined && !cur.errored) || assetsPending)) {

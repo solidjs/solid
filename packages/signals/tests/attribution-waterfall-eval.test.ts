@@ -212,6 +212,43 @@ describe("ASYNC_WATERFALL", () => {
     expect(attribution.history("waterfall")).toHaveLength(0);
   });
 
+  it("honors a mark made on the core slot (OBSERVE.attribution.markFlight)", async () => {
+    const events = arm();
+    // Route preloader shape: the author request is kicked off at navigation
+    // time, in parallel with story. The memo later picks up the SAME promise.
+    const preloadedAuthor = sleep(30, "author-preloaded");
+    // A router or lazy() stamps through the core slot: no engine import.
+    OBSERVE!.attribution.markFlight(preloadedAuthor);
+    expect(OBSERVE!.attribution.flightOrigin(preloadedAuthor)).toBeTypeOf("number");
+
+    const story = createMemo(() => sleep(15, "story"), { name: "story" });
+    const author = createMemo(
+      () => {
+        story(); // still graph-caused by story's landing...
+        return preloadedAuthor; // ...but the work predates it: parallel.
+      },
+      { name: "author" }
+    );
+    let landed: unknown;
+    createRoot(() =>
+      createEffect(
+        () => author(),
+        v => {
+          landed = v;
+        },
+        { name: "page" }
+      )
+    );
+    flush();
+    await until(() => landed === "author-preloaded", "the preloaded author landing");
+    await wait(10); // one extra settle turn: a late advisory would fire here
+    flush();
+
+    expect(events).toHaveLength(0);
+    // Not even recorded as a chain fact — the origin test broke the link.
+    expect(attribution.history("waterfall")).toHaveLength(0);
+  });
+
   it("does not flag an already-settled cached dependent (duration gate)", async () => {
     // Both links must each clear the gate for a verdict. The gate sits far
     // above what a resolved promise's landing can take on a loaded CI runner

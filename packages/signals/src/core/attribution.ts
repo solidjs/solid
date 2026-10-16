@@ -2400,13 +2400,11 @@ function asyncOrigin(el: Computed<any>): ChangeOrigin {
 // WeakMaps: an errored/abandoned flight must not leak its node or block GC.
 const liveFlights = new WeakMap<Computed<any>, LiveFlight>();
 const landedFlights = new WeakMap<ChangeRecord, LandedFlight>();
-/**
- * Flight-object identity → earliest known start. Fed by markFlight() (the
- * cooperative preload/cache declaration — populated even while attribution
- * is disabled, so navigation-time marks survive a later enable()) and by
- * first sightings at registration.
- */
-const flightOrigins = new WeakMap<object, number>();
+// Flight-object identity → earliest known start lives on the core's slot
+// (`OBSERVE.attribution.markFlight`/`flightOrigin`), so marks made with no
+// engine loaded — a router's preloads, `lazy()`'s import — and the server's
+// boundary check share it. Fed by markFlight() and by first sightings at
+// registration.
 let waterfallLog: WaterfallRecord[] = [];
 
 /** Deepest landed-flight cause reachable through a cause list (derived links included). */
@@ -2458,8 +2456,8 @@ function emitFlight(
 
 function trackFlightStart(el: Computed<any>, flight: object): void {
   const at = now();
-  const origin = flightOrigins.get(flight) ?? at;
-  if (origin === at) flightOrigins.set(flight, at);
+  const origin = OBSERVE.attribution.flightOrigin(flight) ?? at;
+  if (origin === at) OBSERVE.attribution.markFlight(flight, at);
   // Census: a flight still in the air when the node starts another was
   // superseded — its answer will be discarded.
   const superseded = liveFlights.get(el);
@@ -4680,10 +4678,9 @@ export const attribution: Attribution = {
     // The buffers are typed by their variable; the switch is the proof.
     return buffer as readonly never[];
   },
-  markFlight(flight: object, startedAt: number = now()) {
-    // Earliest wins: re-marking (a cache re-serving the same promise) must
-    // not move the origin later.
-    const existing = flightOrigins.get(flight);
-    if (existing === undefined || startedAt < existing) flightOrigins.set(flight, startedAt);
+  markFlight(flight: object, startedAt?: number) {
+    // Earliest wins (the slot's rule): re-marking (a cache re-serving the
+    // same promise) must not move the origin later.
+    OBSERVE.attribution.markFlight(flight, startedAt);
   }
 };
