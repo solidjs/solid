@@ -402,6 +402,13 @@ export interface FrameOptions {
    * needs no chunk.
    */
   adopt?: boolean;
+  /**
+   * With `adopt`: leave the slot occurrences unmounted for the client's
+   * deferred-hydration driver (`setDeferDriver`) to mount on demand. Region
+   * frames inside such a frame inherit it. Ignored with no driver set.
+   * @internal
+   */
+  defer?: boolean;
   /** Called after each apply flush (tests/telemetry). */
   onApply?(info: { version: number; reason: "materialize" | "morph" | "reveal" | "error" }): void;
   /**
@@ -1168,7 +1175,37 @@ export const tierLoads: Record<string, Promise<void> & { r?: any }> = {};
 // Every live frame, so an install can wake them all: a frame whose sync
 // held an occurrence on the tier re-syncs and mounts it; the rest see a
 // no-op flush.
-const liveFrames = new Set();
+const liveFrames = new Set<any>();
+
+/**
+ * Deferred hydration (see client.ts `installServerComponents`): while a
+ * driver is installed, an adopting frame with slots mounts NO occurrence at
+ * adoption — no walk, no record resolution, no fill — and hands itself to
+ * the driver, which mounts occurrences when an event lands in one
+ * (`mountEnclosing`), before a write lands (`mountDeferred` with no
+ * deadline) and in idle slices (`mountDeferred` with one). Unset, every
+ * frame mounts at adoption.
+ * @internal
+ */
+export let deferDriver: ((frame: any) => void) | null = null;
+/** @internal */
+export function setDeferDriver(driver: ((frame: any) => void) | null): void {
+  deferDriver = driver;
+}
+/** @internal The live frames still owing their adoption-time mounts, outermost first. */
+export function deferredFrames(): any[] {
+  return [...liveFrames].filter(f => f.deferred);
+}
+/** @internal Deferred hydration finished page-wide: every frame's adoption hold lifts. */
+export function releaseDeferHolds(): void {
+  for (const f of liveFrames) f.releaseDeferHold();
+}
+/** @internal The innermost live frame whose element contains `node`. */
+export function liveFrameAt(node: Node): any {
+  let hit;
+  for (const f of liveFrames) if (f.el.contains(node) && (!hit || hit.el.contains(f.el))) hit = f;
+  return hit;
+}
 
 /**
  * Start (or join) a tier's load. Idempotent per name; a name with no loader
@@ -1328,6 +1365,17 @@ class FrameImpl {
   // (frames-rulings 3.6: a claim reads what the markup was rendered from).
   #heldRecords = new Map();
   #disposed = false;
+  // Deferred hydration: set while the adoption-time mounts are still owed
+  // (see `deferDriver`); `#deferFound` is the walk the slices mount from.
+  #defers = false;
+  #deferred = false;
+  #deferFound;
+  #deferWaiting = false;
+  // Occurrences mounted while deferred, by id → start marker.
+  #deferMounted = new Map();
+  // The page's hydration stays open while any frame owes mounts: the
+  // document frame's registration, released by the driver once none does.
+  #deferHold;
 
   // Element-claim sweep for one materialized/morph-touched subtree, run
   // under `ownerScope` when the creator provided one — claim consumers
@@ -1364,6 +1412,10 @@ class FrameImpl {
     if (options.adopt) {
       this.#hasContent = true;
       this.#claimContent();
+      // A document boundary's frame asks to defer (`options.defer`); its
+      // regions' frames inherit it through their parent.
+      this.#defers = !!deferDriver && !!(options.defer || this.#outer?.defers);
+      this.#deferred = this.#defers && !!(this.#slots || this.#outer);
     }
     // Register last, after all fields are initialized: registration may flush
     // buffered chunks straight into `apply`.
@@ -1377,7 +1429,10 @@ class FrameImpl {
     // sync (every apply ends in #flush -> #syncSlots, and it sets #version),
     // so only sync here when no buffered chunk arrived — the repeat walk over
     // a large adopted tree is pure redundancy.
-    if (options.adopt && this.#version === undefined) this.#syncSlots();
+    if (this.#deferred) {
+      this.#deferHold = options.hold?.();
+      deferDriver!(this);
+    } else if (options.adopt && this.#version === undefined) this.#syncSlots();
   }
 
   /** Server content landed: caller hook + the bubbling document notification. */
@@ -1527,6 +1582,7 @@ class FrameImpl {
     const version = this.#version;
 
     const root = this.#store[""];
+    const applied = this.#appliedRoot;
     if (root && root.kind === "html" && root !== this.#appliedRoot) {
       const reason = this.#hasContent ? "morph" : "materialize";
       this.#applyRoot(root.value);
@@ -1612,6 +1668,23 @@ class FrameImpl {
     }
     if (morphed) this.#applied(version, "morph");
 
+    // Deferred: a flush that changed no content (the registration's drain of
+    // the document's records, a tier's install flush) mounts nothing; one
+    // that did ends the deferral with the full sync.
+    if (this.#deferred) {
+      if (!morphed && this.#appliedRoot === applied) {
+        // A segment this flush revealed brings occurrences the walk has not
+        // seen: the next slice walks again (mounted ones pass over). The
+        // occurrences an event mounted take the flush's record changes.
+        this.#deferFound = undefined;
+        if (this.#deferMounted.size)
+          this.#deferWaiting = this.#mountFound(new Map(this.#deferMounted)) || this.#deferWaiting;
+        return;
+      }
+      this.#deferred = false;
+      this.#deferFound = undefined;
+      this.#deferMounted.clear();
+    }
     this.#syncSlots(undefined, this.#morphed);
   }
 
@@ -1718,6 +1791,44 @@ class FrameImpl {
       }
       this.#found = elements ? found : undefined;
     }
+    let waiting = this.#mountFound(found);
+
+    // The bind tier's wait (frames savings pass §1, "bind"; §3 row C6): the
+    // walk met a `_s:*` marker — an element's or a text position's — while
+    // the tier that parses it is absent, and noted it (`found.b`) without
+    // registering an occurrence. The data occurrences stay as the server
+    // left them — positions at the server's values, handlers inert, their
+    // events queued behind each consumer's own `_hk` stamp — and the frame
+    // waits: the check starts the load (the un-announced fallback;
+    // announced, it is already in flight), the install's flush re-syncs
+    // with the tier in place and the loop above mounts them.
+    if (found.b && !tierReady("bind")) waiting = true;
+
+    // Unmount occurrences whose range has disappeared from the server content
+    // — full-frame syncs only; a scoped fragment fill never removes siblings.
+    if (!root) {
+      for (const occurrence of [...this.#mountedSlots]) {
+        if (!found.has(occurrence)) this.#unmountSlot(occurrence);
+      }
+      // The frame's hold (frames-rulings 3.2): ONE registration with the
+      // integration while a sync leaves an occurrence waiting to mount —
+      // for its record, for the record's reads to settle, or for its tier
+      // — released by the first sync that leaves none, or by disposal. The
+      // waits are bounded as a `<Loading>` resume's is: the record by its
+      // declared value settling, the read by the stream's
+      // `complete`/`:error`, the tier by its load settling.
+      if (waiting && !this.#hold) this.#hold = this.#options.hold?.();
+      else if (!waiting && this.#hold) this.#releaseHold();
+    }
+  }
+
+  /**
+   * Mount, update or re-call every occurrence of a found map: the sync's
+   * loop, also run over part of a walk's result by the deferred-hydration
+   * slices (`mountDeferred`, `mountEnclosing`). Returns whether an
+   * occurrence is left waiting to mount.
+   */
+  #mountFound(found) {
     // Whether this sync leaves an occurrence WAITING to mount — for its
     // record, for a `{$ref}`'s data: a claim the frame owes the page and has
     // not made yet (see the hold at the end).
@@ -1926,34 +2037,91 @@ class FrameImpl {
         R?.bind(this, occurrence);
       }
     }
+    return waiting;
+  }
 
-    // The bind tier's wait (frames savings pass §1, "bind"; §3 row C6): the
-    // walk met a `_s:*` marker — an element's or a text position's — while
-    // the tier that parses it is absent, and noted it (`found.b`) without
-    // registering an occurrence. The data occurrences stay as the server
-    // left them — positions at the server's values, handlers inert, their
-    // events queued behind each consumer's own `_hk` stamp — and the frame
-    // waits: the check starts the load (the un-announced fallback;
-    // announced, it is already in flight), the install's flush re-syncs
-    // with the tier in place and the loop above mounts them.
-    if (found.b && !tierReady("bind")) waiting = true;
+  /** @internal The frame's element. */
+  get el() {
+    return this.#element;
+  }
 
-    // Unmount occurrences whose range has disappeared from the server content
-    // — full-frame syncs only; a scoped fragment fill never removes siblings.
-    if (!root) {
-      for (const occurrence of [...this.#mountedSlots]) {
-        if (!found.has(occurrence)) this.#unmountSlot(occurrence);
+  /** @internal Whether this frame (and so its regions' frames) defers its adoption-time mounts. */
+  get defers() {
+    return this.#defers;
+  }
+
+  /** @internal Whether this frame still owes its adoption-time mounts. */
+  get deferred() {
+    return this.#deferred;
+  }
+
+  /**
+   * Deferred hydration: mount the occurrence of THIS frame that encloses
+   * `target` — the outermost unclosed `slot:*:start` met scanning back over
+   * the target's preceding siblings, then up to the frame's element (an end
+   * marker met first closes a sibling range, skipped whole). Its regions
+   * become frames of their own, deferred in turn, so the caller repeats on
+   * the innermost live frame until nothing new mounts. False when the
+   * target sits in no occurrence of this frame, or in one already mounted.
+   */
+  mountEnclosing(target: Node): boolean {
+    if (!this.#deferred) return false;
+    // The ones inside the outermost belong to the frames its mount
+    // creates, which the caller visits next.
+    const root = this.#element;
+    let outer: Comment | undefined;
+    for (let node = target; node && node !== root; node = node.parentNode!) {
+      let depth = 0;
+      for (let s = node.previousSibling; s; s = s.previousSibling) {
+        if (s.nodeType !== COMMENT_NODE || !(s as Comment).data.startsWith("slot:")) continue;
+        if (SLOT_END.test((s as Comment).data)) depth++;
+        else if (depth) depth--;
+        else outer = s as Comment;
       }
-      // The frame's hold (frames-rulings 3.2): ONE registration with the
-      // integration while a sync leaves an occurrence waiting to mount —
-      // for its record, for the record's reads to settle, or for its tier
-      // — released by the first sync that leaves none, or by disposal. The
-      // waits are bounded as a `<Loading>` resume's is: the record by its
-      // declared value settling, the read by the stream's
-      // `complete`/`:error`, the tier by its load settling.
-      if (waiting && !this.#hold) this.#hold = this.#options.hold?.();
-      else if (!waiting && this.#hold) this.#releaseHold();
     }
+    const id = outer && slotStartId(outer);
+    if (!id || this.#mountedSlots.has(id)) return false;
+    this.#deferWaiting = this.#mountFound(new Map([[id, outer]])) || this.#deferWaiting;
+    if (!this.#mountedSlots.has(id)) return false;
+    this.#deferMounted.set(id, outer);
+    return true;
+  }
+
+  /**
+   * Deferred hydration: mount what this frame still owes, in batches, until
+   * `deadline` (none: all of it). One walk of the frame, then its
+   * occurrences in document order; one already mounted by an event is
+   * passed over. True once done: the frame then syncs as any other, and an
+   * occurrence left waiting (its record, its tier) holds hydration as the
+   * adoption-time sync would have.
+   */
+  mountDeferred(deadline?: number): boolean {
+    if (!this.#deferred) return true;
+    let found = this.#deferFound;
+    if (!found) {
+      found = this.#deferFound = new Map();
+      const loading = tierLoads.bind;
+      this.#collectSlots(found, loading && !loading.r ? void (found.b = true) : found);
+    }
+    for (const [id, start] of found) {
+      found.delete(id);
+      this.#deferWaiting = this.#mountFound(new Map([[id, start]])) || this.#deferWaiting;
+      if (this.#mountedSlots.has(id)) this.#deferMounted.set(id, start);
+      if (deadline !== undefined && found.size && performance.now() > deadline) return false;
+    }
+    this.#deferred = false;
+    this.#deferFound = undefined;
+    this.#deferMounted.clear();
+    if ((this.#deferWaiting || (found.b && !tierReady("bind"))) && !this.#hold)
+      this.#hold = this.#options.hold?.();
+    return true;
+  }
+
+  /** @internal Deferred hydration finished page-wide: release the adoption's hold. */
+  releaseDeferHold() {
+    const release = this.#deferHold;
+    this.#deferHold = undefined;
+    release && release();
   }
 
   #releaseHold() {
@@ -2211,6 +2379,7 @@ class FrameImpl {
     this.#disposed = true;
     liveFrames.delete(this);
     this.#releaseHold();
+    this.releaseDeferHold();
     for (const key of [...this.#slotCleanups.keys()]) this.#runSlotCleanups(key);
     // Release this frame's occurrences' records from the store that owns them
     // (an ancestor's, for a region frame's nested occurrences) so a torn-down
