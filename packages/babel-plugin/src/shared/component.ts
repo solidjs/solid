@@ -14,6 +14,7 @@ import { transformNode, getCreateTemplate, thisTagIdentifiers } from "./transfor
 import { markPropsLiteral } from "../ssr/props";
 import { decodedAttrValue } from "../universal/element";
 import { sourceNames, type PluginConfig } from "../config";
+import { sourceLocation } from "./location";
 import type { BabelPath, JSXNode, TransformResult } from "../types";
 
 type JSXAttributePath = BabelPath<t.JSXAttribute | t.JSXSpreadAttribute>;
@@ -370,6 +371,10 @@ export default function transformComponent(
     sourceNames(config).components && (config.generate === "dom" || config.generate === "ssr");
   if (labelled) {
     componentArgs.push(t.stringLiteral(tagName));
+    // `sourceNames.locations`: the opening element's start (`<Home`) as a
+    // fourth argument, `file:line:col`, so a diagnostic can point at the JSX.
+    const loc = sourceLocation(path, path.node.openingElement);
+    if (loc !== undefined) componentArgs.push(t.stringLiteral(loc));
   }
   // SSR's prod `createComponent` is literally `Comp(props || {})`. Since the
   // compiler always emits a real `props[0]` object expression above (see the

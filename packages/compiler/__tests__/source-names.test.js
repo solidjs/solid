@@ -7,8 +7,10 @@ const { transformSourceNames, transformSourceNamesAsync } = require("../index");
 const IMPORT =
   'import { createSignal, createMemo, createStore, createProjection, createOptimistic } from "solid-js";\n';
 
+// The naming tests read the `name` alone; `locations` (on by default, see
+// below) is switched off so the literals stay one-line.
 function names(code, filename = "input.ts") {
-  return transformSourceNames(IMPORT + code, { filename }).code;
+  return transformSourceNames(IMPORT + code, { filename, locations: false }).code;
 }
 
 describe("transformSourceNames", () => {
@@ -55,7 +57,7 @@ describe("transformSourceNames", () => {
           "const proj = createProjection(d => {}, {});",
           "const [optStore] = createOptimisticStore({ a: 1 });"
         ].join("\n"),
-        { filename: "input.ts" }
+        { filename: "input.ts", locations: false }
       ).code;
       expect(out).toContain('createOptimistic(0, { name: "opt" })');
       expect(out).toContain('createStore({ a: 1 }, { name: "store" })');
@@ -145,7 +147,7 @@ describe("transformSourceNames", () => {
           "const [mine] = createCounter(0);",
           "const [named] = createSignal(0);"
         ].join("\n"),
-        { filename: "input.ts" }
+        { filename: "input.ts", locations: false }
       ).code;
       expect(out).not.toContain('"shadowed"');
       expect(out).not.toContain('"foreign"');
@@ -161,7 +163,7 @@ describe("transformSourceNames", () => {
           "const Ctx = createContext();",
           "createEffect(() => 1, () => {});"
         ].join("\n"),
-        { filename: "input.ts" }
+        { filename: "input.ts", locations: false }
       ).code;
       expect(out).not.toContain("name:");
     });
@@ -177,7 +179,7 @@ describe("transformSourceNames", () => {
           "const [b] = S.createMemo(() => 1);",
           "const [c] = S.notAPrimitive(0);"
         ].join("\n"),
-        { filename: "input.ts" }
+        { filename: "input.ts", locations: false }
       ).code;
       expect(out).toContain('sig(0, { name: "a" })');
       expect(out).toContain('S.createMemo(() => 1, { name: "b" })');
@@ -241,7 +243,7 @@ describe("transformSourceNames", () => {
       const out = transformSourceNames(
         IMPORT +
           "function App() { const [count] = createSignal(0); return <button onClick={() => count()}>{count()}</button>; }",
-        { filename: "App.tsx" }
+        { filename: "App.tsx", locations: false }
       ).code;
       expect(out).toContain('createSignal(0, { name: "count" })');
       expect(out).toContain("<button onClick={() => count()}>{count()}</button>");
@@ -272,9 +274,75 @@ describe("transformSourceNames", () => {
 
     it("has an async twin", async () => {
       const result = await transformSourceNamesAsync(IMPORT + "const [a] = createSignal(0);", {
-        filename: "a.ts"
+        filename: "a.ts",
+        locations: false
       });
       expect(result.code).toContain('{ name: "a" }');
     });
+  });
+});
+
+// `locations` (default on): the options literal also carries `loc`, the
+// call's `file:line:col` relative to `root`, right after `name`.
+describe("transformSourceNames locations", () => {
+  const code = "const [count, setCount] = createSignal(0);";
+  const located = (code, filename = "src/store.ts") =>
+    transformSourceNames(IMPORT + code, { filename }).code;
+
+  it("writes `loc` after `name` by default — the call's start, column 1-based", () => {
+    expect(located(code)).toContain(
+      'createSignal(0, {\n\tname: "count",\n\tloc: "src/store.ts:2:27"\n})'
+    );
+  });
+
+  it("keeps an explicit `name` and still adds `loc` right after it", () => {
+    const out = located('const [count] = createSignal(0, { name: "explicit", equals: false });');
+    expect(out).toContain('name: "explicit",\n\tloc: "src/store.ts:2:17",\n\tequals: false');
+    expect(out).not.toContain('name: "count"');
+  });
+
+  it("never overrides an explicit `loc`", () => {
+    const out = located('const [count] = createSignal(0, { loc: "mine:1:1" });');
+    expect(out).toContain('loc: "mine:1:1"');
+    expect(out).toContain('name: "count"');
+    expect(out).not.toContain("src/store.ts");
+  });
+
+  it("completes a literal that already has a name with `loc` only", () => {
+    const out = located('const doubled = createMemo(() => 1, { name: "double" });');
+    expect(out).toContain('{\n\tname: "double",\n\tloc: "src/store.ts:2:17"\n}');
+  });
+
+  it("`locations: false` adds none", () => {
+    const out = transformSourceNames(IMPORT + code, {
+      filename: "src/store.ts",
+      locations: false
+    }).code;
+    expect(out).toContain('createSignal(0, { name: "count" })');
+    expect(out).not.toContain("loc:");
+  });
+
+  it("no `filename` → no `loc`", () => {
+    const out = transformSourceNames(IMPORT + code).code;
+    expect(out).toContain('createSignal(0, { name: "count" })');
+    expect(out).not.toContain("loc:");
+  });
+
+  it("the path is relative to `root`, posix, with `..` outside it", () => {
+    const path = require("path");
+    const abs = path.resolve("src/store.ts");
+    const compile = root =>
+      transformSourceNames(IMPORT + code, { filename: abs, ...(root ? { root } : {}) }).code;
+    expect(compile()).toContain('loc: "src/store.ts:2:27"');
+    expect(compile("src")).toContain('loc: "store.ts:2:27"');
+    expect(compile(path.resolve("src"))).toContain('loc: "store.ts:2:27"');
+    expect(compile("test")).toContain('loc: "../src/store.ts:2:27"');
+  });
+
+  it("validates the new options", () => {
+    expect(() => transformSourceNames(code, { locations: "yes" })).toThrow(
+      "`locations` option must be boolean"
+    );
+    expect(() => transformSourceNames(code, { root: 1 })).toThrow("`root` option must be a string");
   });
 });

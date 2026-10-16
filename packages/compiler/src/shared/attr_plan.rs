@@ -28,6 +28,11 @@ pub(crate) enum PlanValue<'a> {
 /// merging/splitting, class array/object splitting, class combining).
 pub(crate) struct AttrPlan<'a> {
     pub(crate) span: Span,
+    /// Where the attribute this plan came from starts in source — for a
+    /// property split out of `style={{…}}` / `class={{…}}`, that `style` /
+    /// `class` attribute. The `sourceNames.locations` position of the
+    /// binding: a user wrote one attribute and gets its line.
+    pub(crate) source_offset: u32,
     pub(crate) key: String,
     pub(crate) value: PlanValue<'a>,
     /// Synthesized from `style={{...}}` splitting (Babel `_styleProperty`).
@@ -394,6 +399,7 @@ impl<'a> AttrPlanner<'a, '_> {
             };
             plans.push(AttrPlan {
                 span: attr.span,
+                source_offset: attr.span.start,
                 key,
                 value,
                 style_property: false,
@@ -677,6 +683,8 @@ impl<'a> AttrPlanner<'a, '_> {
         if !inlined_style.is_empty() {
             plans.push(AttrPlan {
                 span: SPAN,
+                // A literal: never a binding, so never located.
+                source_offset: 0,
                 key: "style".to_string(),
                 value: PlanValue::Literal(inlined_style.trim_end_matches(';').to_string()),
                 style_property: false,
@@ -704,6 +712,7 @@ impl<'a> AttrPlanner<'a, '_> {
             return;
         };
         let attr_marker = plans[index].marker_static;
+        let source_offset = plans[index].source_offset;
         let PlanValue::Expr(Expression::ObjectExpression(object)) = &plans[index].value else {
             return;
         };
@@ -731,6 +740,7 @@ impl<'a> AttrPlanner<'a, '_> {
                 || self.marker_between(property.span.start, property.value.span().start);
             split_plans.push(AttrPlan {
                 span: property.span,
+                source_offset,
                 key: format!("style:{key}"),
                 value: PlanValue::Expr(property.value.clone_in(self.allocator)),
                 style_property: true,
@@ -805,12 +815,14 @@ impl<'a> AttrPlanner<'a, '_> {
 
         let object_expression = Expression::ObjectExpression(object.clone_in(self.allocator));
         let span = plans[index].span;
+        let source_offset = plans[index].source_offset;
         let marker = plans[index].marker_static;
         plans[index].value = PlanValue::Literal(static_classes.join(" "));
         plans.insert(
             index + 1,
             AttrPlan {
                 span,
+                source_offset,
                 key: "class".to_string(),
                 value: PlanValue::Expr(object_expression),
                 style_property: false,
@@ -846,6 +858,7 @@ impl<'a> AttrPlanner<'a, '_> {
             return;
         };
         let attr_marker = plans[index].marker_static;
+        let source_offset = plans[index].source_offset;
         let PlanValue::Expr(Expression::ObjectExpression(object)) = &plans[index].value else {
             return;
         };
@@ -865,6 +878,7 @@ impl<'a> AttrPlanner<'a, '_> {
                     if value.truthy() {
                         split_plans.push(AttrPlan {
                             span: property.span,
+                            source_offset,
                             key: "class".to_string(),
                             value: PlanValue::Literal(key),
                             style_property: false,
@@ -876,6 +890,7 @@ impl<'a> AttrPlanner<'a, '_> {
                 None => {
                     split_plans.push(AttrPlan {
                         span: property.span,
+                        source_offset,
                         key: format!("class:{key}"),
                         value: PlanValue::Expr(property.value.clone_in(self.allocator)),
                         style_property: false,

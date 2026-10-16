@@ -63,14 +63,25 @@ function fieldAccesses(code: string): Map<string, string> {
 describe("cross-package _-fields", () => {
   const reserved = reservedFields();
 
-  test("the mangler reserves the two owner fields downstream packages walk", () => {
-    expect(reserved).toEqual(expect.arrayContaining(["_name", "_parent"]));
+  test("the mangler reserves the owner fields downstream packages walk or write", () => {
+    expect(reserved).toEqual(expect.arrayContaining(["_name", "_loc", "_parent"]));
   });
 
   test("the reserved fields survive in the mangled signals artifacts; a private one does not", () => {
     for (const tier of ["prod", "observe"]) {
       const core = readFileSync(join(SIGNALS, `dist/${tier}/core/core.js`), "utf8");
-      for (const field of reserved) expect(core, `${tier}: ${field}`).toMatch(`.${field}`);
+      // A reserved field is read wherever the core walks it — `_loc` only in
+      // the diagnostics chunk (`dev.ts`), so the check spans the tier's core.
+      // `_loc` is an observe-tier field end to end (the slot is in the
+      // observe literals, the walk in `emitDiagnostic`): prod has no
+      // occurrence to survive.
+      const tree = jsFiles(join(SIGNALS, `dist/${tier}/core`))
+        .map(f => readFileSync(f, "utf8"))
+        .join("\n");
+      for (const field of reserved) {
+        if (tier === "prod" && field === "_loc") continue;
+        expect(tree, `${tier}: ${field}`).toMatch(`.${field}`);
+      }
       // `_firstChild` is the owner tree's other link and is private: its
       // absence proves the mangler ran on this file at all.
       expect(core, `${tier}: _firstChild should be mangled`).not.toMatch("._firstChild");

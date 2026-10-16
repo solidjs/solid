@@ -4,10 +4,22 @@ export interface SourceNamesOptions {
   components?: boolean;
   /** Binding effect labels: the element and attribute (or hole) each compiled effect writes. */
   bindings?: boolean;
+  /**
+   * Source locations beside each emitted name: `file:line:col` (`filename`
+   * relative to `root`, column 1-based) as `createComponent`'s fourth
+   * argument and as `loc` after `name` in a binding's options. Only where
+   * the name is emitted, and only with a `filename`.
+   */
+  locations?: boolean;
 }
 
 export interface TransformOptions {
   filename?: string;
+  /**
+   * Project root the `sourceNames.locations` paths are made relative to.
+   * Defaults to the working directory.
+   */
+  root?: string;
   /** Default `"@solidjs/web"`. */
   moduleName?: string;
   /**
@@ -30,6 +42,10 @@ export interface TransformOptions {
    * binding effect named by what it writes — `span.textContent`,
    * `div.class:active`, a hole `div.children`, a spread `div.spread` — as
    * an options argument on `effect`/`insert`/`spread`; DOM output only.
+   * `locations`: the source position (`src/App.tsx:12:5`, `filename`
+   * relative to `root`) beside each emitted name — a fourth `createComponent`
+   * argument, `loc` after `name` in a binding's options — so a console
+   * report can point at the line; nothing without a `filename`.
    * The production runtimes ignore the names. Defaults to `dev`: unset,
    * every kind is on in dev and off otherwise; `true`/`false` sets every
    * kind; an object picks, and each kind it leaves unspecified follows
@@ -275,8 +291,27 @@ export function transformRefreshAsync(
  * `sourceNames` option covers only the JSX-level kinds.
  */
 export interface TransformSourceNamesOptions {
-  /** Picks the parser dialect (`.ts`, `.tsx`, `.js`, `.jsx`); TSX without one. */
+  /**
+   * Picks the parser dialect (`.ts`, `.tsx`, `.js`, `.jsx`); TSX without
+   * one. Also the file the `loc` strings name: without one no `loc` is
+   * written.
+   */
   filename?: string;
+  /**
+   * Write `loc` after `name` in each options literal: the call's
+   * `file:line:col` (`filename` relative to `root`, column 1-based), so
+   * `createSignal(0, { name: "count", loc: "src/store.ts:3:22" })`. An
+   * explicit `name` is kept and `loc` still added; an explicit `loc` is
+   * never overridden. The pass only runs for the dev and observe postures,
+   * so this is on by default.
+   * @default true
+   */
+  locations?: boolean;
+  /**
+   * Project root the `loc` paths are made relative to. Defaults to the
+   * working directory.
+   */
+  root?: string;
   sourceMap?: boolean;
 }
 

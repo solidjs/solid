@@ -54,6 +54,10 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// call (instead of inlining `Comp(props)`) and pass the source tag text
     /// as its third argument, so the server runtime labels the owner.
     component_names: bool,
+    /// Babel's `sourceNames.locations`: the root-relative path every
+    /// location string of this module starts with; `None` when the kind is
+    /// off or the module has no filename, and then no location is emitted.
+    location_base: Option<String>,
     /// The memo wrapper import name; `None` disables memo wrapping.
     memo_wrapper: Option<String>,
     static_marker: String,
@@ -231,6 +235,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         server_components: bool,
         wrap_conditionals: bool,
         component_names: bool,
+        location_base: Option<String>,
         memo_wrapper: Option<String>,
         static_marker: String,
         built_ins: std::vec::Vec<String>,
@@ -245,6 +250,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             server_components,
             wrap_conditionals,
             component_names,
+            location_base,
             memo_wrapper,
             static_marker,
             uses_ssr: false,
@@ -1280,11 +1286,23 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             let label =
                 self.ast()
                     .expression_string_literal(element.span, self.ast().str(&name), None);
-            self.call_identifier(
-                element.span,
-                "_$createComponent",
-                vec![component, props, label],
-            )
+            let mut args = vec![component, props, label];
+            // `sourceNames.locations`: the position of the opening element
+            // (`<Comp`) as the fourth argument, like the DOM generate.
+            if let Some(location) = self.location_base.as_deref().map(|base| {
+                crate::shared::location::source_location(
+                    base,
+                    self.source,
+                    element.opening_element.span.start,
+                )
+            }) {
+                args.push(self.ast().expression_string_literal(
+                    element.span,
+                    self.ast().str(&location),
+                    None,
+                ));
+            }
+            self.call_identifier(element.span, "_$createComponent", args)
         } else {
             self.call_expression(element.span, component, vec![props])
         };

@@ -182,6 +182,13 @@ export type EffectBundle<Prev, Next extends Prev = Prev> = {
 interface BaseEffectOptions {
   /** Debug name (dev mode only) */
   name?: string;
+  /**
+   * Source location (`file:line:col`, root-relative) written by the
+   * compiler's `sourceNames` `locations` kind beside `name`; dev and observe
+   * builds keep it for console reports and diagnostic events, production
+   * ignores it. Not meant to be written by hand.
+   */
+  loc?: string;
 }
 
 /** Options for effect primitives that support deferring/scheduling their initial run (`createEffect`, `createRenderEffect`, `createReaction`). */
@@ -237,6 +244,13 @@ export interface SignalOptions<T> {
   /** Debug name (dev mode only) */
   name?: string;
   /**
+   * Source location (`file:line:col`, root-relative) written by the
+   * compiler's `sourceNames` `locations` kind beside `name`; dev and observe
+   * builds keep it for console reports and diagnostic events, production
+   * ignores it. Not meant to be written by hand.
+   */
+  loc?: string;
+  /**
    * Custom equality function, or `false` to always notify subscribers.
    * Defaults to reference equality (`isEqual`). Pass a comparator (e.g.
    * `(a, b) => a.id === b.id`) for value-based equality, or `false` to
@@ -259,6 +273,13 @@ export interface MemoOptions<T> {
   id?: string;
   /** Debug name (dev mode only) */
   name?: string;
+  /**
+   * Source location (`file:line:col`, root-relative) written by the
+   * compiler's `sourceNames` `locations` kind beside `name`; dev and observe
+   * builds keep it for console reports and diagnostic events, production
+   * ignores it. Not meant to be written by hand.
+   */
+  loc?: string;
   /**
    * Advanced (integration tier). When true, the memo is invisible to the
    * hydration id scheme: it inherits its parent's id instead of consuming a

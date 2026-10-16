@@ -38,6 +38,13 @@ export interface StoreOptions {
    * projection node carries the name itself.
    */
   name?: string;
+  /**
+   * Source location (`file:line:col`, root-relative) written by the
+   * compiler's `sourceNames` `locations` kind; dev and observe builds keep it
+   * for console reports and diagnostic events, production ignores it. Not
+   * meant to be written by hand.
+   */
+  loc?: string;
   /** Single-layer store: root keys reactive, values raw records replaced by reference */
   shallow?: boolean;
 }

@@ -15,8 +15,11 @@ const transparentOptions = { transparent: true, sync: true };
 // trailing `undefined` argument in the production artifact. Synchronous:
 // `spread` creates its nodes before it returns and restores the outer value.
 export let spreadName: string | undefined;
-export function setSpreadName(name: string | undefined): void {
+// Its source site, carried the same way (`loc` on the nodes the body creates).
+export let spreadLoc: string | undefined;
+export function setSpreadName(name: string | undefined, loc?: string): void {
   spreadName = name;
+  spreadLoc = loc;
 }
 const syncOptions = { sync: true };
 
@@ -36,19 +39,21 @@ export function tagElement(node: Node): void {
 // render effect non-transparent so the hole gets its own id scope, mirroring
 // the server's ssrScope owner. `name` is the binding's target as the
 // compiler wrote it under `sourceNames.bindings` (`span.textContent`,
-// `div.class:active`); the dev and observe runtimes label the effect node
-// with it, production ignores it.
+// `div.class:active`) and `loc` its source site (`src/App.tsx:14:7`, the
+// `locations` kind); the dev and observe runtimes carry both on the effect
+// node (the options spread straight into the node's), production ignores
+// them.
 export function effect<T>(
   fn: (prev?: T) => T,
   effectFn: (value: T, prev?: T) => void | (() => void),
-  options?: { scope?: boolean; name?: string }
+  options?: { scope?: boolean; name?: string; loc?: string }
 ): void {
   if (
     IS_OBSERVE &&
     spreadName !== undefined &&
     (options === undefined || options.name === undefined)
   )
-    options = { ...options, name: spreadName + ".spread" };
+    options = { ...options, name: spreadName + ".spread", loc: spreadLoc };
   const nodeOptions = options
     ? { sync: true, ...options, transparent: !options.scope }
     : transparentOptions;

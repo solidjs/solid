@@ -17,7 +17,8 @@ _$insert(
   undefined,
   undefined,
   {
-    name: "span.children"
+    name: "span.children",
+    loc: "test/__dom_hydratable_dev_fixtures__/walkValidation/code.js:5:11"
   }
 );
 const singleChild = _el$;
@@ -30,7 +31,8 @@ _$insert(
   undefined,
   undefined,
   {
-    name: "main.children"
+    name: "main.children",
+    loc: "test/__dom_hydratable_dev_fixtures__/walkValidation/code.js:12:11"
   }
 );
 const siblingElements = _el$3;
@@ -43,7 +45,8 @@ _$insert(
   undefined,
   undefined,
   {
-    name: "b.children"
+    name: "b.children",
+    loc: "test/__dom_hydratable_dev_fixtures__/walkValidation/code.js:19:14"
   }
 );
 const mixedTextAndElements = _el$6;
@@ -56,7 +59,8 @@ _$insert(
   undefined,
   undefined,
   {
-    name: "li.children"
+    name: "li.children",
+    loc: "test/__dom_hydratable_dev_fixtures__/walkValidation/code.js:26:11"
   }
 );
 const nestedWalk = _el$9;

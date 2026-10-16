@@ -588,9 +588,11 @@ describe("@solidjs/compiler transform", () => {
     const label = '_$createComponent(Home, {}, "Home")';
     const binding = '{ name: "div.class" }';
 
+    // `true` turns the `locations` kind on too: the label gains its
+    // `file:line:col`, the options literal a `loc` after `name`.
     const every = transform(code, { ...opts, sourceNames: true }).code;
-    expect(every).toContain(label);
-    expect(every).toContain(binding);
+    expect(every).toContain('_$createComponent(Home, {}, "Home", "input.jsx:1:33")');
+    expect(every).toContain('name: "div.class",\n\tloc: "input.jsx:1:19"');
     const components = transform(code, { ...opts, sourceNames: { components: true } }).code;
     expect(components).toContain(label);
     expect(components).not.toContain(binding);
@@ -628,9 +630,12 @@ describe("@solidjs/compiler transform", () => {
     const label = '_$createComponent(Home, {}, "Home")';
     const binding = 'name: "div.class"';
 
+    // Every kind follows `dev`, `locations` included: the dev label carries
+    // its `file:line:col`, the options literal a `loc` after `name`.
     const dev = transform(code, { ...opts, dev: true }).code;
-    expect(dev).toContain(label);
+    expect(dev).toContain('_$createComponent(Home, {}, "Home", "input.jsx:1:33")');
     expect(dev).toContain(binding);
+    expect(dev).toContain('loc: "input.jsx:1:19"');
 
     const prod = transform(code, { ...opts, dev: false }).code;
     expect(prod).not.toContain('"Home"');

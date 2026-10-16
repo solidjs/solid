@@ -39,6 +39,12 @@ pub(crate) trait ComponentLower<'a>:
     fn component_names_enabled(&self) -> bool {
         false
     }
+    /// Babel's `sourceNames.locations`: the `file:line:col` of the source
+    /// `offset`, appended as `createComponent`'s fourth argument after the
+    /// label. `None` when the kind is off or the module has no filename.
+    fn component_location(&self, _offset: u32) -> Option<String> {
+        None
+    }
     /// Whether the tag identifier at `span` was written as `this` in source.
     /// The `this` pre-pass has already rewritten `<this.Row />` to the
     /// `_self$` capture (keeping the original span), and the label must read
@@ -188,6 +194,11 @@ pub(crate) fn lower_component_with_setup<'a, C: ComponentLower<'a>>(
             &element.opening_element.name,
         );
         args.push(ast.expression_string_literal(element.span, ast.str(&name), None));
+        // The location is the opening element's start (`<Home`), the node
+        // Babel reads `loc.start` from.
+        if let Some(location) = ctx.component_location(element.opening_element.span.start) {
+            args.push(ast.expression_string_literal(element.span, ast.str(&location), None));
+        }
     }
     Ok((
         ComponentPropContext::call_identifier(ctx, element.span, "_$createComponent", args),
@@ -272,6 +283,10 @@ impl<'a> ComponentLower<'a> for AstDomTransform<'a, '_> {
 
     fn component_names_enabled(&self) -> bool {
         self.component_names
+    }
+
+    fn component_location(&self, offset: u32) -> Option<String> {
+        self.source_location(offset)
     }
 
     fn tag_identifier_is_this(&self, span: Span) -> bool {

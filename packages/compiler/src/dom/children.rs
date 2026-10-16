@@ -337,7 +337,7 @@ impl<'a> AstDomTransform<'a, '_> {
                         } else {
                             value
                         };
-                        let name = self.hole_name(tag_name, accessor_hole);
+                        let name = self.hole_name(tag_name, accessor_hole, container.span.start);
                         let marker = if let Some(name) = shared_marker_name.as_ref() {
                             Some(InsertMarker {
                                 marker: self.identifier_expression(element.span, name),
@@ -379,7 +379,7 @@ impl<'a> AstDomTransform<'a, '_> {
                     } else {
                         value
                     };
-                    let name = self.hole_name(tag_name, accessor);
+                    let name = self.hole_name(tag_name, accessor, spread.span.start);
                     let marker = self.dynamic_slot_marker(
                         &element.children,
                         index,
