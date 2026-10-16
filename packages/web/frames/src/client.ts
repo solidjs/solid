@@ -1767,7 +1767,10 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
       load.r ? go() : load.then(go);
     };
     types.forEach(t => document.addEventListener(t, wake, true));
-  } else if (typeof document !== "undefined" && /\bsc-defer-slots=1\b/.test(document.cookie)) {
+  } else if (typeof document !== "undefined" && /\bsc-defer-slots=[12]\b/.test(document.cookie)) {
+    // Mode 2 (SPIKE, resume-only): nothing mounts until an interaction; the
+    // hydration hold lifts at once and the rest never mounts.
+    const resumeOnly = /\bsc-defer-slots=2\b/.test(document.cookie);
     // SPIKE (deferred slots): no slot occurrence mounts at adoption. The
     // interaction's occurrence chain mounts in the capture phase — the
     // outermost first (binding its regions, deferred frames themselves),
@@ -1810,6 +1813,15 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
     const rest = async () => {
       if (running) return;
       running = true;
+      if (resumeOnly) {
+        // Release at once: the regions tier is only needed at a mount, and
+        // `mountChain` awaits it itself.
+        await Promise.resolve();
+        for (const frame of liveFrameList().filter(f => f.deferred)) frame.releaseDefer();
+        (globalThis as any).__scDeferDone = 0;
+        running = false;
+        return;
+      }
       await regions;
       await idle();
       const t0 = performance.now();
