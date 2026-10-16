@@ -149,6 +149,7 @@ export { createErrorBoundary, createRevealOrder } from "./signals.js";
 /** @internal */
 export {
   creationStamp,
+  trackFillReads,
   runInServerComponentScope,
   inServerComponentScope,
   inLiveServerComponentScope,
@@ -158,6 +159,8 @@ export {
   reportServerError
 } from "./signals.js";
 export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
+/** @internal SPIKE (resumable slots) — client-only; no writes to hook on the server. */
+export function setSignalWriteHook(_hook: ((sid: string) => void) | null): void {}
 /** @internal */
 export { ssrHandleError, ssrScope } from "./hydration.js";
 // After the runtime modules above, so this import adds no edge to the module

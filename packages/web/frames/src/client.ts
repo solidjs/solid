@@ -67,7 +67,7 @@ import {
   stagedContent,
   type ServerComponentHandlerOptions
 } from "./frame-transport.js";
-import { createLoadingBoundary, sharedConfig } from "solid-js/internal";
+import { createLoadingBoundary, sharedConfig, setSignalWriteHook } from "solid-js/internal";
 
 // The container tier (DR-2 case 3): server projections cross the border as
 // TRACES (snapshot + patch batches) and materialize back into live local
@@ -1807,6 +1807,45 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
       regions.r ? mountChain(target) : regions.then(() => mountChain(target));
     };
     types.forEach(t => document.addEventListener(t, wake, true));
+    // SPIKE (resumable slots, edges): the server shipped, per occurrence, the
+    // plain signals its fill read that it did not create (`sc:deps:<site>:<occ>`
+    // records). A write to one of those signals mounts every unmounted
+    // occurrence that depends on it BEFORE the write lands, so the mounted
+    // fill subscribes and takes the change like any hydrated component.
+    const DEPS = "sc:deps:";
+    let inHook = false;
+    const mountDependents = (sid: string) => {
+      const hy = (globalThis as any)._$HY;
+      if (!hy || !hy.r || inHook) return;
+      const want = new Set<string>();
+      for (const key of Object.keys(hy.r)) {
+        if (!key.startsWith(DEPS)) continue;
+        const deps = hy.r[key];
+        if (Array.isArray(deps) && deps.includes(sid))
+          want.add(key.slice(key.indexOf(":", DEPS.length) + 1));
+      }
+      if (!want.size) return;
+      const t0 = performance.now();
+      const starts: Comment[] = [];
+      const walker = document.createTreeWalker(document.body, 128 /* SHOW_COMMENT */);
+      for (
+        let c = walker.nextNode() as Comment | null;
+        c;
+        c = walker.nextNode() as Comment | null
+      ) {
+        const d = c.data;
+        if (d.startsWith("slot:") && d.endsWith(":start") && want.has(d.slice(5, -6)))
+          starts.push(c);
+      }
+      inHook = true;
+      try {
+        for (const c of starts) mountChain(c.nextSibling ?? c);
+      } finally {
+        inHook = false;
+      }
+      ((globalThis as any).__scDepMounts ||= []).push([sid, starts.length, performance.now() - t0]);
+    };
+    setSignalWriteHook(mountDependents);
     // The idle pass runs while any frame is deferred and is re-armed by the
     // next frame that defers (a boundary resuming later in the stream).
     let running = false;

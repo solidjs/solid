@@ -126,7 +126,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // would still be holding.
     child = child._nextSibling;
   }
-  if (!zombie) node._childCount = 0;
+  if (!zombie) node._childCount = node._sigCount = 0;
   // O(1) splice out of parent's chain on individual dispose. Skipped during
   // batch dispose (parent already disposed) and for a zombie (it sits on the
   // parent's parked frame, drained whole by the commit). We leave
@@ -361,6 +361,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
         _disposal: null,
         _context: parent?._context || defaultContext,
         _childCount: 0,
+        _sigCount: 0,
         _x: null,
         _parent: parent,
         dispose: disposeRootSelf,
@@ -377,6 +378,7 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
         _disposal: null,
         _context: parent?._context || defaultContext,
         _childCount: 0,
+        _sigCount: 0,
         _x: null,
         _parent: parent,
         dispose: disposeRootSelf

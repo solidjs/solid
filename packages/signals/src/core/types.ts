@@ -153,6 +153,8 @@ export interface Owner {
   _parent: Owner | null;
   _context: Record<symbol | string, unknown>;
   _childCount: number;
+  /** SPIKE (resumable slots): plain signals created under this owner, reset with `_childCount`. */
+  _sigCount: number;
   _firstChild: Owner | null;
   _nextSibling: Owner | null;
   _prevSibling: Owner | null;

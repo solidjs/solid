@@ -145,6 +145,8 @@ interface SSROwner {
   _parent: SSROwner | null;
   _context: Record<symbol | string, unknown>;
   _childCount: number;
+  /** SPIKE (resumable slots): plain signals created under this owner, reset with `_childCount`. */
+  _sigCount: number;
   _firstChild: SSROwner | null;
   _nextSibling: SSROwner | null;
   _disposed: boolean;
@@ -326,6 +328,7 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
     owner._parent = parent;
     owner._context = ctx;
     owner._childCount = 0;
+    owner._sigCount = 0;
     owner._firstChild = null;
     owner._nextSibling = null;
     owner._disposed = false;
@@ -344,6 +347,7 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
           _parent: parent,
           _context: ctx,
           _childCount: 0,
+          _sigCount: 0,
           _firstChild: null,
           _nextSibling: null,
           _disposed: false,
@@ -357,6 +361,7 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
           _parent: parent,
           _context: ctx,
           _childCount: 0,
+          _sigCount: 0,
           _firstChild: null,
           _nextSibling: null,
           _disposed: false,
@@ -510,7 +515,7 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
       // retry reset (`self=false`) must still rewind the counter — otherwise
       // every boundary discovery pass drifts the ids of the eventual
       // successful run past the client's (#2900).
-      node._childCount = 0;
+      node._childCount = node._sigCount = 0;
       node._scopeSlot = -1;
     }
     return;
@@ -523,7 +528,7 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
     child = next;
   }
   node._firstChild = null;
-  node._childCount = 0;
+  node._childCount = node._sigCount = 0;
   // Defensive: a kept-alive owner (`self=false`) re-runs from its own,
   // settled id. The slot is swap-owned (`ssrScope` restores it in `finally`),
   // so this is never observed set here — pinned by `ownerId`'s dev check.
@@ -565,7 +570,7 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
 export function resetOwnerForRerun(owner: Owner): void {
   const node = owner as unknown as SSROwner;
   if (node._firstChild || node._disposal) disposeOwner(owner, false);
-  node._childCount = 0;
+  node._childCount = node._sigCount = 0;
   node._scopeSlot = -1;
 }
 
@@ -627,13 +632,16 @@ export function ssrScope<T>(fn: () => T): () => unknown {
   // inner effect.
   let resume: (() => unknown) | undefined;
   let resumeCount = 0;
+  let resumeSig = 0;
   return () => {
     const prevId = parent.id;
     const prevSlot = parent._scopeSlot;
     const prevCount = parent._childCount;
+    const prevSig = parent._sigCount;
     parent.id = prefix;
     parent._scopeSlot = slot;
     parent._childCount = resume ? resumeCount : 0;
+    parent._sigCount = resume ? resumeSig : 0;
     try {
       let v: unknown = resume || fn();
       resume = undefined;
@@ -650,6 +658,7 @@ export function ssrScope<T>(fn: () => T): () => unknown {
           if (err instanceof NotReadyError) {
             resume = next;
             resumeCount = count;
+            resumeSig = parent._sigCount;
           }
           throw err;
         }
@@ -659,6 +668,7 @@ export function ssrScope<T>(fn: () => T): () => unknown {
       parent.id = prevId;
       parent._scopeSlot = prevSlot;
       parent._childCount = prevCount;
+      parent._sigCount = prevSig;
     }
   };
 }
@@ -1189,6 +1199,34 @@ function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
 // projections, and of any memo whose last compute read one of those.
 let asyncReads = 0;
 
+// ---------------------------------------------------------------------------
+// SPIKE (resumable slots): plain-signal identities and fill read tracking.
+// A plain signal is named `<owner id>~<n>` where n counts plain signals under
+// that owner, in creation order — the same on the client (signals core
+// `identifySignal`), so the two sides agree without serializing values. While
+// a slot fill renders, `trackFillReads` collects the identities it read; the
+// frame sink ships the ones created outside the fill as its edges.
+let FillReads: Set<string> | null = null;
+function signalIdentity(owner: SSROwner | null): string | undefined {
+  if (!owner) return undefined;
+  let o: SSROwner = owner;
+  while (o._transparent && o._parent) o = o._parent;
+  const id = materializeId(o);
+  if (id == null) return undefined;
+  return id + "~" + o._sigCount++;
+}
+/** @internal SPIKE: run `fn`, returning its result and the plain-signal identities it read. */
+export function trackFillReads<T>(fn: () => T): { result: T; reads: Set<string> } {
+  const prev = FillReads;
+  const reads = new Set<string>();
+  FillReads = reads;
+  try {
+    return { result: fn(), reads };
+  } finally {
+    FillReads = prev;
+  }
+}
+
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 // Commit #0 (loadingValue) removes the uninitialized window: never undefined
@@ -1226,8 +1264,17 @@ export function createSignal<T>(
     ];
   }
   // Plain value form — no ID allocation (IDs are only for owners/computations)
+  // SPIKE (resumable slots): a plain signal created under an id-bearing owner
+  // gets a deterministic identity (owner id + per-owner index) so a fill's
+  // reads of it can be reported as dependency edges; see `trackFillReads`.
+  const sid = signalIdentity(currentOwner);
   return [
-    () => first as T,
+    sid
+      ? () => {
+          if (FillReads) FillReads.add(sid);
+          return first as T;
+        }
+      : () => first as T,
     v => {
       warnServerWrite("signal");
       return ((first as any) = typeof v === "function" ? (v as (prev: T) => T)(first as T) : v);
@@ -3229,6 +3276,7 @@ export function mapArray<T, U>(
       // Reset per pass so retries re-synthesize row/fallback ids from 0,
       // like the client's fresh row owners on its first successful pass.
       rowOwner._childCount = 0;
+      const prevSig = rowOwner._sigCount;
       if (items && items.length) {
         runWithOwner(rowOwner as unknown as Owner, () => {
           // Own owner, not a swapped hole scope: a row's holes swap it only
@@ -3251,7 +3299,7 @@ export function mapArray<T, U>(
               if (origId !== undefined) {
                 rowOwner.id = formatChildId(origId, i);
               }
-              rowOwner._childCount = 0;
+              rowOwner._childCount = rowOwner._sigCount = 0;
               s.push(
                 options.keyed === false
                   ? indexes
@@ -3276,6 +3324,7 @@ export function mapArray<T, U>(
           } finally {
             rowOwner.id = origId;
             rowOwner._childCount = items.length;
+            rowOwner._sigCount = prevSig;
           }
         });
       } else if (options.fallback) {

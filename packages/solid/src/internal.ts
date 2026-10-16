@@ -121,6 +121,13 @@ export type { ServerErrorSite, ServerErrorHook } from "solid-js";
 /** Server: a monotonic stamp for owner creation order. Client: `0`. */
 export const creationStamp: () => number = core.creationStamp;
 
+/** SPIKE (resumable slots). Server: runs a slot fill and reports the plain-signal identities it read. Client: runs it. */
+export const trackFillReads: <T>(fn: () => T) => { result: T; reads: Set<string> } =
+  core.trackFillReads;
+/** SPIKE (resumable slots). Client: install a hook that runs before a write to an identified plain signal. Server: no-op. */
+export const setSignalWriteHook: (hook: ((sid: string) => void) | null) => void =
+  core.setSignalWriteHook;
+
 /** Server: the live projection trace behind a value, if any. Client: `undefined`. */
 export const getProjectionTrace: (
   value: unknown

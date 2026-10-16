@@ -9,6 +9,8 @@ export {
   signal,
   read,
   setSignal,
+  identifySignal,
+  setSignalWriteHook,
   setMemo,
   markRefresh,
   staleValues,

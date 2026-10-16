@@ -40,6 +40,7 @@ import {
   ssrHandleError,
   ssrSanitizeError,
   creationStamp,
+  trackFillReads,
   shareAsyncIterable
 } from "solid-js/internal";
 
@@ -1834,11 +1835,19 @@ export function createDocumentSlotProps(clientProps, frameId) {
                 resolved[key] = vals[key] = withoutStandIns(value, key, occurrence, documentNeeds);
               }
             }
-            const out = suppressedFill(() =>
-              scoped(occurrence, () => range(occurrence, slot(resolved)))
+            // SPIKE (resumable slots): record which plain signals the fill
+            // read that it did not create — its dependency edges. Identities
+            // under the fill's own owner prefix are internal state.
+            const tracked = trackFillReads(() =>
+              suppressedFill(() => scoped(occurrence, () => range(occurrence, slot(resolved))))
             );
+            const out = tracked.result;
+            const ownPrefix = `sc-${frameId}-${occurrence}-`;
+            const deps: string[] = [];
+            for (const sid of tracked.reads) if (!sid.startsWith(ownPrefix)) deps.push(sid);
             const unused = regions.filter(r => !r.used);
             if (context) {
+              if (deps.length) context.serialize(`sc:deps:${frameId}:${occurrence}`, deps);
               // One record shape (A5, server-components-principles.md): the
               // t=0 document emits the record a stream would — every invoked
               // occurrence gets one, and EVERY region arg rides as its

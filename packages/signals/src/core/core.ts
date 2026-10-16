@@ -893,6 +893,7 @@ export function computed<T>(
         _disposal: null,
         _context: context?._context ?? defaultContext,
         _childCount: 0,
+        _sigCount: 0,
         _fn: fn,
         _value: (loading ? options!.loadingValue : undefined) as T,
         _height: 0,
@@ -935,6 +936,7 @@ export function computed<T>(
         _disposal: null,
         _context: context?._context ?? defaultContext,
         _childCount: 0,
+        _sigCount: 0,
         _fn: fn,
         _value: (loading ? options!.loadingValue : undefined) as T,
         _height: 0,
@@ -1106,7 +1108,7 @@ function parkChildren(el: Computed<unknown>): void {
   x._pendingFirstChild = el._firstChild;
   el._disposal = null;
   el._firstChild = null;
-  el._childCount = 0;
+  el._childCount = el._sigCount = 0;
 }
 
 /**
@@ -1141,6 +1143,7 @@ export function createEffectNode<T>(
         _disposal: null,
         _context: context?._context ?? defaultContext,
         _childCount: 0,
+        _sigCount: 0,
         _fn: fn,
         _value: undefined as T,
         _height: 0,
@@ -1183,6 +1186,7 @@ export function createEffectNode<T>(
         _disposal: null,
         _context: context?._context ?? defaultContext,
         _childCount: 0,
+        _sigCount: 0,
         _fn: fn,
         _value: undefined as T,
         _height: 0,
@@ -1985,7 +1989,27 @@ export function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T)
   snapshotSources!.add(el);
 }
 
+// ---------------------------------------------------------------------------
+// SPIKE (resumable slots): plain-signal identities and a pre-write hook.
+// `identifySignal` names a plain signal `<owner id>~<n>` (n = plain signals
+// created under that non-transparent owner so far), matching the server's
+// `signalIdentity`, so a dependency edge the server shipped can be matched to
+// the client node. `signalWriteHook` runs before a write to an identified
+// signal lands, so deferred consumers can be mounted first.
+export let signalWriteHook: ((sid: string) => void) | null = null;
+export function setSignalWriteHook(hook: ((sid: string) => void) | null): void {
+  signalWriteHook = hook;
+}
+export function identifySignal(node: Signal<any>, owner: Owner | null): void {
+  if (!owner) return;
+  let o: Owner = owner;
+  while (o._config & CONFIG_TRANSPARENT && o._parent) o = o._parent;
+  if (o.id == null) return;
+  (node as any)._sid = o.id + "~" + o._sigCount++;
+}
+
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
+  if (signalWriteHook !== null && (el as any)._sid) signalWriteHook((el as any)._sid);
   if (
     __DEV__ &&
     !(el._config & CONFIG_OWNED_WRITE) &&

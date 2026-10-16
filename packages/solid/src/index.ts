@@ -181,6 +181,12 @@ export function runInServerComponentScope<T>(fn: () => T, _options?: { live?: bo
 export function creationStamp(): number {
   return 0;
 }
+/** @internal SPIKE (resumable slots) — pre-write hook on identified plain signals. */
+export { setSignalWriteHook } from "@solidjs/signals";
+/** @internal SPIKE (resumable slots) — server-only read tracking; the client runs the fill as is. */
+export function trackFillReads<T>(fn: () => T): { result: T; reads: Set<string> } {
+  return { result: fn(), reads: new Set() };
+}
 /** @internal */
 export function inServerComponentScope(): boolean {
   return false;
