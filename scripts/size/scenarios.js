@@ -4522,8 +4522,14 @@ module.exports = [
     // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
     // saturates. Measured at
     // 11,873 B brotli / 35,494 B minified; cap set to that measurement. Accepted by the maintainer (2026-10-15).
-    limit: "11.873 KB",
-    capMinified: 35494,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 11.873 -> 12.80 KB, measured at 12,790 B brotli / 38,500 B minified
+    // (recorded 35,494). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "12.80 KB",
+    capMinified: 38500,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4856,6 +4862,12 @@ module.exports = [
     // 106,175 B; measured locally (linux) at 34,601 B (106,175 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 34.620 -> 35.43 KB, measured at 35,418 B brotli / 109,143 B minified
+    // (recorded 106,175). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5129,6 +5141,12 @@ module.exports = [
     // display through its retry, `latest` throws a staged error. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-15 (golf first, then raise by what is left).
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 38.700 -> 39.64 KB, measured at 39,623 B brotli / 122,512 B minified
+    // (recorded 119,540). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5239,8 +5257,14 @@ module.exports = [
     // 109,100 B; measured locally (linux) at 35,353 B (109,100 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    limit: "35.37 KB",
-    capMinified: 109100,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 35.370 -> 36.29 KB, measured at 36,278 B brotli / 112,068 B minified
+    // (recorded 109,100). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "36.29 KB",
+    capMinified: 112068,
     alias: pageAlias
   },
   {
@@ -5319,8 +5343,14 @@ module.exports = [
     // 124,433 -> 124,010 B; measured locally (linux) at 41,483 B (124,010 B
     // minified). Lower only: cap at measured + 10 B rounded up to 0.01 KB;
     // recorded minified never raised.
-    limit: "41.214 KB",
-    capMinified: 124010,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 41.214 -> 42.32 KB, measured at 42,306 B brotli / 126,985 B minified
+    // (recorded 124,010). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "42.32 KB",
+    capMinified: 126985,
     alias: pageAlias
   },
   {
@@ -5476,8 +5506,14 @@ module.exports = [
     // 130,066 B; measured locally (linux) at 41,944 B (130,066 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    limit: "41.96 KB",
-    capMinified: 130066,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 41.960 -> 42.81 KB, measured at 42,792 B brotli / 133,034 B minified
+    // (recorded 130,066). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "42.81 KB",
+    capMinified: 133034,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5602,8 +5638,14 @@ module.exports = [
     // already sat 19 B over the recorded minified, so the allowance was spent.
     // Re-based on the measurement: cap at measured + 10 B rounded up to
     // 0.01 KB, recorded minified 144,773.
-    limit: "48.16 KB",
-    capMinified: 144773,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 48.160 -> 49.13 KB, measured at 49,114 B brotli / 147,757 B minified
+    // (recorded 144,773). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "49.13 KB",
+    capMinified: 147757,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
