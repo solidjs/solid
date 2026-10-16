@@ -8459,11 +8459,12 @@ structural list edit.
 Decision: candidate 4 goes to the PR (#4114, `perf/map-array-inplace-commit`
 in `~/Development/solid-next-bench`): +635–654 B minified per list-bearing
 scenario; brotli +165–544 B against the caps `next` carries after #4104's
-ratchet (brotli's layout noise is most of that spread). Eight inline caps
+ratchet (brotli's layout noise is most of that spread). Ten inline caps
 raised and three frozen floors re-based with dated ledger lines
-(`Size-Exception` in the PR body), from local bytes on the merged tree —
-CI's measurement re-bases them if it differs; the two router pages sit
-under their caps and are untouched. Candidate
+(`Size-Exception` in the PR body): eleven from local bytes on the merged
+tree, the two router pages from CI's bytes — a local bundle of those two
+resolves `@solidjs/router` differently and reads ~7 KB under CI, so CI's
+first size run caught them (+295 / +294 B brotli over base). Candidate
 1's patch stays on file for the record; candidate 3 is candidate 4 minus
 `stageRemoval` and the length-first lines.
 
