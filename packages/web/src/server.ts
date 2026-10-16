@@ -1875,7 +1875,8 @@ export function renderToString(code, options = {}) {
         scripts.length ? scripts : "",
         nonce,
         head,
-        onHead
+        onHead,
+        !noScripts && context.bootstrap
       ),
       context,
       renderId,
@@ -2443,7 +2444,8 @@ export function renderToStream(code, options = {}) {
             meta.tasks.length ? meta.tasks : "",
             nonce,
             meta.head,
-            onHead
+            onHead,
+            !noScripts && context.bootstrap
           ),
           context,
           renderId,
@@ -6183,7 +6185,8 @@ function assembleDocument(
   scripts,
   nonce,
   headTags,
-  onHead
+  onHead,
+  gated
 ) {
   const scriptTag = scripts ? `<script${nonceAttr(nonce, "script")}>${scripts}</script>` : "";
   const title = headTags ? headTags.title : null;
@@ -6202,7 +6205,7 @@ function assembleDocument(
     // assets, no preloads, no inline styles) stay a pure pass-through.
     // (An `onHead` caller opted into the scan — it must learn which mode
     // this render is in even when there is nothing to deliver.)
-    return scriptTag ? spliceScript(html, scriptTag) : html;
+    return scriptTag ? spliceScript(html, scriptTag, gated) : html;
   }
   // The prelude (charset/base) splices right after the `<head>` open tag —
   // before any content the existing `</head>` splice could produce — so it is
@@ -6244,7 +6247,7 @@ function assembleDocument(
     // No head to splice into: without `onHead`, assets/preloads/styles are
     // dropped and left unemitted, exactly as the individual helpers'
     // `index === -1` returns did.
-    return scriptTag ? spliceScript(html, scriptTag) : html;
+    return scriptTag ? spliceScript(html, scriptTag, gated) : html;
   }
   // Document mode: the title winner is applied to the BYTES. The shell may
   // carry its own static <title> (the RFC's fallback, restored when every
@@ -6277,19 +6280,23 @@ function assembleDocument(
   }
   const head = headTagsHtml + renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce);
   html = html.slice(0, headIdx) + head + html.slice(headIdx);
-  return scriptTag ? spliceScript(html, scriptTag) : html;
+  return scriptTag ? spliceScript(html, scriptTag, gated) : html;
 }
 
 // The shell's task script — the serialized records the shell's hydration
-// reads — goes at the END of the body, ahead of the shell-end marker
-// `withShellEnd` appends (`hydrate()` waits on that marker, so nothing reads
-// a record before the script ran). Before, it was spliced at the `<!--xs-->`
-// marker in the head: a page whose shell carried its data (the HN story at
-// 640 KB of records) could not paint one byte of body until the whole record
-// script had arrived and parsed. With no `</body>` (an embedded render, a
-// body-only template) the marker splice remains, then a plain append.
-function spliceScript(html, scriptTag) {
-  const body = html.lastIndexOf("</body>");
+// reads — goes at the END of the body when the render is GATED: an in-render
+// <HydrationScript /> declared the ledger and `withShellEnd` appends the
+// shell-end marker `hydrate()` parks on (#3971), so nothing reads a record
+// before the script ran, and the body paints without first parsing the data.
+// (Before, it was spliced at the `<!--xs-->` marker in the head: a page whose
+// shell carried its data — the HN story at 640 KB of records — could not
+// paint one byte of body until all of it had arrived and parsed.) An ungated
+// render — a host-placed bootstrap (`generateHydrationScript`), a document
+// with no `</body>` — keeps the head splice: there hydrate() may run as soon
+// as the entry loads, mid-parse, and the data must already be in the
+// document ahead of the body it describes.
+function spliceScript(html, scriptTag, gated) {
+  const body = gated ? html.lastIndexOf("</body>") : -1;
   if (body !== -1) return html.slice(0, body) + scriptTag + html.slice(body);
   const xs = html.indexOf("<!--xs-->");
   return xs === -1 ? html + scriptTag : html.slice(0, xs) + scriptTag + html.slice(xs);
