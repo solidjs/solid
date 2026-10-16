@@ -35,7 +35,7 @@ import {
   SOURCE_PROXY,
   SOURCE_MEMO
 } from "solid-js/internal";
-import { effect, memo, setSpreadName, spreadName, tagElement } from "./render.js";
+import { effect, memo, setSpreadName, spreadLoc, spreadName, tagElement } from "./render.js";
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -1101,14 +1101,16 @@ export function spread(
   sources: unknown[],
   skipChildren?: Boolean,
   skip?: (key: string) => boolean,
-  name?: string
+  name?: string,
+  loc?: string
 ): void;
 export function spread<T>(
   node: Element,
   accessor: T,
   skipChildren?: Boolean,
   skip?: (key: string) => boolean,
-  name?: string
+  name?: string,
+  loc?: string
 ): void;
 
 // At most TWO reactive nodes per element (#3388) — one when nothing flows
@@ -1150,15 +1152,17 @@ export function spread<T>(
 // and the children insert `<tag>.children`, like a compiled hole's. Dev and
 // observe runtimes carry the labels — through `spreadName` (render.ts),
 // which `effect` and `insert` read while this body runs, so no call site
-// below changes shape and production is byte-identical without them.
-export function spread(node, props, skipChildren, skip, name) {
+// below changes shape and production is byte-identical without them. `loc`
+// (the `locations` kind, one more trailing argument) rides the same way.
+export function spread(node, props, skipChildren, skip, name, loc) {
   if ("_SOLID_OBSERVE_" && name !== undefined) {
     const outer = spreadName;
-    setSpreadName(name);
+    const outerLoc = spreadLoc;
+    setSpreadName(name, loc);
     try {
       return spread(node, props, skipChildren, skip);
     } finally {
-      setSpreadName(outer);
+      setSpreadName(outer, outerLoc);
     }
   }
   const prevProps = {};
@@ -1568,6 +1572,13 @@ export function insert<T>(
      * observe runtimes carry it on the node; production ignores it.
      */
     name?: string;
+    /**
+     * Source location of the hole (`src/App.tsx:14:7`, root-relative
+     * `file:line:col`) — the compiler's `sourceNames` `locations` kind. Dev
+     * and observe runtimes carry it on the node for console reports and
+     * diagnostic events; production ignores it.
+     */
+    loc?: string;
   }
 ): JSX.Element;
 
@@ -1579,7 +1590,7 @@ export function insert(parent, accessor, marker, initial, options) {
     spreadName !== undefined &&
     (options === undefined || options.name === undefined)
   )
-    options = { ...options, name: spreadName + ".children" };
+    options = { ...options, name: spreadName + ".children", loc: spreadLoc };
   const multi = marker !== undefined;
   const host = options && options.host;
   if (multi && !initial) initial = [];

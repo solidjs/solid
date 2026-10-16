@@ -248,7 +248,12 @@ export interface ComponentRecord<P = unknown> {
   task: ConsoleTask | undefined;
 }
 
-export function observedComponent<P, V>(Comp: (props: P) => V, props: P, name?: string): V {
+export function observedComponent<P, V>(
+  Comp: (props: P) => V,
+  props: P,
+  name?: string,
+  loc?: string
+): V {
   // A JSX tag whose component resolved to a non-function otherwise surfaces
   // as `Cannot read properties of undefined (reading 'name')` from inside the
   // dev build — a framework-shaped stack for an app-shaped mistake (#3005).
@@ -268,8 +273,11 @@ export function observedComponent<P, V>(Comp: (props: P) => V, props: P, name?: 
       // signals observe layer reads for owner names (reserved from property
       // mangling there for exactly this write) — so diagnostics locate scopes
       // by component and an owned-scope write in a component body reports
-      // "(in <TodoRow>)".
+      // "(in <TodoRow>)". The JSX site rides beside it in the `_loc` slot
+      // (reserved the same way): the fallback location of every finding
+      // raised under this component that has no closer one.
       owner._name = label;
+      owner._loc = loc;
       if (IS_DEV) {
         // The JSX site as a console task (Chrome's async stack tagging):
         // an observer that later reports on this component's nodes — the

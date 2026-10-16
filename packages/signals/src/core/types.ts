@@ -22,6 +22,13 @@ export interface Link {
 export interface NodeOptions<T> {
   id?: string;
   name?: string;
+  /**
+   * Source location (`file:line:col`, root-relative) written by the
+   * compiler's `sourceNames` `locations` kind; dev and observe builds keep it
+   * for console reports and diagnostic events, production ignores it. Not
+   * meant to be written by hand.
+   */
+  loc?: string;
   transparent?: boolean;
   equals?: ((prev: T, next: T) => boolean) | false;
   ownedWrite?: boolean;
@@ -169,6 +176,13 @@ export interface Owner {
    * (`<App>`). A slot in the observe/dev literals; absent from prod.
    */
   _name?: string;
+  /**
+   * Observe-tier source location (`file:line:col`): the `loc` option, or
+   * the JSX site the rendering layer writes on a component root. A slot
+   * beside `_name`; absent from prod. Reserved from property mangling, like
+   * `_name`, because solid-js writes it and the core's diagnostics read it.
+   */
+  _loc?: string;
 }
 
 export interface Computed<T> extends RawSignal<T>, Owner {

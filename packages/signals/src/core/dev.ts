@@ -151,6 +151,15 @@ export interface DiagnosticEvent {
    * is usually the finding itself).
    */
   ownerPath?: string[];
+  /**
+   * Source location of the innermost located node enclosing the subject
+   * (`file:line:col`, root-relative — the compiler's `sourceNames`
+   * `locations` kind): the subject's own `loc`, else the nearest owner's up
+   * the chain (a component root carries its JSX site). Absent when nothing
+   * on the chain was compiled with locations. A host event that sets it
+   * keeps it.
+   */
+  loc?: string;
   data?: Record<string, unknown>;
 }
 
@@ -497,12 +506,14 @@ export interface Dev {
   /** Console face of an emitted event — see `reportDiagnostic`. */
   report(entry: DiagnosticEvent): void;
   /**
-   * The stable URL of `code`'s section in the repair guide — the
-   * `reactivity-diagnostics` skill shipped with `solid-js`, one section per
-   * code. The one place the URL is built: the console footer prints it and
-   * the performance tracks' Insights link (`learnMoreUrl`) reads it, so both
-   * name the same section. Dev-tier: it is guidance for a developer, and a
-   * URL string on a retained object is a cost every observe build would pay.
+   * The URL of `code`'s page in the docs — what the finding means and how
+   * to fix it, one page per code
+   * (`https://v2.solidjs.com/reference/solid-js/diagnostics/<slug>`, slug =
+   * the code lowercased with `-` for `_`). The one place the URL is built:
+   * the console footer prints it and the performance tracks' Insights link
+   * (`learnMoreUrl`) reads it, so both name the same page. Dev-tier: it is
+   * guidance for a developer, and a URL string on a retained object is a
+   * cost every observe build would pay.
    */
   guideUrl(code: DiagnosticCode): string;
 }
@@ -721,10 +732,11 @@ export function isSuppressed(entry: DiagnosticEvent): boolean {
 }
 
 // The repair guide: the `reactivity-diagnostics` skill `solid-js` ships,
-// one section per code, at its stable GitHub path. GitHub heading anchors
-// are lowercased with underscores kept (`### SILENT_HOLD` → `#silent_hold`).
-const GUIDE_URL =
-  "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md";
+// one page per code on the docs site. The slug is the code lowercased with
+// `_` → `-` (`STRICT_READ_UNTRACKED` → `strict-read-untracked`). The host
+// flips to docs.solidjs.com at stable (one search-and-replace, with the JSDoc
+// links).
+const GUIDE_URL = "https://v2.solidjs.com/reference/solid-js/diagnostics/";
 
 export const DEV: Dev = __DEV__
   ? {
@@ -736,7 +748,7 @@ export const DEV: Dev = __DEV__
       getObservers,
       report: reportDiagnostic,
       guideUrl(code) {
-        return `${GUIDE_URL}#${code.toLowerCase()}`;
+        return GUIDE_URL + code.toLowerCase().replace(/_/g, "-");
       }
     }
   : (undefined as unknown as Dev);
@@ -785,14 +797,33 @@ export function ownerPath(subject: DiagnosticSubject | null | undefined): string
 }
 
 /**
+ * The innermost source location on the subject's chain: the subject's own
+ * `_loc` (a signal or computation created with `{ loc }`), else the first
+ * `_loc` up the owners — a signal hops to its registering owner, then
+ * `_parent` upward (a component root carries its JSX site). The same walk
+ * `ownerPath` makes; `undefined` when nothing on the chain was located.
+ */
+function locationOf(subject: DiagnosticSubject | null | undefined): string | undefined {
+  // Owners have a `_parent` key (null on a root); a signal has none and hops
+  // to its registering `_owner` instead.
+  for (
+    let node: any = subject;
+    node;
+    node = node._parent !== undefined ? node._parent : node._owner
+  )
+    if (node._loc) return node._loc;
+  return undefined;
+}
+
+/**
  * Records a diagnostic on the structured channel (listeners, captures) and
  * returns the entry. `subject` locates it: the current reactive `context` by
  * default (right for the synchronous rule checks — they fire inside the
  * scope that misbehaved); pass the node for scheduler-time findings whose
  * ambient context is the flush, or `null` for events that have no location
- * by nature. An `ownerPath` already on the event wins over the subject walk
- * (hosts whose owners are not signals' owners compute their own). Console
- * output is a separate, dev-tier step — see `reportDiagnostic`.
+ * by nature. An `ownerPath` (or `loc`) already on the event wins over the
+ * subject walk (hosts whose owners are not signals' owners compute their
+ * own). Console output is a separate, dev-tier step — see `reportDiagnostic`.
  */
 export function emitDiagnostic(
   event: Omit<DiagnosticEvent, "sequence">,
@@ -811,6 +842,10 @@ export function emitDiagnostic(
   if (entry.ownerPath === undefined) {
     const path = ownerPath(subject);
     if (path) entry.ownerPath = path;
+  }
+  if (entry.loc === undefined) {
+    const loc = locationOf(subject);
+    if (loc !== undefined) entry.loc = loc;
   }
   const live = subject ?? undefined;
   if (live !== undefined) eventSubjects.set(entry, live);
@@ -852,11 +887,31 @@ function takeFooter(entry: DiagnosticEvent): string | undefined {
 const eventSubjects = new WeakMap<DiagnosticEvent, DiagnosticSubject>();
 
 /**
+ * The `at` line of a console report: the event's `loc` as the compiler wrote
+ * it (`src/App.tsx:18:3`), or — in a browser, where a dev server serves the
+ * project root at `location.origin` — `http://localhost:5173/src/App.tsx:18:3`,
+ * which Chrome and Firefox link to the Sources panel. A path that leaves the
+ * root (`../`) or is absolute is not under the origin and prints as-is.
+ */
+function locationLine(loc: string): string {
+  if (
+    typeof document !== "undefined" &&
+    typeof location !== "undefined" &&
+    !loc.startsWith("..") &&
+    !loc.startsWith("/")
+  )
+    return `${location.origin}/${loc}`;
+  return loc;
+}
+
+/**
  * The console face of a diagnostic — ONE entry per finding: the message, the
  * owner path (`in <App> › <TodoRow> › effect`) so a human can locate it, the
- * once-per-code footer as trailing lines, and — when the subject is a
- * binding effect the rendering runtime tagged — the element it writes, as a
- * second console argument (hover highlights it, click jumps to Elements).
+ * source location (`at src/App.tsx:18:3` — see `locationLine`) when a node on
+ * the chain was compiled with one, the once-per-code footer as trailing
+ * lines, and — when the subject is a binding effect the rendering runtime
+ * tagged — the element it writes, as a second console argument (hover
+ * highlights it, click jumps to Elements).
  * Severity picks the console method. Call sites report the entry
  * `emitDiagnostic` returned so the structured and console channels never
  * disagree. Dev-tier: in an observe build this is a no-op, so wiring paths
@@ -867,6 +922,7 @@ export function reportDiagnostic(entry: DiagnosticEvent): void {
   if (!__DEV__ || suppressedEvents.has(entry)) return;
   let text = entry.message;
   if (entry.ownerPath) text += `\n  in ${entry.ownerPath.join(" › ")}`;
+  if (entry.loc) text += `\n  at ${locationLine(entry.loc)}`;
   const footer = takeFooter(entry);
   if (footer) text += `\n${footer}`;
   const element = (eventSubjects.get(entry) as { _devElement?: object } | undefined)?._devElement;

@@ -374,15 +374,15 @@ describe("@solidjs/signals awaited refresh per tier", () => {
 
 describe("@solidjs/signals node literals per tier", () => {
   // Each node factory has two object literals — prod, and observe = prod plus
-  // its diagnostic slots (`_name`; `_owner` on signals) — selected at build
+  // its diagnostic slots (`_name`, `_loc`; `_owner` on signals) — selected at build
   // time. The slots MUST be in the literal: written after construction they
   // force a hidden-class transition and an out-of-object property on every
   // node, which was the whole of the observe tier's measured creation
   // overhead. Two hand-kept literals can drift, so this pins the invariant
   // from the built trees: the observe literal's keys are exactly the prod
   // literal's keys plus the slots, and the prod literal has no slot at all.
-  // Field names are mangled per tree (`_name` is reserved), so the
-  // comparison is by count and by the reserved name.
+  // Field names are mangled per tree (`_name` and `_loc` are reserved), so
+  // the comparison is by count and by the reserved names.
   async function literalKeys(tier: "prod" | "observe") {
     const core = (await import(`../dist/${tier}/core/core.js`)) as any;
     const owner = (await import(`../dist/${tier}/core/owner.js`)) as any;
@@ -411,17 +411,19 @@ describe("@solidjs/signals node literals per tier", () => {
     const prod = await literalKeys("prod");
     const observe = await literalKeys("observe");
     const slots: Record<string, string[]> = {
-      owner: ["_name"],
-      signal: ["_name", "_owner"],
+      owner: ["_name", "_loc"],
+      signal: ["_name", "_loc", "_owner"],
       // L2 (§31 S1): the slot literal carries `_owner` like `signal` — the
       // attribution stamp fills a slot instead of adding a field after.
-      slotSignal: ["_name", "_owner"],
-      computed: ["_name", "_devWindows"],
-      effect: ["_name", "_devWindows"]
+      slotSignal: ["_name", "_loc", "_owner"],
+      computed: ["_name", "_loc", "_devWindows"],
+      effect: ["_name", "_loc", "_devWindows"]
     };
     for (const kind of Object.keys(slots)) {
       expect(prod[kind], `${kind} prod literal carries a slot`).not.toContain("_name");
+      expect(prod[kind], `${kind} prod literal carries a slot`).not.toContain("_loc");
       expect(observe[kind], `${kind} observe literal lacks its slot`).toContain("_name");
+      expect(observe[kind], `${kind} observe literal lacks its slot`).toContain("_loc");
       expect(observe[kind].length, `${kind} literals drifted`).toBe(
         prod[kind].length + slots[kind].length
       );
@@ -438,10 +440,12 @@ describe("@solidjs/signals node literals per tier", () => {
     // Default labels and a supplied name both come out of the same literal:
     // the key set is identical either way.
     const plain = core.computed(() => 0);
-    const named = core.computed(() => 0, { name: "n" });
+    const named = core.computed(() => 0, { name: "n", loc: "src/a.ts:1:1" });
     expect(Object.keys(named)).toEqual(Object.keys(plain));
     expect(plain._name).toBe("computed");
     expect(named._name).toBe("n");
+    expect(plain._loc).toBeUndefined();
+    expect(named._loc).toBe("src/a.ts:1:1");
     // The default effect label comes from the node kind, not from an options
     // spread in the wrapper (which allocated per effect in observe).
     let effectName: string | undefined;

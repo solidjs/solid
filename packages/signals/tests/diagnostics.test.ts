@@ -282,7 +282,7 @@ describe("diagnostics", () => {
 });
 
 describe("diagnostics console footer", () => {
-  it("links every diagnostic code to an existing guide section", () => {
+  it("every diagnostic code has a section in the repair skill (the footer's agent line anchors to it)", () => {
     const source = readFileSync(new URL("../src/core/dev.ts", import.meta.url), "utf8");
     const declaration = source.match(/export type DiagnosticCode =([\s\S]*?);/);
     expect(declaration).not.toBeNull();
@@ -295,21 +295,26 @@ describe("diagnostics console footer", () => {
       new URL("../../solid/skills/reactivity-diagnostics/SKILL.md", import.meta.url),
       "utf8"
     );
+    // GitHub heading anchors: the heading lowercased, underscores kept —
+    // what solid-js's footer appends to the skill URL (`#silent_hold`).
     const anchors = Array.from(guide.matchAll(/^#{3,4} ([A-Z][A-Z0-9_]*)$/gm), match =>
       match[1].toLowerCase()
     );
-    const missing = codes.filter(
-      code => !anchors.includes(new URL(DEV!.guideUrl(code)).hash.slice(1))
-    );
+    const missing = codes.filter(code => !anchors.includes(code.toLowerCase()));
     expect(missing).toEqual([]);
   });
 
-  it("DEV.guideUrl is the repair guide's section for a code", () => {
-    const url = DEV!.guideUrl("STRICT_READ_UNTRACKED");
-    expect(url).toMatch(
-      /^https:\/\/github\.com\/solidjs\/solid\/blob\/next\/.*SKILL\.md#strict_read_untracked$/
+  it("DEV.guideUrl is the code's page on the docs site", () => {
+    expect(DEV!.guideUrl("STRICT_READ_UNTRACKED")).toBe(
+      "https://v2.solidjs.com/reference/solid-js/diagnostics/strict-read-untracked"
     );
-    expect(DEV!.guideUrl("SILENT_HOLD")).toBe(url.replace(/#.*$/, "#silent_hold"));
+    // The slug is the code lowercased with `-` for every `_`.
+    expect(DEV!.guideUrl("SILENT_HOLD")).toBe(
+      "https://v2.solidjs.com/reference/solid-js/diagnostics/silent-hold"
+    );
+    expect(DEV!.guideUrl("NO_OWNER_EFFECT")).toBe(
+      "https://v2.solidjs.com/reference/solid-js/diagnostics/no-owner-effect"
+    );
   });
 
   afterEach(() => {
@@ -432,6 +437,166 @@ describe("diagnostics console footer", () => {
     await Promise.resolve();
 
     expect(warnTexts(warn)).toEqual(["one\nfooter:first", "two\nfooter:second"]);
+  });
+});
+
+describe("diagnostics source locations", () => {
+  // Stand-in for solid-js's observedComponent, which labels each component
+  // root with its tag and JSX site (`createComponent(Home, props, "Home",
+  // "src/App.tsx:12:5")`).
+  const labelComponent = (name: string, loc?: string) => {
+    const owner = getOwner() as any;
+    owner._name = name;
+    owner._loc = loc;
+  };
+  const emit = (subject?: any) =>
+    emitDiagnostic(
+      { code: "INVARIANT_VIOLATION", kind: "error", severity: "error", message: "probe" },
+      subject
+    );
+
+  it("a finding inside a computation created with { loc } carries it as event.loc", () => {
+    let event: any;
+    createRoot(() => {
+      createMemo(
+        () => {
+          event = emit();
+          return 1;
+        },
+        { name: "label", loc: "src/components/TodoRow.tsx:18:3" }
+      )();
+    });
+    expect(event.loc).toBe("src/components/TodoRow.tsx:18:3");
+    expect(event.ownerPath).toEqual(["label"]);
+  });
+
+  it("the innermost located node wins: an effect's own loc over the component's", () => {
+    let event: any;
+    createRoot(() => {
+      labelComponent("<App>", "src/App.tsx:3:5");
+      createEffect(
+        () => {
+          event = emit();
+          return 1;
+        },
+        () => {},
+        { loc: "src/App.tsx:14:7" }
+      );
+    });
+    flush();
+    expect(event.loc).toBe("src/App.tsx:14:7");
+  });
+
+  it("the component root's loc wins when the scope has none", () => {
+    let event: any;
+    createRoot(() => {
+      labelComponent("<App>", "src/App.tsx:3:5");
+      createRoot(() => {
+        // An unlocated, unnamed intermediate root (a list row scope).
+        createMemo(() => {
+          event = emit();
+          return 1;
+        })();
+      });
+    });
+    expect(event.loc).toBe("src/App.tsx:3:5");
+    expect(event.ownerPath).toEqual(["<App>", "computed"]);
+  });
+
+  it("a signal subject resolves to its own loc, else its registering owner's", () => {
+    let own: any;
+    let inherited: any;
+    createRoot(() => {
+      labelComponent("<Counter>", "src/Counter.tsx:2:1");
+      createSignal(0, { name: "count", loc: "src/Counter.tsx:3:22" });
+      createSignal(0);
+      const [located, plain] = DEV!.getSignals(getOwner()!);
+      own = emit(located);
+      inherited = emit(plain);
+    });
+    expect(own.loc).toBe("src/Counter.tsx:3:22");
+    expect(inherited.loc).toBe("src/Counter.tsx:2:1");
+  });
+
+  it("is absent when nothing on the chain was located, and a host event's loc is kept", () => {
+    let unlocated: any;
+    let host: any;
+    createRoot(() => {
+      labelComponent("<App>");
+      unlocated = emit();
+      host = emitDiagnostic({
+        code: "HYDRATION_MISMATCH",
+        kind: "hydration",
+        severity: "error",
+        message: "host",
+        loc: "src/Page.tsx:9:9"
+      });
+    });
+    expect(unlocated.loc).toBeUndefined();
+    expect("loc" in unlocated).toBe(false);
+    expect(host.loc).toBe("src/Page.tsx:9:9");
+  });
+
+  it("reportDiagnostic prints an `at` line after the `in` line and before the footer", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setConsoleFooter(event => `footer:${event.code}`);
+    createRoot(() => {
+      labelComponent("<App>", "src/App.tsx:3:5");
+      createMemo(
+        () => {
+          reportDiagnostic(
+            emitDiagnostic({
+              code: "STRICT_READ_UNTRACKED",
+              kind: "strict-read",
+              severity: "warn",
+              message: "[STRICT_READ_UNTRACKED] probe"
+            })
+          );
+          return 1;
+        },
+        { name: "label", loc: "src/components/TodoRow.tsx:18:3" }
+      )();
+    });
+    setConsoleFooter(undefined);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toBe(
+      "[STRICT_READ_UNTRACKED] probe\n" +
+        "  in <App> › label\n" +
+        "  at src/components/TodoRow.tsx:18:3\n" +
+        "footer:STRICT_READ_UNTRACKED"
+    );
+  });
+
+  it("in a browser the `at` line is the dev-server URL of a root-relative path", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("document", {});
+    vi.stubGlobal("location", { origin: "http://localhost:5173" });
+    try {
+      const report = (loc: string) =>
+        reportDiagnostic(
+          emitDiagnostic(
+            {
+              code: "STRICT_READ_UNTRACKED",
+              kind: "strict-read",
+              severity: "warn",
+              message: "probe",
+              loc
+            },
+            null
+          )
+        );
+      report("src/App.tsx:18:3");
+      // Outside the root, or absolute: not under the origin — printed as-is.
+      report("../shared/util.ts:4:1");
+      report("/abs/path/App.tsx:1:1");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(warn.mock.calls.map(args => String(args[0]))).toEqual([
+      "probe\n  at http://localhost:5173/src/App.tsx:18:3",
+      "probe\n  at ../shared/util.ts:4:1",
+      "probe\n  at /abs/path/App.tsx:1:1"
+    ]);
   });
 });
 

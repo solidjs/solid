@@ -23,6 +23,7 @@ computations by their `name` option or the `effect`/`computed` default:
 ```
 [HOT_SCOPE_TIME] effect "effect" spent 12.4ms of compute inside one 1000ms window ...
   in <App> › <TodoList> › <TodoRow> › effect
+  at src/components/TodoRow.tsx:18:3
 ```
 
 Read it as the component tree down to the scope. In captured artifacts the
@@ -31,6 +32,16 @@ subject has no named owner — a top-level scope, or an unowned primitive,
 which for the `NO_OWNER_*` codes is the finding itself. Naming your memos and
 effects (`{ name }`) turns the trailing `effect` into something you can grep.
 
+The `at` line is the source location (`file:line:col`, relative to the
+project root) of the innermost located node — the binding, memo, effect,
+signal or store the finding is about, else the JSX site of the nearest
+enclosing component. It is written by the compiler's `sourceNames`
+`locations` kind (on in a dev build; an opt-in for `observe` builds) and is
+absent when the build did not write one. In a browser it prints as the dev
+server's URL (`at http://localhost:5173/src/components/TodoRow.tsx:18:3`),
+which Chrome and Firefox link to the Sources panel; on the server it is the
+bare path. In captured artifacts the same string is `event.loc`.
+
 In a browser, a report about a compiled JSX binding effect (an attribute,
 class, style, or insert) also carries the element it writes as a second
 console argument — hover to highlight it on the page, click to jump to it in
@@ -38,10 +49,11 @@ the Elements panel. That is the fastest way from a `HOT_SCOPE_*` warning to
 "which row on screen." Why-chains (`attribution.enable()` from `solid-js/attribution`) print as
 collapsed console groups: one headline per run, the causes inside.
 
-The first report of each code ends with a footer pointing here — the
-installed copy (`node_modules/solid-js/skills/...`) for tooling in the repo,
-and the same file on GitHub with an anchor to the code's section for a human
-reading the console.
+The first report of each code ends with a two-line footer: for a human, the
+code's page on the docs site (what the finding means and how to fix it); for
+an agent, a pointer here — the installed copy (`node_modules/solid-js/skills/...`)
+for tooling in the repo, and the same file on GitHub — anchored to the code's
+section.
 
 With attribution enabled, every root write also carries WHO performed it
 (`ChangeRecord.origin`): the user event and element (`click on button#next

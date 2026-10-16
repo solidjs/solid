@@ -14,7 +14,8 @@ const Component = () =>
     {
       name: "John"
     },
-    "Child"
+    "Child",
+    "test/__dom_source_names_fixtures__/ssr/code.js:3:25"
   );
 var _v$2 = _$escape(
     _$createComponent(
@@ -30,7 +31,8 @@ var _v$2 = _$escape(
           }
         }
       ),
-      "Child"
+      "Child",
+      "test/__dom_source_names_fixtures__/ssr/code.js:7:5"
     )
   ),
   _v$3 = _$escape(
@@ -39,7 +41,8 @@ var _v$2 = _$escape(
       {
         variant: "primary"
       },
-      "Ui.Button"
+      "Ui.Button",
+      "test/__dom_source_names_fixtures__/ssr/code.js:10:5"
     )
   ),
   _v$4 = _$escape(
@@ -49,7 +52,8 @@ var _v$2 = _$escape(
         cols: 2,
         children: "text"
       },
-      "Ui.Layout.Grid"
+      "Ui.Layout.Grid",
+      "test/__dom_source_names_fixtures__/ssr/code.js:11:5"
     )
   ),
   _v$5 = _$escape(
@@ -65,10 +69,12 @@ var _v$2 = _$escape(
             {
               item: item
             },
-            "Row"
+            "Row",
+            "test/__dom_source_names_fixtures__/ssr/code.js:12:33"
           )
       },
-      "For"
+      "For",
+      "test/__dom_source_names_fixtures__/ssr/code.js:12:5"
     )
   ),
   _v$6 = _$escape(
@@ -79,20 +85,40 @@ var _v$2 = _$escape(
           return visible();
         },
         get children() {
-          return _$createComponent(Child, {}, "Child");
+          return _$createComponent(
+            Child,
+            {},
+            "Child",
+            "test/__dom_source_names_fixtures__/ssr/code.js:14:7"
+          );
         }
       },
-      "Show"
+      "Show",
+      "test/__dom_source_names_fixtures__/ssr/code.js:13:5"
     )
   ),
-  _v$7 = _$escape(_$createComponent(_self$.Row, {}, "this.Row")),
+  _v$7 = _$escape(
+    _$createComponent(
+      _self$.Row,
+      {},
+      "this.Row",
+      "test/__dom_source_names_fixtures__/ssr/code.js:16:5"
+    )
+  ),
   _v$8 = _$escape(
     _$createComponent(
       Comp,
       {
-        children: () => _$createComponent(Child, {}, "Child")
+        children: () =>
+          _$createComponent(
+            Child,
+            {},
+            "Child",
+            "test/__dom_source_names_fixtures__/ssr/code.js:17:18"
+          )
       },
-      "Comp"
+      "Comp",
+      "test/__dom_source_names_fixtures__/ssr/code.js:17:5"
     )
   );
 const template = (() => {
@@ -101,6 +127,11 @@ const template = (() => {
 })();
 class Container {
   render() {
-    return _$createComponent(this.Row, {}, "this.Row");
+    return _$createComponent(
+      this.Row,
+      {},
+      "this.Row",
+      "test/__dom_source_names_fixtures__/ssr/code.js:23:12"
+    );
   }
 }

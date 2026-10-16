@@ -3191,15 +3191,24 @@ module.exports = [
     // 40,780 B; measured locally (linux) at 14,444 B (40,780 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    // Flight start stamps on the core slot (#4105, 2026-10-16): 14.46 ->
-    // 14.51 KB, measured locally at 14,499 B against the ratchet's 14,444
-    // (+55 B; +228 B minified, 40,780 -> 41,008) — observe tier only:
+    // Source locations on diagnostics (#4107, 2026-10-15): 14.46 -> 14.51 KB,
+    // measured locally at 14,498 B against `next` @ ccd99481's 14,444
+    // (+54 B; +204 B minified, 40,780 -> 40,984). Observe-tier only — prod
+    // scenarios are byte-identical: the `_loc` slot beside `_name` on every
+    // node literal, the location walk `emitDiagnostic` makes, the store's
+    // per-property location, and the web runtime threading `loc` beside the
+    // binding name. Golfed first (-116 B minified: one owner walk, the store
+    // lookup inlined), then the cap raised by what is left: measured + 10 B
+    // rounded up to 0.01 KB.
+    // Flight start stamps on the core slot (#4105, 2026-10-16): 14.51 ->
+    // 14.60 KB, measured locally at 14,588 B against `next` @ 4a99c844's
+    // 14,498 (+90 B; +228 B minified, 40,984 -> 41,212) — observe tier only:
     // `OBSERVE.attribution.markFlight`/`flightOrigin` move into the core so a
     // router or cache can stamp without the engine, and `lazy()` stamps its
     // import and the read wrapper. Prod unchanged. Cap at measured + 10 B
     // rounded up to 0.01 KB.
-    limit: "14.51 KB",
-    capMinified: 41008,
+    limit: "14.60 KB",
+    capMinified: 41212,
     alias: observeAlias
   },
   {
@@ -3678,13 +3687,17 @@ module.exports = [
     // 87,163 B; measured locally (linux) at 29,073 B (87,163 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    // Flight start stamps on the core slot (#4105, 2026-10-16): 29.09 ->
-    // 29.14 KB, measured locally at 29,130 B against the ratchet's 29,073
-    // (+57 B; +215 B minified, 87,163 -> 87,378) — the observe scenario's
+    // Source locations on diagnostics (#4107, 2026-10-15): 29.09 -> 29.12 KB,
+    // measured locally at 29,108 B (87,372 B minified; +209 B minified). The
+    // observe tier's cost above, unchanged by the engine. Cap at measured +
+    // 10 B rounded up to 0.01 KB.
+    // Flight start stamps on the core slot (#4105, 2026-10-16): 29.12 ->
+    // 29.19 KB, measured locally at 29,180 B against `next` @ 4a99c844's
+    // 29,108 (+72 B; +210 B minified, 87,372 -> 87,582) — the observe scenario's
     // change (the slot's stamps, `lazy()`'s marks) less the engine's own
     // origin map, which now delegates to the slot.
-    limit: "29.14 KB",
-    capMinified: 87378,
+    limit: "29.19 KB",
+    capMinified: 87582,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -5582,8 +5595,15 @@ module.exports = [
     // display through its retry, `latest` throws a staged error. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-15 (golf first, then raise by what is left).
-    limit: "48.05 KB",
-    capMinified: 144752,
+    // Source locations on diagnostics (#4107, 2026-10-15): 48.05 -> 48.16 KB,
+    // measured at 48,150 B (144,773 B minified) by CI and locally alike.
+    // +2 B minified over the PR's base (`createComponent`'s fourth parameter,
+    // read only in the observe tier), the rest brotli layout: the base
+    // already sat 19 B over the recorded minified, so the allowance was spent.
+    // Re-based on the measurement: cap at measured + 10 B rounded up to
+    // 0.01 KB, recorded minified 144,773.
+    limit: "48.16 KB",
+    capMinified: 144773,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }

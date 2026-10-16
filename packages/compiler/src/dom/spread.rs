@@ -20,6 +20,12 @@ impl<'a> AstDomTransform<'a, '_> {
         skip_children: bool,
     ) -> Result<Statement<'a>> {
         self.template_state.uses_spread = true;
+        // `sourceNames.locations`: the spread's `loc` is the first spread
+        // attribute's start (`{...props}`), the node Babel reads from.
+        let spread_offset = attributes.iter().find_map(|attr| match attr {
+            JSXAttributeItem::SpreadAttribute(spread) => Some(spread.span.start),
+            JSXAttributeItem::Attribute(_) => None,
+        });
         // A spread may carry delegated event handlers, which can't be known at
         // compile time; hydratable roots must replay events (Babel parity).
         if self.hydratable {
@@ -116,7 +122,9 @@ impl<'a> AstDomTransform<'a, '_> {
         // `sourceNames.bindings`: the tag as written rides as spread's
         // trailing argument (past the runtime-only `skip` slot); the runtime
         // labels its attribute effect `<tag>.spread` and its children insert
-        // `<tag>.children`.
+        // `<tag>.children`. `sourceNames.locations` follows it as one more
+        // positional string — spread takes no options literal, so the
+        // location rides beside the name the same way the name does.
         if self.binding_names {
             args.push(self.identifier_expression(Span::default(), "undefined"));
             args.push(self.ast().expression_string_literal(
@@ -124,6 +132,13 @@ impl<'a> AstDomTransform<'a, '_> {
                 self.ast().str(tag_name),
                 None,
             ));
+            if let Some(location) = spread_offset.and_then(|offset| self.source_location(offset)) {
+                args.push(self.ast().expression_string_literal(
+                    Span::default(),
+                    self.ast().str(&location),
+                    None,
+                ));
+            }
         }
 
         Ok(self.ast().statement_expression(

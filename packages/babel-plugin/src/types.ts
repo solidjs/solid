@@ -62,6 +62,8 @@ export type TsrxBabelAst = t.File & {
 
 export type BabelFileWithMetadata = {
   ast: TsrxBabelAst;
+  /** Babel's normalized file options: `filename` is absent when the caller gave none. */
+  opts?: { filename?: string | null; cwd?: string };
   metadata: {
     config?: PluginConfig;
     css?: string;
@@ -110,6 +112,8 @@ export interface TransformResult {
   spreadElement?: boolean;
   groupable?: Set<string>;
   groupId?: t.Identifier;
+  /** `sourceNames.locations`: a hole's `{` start, `file:line:col` (shared/location.ts). */
+  loc?: string;
 }
 
 export type TransformNodeResult = TransformResult | null | undefined;
@@ -162,6 +166,8 @@ export interface DynamicBinding {
   styleProperty?: boolean;
   classProperty?: boolean;
   checkableInput?: boolean;
+  /** `sourceNames.locations`: the binding's attribute start, `file:line:col` (shared/location.ts). */
+  loc?: string;
 }
 
 export interface SetAttrOptions {

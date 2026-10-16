@@ -1,16 +1,83 @@
 /**
- * The runtime half of `sourceNames.bindings`: the compiled `{ name }` options
- * argument on `effect`/`insert` and the trailing tag on `spread` land on the
- * render effect nodes the runtime creates, where the dev and observe tiers
- * read them as the node's label (`_name`).
+ * The runtime half of `sourceNames.bindings` (and its `locations` kind): the
+ * compiled `{ name, loc }` options argument on `effect`/`insert` and the
+ * trailing tag and site on `spread` land on the render effect nodes the
+ * runtime creates, where the dev and observe tiers read them as the node's
+ * label (`_name`) and source location (`_loc`).
  */
 import { describe, expect, test } from "vitest";
-import { createRoot, createSignal, getOwner, flush } from "solid-js";
+import { createRoot, createSignal, getOwner, flush, OBSERVE } from "solid-js";
 import { effect, insert, spread } from "@solidjs/web";
 
 function ownerName(): string | undefined {
   return (getOwner() as { _name?: string } | null)?._name;
 }
+function ownerLoc(): string | undefined {
+  return (getOwner() as { _loc?: string } | null)?._loc;
+}
+
+describe("sourceNames.locations at runtime", () => {
+  test("effect and insert carry the compiled loc onto their nodes; a finding inside reports it", () => {
+    const seen: (string | undefined)[] = [];
+    let event: any;
+    const div = document.createElement("div");
+    createRoot(() => {
+      effect(
+        () => {
+          seen.push(ownerLoc());
+          event = OBSERVE!.diagnostics.emit(
+            { code: "INVARIANT_VIOLATION", kind: "error", severity: "error", message: "probe" },
+            getOwner()
+          );
+          return 1;
+        },
+        () => {},
+        { name: "span.textContent", loc: "src/App.tsx:14:7" }
+      );
+      insert(
+        div,
+        () => {
+          seen.push(ownerLoc());
+          return "x";
+        },
+        undefined,
+        undefined,
+        { name: "div.children", loc: "src/App.tsx:15:9" }
+      );
+      effect(
+        () => {
+          seen.push(ownerLoc());
+          return 1;
+        },
+        () => {}
+      );
+    });
+    flush();
+    expect(seen).toEqual(["src/App.tsx:14:7", "src/App.tsx:15:9", undefined]);
+    expect(event.loc).toBe("src/App.tsx:14:7");
+    expect(event.ownerPath).toEqual(["span.textContent"]);
+  });
+
+  test("spread's trailing loc lands on its attribute effect and children insert", () => {
+    const seen = new Set<string | undefined>();
+    const div = document.createElement("div");
+    createRoot(() => {
+      spread(
+        div,
+        () => {
+          seen.add(ownerLoc());
+          return { title: "t", children: () => (seen.add(ownerLoc()), "x") };
+        },
+        false,
+        undefined,
+        "div",
+        "src/App.tsx:20:3"
+      );
+    });
+    flush();
+    expect([...seen]).toEqual(["src/App.tsx:20:3"]);
+  });
+});
 
 describe("sourceNames.bindings at runtime", () => {
   test("effect carries the compiled name onto its node", () => {

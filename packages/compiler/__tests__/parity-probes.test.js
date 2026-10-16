@@ -1320,7 +1320,7 @@ describe("Babel vs Oxc parity probes", () => {
         // nesting in dynamic mode); both compilers rejecting is parity too.
         let babelOut, babelError;
         try {
-          babelOut = normalize(compileBabel(source, options));
+          babelOut = normalize(compileBabel(source, options, "probe.jsx"));
         } catch (err) {
           babelError = err;
         }

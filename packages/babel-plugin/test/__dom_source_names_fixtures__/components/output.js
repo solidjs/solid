@@ -13,7 +13,8 @@ const Component = () =>
     {
       name: "John"
     },
-    "Child"
+    "Child",
+    "test/__dom_source_names_fixtures__/components/code.js:3:25"
   );
 var _el$ = _tmpl$2(),
   _el$3 = _el$.firstChild,
@@ -36,13 +37,15 @@ _$insert(
         get children() {
           var _el$2 = _tmpl$();
           _$insert(_el$2, name, undefined, undefined, {
-            name: "span.children"
+            name: "span.children",
+            loc: "test/__dom_source_names_fixtures__/components/code.js:8:13"
           });
           return _el$2;
         }
       }
     ),
-    "Child"
+    "Child",
+    "test/__dom_source_names_fixtures__/components/code.js:7:5"
   ),
   _el$3
 );
@@ -53,7 +56,8 @@ _$insert(
     {
       variant: "primary"
     },
-    "Ui.Button"
+    "Ui.Button",
+    "test/__dom_source_names_fixtures__/components/code.js:10:5"
   ),
   _el$4
 );
@@ -65,7 +69,8 @@ _$insert(
       cols: 2,
       children: "text"
     },
-    "Ui.Layout.Grid"
+    "Ui.Layout.Grid",
+    "test/__dom_source_names_fixtures__/components/code.js:11:5"
   ),
   _el$5
 );
@@ -83,10 +88,12 @@ _$insert(
           {
             item: item
           },
-          "Row"
+          "Row",
+          "test/__dom_source_names_fixtures__/components/code.js:12:33"
         )
     },
-    "For"
+    "For",
+    "test/__dom_source_names_fixtures__/components/code.js:12:5"
   ),
   _el$6
 );
@@ -99,22 +106,44 @@ _$insert(
         return visible();
       },
       get children() {
-        return _$createComponent(Child, {}, "Child");
+        return _$createComponent(
+          Child,
+          {},
+          "Child",
+          "test/__dom_source_names_fixtures__/components/code.js:14:7"
+        );
       }
     },
-    "Show"
+    "Show",
+    "test/__dom_source_names_fixtures__/components/code.js:13:5"
   ),
   _el$7
 );
-_$insert(_el$, _$createComponent(_self$.Row, {}, "this.Row"), _el$8);
+_$insert(
+  _el$,
+  _$createComponent(
+    _self$.Row,
+    {},
+    "this.Row",
+    "test/__dom_source_names_fixtures__/components/code.js:16:5"
+  ),
+  _el$8
+);
 _$insert(
   _el$,
   _$createComponent(
     Comp,
     {
-      children: () => _$createComponent(Child, {}, "Child")
+      children: () =>
+        _$createComponent(
+          Child,
+          {},
+          "Child",
+          "test/__dom_source_names_fixtures__/components/code.js:17:18"
+        )
     },
-    "Comp"
+    "Comp",
+    "test/__dom_source_names_fixtures__/components/code.js:17:5"
   ),
   _el$9
 );
@@ -124,6 +153,11 @@ const template = (() => {
 })();
 class Container {
   render() {
-    return _$createComponent(this.Row, {}, "this.Row");
+    return _$createComponent(
+      this.Row,
+      {},
+      "this.Row",
+      "test/__dom_source_names_fixtures__/components/code.js:23:12"
+    );
   }
 }

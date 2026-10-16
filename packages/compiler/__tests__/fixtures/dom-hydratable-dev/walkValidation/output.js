@@ -13,26 +13,38 @@ var _el$ = _$getNextElement(_tmpl$);
 var _el$2 = _$getFirstChild(_el$, "span");
 _$insert(_el$2, _$scope(() => {
 	return name();
-}), undefined, undefined, { name: "span.children" });
+}), undefined, undefined, {
+	name: "span.children",
+	loc: "walkValidation.jsx:5:11"
+});
 const singleChild = _el$;
 var _el$3 = _$getNextElement(_tmpl$2);
 var _el$4 = _$getFirstChild(_el$3, "header");
 var _el$5 = _$getNextSibling(_el$4, "main");
 _$insert(_el$5, _$scope(() => {
 	return name();
-}), undefined, undefined, { name: "main.children" });
+}), undefined, undefined, {
+	name: "main.children",
+	loc: "walkValidation.jsx:12:11"
+});
 const siblingElements = _el$3;
 var _el$6 = _$getNextElement(_tmpl$3);
 var _el$7 = _el$6.firstChild;
 var _el$8 = _$getNextSibling(_el$7, "b");
 _$insert(_el$8, _$scope(() => {
 	return name();
-}), undefined, undefined, { name: "b.children" });
+}), undefined, undefined, {
+	name: "b.children",
+	loc: "walkValidation.jsx:19:14"
+});
 const mixedTextAndElements = _el$6;
 var _el$9 = _$getNextElement(_tmpl$4);
 var _el$10 = _$getFirstChild(_el$9, "ul");
 var _el$11 = _$getFirstChild(_el$10, "li");
 _$insert(_el$11, _$scope(() => {
 	return name();
-}), undefined, undefined, { name: "li.children" });
+}), undefined, undefined, {
+	name: "li.children",
+	loc: "walkValidation.jsx:26:11"
+});
 const nestedWalk = _el$9;

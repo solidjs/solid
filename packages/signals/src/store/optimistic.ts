@@ -650,16 +650,17 @@ export function createOptimisticStore<T extends object = {}>(
           : (row: any) => (isWrappable(row) ? row[keyOption] : undefined)
   };
   const store = wrap(initialValue as any, null, null, fam) as Store<T>;
-  if (__OBSERVE__) nameStore(store, options?.name);
+  if (__OBSERVE__) nameStore(store, options?.name, options?.loc);
   if (fam.shallow) {
     ((store as any)[$TARGET] as StoreTarget).s = true;
     markRawIngest(initialValue);
   }
   if (derived) {
     const fn = first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>;
-    let nodeOptions: { name?: string; loadingValue?: void } | undefined;
+    let nodeOptions: { name?: string; loc?: string; loadingValue?: void } | undefined;
     if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
-    if (__OBSERVE__ && options?.name) nodeOptions = { ...nodeOptions, name: options.name };
+    if (__OBSERVE__ && (options?.name || options?.loc))
+      nodeOptions = { ...nodeOptions, name: options.name, loc: options.loc };
     const node = computed(() => {
       if (!fam.node) fam.node = getOwner() as Computed<any>;
       runProjectionComputed(store, fn, keyOption);
