@@ -1200,6 +1200,12 @@ export function deferredFrames(): any[] {
 export function releaseDeferHolds(): void {
   for (const f of liveFrames) f.releaseDeferHold();
 }
+/** Whether `root` holds a slot range: the first `slot:` comment ends the walk. */
+function hasSlotRange(root: Node): boolean {
+  const w = root.ownerDocument!.createTreeWalker(root, 0x80);
+  for (let n; (n = w.nextNode()); ) if ((n as Comment).data.startsWith("slot:")) return true;
+  return false;
+}
 /** @internal The innermost live frame whose element contains `node`. */
 export function liveFrameAt(node: Node): any {
   let hit;
@@ -1415,7 +1421,9 @@ class FrameImpl {
       // A document boundary's frame asks to defer (`options.defer`); its
       // regions' frames inherit it through their parent.
       this.#defers = !!deferDriver && !!(options.defer || this.#outer?.defers);
-      this.#deferred = this.#defers && !!(this.#slots || this.#outer);
+      // Only a frame with an occurrence to owe defers: one with none (no
+      // `slot:` comment in its markup) syncs now and lets hydration end.
+      this.#deferred = this.#defers && !!(this.#slots || this.#outer) && hasSlotRange(element);
     }
     // Register last, after all fields are initialized: registration may flush
     // buffered chunks straight into `apply`.

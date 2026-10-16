@@ -17,7 +17,7 @@
  * The rest of the suite pins adoption-time mounting and runs with deferral
  * off (test/setup-frames-eager.ts); this file turns it on.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { createSignal, flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { setDeferredHydration } from "../../frames/src/client.js";
@@ -139,6 +139,20 @@ describe("deferred hydration", () => {
     await idle();
     expect(seen.length).toBe(3);
     expect(hydrationInProgress()).toBe(false);
+    dispose();
+  });
+
+  test("a frame with no slot range does not defer: hydration ends without waiting for load", async () => {
+    // The document is still loading, so an idle pass would wait for the
+    // load event; a frame owing nothing must not hold hydration for it.
+    vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
+    const fid = freshFid("defer-none");
+    page = bootPage(frameHtml(fid, "<p>static</p>"));
+    const Comp = (globalThis as any)._$SC.r(fid);
+    const dispose = hydrate(() => <Comp item={() => <li>a</li>} />, page.container);
+    await quiesce();
+    expect(hydrationInProgress()).toBe(false);
+    expect(page.container.textContent).toBe("static");
     dispose();
   });
 });
