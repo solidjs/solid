@@ -3200,8 +3200,15 @@ module.exports = [
     // binding name. Golfed first (-116 B minified: one owner walk, the store
     // lookup inlined), then the cap raised by what is left: measured + 10 B
     // rounded up to 0.01 KB.
-    limit: "14.51 KB",
-    capMinified: 40984,
+    // Flight start stamps on the core slot (#4105, 2026-10-16): 14.51 ->
+    // 14.60 KB, measured locally at 14,588 B against `next` @ 4a99c844's
+    // 14,498 (+90 B; +228 B minified, 40,984 -> 41,212) — observe tier only:
+    // `OBSERVE.attribution.markFlight`/`flightOrigin` move into the core so a
+    // router or cache can stamp without the engine, and `lazy()` stamps its
+    // import and the read wrapper. Prod unchanged. Cap at measured + 10 B
+    // rounded up to 0.01 KB.
+    limit: "14.60 KB",
+    capMinified: 41212,
     alias: observeAlias
   },
   {
@@ -3684,8 +3691,13 @@ module.exports = [
     // measured locally at 29,108 B (87,372 B minified; +209 B minified). The
     // observe tier's cost above, unchanged by the engine. Cap at measured +
     // 10 B rounded up to 0.01 KB.
-    limit: "29.12 KB",
-    capMinified: 87372,
+    // Flight start stamps on the core slot (#4105, 2026-10-16): 29.12 ->
+    // 29.19 KB, measured locally at 29,180 B against `next` @ 4a99c844's
+    // 29,108 (+72 B; +210 B minified, 87,372 -> 87,582) — the observe scenario's
+    // change (the slot's stamps, `lazy()`'s marks) less the engine's own
+    // origin map, which now delegates to the slot.
+    limit: "29.19 KB",
+    capMinified: 87582,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above

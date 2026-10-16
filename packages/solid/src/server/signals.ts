@@ -110,6 +110,8 @@ import {
   devCheck,
   emitFinding,
   errorText,
+  flightOrigin,
+  markFlight,
   recordFinding
 } from "./diagnostics.js";
 import type { DiagnosticSubject } from "@solidjs/signals";
@@ -1745,6 +1747,12 @@ function processResult<T>(
     const deferred: DeferredPromise<T> = slot ? slot.d! : createDeferredPromise<T>();
     const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
     if (!slot) {
+      if (IS_DEV) {
+        // The boundary waits on the deferred, not on `result`: carry over the
+        // start a preloader or cache stamped on what it handed out (#4105).
+        const origin = flightOrigin(result as object);
+        if (origin !== undefined) markFlight(deferred.promise, origin);
+      }
       recordSlot(0, undefined, deferred);
       if (serializes) ctx.serialize(id, deferred.promise, deferStream);
     } else {

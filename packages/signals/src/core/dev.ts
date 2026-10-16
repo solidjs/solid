@@ -241,6 +241,21 @@ export interface AttributionSlot {
    * navigation it ran for by the identity of the object, not by time.
    */
   currentOrigin(): ChangeOrigin | undefined;
+  /**
+   * Stamps a flight (a promise or async iterable a computation will await)
+   * with when its work really started, before anything reads it. A route
+   * preloader, query cache or `lazy()` calls this on what it hands out (on
+   * the wrapper it mints, with the original kickoff time), so a reader that
+   * meets it later is judged against the real start: work already running
+   * when the previous wait landed is parallel, not a waterfall link. The
+   * client engine's `ASYNC_WATERFALL` and the server's
+   * `SSR_BOUNDARY_WATERFALL` both read these stamps. Earliest wins. Works
+   * with no engine installed. `startedAt` is on the `performance.now()`
+   * clock and defaults to now.
+   */
+  markFlight(flight: object, startedAt?: number): void;
+  /** The earliest start `markFlight` declared for `flight`, if any. */
+  flightOrigin(flight: object): number | undefined;
 }
 
 /**
@@ -562,13 +577,22 @@ const diagnostics: Diagnostics = {
   }
 };
 
+// Flight identity → earliest declared start (see `AttributionSlot.markFlight`).
+// Weak: a stamp must not keep a settled promise alive.
+const flightOrigins = new WeakMap<object, number>();
+
 const attributionSlot: AttributionSlot = {
   get installed() {
     return attrHooks;
   },
   withInteraction,
   withOrigin,
-  currentOrigin
+  currentOrigin,
+  markFlight(flight, startedAt = performance.now()) {
+    // Earliest wins (`undefined <= n` is false: the first mark always lands).
+    if (!(flightOrigins.get(flight)! <= startedAt)) flightOrigins.set(flight, startedAt);
+  },
+  flightOrigin: flight => flightOrigins.get(flight)
 };
 
 // The records channel is process-wide (see `Records`): a host that bundles

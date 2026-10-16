@@ -18,7 +18,14 @@ import {
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
-import { IS_DEV, IS_OBSERVE, devCheck, emitFinding, errorText } from "./diagnostics.js";
+import {
+  IS_DEV,
+  IS_OBSERVE,
+  devCheck,
+  emitFinding,
+  errorText,
+  flightOrigin
+} from "./diagnostics.js";
 import type { BoundaryEvent, BoundaryLive } from "./observe.js";
 import type { SSRTemplateObject, HydrationContext } from "./shared.js";
 import type { Accessor } from "./signals.js";
@@ -82,6 +89,35 @@ export function createLoadingBoundary<T, U>(
 // render's `registerFragment`, which every context clone of a render shares.
 const fragmentOwners = /* @__PURE__ */ new WeakMap<Function, Record<string, Function>>();
 
+/**
+ * Dev: one boundary's waits as the waterfall check judges them, by the
+ * client's origin rule. A nested route meets its levels a render pass at a
+ * time, but the router starts every matched level's `lazy()` import and
+ * preload together; a wait whose work had all started before the previous
+ * wait landed ran in parallel and is not a link in the chain (#4105). Starts
+ * come from `markFlight` stamps; an unstamped flight counts as starting when
+ * the boundary meets it.
+ */
+function trackWaits() {
+  let landedAt = -Infinity;
+  let early = false;
+  const waits = {
+    /** Waits left out of the chain: everything they waited on started earlier. */
+    parallel: 0,
+    start(waited: readonly object[]) {
+      early = waited.every(p => {
+        const origin = flightOrigin(p);
+        return origin !== undefined && origin < landedAt;
+      });
+    },
+    landed() {
+      if (early) waits.parallel++;
+      landedAt = performance.now();
+    }
+  };
+  return waits;
+}
+
 function ssrLoadingBoundary(
   currentCtx: HydrationContext,
   fn: () => any,
@@ -123,6 +159,9 @@ function ssrLoadingBoundary(
   // Render passes over the content: discovery, plus one per wait. Doubles as
   // the convergence budget's counter below.
   let passes = 0;
+  // Dev: the waterfall check's start-time bookkeeping (see `trackWaits`).
+  // The record still counts every pass.
+  const waits = IS_DEV ? trackWaits() : undefined;
 
   // Observe tier: the boundary RECORD (`OBSERVE.records`, type `"boundary"`
   // — see `BoundaryEvent`), for a boundary that waited. One gate for the
@@ -197,12 +236,15 @@ function ssrLoadingBoundary(
   // artifact, coded so the console and `expectNoDiagnostics` see them.
   const checkWaited = (outcome: BoundaryEvent["outcome"], durationMs: number) => {
     // Sequential render passes: each pass past the first is a wait that
-    // could only start once the previous answered. Same thresholds as the
+    // could only start once the previous answered, unless everything it
+    // waited on was stamped as started before that (`parallelWaits`, the
+    // client's origin rule). Same thresholds as the
     // client's graph-proved ASYNC_WATERFALL — depth 2 advisory (a dependent
     // fetch is sometimes intrinsic), depth 3+ earns the console — but its
     // own code: the proof here is the boundary's pass structure, not a
     // flight chain, and the repair is read off the boundary record.
-    const flights = passes - 1;
+    const parallelWaits = waits!.parallel;
+    const flights = passes - 1 - parallelWaits;
     if (flights >= 2) {
       const severity = flights > 2 ? "warn" : "info";
       devCheck(
@@ -212,11 +254,17 @@ function ssrLoadingBoundary(
           severity,
           message:
             `[SSR_BOUNDARY_WATERFALL] A <Loading> boundary took ${passes} render passes — ` +
-            `${flights} sequential async waits, ${durationMs.toFixed(0)}ms end to end: each ` +
+            `${flights} sequential async waits` +
+            (parallelWaits
+              ? ` (not counting ${parallelWaits} on work already started: a preload or lazy() import)`
+              : "") +
+            `, ${durationMs.toFixed(0)}ms end to end: each ` +
             `read could start only after the previous one answered. If a later read doesn't ` +
             `need the earlier answer, derive both from the same inputs so they start together; ` +
             `if the dependency is intrinsic, preload the dependent data or join the requests.`,
-          data: { boundary: id, passes, sequentialMs: durationMs }
+          data: parallelWaits
+            ? { boundary: id, passes, parallelWaits, sequentialMs: durationMs }
+            : { boundary: id, passes, sequentialMs: durationMs }
         },
         o
       );
@@ -656,8 +704,10 @@ function ssrLoadingBoundary(
         while (retryPromise) {
           if (hasFinalHole()) return clientHandoff();
           checkBudget();
+          if (IS_DEV) waits!.start([retryPromise]);
           await retryPromise.catch(() => {});
           if (disposed) return abandon();
+          if (IS_DEV) waits!.landed();
           ret = runDiscovery();
         }
         commitBoundaryState();
@@ -665,8 +715,10 @@ function ssrLoadingBoundary(
           const pending = ret as { t: string[]; h: Function[]; p: Promise<any>[] };
           if (hasFinalHole()) return clientHandoff();
           checkBudget();
+          if (IS_DEV) waits!.start(pending.p);
           await Promise.all(pending.p).catch(() => {});
           if (disposed) return abandon();
+          if (IS_DEV) waits!.landed();
           passes++;
           ret = runLoadingPhase(() => resolveIn(() => ctx.ssr(pending.t, ...pending.h))) as any;
         }

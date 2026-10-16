@@ -852,9 +852,17 @@ on; `renderToString` has none. Use `renderToStream`, or drop the ordering.
 A `<Loading>` boundary rendered in `data.passes` passes — discovery, then
 one per wait — and each pass past the first is a read that could only start
 once the previous pass's async answered: `passes - 1` sequential waits,
-`data.sequentialMs` end to end. Unlike the client's `ASYNC_WATERFALL` this
-proof is exact (the pass structure IS the chain), so there is no `markFlight`
-false positive to rule out; the same repairs apply, in the same order:
+`data.sequentialMs` end to end. It applies the client's origin rule: a wait
+whose work had all started before the previous wait landed is parallel, not
+a link, and is left out (`data.parallelWaits`). That is how nested route
+levels read: the router starts every matched level's `lazy()` import and
+preload together, and the boundary only meets each level a pass later. The
+start comes from a `markFlight` stamp (`lazy()` stamps its import, Solid
+Router's `query()` its fetches); an unstamped promise counts as starting when
+the boundary meets it. As on the client, a layer that hands out work it
+started earlier without stamping it (a request cache's wrapper promise) can
+still read as a chain; it should call `OBSERVE.attribution.markFlight` on
+what it hands out. The same repairs apply, in the same order:
 derive both reads from the same inputs so they start together (read ALL
 async sources before using any), or, if the dependency is intrinsic, preload
 the dependent data or join the requests. Two waits are `info` — a lead;
