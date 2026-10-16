@@ -52,6 +52,7 @@ import {
   prepareTier,
   setDeferBind,
   setDeferSlots,
+  setOnDefer,
   setQsaBind,
   slotShapeFinding,
   tierLoaders,
@@ -1803,7 +1804,12 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
       regions.r ? mountChain(target) : regions.then(() => mountChain(target));
     };
     types.forEach(t => document.addEventListener(t, wake, true));
+    // The idle pass runs while any frame is deferred and is re-armed by the
+    // next frame that defers (a boundary resuming later in the stream).
+    let running = false;
     const rest = async () => {
+      if (running) return;
+      running = true;
       await regions;
       await idle();
       const t0 = performance.now();
@@ -1822,9 +1828,11 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
         }
       }
       for (const frame of done) frame.releaseDefer();
-      (globalThis as any).__scDeferDone = performance.now() - t0;
+      (globalThis as any).__scDeferDone =
+        ((globalThis as any).__scDeferDone || 0) + performance.now() - t0;
+      running = false;
     };
-    rest();
+    setOnDefer(() => queueMicrotask(rest));
   } else announced?.forEach(prepareTier);
   // Upgrade the document shell's placeholder bootstrap (if present): the
   // hydration data scripts resolved server-component references to stable

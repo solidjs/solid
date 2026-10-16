@@ -1397,6 +1397,7 @@ class FrameImpl {
       if (deferSlots && (this.#slots || this.#outer)) {
         this.#deferred = true;
         this.#hold = options.hold?.();
+        onDefer?.();
       }
     }
     // Register last, after all fields are initialized: registration may flush
@@ -3021,6 +3022,14 @@ export let deferSlots = false;
 /** @internal */
 export function setDeferSlots(v: boolean) {
   deferSlots = v;
+}
+// SPIKE (deferred slots): called when a frame defers, so the idle pass can
+// start (or restart) once there is something to mount — frames adopt when
+// their boundary resumes, which on a streamed page is long after install.
+let onDefer: (() => void) | undefined;
+/** @internal */
+export function setOnDefer(fn: () => void) {
+  onDefer = fn;
 }
 
 export function collectSlots(root, out, elements, from?, to?, deadline?) {
