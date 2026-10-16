@@ -116,3 +116,46 @@ it("a held error reaches a derivation of latest at the same point as a value", a
   expect(s.reads()).toEqual(["boom", "boom", "boom", "boom"]);
   expect(s.log).toEqual([1, "boom"]);
 });
+
+it("a tracked latest of the derivation sees the held error when it would see a value", async () => {
+  for (const reject of [false, true]) {
+    let request = deferred<number>();
+    let sibling = deferred<number>();
+    const [round, setRound] = createSignal(1);
+    const log: unknown[] = [];
+    let outer!: () => number;
+    createRoot(() => {
+      const source = createMemo(() => {
+        round();
+        return request.promise;
+      });
+      const derived = createMemo(() => latest(source));
+      outer = createMemo(() => latest(derived));
+      const slow = createMemo(() => {
+        round();
+        return sibling.promise;
+      });
+      createRenderEffect(slow, () => {}, { schedule: true });
+      createEffect(outer, {
+        effect: v => void log.push(v),
+        error: e => void log.push((e as Error).message)
+      });
+    });
+    request.resolve(1);
+    sibling.resolve(1);
+    await tick();
+    request = deferred<number>();
+    sibling = deferred<number>();
+    setRound(2);
+    flush();
+    if (reject) request.reject(new Error("boom"));
+    else request.resolve(2);
+    await tick();
+    const answer = reject ? "boom" : 2;
+    expect([read(outer), read(() => latest(outer))]).toEqual([answer, answer]);
+    expect(log).toEqual([1, answer]);
+    sibling.resolve(2);
+    await tick();
+    expect(log).toEqual([1, answer]);
+  }
+});

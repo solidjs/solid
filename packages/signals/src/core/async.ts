@@ -201,8 +201,10 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
     setPendingError(el);
   el._pendingValue = error instanceof StatusError ? error : new StatusError(el, error);
   el._config |= CONFIG_STAGED | CONFIG_STAGED_ERROR;
-  // Readers parked on the flight re-run and derive from the staging.
+  // Readers parked on the flight re-run and derive from the staging; the
+  // verdict readers the walk wakes need a flush (#4106).
   settlePendingSource(el);
+  schedule();
   return true;
 }
 
@@ -302,9 +304,8 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // A19: a verdict reader holds no pending of its own (it was re-derived
       // when the source went pending, `propagateStatus`), and a landing
       // equal to the committed value notifies nobody — the source settling
-      // is its verdict changing: it runs again. A staged error schedules no
-      // flush of its own (#4106).
-      return node._config & CONFIG_VERDICT && (enqueueSub(node), (scheduled = true));
+      // is its verdict changing: it runs again.
+      return node._config & CONFIG_VERDICT && enqueueSub(node);
     visited.add(node);
     node._time = clock;
     const remaining = node._x?._pendingSources?.values().next().value;

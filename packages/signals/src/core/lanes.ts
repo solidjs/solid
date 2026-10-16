@@ -549,7 +549,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   const guess = el._config & CONFIG_GUESS;
   if (c !== null && c._config & CONFIG_AUTHORITATIVE) return GlobalQueue._truth!(el);
   const status = (el as Computed<any>)._statusFlags;
-  // A lane pass that errored left no lane value: the error is its answer (#4106).
+  // An errored member's lane value predates its error; the error is the answer (#4106).
   if (!guess && status & STATUS_ERROR) return NOT_PENDING;
   if (c === null) return laneValueOf(el);
   const l = txOf(el);
