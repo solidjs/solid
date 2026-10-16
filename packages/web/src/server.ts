@@ -2298,13 +2298,27 @@ export function renderToStream(code, options = {}) {
     );
   };
   let headerEmitted = false;
-  const pushTask = task => {
-    if (noScripts) return;
-    if (!headerEmitted) {
+  // Two accumulators, one <script>: REVEALS (`$df`/`$dfj`/`$dfs` and the
+  // head-patch parks `$dfr` reads) write ahead of DATA (Seroval records,
+  // stub batches) in every flush. A fragment's template is already in the
+  // buffer when its `$df` is emitted, so the swap runs before the records
+  // that settle its `_fr` — the resume rides that settle as a microtask, so
+  // it still finds the content in place — and the browser paints the swap
+  // without first parsing the data that follows it. The per-render header
+  // script leads whichever flush writes first.
+  const takeTasks = () => {
+    let out = reveals + tasks;
+    reveals = tasks = "";
+    if (out.length && !headerEmitted) {
       headerEmitted = true;
-      tasks += getLocalHeaderScript(renderId);
+      out = getLocalHeaderScript(renderId) + out;
     }
-    tasks += task + ";";
+    return out;
+  };
+  const pushTask = (task, reveal) => {
+    if (noScripts) return;
+    if (reveal) reveals += task + ";";
+    else tasks += task + ";";
     if (!timer && firstFlushed) {
       // Microtask (not timer) batching: tasks emitted in the same resolution
       // burst still coalesce into one <script>, without a macrotask of
@@ -2413,8 +2427,8 @@ export function renderToStream(code, options = {}) {
       }
     },
     // The resolved shell. Document behavior: head/script string surgery —
-    // preload links spliced before </head>, accumulated tasks spliced at the
-    // <!--xs--> marker — then one write. Injection order (preloads, scripts)
+    // preload links spliced before </head>, accumulated tasks spliced before
+    // </body> (ahead of the shell-end marker) — then one write. Injection order (preloads, scripts)
     // is part of the byte-exact document output. `onHead` fires synchronously
     // inside assembly, before the shell chunk is written — the host receives
     // its head content before any body output it could flush.
@@ -2667,9 +2681,8 @@ export function renderToStream(code, options = {}) {
       );
   };
   const writeTasks = () => {
-    if (tasks.length && !completed && firstFlushed) {
-      buffer.write(`<script${nonceAttr(nonce, "script")}>${tasks}</script>`);
-      tasks = "";
+    if ((reveals.length || tasks.length) && !completed && firstFlushed) {
+      buffer.write(`<script${nonceAttr(nonce, "script")}>${takeTasks()}</script>`);
     }
     timer = null;
   };
@@ -2678,6 +2691,7 @@ export function renderToStream(code, options = {}) {
   let writable;
   let tmp = "";
   let tasks = "";
+  let reveals = "";
   let firstFlushed = false;
   let completed = false;
   let shellCompleted = false;
@@ -2686,7 +2700,7 @@ export function renderToStream(code, options = {}) {
   const revealGroups = new Map();
   let timer = null;
   const emitTask = task => {
-    pushTask(`${task}${!scriptFlushed ? ";" + REPLACE_SCRIPT : ""}`);
+    pushTask(`${task}${!scriptFlushed ? ";" + REPLACE_SCRIPT : ""}`, true);
     scriptFlushed = true;
   };
   function resolveRevealKeys(groupOrKeys, release, consume) {
@@ -3181,10 +3195,9 @@ export function renderToStream(code, options = {}) {
       preloads: tracking.emittedAssets,
       preloadLinks: tracking.preloadLinks,
       inlineStyles: tracking.inlineStyles,
-      tasks,
+      tasks: takeTasks(),
       head
     });
-    tasks = "";
     onCompleteShell &&
       onCompleteShell({
         write(v) {
@@ -6189,9 +6202,7 @@ function assembleDocument(
     // assets, no preloads, no inline styles) stay a pure pass-through.
     // (An `onHead` caller opted into the scan — it must learn which mode
     // this render is in even when there is nothing to deliver.)
-    if (!scriptTag) return html;
-    const xs = html.indexOf("<!--xs-->");
-    return xs === -1 ? html + scriptTag : html.slice(0, xs) + scriptTag + html.slice(xs);
+    return scriptTag ? spliceScript(html, scriptTag) : html;
   }
   // The prelude (charset/base) splices right after the `<head>` open tag —
   // before any content the existing `</head>` splice could produce — so it is
@@ -6233,9 +6244,7 @@ function assembleDocument(
     // No head to splice into: without `onHead`, assets/preloads/styles are
     // dropped and left unemitted, exactly as the individual helpers'
     // `index === -1` returns did.
-    if (!scriptTag) return html;
-    const xs = html.indexOf("<!--xs-->");
-    return xs === -1 ? html + scriptTag : html.slice(0, xs) + scriptTag + html.slice(xs);
+    return scriptTag ? spliceScript(html, scriptTag) : html;
   }
   // Document mode: the title winner is applied to the BYTES. The shell may
   // carry its own static <title> (the RFC's fallback, restored when every
@@ -6267,12 +6276,23 @@ function assembleDocument(
     }
   }
   const head = headTagsHtml + renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce);
-  if (!scriptTag) return html.slice(0, headIdx) + head + html.slice(headIdx);
-  const xsIdx = html.indexOf("<!--xs-->");
-  if (xsIdx === -1) return html.slice(0, headIdx) + head + html.slice(headIdx) + scriptTag;
-  return xsIdx < headIdx
-    ? html.slice(0, xsIdx) + scriptTag + html.slice(xsIdx, headIdx) + head + html.slice(headIdx)
-    : html.slice(0, headIdx) + head + html.slice(headIdx, xsIdx) + scriptTag + html.slice(xsIdx);
+  html = html.slice(0, headIdx) + head + html.slice(headIdx);
+  return scriptTag ? spliceScript(html, scriptTag) : html;
+}
+
+// The shell's task script — the serialized records the shell's hydration
+// reads — goes at the END of the body, ahead of the shell-end marker
+// `withShellEnd` appends (`hydrate()` waits on that marker, so nothing reads
+// a record before the script ran). Before, it was spliced at the `<!--xs-->`
+// marker in the head: a page whose shell carried its data (the HN story at
+// 640 KB of records) could not paint one byte of body until the whole record
+// script had arrived and parsed. With no `</body>` (an embedded render, a
+// body-only template) the marker splice remains, then a plain append.
+function spliceScript(html, scriptTag) {
+  const body = html.lastIndexOf("</body>");
+  if (body !== -1) return html.slice(0, body) + scriptTag + html.slice(body);
+  const xs = html.indexOf("<!--xs-->");
+  return xs === -1 ? html + scriptTag : html.slice(0, xs) + scriptTag + html.slice(xs);
 }
 
 // Tracked asset links (stylesheet/modulepreload by URL) and unconsumed inline
