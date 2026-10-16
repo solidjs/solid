@@ -1353,6 +1353,8 @@ class FrameImpl {
   // (frames-rulings 3.6: a claim reads what the markup was rendered from).
   #heldRecords = new Map();
   #disposed = false;
+  // SPIKE (deferred slots): adoption-time syncs are skipped while set.
+  #deferred = false;
 
   // Element-claim sweep for one materialized/morph-touched subtree, run
   // under `ownerScope` when the creator provided one — claim consumers
@@ -1389,6 +1391,13 @@ class FrameImpl {
     if (options.adopt) {
       this.#hasContent = true;
       this.#claimContent();
+      // SPIKE (deferred slots): nothing mounts at adoption; the page's
+      // hydration stays open (the document frame's hold; a region frame has
+      // none and rides its root's) until the idle pass finishes.
+      if (deferSlots && (this.#slots || this.#outer)) {
+        this.#deferred = true;
+        this.#hold = options.hold?.();
+      }
     }
     // Register last, after all fields are initialized: registration may flush
     // buffered chunks straight into `apply`.
@@ -1402,7 +1411,7 @@ class FrameImpl {
     // sync (every apply ends in #flush -> #syncSlots, and it sets #version),
     // so only sync here when no buffered chunk arrived — the repeat walk over
     // a large adopted tree is pure redundancy.
-    if (options.adopt && this.#version === undefined) this.#syncSlots();
+    if (options.adopt && this.#version === undefined && !this.#deferred) this.#syncSlots();
   }
 
   /** Server content landed: caller hook + the bubbling document notification. */
@@ -1552,7 +1561,9 @@ class FrameImpl {
     const version = this.#version;
 
     const root = this.#store[""];
+    let rootApplied = false;
     if (root && root.kind === "html" && root !== this.#appliedRoot) {
+      rootApplied = true;
       const reason = this.#hasContent ? "morph" : "materialize";
       this.#applyRoot(root.value);
       this.#appliedRoot = root;
@@ -1637,6 +1648,13 @@ class FrameImpl {
     }
     if (morphed) this.#applied(version, "morph");
 
+    // SPIKE (deferred slots): a flush that changed no content (the
+    // registration's drain of the document's records, a tier's install
+    // flush) mounts nothing; one that did ends the deferral.
+    if (this.#deferred) {
+      if (!morphed && root === this.#appliedRoot && !rootApplied) return;
+      this.#deferred = false;
+    }
     this.#syncSlots(undefined, this.#morphed);
   }
 
@@ -2051,6 +2069,56 @@ class FrameImpl {
     const found: any = new Map();
     for (const el of this.#element.querySelectorAll("[_s]")) B.positions(el, found);
     this.#mountFound(found);
+  }
+
+  // === SPIKE (deferred slots; see client.ts) ===
+
+  /** @internal Whether this frame still owes its adoption-time mounts. */
+  get deferred() {
+    return this.#deferred;
+  }
+
+  /**
+   * Mount the one occurrence of THIS frame that encloses `target`: scan
+   * back from the target over preceding siblings, then up, for the nearest
+   * unclosed `slot:*:start` (an end marker met first closes a sibling
+   * range, which is skipped as a unit). Mounting it binds its regions
+   * (deferred frames of their own), so a caller repeats on `liveFrameAt`
+   * until nothing new mounts. False when the target is outside every
+   * occurrence or inside one already mounted.
+   */
+  mountEnclosing(target: Node): boolean {
+    if (!this.#slots && !this.#outer) return false;
+    const root = this.#element;
+    let node = target;
+    while (node && node !== root) {
+      let depth = 0;
+      for (let s = node.previousSibling; s; s = s.previousSibling) {
+        if (s.nodeType !== COMMENT_NODE || !s.data.startsWith("slot:")) continue;
+        if (SLOT_END.test(s.data)) depth++;
+        else if (SLOT_START.test(s.data)) {
+          if (depth) depth--;
+          else {
+            const id = slotStartId(s);
+            if (this.#mountedSlots.has(id)) return false;
+            this.#mountFound(new Map([[id, s]]));
+            return this.#mountedSlots.has(id);
+          }
+        }
+      }
+      node = node.parentNode;
+    }
+    return false;
+  }
+
+  /** The idle pass finished this frame's mounts; later flushes sync normally. */
+  endDefer() {
+    this.#deferred = false;
+  }
+
+  /** Every frame is done: the page's hydration may complete. */
+  releaseDefer() {
+    this.#releaseHold();
   }
 
   /**
@@ -2941,6 +3009,18 @@ export let deferBind = false;
 /** @internal */
 export function setDeferBind(v: boolean) {
   deferBind = v;
+}
+// SPIKE (deferred slots, cookie `sc-defer-slots=1`; see client.ts): while
+// set, an adopting frame mounts NO slot occurrence at adoption — no walk, no
+// record resolution, no fill — and holds hydration open instead. The
+// occurrence an interaction lands in mounts then (`mountEnclosing`, the
+// enclosing `slot:*:start` found by a backward scan from the target); the
+// rest mount in idle slices (`walkSlice`/`mountSlice`), and the hold lifts
+// when every frame is done.
+export let deferSlots = false;
+/** @internal */
+export function setDeferSlots(v: boolean) {
+  deferSlots = v;
 }
 
 export function collectSlots(root, out, elements, from?, to?, deadline?) {

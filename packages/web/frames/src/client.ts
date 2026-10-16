@@ -51,6 +51,7 @@ import {
   liveFrameList,
   prepareTier,
   setDeferBind,
+  setDeferSlots,
   setQsaBind,
   slotShapeFinding,
   tierLoaders,
@@ -1765,6 +1766,65 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
       load.r ? go() : load.then(go);
     };
     types.forEach(t => document.addEventListener(t, wake, true));
+  } else if (typeof document !== "undefined" && /\bsc-defer-slots=1\b/.test(document.cookie)) {
+    // SPIKE (deferred slots): no slot occurrence mounts at adoption. The
+    // interaction's occurrence chain mounts in the capture phase — the
+    // outermost first (binding its regions, deferred frames themselves),
+    // down to the one the target sits in — and the compiled fill's
+    // hydration of the `_hk` element replays the event the bootstrap
+    // queued. Everything else mounts in idle slices; the document frame's
+    // hydration hold lifts once no frame is deferred. The regions tier is
+    // what a mount needs on this page; its load starts now.
+    setDeferSlots(true);
+    (globalThis as any).__scFrames = liveFrameList;
+    announced?.filter(t => t !== "regions").forEach(prepareTier);
+    const regions = prepareTier("regions", false);
+    const types = ["click", "input", "change", "keydown", "pointerdown", "submit", "focusin"];
+    const BUDGET = 12;
+    const idle = () =>
+      new Promise<void>(r =>
+        typeof requestIdleCallback === "function"
+          ? requestIdleCallback(() => r(), { timeout: 100 })
+          : setTimeout(r, 0)
+      );
+    const mountChain = (target: Node) => {
+      const t0 = performance.now();
+      let n = 0;
+      for (let guard = 0; guard < 64; guard++) {
+        const frame = liveFrameAt(target);
+        if (!frame || !frame.mountEnclosing(target)) break;
+        n++;
+      }
+      ((globalThis as any).__scMountAt ||= []).push([n, performance.now() - t0]);
+    };
+    const wake = (e: Event) => {
+      const target = e.target instanceof Element ? e.target : null;
+      if (!target) return;
+      regions.r ? mountChain(target) : regions.then(() => mountChain(target));
+    };
+    types.forEach(t => document.addEventListener(t, wake, true));
+    const rest = async () => {
+      await regions;
+      await idle();
+      const t0 = performance.now();
+      const done: any[] = [];
+      for (;;) {
+        const pending = liveFrameList().filter(f => f.deferred);
+        if (!pending.length) break;
+        for (const frame of pending) {
+          const found: any = new Map();
+          while (isLiveFrame(frame) && !frame.walkSlice(found, performance.now() + BUDGET))
+            await idle();
+          while (isLiveFrame(frame) && !frame.mountSlice(found, performance.now() + BUDGET))
+            await idle();
+          frame.endDefer();
+          done.push(frame);
+        }
+      }
+      for (const frame of done) frame.releaseDefer();
+      (globalThis as any).__scDeferDone = performance.now() - t0;
+    };
+    rest();
   } else announced?.forEach(prepareTier);
   // Upgrade the document shell's placeholder bootstrap (if present): the
   // hydration data scripts resolved server-component references to stable
