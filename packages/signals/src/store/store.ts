@@ -55,6 +55,7 @@ import {
   read as readNode,
   REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
   setSignal,
+  writeHook,
   slotSignal,
   snapshotCaptureActive,
   stagedRead,
@@ -2303,6 +2304,7 @@ function devGuardStoreSetterResult(result: unknown): void {
 }
 
 export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true): void {
+  if (writeHook !== null) writeHook();
   if (__DEV__ && guard) devGuardStoreSetterWrite();
   const target: StoreTarget = (proxy as any)[$TARGET];
   const prevScopes = writeScopes;

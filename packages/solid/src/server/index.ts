@@ -159,6 +159,8 @@ export {
   reportServerError
 } from "./signals.js";
 export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
+/** @internal Client-only: the server has no writes to observe. */
+export function setWriteHook(_hook: (() => void) | null): void {}
 /** @internal */
 export { ssrHandleError, ssrScope } from "./hydration.js";
 // After the runtime modules above, so this import adds no edge to the module
