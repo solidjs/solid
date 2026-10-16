@@ -78,13 +78,12 @@ const floorMinified = Object.fromEntries(
 // 2026-10-06: nested server-content regions) is the third, `regions.js`,
 // and its ASSETS TIER (`@solidjs/web/frames/assets` — plan step C5,
 // 2026-10-06: the stylesheet gate, module / typed preloads, inline styles)
-// the fourth, `assets.js`, and its BIND TIER (`@solidjs/web/frames/bind` —
-// plan step C6, 2026-10-06: binding-slot positions, `assign` with them)
-// the fifth, `bind.js`, and its LIVE WIRE TIER (`@solidjs/web/frames/wire`
+// the fourth, `assets.js`, and its LIVE WIRE TIER (`@solidjs/web/frames/wire`
 // — plan step C2, 2026-10-06: a `live()` loop's connection — join / open /
 // supersede, the SSE reader, the lifetime told to the loop, the have-list
-// ledger and the resume request) the sixth, `wire.js` — each lazy, not
-// counted. The "frames: eager client consumer" scenario measures the
+// ledger and the resume request) the fifth, `wire.js` — each lazy, not
+// counted. (A bind tier, `bind.js`, was the fifth until binding slots were
+// removed, 2026-10-16.) The "frames: eager client consumer" scenario measures the
 // package; these measure the page.
 // Subpath aliases first (see above) — the tier specifiers before
 // `@solidjs/web/frames` and `solid-js/internal`, which would otherwise
@@ -93,7 +92,6 @@ const pageAlias = {
   "@solidjs/web/frames/trace": "../../packages/web/frames/dist/trace.js",
   "@solidjs/web/frames/regions": "../../packages/web/frames/dist/regions.js",
   "@solidjs/web/frames/assets": "../../packages/web/frames/dist/assets.js",
-  "@solidjs/web/frames/bind": "../../packages/web/frames/dist/bind.js",
   "@solidjs/web/frames/wire": "../../packages/web/frames/dist/wire.js",
   "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
@@ -154,13 +152,12 @@ const framesExternal = [
   // The traces tier: lazily imported by the frames client (plan step C3,
   // 2026-10-06) — external like the codec, so this scenario keeps measuring
   // the eager graph alone; its own `solid-js` entry rides with it. The
-  // regions tier (C4), the assets tier (C5), the bind tier (C6) and the live
-  // wire tier (C2) likewise.
+  // regions tier (C4), the assets tier (C5) and the live wire tier (C2)
+  // likewise.
   "solid-js/internal/container-trace",
   "@solidjs/web/frames/trace",
   "@solidjs/web/frames/regions",
   "@solidjs/web/frames/assets",
-  "@solidjs/web/frames/bind",
   "@solidjs/web/frames/wire",
   "@solidjs/web",
   "@solidjs/web/serialization",
@@ -4528,8 +4525,13 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "12.80 KB",
-    capMinified: 38500,
+    // Binding slots removed (2026-10-16): 12.80 KB -> 12.16 KB, measured
+    // locally (linux) at 12,149 B brotli / 36,598 B minified
+    // (-641 B brotli / -1,902 B minified against the
+    // #4120 head's 12,790 / 38,500).
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "12.16 KB",
+    capMinified: 36598,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4868,6 +4870,11 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Binding slots removed (2026-10-16): 35.43 KB -> 33.04 KB, measured
+    // locally (linux) at 33,027 B brotli / 101,716 B minified
+    // (-2,391 B brotli / -7,427 B minified against the
+    // #4120 head's 35,418 / 109,143). The lazy `bind.js` (6,859 B minified / 2,544 B brotli) is gone too.
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5147,6 +5154,11 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Binding slots removed (2026-10-16): 39.64 KB -> 37.23 KB, measured
+    // locally (linux) at 37,220 B brotli / 115,083 B minified
+    // (-2,403 B brotli / -7,429 B minified against the
+    // #4120 head's 39,623 / 122,512). The lazy `bind.js` (6,859 B minified / 2,543 B brotli) is gone too.
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5263,8 +5275,13 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "36.29 KB",
-    capMinified: 112068,
+    // Binding slots removed (2026-10-16): 36.29 KB -> 35.06 KB, measured
+    // locally (linux) at 35,041 B brotli / 108,065 B minified
+    // (-1,237 B brotli / -4,003 B minified against the
+    // #4120 head's 36,278 / 112,068). The lazy `bind.js` (6,856 B minified / 2,540 B brotli) is gone too.
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "35.06 KB",
+    capMinified: 108065,
     alias: pageAlias
   },
   {
@@ -5349,8 +5366,13 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "42.32 KB",
-    capMinified: 126985,
+    // Binding slots removed (2026-10-16): 42.32 KB -> 41.07 KB, measured
+    // locally (linux) at 41,060 B brotli / 123,032 B minified
+    // (-1,246 B brotli / -3,953 B minified against the
+    // #4120 head's 42,306 / 126,985). The lazy `bind.js` (6,879 B minified / 2,553 B brotli) is gone too.
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "41.07 KB",
+    capMinified: 123032,
     alias: pageAlias
   },
   {
@@ -5512,8 +5534,13 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "42.81 KB",
-    capMinified: 133034,
+    // Binding slots removed (2026-10-16): 42.81 KB -> 40.53 KB, measured
+    // locally (linux) at 40,514 B brotli / 125,564 B minified
+    // (-2,278 B brotli / -7,470 B minified against the
+    // #4120 head's 42,792 / 133,034). The lazy `bind.js` (6,863 B minified / 2,555 B brotli) is gone too.
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "40.53 KB",
+    capMinified: 125564,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5644,8 +5671,13 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "49.13 KB",
-    capMinified: 147757,
+    // Binding slots removed (2026-10-16): 49.13 KB -> 46.66 KB, measured
+    // locally (linux) at 46,642 B brotli / 140,305 B minified
+    // (-2,472 B brotli / -7,452 B minified against the
+    // #4120 head's 49,114 / 147,757). The lazy `bind.js` (6,893 B minified / 2,553 B brotli) is gone too.
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "46.66 KB",
+    capMinified: 140305,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5751,6 +5783,11 @@ module.exports = [
     // unchanged at 20.42 KB, recorded minified 71,813 B (first record);
     // CI-measured at 20,412 B (71,813 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Binding slots removed (2026-10-16): 20.58 KB -> 20.51 KB, measured
+    // locally (linux) at 20,492 B brotli / 72,065 B minified
+    // (-80 B brotli / -316 B minified against the
+    // #4120 head's 20,572 / 72,381).
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["server: renderToString (the server-render floor)"],
     capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,
