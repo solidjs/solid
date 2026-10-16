@@ -14,13 +14,10 @@ export default defineConfig({
   // `sourceNames`: what the vite plugin's dev/observe postures pass, so
   // compiled `<Comp />` reaches the server `createComponent` with its label
   // and diagnostics carry `ownerPath` (server-diagnostics.spec.tsx pins it).
-  // `serverComponents`: what the plugin passes for an SSR build with
-  // `serverFunctions.components` — binding-slot positions (`ref`/`on*`, dynamic
-  // `class`/`style`) compile to runtime holes (test/server/frame-binding-slots).
   plugins: [
     solidPlugin({
       compiler,
-      solid: { generate: "ssr", hydratable: true, sourceNames: true, serverComponents: true }
+      solid: { generate: "ssr", hydratable: true, sourceNames: true }
     })
   ],
   test: {

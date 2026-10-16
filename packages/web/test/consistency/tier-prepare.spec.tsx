@@ -24,29 +24,18 @@
  *   tier is absent stays pending in the store until the install's flush.
  *
  * Module state: a tier, once installed, stays resident for the worker —
- * so the two predicate names (`bind`, `regions`) are each held in ONE
- * test below, before anything else in this file makes them resident;
- * every other test uses a fresh name.
+ * so the predicate name (`regions`) is held in ONE test below, before
+ * anything else in this file makes it resident; every other test uses a
+ * fresh name.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, Loading } from "solid-js";
-import { dynamic, hydrate } from "@solidjs/web";
+import { dynamic } from "@solidjs/web";
 import { prepareTier, tierLoaders, type TierModule } from "../../frames/src/frame-client.js";
 import { applyFrameResponse, installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { createChunk } from "../../server-functions/src/shared.js";
-import {
-  bootPage,
-  frameHtml,
-  freshFid,
-  hydrationInProgress,
-  makeHost,
-  onHydrationEnd,
-  pump,
-  quiesce,
-  slotRange,
-  type Page
-} from "./support.js";
+import { bootPage, frameHtml, freshFid, makeHost, pump, quiesce, type Page } from "./support.js";
 
 /** A loader the test settles: the import's promise, and the module — the
  *  test's `install` hook over the appliers of `module` (a real tier's, when
@@ -83,79 +72,6 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   delete (globalThis as any)._$SC;
   document.body.innerHTML = "";
-});
-
-describe("the held set — bind (adopt path, un-announced: detection starts the load)", () => {
-  // The ONE test for `bind` while it is not resident (see the module doc).
-  // `bind` is a REAL tier since C6 (`@solidjs/web/frames/bind`): the walk
-  // that would register the occurrences is the module's, so the deferred
-  // loader settles with the real module (the install hook is the test's
-  // own, counted the same way). The tier's own pins — the hold's shape,
-  // the delegated-event replay window — are consistency/tier-bind-hold.
-  test("an adopted data occurrence waits for its tier: positions untouched, the hold registers under 3.1, hydration-done waits; the install flushes every frame and mounts them", async () => {
-    const bind = deferredTier();
-    const fidA = freshFid("tier-bind-a");
-    const fidB = freshFid("tier-bind-b");
-    // Two boundaries, each one binding-slot occurrence with the server's
-    // t=0 value at its position.
-    const row = (fid: string) =>
-      frameHtml(fid, `<ul><li class="server" _s:class="row#0:cls">item</li></ul>`);
-    // No `sc:tiers` record — the page did not announce; the records the
-    // occurrences need are present, so only the tier holds them.
-    page = bootPage(row(fidA) + row(fidB), { tiers: { bind: bind.loader } });
-    page.slotRecord(fidA, "row#0", { id: 1 });
-    page.slotRecord(fidB, "row#0", { id: 2 });
-    // Nothing announced: no load yet.
-    expect(bind.loader).not.toHaveBeenCalled();
-    const A = (globalThis as any)._$SC.r(fidA);
-    const B = (globalThis as any)._$SC.r(fidB);
-    const runs: number[] = [];
-    let runsAtEnd = -1;
-    let inProgressAtEnd: boolean | undefined;
-    const fill = (p: any) => {
-      runs.push(p.id);
-      return { cls: `client-${p.id}` };
-    };
-    const dispose = hydrate(() => [<A row={fill} />, <B row={fill} />], page.container);
-    disposers.push(dispose);
-    onHydrationEnd(() => {
-      runsAtEnd = runs.length;
-      inProgressAtEnd = hydrationInProgress();
-    });
-    await quiesce();
-    // The adopt-time sync found the tier absent: it started the load
-    // (detection, the un-announced fallback) — once for two frames…
-    expect(bind.loader).toHaveBeenCalledTimes(1);
-    // …and HELD: the fills did not run, the positions are the server's.
-    expect(runs).toEqual([]);
-    const lis = () => [...page!.container.querySelectorAll("li")];
-    expect(lis().map(li => li.className)).toEqual(["server", "server"]);
-    // The hold is a pending boundary (3.1): hydration is not done.
-    expect(hydrationInProgress()).toBe(true);
-    expect(runsAtEnd).toBe(-1);
-    // The tier lands: its install hook runs once, then one flush per live
-    // frame — both occurrences mount (a data occurrence with the CURRENT
-    // record — here the one they were held on, nothing moved).
-    bind.resolve(await import("../../frames/src/bind-tier.js"));
-    await quiesce();
-    await quiesce();
-    expect(bind.install).toHaveBeenCalledTimes(1);
-    expect(runs.sort()).toEqual([1, 2]);
-    expect(
-      lis()
-        .map(li => li.className)
-        .sort()
-    ).toEqual(["client-1", "client-2"]);
-    // The hold released; hydration-done came after the mounts, not before.
-    expect(hydrationInProgress()).toBe(false);
-    expect(inProgressAtEnd).toBe(false);
-    expect(runsAtEnd).toBe(2);
-    expect(page.warnings.filter(w => w.includes("unclaimed"))).toEqual([]);
-    expect(page.errors).toEqual([]);
-    // Resident from here on: a later ask resolves without a second import.
-    await prepareTier("bind");
-    expect(bind.loader).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe("the stream path — regions (announced on the head; the record buffers until the install)", () => {

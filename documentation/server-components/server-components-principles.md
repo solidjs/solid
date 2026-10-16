@@ -1117,7 +1117,8 @@ retired as a pole and survives only as potential authoring sugar.
    attribute value asserted), on any arrival path; pending indicators
    settle with the transaction. No watermark, no dependency on Stage 8.
    **Amended 2026-09-27 (§9.2.2): `predict` retired before build;
-   Stage 7 is attribute slots.** A server component spreads a
+   Stage 7 is attribute slots.** **Amended again 2026-10-16 (§9.2.6): binding
+   slots, attribute slots' final form, are removed.** A server component spreads a
    *called* slot onto one of its own elements
    (`{...props.check({ id, completed })}`); the client fill returns
    attributes over slot args and `createOptimistic*` state; the
@@ -3532,6 +3533,31 @@ render nothing, and the open item; in its build record, "placed as
 text" among the misuses. The `text` finding reason is retired. The
 rule's sentence widens with it: **a slot property is a JSX
 attribute value or a text child, whole, and nothing else.**
+
+#### 9.2.6 Amendment — binding slots removed (2026-10-16)
+
+Binding slots (§9.2.2–§9.2.5) are removed. What went: `BindingSlot`
+and its `SlotOutput`/`SlotError` types, the `_s:*` position markers
+and the `<!--_s:t=…-->` text pairs, the server stand-ins
+(`slotValue`, `SLOT_VALUE`), the compiled `ssrClaim` hole and the
+claims arming behind it, what the `serverComponents` compiler option
+compiled (Babel and native still accept the option, and ignore it),
+the lazy bind tier (`@solidjs/web/frames/bind`) and its `"bind"` tier
+announcement, and the `BINDING_SLOT_POSITION` diagnostic. A slot is
+one thing again: a client component the client places at a position
+in the server's markup (`<props.x />`), with its `slot:<id>:start/end`
+range, its args record and its keyed `$key` repeat collapse
+unchanged.
+
+Client behavior on server markup is a client component in a slot: a
+form `action` for a mutation, a fill that owns the control, or — for
+many identical controls inside a live hole, where a slot per control
+would latch the hole — one slot occurrence that delegates from the
+document (`examples/chat`'s Copy button). The cost is the one binding
+slots paid for: a click on server markup before that occurrence
+mounts does nothing, where the bind tier replayed it. §9.2.2–§9.2.5
+stand above as the record of what was built and why; where they and
+this amendment disagree, this amendment wins.
 
 ### 9.3 Stage 8 seed — connection-shaped transport (2026-08-17)
 

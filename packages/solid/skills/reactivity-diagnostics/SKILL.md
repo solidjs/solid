@@ -969,34 +969,6 @@ runs. Once per attribute name. Fix: use the camelCase handler
 (`data.handler` — `onclick={save}` → `onClick={save}`); keep a lowercase name
 only for a string inline-handler attribute.
 
-### BINDING_SLOT_POSITION
-
-A binding slot's property (`const row = props.row(args); row.done`)
-landed where the server template cannot bind it. The rule: a slot property
-is a JSX attribute value, whole, and nothing else. `data.reason`:
-`"spread"` (throws — the slot's whole return spread onto an element; name
-each position instead), `"stringified"` (coerced into a string — a template
-literal, a concatenation), `"coerced"` (used in an expression — a
-comparison, arithmetic, a branch on its result; the server has no value to
-compute with, so decide in the client fill and return the decided value),
-`"inline"` (reached `class`/`style` inside template quotes — the element
-was compiled without the `serverComponents` compiler option), `"text"`
-(placed as text, not a bindable position yet), `"markup"` (read off a slot
-whose client fill returned content, not an object), `"server-local"` (a
-`ref`/`on*` position got a plain server function — bind a slot property or
-an `action=`), `"tuple"` (an `on*` position got an array — return the
-`[handler, data]` tuple from the fill instead), `"reserved-key"` (the fill's object used a key the slot's
-range occupies), `"orphan"` (client, kind `render`: an element carries
-markers for an occurrence that can never bind — `data.why` `"fill"`, no
-client fill for the prop; `"record"`, a called occurrence with no args
-record once none can arrive, which is the protocol out of step — client
-and server from different builds — not a fill mistake). For
-`stringified`/`coerced`/`inline`/`text` NOTHING
-renders at the position on either face, so the misuse shows on the first
-render, not the first refetch. Truthiness (`if (row.done)`) has no hook and
-is the one misuse only the rule catches — a stand-in is always truthy.
-The fuller guide is `@solidjs/web`'s `skills/server-components/SKILL.md`.
-
 ## Verifying a fix
 
 If you are working with `@solidjs/diagnostics`, re-run the capture after the
