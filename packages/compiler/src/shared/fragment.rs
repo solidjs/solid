@@ -18,7 +18,16 @@ pub(crate) fn lower_fragment<'a, C: ModeLower<'a>>(
     let allocator = ctx.condition_allocator();
     let ast = mode_ast(ctx);
     let mut values = std::vec::Vec::new();
-    for child in &fragment.children {
+    let mut index = 0;
+    while index < fragment.children.len() {
+        if let Some((consumed, value)) = ctx.lower_static_fragment_run(&fragment.children, index)? {
+            debug_assert!(consumed >= 2);
+            values.push(value);
+            index += consumed;
+            continue;
+        }
+
+        let child = &fragment.children[index];
         match child {
             JSXChild::Text(text) => {
                 let value = decode_html_entities(&trim_jsx_text(&text.value));
@@ -28,6 +37,7 @@ pub(crate) fn lower_fragment<'a, C: ModeLower<'a>>(
             }
             JSXChild::ExpressionContainer(container) => {
                 if matches!(container.expression, JSXExpression::EmptyExpression(_)) {
+                    index += 1;
                     continue;
                 }
                 // Babel gates fragment-child wrapping on
@@ -42,6 +52,7 @@ pub(crate) fn lower_fragment<'a, C: ModeLower<'a>>(
                         .is_dynamic(Some(container.span.start), &expression, false);
                 if !dynamic {
                     values.push(expression);
+                    index += 1;
                     continue;
                 }
                 let thunk = dynamic_child_thunk(ctx, container.span, expression);
@@ -60,12 +71,14 @@ pub(crate) fn lower_fragment<'a, C: ModeLower<'a>>(
                 let expression = spread.expression.clone_in(allocator);
                 if !ctx.classify().is_dynamic(None, &expression, false) {
                     values.push(expression);
+                    index += 1;
                     continue;
                 }
                 let thunk = arrow_return_expression(allocator, spread.span, expression);
                 values.push(ctx.memo_wrap_dynamic_child(spread.span, thunk));
             }
         }
+        index += 1;
     }
 
     Ok(match values.len() {
