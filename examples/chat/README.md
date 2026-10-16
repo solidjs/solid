@@ -83,7 +83,7 @@ const getThread = liveQuery(
   live(
     GET(async (id: string) => {
       "use server";
-      return (props: { composer: ComposerSlot; codeBlock: CodeBlockSlot }) => {
+      return (props: { composer: ComposerSlot; copyCode: Slot }) => {
         const view = createMemo(() => db.watchThread(id, gone.signal));
         return (
           <article class="thread">
@@ -93,6 +93,7 @@ const getThread = liveQuery(
               {view().messages.filter(m => m.status === "generating").map(…)}
             </ol>
             <props.composer $key={id} threadId={id} seen={…} busy={…} />
+            <props.copyCode />
           </article>
         );
       };
@@ -117,15 +118,18 @@ never settles: each retry of the render makes a new one.
 ## What the browser owns
 
 - **The composer** ([src/components/composer.tsx](./src/components/composer.tsx))
-  is the one client component. The server places it with a slot
+  is where a person types. The server places it with a slot
   (`<props.composer …/>`), keyed by thread so a half-typed message stays with
   its conversation. Its form is the send action; the message it shows while
   the server does not have it yet steps aside by derivation, the moment the
   server's render says it has that id (`seen`).
-- **Copy.** Each code block's button is server markup. What it does is one
-  handler the browser supplies through a binding slot
-  (`codeBlock={() => ({ onCopy })}`), bound to every button the server
-  renders, including ones that arrive mid-reply.
+- **Copy.** Each code block's button is server markup. What it does is a
+  second client component
+  ([src/components/copy-code.tsx](./src/components/copy-code.tsx)), placed
+  once at the foot of the thread (`<props.copyCode />`). It answers every
+  button's click from the document, including buttons that arrive mid-reply.
+  It is placed once and not in each block because a slot placed in markup
+  that re-renders from the live source would stop that markup updating.
 - **Navigation.** The sidebar is a second live server component
   (`getThreads` in [src/router.tsx](./src/router.tsx)): the list of threads,
   with a mark where a reply is being written. Its links are server markup;
