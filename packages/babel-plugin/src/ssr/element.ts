@@ -20,8 +20,7 @@ import {
   inlineCallExpression,
   canChildSlotAllocateIds,
   isFunctionShapedHole,
-  isEventName,
-  toEventName
+  isEventName
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
 import { decodedAttrValue } from "../universal/element";
@@ -641,13 +640,6 @@ function transformAttributes(
   // holes evaluated. The hole never takes a hydration id.
   const linkEntries: LinkClaimEntry[] | null =
     tagName === "a" && isLinkClaimCandidate(attributes) ? [] : null;
-  // Server-components handler positions: ref/on* expressions on
-  // server-rendered intrinsics collect here and emit as one guarded
-  // whole-attribute hole after the loop, where `ssrClaim` turns attribute-slot
-  // reads into `_s:on:*` / `_s:ref` markers (and drops server-local
-  // functions). Evaluation is gated on the render context's claims flag so
-  // plain SSR never runs the expressions.
-  const claims: [string, babelTypes.Expression][] = [];
 
   attributes.forEach(attribute => {
     if (!t.isJSXAttribute(attribute.node)) return;
@@ -678,23 +670,13 @@ function transformAttributes(
     ) {
       if (t.isJSXEmptyExpression(value.expression)) return;
       if (key === "ref") {
-        if (info.serverComponents) {
-          claims.push(["ref", value.expression as babelTypes.Expression]);
-          return;
-        }
         results.declarations.push(
           t.variableDeclarator(path.scope.generateUidIdentifier("_ref$"), value.expression)
         );
         return;
       }
       if (key.startsWith("prop:")) return;
-      if (isEventName(key)) {
-        // `onXxx` lowercases to the event name — the client runtime's own
-        // derivation (`onClick` -> `click`); the position is bound under it.
-        if (info.serverComponents)
-          claims.push([toEventName(key), value.expression as babelTypes.Expression]);
-        return;
-      }
+      if (isEventName(key)) return;
       if (ChildProperties.has(key)) {
         if (key === "children" && VoidElements.has(tagName)) return;
         if (info.hydratable && key === "textContent" && value && value.expression) {
@@ -742,30 +724,9 @@ function transformAttributes(
           value.expression = t.assignmentExpression("=", temp, expression);
           linkEntries.push([key, t.cloneNode(temp), !!isDynamicValue]);
         }
-        // Server components (principles §9.2.3) need a whole-attribute
-        // serializer that can emit a position marker for a binding-slot
-        // value. The ordinary class/style serializers cannot bind slots.
-        // Object literals stay objects (no inlining) so a slot used as a
-        // property's value can also emit its marker.
-        if (info.serverComponents && (key === "class" || key === "style")) {
-          const attr = t.callExpression(registerImportMethod(path, "ssrElementAttribute"), [
-            t.stringLiteral(key),
-            value.expression as babelTypes.Expression
-          ]);
-          results.template.push("");
-          results.templateValues.push(
-            isDynamicValue
-              ? hoistExpression(path, results, t.arrowFunctionExpression([], attr), {
-                  group: true
-                })
-              : attr
-          );
-          return;
-        }
         if ((key === "class" || key === "style") && !t.isObjectExpression(value.expression)) {
-          // The whole attribute must be absent for nullish values. Keep the
-          // ordinary serializers: ssrElementAttribute would also bind slots
-          // without serverComponents. Capture the value once before testing it.
+          // The whole attribute must be absent for nullish values. Capture the
+          // value once before testing it.
           const id = path.scope.generateUidIdentifier("v$");
           const attr = t.callExpression(
             t.arrowFunctionExpression(
@@ -974,27 +935,6 @@ function transformAttributes(
     results.template.push("");
     results.templateValues.push(hole);
   }
-  if (claims.length) {
-    // A ref that calls something runs ungated, as plain SSR's `_ref$ = expr`
-    // does: outside a server component's render the element hydrates, and a
-    // ref factory's owned setup must run on both sides (#4081).
-    const refs = claims
-      .filter(([pos, expr]) => pos === "ref" && callsOutsideFunctions(expr))
-      .map(([, expr]) => t.cloneNode(expr, true));
-    const map = claimMap(claims);
-    // `_$sharedConfig.context && _$sharedConfig.context.claims
-    //    ? _$ssrClaim({...}) : ""`
-    // — the claims flag is only set inside a server component's render
-    // scope (and cleared inside suppressed fill windows), so ordinary SSR
-    // pays the property reads and never evaluates the handler expressions.
-    const guarded = t.conditionalExpression(
-      claimsArmed(path),
-      t.callExpression(registerImportMethod(path, "ssrClaim"), [map]),
-      refs.length ? t.sequenceExpression([...refs, t.stringLiteral("")]) : t.stringLiteral("")
-    );
-    results.template.push("");
-    results.templateValues.push(hoistExpression(path, results, guarded));
-  }
   if (!hasChildren && children) {
     path.node.children.push(children);
   }
@@ -1120,7 +1060,7 @@ function transformChildren(
 
 function createElement(
   path: BabelPath<babelTypes.JSXElement> & { doNotEscape?: boolean },
-  { topLevel, hydratable, serverComponents }: SSRTransformInfo
+  { topLevel, hydratable }: SSRTransformInfo
 ): SSRSpreadTransformResult {
   const tagName = getTagName(path.node),
     config = getConfig(path),
@@ -1173,22 +1113,6 @@ function createElement(
     const node = attribute.node;
     return !(t.isJSXAttribute(node) && t.isJSXIdentifier(node.name) && node.name.name === "ref");
   });
-  // Server components (principles §9.2.3): the named `ref`/`on*` attributes
-  // of a spread element are handler positions like a template element's,
-  // and compile to the same claim map — `{ click: expr, ref: [a, b] }`,
-  // duplicate refs merged, a duplicate handler last-wins as the template
-  // path strips it — keyed by the index of the source each attribute sits
-  // before (`<b {...a} onClick={go} {...b}>` → `{ 1: { click: go } }`, the
-  // spreads being sources 0 and 2), and handed to `ssrElement` as a thunk
-  // it reads only inside a server component's render (the gate the template
-  // path's `ssrClaim` guard reads), so plain SSR never evaluates the
-  // expressions. The runtime settles each handler position in source order,
-  // as the client's `spread(el, [a, { onClick: go }, b])` does — a spread at
-  // that index or later that HAS the key owns it — and merges every ref.
-  // Plain SSR output is unchanged (dropped, as a server element has no
-  // handlers to run).
-  const claims: [number, string, babelTypes.Expression][] = [];
-
   let props: babelTypes.Expression[];
   // Attributes written AFTER the last spread are markup, not a source: no
   // later source can override them, so they go to `ssrElement` as its
@@ -1215,9 +1139,6 @@ function createElement(
   // before the children; `ssrElement` calls the `attrs` thunk at that point.
   // Only an expression that calls something can run setup: `ref={el}` and
   // `ref={props.ref}` stay out of the thunk.
-  // Under `serverComponents` the ref is also a claim, evaluated by the
-  // claim thunk inside a server component's render, so the thunk skips it
-  // there: `ctx && ctx.claims || ref`.
   const refs: babelTypes.Expression[] = [];
   for (const attribute of attributes) {
     const node = attribute.node;
@@ -1228,27 +1149,9 @@ function createElement(
       !t.isJSXEmptyExpression(node.value.expression) &&
       callsOutsideFunctions(node.value.expression)
     )
-      refs.push(
-        serverComponents ? t.cloneNode(node.value.expression, true) : node.value.expression
-      );
+      refs.push(node.value.expression);
   }
-  if (serverComponents && refs.length)
-    refs.splice(
-      0,
-      refs.length,
-      t.logicalExpression(
-        "||",
-        claimsArmed(path),
-        refs.length > 1 ? t.sequenceExpression(refs) : refs[0]
-      )
-    );
-  if (
-    propAttributes.length === 1 &&
-    t.isJSXSpreadAttribute(propAttributes[0].node) &&
-    // A `ref` beside the lone spread is a claim under `serverComponents`;
-    // the loop below places it.
-    !(serverComponents && attributes.length > 1)
-  ) {
+  if (propAttributes.length === 1 && t.isJSXSpreadAttribute(propAttributes[0].node)) {
     props = [propAttributes[0].node.argument];
   } else {
     props = [];
@@ -1294,28 +1197,7 @@ function createElement(
             : node.name.name;
 
         if (hasChildren && key === "children") return;
-        if (key === "ref" || isEventName(key)) {
-          if (serverComponents && t.isJSXExpressionContainer(value)) {
-            const expression = value.expression;
-            const pos = key === "ref" ? "ref" : toEventName(key);
-            if (
-              !(
-                t.isJSXEmptyExpression(expression) ||
-                t.isStringLiteral(expression) ||
-                t.isNumericLiteral(expression) ||
-                t.isBooleanLiteral(expression)
-              )
-            ) {
-              // The index of the source this attribute sits before: the
-              // sources pushed so far, plus the running literal if it will
-              // be pushed ahead of the next spread. The literal never
-              // carries a handler key, so a spread's index is either below
-              // this or at/after it — never ambiguous.
-              claims.push([props.length + (runningObject.length ? 1 : 0), pos, expression]);
-            }
-          }
-          return;
-        }
+        if (key === "ref" || isEventName(key)) return;
         if (key.startsWith("prop:")) return;
         // An anchor's link-relevant attributes stay a source, never baked
         // markup: `ssrElement` collects them from the walk for the render's
@@ -1409,29 +1291,8 @@ function createElement(
     }
     args.push(skipKeys.length ? registerSkip(path, skipKeys) : t.identifier("undefined"), markup);
   }
-  if (claims.length) {
-    if (!skipKeys.length && !refs.length)
-      args.push(t.identifier("undefined"), t.identifier("undefined"));
-    args.push(t.arrowFunctionExpression([], claimSegments(claims)));
-  }
   const exprs = [t.callExpression(registerImportMethod(path, "ssrElement"), args)];
   return { exprs, template: "", declarations: [], dynamics: [], spreadElement: true };
-}
-
-/**
- * `_$sharedConfig.context && _$sharedConfig.context.claims`: true only inside
- * a server component's render, where `ssrClaim` evaluates the element's
- * handler positions.
- */
-function claimsArmed(path: BabelPath): babelTypes.Expression {
-  const sharedConfigId = registerImportMethod(path, "sharedConfig");
-  const contextRead = () =>
-    t.memberExpression(t.cloneNode(sharedConfigId), t.identifier("context"));
-  return t.logicalExpression(
-    "&&",
-    contextRead(),
-    t.memberExpression(contextRead(), t.identifier("claims"))
-  );
 }
 
 /** Does evaluating `node` call anything? A function's body does not run. */
@@ -1451,57 +1312,6 @@ function callsOutsideFunctions(node: babelTypes.Node): boolean {
     } else if (child && typeof child.type === "string" && callsOutsideFunctions(child)) return true;
   }
   return false;
-}
-
-/**
- * A spread element's claim map by source index (`createElement`): `{ 1: {
- * click: go }, 3: { ref: el } }`. A handler position keeps its LAST named
- * attribute only — the template path's duplicate strip, applied here to the
- * claims (a later attribute wins whatever sits between, so the earlier one
- * is never read on either side); refs merge within a segment as `claimMap`
- * merges them, and across segments at the runtime.
- */
-function claimSegments(
-  claims: [number, string, babelTypes.Expression][]
-): babelTypes.ObjectExpression {
-  const lastHandler = new Map<string, number>();
-  claims.forEach(([, pos], i) => {
-    if (pos !== "ref") lastHandler.set(pos, i);
-  });
-  const segments = new Map<number, [string, babelTypes.Expression][]>();
-  claims.forEach(([index, pos, expr], i) => {
-    if (pos !== "ref" && lastHandler.get(pos) !== i) return;
-    let list = segments.get(index);
-    if (!list) segments.set(index, (list = []));
-    list.push([pos, expr]);
-  });
-  return t.objectExpression(
-    [...segments].map(([index, list]) => t.objectProperty(t.numericLiteral(index), claimMap(list)))
-  );
-}
-
-/**
- * The compiled claim map of an element's handler positions, `{ click: expr,
- * ref: [a, b] }`: duplicate event keys were last-wins-stripped by the
- * template path's duplicate strip (or `claimSegments`); `ref` is exempt from
- * that pass (client semantics fire every ref), so multiple refs merge into
- * an array value.
- */
-function claimMap(claims: [string, babelTypes.Expression][]): babelTypes.ObjectExpression {
-  const byPos = new Map<string, babelTypes.Expression[]>();
-  for (const [pos, expr] of claims) {
-    let list = byPos.get(pos);
-    if (!list) byPos.set(pos, (list = []));
-    list.push(expr);
-  }
-  return t.objectExpression(
-    [...byPos].map(([pos, exprs]) =>
-      t.objectProperty(
-        t.stringLiteral(pos),
-        exprs.length === 1 ? exprs[0] : t.arrayExpression(exprs)
-      )
-    )
-  );
 }
 
 /**

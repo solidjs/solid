@@ -318,7 +318,6 @@ const nativeOptionKeys = new Set([
   "staticMarker",
   "omitNestedClosingTags",
   "omitLastClosingTag",
-  "serverComponents",
   "hoistProps",
   "builtIns",
   "renderers"
@@ -369,6 +368,9 @@ function validateOptions(code, options) {
       nativeOptions.sourceNames = value;
       continue;
     }
+    // Removed with binding slots (2026-10-16). Still accepted, and ignored,
+    // because @solidjs/vite-plugin passes it for server-component builds.
+    if (key === "serverComponents") continue;
     if (key === "root") {
       if (typeof value !== "string") {
         throw new TypeError("@solidjs/compiler `root` option must be a string");

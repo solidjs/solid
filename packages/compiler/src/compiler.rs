@@ -126,9 +126,6 @@ pub struct CompileOptions {
     pub module_name: String,
     pub generate: Generate,
     pub hydratable: bool,
-    /// SSR-only: attribute-slot position holes (`ref`/`on*` claims, whole-attribute
-    /// `class`/`style`) for server components.
-    pub server_components: bool,
     /// SSR-only: emit each component's props literal with getters as a
     /// module-level constructor with shared getters (one hidden class per
     /// call site, no closure per getter per instance) instead of an object
@@ -166,7 +163,6 @@ impl Default for CompileOptions {
             module_name: DEFAULT_MODULE_NAME.into(),
             generate: Generate::Dom,
             hydratable: false,
-            server_components: false,
             hoist_props: true,
             dev: false,
             source_names: SourceNames::default(),
@@ -352,7 +348,6 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
                 source,
                 &options.module_name,
                 options.hydratable,
-                options.server_components,
                 options.wrap_conditionals,
                 options.source_names.components,
                 location_base(options),
