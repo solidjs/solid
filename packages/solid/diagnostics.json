@@ -6,7 +6,7 @@
     "category": "responsiveness",
     "trigger": "One async source abandoned 3+ flights in 1s, each superseded before landing — the request-per-keystroke signature (attribution enabled)",
     "repair": "One async source started flight after flight and threw most of the answers away: `data.abandoned` flights in `data.windowMs` were each superseded by the next before landing.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#abandoned_flights"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/abandoned-flights"
   },
   {
     "code": "ACTION_CALLED_IN_OWNED_SCOPE",
@@ -15,7 +15,7 @@
     "category": "write",
     "trigger": "`action()` invoked from a component body or computation",
     "repair": "An action was invoked during a component body or computation.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#action_called_in_owned_scope"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/action-called-in-owned-scope"
   },
   {
     "code": "ASYNC_OUTSIDE_LOADING_BOUNDARY",
@@ -24,7 +24,7 @@
     "category": "async",
     "trigger": "Async computation outside Loading boundary (non-halting; root mount is deferred)",
     "repair": "On the client, an async value was read outside a Loading boundary during mounting.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#async_outside_loading_boundary"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/async-outside-loading-boundary"
   },
   {
     "code": "ASYNC_STORE_SETTER",
@@ -33,7 +33,7 @@
     "category": "write",
     "trigger": "Store setter callback returned a Promise (setters are synchronous transactions)",
     "repair": "A store setter callback returned a Promise — `setStore(async d => …)`, or a sync arrow whose helper is async.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#async_store_setter"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/async-store-setter"
   },
   {
     "code": "ASYNC_WATERFALL",
@@ -42,7 +42,7 @@
     "category": "perf",
     "trigger": "2+/3+ sequential async flights, origin-proven (attribution enabled)",
     "repair": "Async flights ran in sequence when they might have run in parallel: each named flight provably could not start until the previous one resolved, and each took real time (the per-link durations are in the message/data).",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#async_waterfall"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/async-waterfall"
   },
   {
     "code": "BINDING_SLOT_POSITION",
@@ -51,7 +51,7 @@
     "category": "ssr/render",
     "trigger": "Binding-slot value where it cannot bind; `data.reason` names the position (spread is an error and throws), client reasons `orphan`/`fill-shape`",
     "repair": "A binding slot's property (`const row = props.row(args); row.done`) landed where the server template cannot bind it.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#binding_slot_position"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/binding-slot-position"
   },
   {
     "code": "CLEANUP_IN_FORBIDDEN_SCOPE",
@@ -60,7 +60,7 @@
     "category": "lifecycle",
     "trigger": "`onCleanup` inside trackedEffect/onSettled",
     "repair": "`onCleanup` inside `createTrackedEffect` or `onSettled` is not supported — return a cleanup function from the callback instead.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#cleanup_in_forbidden_scope"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/cleanup-in-forbidden-scope"
   },
   {
     "code": "DYNAMIC_ASYNC_COMPONENT",
@@ -69,7 +69,7 @@
     "category": "ssr",
     "trigger": "An async `dynamic()` source landed on a client component function, which cannot serialize for adoption; the memo rejects (observe + dev; rejects in every tier)",
     "repair": "An async `dynamic()` source resolved to a client component function.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#dynamic_async_component"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/dynamic-async-component"
   },
   {
     "code": "EFFECT_RELAY_TEAR",
@@ -78,7 +78,7 @@
     "category": "perf",
     "trigger": "Reader ran twice for one root change because an effect relayed it; `warn` when derivable or repeated (attribution enabled)",
     "repair": "Derived state kept in sync by an effect: `createEffect(() => f(a()), v => setS(v))`.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#effect_relay_tear"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/effect-relay-tear"
   },
   {
     "code": "EFFECT_WRITES_OWN_SOURCE",
@@ -87,7 +87,7 @@
     "category": "perf",
     "trigger": "Effect's write provably feeds back into its own inputs; `info` for multi-effect rings (attribution enabled)",
     "repair": "An effect re-ran because of a write it made itself: its callback wrote a value that its own inputs depend on (directly, or through the memos the message names), so the flush settled in two passes and the screen rendered the pre-write value in between.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#effect_writes_own_source"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/effect-writes-own-source"
   },
   {
     "code": "FALLBACK_FLASH",
@@ -96,7 +96,7 @@
     "category": "responsiveness",
     "trigger": "A `Loading` fallback showed for under 150ms — feedback for a wait too short to need it (attribution enabled)",
     "repair": "A `Loading` fallback appeared and vanished inside 150ms (`data.shownMs`): the data was nearly there, and the spinner read as a flicker.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#fallback_flash"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/fallback-flash"
   },
   {
     "code": "FLUSH_IN_EFFECT_CALLBACK",
@@ -105,7 +105,7 @@
     "category": "lifecycle",
     "trigger": "`flush()` from an effect callback (no-op; the drain is already running)",
     "repair": "`flush()` was called inside an effect callback, where it is a no-op (the flush running effects is already in progress).",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#flush_in_effect_callback"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/flush-in-effect-callback"
   },
   {
     "code": "FRAME_MARKER_CORRUPTED",
@@ -114,7 +114,7 @@
     "category": "ssr",
     "trigger": "Frame slot range missing its end marker on the client — nesting or an HTML rewriter (observe + dev)",
     "repair": "(Client.) A frame's slot start marker has no end marker among its siblings: invalid HTML nesting split the range when the browser parsed it (a block element inside `<p>`, a `<tr>` outside a table), or a CDN/minifier stripped the comment.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#frame_marker_corrupted"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/frame-marker-corrupted"
   },
   {
     "code": "GRAPH_GROWTH",
@@ -122,8 +122,8 @@
     "severity": ["warn"],
     "category": "perf",
     "trigger": "The live graph and what outlived each navigation climbed at a route's settle on 3 visits to 1.25× — something each visit leaves behind (attribution enabled)",
-    "repair": "The live graph, counted when each navigation settles, got bigger on every one of the last `data.history.length` visits to `data.route`, and so did the part of it that outlived each of those navigations (`data.survived`, beside `data.history`: what was alive when the navigation began and still is) — something each visit creates is never disposed.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#graph_growth"
+    "repair": "The live graph, counted when each navigation settles, got bigger on every one of the last `data.history.length` visits to `data.route`, and so did the part of it that outlived each of those navigations (`data.survived`, beside `data.history`: what was alive as this or an earlier navigation began and still is) — something each visit creates is never disposed.",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/graph-growth"
   },
   {
     "code": "HEAD_TAG_INVALID",
@@ -132,7 +132,7 @@
     "category": "head",
     "trigger": "`useHead` registration the render could not honor; `data.reason` names the rule (dev)",
     "repair": "A `useHead` registration the render could not honor; `data.reason` names the rule.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#head_tag_invalid"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/head-tag-invalid"
   },
   {
     "code": "HOT_SCOPE_FANOUT",
@@ -141,7 +141,7 @@
     "category": "perf",
     "trigger": "5+/50+/500+ scopes hot from one root cause (attribution enabled)",
     "repair": "Many scopes went hot from ONE root cause (named in the message) — the aggregate form of HOT_SCOPE_RERUNS, emitted so a single culprit doesn't produce one warning per victim.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#hot_scope_fanout"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/hot-scope-fanout"
   },
   {
     "code": "HOT_SCOPE_RERUNS",
@@ -150,7 +150,7 @@
     "category": "perf",
     "trigger": "120+ re-runs of one scope in 1s (attribution enabled)",
     "repair": "A scope re-ran far more often than any UI cadence justifies — a hot signal (often per-frame or per-event) is leaking into it.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#hot_scope_reruns"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/hot-scope-reruns"
   },
   {
     "code": "HOT_SCOPE_TIME",
@@ -159,7 +159,7 @@
     "category": "perf",
     "trigger": "8ms+ self-time in one scope in 1s (attribution enabled)",
     "repair": "A scope's summed compute time blew its per-window budget — a few-but-expensive scope that run counts miss.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#hot_scope_time"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/hot-scope-time"
   },
   {
     "code": "HUGE_FAN_IN",
@@ -168,7 +168,7 @@
     "category": "graph",
     "trigger": "One recompute tracked 2000 sources (always on)",
     "repair": "The always-on backstop: one computation tracked 2000 or more sources in a single pass, so it re-runs when any of them change.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#huge_fan_in"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/huge-fan-in"
   },
   {
     "code": "HUGE_FAN_OUT",
@@ -177,7 +177,7 @@
     "category": "graph",
     "trigger": "One change reached 2000 live subscribers (always on), or 250 — `fanOut` — on a stamped root write (attribution enabled)",
     "repair": "One value has very many subscribers, so a single change re-runs all of them (`data.count`).",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#huge_fan_out"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/huge-fan-out"
   },
   {
     "code": "IMMUTABLE_UPDATE_IN_STORE",
@@ -186,7 +186,7 @@
     "category": "perf",
     "trigger": "Store container replaced by a mostly-identical copy (attribution enabled)",
     "repair": "A store setter replaced a container with a fresh object/array whose leaves are mostly the same values: `draft.user = { ...draft.user, name }`, `draft.items = [...draft.items, x]`, `draft.items = draft.items.filter(…)`.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#immutable_update_in_store"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/immutable-update-in-store"
   },
   {
     "code": "INVALID_AFFECTS_TARGET",
@@ -195,7 +195,7 @@
     "category": "write",
     "trigger": "`affects()` given a key path, or a key on an accessor",
     "repair": "`affects()` expects a Solid source accessor or store node, with at most one optional key (keys only valid on store targets).",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#invalid_affects_target"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/invalid-affects-target"
   },
   {
     "code": "INVALID_REFRESH_TARGET",
@@ -204,7 +204,7 @@
     "category": "write",
     "trigger": "`refresh()` target is not a source accessor or refreshable store",
     "repair": "`refresh()` expects a Solid source accessor or refreshable store — not a wrapper function or a derived property read.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#invalid_refresh_target"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/invalid-refresh-target"
   },
   {
     "code": "INVARIANT_VIOLATION",
@@ -213,7 +213,7 @@
     "category": "error",
     "trigger": "Internal consistency check failed (throws under `__TEST__`, reported in dev)",
     "repair": "The reactive system contradicted itself — an internal bug, not user error.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#invariant_violation"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/invariant-violation"
   },
   {
     "code": "LATE_HEADER_WRITE",
@@ -222,7 +222,7 @@
     "category": "head",
     "trigger": "Response header written after the head was sent; dropped (observe + dev; dev throws)",
     "repair": "A response header was written after the head was sent; the write was dropped (dev throws instead).",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#late_header_write"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/late-header-write"
   },
   {
     "code": "LAZY_ASSET_UNMAPPED",
@@ -231,7 +231,7 @@
     "category": "ssr",
     "trigger": "`lazy()` component's client assets could not be resolved for the page (dev)",
     "repair": "A `lazy()` component's client chunk could not be resolved for the page (`data.reason`: the resolver threw, or the module has no `$$moduleUrl`), so it is not preloaded and loads late during hydration.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#lazy_asset_unmapped"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/lazy-asset-unmapped"
   },
   {
     "code": "LOADING_ON_OUTSIDE_HOLD",
@@ -240,7 +240,7 @@
     "category": "async",
     "trigger": "`<Loading on>` changed but its data is also read outside the boundary and holds the frame: the fallback can never be seen",
     "repair": "`on` re-armed a Loading boundary, but a source it is waiting on is also read outside the boundary and holds the frame.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#loading_on_outside_hold"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/loading-on-outside-hold"
   },
   {
     "code": "LONG_HOLD",
@@ -249,7 +249,7 @@
     "category": "responsiveness",
     "trigger": "Acknowledged hold whose tail (last input → commit) ran 500ms+/1000ms+ (attribution enabled)",
     "repair": "The hold WAS acknowledged — an `isPending()` spinner, a `latest()` header, an optimistic value — and still ran on: the time from the user's last input to the commit (`data.tailMs`; `holdMs` is the whole wait when input kept arriving) reached `longHolds.infoMs` (default 500ms), `warn` from `longHolds.warnMs` (default 1000ms, where the user loses the thread).",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#long_hold"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/long-hold"
   },
   {
     "code": "LOWERCASE_EVENT_ATTRIBUTE",
@@ -258,7 +258,7 @@
     "category": "render",
     "trigger": "A function was set on a lowercase `on*` (or `on:`) attribute, which is not an event handler in 2.0; use `onXxx` (dev; client)",
     "repair": "A function was set on an attribute whose name starts with `on` but is not an event handler (`data.name`): a lowercase `onclick`, or a leftover 1.x `on:click`.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#lowercase_event_attribute"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/lowercase-event-attribute"
   },
   {
     "code": "MISSING_EFFECT_FN",
@@ -267,7 +267,7 @@
     "category": "lifecycle",
     "trigger": "`createEffect` called without the effect function",
     "repair": "`createEffect(compute)` with a single argument is not supported.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#missing_effect_fn"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/missing-effect-fn"
   },
   {
     "code": "NO_OWNER_BOUNDARY",
@@ -276,7 +276,7 @@
     "category": "lifecycle",
     "trigger": "Boundary created without owner",
     "repair": "A boundary was created outside any reactive context.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#no_owner_boundary"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/no-owner-boundary"
   },
   {
     "code": "NO_OWNER_CLEANUP",
@@ -285,7 +285,7 @@
     "category": "lifecycle",
     "trigger": "`onCleanup` called without owner",
     "repair": "`onCleanup` was called outside a reactive context; the callback will never run.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#no_owner_cleanup"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/no-owner-cleanup"
   },
   {
     "code": "NO_OWNER_EFFECT",
@@ -294,7 +294,7 @@
     "category": "lifecycle",
     "trigger": "Effect created without reactive owner",
     "repair": "An effect was created outside any reactive context (no root, no component).",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#no_owner_effect"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/no-owner-effect"
   },
   {
     "code": "OPTIMISTIC_REVERTED",
@@ -303,7 +303,7 @@
     "category": "responsiveness",
     "trigger": "An optimistic value the screen showed was replaced by a different one — reverted at settle, or superseded by the truth (attribution enabled)",
     "repair": "An optimistic value the screen showed was replaced by a different one: the person saw the guess, then the correction.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#optimistic_reverted"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/optimistic-reverted"
   },
   {
     "code": "PENDING_ASYNC_FORBIDDEN_SCOPE",
@@ -312,7 +312,7 @@
     "category": "async",
     "trigger": "Pending async read in trackedEffect/onSettled",
     "repair": "A pending async value was read inside `createTrackedEffect` or `onSettled`, which cannot suspend — it throws.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#pending_async_forbidden_scope"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/pending-async-forbidden-scope"
   },
   {
     "code": "PENDING_ASYNC_UNTRACKED_READ",
@@ -321,7 +321,7 @@
     "category": "async",
     "trigger": "Reading pending async outside tracking scope",
     "repair": "Same shape as above but the value was a pending async computation, so there is nothing to read yet at all.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#pending_async_untracked_read"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/pending-async-untracked-read"
   },
   {
     "code": "PRELOAD_DESCRIPTOR_INVALID",
@@ -330,7 +330,7 @@
     "category": "head",
     "trigger": "`registerAsset(\"preload\")` descriptor broke a field rule; link dropped or field ignored (dev)",
     "repair": "A `registerAsset(\"preload\")` descriptor broke a field rule (`data.field` names it — a missing `as`, a non-string `href`, a malformed `imagesrcset`) and the link was dropped or the field ignored.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#preload_descriptor_invalid"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/preload-descriptor-invalid"
   },
   {
     "code": "PRIMITIVE_IN_EFFECT_CALLBACK",
@@ -339,7 +339,7 @@
     "category": "lifecycle",
     "trigger": "Memo, effect, or root created inside an effect callback or its cleanup, where there is no ambient owner (throws)",
     "repair": "A memo, effect, or root was created without an owner inside an effect callback or its cleanup.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#primitive_in_effect_callback"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/primitive-in-effect-callback"
   },
   {
     "code": "PRIMITIVE_IN_FORBIDDEN_SCOPE",
@@ -348,7 +348,7 @@
     "category": "lifecycle",
     "trigger": "Reactive primitive created inside trackedEffect/onSettled",
     "repair": "Reactive primitives cannot be created inside `createTrackedEffect` or owner-backed `onSettled`.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#primitive_in_forbidden_scope"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/primitive-in-forbidden-scope"
   },
   {
     "code": "REACTIVE_WRITE_IN_OWNED_SCOPE",
@@ -357,7 +357,7 @@
     "category": "write",
     "trigger": "Reactive write/invalidation inside component/computation",
     "repair": "A signal/store write (or `refresh()`) executed during an owned scope — a component body or a computation.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#reactive_write_in_owned_scope"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/reactive-write-in-owned-scope"
   },
   {
     "code": "REACTIVITY_HALTED",
@@ -366,7 +366,7 @@
     "category": "error",
     "trigger": "Uncaught error escaped every boundary; scheduling stopped (reported, cause to `reportError`)",
     "repair": "An earlier uncaught error halted the reactive system; subsequent updates are ignored.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#reactivity_halted"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/reactivity-halted"
   },
   {
     "code": "REVEAL_IN_RENDER_TO_STRING",
@@ -375,7 +375,7 @@
     "category": "ssr",
     "trigger": "Nested `<Reveal>` with collapsed/together under `renderToString` (dev)",
     "repair": "Nested `<Reveal>` with `collapsed`/`together` needs a stream to coordinate on; `renderToString` has none.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#reveal_in_render_to_string"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/reveal-in-render-to-string"
   },
   {
     "code": "RUN_WITH_DISPOSED_OWNER",
@@ -384,7 +384,7 @@
     "category": "owner",
     "trigger": "`runWithOwner` with disposed owner",
     "repair": "`runWithOwner` received an owner that was already disposed; anything created inside leaks.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#run_with_disposed_owner"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/run-with-disposed-owner"
   },
   {
     "code": "SERVER_ERROR_SANITIZED",
@@ -393,7 +393,7 @@
     "category": "ssr",
     "trigger": "Error replaced with the generic Error on the wire — `data.source` `\"server-function\"` (`error`) or `\"ssr\"` (`info`); `data.error` is the original (observe + dev)",
     "repair": "The production wire replaced an error with the generic `Error`; `data.error` is the original, `data.wire` what the client got, and `data.source` says which road:",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#server_error_sanitized"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/server-error-sanitized"
   },
   {
     "code": "SERVER_WRITE",
@@ -402,7 +402,7 @@
     "category": "write",
     "trigger": "Signal/store/optimistic setter ran during a server render; inert, will throw (dev; once per category)",
     "repair": "A signal, store or optimistic setter ran during a server render.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#server_write"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/server-write"
   },
   {
     "code": "SETTLED_CLEANUP_UNOWNED",
@@ -411,7 +411,7 @@
     "category": "lifecycle",
     "trigger": "`onSettled` returned a cleanup in an unowned (out-of-band) scope",
     "repair": "`onSettled` returned a cleanup while running in an unowned scope, so the cleanup cannot be honored.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#settled_cleanup_unowned"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/settled-cleanup-unowned"
   },
   {
     "code": "SETTLE_WALK_UNINITIALIZED_SOURCE",
@@ -420,7 +420,7 @@
     "category": "lifecycle",
     "trigger": "Internal: settle walk reached a source that never produced a value (reported)",
     "repair": "The runtime tried to settle a source before it produced a value or an error.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#settle_walk_uninitialized_source"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/settle-walk-uninitialized-source"
   },
   {
     "code": "SILENT_HOLD",
@@ -429,7 +429,7 @@
     "category": "responsiveness",
     "trigger": "Write held 100ms+/200ms+ by pending async with no on-screen acknowledgement (attribution enabled)",
     "repair": "A write landed on async work, so the runtime held it (and everything derived from it) until the data came back — that hold is correct; it is what keeps the screen from tearing.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#silent_hold"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/silent-hold"
   },
   {
     "code": "SSR_BOUNDARY_WATERFALL",
@@ -438,7 +438,7 @@
     "category": "ssr",
     "trigger": "A `<Loading>` boundary needed 3+/4+ render passes — 2+/3+ sequential async waits (dev)",
     "repair": "A `<Loading>` boundary rendered in `data.passes` passes — discovery, then one per wait — and each pass past the first is a read that could only start once the previous pass's async answered: `passes - 1` sequential waits, `data.sequentialMs` end to end.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#ssr_boundary_waterfall"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/ssr-boundary-waterfall"
   },
   {
     "code": "SSR_CLIENT_CONTENT_MASKED",
@@ -447,7 +447,7 @@
     "category": "ssr",
     "trigger": "Client-only content in a `<Loading>` surfaced only after a server wait; the server's work was discarded (dev)",
     "repair": "A `<Loading>` boundary's content turned out to be client-only (a `ssrSource: \"client\"` read) but only after `data.passes - 1` real server waits: an async read on an earlier pass masked it.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#ssr_client_content_masked"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/ssr-client-content-masked"
   },
   {
     "code": "SSR_LIVE_HOLE_LATCHED",
@@ -456,7 +456,7 @@
     "category": "ssr",
     "trigger": "A live hole that shipped its markers was closed by the impurity gate on re-run and stopped updating (dev)",
     "repair": "A live markup hole (or attribute) in a server component shipped its markers and then stopped updating: re-running it created a reactive scope still waiting on async work (`data.cause: \"owners\"`) or emitted slot records (`\"records\"`), so the runtime closed it and the client keeps the markup it last received.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#ssr_live_hole_latched"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/ssr-live-hole-latched"
   },
   {
     "code": "SSR_RENDER_ERROR_CONTAINED",
@@ -465,7 +465,7 @@
     "category": "ssr",
     "trigger": "Server render error routed by a boundary: `data.handling` fallback / client / failed (observe + dev)",
     "repair": "A component threw during a server render and a boundary routed the error; `data.handling` says how.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#ssr_render_error_contained"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/ssr-render-error-contained"
   },
   {
     "code": "SSR_STREAM_ABANDONED",
@@ -474,7 +474,7 @@
     "category": "ssr",
     "trigger": "Response stream cancelled or sink failed with fragments pending (observe + dev)",
     "repair": "The client went away (`data.reason: \"consumer\"`), the sink failed (`\"sink\"`), or the request's `signal` aborted (`\"signal\"` — `renderToStream`'s `signal` option, how a frame-stream response learns its reader is gone) while `data.pendingFragments` were still rendering; the render was torn down.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#ssr_stream_abandoned"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/ssr-stream-abandoned"
   },
   {
     "code": "SSR_SUBTREE_ABANDONED",
@@ -483,7 +483,7 @@
     "category": "ssr",
     "trigger": "A failed fragment's pending descendants were discarded (observe + dev)",
     "repair": "A fragment failed with descendants still pending, and their work (fetches, serialized values — the counts are in `data`) was thrown away; the client rebuilds the subtree.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#ssr_subtree_abandoned"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/ssr-subtree-abandoned"
   },
   {
     "code": "SSR_UNDECLARED_LIVE_SOURCE",
@@ -492,7 +492,7 @@
     "category": "ssr",
     "trigger": "A document render is still pumping an async iterable in server-component scope 5s in — declare the function `live(...)` or bound the source (dev)",
     "repair": "A server component rendered into a document read an async iterable that was still producing `data.afterMs` (5s) later: an undeclared unbounded source pumps into the document and holds it open for as long as it produces.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#ssr_undeclared_live_source"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/ssr-undeclared-live-source"
   },
   {
     "code": "STACKED_HOLDS",
@@ -501,7 +501,7 @@
     "category": "responsiveness",
     "trigger": "3+ interactions were waiting in one hold when it committed — repeats piled behind the same source (attribution enabled)",
     "repair": "`data.interactions` interactions were waiting in the same hold when it committed: the person clicked or typed again while the first answer was in the air, and the runtime folded every repeat into one wait on the same source (`data.blockers`).",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#stacked_holds"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/stacked-holds"
   },
   {
     "code": "STRICT_READ_UNTRACKED",
@@ -510,7 +510,7 @@
     "category": "strict-read",
     "trigger": "Untracked reactive read in component/effect body",
     "repair": "A reactive value was read outside any tracking scope (e.g. destructured props or a signal called in the component body).",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#strict_read_untracked"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/strict-read-untracked"
   },
   {
     "code": "SYNC_NODE_RECEIVED_ASYNC",
@@ -519,7 +519,7 @@
     "category": "lifecycle",
     "trigger": "`sync: true` computation returned a Promise / AsyncIterable",
     "repair": "A computed/effect created with `sync: true` returned a Promise or AsyncIterable; the value would be stored as-is, never awaited, in production.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#sync_node_received_async"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/sync-node-received-async"
   },
   {
     "code": "UNRECOGNIZED_INSERT_VALUE",
@@ -528,7 +528,7 @@
     "category": "render",
     "trigger": "Value at an insert position the renderer cannot render; skipped (dev; server and client)",
     "repair": "A value the renderer cannot render (a plain object, a symbol — `data.type`) sat at an insert position and was skipped, on either platform.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#unrecognized_insert_value"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/unrecognized-insert-value"
   },
   {
     "code": "UNSCOPED_HOLE_ALLOCATED_IDS",
@@ -537,7 +537,7 @@
     "category": "render",
     "trigger": "Unscoped hole was handed a function whose content took ids at a position the other side does not share; keys permute (dev)",
     "repair": "A JSX hole was handed a **function** (`data.name`) instead of a value — `const renderHead = () => props.header; <div>{renderHead}</div>` — and calling it built hydratable content.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#unscoped_hole_allocated_ids"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/unscoped-hole-allocated-ids"
   },
   {
     "code": "UNSTABLE_LIST_IDENTITY",
@@ -546,7 +546,7 @@
     "category": "perf",
     "trigger": "`mapArray`/`For` recreated rows for equivalent items (attribution enabled)",
     "repair": "A `mapArray`/`<For>` update disposed and recreated most rows while the entering items were field-for-field equivalent to the ones they replaced: a re-fetch (or a spread-copy, see above) handed back fresh objects for the same records, and identity keying treated each as a new row — DOM, state, focus, and scroll position thrown away and rebuilt.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#unstable_list_identity"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/unstable-list-identity"
   },
   {
     "code": "UNSTABLE_MEMO_OUTPUT",
@@ -555,7 +555,7 @@
     "category": "perf",
     "trigger": "Memo returned a new-but-equivalent container 4+ runs running (attribution enabled)",
     "repair": "A memo keeps producing referentially-new but shallowly-equivalent objects/arrays, so its equality gate never closes and every subscriber re-runs on every upstream change.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#unstable_memo_output"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/unstable-memo-output"
   },
   {
     "code": "UNTRACKED_ASYNC_HANDLER",
@@ -564,7 +564,7 @@
     "category": "responsiveness",
     "trigger": "Handler awaited 100ms+/200ms+ past its frame with no write before the `await` and no `action()`: a dead click no hold could judge (attribution enabled)",
     "repair": "The dead click that is not a hold.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#untracked_async_handler"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/untracked-async-handler"
   },
   {
     "code": "UNTRACKED_READ_AFTER_AWAIT",
@@ -573,7 +573,7 @@
     "category": "async",
     "trigger": "Async computation first read a signal/memo/store key after an `await`; never a dependency (dev; V8 engines only)",
     "repair": "An async computation read a signal, memo, or store property for the first time after an `await`.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#untracked_read_after_await"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/untracked-read-after-await"
   },
   {
     "code": "WASTED_RECOMPUTE",
@@ -582,7 +582,7 @@
     "category": "perf",
     "trigger": "80%+ of a scope's 5+ runs in a second produced an unchanged value for 2ms+ of compute — inputs change, result does not (attribution enabled)",
     "repair": "The mirror of `UNSTABLE_MEMO_OUTPUT`: this scope's equality gate closes almost every time.",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#wasted_recompute"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/wasted-recompute"
   },
   {
     "code": "WIDE_SCOPE_DEPS",
@@ -591,6 +591,6 @@
     "category": "perf",
     "trigger": "Scope subscribed to 200+ sources (attribution cost checks on)",
     "repair": "Attribution engine cost checks only: a scope is subscribed to 200 or more sources (it re-warns on 50% further growth).",
-    "guideUrl": "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#wide_scope_deps"
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/wide-scope-deps"
   }
 ]

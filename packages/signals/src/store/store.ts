@@ -88,7 +88,8 @@ import {
   queuePendingNode,
   schedule,
   txOf,
-  type Transaction
+  type Transaction,
+  installStoreHooks
 } from "../core/scheduler.js";
 import type { Computed, Owner, Signal } from "../core/types.js";
 import {
@@ -405,7 +406,9 @@ export function getNode(
     // the hottest store path, and the disabled cost must stay one null
     // check (nodes created before enable() stay generically named).
     if (__OBSERVE__ && attrHooks !== null) {
-      (created as any)._name = storeLabel(target) + "." + String(key);
+      const root = storeRoot(target);
+      (created as any)._name = (storeNames!.get(root) ?? "store") + "." + String(key);
+      (created as any)._loc = storeLocs!.get(root);
       stampNodeOwner(created, target);
     }
     nodes[key] = node;
@@ -461,7 +464,7 @@ export function getContainerNode(target: StoreTarget): Signal<any> {
  * staging: nothing allocates, nothing is swept at the commit (dbmon's tick
  * re-created, queued, swept and dropped ~7000 container nodes). If the
  * flush parks, the seam materializes and holds the node then
- * (`_storePark`) — the one case the staging home exists for. */
+ * (`storeParkHook`) — the one case the staging home exists for. */
 function stageOn(target: StoreTarget, pb: Record<PropertyKey, any>): void {
   if (
     target.k === null &&
@@ -486,7 +489,7 @@ function deriveHolds(target: StoreTarget): boolean {
   return fw != null && !userWrite && (fw._config & CONFIG_HELD) !== 0;
 }
 
-GlobalQueue._storePark = t => {
+const storePark = (t: Transaction): void => {
   for (let i = 0; i < foldList.length; i++) {
     const target = foldList[i];
     if (target.k === null && target.pb !== null) holdNode(getContainerNode(target), t);
@@ -538,12 +541,16 @@ function stampNodeOwner(created: Signal<any>, target: StoreTarget): void {
   (created as any)._owner = storeRootOwner(target) ?? null;
 }
 const storeNames: WeakMap<StoreTarget, string> | null = __OBSERVE__ ? new WeakMap() : null;
-export function nameStore(proxy: any, name: string | undefined): void {
-  if (__OBSERVE__ && attrHooks !== null && name)
-    storeNames!.set((proxy as any)[$TARGET] as StoreTarget, name);
-}
-function storeLabel(target: StoreTarget): string {
-  return storeNames!.get(storeRoot(target)) ?? "store";
+// The store's `loc` option, carried onto every property node beside its
+// label (the same gate: nodes created before the engine is installed carry
+// neither).
+const storeLocs: WeakMap<StoreTarget, string> | null = __OBSERVE__ ? new WeakMap() : null;
+export function nameStore(proxy: any, name: string | undefined, loc?: string): void {
+  if (__OBSERVE__ && attrHooks !== null) {
+    const target = (proxy as any)[$TARGET] as StoreTarget;
+    if (name) storeNames!.set(target, name);
+    if (loc) storeLocs!.set(target, loc);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -923,10 +930,10 @@ GlobalQueue._slotCovered = (n: Signal<any>): unknown => {
   }
   return n._value;
 };
-GlobalQueue._storeCommit = () => {
+installStoreHooks(storePark, () => {
   drainFolds();
   optHooks?.sweep();
-};
+});
 /** The store half of `affects()` (store/affects.ts) makes its marks' nodes
  * and walks records through these: it never imports the engine. */
 GlobalQueue._storeNode = getNode;
@@ -2381,7 +2388,7 @@ export function createStore<T extends Record<PropertyKey, any>>(
     // disabled, buys nothing.
     if (attrHooks !== null) {
       storeOwners!.set((proxy as any)[$TARGET] as StoreTarget, owner);
-      nameStore(proxy, options?.name);
+      nameStore(proxy, options?.name, options?.loc);
     }
   }
   const setter: SetStoreFunction<T> = fn => storeSetter(proxy, fn);

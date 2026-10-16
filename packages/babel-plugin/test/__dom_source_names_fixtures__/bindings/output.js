@@ -26,7 +26,8 @@ _$effect(
     _el$2.data = _v$;
   },
   {
-    name: "span.textContent"
+    name: "span.textContent",
+    loc: "test/__dom_source_names_fixtures__/bindings/code.js:2:22"
   }
 );
 // One binding → its own effect, named `<tag>.<attribute>`.
@@ -38,7 +39,8 @@ _$effect(
     _el$3.value = _v$ ?? "";
   },
   {
-    name: "input.value"
+    name: "input.value",
+    loc: "test/__dom_source_names_fixtures__/bindings/code.js:3:21"
   }
 );
 const attr = _el$3;
@@ -49,7 +51,8 @@ _$effect(
     _$className(_el$4, _v$, _$p);
   },
   {
-    name: "div.class"
+    name: "div.class",
+    loc: "test/__dom_source_names_fixtures__/bindings/code.js:4:18"
   }
 );
 const cls = _el$4;
@@ -64,7 +67,8 @@ _$effect(
     t !== _p$?.t && _$setStyleProperty(_el$5, "font-size", t);
   },
   {
-    name: "div.style:color, div.style:font-size"
+    name: "div.style:color, div.style:font-size",
+    loc: "test/__dom_source_names_fixtures__/bindings/code.js:5:20"
   }
 );
 const style = _el$5;
@@ -77,7 +81,8 @@ _$effect(
     _$setAttribute(_el$6, "classList", _v$);
   },
   {
-    name: "div.classList"
+    name: "div.classList",
+    loc: "test/__dom_source_names_fixtures__/bindings/code.js:6:24"
   }
 );
 const classList = _el$6;
@@ -92,7 +97,8 @@ _$effect(
     t !== _p$?.t && _$setAttribute(_el$7, "style:width", t);
   },
   {
-    name: "div.class:selected, div.style:width"
+    name: "div.class:selected, div.style:width",
+    loc: "test/__dom_source_names_fixtures__/bindings/code.js:7:17"
   }
 );
 const ns = _el$7;
@@ -115,7 +121,8 @@ _$effect(
     (!_p$ || o !== _p$.o) && (_el$0.data = o);
   },
   {
-    name: "button.class, button.title, button.disabled, span.textContent"
+    name: "button.class, button.title, button.disabled, span.textContent",
+    loc: "test/__dom_source_names_fixtures__/bindings/code.js:11:11"
   }
 );
 const merged = _el$8;
@@ -123,7 +130,8 @@ const merged = _el$8;
 // Holes → insert, named for the parent it fills.
 var _el$1 = _tmpl$3();
 _$insert(_el$1, count, undefined, undefined, {
-  name: "div.children"
+  name: "div.children",
+  loc: "test/__dom_source_names_fixtures__/bindings/code.js:17:19"
 });
 const hole = _el$1;
 var _el$10 = _tmpl$5(),
@@ -133,28 +141,49 @@ var _el$10 = _tmpl$5(),
   _el$13 = _el$12.nextSibling,
   _el$15 = _el$13.nextSibling;
 _$insert(_el$10, name, _el$14, undefined, {
-  name: "div.children"
+  name: "div.children",
+  loc: "test/__dom_source_names_fixtures__/bindings/code.js:20:11"
 });
 _$insert(_el$13, greeting, undefined, undefined, {
-  name: "p.children"
+  name: "p.children",
+  loc: "test/__dom_source_names_fixtures__/bindings/code.js:20:23"
 });
 _$insert(_el$10, list, _el$15, undefined, {
-  name: "div.children"
+  name: "div.children",
+  loc: "test/__dom_source_names_fixtures__/bindings/code.js:21:5"
 });
 const holes = _el$10;
 const staticChild = _tmpl$6();
 var _el$17 = _tmpl$3();
-_$insert(_el$17, _$createComponent(Child, {}, "Child"));
+_$insert(
+  _el$17,
+  _$createComponent(Child, {}, "Child", "test/__dom_source_names_fixtures__/bindings/code.js:27:5")
+);
 const componentChild = _el$17;
 
 // Spreads → the tag rides as spread's trailing argument.
 var _el$18 = _tmpl$3();
-_$spread(_el$18, props, false, undefined, "div");
+_$spread(
+  _el$18,
+  props,
+  false,
+  undefined,
+  "div",
+  "test/__dom_source_names_fixtures__/bindings/code.js:32:21"
+);
 const spread = _el$18;
 var _el$19 = _tmpl$7();
-_$spread(_el$19, props, true, undefined, "section");
+_$spread(
+  _el$19,
+  props,
+  true,
+  undefined,
+  "section",
+  "test/__dom_source_names_fixtures__/bindings/code.js:33:37"
+);
 _$insert(_el$19, children, undefined, undefined, {
-  name: "section.children"
+  name: "section.children",
+  loc: "test/__dom_source_names_fixtures__/bindings/code.js:33:48"
 });
 const spreadWithChildren = _el$19;
 var _el$20 = _tmpl$8();
@@ -173,7 +202,8 @@ _$spread(
   ],
   false,
   undefined,
-  "a"
+  "a",
+  "test/__dom_source_names_fixtures__/bindings/code.js:34:38"
 );
 const spreadMixed = _el$20;
 
@@ -191,7 +221,8 @@ _$effect(
     _$claimElement(_el$21, _o$);
   },
   {
-    name: "a.href, a.target"
+    name: "a.href, a.target",
+    loc: "test/__dom_source_names_fixtures__/bindings/code.js:38:6"
   }
 );
 const link = _el$21;

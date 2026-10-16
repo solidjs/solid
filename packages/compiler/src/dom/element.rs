@@ -23,6 +23,10 @@ pub(crate) struct AstDomTransform<'a, 'source> {
     /// Babel's `sourceNames.bindings` on DOM output: compiled binding
     /// effects carry the target they write as a trailing options argument.
     pub(crate) binding_names: bool,
+    /// Babel's `sourceNames.locations`: the root-relative path every
+    /// location string of this module starts with; `None` when the kind is
+    /// off or the module has no filename, and then no location is emitted.
+    pub(crate) location_base: Option<String>,
     pub(crate) context_to_custom_elements: bool,
     pub(crate) delegate_events: bool,
     pub(crate) delegated_events: std::vec::Vec<String>,
@@ -100,6 +104,7 @@ pub(crate) struct DomTransformConfig {
     pub(crate) dev: bool,
     pub(crate) component_names: bool,
     pub(crate) binding_names: bool,
+    pub(crate) location_base: Option<String>,
     pub(crate) context_to_custom_elements: bool,
     pub(crate) delegate_events: bool,
     pub(crate) delegated_events: std::vec::Vec<String>,
@@ -119,6 +124,15 @@ pub(crate) struct DomTransformConfig {
 }
 
 impl<'a, 'source> AstDomTransform<'a, 'source> {
+    /// The `sourceNames.locations` string for the source position `offset`
+    /// (`src/App.tsx:12:5`), or `None` when the kind is off or the module
+    /// has no filename.
+    pub(crate) fn source_location(&self, offset: u32) -> Option<String> {
+        self.location_base
+            .as_deref()
+            .map(|base| crate::shared::location::source_location(base, self.source, offset))
+    }
+
     /// Local for the configured effect wrapper (Babel's `_$${name}` hint).
     pub(crate) fn effect_wrapper_local(&self) -> String {
         format!("_${}", self.effect_wrapper.as_deref().unwrap_or("effect"))
@@ -143,6 +157,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             dev: config.dev,
             component_names: config.component_names,
             binding_names: config.binding_names,
+            location_base: config.location_base,
             context_to_custom_elements: config.context_to_custom_elements,
             delegate_events: config.delegate_events,
             delegated_events: config.delegated_events,

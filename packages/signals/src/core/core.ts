@@ -114,7 +114,16 @@ import {
   joinPassTx,
   stagedReaders,
   staleReader,
-  laneDirty
+  laneDirty,
+  externalUntrackHook,
+  freshHook,
+  laneOutcomeHook,
+  laneReadHook,
+  laneStageHook,
+  laneSeamsHook,
+  laneWriteHook,
+  observeFlightHook,
+  wireExternalSourceHook
 } from "./scheduler.js";
 import type { Transaction } from "./scheduler.js";
 import type {
@@ -274,18 +283,22 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // derivation's pass into the lane (`read`); a leaf's never moves.
   // Restored at the end, after this pass's staging and runs have been
   // routed.
+  // Lanes exist only with the lane engine installed (`laneStageHook`): a
+  // bundle without it seats every pass on mainline, and folds the seat away.
   const prevLane = passLane;
   setPassLane(
-    (el._flags & REACTIVE_LANE_DIRTY ||
-      (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
-      el._x?._transaction?._lane
-      ? el._x._transaction
-      : // Loose `!=`: false with no creator lane (undefined == null).
-        create &&
-          prevLane?._parent!._verdict != prevLane &&
-          (creatorPass(context)?._flags as number) & REACTIVE_RECOMPUTING_DEPS
-        ? prevLane
-        : null
+    !laneStageHook
+      ? null
+      : (el._flags & REACTIVE_LANE_DIRTY ||
+            (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
+          el._x?._transaction?._lane
+        ? el._x._transaction
+        : // Loose `!=`: false with no creator lane (undefined == null).
+          create &&
+            prevLane?._parent!._verdict != prevLane &&
+            (creatorPass(context)?._flags as number) & REACTIVE_RECOMPUTING_DEPS
+          ? prevLane
+          : null
   );
   // Attribution hook: fired before this run touches the dep list — `_deps`
   // still holds the previous run's links (the subscriptions that could have
@@ -331,7 +344,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // it joins nothing, so the write that reached it commits mainline.
       if (tx._lane || el._config & CONFIG_LAGS) {
       } else if (isEffect !== EFFECT_RENDER && !(el._config & CONFIG_VERDICT))
-        joinPassTx(tx, GlobalQueue._fresh?.(el, el._statusFlags & STATUS_UNINITIALIZED));
+        joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
       else if (
         tx !== flushTransaction &&
         !(el._statusFlags & STATUS_UNINITIALIZED || el._config & CONFIG_HELD_FRAME)
@@ -536,12 +549,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // seat that read none of the lane's world has left it: its result is the
   // frame's (a derivation whose branch no longer reaches the guess). A
   // guess is written, not derived — it never leaves this way.
-  let lane = passLane;
+  let lane = !laneStageHook ? null : passLane;
   // Listed before its staging, a pending pass included (the lane's own
   // flight is the lane's); false: the pass left the lane (lanes.ts).
   const errored = !!el._x?._error || stagedErr;
-  if (lane !== null) {
-    if (GlobalQueue._laneStage!(el, lane, create, errored)) setPassLane(lane);
+  if (laneStageHook && lane !== null) {
+    if (laneStageHook(el, lane, create, errored)) setPassLane(lane);
     else lane = null;
   }
 
@@ -636,7 +649,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       !create &&
       lane === null &&
       el._config & CONFIG_GUESS &&
-      GlobalQueue._laneOutcome!(el, value, errored)
+      laneOutcomeHook!(el, value, errored)
     ) {
       // The truth, staged under the lane's parent.
     } else if (errored) {
@@ -709,7 +722,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           // #3851): the mount is part of the hold, and the boundary appears
           // at its commit, its fallback never seen (D-13, U-3) — a `<Show>`
           // mounting it over a landing included.
-          GlobalQueue._fresh?.(el, !prevLane && flushTransaction);
+          freshHook?.(el, !prevLane && flushTransaction);
         }
         if (__DEV__) devTrackHeldPending(el);
       }
@@ -760,7 +773,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     el._statusFlags & STATUS_PENDING
   ) {
     const t = flushTransaction ?? passTx;
-    if (t && !t._lane && GlobalQueue._fresh?.(el) !== CAUGHT_REARMED) holdNode(el, t);
+    if (t && !t._lane && freshHook?.(el) !== CAUGHT_REARMED) holdNode(el, t);
   }
   // Dependencies are the committed frame's until it is replaced (A30, #3410):
   // a pass that staged its value leaves the previous pass's tail linked for
@@ -884,12 +897,12 @@ export function computed<T>(
   const loading = options !== null && typeof options === "object" && "loadingValue" in options;
   // Two literals, one per tier, selected at build time (the observe flag is
   // a literal after replacement; the untaken branch is dead code). The observe
-  // literal is the prod literal plus its `_name` slot — a slot in the
-  // boilerplate, because a post-construction `self._name = …` forces a
+  // literal is the prod literal plus its `_name` and `_loc` slots — slots in
+  // the boilerplate, because a post-construction `self._name = …` forces a
   // hidden-class transition and an out-of-object property store on EVERY node
   // (measured: the whole of the observe tier's creation overhead). Keep the
   // two in sync — the dist artifact test pins observe's key set to prod's
-  // plus `_name`.
+  // plus the slots.
   const self: Computed<T> = __OBSERVE__
     ? ({
         id: inheritId(options, transparent, context),
@@ -932,6 +945,7 @@ export function computed<T>(
         // The slot is always present (hidden class); plumbing leaves it
         // unset, which `ownerPath` skips.
         _name: options?._plumbing ? undefined : (options?.name ?? "computed"),
+        _loc: options?.loc,
         // Observe: the verdict windows this pass entered (verdict.ts) — a
         // slot, so the stamp is never a write after construction.
         _devWindows: 0
@@ -1033,7 +1047,7 @@ export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): voi
   )
     joinPassTx(
       txOf(el),
-      (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || GlobalQueue._fresh?.(c)
+      (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || freshHook?.(c)
     );
 }
 
@@ -1072,9 +1086,11 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // read the screen. Lane work with no committed value yet reads a flight
   // as a mount's memo does: it enters, and the boundary it mounts catches
   // the pending (#3540).
-  const verdict = c._config & CONFIG_VERDICT;
+  // (Verdict readers and lanes exist only with their engines installed.)
+  const verdict = observeFlightHook && c._config & CONFIG_VERDICT;
+  const lane = laneStageHook && passLane !== null;
   if (
-    (passLane === null ||
+    (!lane ||
       (c._statusFlags & STATUS_UNINITIALIZED &&
         (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
     !verdict &&
@@ -1085,7 +1101,7 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // Lane work and verdict readers are never the transaction's pass, whichever
   // flush runs it: a node T holds re-enters T when it re-runs (`recompute`'s
   // head), and the pass may then read a guess and become the lane's.
-  if ((t === flushTransaction && passLane === null && !verdict) || bornInto(c, t)) return false;
+  if ((t === flushTransaction && !lane && !verdict) || bornInto(c, t)) return false;
   staleReader(c, t);
   return true;
 }
@@ -1185,6 +1201,7 @@ export function createEffectNode<T>(
         _type: type,
         _x: null,
         _name: options?.name ?? "effect",
+        _loc: options?.loc,
         _devWindows: 0
       } as any)
     : ({
@@ -1284,7 +1301,7 @@ function setupComputedNode<T>(self: Computed<T>, options: NodeOptions<T> | undef
   if (context) linkChild(context, self);
   if (__DEV__) DEV.hooks.onOwner?.(self);
   if (parent) self._height = parent._height + 1;
-  GlobalQueue._wireExternalSource?.(self);
+  wireExternalSourceHook?.(self);
   !options?.lazy && recompute(self, true);
   if (snapshotCaptureActive && !options?.lazy) {
     if (!(self._statusFlags & STATUS_PENDING) && !(self._config & CONFIG_NO_SNAPSHOT)) {
@@ -1297,7 +1314,7 @@ function setupComputedNode<T>(self: Computed<T>, options: NodeOptions<T> | undef
 
 export function signal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
   // Prod and observe boilerplates — see computed(). The observe literal adds
-  // `_name` and `_owner` (the creating owner, stamped by registerGraph for
+  // `_name`, `_loc` and `_owner` (the creating owner, stamped by registerGraph for
   // createSignal nodes so ownerPath can locate signal subjects; null here,
   // and staying null on internal signals — one shape either way).
   const s = __OBSERVE__
@@ -1314,6 +1331,7 @@ export function signal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
         _notifiedAt: -1,
         _x: null,
         _name: options?.name ?? "signal",
+        _loc: options?.loc,
         _owner: null as Owner | null
       }
     : {
@@ -1357,7 +1375,8 @@ export function isEqual<T>(a: T, b: T): boolean {
  * object, no NodeExtension, no post-construction expandos. `ownedWrite` is
  * baked in: the setter carries the owned-scope guard; node-level writes are
  * the store's notification machinery. The observe literal adds the label
- * slot (the store relabels it `store.<key>` when the engine is installed). */
+ * and location slots (the store relabels `store.<key>` and stamps the
+ * store's `loc` when the engine is installed). */
 export function slotSignal<T>(
   v: T,
   equals: (a: T, b: T) => boolean,
@@ -1382,6 +1401,7 @@ export function slotSignal<T>(
         px: undefined,
         pxv: undefined,
         _name: "signal",
+        _loc: undefined as string | undefined,
         _owner: null as Owner | null
       }
     : {
@@ -1480,12 +1500,6 @@ export function setStrictRead(v: string | false): string | false {
  * ```
  */
 export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
-  if (
-    GlobalQueue._externalUntrack === null &&
-    !tracking &&
-    (!__DEV__ || (!strictRead && !strictReadLabel && asyncTailFlights === 0))
-  )
-    return fn();
   const prevTracking = tracking;
   const prevStrictRead = strictRead;
   tracking = false;
@@ -1494,7 +1508,7 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
     untrackDepth++;
   }
   try {
-    if (GlobalQueue._externalUntrack) return GlobalQueue._externalUntrack(fn);
+    if (externalUntrackHook) return externalUntrackHook(fn);
     return fn();
   } finally {
     tracking = prevTracking;
@@ -1728,7 +1742,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (!c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN)
       return el._value as T;
     // (A plain signal is never uninitialized — the carve-out is `serve`'s.)
-    if (c._config & CONFIG_VERDICT && stagedScreen(c as Computed<any>)) return el._value as T;
+    if (observeFlightHook && c._config & CONFIG_VERDICT && stagedScreen(c as Computed<any>))
+      return el._value as T;
     stagedRead(c as Computed<any>);
     return el._pendingValue as T;
   }
@@ -1772,8 +1787,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   }
   // Lanes: a lane's node (after the pull — the node is current). NOT_PENDING
   // falls through: lane work's read of a pending member throws like any.
-  if (el._config & CONFIG_OVERRIDE) {
-    const v = GlobalQueue._laneRead!(c as Computed<any> | null, el);
+  // (CONFIG_OVERRIDE is the lane engine's: no engine, no lane's node.)
+  if (laneReadHook && el._config & CONFIG_OVERRIDE) {
+    const v = laneReadHook(c as Computed<any> | null, el);
     if (v !== NOT_PENDING) return v as T;
   }
 
@@ -1799,10 +1815,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   ) {
     // A reader with no committed value yet sees the flight pending: a
     // boundary a lane mounts shows its fallback (A29's boundary exemption).
-    if (passLane !== null && !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED))
+    // (A lane, and a verdict reader, exist only with their engines installed.)
+    if (
+      laneStageHook &&
+      passLane !== null &&
+      !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED)
+    )
       committed = true;
-    else if (c !== null && c._config & CONFIG_VERDICT)
-      committed = GlobalQueue._observeFlight!(c as Computed<any>, owner);
+    else if (observeFlightHook && c !== null && c._config & CONFIG_VERDICT)
+      committed = observeFlightHook(c as Computed<any>, owner);
   }
   if (owner._statusFlags & STATUS_PENDING && !committed) {
     // A reader landing on a pending node throws; an untracked read of an
@@ -1925,6 +1946,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   }
   if (readerSeesCommitted(el, c)) return el._value;
   if (
+    observeFlightHook &&
     c!._config & CONFIG_VERDICT &&
     !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
     stagedScreen(c!)
@@ -1951,7 +1973,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
 export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): void {
   if (!((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)) {
     c._flags |= REACTIVE_STAGED_READ;
-    if (passLane !== null) stagedReaders.push(c);
+    if (laneSeamsHook && passLane !== null) stagedReaders.push(c);
   }
 }
 
@@ -2033,7 +2055,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // Lanes: a write landing on a guess is its truth (A18 — an async guess's
   // own landing), judged against the guess; one landing on a lane's
   // derivation (its flight) is the lane's staging (lanes.ts).
-  if (el._config & CONFIG_OVERRIDE) return GlobalQueue._laneWrite!(el, v);
+  if (laneWriteHook && el._config & CONFIG_OVERRIDE) return laneWriteHook(el, v);
   // L2 (T4) / A34 (1): a write to a node whose staged state is held is a
   // second proposal for the slot — the same value again or another — and
   // the two cannot finish at different times: the writer's tick joins the

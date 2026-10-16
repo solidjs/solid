@@ -1,6 +1,6 @@
 import { read, setSignal, signal } from "./core.js";
 import { cleanup } from "./owner.js";
-import { GlobalQueue } from "./scheduler.js";
+import { setExternalHooks } from "./scheduler.js";
 import type { Computed } from "./types.js";
 
 export type ExternalSourceFactory = (fn: (prev: any) => any, trigger: () => void) => ExternalSource;
@@ -51,7 +51,7 @@ export let externalSourceConfig: {
  * ```
  */
 // Wires a freshly created computed through the active external-source bridge.
-// Lives here (installed on GlobalQueue while a config is active) rather than
+// Lives here (installed as a scheduler hook while a config is active) rather than
 // inline in core: esbuild cannot literal-track the mutable config binding the
 // way rollup does, so an inline `if (externalSourceConfig)` block ships in
 // every bundle even though only enableExternalSource() can make it reachable.
@@ -75,8 +75,8 @@ function externalUntrack<T>(fn: () => T): T {
 // removed on reset) so core's presence checks stay equivalent to the old
 // `externalSourceConfig` truthiness checks.
 function syncExternalHooks(): void {
-  GlobalQueue._wireExternalSource = externalSourceConfig ? wireExternalSource : undefined;
-  GlobalQueue._externalUntrack = externalSourceConfig ? externalUntrack : undefined;
+  if (externalSourceConfig) setExternalHooks(wireExternalSource, externalUntrack);
+  else setExternalHooks(undefined, undefined);
 }
 
 export function enableExternalSource(config: ExternalSourceConfig): void {

@@ -4,7 +4,7 @@
  * boundary-scope ruling).
  *
  * A first pass that reads a hold asks the boundaries up its chain
- * (`GlobalQueue._fresh`, the real `catchStatus` walk); when a loading
+ * (`freshHook`, the real `catchStatus` walk); when a loading
  * boundary that has not shown content catches it, the pass is the
  * boundary's, not the tick's: the boundary shows its fallback, the mount
  * publishes, and the content appears at the hold's commit. Outside such a

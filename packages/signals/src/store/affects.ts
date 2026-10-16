@@ -23,7 +23,7 @@
  * (`_storeNode`, `_storeWrappable`), and node birth and the untracked traps
  * reach back through `affectsHooks` (hooks.ts).
  */
-import { GlobalQueue } from "../core/scheduler.js";
+import { GlobalQueue, releaseMarksHook } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import { installAffectsHooks, optHooks, type AffectsHooks } from "./hooks.js";
 import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
@@ -157,5 +157,5 @@ export function releaseMarkScope(carrier: Marked): void {
   const entry = scopes.get(carrier);
   if (entry === undefined) return;
   scopes.delete(carrier);
-  GlobalQueue._releaseMarks!(entry._inherited);
+  releaseMarksHook!(entry._inherited);
 }

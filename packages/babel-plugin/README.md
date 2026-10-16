@@ -129,15 +129,23 @@ Development output. With `hydratable`, emits the hydration walk validation helpe
 
 ### sourceNames
 
-- Type: `boolean | { components?: boolean; bindings?: boolean }`
+- Type: `boolean | { components?: boolean; bindings?: boolean; locations?: boolean }`
 - Default: follows `dev` — every kind on when `dev: true`, off otherwise
 
 Names as written in source, carried into the output so the dev and observe runtimes can label the reactive graph — in diagnostic `ownerPath`s, attribution chains, and the Performance panel tracks — even after a minifier renames everything. Unset, the option follows `dev`; `true`/`false` sets every kind (`sourceNames: false` opts a dev build out); the object form picks, and each kind it leaves unspecified follows `dev`. The production runtimes ignore the names, and production output (`dev: false`) is byte-identical whether the option is set or not. `@solidjs/compiler`'s `transform()` takes the same option with the same shape and defaults.
 
 - `components`: emit the tag as written as a third `createComponent` argument — `<Home />` compiles to `createComponent(Home, props, "Home")`, `<Ui.Button />` to `"Ui.Button"` — so each component's owner reads `<Home>` even when a `lazy()`/HMR wrapper hides the function. Applies to DOM and SSR output; for SSR the compiler keeps the `createComponent` call it otherwise inlines to `Comp(props)`, so the server runtime labels the owner the same way (prod SSR output, without the option, is unchanged). Universal and dynamic output are unaffected.
 - `bindings`: every compiled binding effect is named by what it writes, as a trailing options argument the dev and observe runtimes read and production ignores. An attribute effect gets `<tag>.<attribute>` as written — `<span textContent={label()} />` compiles to `effect(() => label(), v => …, { name: "span.textContent" })`, `class:active` to `div.class:active`, a `style={{ color: c() }}` property to `div.style:color` — and a template's merged effect lists all of its bindings (`"button.class, span.textContent"`). A hole's insert is named for the parent it fills: `<div>{count()}</div>` compiles to `insert(el, count, undefined, undefined, { name: "div.children" })`; a static child (a component call, a literal) creates no effect and gets no name. A spread passes the tag as its trailing argument (`spread(el, props, false, undefined, "div")`), and the runtime labels its attribute effect `div.spread` and its children insert `div.children`. DOM output only.
+- `locations`: where the JSX is written, beside each label the other two kinds emit, as `file:line:col` — the module path relative to [`root`](#root) with `/` separators, line and column 1-based (the stack-trace convention, so a dev server links `http://localhost:5173/src/App.tsx:18:3` to the right place). A component call gets it as a fourth argument: `<Home />` compiles to `createComponent(Home, props, "Home", "src/App.tsx:12:5")`, the location of `<Home`. A binding gets `loc` after `name` in its options: an attribute effect points at the attribute (`{ name: "div.class", loc: "src/App.tsx:14:7" }`; a merged effect at the first attribute it lists; a property split out of a `style={{…}}` / `class={{…}}` object at that object attribute), a hole's insert at its `{`, and a spread passes it after the tag (`spread(el, props, false, undefined, "div", "src/App.tsx:20:12")`), the first spread attribute's start. A location is only emitted where its label is, and only when Babel knows the module's `filename` (a file outside `root` gets a `../` path). The dev and observe runtimes print it in diagnostic reports; production ignores it.
 
 These are the JSX-level kinds — what a JSX compiler can see. Naming the primitives themselves (`createSignal(0, { name: "count" })`, `createCounter.value` inside a composed primitive) is not a JSX-transform feature and this plugin does not do it: it is `@solidjs/compiler`'s standalone `transformSourceNames` pass, which the build tool runs on every module — `.ts`, `.js`, and JSX files alike — independently of which JSX compiler handles the file. `@solidjs/vite-plugin` (its `solid: { sourceNames }` option, solid-vite-plugin #371) wires both: the JSX-level kinds through this option and primitive names through the standalone pass, for its dev and `observe` postures.
+
+### root
+
+- Type: `string`
+- Default: the working directory (Babel's `cwd`)
+
+Project root that `sourceNames.locations` makes the module path relative to — the build tool passes its project root so the location is a dev-server path. A relative `root` is resolved against the working directory.
 
 ### delegateEvents
 

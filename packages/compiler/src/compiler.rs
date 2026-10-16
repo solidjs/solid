@@ -73,6 +73,13 @@ pub struct SourceNames {
     /// spread `div.spread` — through an options argument on
     /// `effect`/`insert`/`spread`. DOM output only.
     pub bindings: bool,
+    /// The source position beside each name the other kinds emit —
+    /// `createComponent`'s fourth argument, `loc` after `name` in a
+    /// binding's options — as `<path>:<line>:<column>` with the path
+    /// relative to [`CompileOptions::root`] and the column 1-based. Only
+    /// where the name is emitted, and only when [`CompileOptions::filename`]
+    /// is set.
+    pub locations: bool,
 }
 
 impl SourceNames {
@@ -81,6 +88,7 @@ impl SourceNames {
         Self {
             components: enabled,
             bindings: enabled,
+            locations: enabled,
         }
     }
 }
@@ -109,6 +117,9 @@ pub(crate) fn default_built_ins() -> Vec<String> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompileOptions {
     pub filename: Option<String>,
+    /// Project root `sourceNames.locations` paths are made relative to; the
+    /// working directory when unset.
+    pub root: Option<String>,
     /// Source syntax routing (Babel's `syntax`): `Auto` sends `.tsrx`
     /// filenames through the TSRX frontend (requires the `tsrx` feature).
     pub syntax: Syntax,
@@ -150,6 +161,7 @@ impl Default for CompileOptions {
     fn default() -> Self {
         Self {
             filename: None,
+            root: None,
             syntax: Syntax::default(),
             module_name: DEFAULT_MODULE_NAME.into(),
             generate: Generate::Dom,
@@ -343,6 +355,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
                 options.server_components,
                 options.wrap_conditionals,
                 options.source_names.components,
+                location_base(options),
                 wrapper_name(&options.memo_wrapper, "memo"),
                 options.static_marker.clone(),
                 options.built_ins.clone(),
@@ -451,12 +464,21 @@ fn source_type_for_filename(filename: Option<&str>) -> Result<SourceType, Compil
         .map_or_else(|| Ok(SourceType::tsx()), Ok)
 }
 
+/// The path the `sourceNames.locations` strings of this module start with,
+/// or `None` when the kind is off or there is no filename to locate in.
+fn location_base(options: &CompileOptions) -> Option<String> {
+    options.source_names.locations.then(|| {
+        crate::shared::location::location_base(options.root.as_deref(), options.filename.as_deref())
+    })?
+}
+
 fn dom_transform_config(options: &CompileOptions, built_ins: Vec<String>) -> DomTransformConfig {
     DomTransformConfig {
         hydratable: options.hydratable,
         dev: options.dev,
         component_names: options.source_names.components,
         binding_names: options.source_names.bindings,
+        location_base: location_base(options),
         context_to_custom_elements: options.context_to_custom_elements,
         delegate_events: options.delegate_events,
         delegated_events: options.delegated_events.clone(),

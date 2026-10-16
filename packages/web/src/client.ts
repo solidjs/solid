@@ -35,7 +35,7 @@ import {
   SOURCE_PROXY,
   SOURCE_MEMO
 } from "solid-js/internal";
-import { effect, memo, setSpreadName, spreadName, tagElement } from "./render.js";
+import { effect, memo, setSpreadName, spreadLoc, spreadName, tagElement } from "./render.js";
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -1101,14 +1101,16 @@ export function spread(
   sources: unknown[],
   skipChildren?: Boolean,
   skip?: (key: string) => boolean,
-  name?: string
+  name?: string,
+  loc?: string
 ): void;
 export function spread<T>(
   node: Element,
   accessor: T,
   skipChildren?: Boolean,
   skip?: (key: string) => boolean,
-  name?: string
+  name?: string,
+  loc?: string
 ): void;
 
 // At most TWO reactive nodes per element (#3388) — one when nothing flows
@@ -1150,15 +1152,17 @@ export function spread<T>(
 // and the children insert `<tag>.children`, like a compiled hole's. Dev and
 // observe runtimes carry the labels — through `spreadName` (render.ts),
 // which `effect` and `insert` read while this body runs, so no call site
-// below changes shape and production is byte-identical without them.
-export function spread(node, props, skipChildren, skip, name) {
+// below changes shape and production is byte-identical without them. `loc`
+// (the `locations` kind, one more trailing argument) rides the same way.
+export function spread(node, props, skipChildren, skip, name, loc) {
   if ("_SOLID_OBSERVE_" && name !== undefined) {
     const outer = spreadName;
-    setSpreadName(name);
+    const outerLoc = spreadLoc;
+    setSpreadName(name, loc);
     try {
       return spread(node, props, skipChildren, skip);
     } finally {
-      setSpreadName(outer);
+      setSpreadName(outer, outerLoc);
     }
   }
   const prevProps = {};
@@ -1429,6 +1433,9 @@ function checkUnscopedHole(snapshot, accessor, parent) {
 // the guards away entirely in CSR bundles; esbuild keeps the ~30-byte residue
 // but drops these bodies once nothing else references them.
 let hydrationRt = null;
+// The `<select value>` reapply hook (`writeSelectValue`, below); declared
+// ahead of its readers so a bundle with no select binding folds the guard.
+let selectInsert = null;
 export function installHydrationRuntime() {
   hydrationRt = {
     // insert(): claim the parent's childNodes as the initial current on
@@ -1565,6 +1572,13 @@ export function insert<T>(
      * observe runtimes carry it on the node; production ignores it.
      */
     name?: string;
+    /**
+     * Source location of the hole (`src/App.tsx:14:7`, root-relative
+     * `file:line:col`) — the compiler's `sourceNames` `locations` kind. Dev
+     * and observe runtimes carry it on the node for console reports and
+     * diagnostic events; production ignores it.
+     */
+    loc?: string;
   }
 ): JSX.Element;
 
@@ -1576,7 +1590,7 @@ export function insert(parent, accessor, marker, initial, options) {
     spreadName !== undefined &&
     (options === undefined || options.name === undefined)
   )
-    options = { ...options, name: spreadName + ".children" };
+    options = { ...options, name: spreadName + ".children", loc: spreadLoc };
   const multi = marker !== undefined;
   const host = options && options.host;
   if (multi && !initial) initial = [];
@@ -2903,24 +2917,24 @@ function eventHandler(e, container, state) {
     if (prev === true || prev === container || !container.contains(prev)) return;
     resumeNode = prev;
   }
+  // Every dispatch carries its container's state (`attachDelegatedEvent`,
+  // hydration's replay), so a dispatch always has an owner — or stops here.
   const owner =
-    state &&
-    (state.owners.size === 1 && state.owners.has(container)
+    state.owners.size === 1 && state.owners.has(container)
       ? container
-      : findOwner(e.target, state)?.owner);
-  if (state && !owner) return;
+      : findOwner(e.target, state)?.owner;
+  if (!owner) return;
   // Same owner as the walk that already completed: nothing remains. This is a
   // portal container sharing its app root's ownership (registerDelegatedContainer
   // with the root as owner) seeing an event from inside the root — the resume
   // path below assumes the boundary is an ancestor of the resume point, which
   // only holds for nested roots, and climbing past #document crashes (#3008).
-  if (owner && owner === resumeNode) return;
-  e[$$EVENT_OWNER] = owner || true;
+  if (owner === resumeNode) return;
+  e[$$EVENT_OWNER] = owner;
 
   let node = resumeNode || e.target;
   const key = EVENT_KEY + e.type;
   const oriTarget = e.target;
-  const boundary = owner || container || e.currentTarget;
   const retarget = value =>
     Object.defineProperty(e, "target", {
       configurable: true,
@@ -2946,16 +2960,16 @@ function eventHandler(e, container, state) {
   };
   const walkUpTree = () => {
     while (node && handleNode()) {
-      if (node === boundary || node.parentNode === boundary) break;
+      if (node === owner || node.parentNode === owner) break;
       node = node._$host || node.parentNode || node.host;
     }
   };
 
-  // simulate currentTarget
+  // simulate currentTarget; the owner is the boundary of the walk
   Object.defineProperty(e, "currentTarget", {
     configurable: true,
     get() {
-      return node || boundary || document;
+      return node || owner;
     }
   });
   if (resumeNode) {
@@ -2963,7 +2977,7 @@ function eventHandler(e, container, state) {
     // Resume above it so boundary handlers do not run twice.
     if (resumeNode === e.target)
       node = resumeNode._$host || resumeNode.parentNode || resumeNode.host;
-    if (node && node !== boundary) walkUpTree();
+    if (node && node !== owner) walkUpTree();
   } else if (e.composedPath) {
     const path = e.composedPath();
     if (path.length) {
@@ -2977,7 +2991,7 @@ function eventHandler(e, container, state) {
           walkUpTree();
           break;
         }
-        if (node === boundary || node.parentNode === boundary) {
+        if (node === owner || node.parentNode === owner) {
           break; // don't bubble above root of event delegation
         }
       }
@@ -3137,7 +3151,6 @@ function insertExpression(parent, value, current, marker) {
 // cannot restore a selection the user changed. The microtask covers
 // `<option value={expr}>`, assigned later in the same turn with no insert.
 // Nullish values still go through the historical `.value` write.
-let selectInsert;
 function selectChange(e) {
   (e = e.currentTarget || e)._$v = null;
   e.removeEventListener("change", selectChange, true);
@@ -3184,7 +3197,9 @@ function normalize(value, current, multi, doNotUnwrap) {
   // never rendered it (#3163) — is a client render, and adopting its empty
   // placeholder here would swallow the primitive so the initial fill never
   // lands.
-  if (sharedConfig.hydrating && Array.isArray(value)) {
+  // Only hydrate() raises `hydrating`, and it installs the runtime first: the
+  // guard folds away in client-only bundles with the claim it gates.
+  if (hydrationRt !== null && sharedConfig.hydrating && Array.isArray(value)) {
     for (let i = 0, len = value.length; i < len; i++) {
       const item = value[i],
         prev = current && current[i],

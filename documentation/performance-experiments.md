@@ -8456,11 +8456,14 @@ op class moved 20–40%; the suite geomeans dilute it over 96 ops of which 32
 are the target; the board dilutes it again over 16 suites that never make a
 structural list edit.
 
-Decision: candidate 4 goes to the PR (`perf/map-array-inplace-commit` in
-`~/Development/solid-next-bench`): +635–654 B minified, +234–327 B brotli
-per list-bearing scenario; eleven inline caps raised and three frozen
-floors re-based with dated ledger lines (`Size-Exception` in the PR body),
-from local bytes — CI's measurement re-bases them if it differs. Candidate
+Decision: candidate 4 goes to the PR (#4114, `perf/map-array-inplace-commit`
+in `~/Development/solid-next-bench`): +635–654 B minified per list-bearing
+scenario; brotli +165–544 B against the caps `next` carries after #4104's
+ratchet (brotli's layout noise is most of that spread). Eight inline caps
+raised and three frozen floors re-based with dated ledger lines
+(`Size-Exception` in the PR body), from local bytes on the merged tree —
+CI's measurement re-bases them if it differs; the two router pages sit
+under their caps and are untouched. Candidate
 1's patch stays on file for the record; candidate 3 is candidate 4 minus
 `stageRemoval` and the length-first lines.
 

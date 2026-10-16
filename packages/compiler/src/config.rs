@@ -21,12 +21,21 @@ pub struct SourceNamesOption {
     /// Binding effect labels: the element and attribute (or hole) each
     /// compiled effect writes.
     pub bindings: Option<bool>,
+    /// Source locations (`file:line:col`, relative to `root`) beside each
+    /// emitted name: `createComponent`'s fourth argument, `loc` after
+    /// `name` in a binding's options. Only where the name is emitted, and
+    /// only with a `filename`.
+    pub locations: Option<bool>,
 }
 
 #[napi(object)]
 #[derive(Default)]
 pub struct TransformOptions {
     pub filename: Option<String>,
+    /// Project root the `sourceNames.locations` paths are made relative to.
+    /// Defaults to the working directory, like `transformDirectives`'s
+    /// `root`.
+    pub root: Option<String>,
     /// Source syntax routing, matching `@solidjs/babel-plugin`'s `syntax`:
     /// `"auto"` (default) compiles `.tsrx` filenames with the TSRX frontend,
     /// `"jsx"` never does, `"tsrx"` forces TSRX for every file.
@@ -46,7 +55,11 @@ pub struct TransformOptions {
     /// `bindings` names every compiled binding effect by what it writes
     /// (`span.textContent`, `div.class:active`, a hole `div.children`, a
     /// spread `div.spread`) through an options argument on
-    /// `effect`/`insert`/`spread`; DOM output only. The production runtimes
+    /// `effect`/`insert`/`spread`; DOM output only. `locations` adds the
+    /// source position (`src/App.tsx:12:5`, `filename` relative to `root`)
+    /// beside each emitted name — a fourth `createComponent` argument, `loc`
+    /// after `name` in a binding's options — so a console report can point
+    /// at the line; nothing without a `filename`. The production runtimes
     /// ignore the names. Defaults to `dev`: unset, every kind is on in dev
     /// and off otherwise; `true`/`false` sets every kind; the object form
     /// picks, and each kind it leaves unspecified follows `dev`. Primitive

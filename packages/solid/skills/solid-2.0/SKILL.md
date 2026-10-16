@@ -84,7 +84,9 @@ Also:
 - Full reference: `node_modules/solid-js/CHEATSHEET.md`; the same text is
   the `solid-2.0-cheatsheet` skill in `node_modules/solid-js/skills/`.
 - Diagnostics: dev builds print `[CODE] message` plus an `in <App> › …`
-  owner line. The first report of each code ends with a footer naming
+  owner line and, when the build wrote source locations, an
+  `at src/App.tsx:18:3` line. The first report of each code ends with a
+  footer: the code's docs page, then
   `node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md`, one section
   per code (`STRICT_READ_UNTRACKED`, `REACTIVE_WRITE_IN_OWNED_SCOPE`,
   `LOADING_ON_OUTSIDE_HOLD`, …). Fix the cause; never suppress a code.

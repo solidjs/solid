@@ -7,7 +7,7 @@ import { Show as _$Show } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<span>`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<div><!><!><!><!><!><!><!>`);
 import { Child, Ui, Row } from "./components";
-const Component = () => _$createComponent(Child, { name: "John" }, "Child");
+const Component = () => _$createComponent(Child, { name: "John" }, "Child", "components.jsx:3:25");
 var _el$ = _tmpl$2();
 var _el$3 = _el$.firstChild;
 var _el$4 = _el$3.nextSibling;
@@ -18,36 +18,39 @@ var _el$8 = _el$7.nextSibling;
 var _el$9 = _el$8.nextSibling;
 _$insert(_el$, _$createComponent(Child, _$mergeProps({ name: "Jane" }, props, { get children() {
 	var _el$2 = _tmpl$();
-	_$insert(_el$2, name, undefined, undefined, { name: "span.children" });
+	_$insert(_el$2, name, undefined, undefined, {
+		name: "span.children",
+		loc: "components.jsx:8:13"
+	});
 	return _el$2;
-} }), "Child"), _el$3);
-_$insert(_el$, _$createComponent(Ui.Button, { variant: "primary" }, "Ui.Button"), _el$4);
+} }), "Child", "components.jsx:7:5"), _el$3);
+_$insert(_el$, _$createComponent(Ui.Button, { variant: "primary" }, "Ui.Button", "components.jsx:10:5"), _el$4);
 _$insert(_el$, _$createComponent(Ui.Layout.Grid, {
 	cols: 2,
 	children: "text"
-}, "Ui.Layout.Grid"), _el$5);
+}, "Ui.Layout.Grid", "components.jsx:11:5"), _el$5);
 _$insert(_el$, _$createComponent(_$For, {
 	get each() {
 		return list();
 	},
-	children: (item) => _$createComponent(Row, { item }, "Row")
-}, "For"), _el$6);
+	children: (item) => _$createComponent(Row, { item }, "Row", "components.jsx:12:33")
+}, "For", "components.jsx:12:5"), _el$6);
 _$insert(_el$, _$createComponent(_$Show, {
 	get when() {
 		return visible();
 	},
 	get children() {
-		return _$createComponent(Child, {}, "Child");
+		return _$createComponent(Child, {}, "Child", "components.jsx:14:7");
 	}
-}, "Show"), _el$7);
-_$insert(_el$, _$createComponent(_self$.Row, {}, "this.Row"), _el$8);
-_$insert(_el$, _$createComponent(Comp, { children: () => _$createComponent(Child, {}, "Child") }, "Comp"), _el$9);
+}, "Show", "components.jsx:13:5"), _el$7);
+_$insert(_el$, _$createComponent(_self$.Row, {}, "this.Row", "components.jsx:16:5"), _el$8);
+_$insert(_el$, _$createComponent(Comp, { children: () => _$createComponent(Child, {}, "Child", "components.jsx:17:18") }, "Comp", "components.jsx:17:5"), _el$9);
 const template = (() => {
 	const _self$ = this;
 	return _el$;
 })();
 class Container {
 	render() {
-		return _$createComponent(this.Row, {}, "this.Row");
+		return _$createComponent(this.Row, {}, "this.Row", "components.jsx:23:12");
 	}
 }

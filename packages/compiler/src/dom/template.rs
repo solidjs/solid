@@ -90,6 +90,14 @@ impl TemplateHtml {
     }
 }
 
+/// What `sourceNames.bindings` writes into an `effect`/`insert` options
+/// argument: the `name` (what the effect writes), and under
+/// `sourceNames.locations` the `loc` of the binding in source.
+pub(crate) struct BindingLabel {
+    pub(crate) name: String,
+    pub(crate) loc: Option<String>,
+}
+
 pub(crate) struct InsertMarker<'a> {
     pub(crate) marker: Expression<'a>,
     pub(crate) initial: Option<Expression<'a>>,
@@ -334,7 +342,7 @@ impl<'a> AstDomTransform<'a, '_> {
         AstBuilder::new(self.allocator)
     }
 
-    /// `_$insert(parent, value[, marker[, initial]])`. `name` is the
+    /// `_$insert(parent, value[, marker[, initial]])`. `label` is the
     /// `sourceNames.bindings` label for the hole's render effect
     /// (`<tag>.children`), appended as insert's trailing options argument
     /// with the marker and initial slots filled by `undefined` when the call
@@ -345,7 +353,7 @@ impl<'a> AstDomTransform<'a, '_> {
         parent: &str,
         value: Expression<'a>,
         marker: Option<InsertMarker<'a>>,
-        name: Option<String>,
+        label: Option<BindingLabel>,
     ) -> Statement<'a> {
         let mut args = vec![self.identifier_expression(span, parent), value];
         if let Some(marker) = marker {
@@ -354,11 +362,11 @@ impl<'a> AstDomTransform<'a, '_> {
                 args.push(initial);
             }
         }
-        if let Some(name) = name {
+        if let Some(label) = label {
             while args.len() < 4 {
                 args.push(self.identifier_expression(span, "undefined"));
             }
-            args.push(self.name_options_object(span, &name));
+            args.push(self.name_options_object(span, &label));
         }
         self.ast()
             .statement_expression(span, self.call_identifier(span, "_$insert", args))
@@ -366,9 +374,19 @@ impl<'a> AstDomTransform<'a, '_> {
 
     /// The `sourceNames.bindings` label for a hole under `parent_tag`, or
     /// `None` when the option is off or the hole inserts a static value (a
-    /// component call, a literal) that creates no effect to name.
-    pub(crate) fn hole_name(&self, parent_tag: &str, accessor: bool) -> Option<String> {
-        (self.binding_names && accessor).then(|| format!("{parent_tag}.children"))
+    /// component call, a literal) that creates no effect to name. `offset`
+    /// is the hole's start in source (its `{`), the `loc` under
+    /// `sourceNames.locations`.
+    pub(crate) fn hole_name(
+        &self,
+        parent_tag: &str,
+        accessor: bool,
+        offset: u32,
+    ) -> Option<BindingLabel> {
+        (self.binding_names && accessor).then(|| BindingLabel {
+            name: format!("{parent_tag}.children"),
+            loc: self.source_location(offset),
+        })
     }
 
     pub(crate) fn object_property(
