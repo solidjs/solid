@@ -3787,7 +3787,10 @@ export function createErrorBoundary<T, U>(
       const value = runWithOwner(createOwner(), fn);
       resolveId = idOwner.id != null ? nextChildIdFor(idOwner, true) : undefined;
       resolveCount = 0;
-      resolved = resolveIn(() => ctx!.resolve(value));
+      // The boundary is an insertion root: its content never passes a
+      // compiled `escape` hole, so escape here, as the Loading boundary does
+      // (#4116).
+      resolved = resolveIn(() => ctx!.resolve(ctx!.escape(value)));
     }
     pending = resolved?.p?.length ? resolved : undefined;
     if (pending) {
