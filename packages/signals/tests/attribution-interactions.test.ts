@@ -504,7 +504,13 @@ describe("a handler that returns a promise", () => {
       await wait(20);
     });
     await until(() => interactionLog().length === 1, "the record to settle");
-    expect(interactionLog()[0].continuationMs).toBeGreaterThanOrEqual(15);
+    // The 20 ms timer starts inside the handler, before it returns, and
+    // `continuationMs` counts from the return: a slow return (coverage
+    // instrumentation on a loaded runner) shortens it. Measured from the
+    // frame's open, the record waited the whole timer.
+    const record = interactionLog()[0];
+    expect(record.continuationMs).toBeGreaterThan(0);
+    expect(record.handlerMs + record.continuationMs!).toBeGreaterThanOrEqual(15);
     expect(findings).toHaveLength(0);
   });
 });

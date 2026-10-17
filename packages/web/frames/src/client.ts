@@ -68,6 +68,7 @@ import {
   setReadWatch,
   setSignalIdentities,
   setWriteHook,
+  signalName,
   sharedConfig
 } from "solid-js/internal";
 
@@ -1685,8 +1686,9 @@ function edgesCover(idx: EdgeIndex): boolean {
   }
   return true;
 }
-function mountForWrite(sid?: string) {
+function mountForWrite(node?: object) {
   if (mounting || (sharedConfig as any).hydrating) return;
+  const sid = signalName(node);
   if (sid === undefined || document.readyState === "loading") return mountAllDeferred();
   const idx = (edgeIndex ||= buildEdgeIndex());
   if (!idx || idx.wide.has(sid) || !edgesCover(idx)) return mountAllDeferred();
@@ -1723,7 +1725,10 @@ let driftReads: Map<string, Set<string>> | undefined;
 const driftWarned = new Set<string>();
 function watchDeferredMount(site: string, occ: string, mount: () => void) {
   const reads = new Set<string>();
-  setReadWatch(sid => reads.add(sid));
+  setReadWatch(node => {
+    const sid = signalName(node);
+    if (sid !== undefined) reads.add(sid);
+  });
   try {
     mount();
   } finally {

@@ -147,8 +147,6 @@ interface SSROwner {
   _parent: SSROwner | null;
   _context: Record<symbol | string, unknown>;
   _childCount: number;
-  /** Plain signals created under this owner (dependency-edge identities), reset with `_childCount`. */
-  _sigCount: number;
   _firstChild: SSROwner | null;
   _nextSibling: SSROwner | null;
   _disposed: boolean;
@@ -339,7 +337,6 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
     owner._parent = parent;
     owner._context = ctx;
     owner._childCount = 0;
-    owner._sigCount = 0;
     owner._firstChild = null;
     owner._nextSibling = null;
     owner._disposed = false;
@@ -361,7 +358,6 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
           _parent: parent,
           _context: ctx,
           _childCount: 0,
-          _sigCount: 0,
           _firstChild: null,
           _nextSibling: null,
           _disposed: false,
@@ -376,7 +372,6 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
           _parent: parent,
           _context: ctx,
           _childCount: 0,
-          _sigCount: 0,
           _firstChild: null,
           _nextSibling: null,
           _disposed: false,
@@ -544,7 +539,8 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
       // retry reset (`self=false`) must still rewind the counter — otherwise
       // every boundary discovery pass drifts the ids of the eventual
       // successful run past the client's (#2900).
-      node._childCount = node._sigCount = 0;
+      node._childCount = 0;
+      if (sigCounts !== null) sigCounts.delete(node);
       node._scopeSlot = -1;
     }
     return;
@@ -557,7 +553,8 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
     child = next;
   }
   node._firstChild = null;
-  node._childCount = node._sigCount = 0;
+  node._childCount = 0;
+  if (sigCounts !== null) sigCounts.delete(node);
   // Defensive: a kept-alive owner (`self=false`) re-runs from its own,
   // settled id. The slot is swap-owned (`ssrScope` restores it in `finally`),
   // so this is never observed set here — pinned by `ownerId`'s dev check.
@@ -599,7 +596,8 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
 export function resetOwnerForRerun(owner: Owner): void {
   const node = owner as unknown as SSROwner;
   if (node._firstChild || node._disposal) disposeOwner(owner, false);
-  node._childCount = node._sigCount = 0;
+  node._childCount = 0;
+  if (sigCounts !== null) sigCounts.delete(node);
   node._scopeSlot = -1;
 }
 
@@ -666,11 +664,10 @@ export function ssrScope<T>(fn: () => T): () => unknown {
     const prevId = parent.id;
     const prevSlot = parent._scopeSlot;
     const prevCount = parent._childCount;
-    const prevSig = parent._sigCount;
     parent.id = prefix;
     parent._scopeSlot = slot;
     parent._childCount = resume ? resumeCount : 0;
-    parent._sigCount = resume ? resumeSig : 0;
+    const prevSig = swapSigCount(parent, resume ? resumeSig : 0);
     // The unwrap step in flight, so the one catch below can record the
     // resume point: a single handler frame on the NotReady unwind (see
     // `runWithOwner`) instead of an inner catch and an outer finally.
@@ -688,14 +685,14 @@ export function ssrScope<T>(fn: () => T): () => unknown {
       while (typeof v === "function") {
         next = v as () => unknown;
         count = parent._childCount;
-        sigCount = parent._sigCount;
+        sigCount = swapSigCount(parent, -1);
         v = next();
       }
     } catch (err) {
       parent.id = prevId;
       parent._scopeSlot = prevSlot;
       parent._childCount = prevCount;
-      parent._sigCount = prevSig;
+      swapSigCount(parent, prevSig);
       if (next !== undefined && err instanceof NotReadyError) {
         resume = next;
         resumeCount = count;
@@ -706,7 +703,7 @@ export function ssrScope<T>(fn: () => T): () => unknown {
     parent.id = prevId;
     parent._scopeSlot = prevSlot;
     parent._childCount = prevCount;
-    parent._sigCount = prevSig;
+    swapSigCount(parent, prevSig);
     return v;
   };
 }
@@ -1247,7 +1244,30 @@ let asyncReads = 0;
 // lands on its sources — or the request's WIDE sink, for reads whose
 // readers are not tracked (a projection's compute): a write to a wide
 // signal mounts everything left.
+//
+// Off until the frames server installs it (`setServerSignalIdentities`, at its
+// module load): an app that renders no server components names nothing,
+// and its signal reads and memo pulls take the plain paths.
 type ReadSink = { s: Set<string> | null; wide?: true; untracked?: true };
+let identities = false;
+// Plain signals created under each id-bearing owner, dropped wherever the
+// owner's child counter resets. `null` while identities are off.
+let sigCounts: WeakMap<SSROwner, number> | null = null;
+/** @internal Dependency edges: name and track plain signals from now on (`on`). */
+export function setServerSignalIdentities(on: boolean): void {
+  identities = on;
+  sigCounts = on ? sigCounts || new WeakMap() : null;
+}
+/**
+ * @internal Set `owner`'s plain-signal count to `n` (a scope swap), returning
+ * the previous one; `n < 0` only reads it. A no-op while identities are off.
+ */
+export function swapSigCount(owner: unknown, n: number): number {
+  if (sigCounts === null) return 0;
+  const prev = sigCounts.get(owner as SSROwner) || 0;
+  if (n >= 0) sigCounts.set(owner as SSROwner, n);
+  return prev;
+}
 let readSink: ReadSink | null = null;
 // The innermost slot fill being tracked (`trackFillReads`), for computations
 // whose reads the server cannot see: a client-source memo or effect, a
@@ -1272,7 +1292,9 @@ function signalIdentity(owner: SSROwner | null): string | undefined {
   while (o._transparent && o._parent) o = o._parent;
   if (o.id == null) return undefined;
   const id = materializeId(o);
-  return id + "~" + o._sigCount++;
+  const n = sigCounts!.get(o) || 0;
+  sigCounts!.set(o, n + 1);
+  return id + "~" + n;
 }
 /**
  * @internal Run a slot fill, returning its result, the plain-signal
@@ -1346,7 +1368,7 @@ export function createSignal<T>(
   }
   // Plain value form — no ID allocation (IDs are only for owners/computations).
   // Dependency edges: an identity, reported on read (see `readSink`).
-  const sid = signalIdentity(currentOwner);
+  const sid = identities ? signalIdentity(currentOwner) : undefined;
   return [
     sid !== undefined
       ? () => {
@@ -1465,12 +1487,14 @@ export function createMemo<T>(
     sharedConfig.context = ctx;
     const reads = asyncReads;
     const prevSink = readSink;
-    const sink: ReadSink = (readSink = { s: null });
+    const sink: ReadSink | null = identities ? (readSink = { s: null }) : null;
     try {
       return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
     } finally {
-      readSink = prevSink;
-      memoReads = sink.s;
+      if (sink !== null) {
+        readSink = prevSink;
+        memoReads = sink.s;
+      }
       sharedConfig.context = prev;
       if (asyncReads !== reads) comp.moving = true;
     }
@@ -1643,7 +1667,7 @@ function createSyncMemo<T>(
     resetOwnerForRerun(owner);
     const reads = asyncReads;
     const prevSink = readSink;
-    const sink: ReadSink = (readSink = { s: null });
+    const sink: ReadSink | null = identities ? (readSink = { s: null }) : null;
     // One handler frame (see `runWithOwner`): the normal path restores
     // inline, the catch restores and re-raises.
     let result: T;
@@ -1651,8 +1675,10 @@ function createSyncMemo<T>(
       result = compute(value) as T;
     } catch (err) {
       currentOwner = prev;
-      readSink = prevSink;
-      memoReads = sink.s;
+      if (sink !== null) {
+        readSink = prevSink;
+        memoReads = sink.s;
+      }
       if (asyncReads !== reads) moving = true;
       if (err instanceof NotReadyError) {
         // Don't latch a value — the engine re-pulls — but keep the signal
@@ -1668,8 +1694,10 @@ function createSyncMemo<T>(
       throw err;
     }
     currentOwner = prev;
-    readSink = prevSink;
-    memoReads = sink.s;
+    if (sink !== null) {
+      readSink = prevSink;
+      memoReads = sink.s;
+    }
     if (asyncReads !== reads) moving = true;
     value = result;
     error = undefined;
@@ -2857,7 +2885,7 @@ export function createProjection<T extends object = {}>(
   const ctx = sharedConfig.context;
   // Dependency edges: a projection's readers are not tracked (store
   // reads report nothing), so the signals its compute reads are WIDE.
-  if (ctx) {
+  if (ctx && identities) {
     const compute = fn;
     fn = ((...args: [T]) => wideReads(ctx, () => compute(...args))) as typeof fn;
   }
@@ -3458,7 +3486,8 @@ export function mapArray<T, U>(
               if (origId !== undefined) {
                 rowOwner.id = formatChildId(origId, i);
               }
-              rowOwner._childCount = rowOwner._sigCount = 0;
+              rowOwner._childCount = 0;
+              if (sigCounts !== null) sigCounts.delete(rowOwner);
               s.push(
                 options.keyed === false
                   ? indexes
@@ -3555,7 +3584,8 @@ export function repeat<T>(
             if (origId !== undefined) {
               rowOwner.id = formatChildId(origId, i);
             }
-            rowOwner._childCount = rowOwner._sigCount = 0;
+            rowOwner._childCount = 0;
+            if (sigCounts !== null) sigCounts.delete(rowOwner);
             out[i] = mapFn(i + offset);
           }
         } finally {

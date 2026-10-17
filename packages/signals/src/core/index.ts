@@ -10,9 +10,6 @@ export {
   read,
   setSignal,
   setWriteHook,
-  setSignalIdentities,
-  setReadWatch,
-  identifySignal,
   setMemo,
   markRefresh,
   staleValues,
@@ -39,6 +36,7 @@ export {
   cleanup,
   peekNextChildId
 } from "./owner.js";
+export { setSignalIdentities, signalName, signalHook, setReadWatch } from "./identities.js";
 export {
   createContext,
   getContext,

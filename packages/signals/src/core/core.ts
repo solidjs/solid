@@ -366,9 +366,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // and own nothing to park.
     if (isEffect === EFFECT_TRACKED || el._config & CONFIG_STAGED) disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
-    // A pass that made only plain signals still restarts their names (the
-    // server resets every re-run).
-    else if (sigCounts !== null) sigCounts.delete(el);
     if (__DEV__) clearSignals(el);
   }
 
@@ -1142,7 +1139,6 @@ function parkChildren(el: Computed<unknown>): void {
   el._disposal = null;
   el._firstChild = null;
   el._childCount = 0;
-  if (sigCounts !== null) sigCounts.delete(el);
 }
 
 /**
@@ -1692,7 +1688,7 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
 }
 
 export function read<T>(el: Signal<T> | Computed<T>): T {
-  if (__DEV__ && readWatch !== null && (el as any)._sid !== undefined) readWatch((el as any)._sid);
+  if (__DEV__) DEV.hooks.onRead?.(el);
   if (__DEV__ && asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
     checkPostAwaitRead(
       el,
@@ -2040,52 +2036,14 @@ export function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T)
  * unmounted component would have observed, so the client mounts what is
  * left before the write applies, and clears the hook. `null` otherwise.
  */
-export let writeHook: ((sid?: string) => void) | null = null;
+export let writeHook: ((node?: Signal<any> | Computed<any>) => void) | null = null;
 /** @internal */
-export function setWriteHook(hook: ((sid?: string) => void) | null): void {
+export function setWriteHook(hook: ((node?: Signal<any> | Computed<any>) => void) | null): void {
   writeHook = hook;
 }
 
-// Deferred hydration, dependency edges: plain-signal identities.
-// While on (`setSignalIdentities`, the server-components client turns it on
-// before hydrating), a plain signal created under an id-bearing owner is
-// named `<owner id>~<n>`, n counting the plain signals created under that
-// owner (transparent owners defer to the nearest id-bearing one, as child
-// ids do), reset wherever the owner's child counter resets. The server names
-// the same signal the same way, so an edge it shipped (a slot fill read it)
-// matches the client node; the write hook receives the name.
-let sigCounts: WeakMap<Owner, number> | null = null;
-/** @internal */
-export function setSignalIdentities(on: boolean): void {
-  sigCounts = on ? sigCounts || new WeakMap() : null;
-}
-/** @internal Reset an owner's plain-signal counter (with its child counter). */
-export function resetSignalCount(owner: Owner): void {
-  if (sigCounts !== null) sigCounts.delete(owner);
-}
-/**
- * @internal Dev only: called with the identity of every named signal read
- * while set — the frames client's identity-drift check watches what a
- * deferred occurrence reads as it mounts. Never called in prod builds.
- */
-export let readWatch: ((sid: string) => void) | null = null;
-/** @internal */
-export function setReadWatch(watch: ((sid: string) => void) | null): void {
-  if (__DEV__) readWatch = watch;
-}
-/** @internal */
-export function identifySignal(node: Signal<any>, owner: Owner | null): void {
-  if (sigCounts === null || !owner) return;
-  let o: Owner = owner;
-  while (o._config & CONFIG_TRANSPARENT && o._parent) o = o._parent;
-  if (o.id == null) return;
-  const n = sigCounts.get(o) || 0;
-  sigCounts.set(o, n + 1);
-  (node as any)._sid = o.id + "~" + n;
-}
-
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
-  if (writeHook !== null) writeHook((el as any)._sid);
+  if (writeHook !== null) writeHook(el);
   if (
     __DEV__ &&
     !(el._config & CONFIG_OWNED_WRITE) &&

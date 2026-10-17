@@ -41,8 +41,16 @@ import {
   ssrSanitizeError,
   creationStamp,
   shareAsyncIterable,
+  setServerSignalIdentities,
   trackFillReads
 } from "solid-js/internal";
+
+// Dependency edges: a server that renders server components names its plain
+// signals (`<owner id>~<n>`, as the client's signals core does) so slot fills
+// can record which ones they read. Installed at load, ahead of any request;
+// an app that never loads the frames server names nothing. A no-op in the
+// client build (a browser test may load this module beside the client).
+setServerSignalIdentities(true);
 
 // EXPERIMENTAL — the frames/server-components surface ships as an
 // experimental preview, excluded from the 2.0 stability guarantee: API

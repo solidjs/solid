@@ -14,7 +14,8 @@ import {
   throwerOf,
   ownerId,
   onCleanup,
-  inServerComponentScope
+  inServerComponentScope,
+  swapSigCount
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
@@ -519,18 +520,16 @@ function ssrLoadingBoundary(
   let resolveSig = 0;
   function resolveIn<T>(run: () => T): T {
     const prevCount = (o as any)._childCount;
-    const prevSig = (o as any)._sigCount;
     (o as any).id = flattenId;
     (o as any)._childCount = resolveCount;
-    (o as any)._sigCount = resolveSig;
+    const prevSig = swapSigCount(o, resolveSig);
     try {
       return run();
     } finally {
       resolveCount = (o as any)._childCount;
-      resolveSig = (o as any)._sigCount;
+      resolveSig = swapSigCount(o, prevSig);
       (o as any).id = contentId;
       (o as any)._childCount = prevCount;
-      (o as any)._sigCount = prevSig;
     }
   }
 

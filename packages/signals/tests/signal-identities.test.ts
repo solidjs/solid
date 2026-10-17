@@ -2,10 +2,10 @@
 // a plain signal created under an id-bearing owner is named `<id>~<n>`, n
 // counting the plain signals created under the nearest id-bearing owner;
 // the count restarts when the owner re-runs, as child ids do. The pre-write
-// hook receives the name (none for a store or a derived signal), and the dev
+// hook receives the named node (none for a store or a derived signal), and the dev
 // read watch sees it on every read.
 import { afterEach, describe, expect, test } from "vitest";
-import { setReadWatch, setSignalIdentities, setWriteHook } from "../src/core/index.js";
+import { setReadWatch, setSignalIdentities, setWriteHook, signalName } from "../src/core/index.js";
 import { createMemo, createRoot, createSignal, createStore, flush } from "../src/index.js";
 
 afterEach(() => {
@@ -16,12 +16,12 @@ afterEach(() => {
 
 function hookedWrites() {
   const writes: (string | undefined)[] = [];
-  setWriteHook(sid => writes.push(sid));
+  setWriteHook(node => writes.push(signalName(node)));
   return writes;
 }
 
 describe("plain-signal identities", () => {
-  test("named per id-bearing owner, in creation order; the hook receives the name", () => {
+  test("named per id-bearing owner, in creation order; the hook receives the named node", () => {
     setSignalIdentities(true);
     const writes = hookedWrites();
     const [setA, setB, setD, setS] = createRoot(
@@ -83,7 +83,10 @@ describe("plain-signal identities", () => {
     createRoot(
       () => {
         const [a] = createSignal(0);
-        setReadWatch(sid => reads.push(sid));
+        setReadWatch(node => {
+          const sid = signalName(node);
+          if (sid !== undefined) reads.push(sid);
+        });
         a();
         setReadWatch(null);
         a();

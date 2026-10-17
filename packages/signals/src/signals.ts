@@ -20,7 +20,7 @@ import {
   runWithOwner,
   setMemo,
   setSignal,
-  identifySignal,
+  signalHook,
   signal,
   trackedEffect,
   untrack,
@@ -417,7 +417,7 @@ export function createSignal<T>(
   }
   const node = signal<T>(first as any, second as SignalOptions<T>);
   if (__OBSERVE__) registerGraph(node, getOwner());
-  identifySignal(node, getOwner());
+  if (signalHook !== null) signalHook(node);
   return [accessor<T>(node), setSignal.bind(null, node as any) as Setter<T | undefined>];
 }
 
