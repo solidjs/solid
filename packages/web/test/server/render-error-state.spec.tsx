@@ -21,6 +21,8 @@ import {
   createServerReference,
   registerServerReference
 } from "@solidjs/web/server-functions/server";
+import { renderServerComponent } from "../../frames/src/frame-sink.js";
+import { createJSONDataTable, createJSONSerializer } from "../../serialization/src/serializer.js";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 const storage = new AsyncLocalStorage<RequestEvent>();
@@ -490,6 +492,76 @@ describe("renderToStream.hasErrors", () => {
       abort.abort();
     }
   });
+
+  test("completes a frame stream whose client prop fails to serialize under a local hook", async () => {
+    const onError = vi.fn<ServerErrorHook>(() => undefined);
+    const View = (props: any) => (
+      <ul>
+        <props.item meta={new WeakMap()} />
+        <props.item meta={{ healthy: true }} />
+      </ul>
+    );
+    const timeout = new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 1000));
+    const chunks: any = await Promise.race([
+      renderServerComponent(View, { frame: { id: "unsupported-arg" }, onError }),
+      timeout
+    ]);
+    expect(chunks).not.toBe("timeout");
+    expect(chunks.at(-1).type).toBe("complete");
+    const table = createJSONDataTable();
+    for (const chunk of chunks.filter((c: any) => c.type === "data")) table.apply(chunk);
+    const slots = chunks.filter((c: any) => c.type === "slot");
+    expect(table.resolve(slots[1].args.meta)).toEqual({ healthy: true });
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]?.[1]).toMatchObject({ handling: "serialize" });
+  });
+
+  test.each([true, false])(
+    "settles a JSON serializer write that fails to parse (onError: %s)",
+    withOnError => {
+      const keys: string[] = [];
+      const onDone = vi.fn();
+      const onError = vi.fn();
+      const serializer = createJSONSerializer({
+        onData: (record: { key: string }) => keys.push(record.key),
+        onDone,
+        ...(withOnError ? { onError } : {})
+      });
+      serializer.write("before", { ok: true });
+      const fail = () => serializer.write("bad", new WeakMap());
+      if (withOnError) fail();
+      else expect(fail).toThrow();
+      serializer.write("after", { ok: true });
+      serializer.flush();
+      expect(onDone).toHaveBeenCalledTimes(1);
+      expect(keys).toEqual(["before", "after"]);
+      expect(onError).toHaveBeenCalledTimes(withOnError ? 1 : 0);
+    }
+  );
+
+  test.each([true, false])(
+    "does not complete early when a failed JSON write's parsed rejection settles (onError: %s)",
+    async withOnError => {
+      const onDone = vi.fn();
+      const pending = Promise.withResolvers<number>();
+      const serializer = createJSONSerializer({
+        onData() {},
+        onDone,
+        ...(withOnError ? { onError() {} } : {})
+      });
+      const fail = () =>
+        serializer.write("bad", { rejected: Promise.reject(new Error("x")), value: new WeakMap() });
+      if (withOnError) fail();
+      else expect(fail).toThrow();
+      serializer.write("after", pending.promise);
+      serializer.flush();
+      await new Promise(resolve => setTimeout(resolve));
+      expect(onDone).not.toHaveBeenCalled();
+      pending.resolve(1);
+      await new Promise(resolve => setTimeout(resolve));
+      expect(onDone).toHaveBeenCalledTimes(1);
+    }
+  );
 
   test("marks a root retry failure while preserving the existing completion policy", async () => {
     let first = true;

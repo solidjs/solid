@@ -315,28 +315,44 @@ export function createJSONSerializer({
       pendingWrites++;
       // Sync values settle inside the toCrossJSONStream call, before the
       // cancel function exists — track with a flag instead of the handle.
+      // Idempotent: seroval still pops a rejected promise it parsed before
+      // the write ended, which calls onDone a second time.
       let settled = false;
+      let parsed = false;
       let cancel = null;
-      const stream = toCrossJSONStream(value, {
-        refs,
-        plugins: resolved.plugins,
-        disabledFeatures:
-          resolved.disabledFeatures | serializeOnlyDisabledFeatures(resolved.serializeErrorStacks),
-        onParse(node, initial) {
-          onData({ key, node, initial });
-        },
-        onError,
-        onDone() {
-          settled = true;
-          if (cancel) cancels.delete(cancel);
-          pendingWrites--;
-          maybeDone();
-        }
-      });
-      if (!settled) {
-        cancel = stream;
-        cancels.add(cancel);
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        if (cancel) cancels.delete(cancel);
+        pendingWrites--;
+        maybeDone();
+      };
+      let stream;
+      try {
+        stream = toCrossJSONStream(value, {
+          refs,
+          plugins: resolved.plugins,
+          disabledFeatures:
+            resolved.disabledFeatures |
+            serializeOnlyDisabledFeatures(resolved.serializeErrorStacks),
+          onParse(node, initial) {
+            if (initial) parsed = true;
+            onData({ key, node, initial });
+          },
+          onError,
+          onDone: settle
+        });
+      } catch (err) {
+        // Without onError a failed parse throws, and seroval never settles the write.
+        settle();
+        throw err;
       }
+      if (settled) return;
+      // A failed parse reported through onError delivers no initial node and
+      // never settles either: end the write, releasing what it already parsed.
+      if (!parsed) return stream();
+      cancel = stream;
+      cancels.add(cancel);
     },
     flush() {
       flushed = true;
