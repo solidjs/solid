@@ -4528,8 +4528,15 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "12.80 KB",
-    capMinified: 38500,
+    // Size-Exception (slots in live holes, 2026-10-17): 12.80 -> 12.90 KB,
+    // measured at 12,889 B brotli / 38,861 B minified against the base's 12,790
+    // / 38,500 (+99 B; +361 B minified). A re-run live hole's markup is morphed
+    // against the displaced-range index, so slot occurrences that survive stay
+    // mounted, new ones mount and dropped ones dispose; deferred, an occurrence
+    // not mounted yet keeps the record its markup was rendered from. Cap at
+    // measured + 10 B rounded up to 0.01 KB.
+    limit: "12.90 KB",
+    capMinified: 38861,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4868,6 +4875,13 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, 2026-10-17): 35.43 -> 35.54 KB,
+    // measured at 35,525 B brotli / 109,504 B minified against the base's 35,418
+    // / 109,143 (+107 B; +361 B minified). A re-run live hole's markup is
+    // morphed against the displaced-range index, so slot occurrences that
+    // survive stay mounted, new ones mount and dropped ones dispose; deferred,
+    // an occurrence not mounted yet keeps the record its markup was rendered
+    // from. Cap at measured + 10 B rounded up to 0.01 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5147,6 +5161,13 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, 2026-10-17): 39.64 -> 39.73 KB,
+    // measured at 39,714 B brotli / 122,873 B minified against the base's 39,623
+    // / 122,512 (+91 B; +361 B minified). A re-run live hole's markup is morphed
+    // against the displaced-range index, so slot occurrences that survive stay
+    // mounted, new ones mount and dropped ones dispose; deferred, an occurrence
+    // not mounted yet keeps the record its markup was rendered from. Cap at
+    // measured + 10 B rounded up to 0.01 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5263,8 +5284,15 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "36.29 KB",
-    capMinified: 112068,
+    // Size-Exception (slots in live holes, 2026-10-17): 36.29 -> 36.42 KB,
+    // measured at 36,402 B brotli / 112,429 B minified against the base's 36,278
+    // / 112,068 (+124 B; +361 B minified). A re-run live hole's markup is
+    // morphed against the displaced-range index, so slot occurrences that
+    // survive stay mounted, new ones mount and dropped ones dispose; deferred,
+    // an occurrence not mounted yet keeps the record its markup was rendered
+    // from. Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "36.42 KB",
+    capMinified: 112429,
     alias: pageAlias
   },
   {
@@ -5349,8 +5377,15 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "42.32 KB",
-    capMinified: 126985,
+    // Size-Exception (slots in live holes, 2026-10-17): 42.32 -> 42.44 KB,
+    // measured at 42,427 B brotli / 127,346 B minified against the base's 42,306
+    // / 126,985 (+121 B; +361 B minified). A re-run live hole's markup is
+    // morphed against the displaced-range index, so slot occurrences that
+    // survive stay mounted, new ones mount and dropped ones dispose; deferred,
+    // an occurrence not mounted yet keeps the record its markup was rendered
+    // from. Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "42.44 KB",
+    capMinified: 127346,
     alias: pageAlias
   },
   {
@@ -5512,8 +5547,15 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "42.81 KB",
-    capMinified: 133034,
+    // Size-Exception (slots in live holes, 2026-10-17): 42.81 -> 42.99 KB,
+    // measured at 42,971 B brotli / 133,395 B minified against the base's 42,792
+    // / 133,034 (+179 B; +361 B minified). A re-run live hole's markup is
+    // morphed against the displaced-range index, so slot occurrences that
+    // survive stay mounted, new ones mount and dropped ones dispose; deferred,
+    // an occurrence not mounted yet keeps the record its markup was rendered
+    // from. Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "42.99 KB",
+    capMinified: 133395,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5644,8 +5686,15 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "49.13 KB",
-    capMinified: 147757,
+    // Size-Exception (slots in live holes, 2026-10-17): 49.13 -> 49.26 KB,
+    // measured at 49,245 B brotli / 148,118 B minified against the base's 49,114
+    // / 147,757 (+131 B; +361 B minified). A re-run live hole's markup is
+    // morphed against the displaced-range index, so slot occurrences that
+    // survive stay mounted, new ones mount and dropped ones dispose; deferred,
+    // an occurrence not mounted yet keeps the record its markup was rendered
+    // from. Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "49.26 KB",
+    capMinified: 148118,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5751,6 +5800,12 @@ module.exports = [
     // unchanged at 20.42 KB, recorded minified 71,813 B (first record);
     // CI-measured at 20,412 B (71,813 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (slots in live holes, 2026-10-17): 20.58 -> 20.63 KB,
+    // measured at 20,615 B brotli / 72,466 B minified against the base's 20,572
+    // / 72,373 (+43 B; +93 B minified). Slot occurrences in a live hole are
+    // scoped to the hole (render-id table, per-scope counters), and a re-run
+    // sends a record only for a new occurrence or changed args. Cap at measured
+    // + 10 B rounded up to 0.01 KB.
     limit: floorCaps["server: renderToString (the server-render floor)"],
     capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,

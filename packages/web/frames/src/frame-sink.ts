@@ -511,7 +511,10 @@ export function createFrameSink(write, frame, have, hooks) {
     epoch++;
     const pass = (swept = { ops: [], emitted: false });
     try {
-      for (const b of [...bindings.values()]) {
+      for (const [key, b] of [...bindings]) {
+        // Closed or replaced by an earlier binding of this pass (a hole's
+        // re-run re-opens its occurrences' watched args).
+        if (bindings.get(key) !== b) continue;
         try {
           b.sweep();
         } catch (_) {
@@ -1425,6 +1428,27 @@ function structuralArgsKey(raw) {
   };
   return walk(raw, true) ? out : undefined;
 }
+
+/**
+ * A slot arg's value as a re-run compares it: plain values by their
+ * structure (a fresh object with the same contents is the same arg), and
+ * anything structure can't be read off (a class instance, a promise, a
+ * container — a pending projection's reads throw) by reference.
+ */
+function argDigest(value) {
+  if (isContainerTraced(value)) return value;
+  try {
+    const key = structuralArgsKey([value]);
+    return key === undefined ? value : key;
+  } catch (_) {
+    return value;
+  }
+}
+/** A pending arg's digest: still pending is unchanged. */
+const PENDING_ARG = {};
+// Kept where no re-run can compare: NaN equals nothing, so a compare finds
+// the arg changed.
+const noDigest = () => NaN;
 
 /**
  * One call is one occurrence however many times the render evaluates it.
@@ -2568,8 +2592,25 @@ export function createSlotProps(
 export function createSlotProps(sink, frame) {
   const counts = Object.create(null);
   const getters = new Map();
-  // Repeated calls are one occurrence within a render (see repeatKey).
+  // Repeated calls are one occurrence within a render (see repeatKey) —
+  // and within one sweep's re-evaluation, which has a map of its own.
   const repeats = new Map();
+  let pass = null;
+  let passRepeats = null;
+  // What each occurrence's record last carried (`args`, the wire form) and
+  // the values it was made from (`vals`, compared by `argDigest`): a live
+  // hole re-runs its slot calls on every sweep, and an occurrence whose
+  // args did not change sends nothing — a changed arg re-sends the record,
+  // with a fresh ref for a changed data arg (data refs are write-once).
+  const recs = new Map();
+  // An occurrence its hole no longer reaches is gone from the client: a
+  // later return is new, so it sends its record again (see `seen`).
+  const forget = occurrence => {
+    const rec = recs.get(occurrence);
+    if (!rec) return;
+    recs.delete(occurrence);
+    for (const key in rec.vals) sink.closeBinding(`${occurrence}:${key}`);
+  };
   // The tier announcement (createFrameSink's `needs`); a composed sink
   // without one announces nothing — the client detects and holds.
   const needs = sink.needs || (() => {});
@@ -2596,24 +2637,25 @@ export function createSlotProps(sink, frame) {
           if (callArgs.length === 0 || callArgs[0] === undefined) {
             return slotProxy(slotRange(prop), prop, SLOT_FACE_STREAM, undefined, undefined, needs);
           }
-          const rk = repeatKey(prop, callArgs[0]);
-          const repeat = rk !== undefined && repeats.get(rk);
-          if (repeat) return repeat;
-          // Slot records are emit-once: occurrence identity is positional
-          // (`counts`), so a live-hole re-evaluation reaching a called slot
-          // would mint new occurrences and re-serialize args — the double-
-          // data disease. First render stamps the engine so the enclosing
-          // hole latches instead of binding; a sweep that gets here anyway
-          // (the escalated-first-render case) flags the engine (`gateHit`)
-          // and hands back an inert placeholder — the engine discards that
-          // sweep's value and closes the binding.
           const live = sharedConfig.context && sharedConfig.context.liveHoles;
-          if (live) {
-            if (live.sweeping) {
-              live.gateHit = true;
-              return { t: "", $slot: true };
-            }
-            live.recordStamp++;
+          const sweeping = !!live && live.sweeping;
+          // A sweep re-runs a live hole's slot calls: the pass is the
+          // repeats map's span (the engine's `visit` set is one per pass).
+          let rmap = repeats;
+          if (sweeping) {
+            if (pass !== live.visit) passRepeats = new Map();
+            pass = live.visit;
+            rmap = passRepeats;
+          }
+          const rk = repeatKey(prop, callArgs[0]);
+          const repeat = rk !== undefined && rmap.get(rk);
+          if (repeat) return repeat;
+          // A sweep with no occurrence scope is an attribute's: a slot places
+          // a client component in content, never in a tag, so the engine
+          // closes that binding (`gateHit`) and discards this inert value.
+          if (sweeping && !live.scope) {
+            live.gateHit = true;
+            return { t: "", $slot: true };
           }
           const raw = callArgs[0];
           // Occurrence identity (RFC open question 1): a primitive `$key` arg
@@ -2624,8 +2666,31 @@ export function createSlotProps(sink, frame) {
           // positional per prop — the right default for most flows: a state
           // reset across different lists is usually correct, and equivalent
           // re-sends dedupe anyway. `$key` matters when a live list reorders.
-          const occurrence = occurrenceId(prop, raw, counts);
+          // A live hole's re-run counts no render position: the engine
+          // finds the id the call's position in the hole had (`slotId`).
+          let occurrence = keyedId(prop, raw);
+          if (occurrence === undefined) {
+            const positional = sweeping ? undefined : occurrenceId(prop, raw, counts);
+            occurrence = live ? live.slotId(prop, positional) : positional;
+          }
+          // A re-run ahead of the hole's first value (its retry still in
+          // flight) ships nothing: the retry renders these calls.
+          if (sweeping && live.dry)
+            return slotProxy(
+              slotRange(occurrence),
+              occurrence,
+              SLOT_FACE_STREAM,
+              undefined,
+              undefined,
+              needs
+            );
+          const prev = recs.get(occurrence);
+          let changed = !prev;
+          // Only a call inside a hole can run again: elsewhere the values
+          // are not kept to compare (a later compare finds them changed).
+          const digest = live && live.scope ? argDigest : noDigest;
           const args = {};
+          const vals = {};
           // Watched-arg bindings to open AFTER the record emits (the ledger
           // must never re-emit a record ahead of its first emission).
           const opened = [];
@@ -2669,6 +2734,7 @@ export function createSlotProps(sink, frame) {
               // Shared with the retry loop's onSettle and the binding's
               // sweeps: whether the arg has a successful value, and which.
               let state = null;
+              let pending = false;
               const stampBefore = scopeStamp();
               try {
                 if (desc.get) {
@@ -2694,6 +2760,7 @@ export function createSlotProps(sink, frame) {
                 const blocked = ssrHandleError && ssrHandleError(err);
                 if (!blocked) throw err;
                 state = { settled: false, last: undefined };
+                pending = true;
                 const pendingState = state;
                 value = retryArgUntilSettled(evaluate, blocked, key, occurrence, v => {
                   pendingState.settled = true;
@@ -2711,6 +2778,7 @@ export function createSlotProps(sink, frame) {
               const t = typeof value;
               if (value == null || t === "string" || t === "number" || t === "boolean") {
                 args[key] = value;
+                vals[key] = digest(value);
                 if (evaluate) state = { settled: true, last: value };
               } else if (!isContainerTraced(value) && isServerContent(value)) {
                 // Containers fall through to the data path below (their
@@ -2737,19 +2805,33 @@ export function createSlotProps(sink, frame) {
                       "). Wrap the async read in a <Suspense>, or move it above the slot."
                   );
                 }
-                sink.region(childId, resolved.t[0]);
+                // The html is the region's value: a re-run re-sends it only
+                // when it changed (the client morphs the bound region).
+                vals[key] = "<" + resolved.t[0];
+                if (!prev || prev.vals[key] !== vals[key]) sink.region(childId, resolved.t[0]);
                 args[key] = { $frame: childId };
               } else {
-                const ref = `arg:${occurrence}:${key}`;
-                // Containers (at any depth) swap for their trace envelopes
-                // before the value meets seroval — see toBorderForm. A
-                // container announces the `trace` tier (`sink.needs`)
-                // before the serializer emits the record's data chunk, so
-                // the announcement rides that very chunk.
-                ctx.serialize(ref, argBorderForm(value, key, occurrence, needs));
-                args[key] = { $ref: ref };
+                // A pending arg compares as pending: its retry loop settles
+                // the ref already sent.
+                vals[key] = pending ? PENDING_ARG : digest(value);
+                if (prev && prev.vals[key] === vals[key]) args[key] = prev.args[key];
+                else {
+                  // A re-run's ref is versioned, as a watched arg's is.
+                  const ref = prev
+                    ? `arg:${occurrence}:${key}@${sink.nextArgRef(`${occurrence}:${key}`)}`
+                    : `arg:${occurrence}:${key}`;
+                  if (prev) sink.mintRef(ref);
+                  // Containers (at any depth) swap for their trace envelopes
+                  // before the value meets seroval — see toBorderForm. A
+                  // container announces the `trace` tier (`sink.needs`)
+                  // before the serializer emits the record's data chunk, so
+                  // the announcement rides that very chunk.
+                  ctx.serialize(ref, argBorderForm(value, key, occurrence, needs));
+                  args[key] = { $ref: ref };
+                }
                 if (evaluate && !state) state = { settled: true, last: value };
               }
+              if (prev && prev.vals[key] !== vals[key]) changed = true;
               // A re-runnable arg that classified as DATA (settled or
               // pending) is a watched binding — case 1's within-response
               // liveness. Content args stay one-shot: a thunk producing JSX
@@ -2761,10 +2843,18 @@ export function createSlotProps(sink, frame) {
               ctx.registerFragment = origRegister;
             }
           }
+          if (prev) for (const key in prev.vals) if (!(key in vals)) changed = true;
           // Deliver a CLONE and keep the canonical object for the ledger:
           // re-emissions mutate `args` and clone again, so an in-process
-          // consumer's already-applied record never changes under it.
-          sink.slot(occurrence, { ...args });
+          // consumer's already-applied record never changes under it. An
+          // unchanged re-run sends nothing: the client has this record.
+          const rec = changed ? { args, vals } : prev;
+          if (changed) {
+            recs.set(occurrence, rec);
+            sink.slot(occurrence, { ...args });
+          }
+          if (live && live.visit)
+            live.seen(occurrence, () => recs.get(occurrence) === rec && forget(occurrence));
           const ctx = sharedConfig.context;
           for (const b of opened) {
             const key = b.key;
@@ -2772,14 +2862,15 @@ export function createSlotProps(sink, frame) {
             openArgBinding(sink, ledgerKey, occurrence, key, b.evaluate, b.state, value => {
               const t = typeof value;
               if (value == null || t === "string" || t === "number" || t === "boolean") {
-                args[key] = value;
+                rec.args[key] = value;
               } else {
                 const ref = `arg:${occurrence}:${key}@${sink.nextArgRef(ledgerKey)}`;
                 sink.mintRef(ref);
                 ctx.serialize(ref, argBorderForm(value, key, occurrence, needs));
-                args[key] = { $ref: ref };
+                rec.args[key] = { $ref: ref };
               }
-              sink.slot(occurrence, { ...args });
+              rec.vals[key] = digest(value);
+              sink.slot(occurrence, { ...rec.args });
             });
           }
           // A keyed call registers for repeats at the call; an un-keyed one
@@ -2791,10 +2882,10 @@ export function createSlotProps(sink, frame) {
             occurrence,
             SLOT_FACE_STREAM,
             undefined,
-            rk === undefined || keyed ? undefined : () => repeats.has(rk) || repeats.set(rk, out),
+            rk === undefined || keyed ? undefined : () => rmap.has(rk) || rmap.set(rk, out),
             needs
           );
-          if (keyed) repeats.set(rk, out);
+          if (keyed) rmap.set(rk, out);
           return out;
         };
         // A slot getter placed directly as a child (`{props.children}`) is a
