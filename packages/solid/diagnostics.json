@@ -446,7 +446,7 @@
     "severity": ["warn"],
     "category": "ssr",
     "trigger": "A live hole that shipped its markers was closed by the impurity gate on re-run and stopped updating (dev)",
-    "repair": "A live markup hole (or attribute) in a server component shipped its markers and then stopped updating: re-running it created a reactive scope still waiting on async work (`data.cause: \"owners\"`) or emitted slot records (`\"records\"`), so the runtime closed it and the client keeps the markup it last received.",
+    "repair": "A live markup hole (or attribute) in a server component shipped its markers and then stopped updating: re-running it created a reactive scope still waiting on async work (`data.cause: \"owners\"`), so the runtime closed it and the client keeps the markup it last received.",
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/ssr-live-hole-latched"
   },
   {

@@ -897,14 +897,16 @@ connection) are never judged.
 
 A live markup hole (or attribute) in a server component shipped its markers
 and then stopped updating: re-running it created a reactive scope still
-waiting on async work (`data.cause: "owners"`) or emitted slot records
-(`"records"`), so the runtime closed it and the client keeps the markup it
-last received. Scopes that finish synchronously (a nested `<For>`, a
-condition memo such as `{m.usage && …}`, a component) are fine: each re-run
-gets a throwaway scope. The usual cause is a memo over a fetch or a stream
-created inside the markup that re-renders, which would restart on every
-re-run. Create the async source in the component body instead. The finding
-is located by the component the hole is in.
+waiting on async work (`data.cause: "owners"`), so the runtime closed it and
+the client keeps the markup it last received. Scopes that finish
+synchronously (a nested `<For>`, a condition memo such as `{m.usage && …}`,
+a component) are fine: each re-run gets a throwaway scope, and slot calls
+(client components placed in the markup) re-run with the hole. The usual
+cause is a memo over a fetch or a stream created inside the markup that
+re-renders, which would restart on every re-run. Create the async source in
+the component body instead. An attribute whose expression calls a slot
+closes too (`"records"`): a slot places a client component in content, not
+in a tag. The finding is located by the component the hole is in.
 
 ### LAZY_ASSET_UNMAPPED
 

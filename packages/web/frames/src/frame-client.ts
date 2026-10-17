@@ -1405,7 +1405,21 @@ class FrameImpl {
       this.#resetStreamState();
     }
 
-    for (const key in write.r) this.#store[key] = write.r[key];
+    for (const key in write.r) {
+      // Deferred, an occurrence not mounted yet still shows the markup its
+      // record was rendered from: it mounts claiming with that record, and
+      // a later one applies after (see the hold in #mountFound).
+      const prev = this.#store[key];
+      const occurrence = key.slice(5);
+      if (
+        this.#deferred &&
+        prev?.kind === "slot" &&
+        !prev.pending &&
+        !this.#mountedSlots.has(occurrence)
+      )
+        this.#heldRecords.has(occurrence) || this.#heldRecords.set(occurrence, prev);
+      this.#store[key] = write.r[key];
+    }
     this.#flush();
   }
 
@@ -1543,6 +1557,10 @@ class FrameImpl {
     // `frame:applied` must never read the DOM with one of its holes moved
     // and a sibling still showing the previous value).
     let morphed = false;
+    // The pass's displaced-range index (see #applyHole), made at its first
+    // hole morph: `r`, the frame's slot ranges by occurrence; `g`, the
+    // subtrees the morphs inserted whole.
+    const index: { r?: Map<string, any>; g?: Node[] } = {};
     for (const key in this.#store) {
       const record = this.#store[key];
       if (!record || this.#appliedHoles.get(key) === record) continue;
@@ -1551,7 +1569,7 @@ class FrameImpl {
           this.#appliedHoles.set(key, record);
           if ("_SOLID_DEV_")
             console.error(`Live hole ${key.slice(5, -6)} failed on the server; latched:`, record);
-        } else if (this.#applyHole(key.slice(5), record)) {
+        } else if (this.#applyHole(key.slice(5), record, index)) {
           this.#appliedHoles.set(key, record);
           this.#recordHave(key.slice(5), record);
           morphed = true;
@@ -1564,6 +1582,10 @@ class FrameImpl {
         }
       }
     }
+    // A range the pass displaced lands where its occurrence now is — in a
+    // subtree a morph inserted whole, possibly another hole's (see
+    // `flushGrafts`); one nothing claims stays detached: removed.
+    if (index.r?.size) for (const root of index.g!) flushGrafts(root, index.r);
     if (morphed) this.#applied(version, "morph");
 
     // Deferred: a flush that changed no content (the registration's drain of
@@ -2233,12 +2255,14 @@ class FrameImpl {
    * `lh:N`) to its re-emitted html — the client half of the Stage 3 hole
    * ledger. The same range-anchored reconcile as the root morph, so
    * interior element identity (focus, media, third-party widget state)
-   * survives value ticks. Live holes never contain slot ranges or nested
-   * regions (the server's record gate latches such holes), so no
-   * displaced-range index is needed. Returns whether the markers were
-   * found and the morph ran.
+   * survives value ticks. A hole's content may hold slot ranges: the morph
+   * then resolves them against the frame's displaced-range index, as the
+   * root's does, so an occurrence the new content still has keeps its
+   * range — interior and mounted state — wherever it moved; the sync after
+   * the pass mounts the new ones and unmounts the ones gone. Returns
+   * whether the markers were found and the morph ran.
    */
-  #applyHole(marker, record) {
+  #applyHole(marker, record, index) {
     if (!this.#hasContent) return false;
     const open = this.#liveTarget(
       "hole:" + marker,
@@ -2278,7 +2302,18 @@ class FrameImpl {
         return false;
       }
     } else {
-      reconcileChildren(open.parentNode, parseFragment(record.value), open, close, claim);
+      // One index for the pass: a range one hole drops may be the one
+      // another hole now places. A frame with no slot range needs none.
+      if (!index.r) (this.#collectSlots((index.r = new Map())), (index.g = []));
+      reconcileChildren(
+        open.parentNode,
+        parseFragment(record.value),
+        open,
+        close,
+        claim,
+        index.r.size ? index.r : null,
+        index.g
+      );
     }
     return true;
   }
