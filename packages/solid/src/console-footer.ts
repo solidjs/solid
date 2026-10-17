@@ -11,12 +11,14 @@
 // code that does fire) are the moments to teach that deeper evidence is one
 // call away. Dev-tier: the footer is console text.
 //
-// Both pointers are given twice: the installed file (what an agent working in
-// the repo can open with no network, at exactly the installed version) and a
-// stable URL (what a human in a browser console can click; Chrome linkifies
-// it) — the anchor jumps to the code's own section. The URL is the core's
-// (`DEV.guideUrl`), so the footer and an observer's link (the performance
-// tracks' Insights entry) name the same place.
+// Two lines, two readers. The first is for the human at the console: the
+// code's page on the docs site — what the finding means and how to fix it —
+// the core's `DEV.guideUrl`, so the footer and an observer's link (the
+// performance tracks' Insights entry) name the same page. The second is for
+// an agent: the repair skill, given twice — the installed file (openable in
+// the repo with no network, at exactly the installed version) and the same
+// file on GitHub (clickable in a browser console; Chrome linkifies it) — with
+// an anchor to the code's own section.
 //
 // Installed by both entries — the client's and the server's — so a server
 // render's console report (a `SERVER_WRITE`, a `HEAD_TAG_INVALID`) carries the
@@ -27,14 +29,18 @@
 import { DEV, setConsoleFooter } from "@solidjs/signals";
 
 const SKILLS_URL = "https://github.com/solidjs/solid/blob/next/packages";
+const SKILL_PATH = "solid-js/skills/reactivity-diagnostics/SKILL.md";
 
 /** Dev-only; the callers gate on their build's dev literal, where `DEV` is defined. */
 export function installConsoleFooter(): void {
   const guideUrl = DEV!.guideUrl;
   setConsoleFooter(event => {
+    // GitHub heading anchors: the code lowercased, underscores kept.
+    const anchor = `#${event.code.toLowerCase()}`;
     const base =
-      `[${event.code}] repair guide: node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md ` +
-      `— ${guideUrl(event.code)}`;
+      `[${event.code}] what it means and how to fix it: ${guideUrl(event.code)}` +
+      `\n[${event.code}] agent repair guide: node_modules/${SKILL_PATH}${anchor} ` +
+      `— ${SKILLS_URL}/solid/skills/reactivity-diagnostics/SKILL.md${anchor}`;
     return event.kind === "perf" || event.kind === "graph" || event.kind === "responsiveness"
       ? base +
           `\n[${event.code}] deeper evidence: import { attribution } from "solid-js/attribution"; ` +

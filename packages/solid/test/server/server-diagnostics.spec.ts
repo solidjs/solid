@@ -79,6 +79,39 @@ describe("component labels (observe/dev)", () => {
     expect(byCode("INVARIANT_VIOLATION")[0].ownerPath).toEqual(["<Anonymous>"]);
   });
 
+  test("the compiler's loc argument lands on the component owner; a finding inside carries it", () => {
+    function Page() {
+      return probe();
+    }
+    function App() {
+      // A nested component the compiler did not locate inherits the
+      // nearest located owner's site.
+      return createComponent(Page, {});
+    }
+    createRoot(() => createComponent(App, {}, "App", "src/App.tsx:12:5"), { id: "r" });
+    const [event] = byCode("INVARIANT_VIOLATION");
+    expect(event.ownerPath).toEqual(["<App>", "<Page>"]);
+    expect(event.loc).toBe("src/App.tsx:12:5");
+
+    capture.clear();
+    createRoot(
+      () =>
+        createComponent(
+          () => createComponent(Page, {}, "Page", "src/Page.tsx:1:1"),
+          {},
+          "App",
+          "src/App.tsx:12:5"
+        ),
+      { id: "r" }
+    );
+    expect(byCode("INVARIANT_VIOLATION")[0].loc).toBe("src/Page.tsx:1:1");
+
+    // A pooled owner reused for an unlocated component carries no stale site.
+    capture.clear();
+    createRoot(() => createComponent(App, {}, "App"), { id: "r" });
+    expect(byCode("INVARIANT_VIOLATION")[0].loc).toBeUndefined();
+  });
+
   test("the label owner is transparent: hydration ids are the same with and without it", () => {
     const ids: string[] = [];
     createRoot(

@@ -346,9 +346,10 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
   const parent = context;
   const transparent = options?.transparent ?? false;
   // Prod and observe boilerplates (see core.ts computed()). The observe
-  // literal carries the `_name` slot the rendering layer fills with the
-  // component label (`owner._name = "<App>"`) — a slot, so labelling a root
-  // is a plain store rather than a shape fork between labelled and plain roots.
+  // literal carries the `_name` and `_loc` slots the rendering layer fills
+  // with the component label and JSX site (`owner._name = "<App>"`,
+  // `owner._loc = "src/App.tsx:3:5"`) — slots, so labelling a root is a
+  // plain store rather than a shape fork between labelled and plain roots.
   const owner = __OBSERVE__
     ? ({
         id: inheritId(options, transparent, parent),
@@ -364,7 +365,8 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
         _x: null,
         _parent: parent,
         dispose: disposeRootSelf,
-        _name: undefined as string | undefined
+        _name: undefined as string | undefined,
+        _loc: undefined as string | undefined
       } as Root)
     : ({
         id: inheritId(options, transparent, parent),

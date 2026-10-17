@@ -6,6 +6,7 @@ use oxc_span::Span;
 
 use crate::dom::element::AstDomTransform;
 use crate::dom::set_attr::SetAttrOptions;
+use crate::dom::template::BindingLabel;
 use crate::shared::constants::{DomPropertyState, dom_with_state};
 use crate::shared::utils::get_numbered_id;
 
@@ -14,6 +15,8 @@ use crate::shared::utils::get_numbered_id;
 /// wrapped into a single effect by `wrap_dynamics_statement`.
 pub(crate) struct DynamicSlot<'a> {
     pub(crate) span: Span,
+    /// The start of the attribute as written (see `AttrPlan::source_offset`).
+    pub(crate) source_offset: u32,
     pub(crate) elem: String,
     pub(crate) key: String,
     pub(crate) value: Expression<'a>,
@@ -102,9 +105,12 @@ impl<'a> AstDomTransform<'a, '_> {
         // binding's `<tag>.<attribute>` as written (undoing the `prop:` the
         // locked DOM property plan added to `value`, `checked`, …), the
         // merged effect listing all of its bindings — as a trailing `{ name }`
-        // options argument. Mirrors Babel's `wrapDynamics`.
-        let label = self.binding_names.then(|| {
-            dynamics
+        // options argument. Mirrors Babel's `wrapDynamics`. Under
+        // `sourceNames.locations` the `loc` is the first binding's attribute
+        // start — the merged effect has one location, the first attribute
+        // it writes.
+        let label = self.binding_names.then(|| BindingLabel {
+            name: dynamics
                 .iter()
                 .map(|slot| {
                     let key = slot
@@ -114,7 +120,8 @@ impl<'a> AstDomTransform<'a, '_> {
                     format!("{}.{}", slot.tag_name, key.unwrap_or(&slot.key))
                 })
                 .collect::<std::vec::Vec<_>>()
-                .join(", ")
+                .join(", "),
+            loc: self.source_location(dynamics[0].source_offset),
         });
 
         if dynamics.len() == 1 {
@@ -292,15 +299,21 @@ impl<'a> AstDomTransform<'a, '_> {
     }
 
     /// `{ name: "<label>" }` — the options argument `sourceNames.bindings`
-    /// appends to `effect` and `insert` calls.
-    pub(crate) fn name_options_object(&self, span: Span, label: &str) -> Expression<'a> {
+    /// appends to `effect` and `insert` calls — with `loc` after `name`
+    /// under `sourceNames.locations`. `name` then `loc`, always: the Babel
+    /// plugin prints the same text.
+    pub(crate) fn name_options_object(&self, span: Span, label: &BindingLabel) -> Expression<'a> {
         let value = self
             .ast()
-            .expression_string_literal(span, self.ast().str(label), None);
-        self.ast().expression_object(
-            span,
-            self.ast().vec1(self.object_property(span, "name", value)),
-        )
+            .expression_string_literal(span, self.ast().str(&label.name), None);
+        let mut properties = self.ast().vec1(self.object_property(span, "name", value));
+        if let Some(loc) = label.loc.as_deref() {
+            let value = self
+                .ast()
+                .expression_string_literal(span, self.ast().str(loc), None);
+            properties.push(self.object_property(span, "loc", value));
+        }
+        self.ast().expression_object(span, properties)
     }
 
     /// `_p$?.<name>`

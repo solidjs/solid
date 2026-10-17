@@ -12,6 +12,7 @@ import {
 } from "../shared/utils";
 import { setAttr } from "./element";
 import { namesBindings } from "../config";
+import { bindingOptions } from "../shared/location";
 import type { NodePath } from "@babel/traverse";
 import type { DynamicBinding, ProgramScopeData, TemplateRecord, TransformResult } from "../types";
 
@@ -218,21 +219,19 @@ function wrapDynamics(
   // binding's `<tag>.<attribute>` as written (undoing the `prop:` the locked
   // DOM property pre-pass added to `value`, `checked`, …), the merged effect
   // listing all of its bindings — as a trailing `{ name }` options argument.
+  // `sourceNames.locations` adds `loc` after it: the first binding's
+  // attribute start (a merged effect points at the first attribute it lists).
   const label = namesBindings(config)
     ? [
-        t.objectExpression([
-          t.objectProperty(
-            t.identifier("name"),
-            t.stringLiteral(
-              dynamics
-                .map(
-                  d =>
-                    `${d.tagName}.${isLockedDOMProperty(d.tagName, d.key) ? d.key.replace(/^prop:/, "") : d.key}`
-                )
-                .join(", ")
+        bindingOptions(
+          dynamics
+            .map(
+              d =>
+                `${d.tagName}.${isLockedDOMProperty(d.tagName, d.key) ? d.key.replace(/^prop:/, "") : d.key}`
             )
-          )
-        ])
+            .join(", "),
+          dynamics.find(d => d.loc !== undefined)?.loc
+        )
       ]
     : [];
 

@@ -171,23 +171,28 @@ function applyGuesses(parent: Transaction | null): void {
     const n = pendingGuesses[i] as Signal<any>;
     const v = pendingGuesses[i + 1];
     let changed = true;
+    // The frame already holding the slot: a guess over it is a second
+    // suggestion for the slot, and two cannot finish apart (A34 (1)) — the
+    // frames entangle.
+    let holder: Transaction | null = null;
     if (n._config & CONFIG_OVERRIDE) {
       // A lane's node already: a guess re-asked, or a derivation guessed
-      // over (its staging is void — the guess is the value now). Two
-      // suggestions for one slot cannot finish apart (A34 (1)): the frames
-      // entangle. The same value re-asked renews the question; nothing to
-      // notify.
+      // over (its staging is void — the guess is the value now). The same
+      // value re-asked renews the question; nothing to notify.
       changed = !n._equals || !n._equals(laneValueOf(n), v);
       if (!(n._config & CONFIG_GUESS)) {
         n._pendingValue = NOT_PENDING;
         n._config |= CONFIG_GUESS;
       }
       n._x!._lane = v;
-      const holder = txOf(n)._parent;
-      if (parent !== null && holder !== null) merge(parent, holder);
+      holder = txOf(n)._parent;
     } else {
       let l: Transaction;
-      if (n._config & CONFIG_HELD) l = newLane(txOf(n));
+      // A held node: a truth staged there, or what a corrected guess showed.
+      // The guess composes on it, so it ends with that hold — and with its
+      // own frame's (F-11): it lands only when both have (the board's rapid
+      // adds — a later add's row reverted with an earlier add's landing).
+      if (n._config & CONFIG_HELD) l = newLane((holder = txOf(n)));
       else {
         if (parent === null && inFlight(n)) parent = newTransaction(false);
         if (parent === null) continue;
@@ -203,6 +208,7 @@ function applyGuesses(parent: Transaction | null): void {
       n._config |= CONFIG_OVERRIDE | CONFIG_GUESS;
       list(n, l);
     }
+    if (parent !== null && holder !== null) merge(parent, holder);
     ext(n)._q = pendingGuesses[i + 2];
     if (changed) {
       // The lane's members re-derive as its work (REACTIVE_LANE_DIRTY): a

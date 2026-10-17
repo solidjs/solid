@@ -897,12 +897,12 @@ export function computed<T>(
   const loading = options !== null && typeof options === "object" && "loadingValue" in options;
   // Two literals, one per tier, selected at build time (the observe flag is
   // a literal after replacement; the untaken branch is dead code). The observe
-  // literal is the prod literal plus its `_name` slot — a slot in the
-  // boilerplate, because a post-construction `self._name = …` forces a
+  // literal is the prod literal plus its `_name` and `_loc` slots — slots in
+  // the boilerplate, because a post-construction `self._name = …` forces a
   // hidden-class transition and an out-of-object property store on EVERY node
   // (measured: the whole of the observe tier's creation overhead). Keep the
   // two in sync — the dist artifact test pins observe's key set to prod's
-  // plus `_name`.
+  // plus the slots.
   const self: Computed<T> = __OBSERVE__
     ? ({
         id: inheritId(options, transparent, context),
@@ -945,6 +945,7 @@ export function computed<T>(
         // The slot is always present (hidden class); plumbing leaves it
         // unset, which `ownerPath` skips.
         _name: options?._plumbing ? undefined : (options?.name ?? "computed"),
+        _loc: options?.loc,
         // Observe: the verdict windows this pass entered (verdict.ts) — a
         // slot, so the stamp is never a write after construction.
         _devWindows: 0
@@ -1200,6 +1201,7 @@ export function createEffectNode<T>(
         _type: type,
         _x: null,
         _name: options?.name ?? "effect",
+        _loc: options?.loc,
         _devWindows: 0
       } as any)
     : ({
@@ -1312,7 +1314,7 @@ function setupComputedNode<T>(self: Computed<T>, options: NodeOptions<T> | undef
 
 export function signal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
   // Prod and observe boilerplates — see computed(). The observe literal adds
-  // `_name` and `_owner` (the creating owner, stamped by registerGraph for
+  // `_name`, `_loc` and `_owner` (the creating owner, stamped by registerGraph for
   // createSignal nodes so ownerPath can locate signal subjects; null here,
   // and staying null on internal signals — one shape either way).
   const s = __OBSERVE__
@@ -1329,6 +1331,7 @@ export function signal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
         _notifiedAt: -1,
         _x: null,
         _name: options?.name ?? "signal",
+        _loc: options?.loc,
         _owner: null as Owner | null
       }
     : {
@@ -1372,7 +1375,8 @@ export function isEqual<T>(a: T, b: T): boolean {
  * object, no NodeExtension, no post-construction expandos. `ownedWrite` is
  * baked in: the setter carries the owned-scope guard; node-level writes are
  * the store's notification machinery. The observe literal adds the label
- * slot (the store relabels it `store.<key>` when the engine is installed). */
+ * and location slots (the store relabels `store.<key>` and stamps the
+ * store's `loc` when the engine is installed). */
 export function slotSignal<T>(
   v: T,
   equals: (a: T, b: T) => boolean,
@@ -1397,6 +1401,7 @@ export function slotSignal<T>(
         px: undefined,
         pxv: undefined,
         _name: "signal",
+        _loc: undefined as string | undefined,
         _owner: null as Owner | null
       }
     : {

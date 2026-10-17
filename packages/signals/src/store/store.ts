@@ -406,7 +406,9 @@ export function getNode(
     // the hottest store path, and the disabled cost must stay one null
     // check (nodes created before enable() stay generically named).
     if (__OBSERVE__ && attrHooks !== null) {
-      (created as any)._name = storeLabel(target) + "." + String(key);
+      const root = storeRoot(target);
+      (created as any)._name = (storeNames!.get(root) ?? "store") + "." + String(key);
+      (created as any)._loc = storeLocs!.get(root);
       stampNodeOwner(created, target);
     }
     nodes[key] = node;
@@ -539,12 +541,16 @@ function stampNodeOwner(created: Signal<any>, target: StoreTarget): void {
   (created as any)._owner = storeRootOwner(target) ?? null;
 }
 const storeNames: WeakMap<StoreTarget, string> | null = __OBSERVE__ ? new WeakMap() : null;
-export function nameStore(proxy: any, name: string | undefined): void {
-  if (__OBSERVE__ && attrHooks !== null && name)
-    storeNames!.set((proxy as any)[$TARGET] as StoreTarget, name);
-}
-function storeLabel(target: StoreTarget): string {
-  return storeNames!.get(storeRoot(target)) ?? "store";
+// The store's `loc` option, carried onto every property node beside its
+// label (the same gate: nodes created before the engine is installed carry
+// neither).
+const storeLocs: WeakMap<StoreTarget, string> | null = __OBSERVE__ ? new WeakMap() : null;
+export function nameStore(proxy: any, name: string | undefined, loc?: string): void {
+  if (__OBSERVE__ && attrHooks !== null) {
+    const target = (proxy as any)[$TARGET] as StoreTarget;
+    if (name) storeNames!.set(target, name);
+    if (loc) storeLocs!.set(target, loc);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2382,7 +2388,7 @@ export function createStore<T extends Record<PropertyKey, any>>(
     // disabled, buys nothing.
     if (attrHooks !== null) {
       storeOwners!.set((proxy as any)[$TARGET] as StoreTarget, owner);
-      nameStore(proxy, options?.name);
+      nameStore(proxy, options?.name, options?.loc);
     }
   }
   const setter: SetStoreFunction<T> = fn => storeSetter(proxy, fn);

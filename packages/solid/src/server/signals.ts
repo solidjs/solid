@@ -110,6 +110,8 @@ import {
   devCheck,
   emitFinding,
   errorText,
+  flightOrigin,
+  markFlight,
   recordFinding
 } from "./diagnostics.js";
 import type { DiagnosticSubject } from "@solidjs/signals";
@@ -166,6 +168,14 @@ interface SSROwner {
    * signals node shapes), so the 10-field layout above is untouched there.
    */
   _name?: string;
+  /**
+   * Observe/dev tiers only: the component's JSX site (`file:line:col`) the
+   * compiler emitted beside its name — the core's `emitDiagnostic` walks
+   * `_parent` for the first one, so a server finding carries `loc` the way
+   * a client one does. A slot beside `_name`, for the same hidden-class
+   * reason.
+   */
+  _loc?: string;
 }
 
 const defaultSSRContext: Record<symbol | string, unknown> = {};
@@ -293,9 +303,10 @@ export function createOwner(options?: { id?: string; transparent?: boolean }): O
  * observe tier and binds live in prod would be a tier-dependent render.
  * Never called from the prod build.
  */
-export function createComponentOwner(name: string): Owner {
+export function createComponentOwner(name: string, loc?: string): Owner {
   const owner = allocateOwner(undefined, true);
   owner._name = name;
+  owner._loc = loc;
   return owner as unknown as Owner;
 }
 
@@ -330,10 +341,13 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
     owner._nextSibling = null;
     owner._disposed = false;
     owner._scopeSlot = -1;
-    if (IS_OBSERVE) owner._name = undefined;
+    if (IS_OBSERVE) {
+      owner._name = undefined;
+      owner._loc = undefined;
+    }
   } else {
     // Two literals, one per tier: the observe/dev shape carries the label
-    // slot so every owner of the tier shares a hidden class (a pooled
+    // and location slots so every owner of the tier shares a hidden class (a pooled
     // component owner reused as a plain one included); prod's 10-field
     // literal is the same shape in every allocation site.
     owner = IS_OBSERVE
@@ -348,7 +362,8 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
           _nextSibling: null,
           _disposed: false,
           _scopeSlot: -1,
-          _name: undefined
+          _name: undefined,
+          _loc: undefined
         }
       : {
           id,
@@ -1732,6 +1747,12 @@ function processResult<T>(
     const deferred: DeferredPromise<T> = slot ? slot.d! : createDeferredPromise<T>();
     const serializes = !!(ctx?.async && ctx.serialize && id && !noHydrate);
     if (!slot) {
+      if (IS_DEV) {
+        // The boundary waits on the deferred, not on `result`: carry over the
+        // start a preloader or cache stamped on what it handed out (#4105).
+        const origin = flightOrigin(result as object);
+        if (origin !== undefined) markFlight(deferred.promise, origin);
+      }
       recordSlot(0, undefined, deferred);
       if (serializes) ctx.serialize(id, deferred.promise, deferStream);
     } else {
@@ -3766,7 +3787,10 @@ export function createErrorBoundary<T, U>(
       const value = runWithOwner(createOwner(), fn);
       resolveId = idOwner.id != null ? nextChildIdFor(idOwner, true) : undefined;
       resolveCount = 0;
-      resolved = resolveIn(() => ctx!.resolve(value));
+      // The boundary is an insertion root: its content never passes a
+      // compiled `escape` hole, so escape here, as the Loading boundary does
+      // (#4116).
+      resolved = resolveIn(() => ctx!.resolve(ctx!.escape(value)));
     }
     pending = resolved?.p?.length ? resolved : undefined;
     if (pending) {

@@ -1,5 +1,5 @@
 import { untrack, createMemo } from "@solidjs/signals";
-import { IS_DEV, IS_OBSERVE, observedComponent } from "../client/core.js";
+import { IS_DEV, IS_OBSERVE, markFlight, observedComponent } from "../client/core.js";
 import { _lazyHydrationLookup, sharedConfig, tracing } from "./hydration.js";
 import type { Element as SolidElement } from "../types.js";
 
@@ -76,13 +76,20 @@ export type Ref<T> = T | ((val: T) => void) | undefined | Ref<T>[];
  *   the component's owner with it — `Comp.name` is whatever the minifier left
  *   — so diagnostics and attribution paths read `<Home>` in production
  *   bundles. The production build ignores it.
+ * @param loc the JSX site as written in source (`"src/App.tsx:12:5"`,
+ *   root-relative `file:line:col`), emitted by the compiler's `sourceNames`
+ *   `locations` kind beside `name`. Dev and observe builds keep it on the
+ *   component's owner, so a diagnostic raised inside the component reports
+ *   `at src/App.tsx:12:5` when nothing closer was located. The production
+ *   build ignores it.
  */
 export function createComponent<T extends Record<string, any>>(
   Comp: Component<T>,
   props: T,
-  name?: string
+  name?: string,
+  loc?: string
 ): SolidElement {
-  if (IS_OBSERVE) return observedComponent(Comp, props || ({} as T), name);
+  if (IS_OBSERVE) return observedComponent(Comp, props || ({} as T), name, loc);
   return untrack(() => Comp(props || ({} as T)));
 }
 
@@ -150,6 +157,9 @@ export function lazy<T extends Component<any>>(
   const load = () => {
     if (p) return p;
     const cur = (p = fn());
+    // Observe: the import starts now, whoever reads it later, so a route
+    // that preloads every level isn't read as a waterfall (#4105).
+    if (IS_OBSERVE) markFlight(cur);
     // Under a hydration trace the global Promise is the never-settling
     // MockPromise stub; a loader that builds its promise from it (Vite's
     // __vitePreload) must not cache that stub, or every later preload and
@@ -186,9 +196,13 @@ export function lazy<T extends Component<any>>(
     let local = comp;
     if (!local) {
       load();
-      local = createMemo<T>(() =>
-        load().then((mod: any) => (exportName ? mod[exportName] : mod.default))
-      );
+      local = createMemo<T>(() => {
+        const cur = load();
+        const read = cur.then((mod: any) => (exportName ? mod[exportName] : mod.default));
+        // Observe: the read is a fresh wrapper; it started with the import.
+        if (IS_OBSERVE) markFlight(read, cur);
+        return read;
+      });
     }
 
     let Comp: T | undefined;
@@ -237,6 +251,9 @@ export function lazyModule<T extends Record<string, any>>(
   const load = () => {
     if (p) return p;
     const cur = (p = fn());
+    // Observe: the import starts now, whoever reads it later, so a route
+    // that preloads every level isn't read as a waterfall (#4105).
+    if (IS_OBSERVE) markFlight(cur);
     // Same MockPromise-stub guard as lazy() (#4013).
     if (tracing) p = undefined;
     cur.then(

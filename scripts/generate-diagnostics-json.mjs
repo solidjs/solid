@@ -19,7 +19,7 @@
  * `BINDING_SLOT_POSITION` reports under more than one kind); `severity` is
  * the RFC's Severity cell split the same way into `DiagnosticSeverity` values
  * (`["info", "warn"]` when the tier depends on the finding); `guideUrl` is the
- * code's section in the skill on GitHub.
+ * code's page on the docs site (what `DEV.guideUrl(code)` returns).
  *
  * Plain Node, no dependencies. Run from anywhere:
  *
@@ -37,8 +37,8 @@ export const DEV_TS = "packages/signals/src/core/dev.ts";
 export const RFC_MD = "documentation/solid-2.0/08-dev-diagnostics.md";
 export const SKILL_MD = "packages/solid/skills/reactivity-diagnostics/SKILL.md";
 export const OUTPUT_JSON = "packages/solid/diagnostics.json";
-export const GUIDE_BASE_URL =
-  "https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md";
+/** The docs site's page per code — the same URL `DEV.guideUrl` builds. */
+export const GUIDE_BASE_URL = "https://v2.solidjs.com/reference/solid-js/diagnostics/";
 
 const RFC_HEADING = "## Diagnostic codes (quick reference)";
 
@@ -212,7 +212,7 @@ function splitCell(cell, allowed, aliases, what, code, file) {
 }
 
 export function guideUrl(code) {
-  return `${GUIDE_BASE_URL}#${code.toLowerCase()}`;
+  return GUIDE_BASE_URL + code.toLowerCase().replace(/_/g, "-");
 }
 
 /** Read the three sources from `root`. */

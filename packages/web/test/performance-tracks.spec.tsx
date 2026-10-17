@@ -1578,7 +1578,7 @@ describe("enablePerformanceTracks", () => {
         ["Node", "results"],
         ["Message", 'click on button#save "Save" waited 412ms with no feedback'],
         ["holdMs", "412"], // primitive `data` fields ride along; objects do not
-        ["Guide", expect.stringMatching(/SKILL\.md#silent_hold$/)]
+        ["Guide", "https://v2.solidjs.com/reference/solid-js/diagnostics/silent-hold"]
       ])
     );
     expect(hold.properties!.some(([k]) => k === "interaction")).toBe(false);
@@ -1586,7 +1586,7 @@ describe("enablePerformanceTracks", () => {
       name: "Solid: SILENT_HOLD",
       severity: "warning",
       description: 'click on button#save "Save" waited 412ms with no feedback',
-      learnMoreUrl: expect.stringMatching(/SKILL\.md#silent_hold$/)
+      learnMoreUrl: "https://v2.solidjs.com/reference/solid-js/diagnostics/silent-hold"
     });
     // `info` is a marker and nothing more.
     expect(hot).toMatchObject({ label: "HOT_SCOPE_RERUNS", color: "primary-light" });

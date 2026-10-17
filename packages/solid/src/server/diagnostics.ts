@@ -18,6 +18,22 @@ export const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
 export type Finding = Omit<DiagnosticEvent, "sequence">;
 
 /**
+ * Dev: stamps `flight` with when its work started (the core's
+ * `OBSERVE.attribution.markFlight`, which the client engine reads too). The
+ * `<Loading>` waterfall check reads the stamps back with `flightOrigin` to
+ * tell a wait on work that was already running from one that could only
+ * start after the previous wait landed (#4105). Call sites gate on `IS_DEV`.
+ */
+export function markFlight(flight: object, startedAt?: number): void {
+  OBSERVE!.attribution.markFlight(flight, startedAt);
+}
+
+/** Dev: the stamp `markFlight` left on `flight`, if any. */
+export function flightOrigin(flight: object): number | undefined {
+  return OBSERVE!.attribution.flightOrigin(flight);
+}
+
+/**
  * Records a finding on `OBSERVE.diagnostics` — observe and dev tiers — and,
  * in dev, reports it on the console through the core's one face (message,
  * `in <App> › <Page>`, the once-per-code footer). `subject` locates it; the

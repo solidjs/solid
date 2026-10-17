@@ -40,9 +40,11 @@ for (const dir of process.argv.slice(2)) {
         keep_classnames: true,
         keep_fnames: true,
         module: false,
-        // Two cross-package owner fields, both reserved: `_name` — solid-js
+        // Three cross-package owner fields, all reserved: `_name` — solid-js
         // writes the component label onto signals' owners (`owner._name =
-        // "<App>"`) and `ownerPath` reads it — and `_parent`, the owner-tree
+        // "<App>"`) and `ownerPath` reads it — `_loc`, the source location
+        // solid-js writes beside it (`owner._loc = "src/App.tsx:3:5"`) and
+        // `emitDiagnostic` reads for `event.loc` — and `_parent`, the owner-tree
         // link, which solid-js walks on signals' owners (client hydration's
         // root lookup) and which the core walks on solid-js's server owners
         // (`ownerPath`, `OBSERVE.exclude`/`isExcluded`). Mangling either
@@ -52,7 +54,7 @@ for (const dir of process.argv.slice(2)) {
         // in the observe tier. Every other `_` field is private to this
         // package; solid's cross-package-fields spec scans the downstream
         // artifacts for any new one.
-        properties: { regex: /^_/, reserved: ["_name", "_parent"] }
+        properties: { regex: /^_/, reserved: ["_name", "_loc", "_parent"] }
       },
       // preserve_annotations: terser consumes /*@__PURE__*/ during parse and
       // only re-emits it when asked — without this the prod tree loses the

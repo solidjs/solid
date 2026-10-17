@@ -136,7 +136,7 @@ function transformSourceNamesAsync(code, options) {
   return Promise.resolve().then(() => transformSourceNames(code, options));
 }
 
-const sourceNamesOptionKeys = new Set(["filename", "sourceMap"]);
+const sourceNamesOptionKeys = new Set(["filename", "locations", "root", "sourceMap"]);
 
 function validateSourceNamesOptions(options) {
   if (options == null) return options;
@@ -149,11 +149,11 @@ function validateSourceNamesOptions(options) {
     if (!sourceNamesOptionKeys.has(key)) {
       throw new Error(`@solidjs/compiler received unknown option \`${key}\``);
     }
-    if (key === "filename" && typeof value !== "string") {
-      throw new TypeError("@solidjs/compiler `filename` option must be a string");
+    if ((key === "filename" || key === "root") && typeof value !== "string") {
+      throw new TypeError(`@solidjs/compiler \`${key}\` option must be a string`);
     }
-    if (key === "sourceMap" && typeof value !== "boolean") {
-      throw new TypeError("@solidjs/compiler `sourceMap` option must be boolean");
+    if ((key === "sourceMap" || key === "locations") && typeof value !== "boolean") {
+      throw new TypeError(`@solidjs/compiler \`${key}\` option must be boolean`);
     }
     nativeOptions[key] = value;
   }
@@ -297,6 +297,7 @@ function validateImportDefinition(key, value) {
 
 const nativeOptionKeys = new Set([
   "filename",
+  "root",
   "moduleName",
   "generate",
   "hydratable",
@@ -368,6 +369,13 @@ function validateOptions(code, options) {
       nativeOptions.sourceNames = value;
       continue;
     }
+    if (key === "root") {
+      if (typeof value !== "string") {
+        throw new TypeError("@solidjs/compiler `root` option must be a string");
+      }
+      nativeOptions.root = value;
+      continue;
+    }
     if (nativeOptionKeys.has(key)) {
       if (key === "renderers") validateRenderers(value);
       nativeOptions[key] = value;
@@ -378,7 +386,7 @@ function validateOptions(code, options) {
   return nativeOptions;
 }
 
-const sourceNameKinds = new Set(["components", "bindings"]);
+const sourceNameKinds = new Set(["components", "bindings", "locations"]);
 
 function validateSourceNames(value) {
   if (typeof value === "boolean") return;

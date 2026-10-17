@@ -27,6 +27,16 @@ export const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
  */
 export const $DEVCOMP = Symbol(IS_DEV ? "COMPONENT_DEV" : 0);
 
+/**
+ * Observe: stamps `flight` with when its work started — `from`'s start, or
+ * now — so a reader that meets it later isn't read as a waterfall link (see
+ * `OBSERVE.attribution.markFlight`). Call sites gate on `IS_OBSERVE`.
+ */
+export function markFlight(flight: object, from?: object): void {
+  const slot = OBSERVE!.attribution;
+  slot.markFlight(flight, from && slot.flightOrigin(from));
+}
+
 // Magic type that when used at sites where generic types are inferred from, will prevent those sites from being involved in the inference.
 // https://github.com/microsoft/TypeScript/issues/14829
 // TypeScript Discord conversation: https://discord.com/channels/508357248330760243/508357248330760249/911266491024949328
@@ -238,7 +248,12 @@ export interface ComponentRecord<P = unknown> {
   task: ConsoleTask | undefined;
 }
 
-export function observedComponent<P, V>(Comp: (props: P) => V, props: P, name?: string): V {
+export function observedComponent<P, V>(
+  Comp: (props: P) => V,
+  props: P,
+  name?: string,
+  loc?: string
+): V {
   // A JSX tag whose component resolved to a non-function otherwise surfaces
   // as `Cannot read properties of undefined (reading 'name')` from inside the
   // dev build — a framework-shaped stack for an app-shaped mistake (#3005).
@@ -258,8 +273,11 @@ export function observedComponent<P, V>(Comp: (props: P) => V, props: P, name?: 
       // signals observe layer reads for owner names (reserved from property
       // mangling there for exactly this write) — so diagnostics locate scopes
       // by component and an owned-scope write in a component body reports
-      // "(in <TodoRow>)".
+      // "(in <TodoRow>)". The JSX site rides beside it in the `_loc` slot
+      // (reserved the same way): the fallback location of every finding
+      // raised under this component that has no closer one.
       owner._name = label;
+      owner._loc = loc;
       if (IS_DEV) {
         // The JSX site as a console task (Chrome's async stack tagging):
         // an observer that later reports on this component's nodes — the

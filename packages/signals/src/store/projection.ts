@@ -334,15 +334,15 @@ function createProjectionInternal<T extends object = {}>(
     ((store as any)[$TARGET] as StoreTarget).s = true;
     markRawIngest(seed);
   }
-  let nodeOptions: { name?: string; loadingValue?: void } | undefined;
+  let nodeOptions: { name?: string; loc?: string; loadingValue?: void } | undefined;
   if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
   if (__OBSERVE__ && attrHooks !== null)
     // As createStore: the owner in scope stamps the projection's property
     // nodes, so attribution places them under it (#4035).
     storeOwners!.set((store as any)[$TARGET] as StoreTarget, getOwner());
-  if (__OBSERVE__ && options?.name) {
-    nodeOptions = { ...nodeOptions, name: options.name };
-    nameStore(store, options.name);
+  if (__OBSERVE__ && (options?.name || options?.loc)) {
+    nodeOptions = { ...nodeOptions, name: options.name, loc: options.loc };
+    nameStore(store, options.name, options.loc);
   }
   const node = computed(() => {
     if (!fam.node) fam.node = getOwner() as Computed<any>;

@@ -4,7 +4,8 @@ import {
   createMemo,
   createRoot,
   createSignal,
-  flush
+  flush,
+  getOwner
 } from "@solidjs/signals";
 import {
   artifactToJSONL,
@@ -38,6 +39,40 @@ describe("captureArtifact — diagnostics channel", () => {
     expectDiagnostic(artifact, "NO_OWNER_EFFECT");
     expect(() => expectNoDiagnostics(artifact)).toThrow(DiagnosticsAssertionError);
     expectNoDiagnostics(artifact, { allow: ["NO_OWNER_EFFECT"] });
+  });
+
+  it("keeps a finding's source location on the artifact and in the assertion's evidence", async () => {
+    const { artifact } = await captureArtifact(
+      () => {
+        createRoot(() => {
+          createMemo(
+            () => {
+              OBSERVE!.diagnostics.emit(
+                { code: "INVARIANT_VIOLATION", kind: "error", severity: "error", message: "probe" },
+                getOwner()
+              );
+              return 1;
+            },
+            { name: "label", loc: "src/components/TodoRow.tsx:18:3" }
+          )();
+        });
+      },
+      { scenario: "located finding", attribution: false }
+    );
+    const [event] = artifact.diagnostics;
+    expect(event.ownerPath).toEqual(["label"]);
+    expect(event.loc).toBe("src/components/TodoRow.tsx:18:3");
+    // The failure message prints the offending events, location included.
+    let message = "";
+    try {
+      expectNoDiagnostics(artifact);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('"ownerPath":["label"]');
+    expect(message).toContain('"loc":"src/components/TodoRow.tsx:18:3"');
+    // And the JSONL form carries it verbatim.
+    expect(artifactToJSONL(artifact)).toContain('"loc":"src/components/TodoRow.tsx:18:3"');
   });
 
   it("captures nothing for a clean scenario", async () => {
