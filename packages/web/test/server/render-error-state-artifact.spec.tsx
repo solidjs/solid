@@ -63,40 +63,61 @@ import { configureServerErrors, renderToStream } from '@solidjs/web';
 import { createPlugin } from '@solidjs/web/serialization';
 import { sharedConfig } from 'solid-js/internal';
 let failure;
+let kind;
+let logs = 0;
+console.error = () => logs++;
 class Value {}
+function parse() {
+  if (kind === 'parse') throw failure;
+  return {};
+}
 const plugin = createPlugin({
   tag: 'test/render-error-state',
   test: value => value instanceof Value,
-  parse: { sync: () => ({}), stream: () => ({}) },
+  parse: { sync: parse, stream: parse },
   serialize() { throw failure; },
   deserialize: () => new Value()
 });
-for (const mode of ['async', 'sync', 'defer']) {
-  for (const hook of ['none', 'local', 'global']) {
+for (kind of ['parse', 'serialize', 'unsupported']) {
+ for (const mode of ['async', 'sync', 'defer']) {
+  for (const hook of ['none', 'local', 'global', 'both']) {
+    logs = 0;
     failure = new Error('plugin serialization failure');
     const calls = [];
-    const onError = error => { calls.push(error); };
-    configureServerErrors(hook === 'global' ? { onError } : {});
+    const onError = (error, context) => { calls.push(['local', error, context.handling]); return new Error('public failure'); };
+    const globalError = (error, context) => { calls.push(['global', error, context.handling]); return new Error('public failure'); };
+    configureServerErrors(hook === 'global' || hook === 'both' ? { onError: globalError } : {});
     const abort = new AbortController();
+    let completed = false;
+    const value = kind === 'unsupported' ? new WeakMap() : new Value();
     const stream = renderToStream(() => {
-      sharedConfig.context.serialize('value', mode === 'sync' ? new Value() : Promise.resolve(new Value()), mode === 'defer');
+      sharedConfig.context.serialize('value', mode === 'sync' ? value : Promise.resolve(value), mode === 'defer');
       return '<p>shell</p>';
-    }, { plugins: [plugin], signal: abort.signal, ...(hook === 'local' ? { onError } : {}) });
+    }, { plugins: [plugin], signal: abort.signal, onCompleteAll() { completed = true; }, ...(hook === 'local' || hook === 'both' ? { onError } : {}) });
     let timer;
     try {
       const html = await Promise.race([
         Promise.resolve(stream),
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('render did not complete')), 1000); })
       ]);
-      assert.ok(html.includes('shell'));
+      assert.equal(typeof html, 'string');
       assert.ok(!html.includes(failure.message));
-      assert.equal(stream.hasErrors, hook === 'local');
-      assert.deepEqual(calls, hook === 'local' ? [failure] : []);
+      assert.ok(!html.includes('Seroval Error'));
+      assert.equal(stream.hasErrors, true);
+      assert.equal(completed, false);
+      assert.equal(calls.length, hook === 'none' ? 0 : 1);
+      assert.equal(logs, hook === 'none' ? 1 : 0);
+      if (calls.length) {
+        assert.equal(calls[0][0], hook === 'global' ? 'global' : 'local');
+        assert.equal(calls[0][2], 'serialize');
+        if (kind !== 'unsupported') assert.equal(calls[0][1], failure);
+      }
     } finally {
       clearTimeout(timer);
       abort.abort();
     }
   }
+ }
 }
 process.stdout.write('passed');
 `;
@@ -113,7 +134,7 @@ describe("render error state in published artifacts", () => {
   });
 
   test.each(["production", "development", "observe"])(
-    "preserves serializer error handling in %s",
+    "terminates default serializer failures in %s",
     condition => {
       const args = condition === "production" ? [] : [`--conditions=${condition}`];
       const output = execFileSync(

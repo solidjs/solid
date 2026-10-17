@@ -13,9 +13,9 @@ import {
   type RequestEvent,
   type ServerErrorHook
 } from "@solidjs/web";
-import { NotReadyError, createMemo } from "solid-js";
+import { NotReadyError, createMemo, onCleanup } from "solid-js";
 import { sharedConfig } from "solid-js/internal";
-import { type HydrationSerializerOptions } from "@solidjs/web/serialization";
+import { createPlugin, type HydrationSerializerOptions } from "@solidjs/web/serialization";
 import {
   createServerReference,
   registerServerReference
@@ -202,9 +202,10 @@ describe("renderToStream.hasErrors", () => {
   });
 
   test.each([false, true])(
-    "preserves the synchronous serializer throw without a local hook (global: %s)",
-    hasGlobalHook => {
+    "terminates a synchronous parse failure without a local hook (global: %s)",
+    async hasGlobalHook => {
       const onError = vi.fn<ServerErrorHook>(() => undefined);
+      const onCompleteAll = vi.fn();
       if (hasGlobalHook) configureServerErrors({ onError });
       const abort = new AbortController();
       let context!: NonNullable<typeof sharedConfig.context>;
@@ -213,24 +214,154 @@ describe("renderToStream.hasErrors", () => {
           context = sharedConfig.context!;
           return <p>shell</p>;
         },
-        { signal: abort.signal }
+        { signal: abort.signal, onCompleteAll }
       );
       try {
-        expect(() => context.serialize("unsupported", new WeakMap())).toThrow(
-          expect.objectContaining({
-            constructor: expect.objectContaining({ name: "SerovalParserError" }),
-            cause: expect.objectContaining({
-              constructor: expect.objectContaining({ name: "SerovalUnsupportedTypeError" })
-            })
-          })
-        );
+        expect(() => context.serialize("unsupported", new WeakMap())).not.toThrow();
+        await stream;
         expect(stream.hasErrors).toBe(true);
-        expect(onError).not.toHaveBeenCalled();
+        expect(onCompleteAll).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledTimes(hasGlobalHook ? 1 : 0);
+        expect(console.error).toHaveBeenCalledTimes(hasGlobalHook ? 0 : 1);
       } finally {
         abort.abort();
       }
     }
   );
+
+  test.each([new Error("private parse"), undefined, null, false, 0, ""])(
+    "cleans up pending sources after a parser throws %s",
+    async error => {
+      const token = {};
+      const cleanup = vi.fn();
+      const returned = vi.fn(async () => ({ done: true as const, value: undefined }));
+      const source = {
+        [Symbol.asyncIterator]() {
+          return {
+            next: () => new Promise<IteratorResult<unknown>>(() => {}),
+            return: returned
+          };
+        }
+      };
+      const plugin = createPlugin({
+        tag: "test/failing-parse-cleanup",
+        test: value => value === token,
+        parse: {
+          stream(_value, context) {
+            context.parse(source);
+            throw error;
+          }
+        },
+        serialize: () => "({})",
+        deserialize: () => token
+      });
+      const onCompleteAll = vi.fn();
+      const onError = vi.fn<ServerErrorHook>(() => new Error("public"));
+      configureServerErrors({ onError });
+      const stream = renderToStream(
+        () => {
+          onCleanup(cleanup);
+          sharedConfig.context!.serialize("bad", token);
+          return <p>shell</p>;
+        },
+        { plugins: [plugin], onCompleteAll }
+      );
+      await stream;
+      await Promise.resolve();
+      expect(stream.hasErrors).toBe(true);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError.mock.calls[0]?.[0]).toBe(error);
+      expect(onError.mock.calls[0]?.[1]).toMatchObject({ handling: "serialize" });
+      expect(onCompleteAll).not.toHaveBeenCalled();
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(returned).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  test.each(["pipe", "pipeTo", "readable"] as const)(
+    "ends %s and disposes pending siblings after a post-shell serialization failure",
+    async consumer => {
+      const gate = Promise.withResolvers<WeakMap<object, unknown>>();
+      const shell = Promise.withResolvers<void>();
+      const ended = Promise.withResolvers<void>();
+      const cleanup = vi.fn();
+      const returned = vi.fn(async () => ({ done: true as const, value: undefined }));
+      const source = {
+        [Symbol.asyncIterator]() {
+          return {
+            next: () => new Promise<IteratorResult<unknown>>(() => {}),
+            return: returned
+          };
+        }
+      };
+      const chunks: string[] = [];
+      const onCompleteAll = vi.fn();
+      const onError = vi.fn<ServerErrorHook>(() => new Error("public"));
+      configureServerErrors({ onError });
+      const stream = renderToStream(
+        () => {
+          onCleanup(cleanup);
+          sharedConfig.context!.serialize("sibling", source);
+          sharedConfig.context!.serialize("bad", gate.promise);
+          return <p>shell</p>;
+        },
+        { onCompleteAll, onCompleteShell: () => shell.resolve() }
+      );
+      let result: Promise<unknown>;
+      if (consumer === "pipe") {
+        stream.pipe({ write: chunk => chunks.push(chunk), end: ended.resolve });
+        result = ended.promise;
+      } else if (consumer === "pipeTo") {
+        result = stream
+          .pipeTo(
+            new WritableStream({
+              write: chunk => {
+                chunks.push(new TextDecoder().decode(chunk));
+              },
+              close: ended.resolve
+            })
+          )
+          .then(() => ended.promise);
+      } else {
+        result = new Response(stream.readable).text().then(html => chunks.push(html));
+      }
+      await shell.promise;
+      expect(stream.hasErrors).toBe(false);
+      gate.resolve(new WeakMap());
+      await result;
+      await Promise.resolve();
+      expect(chunks.join("")).toContain("shell");
+      expect(chunks.join("")).not.toContain("Seroval Error");
+      expect(stream.hasErrors).toBe(true);
+      expect(onCompleteAll).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(returned).toHaveBeenCalledTimes(1);
+      const healthy = renderToStream(() => <p>healthy</p>);
+      expect(await healthy).toContain("healthy");
+      expect(healthy.hasErrors).toBe(false);
+    }
+  );
+
+  test("still terminates when the global serialization hook throws", async () => {
+    configureServerErrors({
+      onError: () => {
+        throw new Error("hook failed");
+      }
+    });
+    const onCompleteAll = vi.fn();
+    const stream = renderToStream(
+      () => {
+        sharedConfig.context!.serialize("bad", Promise.resolve(new WeakMap()));
+        return <p>shell</p>;
+      },
+      { onCompleteAll }
+    );
+    await stream;
+    expect(stream.hasErrors).toBe(true);
+    expect(onCompleteAll).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledTimes(1);
+  });
 
   test.each(["none", "local", "global"])(
     "preserves the custom serializer callback contract (%s hook)",

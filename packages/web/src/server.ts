@@ -1978,9 +1978,10 @@ export function renderToStream<T>(
    * Whether this render observed an error, including an Errored fallback,
    * a rejected Loading fragment, or a reported serialization failure. Monotonic
    * and local to this render, independent of onError's once-per-error reporting.
-   * Serializer errors thrown synchronously by a write or reported to a local
-   * onError hook are recorded. Errors suppressed internally by a serializer, or
-   * thrown asynchronously without a local hook, are not observable here.
+   * Failures of the default serializer terminate the render and are recorded
+   * regardless of whether an error hook is installed. Custom serializers must
+   * throw synchronously or report through their supplied onError callback;
+   * errors they suppress internally are not observable here.
    * Read after completion when deciding whether to publish the whole HTML.
    * False does not imply completion: an aborted render may have no errors.
    */
@@ -2034,6 +2035,7 @@ export function renderToStream(code, options = {}) {
   let dispose;
   let dead = false;
   let hasErrors = false;
+  let hasSerializationError = false;
   const recordRenderError = () => {
     hasErrors = true;
   };
@@ -2047,6 +2049,7 @@ export function renderToStream(code, options = {}) {
   // being a temporal-dead-zone assumption.
   let serializer;
   const writeSerialized = (id, value) => {
+    if (hasSerializationError) return defuse(value);
     try {
       return serializer.write(id, value);
     } catch (err) {
@@ -2345,7 +2348,7 @@ export function renderToStream(code, options = {}) {
     // consumer was completed by the wind-down (`abandon`) — a disconnect has
     // nobody to complete. Serialized promises still settle after the
     // wind-down, so seroval still reaches here; do nothing (#3569).
-    if (dead) return;
+    if (dead || hasSerializationError) return;
     writeTasks();
     // Every blocker has settled by definition here (the render is complete),
     // so doShell's growth gate has nothing to wait for: align its baseline
@@ -2472,23 +2475,39 @@ export function renderToStream(code, options = {}) {
   // flows through onData is a contract between the serializer and the sink
   // (hydration scripts for the document sink, keyed codec records for the
   // frame sink); the core never inspects it.
-  const observeSerializerError = hook =>
-    hook === undefined
-      ? undefined
-      : err => {
-          recordRenderError();
-          hook(err);
-        };
-  serializer = (options.serializer || createHydrationSerializer)({
+  const customSerializer = options.serializer;
+  const observeSerializerError = hook => {
+    if (customSerializer) {
+      const onError = serializerErrorHook(hook);
+      return onError === undefined
+        ? undefined
+        : err => {
+            recordRenderError();
+            onError(err);
+          };
+    }
+    return err => {
+      if (dead || hasSerializationError) return;
+      hasSerializationError = true;
+      recordRenderError();
+      // A synchronous write registers its cleanup only after this callback returns.
+      queue(abandon);
+      reportServerError(err, { kind: "render", handling: "serialize" }, null, hook);
+      if (hook === undefined && ambientServerErrorHook() === undefined) console.error(err);
+    };
+  };
+  serializer = (customSerializer || createHydrationSerializer)({
     scopeId: options.renderId,
     // Containers (projections) serialize as traces on BOTH faces — the
     // document's hydration serializer and the frame sink's codec resolve
     // their plugin sets through the codec defaults, which carry the trace
     // plugin (inert until the reactive core installs its resolver).
     plugins: options.plugins,
-    onData: payload => sink.data(payload),
+    onData: payload => {
+      if (!hasSerializationError) sink.data(payload);
+    },
     onDone,
-    onError: observeSerializerError(serializerErrorHook(options.onError))
+    onError: observeSerializerError(options.onError)
   });
   let rootAssetsSerialized = false;
   const serializeRootAssets = () => {
