@@ -9,14 +9,15 @@
 // reply as far as it has got, and two tabs show the same thing.
 //
 // The browser owns two things here, and the server places both: the
-// composer, a client component in a slot at the foot of the thread, and what
-// the Copy button on a code block does.
+// composer, a client component in a slot at the foot of the thread, and each
+// code block's Copy button, a client component in a slot in that block.
 import { createMemo, For, Loading, onCleanup } from "solid-js";
 import { dynamicComponent, getRequestEvent, redirect } from "@solidjs/web";
 import { GET, live } from "@solidjs/web/server-functions";
-import type { BindingSlot, Slot } from "@solidjs/web/frames";
+import type { Slot } from "@solidjs/web/frames";
 import { action, liveQuery, type RouteSectionProps } from "@solidjs/router";
 import Composer from "~/components/composer";
+import CopyCode from "~/components/copy-code";
 import * as db from "~/server/db";
 import * as generations from "~/server/generations";
 import * as markdown from "~/server/markdown";
@@ -24,8 +25,7 @@ import * as model from "~/server/model";
 import type { Message, Thread } from "~/types";
 
 type ComposerSlot = Slot<{ threadId: string; seen: string[]; busy: boolean }>;
-type CopyHandler = (e: MouseEvent & { currentTarget: HTMLButtonElement }) => void;
-type CodeBlockSlot = BindingSlot<{}, { onCopy: CopyHandler }>;
+type CopySlot = Slot<{ code: string }>;
 
 // Stops the reply being written. A plain form posts it, so it works before
 // the page's JavaScript has loaded; the thread's own stream shows the result.
@@ -72,7 +72,7 @@ const getThread = liveQuery(
   live(
     GET(async (id: string) => {
       "use server";
-      return (props: { composer: ComposerSlot; codeBlock: CodeBlockSlot }) => {
+      return (props: { composer: ComposerSlot; copyCode: CopySlot }) => {
         // This render lives as long as its response. When the tab goes away
         // the watcher below is told at once.
         const gone = new AbortController();
@@ -83,8 +83,6 @@ const getThread = liveQuery(
 
         // The thread as it is stored, again after every write to it.
         const view = createMemo(() => db.watchThread(id, gone.signal));
-
-        const block = props.codeBlock();
 
         return (
           <article class="thread">
@@ -97,9 +95,9 @@ const getThread = liveQuery(
                   message is unchanged, so a streaming reply doesn't render
                   the whole history again on every write (#4056). */}
               <For each={view().messages.filter(m => m.status !== "generating")}>
-                {message => messageMarkup(message, block)}
+                {message => messageMarkup(message, props.copyCode)}
               </For>
-              {messagesMarkup(view().messages, true, block)}
+              {messagesMarkup(view().messages, true, props.copyCode)}
             </ol>
             {/* Keyed by thread: going to another conversation is a new
                 composer, so a half-typed message stays with its thread. */}
@@ -136,16 +134,18 @@ function headMarkup(thread: Thread | undefined) {
 }
 
 // The finished messages, or the one being written.
-function messagesMarkup(messages: Message[], writing: boolean, block: { onCopy: CopyHandler }) {
+function messagesMarkup(messages: Message[], writing: boolean, Copy: CopySlot) {
   return messages
     .filter(m => (m.status === "generating") === writing)
-    .map(message => messageMarkup(message, block));
+    .map(message => messageMarkup(message, Copy));
 }
 
 // One message as markup. A plain function, not a component: the server
 // re-runs the read that called it and sends the result, and there is nothing
-// here to keep between runs.
-function messageMarkup(message: Message, block: { onCopy: CopyHandler }) {
+// here to keep between runs. The Copy buttons are kept by the browser: each
+// is keyed by its message and place, so it is the same button while the
+// reply is written and after it moves into the finished list.
+function messageMarkup(message: Message, Copy: CopySlot) {
   const { id, text } = message;
   if (message.role === "user") {
     return (
@@ -170,12 +170,10 @@ function messageMarkup(message: Message, block: { onCopy: CopyHandler }) {
         </details>
       )}
       <div class="md">
-        {markdown.render(text, generating).map(segment =>
+        {markdown.render(text, generating).map((segment, i) =>
           segment.code ? (
             <div class="code-block">
-              <button class="copy-code" type="button" onClick={block.onCopy}>
-                Copy
-              </button>
+              <Copy $key={`${id}.${i}`} code={segment.text!} />
               <pre>
                 <code class="hljs" innerHTML={segment.html} />
               </pre>
@@ -209,24 +207,13 @@ function messageMarkup(message: Message, block: { onCopy: CopyHandler }) {
   );
 }
 
-// What Copy does, for every code block in the thread: one handler, bound by
-// the server to each button it renders. It reads the code from the page.
-const copyCode: CopyHandler = e => {
-  const button = e.currentTarget;
-  const code = button.parentElement?.querySelector("code");
-  if (!code) return;
-  navigator.clipboard.writeText(code.textContent ?? "").catch(() => {});
-  button.textContent = "Copied";
-  setTimeout(() => (button.textContent = "Copy"), 1200);
-};
-
 export default function ThreadRoute(props: RouteSectionProps) {
   const Thread = dynamicComponent(() => getThread(String(props.params.id)));
   return (
     <Loading fallback={<p class="muted">Loading the conversation…</p>}>
       <Thread
         composer={p => <Composer threadId={p.threadId} seen={p.seen} busy={p.busy} />}
-        codeBlock={() => ({ onCopy: copyCode })}
+        copyCode={p => <CopyCode code={p.code} />}
       />
     </Loading>
   );

@@ -24,7 +24,7 @@ Additional exports:
 
 Re-exports everything from `server.js` and `response.js`:
 - `renderToString`, `renderToStream` (there is no `renderToStringAsync` — `renderToString` awaits async)
-- SSR helpers: `ssr`, `ssrElement`, `ssrElementAttribute`, `ssrAttribute`, `ssrClassName`, `ssrStyle`, `ssrStyleProperty`, `ssrStyleProperties`, `ssrGroup`, `ssrHydrationKey`, `ssrClaim`, `ssrLinkClaim`, `ssrSelectValues`, `resolveSSRNode`, `escape`
+- SSR helpers: `ssr`, `ssrElement`, `ssrElementAttribute`, `ssrAttribute`, `ssrClassName`, `ssrStyle`, `ssrStyleProperty`, `ssrStyleProperties`, `ssrGroup`, `ssrHydrationKey`, `ssrLinkClaim`, `ssrSelectValues`, `resolveSSRNode`, `escape`
 - Request/response: `getRequestEvent`, `createRequestEvent`, `createResponseStub`, `createSSRResponse`, `commitEventResponse`, `composeMiddleware`, `configureServerErrors`, `reportRequestFailure`, plus `redirect`, `reload`, `respond` and the cookie codec
 - Hydration: `HydrationScript`, `generateHydrationScript`, `getHydrationWriter`, `takeHydrationValue`, `useHead`
 - The client-only DOM APIs (`render`, `hydrate`, `insert`, `spread`, `template`, `delegateEvents`, …) are exported as a `notSup` stub that throws when called on the server

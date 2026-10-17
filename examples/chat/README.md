@@ -83,7 +83,7 @@ const getThread = liveQuery(
   live(
     GET(async (id: string) => {
       "use server";
-      return (props: { composer: ComposerSlot; codeBlock: CodeBlockSlot }) => {
+      return (props: { composer: ComposerSlot; copyCode: CopySlot }) => {
         const view = createMemo(() => db.watchThread(id, gone.signal));
         return (
           <article class="thread">
@@ -117,15 +117,18 @@ never settles: each retry of the render makes a new one.
 ## What the browser owns
 
 - **The composer** ([src/components/composer.tsx](./src/components/composer.tsx))
-  is the one client component. The server places it with a slot
+  is where a person types. The server places it with a slot
   (`<props.composer …/>`), keyed by thread so a half-typed message stays with
   its conversation. Its form is the send action; the message it shows while
   the server does not have it yet steps aside by derivation, the moment the
   server's render says it has that id (`seen`).
-- **Copy.** Each code block's button is server markup. What it does is one
-  handler the browser supplies through a binding slot
-  (`codeBlock={() => ({ onCopy })}`), bound to every button the server
-  renders, including ones that arrive mid-reply.
+- **Copy.** Each code block's button is a client component
+  ([src/components/copy-code.tsx](./src/components/copy-code.tsx)) that the
+  server places in the block with the block's text
+  (`<Copy $key={…} code={…} />`), including in the reply being written. The
+  key is the message and the block's place in it, so while the reply grows
+  the button stays mounted and gets each new text as a prop, and when the
+  reply finishes and moves into the finished list it is the same button.
 - **Navigation.** The sidebar is a second live server component
   (`getThreads` in [src/router.tsx](./src/router.tsx)): the list of threads,
   with a mark where a reply is being written. Its links are server markup;

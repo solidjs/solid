@@ -1,5 +1,5 @@
-// The composer: the one client component. The thread around it is server
-// markup; this is where a person types, so it is theirs.
+// The composer. The thread around it is server markup; this is where a
+// person types, so it is theirs.
 //
 // Sending is a form. Without JavaScript it posts and the page comes back;
 // with it the router submits the same form in place, and a message shows

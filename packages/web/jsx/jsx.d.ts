@@ -253,11 +253,10 @@ export namespace JSX {
     /**
      * Entity identity for server markup: the frame morph matches keyed
      * elements across responses by it, so client state attached to the
-     * element (a binding slot's bound positions, focus) follows the entity
-     * through reorders and refetches. SSR compiles it to the `_key`
-     * attribute; a DOM compile strips it. On a component, `$key` is slot
-     * occurrence identity across responses (optional; a repeated call is
-     * one occurrence per render with or without it).
+     * element (focus, selection) follows the entity through reorders and
+     * refetches. SSR compiles it to the `_key` attribute; a DOM compile strips
+     * it. On a component, `$key` is slot occurrence identity across
+     * responses (optional; without it identity is positional).
      */
     $key?: string | number | undefined;
   }

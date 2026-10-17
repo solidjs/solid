@@ -346,8 +346,7 @@ export function connect(
  * append new rows before `close`. A row is everything from its
  * `<!--lr-->` marker to the next one (or `close`); a nested live hole's
  * range is skipped whole. Every changed row parses in ONE fragment, split
- * back at the markers. `morph` is the frame's range reconcile; the ranges
- * it touched are pushed onto `morphed` for the scoped slot sync. Returns
+ * back at the markers. `morph` is the frame's range reconcile. Returns
  * false, having changed nothing, when the range doesn't hold rows the ops
  * can address — the caller then morphs the whole range.
  * @internal
@@ -357,8 +356,7 @@ export function rows(
   close: Node,
   ops: { n: number; r: [number, string][] },
   parse: (html: string) => DocumentFragment,
-  morph: (start: Node, end: Node, fragment: DocumentFragment) => void,
-  morphed: Node[][]
+  morph: (start: Node, end: Node, fragment: DocumentFragment) => void
 ): boolean {
   const isRow = (n: Node) => n.nodeType === 8 && (n as Comment).data === "lr";
   const starts: Node[] = [];
@@ -388,19 +386,15 @@ export function rows(
   // Truncate: everything from the first dropped row's marker to `close`.
   if (n < had) while (starts[n].nextSibling !== close) parent.removeChild(close.previousSibling!);
   if (n < had) parent.removeChild(starts[n]);
-  let first: Node | undefined;
   ops.r.forEach(([i], k) => {
     if (i < had) {
       const end = i + 1 < Math.min(n, had) ? starts[i + 1] : close;
       morph(starts[i], end, parsed[k]);
-      morphed.push([starts[i], end]);
     } else {
       const marker = document.createComment("lr");
       parent.insertBefore(marker, close);
       parent.insertBefore(parsed[k], close);
-      first ||= marker;
     }
   });
-  if (first) morphed.push([first, close]);
   return true;
 }
