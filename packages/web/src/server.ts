@@ -1759,6 +1759,10 @@ export function renderToString<T>(
 export function renderToString(code, options = {}) {
   const { renderId = "", noScripts, manifest, onHead } = options;
   const nonce = normalizeNonce(options.nonce);
+  const requestEvent = peekRequestEvent();
+  // The server error hook's ledger scope (`reportServerError`): the request
+  // this render serves, else the render itself — never the process.
+  const errorScope = requestEvent || {};
   let scripts = "";
   const serializer = createHydrationSerializer({
     scopeId: renderId,
@@ -1787,6 +1791,7 @@ export function renderToString(code, options = {}) {
     resolve: resolveSSRNode,
     ssr: ssr,
     errorPolicy: options.onError,
+    _errorScope: errorScope,
     registerHeadTags(tags) {
       // Sync render: everything is pre-shell, resources join the shell head.
       registerHeadTags(headRegistry, sharedConfig.context, tracking, null, nonce, tags);
@@ -1835,7 +1840,6 @@ export function renderToString(code, options = {}) {
   // stale one on the lingering context.
   const context = sharedConfig.context;
   context.writer = createHydrationWriter(context, () => !closed);
-  const requestEvent = peekRequestEvent();
   if (requestEvent) setRequestErrorHook(requestEvent, options.onError);
   context.trace = requestEvent ? traceForEvent(requestEvent) : traceFor(context, undefined);
   const render = timeDocument(context, context.trace, "string", requestEvent);
@@ -1898,7 +1902,13 @@ export function renderToString(code, options = {}) {
   } catch (err) {
     // The rethrow is the caller's, so no console fallback; the hook hears it
     // first, and a handler's `reportRequestFailure` of it is a repeat.
-    reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
+    reportServerError(
+      err,
+      { kind: "render", handling: "failed" },
+      null,
+      options.onError,
+      errorScope
+    );
     throw err;
   } finally {
     // The render record settles before the trace is let go: a listener
@@ -1938,7 +1948,8 @@ export function renderToStream<T>(
      * `<Errored>` fallback (`handling: "fallback"`), a rejected fragment
      * (`"client"`), a hydration value that would not serialize
      * (`"serialize"`) — and the one that fails the request (`"failed"`),
-     * once per error, with where it was met. A one-argument listener still
+     * once per error per kind per request (per render outside one), with
+     * where it was met. A one-argument listener still
      * works; it hears them all — filter on `context.handling` for the
      * request-failing ones alone. Without a hook (here or ambient) a
      * failure that fails the request goes to `console.error`.
@@ -2016,6 +2027,9 @@ export function renderToStream(code, options = {}) {
   // storage module's own documented shape.
   const requestEvent = peekRequestEvent();
   if (requestEvent) setRequestErrorHook(requestEvent, options.onError);
+  // The server error hook's ledger scope (`reportServerError`): the request
+  // this render serves, else the render itself — never the process.
+  const errorScope = requestEvent || {};
   let dispose;
   let dead = false;
   // The render's `"render"` record (`timeDocument`, once the context is up):
@@ -2125,7 +2139,13 @@ export function renderToStream(code, options = {}) {
       try {
         d();
       } catch (err) {
-        reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
+        reportServerError(
+          err,
+          { kind: "render", handling: "failed" },
+          null,
+          options.onError,
+          errorScope
+        );
         if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
       }
     }
@@ -2146,7 +2166,13 @@ export function renderToStream(code, options = {}) {
       try {
         serializer.close();
       } catch (err) {
-        reportServerError(err, { kind: "render", handling: "serialize" }, null, options.onError);
+        reportServerError(
+          err,
+          { kind: "render", handling: "serialize" },
+          null,
+          options.onError,
+          errorScope
+        );
       }
     }
     // A closed serializer drops writes without looking at them, but the
@@ -2180,7 +2206,13 @@ export function renderToStream(code, options = {}) {
     // boundary that already reported this error with its location leaves
     // this a no-op (once per error). With no hook anywhere the failure is
     // never silent.
-    reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
+    reportServerError(
+      err,
+      { kind: "render", handling: "failed" },
+      null,
+      options.onError,
+      errorScope
+    );
     if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
     abandon();
   };
@@ -2543,7 +2575,7 @@ export function renderToStream(code, options = {}) {
   // on this face (no trace revival exists for a memo's value yet).
   const guardedChannels = new WeakMap();
   const verdictNow = error => {
-    throw ssrSanitizeError(error, null);
+    throw ssrSanitizeError(error, null, undefined, undefined, errorScope);
   };
   const borderForm = value => toBorderForm(value, false);
   const guardIterable = iterable => ({
@@ -2900,7 +2932,9 @@ export function renderToStream(code, options = {}) {
           resolve: err =>
             queue(() =>
               queue(() => {
-                err ? reject(ssrSanitizeError(err, null)) : resolve(true);
+                err
+                  ? reject(ssrSanitizeError(err, null, undefined, undefined, errorScope))
+                  : resolve(true);
                 queue(flushEnd);
               })
             )
@@ -2927,7 +2961,7 @@ export function renderToStream(code, options = {}) {
           // to the component's frame. The fragment still settles below (its
           // position never blanks; `_fr` still rejects — the diagnostic).
           if (error && escaped) {
-            const wire = ssrSanitizeError(error, null);
+            const wire = ssrSanitizeError(error, null, undefined, undefined, errorScope);
             const message = wire instanceof Error ? wire.message : String(wire);
             if (sink.error) sink.error("", message);
             else if (context.live && context.live.error) context.live.error(escaped.frame, message);
@@ -2988,7 +3022,9 @@ export function renderToStream(code, options = {}) {
               sink.fragment(key, resolveSSRSelectValues(value !== undefined ? value : " "), {
                 styles,
                 revealGroup,
-                error: error ? ssrSanitizeError(error, null) : error
+                error: error
+                  ? ssrSanitizeError(error, null, undefined, undefined, errorScope)
+                  : error
               });
               item.resolve(error);
             }
@@ -3021,6 +3057,7 @@ export function renderToStream(code, options = {}) {
   // post-flush a fragment rejects to the client; pre-flush it inlines or
   // fails the request.
   context.errorPolicy = options.onError;
+  context._errorScope = errorScope;
   context.flushed = () => firstFlushed;
   // The trace this render belongs to (see `getTraceContext`): the request's
   // under a request scope, the render's own otherwise. Set before the render
@@ -3059,7 +3096,13 @@ export function renderToStream(code, options = {}) {
       } catch (err) {
         // The first pass throws out of `renderToStream` to the caller: the
         // hook hears it first, as for `renderToString`.
-        reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
+        reportServerError(
+          err,
+          { kind: "render", handling: "failed" },
+          null,
+          options.onError,
+          errorScope
+        );
         throw err;
       }
       if (!res.h.length) return res.t[0];
@@ -3631,9 +3674,11 @@ function ssrGroupSlot(fn, idx) {
 
 // A binding's terminal failure surfaces to the client as a keyed error
 // chunk carrying a message: the wire policy's (`ssrSanitizeError`, #3468) —
-// the original stays server-side.
-function wireErrorMessage(err) {
-  const wire = ssrSanitizeError(err, null);
+// the original stays server-side. `scope` is the render's (`_errorScope`),
+// so a binding failing with an error the render already decided carries
+// that verdict.
+function wireErrorMessage(err, scope) {
+  const wire = ssrSanitizeError(err, null, undefined, undefined, scope);
   return String((wire && wire.message) || wire);
 }
 
@@ -3740,7 +3785,7 @@ function holeContentPositions(t) {
  * commit through the render core, and the response's end-latch sweep is
  * always the last one).
  */
-export function createLiveHoles(sink, scoped, settled) {
+export function createLiveHoles(sink, scoped, settled, errorScope) {
   let nextId = 0;
   const stamp = typeof creationStamp === "function" ? creationStamp : () => 0;
   // The document-face arming gate: one engine serves the whole render, but
@@ -4122,7 +4167,7 @@ export function createLiveHoles(sink, scoped, settled) {
             // markup stands and the failure surfaces as a keyed error.
             b.closed = true;
             sink.closeBinding(b.key);
-            sink.error(b.key, wireErrorMessage(err));
+            sink.error(b.key, wireErrorMessage(err, errorScope));
             return;
           } finally {
             engine.sweeping = prevSweeping;
@@ -4363,7 +4408,7 @@ export function createLiveHoles(sink, scoped, settled) {
             }
             b.closed = true;
             sink.closeBinding(b.key);
-            sink.error("lha:" + cap.id, wireErrorMessage(err));
+            sink.error("lha:" + cap.id, wireErrorMessage(err, errorScope));
             return;
           } finally {
             engine.sweeping = prevSweeping;
@@ -6049,13 +6094,20 @@ export interface ServerErrorContext extends Omit<ServerErrorSite, "event"> {
 
 /**
  * The server error hook (see `configureServerErrors`): every failure the
- * server runtime handles or fails on, once per error object, with where it
- * was met. Return the value the client should receive in place of the error
- * — rendered into the fallback, serialized for hydration, sent as the RPC
- * error — or nothing for the default policy (a generic `Error` outside the
- * dev build, the error itself in it; `markSafeError` still passes through).
+ * server runtime handles or fails on, once per error object per `kind` per
+ * request (per render when no request is in scope — never once per
+ * process: an error object one request met and another meets again is
+ * heard by both), with where it was met. A direct server-function call that
+ * throws during SSR and the `<Errored>` that contains it are heard as both:
+ * `server-function` (the call failed), then `render` (the render fell back),
+ * so `kind: "render"` alone answers whether a render failed. Return the value the client should receive in
+ * place of the error — rendered into the fallback, serialized for
+ * hydration, sent as the RPC error — or nothing for the default policy (a
+ * generic `Error` outside the dev build, the error itself in it;
+ * `markSafeError` still passes through).
  * A returned value is taken as intended client-facing content and is not
- * sanitized again. Ignored for `handling: "failed"`, which has no wire.
+ * sanitized again. Ignored for `handling: "failed"`, which has no wire, and
+ * once an earlier kind's sight gave one: every road carries the first.
  *
  * One road a mapping does not reach: a rejected async source's serialized
  * rejection is encoded the moment the source rejects, ahead of the boundary
@@ -6077,9 +6129,10 @@ const ServerErrors: unique symbol = Symbol.for("solid-js/server/errors") as any;
  * `init()` makes to see every failure the runtime handles in production:
  * an `<Errored>` fallback rendered, a `<Loading>` fragment rejected, a
  * server-function throw (HTTP dispatch or an in-process call during SSR),
- * the failure that fails a request. Called once per error object, at first
- * sight, wherever the runtime met it; its return, when given, is the wire
- * value (see `ServerErrorHook`). A per-request hook — `renderToStream`'s
+ * the failure that fails a request. Called once per error object per kind
+ * per request (per render outside one), at first sight, wherever the runtime
+ * met it; its return, when given, is the wire value (see
+ * `ServerErrorHook`). A per-request hook — `renderToStream`'s
  * `onError`, the server-function handler's — overrides it for that
  * request. Registered on `globalThis` under a registered symbol, so a
  * bundled server build and an instrumented `--import`ed module share it.
@@ -6101,8 +6154,8 @@ export function configureServerErrors(config: ServerErrorsConfig): void;
  * function the runtime reports, such as a throw a framework's request
  * handler catches from its middleware. The ambient server error hook hears
  * it as `{ kind: "request", handling: "failed", event }`, once per error
- * object, and its return is ignored, as for every `handling: "failed"`. A
- * render failure is the render's: a synchronous throw out of
+ * object per request, and its return is ignored, as for every `handling:
+ * "failed"`. A render failure is the render's: a synchronous throw out of
  * `renderToString` or `renderToStream` was already heard as `kind:
  * "render"` before the caller caught it, so reporting it here adds nothing.
  * With no hook registered the failure goes to `console.error`, as a render
@@ -6115,7 +6168,9 @@ export function reportRequestFailure(error: unknown, event: RequestEvent): void;
  * The serializer's `onError`, when a render passed one: seroval reports a
  * value that would not serialize here instead of throwing at the write
  * (that difference is why this is only wired when a hook was given — as
- * `onError` always was). The hook hears it as `handling: "serialize"`.
+ * `onError` always was). The hook hears it as `handling: "serialize"`,
+ * deduped within the request in scope (what seroval reports is, as a rule,
+ * its own error, fresh per failure — nothing render-wide to dedupe against).
  */
 function serializerErrorHook(hook) {
   return hook === undefined

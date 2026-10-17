@@ -476,6 +476,21 @@ for the two-sided geomean board (timed ops only). For a single suite,
   absolute drift against the previous board (React, Inferno, Svelte,
   Preact; pins unchanged) is the tell: 0.97–1.05 on a clean suite, anything
   else means rerun that suite.
+- **Node-only suites with idle gaps measure core placement on Apple
+  Silicon.** streaming-ssr's staggered scenario leaves the main thread idle
+  for most of every 50 ms; macOS parks it on an efficiency core and every
+  framework's first chunk reads ~3–6× slower than its CPU cost (Solid 1.03
+  vs 0.16 ms, Octane 0.33 vs 0.06). A fixed-work probe timed beside the op
+  is the tell (2.8 ms vs 1.05 ms for the same loop); a Worker spinning in
+  the process is the fix. Since 2026-10-16 the fork's
+  `streaming-ssr/run.mjs` does this by default (`--no-pin` opts out) and
+  writes the probe before/after under `scheduling` in the suite JSON: a
+  probe over ~1 ms means the run was parked, discard it. Pinned, the shell
+  column is a different board (Solid 3.3× Octane staggered, 2.05×
+  all-fast; see performance-experiments.md SSR lane §6), so never compare a
+  pinned streaming-ssr run against an unpinned one. Pre-spinning the main
+  thread for 1 ms does not help; attaching a sampling profiler does, which
+  is how it was found. Upstream PR pending.
 - Upstream ≥ 0.13 batches the sub-millisecond js-framework ops (`select`,
   `swap`, `select_lots`: `BATCHED_OPS` in `js-framework/run.mjs`) inside each
   sample. Those ops now read 10–40× smaller than on the 0.2.13 boards for

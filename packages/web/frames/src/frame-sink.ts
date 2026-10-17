@@ -953,7 +953,7 @@ export function renderServerComponent(component, options = {}) {
         // between renders ships alone.
         let unsettled = !!options.live;
         if (!unsettled) ctx.unsettled = () => void (unsettled = true);
-        ctx.liveHoles = createLiveHoles(sink, false, () => !unsettled);
+        ctx.liveHoles = createLiveHoles(sink, false, () => !unsettled, ctx._errorScope);
       }
       return serverComponentScope(() => component(props));
     };
@@ -1098,6 +1098,9 @@ function frameStream(makeCode, options) {
       // stream. (Async fragment errors already ride their rejected `_fr`
       // promise through the data codec.) What the chunk carries is the wire
       // policy's (#3468); the record beside it keeps the original.
+      // No render scope to pass (the render that threw is gone), and none
+      // needed: it heard this as `failed`, which decides no wire, so the
+      // default policy is the answer in any scope.
       const wire = ssrSanitizeError(err, null);
       sink.error("", wire instanceof Error ? wire.message : String(wire));
       sink.end();
@@ -1358,6 +1361,53 @@ function suppressedFill(render) {
   }
 } // === Document SSR (t = 0) ===
 
+// Nested fills. A fill called while an enclosing occurrence's args evaluate
+// sits in server content that enclosing fill places (a region), so it is
+// that fill's child, as in any client tree: it renders where the region is
+// placed, under the placing owner — the context the enclosing fill provides
+// there — as the adopting client mounts it (`placements`, frames client).
+// Until then it is PARKED: a token in the region's markup, swapped for its
+// range at placement, or at the record of a region left occluded.
+let parked: Map<number, any> | null = null;
+let parkedIds = 0;
+const PARKED = /<!--sc-n:(\d+)-->/;
+function park(render) {
+  if (!parked) return render();
+  const id = ++parkedIds;
+  parked.set(id, { render, out: undefined });
+  return { t: `<!--sc-n:${id}-->` };
+}
+const runParked = (entry, owner?) => entry.out || (entry.out = entry.render(owner));
+// Swap a region's tokens for their ranges (rendered under `owner`), then
+// render any token the content dropped — its record is declared.
+function placeParked(node, nested, owner?) {
+  const out = expandParked(node, nested, owner);
+  for (const entry of nested.values()) runParked(entry, owner);
+  return out;
+}
+function expandParked(node, nested, owner) {
+  if (Array.isArray(node)) {
+    const out: any = node.map(n => expandParked(n, nested, owner));
+    out.$slot = node.$slot;
+    return out;
+  }
+  if (!node || node.t === undefined) return node;
+  if (!node.h) return splitParked(node.t, nested, owner) || node;
+  // Async holes stay between their segments, one hole per node.
+  const out: any[] = [];
+  node.t.forEach((t, i) => {
+    out.push(splitParked(t, nested, owner) || { t });
+    if (i < node.h.length) out.push({ t: ["", ""], h: [node.h[i]], p: [node.p[i]] });
+  });
+  return out;
+}
+function splitParked(t, nested, owner) {
+  const parts = typeof t === "string" ? t.split(PARKED) : [t];
+  return parts.length > 1
+    ? parts.map((part, i) => (i & 1 ? runParked(nested.get(+part), owner) : { t: part }))
+    : undefined;
+}
+
 /**
  * Document-mode slot props — the t = 0 counterpart of
  * `createSlotProps`: the server component renders INLINE in the
@@ -1385,10 +1435,11 @@ export function createDocumentSlotProps(clientProps, frameId) {
   // story: arg re-emissions update the adopted occurrence's props. One
   // known coarsening: a region (server JSX arg) placed by the fill resolves
   // inside this suppressed span, so its interior holes keep the t=0 latch.
-  const range = (occurrence, content) => {
+  const range = (occurrence, content, tail?) => {
     const r: any = [
       { t: `<!--slot:${occurrence}:start-->` },
       content,
+      tail,
       { t: `<!--slot:${occurrence}:end-->` }
     ];
     r.$slot = true;
@@ -1411,8 +1462,10 @@ export function createDocumentSlotProps(clientProps, frameId) {
   // see "no NoHydration zone" and pass through, leaking ambient-chain keys
   // onto the wrapper instead of its sc- occurrence namespace.
   const zoneOwner = getOwner ? getOwner() : null;
-  const scoped = (occurrence, render) => {
+  const scoped = (occurrence, render, owner?) => {
     const id = `sc-${frameId}-${occurrence}-`;
+    // A placed nested fill: inside the enclosing fill, outside any zone.
+    if (owner) return runWithOwner(owner, () => runWithHydrationScope(id, render));
     const run = () =>
       Hydration
         ? Hydration({
@@ -1443,11 +1496,17 @@ export function createDocumentSlotProps(clientProps, frameId) {
             // INSIDE scoped(): compiled component props are getters, so the
             // client's JSX evaluates lazily at access under the same keys —
             // plain JSX, no thunk convention.
-            return suppressedFill(() =>
-              scoped(prop, () => {
-                const value = clientProps[prop];
-                return range(prop, typeof value === "function" ? value() : value);
-              })
+            return park(owner =>
+              suppressedFill(() =>
+                scoped(
+                  prop,
+                  () => {
+                    const value = clientProps[prop];
+                    return range(prop, typeof value === "function" ? value() : value);
+                  },
+                  owner
+                )
+              )
             );
           }
           const raw = callArgs[0];
@@ -1470,12 +1529,16 @@ export function createDocumentSlotProps(clientProps, frameId) {
           // SYNC render (`renderToString`) has no later script to settle a
           // declaration in and no serializer for one: its record is the
           // value, written after the fill.
+          // A parked fill declares at its placement — the marker's time.
           const context = sharedConfig.context;
           const recordKey = `sc:slot:${frameId}:${occurrence}`;
+          const deferred = !!parked;
           let settleRecord;
-          if (context && context.async) {
+          const declare = () =>
+            context &&
+            context.async &&
             context.serialize(recordKey, new Promise(resolve => (settleRecord = resolve)));
-          }
+          deferred || declare();
           try {
             const resolved = {};
             // Usage tracking (dispatch case 3, document face): regions ride as
@@ -1517,6 +1580,8 @@ export function createDocumentSlotProps(clientProps, frameId) {
             // Keys whose evaluation minted reactive scopes (scopeStamp moved):
             // not re-runnable, so no watched binding opens for them below.
             const minted = {};
+            // Per arg, the fills its evaluation parked (see `park`).
+            const nestedOf = {};
             for (const key of Object.keys(raw)) {
               if (key === "$key") continue;
               const desc = Object.getOwnPropertyDescriptor(raw, key);
@@ -1535,10 +1600,17 @@ export function createDocumentSlotProps(clientProps, frameId) {
               if (evaluate) {
                 evals[key] = evaluate;
                 const stampBefore = scopeStamp();
+                const outer = parked;
+                const nested = (nestedOf[key] = parked = new Map());
                 try {
                   value = evaluate();
                   states[key] = { settled: true, last: value };
                 } catch (err) {
+                  // The attempt's markup is gone; its parked fills' records
+                  // are declared all the same.
+                  parked = outer;
+                  for (const entry of nested.values()) runParked(entry);
+                  nested.clear();
                   const blocked = ssrHandleError && ssrHandleError(err);
                   if (!blocked) throw err;
                   const state = (states[key] = { settled: false, last: undefined });
@@ -1551,6 +1623,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
                     if (liveArgs) liveArgs.commit();
                   });
                 }
+                parked = outer;
                 if (scopeStamp() !== stampBefore) minted[key] = true;
               }
               vals[key] = value;
@@ -1573,7 +1646,14 @@ export function createDocumentSlotProps(clientProps, frameId) {
                 resolved[key] = value;
               } else if (isServerContent(value)) {
                 const childId = `${frameId}.${occurrence}.${key}`;
-                const region = { key, childId, value, used: false, locked: false };
+                const region = {
+                  key,
+                  childId,
+                  value,
+                  nested: nestedOf[key],
+                  used: false,
+                  locked: false
+                };
                 regions.push(region);
                 // Used or occluded, the record names it `{$frame}`: the
                 // `regions` tier, announced.
@@ -1593,7 +1673,14 @@ export function createDocumentSlotProps(clientProps, frameId) {
                   region.used = true;
                   // A region is a frame ELEMENT the client wrapper adopts —
                   // the same DOM contract as the boundary, one level down.
-                  return [{ t: frameElementOpen(childId) }, value, { t: FRAME_ELEMENT_CLOSE }];
+                  // Its parked fills render here, under the placing owner.
+                  return [
+                    { t: frameElementOpen(childId) },
+                    region.nested && region.nested.size
+                      ? placeParked(value, region.nested, getOwner())
+                      : value,
+                    { t: FRAME_ELEMENT_CLOSE }
+                  ];
                 };
               } else if (ssrAsyncValue && isAsyncValue(value)) {
                 // DR-2 value tier, document face: the inline fill's read of an
@@ -1630,45 +1717,20 @@ export function createDocumentSlotProps(clientProps, frameId) {
                 resolved[key] = vals[key] = noteTraces(value, documentNeeds);
               }
             }
-            const out = suppressedFill(() =>
-              scoped(occurrence, () => range(occurrence, slot(resolved)))
-            );
-            const unused = regions.filter(r => !r.used);
-            if (context) {
-              // One record shape (A5, server-components-principles.md): the
-              // t=0 document emits the record a stream would — every invoked
-              // occurrence gets one, and EVERY region arg rides as its
-              // `{$frame}` address ref, used or not. The ref is addressing,
-              // not content: a used region's content ships once as page
-              // markup (the adopting client resolves the ref to the element
-              // already in the interior), an occluded one ships once as its
-              // `sc:region:` record. Primitive args always ship — a scalar
-              // the client needs AS DATA to re-invoke the wrapper is not a
-              // single-copy concern (value-from-page recovery is a
-              // template-mode question, never a substring guess: the old
-              // heuristic dropped correct args on any markup coincidence).
-              const args = {};
-              for (const key of Object.keys(vals)) {
-                const value = vals[key];
-                const region = regions.find(r => r.key === key);
-                if (region) {
-                  args[key] = { $frame: region.childId };
-                  continue;
-                }
-                // Container check first for exactness: a store whose STATE has
-                // a `t` key would satisfy isServerContent's shape probe.
-                if (!isContainerTraced(value) && isServerContent(value)) continue;
-                // Containers (at any depth) ride the record as trace envelopes;
-                // everything else passes through by reference.
-                args[key] = argBorderForm(value, documentNeeds);
-              }
-              // A CLONE settles the declaration (or IS the record, on a sync
-              // render); `args` stays canonical for the ledger below —
-              // re-emissions mutate it and clone again, so the initial
-              // record can never change under a consumer.
-              settleRecord ? settleRecord({ ...args }) : context.serialize(recordKey, { ...args });
-              for (const region of unused) {
-                // Lock BEFORE returning: the content is now committed to the data
+            // Parked fills of args that are not regions have no placement.
+            for (const key in nestedOf)
+              if (!regions.some(r => r.key === key))
+                for (const entry of nestedOf[key].values()) runParked(entry);
+            // The usage flip: a region the fill did not place while its
+            // output resolved — a provider's children included, which
+            // resolve in the walk, not at the fill's return — is occluded.
+            // The range's tail runs it, once, after the content resolved.
+            const flip: any = () => {
+              if (flip.done || !context) return;
+              flip.done = true;
+              for (const region of regions) {
+                if (region.used) continue;
+                // Lock at once: the content is now committed to the data
                 // channel, so any later async placement of this region must
                 // suppress its markup (see the thunk above) — that is what makes
                 // "serialize once at flush" a guarantee rather than a race.
@@ -1681,35 +1743,90 @@ export function createDocumentSlotProps(clientProps, frameId) {
                 // land, the resolveRootHoles shape).
                 context.serialize(
                   `sc:region:${region.childId}`,
-                  resolveRegionHtml(context, region.value)
+                  resolveRegionHtml(
+                    context,
+                    region.nested && region.nested.size
+                      ? placeParked(region.value, region.nested)
+                      : region.value
+                  )
                 );
               }
-              // The document arg ledger (DR-2 case 1 at t=0): every
-              // re-runnable arg that classified as DATA opens a watched
-              // binding AFTER its record emitted, mirroring the stream face —
-              // the same authored getter shape stays live on both faces. Only
-              // on an armed document (live.args): the hostless fallback
-              // latches, like everything else at t=0.
-              if (liveArgs) {
-                for (const key of Object.keys(evals)) {
-                  if (regions.some(r => r.key === key)) continue;
-                  if (minted[key]) continue; // scope-minting eval: latched
-                  const ledgerKey = `${frameId}:${occurrence}:${key}`;
-                  openArgBinding(
-                    liveArgs,
-                    ledgerKey,
-                    occurrence,
-                    key,
-                    evals[key],
-                    states[key],
-                    value => {
-                      args[key] = argBorderForm(value, documentNeeds);
-                      liveArgs.slot(frameId, occurrence, { ...args });
+            };
+            flip.$lhSkip = true;
+            const finish = owner => {
+              if (deferred) declare();
+              try {
+                const out = suppressedFill(() =>
+                  scoped(occurrence, () => range(occurrence, slot(resolved), flip), owner)
+                );
+                if (context) {
+                  // One record shape (A5, server-components-principles.md): the
+                  // t=0 document emits the record a stream would — every invoked
+                  // occurrence gets one, and EVERY region arg rides as its
+                  // `{$frame}` address ref, used or not. The ref is addressing,
+                  // not content: a used region's content ships once as page
+                  // markup (the adopting client resolves the ref to the element
+                  // already in the interior), an occluded one ships once as its
+                  // `sc:region:` record. Primitive args always ship — a scalar
+                  // the client needs AS DATA to re-invoke the wrapper is not a
+                  // single-copy concern (value-from-page recovery is a
+                  // template-mode question, never a substring guess: the old
+                  // heuristic dropped correct args on any markup coincidence).
+                  const args = {};
+                  for (const key of Object.keys(vals)) {
+                    const value = vals[key];
+                    const region = regions.find(r => r.key === key);
+                    if (region) {
+                      args[key] = { $frame: region.childId };
+                      continue;
                     }
-                  );
+                    // Container check first for exactness: a store whose STATE has
+                    // a `t` key would satisfy isServerContent's shape probe.
+                    if (!isContainerTraced(value) && isServerContent(value)) continue;
+                    // Containers (at any depth) ride the record as trace envelopes;
+                    // everything else passes through by reference.
+                    args[key] = argBorderForm(value, documentNeeds);
+                  }
+                  // A CLONE settles the declaration (or IS the record, on a sync
+                  // render); `args` stays canonical for the ledger below —
+                  // re-emissions mutate it and clone again, so the initial
+                  // record can never change under a consumer.
+                  settleRecord
+                    ? settleRecord({ ...args })
+                    : context.serialize(recordKey, { ...args });
+                  // The document arg ledger (DR-2 case 1 at t=0): every
+                  // re-runnable arg that classified as DATA opens a watched
+                  // binding AFTER its record emitted, mirroring the stream face —
+                  // the same authored getter shape stays live on both faces. Only
+                  // on an armed document (live.args): the hostless fallback
+                  // latches, like everything else at t=0.
+                  if (liveArgs) {
+                    for (const key of Object.keys(evals)) {
+                      if (regions.some(r => r.key === key)) continue;
+                      if (minted[key]) continue; // scope-minting eval: latched
+                      const ledgerKey = `${frameId}:${occurrence}:${key}`;
+                      openArgBinding(
+                        liveArgs,
+                        ledgerKey,
+                        occurrence,
+                        key,
+                        evals[key],
+                        states[key],
+                        value => {
+                          args[key] = argBorderForm(value, documentNeeds);
+                          liveArgs.slot(frameId, occurrence, { ...args });
+                        }
+                      );
+                    }
+                  }
                 }
+                return out;
+              } catch (error) {
+                settleRecord && settleRecord(undefined);
+                throw error;
               }
-            }
+            };
+            const out = park(finish);
             // A keyed call registers for repeats (an un-keyed one is
             // positional: two placements are two ranges).
             if (rk !== undefined && rk === occurrence) repeats.has(rk) || repeats.set(rk, out);
@@ -1986,7 +2103,8 @@ function armDocumentLiveHoles(ctx) {
       }
     },
     /* scoped */ true,
-    /* settled */ () => !unsettled
+    /* settled */ () => !unsettled,
+    ctx._errorScope
   );
   ctx.commit = live.commit = scheduleSweep;
   ctx.commitEpoch = live.commitEpoch = () => epoch;
