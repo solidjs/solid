@@ -6,6 +6,7 @@ import {
   Loading,
   configureServerErrors,
   createRequestEvent,
+  createSSRResponse,
   redirect,
   respond,
   renderToStream,
@@ -340,6 +341,52 @@ describe("renderToStream.hasErrors", () => {
       const healthy = renderToStream(() => <p>healthy</p>);
       expect(await healthy).toContain("healthy");
       expect(healthy.hasErrors).toBe(false);
+    }
+  );
+
+  test.each(["response", "pipe", "pipeTo", "readable"] as const)(
+    "keeps a shell that met a serialization failure from reaching %s",
+    async consumer => {
+      let first = true;
+      const hole = () => {
+        if (first) {
+          first = false;
+          throw new NotReadyError(Promise.resolve());
+        }
+        sharedConfig.context!.serialize("bad", new WeakMap());
+        return "after";
+      };
+      const onError = vi.fn<ServerErrorHook>(() => undefined);
+      const onCompleteShell = vi.fn();
+      configureServerErrors({ onError });
+      const stream = renderToStream(() => <main>{hole as unknown as JSX.Element}</main>, {
+        onCompleteShell
+      });
+      let body: string;
+      if (consumer === "response") {
+        const response = await createSSRResponse(stream, undefined);
+        expect(response.status).toBe(500);
+        body = await response.text();
+      } else if (consumer === "pipe") {
+        const chunks: string[] = [];
+        await new Promise<void>(end => stream.pipe({ write: chunk => chunks.push(chunk), end }));
+        body = chunks.join("");
+      } else if (consumer === "pipeTo") {
+        const chunks: string[] = [];
+        await stream.pipeTo(
+          new WritableStream({
+            write: chunk => {
+              chunks.push(new TextDecoder().decode(chunk));
+            }
+          })
+        );
+        body = chunks.join("");
+      } else body = await new Response(stream.readable).text();
+      expect(body).toBe("");
+      expect(onCompleteShell).not.toHaveBeenCalled();
+      expect(stream.hasErrors).toBe(true);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError.mock.calls[0]?.[1]).toMatchObject({ handling: "serialize" });
     }
   );
 

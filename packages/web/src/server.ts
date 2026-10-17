@@ -3212,6 +3212,9 @@ export function renderToStream(code, options = {}) {
     // root-hole/head gates above so this runs exactly once, on the attempt
     // that actually flushes).
     flushStubBatch();
+    // A serialization failure in this attempt already queued the wind-down:
+    // the consumer completes as a failed render, with no shell.
+    if (hasSerializationError) return;
     // Shell head flush: commits every registration not owned by a
     // still-pending fragment (those flush with their fragment later).
     const head = renderShellHead(
@@ -6665,8 +6668,11 @@ export const RequestContext: unique symbol = Symbol.for("solid.RequestContext") 
  * subtree; `failed`: nothing contained it and the request fails — including
  * a synchronous throw out of `renderToString` or `renderToStream`'s first
  * pass, reported before it reaches the caller;
- * `serialize`: a hydration value would not serialize and the render went on
- * without it (a render that passed `onError`). `kind: "server-function"` — `thrown`:
+ * `serialize`: a hydration value would not serialize; `renderToStream`'s
+ * default serializer ends the render, with or without a render hook, while
+ * under `renderToString` or a custom serializer it is reported for a render
+ * that passed `onError` and the render goes on without the value.
+ * `kind: "server-function"` — `thrown`:
  * the body threw; `channel`: a rejection or throw escaping through the
  * result graph (a promise, an iterable, a stream) with the head already
  * committed. `kind: "request"` (always `failed`): a failure that fails the
