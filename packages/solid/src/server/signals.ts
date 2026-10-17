@@ -392,14 +392,21 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   const prev = currentOwner;
   currentOwner = owner as unknown as SSROwner | null;
+  // One handler frame, not two. V8 runs a `finally` as a catch-and-rethrow,
+  // and a `NotReadyError` unwinds through every owner scope between the
+  // suspended read and the boundary that catches it — each re-raise costs
+  // about what the throw did. So the normal path restores inline and the
+  // catch restores before it stamps and re-raises.
+  let result: T;
   try {
-    return fn();
+    result = fn();
   } catch (error) {
+    currentOwner = prev;
     stampThrower(error, owner);
     throw error;
-  } finally {
-    currentOwner = prev;
   }
+  currentOwner = prev;
+  return result;
 }
 
 /**
@@ -649,32 +656,38 @@ export function ssrScope<T>(fn: () => T): () => unknown {
     parent.id = prefix;
     parent._scopeSlot = slot;
     parent._childCount = resume ? resumeCount : 0;
+    // The unwrap step in flight, so the one catch below can record the
+    // resume point: a single handler frame on the NotReady unwind (see
+    // `runWithOwner`) instead of an inner catch and an outer finally.
+    let next: (() => unknown) | undefined;
+    let count = 0;
+    let v: unknown;
     try {
-      let v: unknown = resume || fn();
+      v = resume || fn();
       resume = undefined;
       // Unwrap accessor chains in-scope: reading a memo / component thunk can
       // create owners and allocate ids, which must land under the hole scope
       // just like the client's inner unwrapping effect (transparent, so it
       // shares the outer insert effect's scope).
       while (typeof v === "function") {
-        const next = v as () => unknown;
-        const count = parent._childCount;
-        try {
-          v = next();
-        } catch (err) {
-          if (err instanceof NotReadyError) {
-            resume = next;
-            resumeCount = count;
-          }
-          throw err;
-        }
+        next = v as () => unknown;
+        count = parent._childCount;
+        v = next();
       }
-      return v;
-    } finally {
+    } catch (err) {
       parent.id = prevId;
       parent._scopeSlot = prevSlot;
       parent._childCount = prevCount;
+      if (next !== undefined && err instanceof NotReadyError) {
+        resume = next;
+        resumeCount = count;
+      }
+      throw err;
     }
+    parent.id = prevId;
+    parent._scopeSlot = prevSlot;
+    parent._childCount = prevCount;
+    return v;
   };
 }
 
@@ -1521,26 +1534,40 @@ function createSyncMemo<T>(
     // (#2801, generalized to all retry paths in #2900).
     resetOwnerForRerun(owner);
     const reads = asyncReads;
+    // One handler frame (see `runWithOwner`): the normal path restores
+    // inline, the catch restores and re-raises.
+    let result: T;
     try {
-      value = compute(value) as T;
-      error = undefined;
-      errored = false;
-      cached = true;
-      epoch = ctx?.commitEpoch?.();
-      return value;
+      result = compute(value) as T;
     } catch (err) {
-      if (err instanceof NotReadyError) throw err; // don't latch — engine re-pulls
+      currentOwner = prev;
+      if (asyncReads !== reads) moving = true;
+      if (err instanceof NotReadyError) {
+        // Don't latch a value — the engine re-pulls — but keep the signal
+        // for a read in this same synchronous turn (see `latchNotReady`).
+        pending = latchNotReady(pending, err);
+        throw err;
+      }
       stampThrower(err, owner);
       error = err;
       errored = true;
       cached = true;
       epoch = ctx?.commitEpoch?.();
       throw err;
-    } finally {
-      currentOwner = prev;
-      if (asyncReads !== reads) moving = true;
     }
+    currentOwner = prev;
+    if (asyncReads !== reads) moving = true;
+    value = result;
+    error = undefined;
+    errored = false;
+    cached = true;
+    epoch = ctx?.commitEpoch?.();
+    return value;
   }
+
+  // A NotReady the eager pull met, held for the rest of this synchronous
+  // turn (cleared by `latchNotReady`'s microtask).
+  let pending: NotReadyLatch | undefined;
 
   if (!options?.lazy) {
     try {
@@ -1556,11 +1583,41 @@ function createSyncMemo<T>(
       if (errored) throw error;
       return value;
     }
+    // The eager pull suspended in this same turn: nothing can have settled
+    // the source since (promises settle on microtasks, server renders are
+    // pure), so a second pull could only re-run the compute to meet the
+    // same NotReady — re-raise it instead.
+    if (pending !== undefined && pending.e !== undefined) throw pending.e;
     // Stale epoch (a commit happened since this computed — frame renders
     // only) or never computed: (re)pull. Purity is the memo contract, so an
     // epoch recompute is the client's source-driven re-run, pull-paced.
     return pull();
   }) as SourceAccessor<T | undefined>;
+}
+
+// A suspended sync memo is read right after it is created: the compiler's
+// hole memos are made as `ssr()`'s arguments and read by it in the same
+// expression, and the eager pull already ran the compute once. The latch
+// holds that NotReady for the rest of the synchronous turn; one microtask,
+// shared by every latch armed in the turn, clears them, so the next turn —
+// the boundary's retry, after the source may have settled — pulls again.
+type NotReadyLatch = { e: NotReadyError | undefined };
+const notReadyLatches: NotReadyLatch[] = [];
+let notReadyClearQueued = false;
+function clearNotReadyLatches(): void {
+  notReadyClearQueued = false;
+  const latches = notReadyLatches.splice(0);
+  for (let i = 0; i < latches.length; i++) latches[i].e = undefined;
+}
+function latchNotReady(latch: NotReadyLatch | undefined, err: NotReadyError): NotReadyLatch {
+  if (latch === undefined) latch = { e: err };
+  else latch.e = err;
+  notReadyLatches.push(latch);
+  if (!notReadyClearQueued) {
+    notReadyClearQueued = true;
+    queueMicrotask(clearNotReadyLatches);
+  }
+  return latch;
 }
 
 // === Deep Proxy for Patch Tracking (projections with async iterables) ===
@@ -3473,13 +3530,19 @@ export function runWithBoundaryErrorContext<T>(
       context._loadingPhase = true;
     }
   }
+  // The owner swap `runWithOwner` would do, inlined: one handler frame for
+  // the owner, the context and the boundary slot together (see
+  // `runWithOwner` on why a `finally` is one raise too many on the NotReady
+  // unwind), and no closure for the render.
+  const prevOwner = currentOwner;
+  currentOwner = owner as unknown as SSROwner;
+  const parentHandler = getContext(ErrorContext);
+  setContext(ErrorContext, (err, outcome) => onError(err, parentHandler, outcome));
+  let result: T;
   try {
-    return runWithOwner(owner, () => {
-      const parentHandler = getContext(ErrorContext);
-      setContext(ErrorContext, (err, outcome) => onError(err, parentHandler, outcome));
-      return render();
-    }) as T;
-  } finally {
+    result = render();
+  } catch (error) {
+    currentOwner = prevOwner;
     if (context) {
       if (boundaryId !== undefined) {
         context._currentBoundaryId = prevBoundary;
@@ -3487,7 +3550,18 @@ export function runWithBoundaryErrorContext<T>(
       }
       sharedConfig.context = prevCtx;
     }
+    stampThrower(error, owner);
+    throw error;
   }
+  currentOwner = prevOwner;
+  if (context) {
+    if (boundaryId !== undefined) {
+      context._currentBoundaryId = prevBoundary;
+      context._loadingPhase = prevLoadingPhase;
+    }
+    sharedConfig.context = prevCtx;
+  }
+  return result;
 }
 
 export { NoHydrateContext };

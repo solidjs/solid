@@ -4529,8 +4529,14 @@ module.exports = [
     // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
     // saturates. Measured at
     // 11,873 B brotli / 35,494 B minified; cap set to that measurement. Accepted by the maintainer (2026-10-15).
-    limit: "11.873 KB",
-    capMinified: 35494,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 11.873 -> 12.80 KB, measured at 12,790 B brotli / 38,500 B minified
+    // (recorded 35,494). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "12.80 KB",
+    capMinified: 38500,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4863,6 +4869,12 @@ module.exports = [
     // 106,175 B; measured locally (linux) at 34,601 B (106,175 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 34.620 -> 35.43 KB, measured at 35,418 B brotli / 109,143 B minified
+    // (recorded 106,175). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5136,7 +5148,13 @@ module.exports = [
     // display through its retry, `latest` throws a staged error. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-15 (golf first, then raise by what is left).
-    // Size-Exception: A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ f3973eae): 39.01 -> 39.05 KB, measured locally at 39,040 B brotli / 120,240 B minified (+55 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 38.700 -> 39.64 KB, measured at 39,623 B brotli / 122,512 B minified
+    // (recorded 119,540). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception: A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 4ff65801): 39.93 -> 39.99 KB, measured locally at 39,974 B brotli / 123,206 B minified (+51 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5248,8 +5266,12 @@ module.exports = [
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 35.37 -> 35.78 KB, measured at 35,768 B brotli / 109,754 B minified (+398 B brotli over the cap, +654 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "35.78 KB",
-    capMinified: 109754,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 35.78 -> 36.63 KB, measured at 36,618 B brotli / 112,720 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "36.63 KB",
+    capMinified: 112720,
     alias: pageAlias
   },
   {
@@ -5329,9 +5351,12 @@ module.exports = [
     // minified). Lower only: cap at measured + 10 B rounded up to 0.01 KB;
     // recorded minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 41.21 -> 41.77 KB, measured at 41,758 B brotli / 124,658 B minified (+544 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ f3973eae): 41.77 -> 41.83 KB, measured locally at 41,818 B brotli / 124,713 B minified (+55 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
-    limit: "41.83 KB",
-    capMinified: 124713,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 41.77 -> 42.68 KB, measured at 42,667 B brotli / 127,635 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "42.68 KB",
+    capMinified: 127635,
     alias: pageAlias
   },
   {
@@ -5488,8 +5513,12 @@ module.exports = [
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, from CI run 38867513870 — a local bundle of this scenario resolves the router differently and measures ~7 KB smaller, so CI's bytes set this cap): 41.96 -> 42.25 KB, measured at 42,233 B brotli / 130,720 B minified (+295 B brotli over base, +273 B over the cap, +654 B minified over the recorded size): the same window-staged commit as the other list scenarios.
-    limit: "42.25 KB",
-    capMinified: 130720,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 42.25 -> 43.09 KB, measured at 43,074 B brotli / 133,686 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "43.09 KB",
+    capMinified: 133686,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5615,9 +5644,13 @@ module.exports = [
     // Re-based on the measurement: cap at measured + 10 B rounded up to
     // 0.01 KB, recorded minified 144,773.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, from CI run 38867513870 — a local bundle of this scenario resolves the router differently and measures ~7 KB smaller, so CI's bytes set this cap): 48.16 -> 48.46 KB, measured at 48,444 B brotli / 145,422 B minified (+294 B brotli over base, +284 B over the cap, +649 B minified over the recorded size): the same window-staged commit as the other list scenarios.
-    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ f3973eae): 48.46 -> 48.54 KB, measured locally at 48,527 B brotli / 145,477 B minified (+55 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
-    limit: "48.54 KB",
-    capMinified: 145477,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 48.46 -> 49.37 KB, measured at 49,352 B brotli / 148,410 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 4ff65801): 49.37 -> 49.39 KB, measured locally at 49,375 B brotli / 148,461 B minified (+51 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    limit: "49.39 KB",
+    capMinified: 148461,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
