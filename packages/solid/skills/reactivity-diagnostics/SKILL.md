@@ -897,14 +897,16 @@ connection) are never judged.
 
 A live markup hole (or attribute) in a server component shipped its markers
 and then stopped updating: re-running it created a reactive scope still
-waiting on async work (`data.cause: "owners"`) or emitted slot records
-(`"records"`), so the runtime closed it and the client keeps the markup it
-last received. Scopes that finish synchronously (a nested `<For>`, a
-condition memo such as `{m.usage && …}`, a component) are fine: each re-run
-gets a throwaway scope. The usual cause is a memo over a fetch or a stream
-created inside the markup that re-renders, which would restart on every
-re-run. Create the async source in the component body instead. The finding
-is located by the component the hole is in.
+waiting on async work (`data.cause: "owners"`), so the runtime closed it and
+the client keeps the markup it last received. Scopes that finish
+synchronously (a nested `<For>`, a condition memo such as `{m.usage && …}`,
+a component) are fine: each re-run gets a throwaway scope, and slot calls
+(client components placed in the markup) re-run with the hole. The usual
+cause is a memo over a fetch or a stream created inside the markup that
+re-renders, which would restart on every re-run. Create the async source in
+the component body instead. An attribute whose expression calls a slot
+closes too (`"records"`): a slot places a client component in content, not
+in a tag. The finding is located by the component the hole is in.
 
 ### LAZY_ASSET_UNMAPPED
 
@@ -968,34 +970,6 @@ else is a plain attribute, so the function was stringified into it and never
 runs. Once per attribute name. Fix: use the camelCase handler
 (`data.handler` — `onclick={save}` → `onClick={save}`); keep a lowercase name
 only for a string inline-handler attribute.
-
-### BINDING_SLOT_POSITION
-
-A binding slot's property (`const row = props.row(args); row.done`)
-landed where the server template cannot bind it. The rule: a slot property
-is a JSX attribute value, whole, and nothing else. `data.reason`:
-`"spread"` (throws — the slot's whole return spread onto an element; name
-each position instead), `"stringified"` (coerced into a string — a template
-literal, a concatenation), `"coerced"` (used in an expression — a
-comparison, arithmetic, a branch on its result; the server has no value to
-compute with, so decide in the client fill and return the decided value),
-`"inline"` (reached `class`/`style` inside template quotes — the element
-was compiled without the `serverComponents` compiler option), `"text"`
-(placed as text, not a bindable position yet), `"markup"` (read off a slot
-whose client fill returned content, not an object), `"server-local"` (a
-`ref`/`on*` position got a plain server function — bind a slot property or
-an `action=`), `"tuple"` (an `on*` position got an array — return the
-`[handler, data]` tuple from the fill instead), `"reserved-key"` (the fill's object used a key the slot's
-range occupies), `"orphan"` (client, kind `render`: an element carries
-markers for an occurrence that can never bind — `data.why` `"fill"`, no
-client fill for the prop; `"record"`, a called occurrence with no args
-record once none can arrive, which is the protocol out of step — client
-and server from different builds — not a fill mistake). For
-`stringified`/`coerced`/`inline`/`text` NOTHING
-renders at the position on either face, so the misuse shows on the first
-render, not the first refetch. Truthiness (`if (row.done)`) has no hook and
-is the one misuse only the rule catches — a stand-in is always truthy.
-The fuller guide is `@solidjs/web`'s `skills/server-components/SKILL.md`.
 
 ## Verifying a fix
 

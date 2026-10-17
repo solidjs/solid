@@ -4,7 +4,6 @@
 import { describe, expect, test } from "vitest";
 import { Errored } from "solid-js";
 import { Dynamic, renderToString, ssrElement } from "@solidjs/web";
-import { renderServerComponent } from "../../frames/src/frame-sink.js";
 
 // A spread's keys and a dynamic tag are runtime strings. The HTML tokenizer
 // ends a name at whitespace, `/`, `>` or `=`, so a name containing one of
@@ -117,20 +116,5 @@ describe("ssrElement tag names", () => {
     expect(renderToString(() => ssrElement("x-a.b_c:d", {}, undefined, false))).toBe(
       "<x-a.b_c:d></x-a.b_c:d>"
     );
-  });
-});
-
-describe("binding-slot spread attribute names", () => {
-  test("a stand-in at a key that is not one HTML name binds nothing", async () => {
-    const Spread = (props: any) => {
-      const row = props.row({ id: 1 });
-      return <li {...{ "a b": row.v, "data-ok": row.w, "onClick x": row.pick, onClick: row.go }} />;
-    };
-    const chunks: any[] = await (renderServerComponent(Spread, { frame: { id: "names" } }) as any);
-    const html = chunks
-      .find(c => c.type === "html")
-      .html.replace(/ data-lha="\d+"/g, "")
-      .replace(/<!--lh:\/?\d+-->/g, "");
-    expect(html).toContain('<li _s:data-ok="row#0:w" _s:on:click="row#0:go">');
   });
 });

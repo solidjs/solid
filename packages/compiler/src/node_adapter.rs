@@ -263,7 +263,6 @@ fn core_options(options: TransformOptions) -> Result<CompileOptions> {
         module_name,
         generate,
         hydratable: options.hydratable.unwrap_or(false),
-        server_components: options.server_components.unwrap_or(false),
         hoist_props: options.hoist_props.unwrap_or(true),
         dev: options.dev.unwrap_or(false),
         // `sourceNames` follows `dev`: unset, every kind is `dev`; in the

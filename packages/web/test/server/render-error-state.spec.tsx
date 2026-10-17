@@ -85,7 +85,7 @@ describe("renderToStream.hasErrors", () => {
     expect(stream.hasErrors).toBe(false);
   });
 
-  test("tracks interleaved requests and reused errors without rerunning the mapper", async () => {
+  test("tracks interleaved requests and maps a reused error once per request", async () => {
     const mapped = vi.fn(() => new Error("public failure"));
     configureServerErrors({ onError: mapped });
     const error = new Error("private failure");
@@ -103,7 +103,7 @@ describe("renderToStream.hasErrors", () => {
       true,
       false
     ]);
-    expect(mapped).toHaveBeenCalledTimes(1);
+    expect(mapped).toHaveBeenCalledTimes(2);
   });
 
   test.each([new Error("private"), undefined, null, false, 0, ""])(
@@ -144,6 +144,24 @@ describe("renderToStream.hasErrors", () => {
     expect([failed.hasErrors, healthy.hasErrors]).toEqual([true, false]);
   });
 
+  test("records each render even when the same request already reported its error", async () => {
+    const onError = vi.fn<ServerErrorHook>(() => new Error("public failure"));
+    configureServerErrors({ onError });
+    const error = new Error("private failure");
+    const streams = underRequest(() =>
+      [0, 1].map(() =>
+        renderToStream(() => (
+          <Errored fallback={<p>fallback</p>}>
+            <Bad error={error} />
+          </Errored>
+        ))
+      )
+    );
+    await Promise.all(streams);
+    expect(streams.map(stream => stream.hasErrors)).toEqual([true, true]);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
   test("records an asynchronous Errored fallback", async () => {
     const gate = Promise.withResolvers<string>();
     const stream = renderToStream(() => (
@@ -172,8 +190,9 @@ describe("renderToStream.hasErrors", () => {
     );
     await stream;
     expect(stream.hasErrors).toBe(true);
-    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(2);
     expect(onError.mock.calls[0]?.[1]).toMatchObject({ kind: "server-function" });
+    expect(onError.mock.calls[1]?.[1]).toMatchObject({ kind: "render" });
   });
 
   test("does not mark a server function failure caught by the application", async () => {

@@ -32,8 +32,7 @@ import type { Element as SolidElement } from "solid-js";
 // already uses — importing it from the runtime source instead bundles a second
 // copy of `insert` and the reconcile/render machinery it drags in (~4kb the app
 // already has). Kept external in rollup.config.js for the same reason the
-// server-functions/client import below is. (`assign` — a binding slot's
-// position writer — is the bind tier's import, not this entry's.)
+// server-functions/client import below is.
 // `installServerComponentHydration` is the server-component half of
 // hydration — solid's hold, claim window, fragment ownership and ledger
 // answer, and the DOM runtime's declared claim roots and frame exclusion of
@@ -51,7 +50,6 @@ import {
   prepareTier,
   releaseDeferHolds,
   setDeferDriver,
-  slotShapeFinding,
   tierLoaders,
   tierLoads,
   type TierModule
@@ -106,17 +104,6 @@ tierLoaders.regions = () => import("@solidjs/web/frames/regions");
 // fallback stays on screen, no segment reveals unstyled. The module's
 // exports are the dispatch (`gate`, `apply`); no install.
 tierLoaders.assets = () => import("@solidjs/web/frames/assets");
-// The bind tier (frames savings pass §3 row C6): binding-slot positions
-// (principles §9.2.3) — the `_s:*` marker parsers, consumer discovery, the
-// morph's owned-position arms, the per-frame consumer set and the fill's
-// binding (`assign` over every consuming element) — as the chunk
-// `@solidjs/web/frames/bind` (bind-tier.ts). The server announces `bind`
-// wherever a slot is read as data (the slot proxy's `needs("bind")`); a
-// marker met in a frame's content while the tier is absent is noted by
-// the sync's walk and the frame holds on the note, its load started by
-// the readiness check (frame-client.ts, `#syncSlots`). The module's
-// exports are the dispatch; no install.
-tierLoaders.bind = () => import("@solidjs/web/frames/bind");
 // The live wire tier (frames savings pass §3 row C2): what a `live()`
 // loop's connection needs of the frames transport — the per-address
 // connection (join / open / supersede), the SSE reader selection and the
@@ -162,11 +149,6 @@ export {
 } from "./frame-client.js";
 // The shape a tier loader resolves (`InstallOptions.tiers`); type-only.
 export type { TierModule } from "./frame-client.js";
-// The bind tier's import of this entry (bind-tier.ts): one copy of the
-// async-value probe, and the edge that keeps the chunk attached to the
-// entry's graph in an app's bundler.
-/** @internal */
-export { isAsyncValue } from "./frame-client.js";
 // `FRAME_HAVE_HEADER` / `FRAME_HAVE_BUDGET` are the SERVER entry's
 // (`@solidjs/web/frames/server`): the client sends the have-list itself
 // (`resume`, through the handler) and no consumer of this entry reads the
@@ -184,7 +166,7 @@ export {
 // Server components are authored in universal code, so the slot type has to
 // resolve under the browser condition too. Type-only, so nothing crosses into
 // the client bundle.
-export type { Slot, BindingSlot, SlotOutput, SlotError } from "./server.js";
+export type { Slot } from "./server.js";
 
 /**
  * Client-condition twin of the server face's `asyncArg` (DR-2 value tier):
@@ -528,9 +510,13 @@ function claimScope(el: Element): ClaimScope & { index(root: ParentNode): void }
  * evaluated. It claims under the same prefix but gathers nothing: the
  * first window's gather is still in the registry, and gathering again
  * would put the keys the evaluation already claimed back as unclaimed.
+ * Both windows run under the fill's ONE claim `owner` (id `prefix`): the
+ * window claims that subtree only, and what the first evaluated lazily — a
+ * context provider's children — creates under it when the second reads it.
  */
 function claimRender(
   prefix: string,
+  owner: any,
   existing: Node[],
   render: () => any,
   scope?: ClaimScope,
@@ -539,14 +525,11 @@ function claimRender(
   const sc: any = sharedConfig;
   // No window, or no registry gathered yet (no `hydrate()` pass has run):
   // nothing to claim against — render fresh over the markup.
-  if (!sc.hydrateWindow || !sc.registry) return render();
+  if (!sc.hydrateWindow || !sc.registry) return runWithOwner(owner, render);
   const prevRoots = sc.claimRoots;
   sc.claimRoots = existing;
   try {
-    // The claim owner too: the window claims this fill's subtree only.
-    return runWithOwner(createOwner({ id: prefix }), () =>
-      sc.hydrateWindow(bound ? undefined : prefix, render, scope)
-    );
+    return runWithOwner(owner, () => sc.hydrateWindow(bound ? undefined : prefix, render, scope));
   } finally {
     sc.claimRoots = prevRoots;
   }
@@ -688,6 +671,8 @@ function slotArgsProxy(args: () => Record<string, any>) {
           reads.set(key, read);
         }
         const v = read();
+        // A region read is its placement (the regions tier's `place`).
+        if (v instanceof Element) tierLoads.regions.r.place(v);
         return v instanceof Boxed ? v.c : v;
       },
       has: (_, key) => key in args(),
@@ -719,7 +704,7 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
     {
       get(_, prop) {
         if (typeof prop !== "string" || !(prop in props)) return undefined;
-        return (slotProps: any, ctx: any) => {
+        const mount = (slotProps: any, ctx: any) => {
           const key = ctx && ctx.key;
           // A re-call replaces the invocation wholesale (the frame only
           // runs slot cleanups at unmount, not between re-calls): the
@@ -730,46 +715,6 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           if (prevFill) {
             fillScopes.delete(key);
             prevFill.dispose();
-          }
-          // Binding slot (§9.2.3): the occurrence's node is the set of server
-          // elements reading its properties at bound positions. Always under
-          // a per-occurrence owner: the binding must die with the occurrence
-          // (a later response dropping it, or every consumer replaced by
-          // the morph). The binding itself is the BIND TIER's
-          // (`bind`, bind-tier.ts) — resident by construction: positions
-          // exist only once the tier parsed the markers.
-          if (ctx && ctx.positions) {
-            const fill = props[prop];
-            if (typeof fill !== "function") {
-              if (IS_DEV) {
-                slotShapeFinding(
-                  { reason: "fill-shape", occurrence: key, shape: typeof fill },
-                  `[BINDING_SLOT_POSITION] Server markup reads slot \`${prop}\` as data (\`${key}\`), ` +
-                    `but the client prop is ${typeof fill === "object" ? "an object" : `a ${typeof fill}`}, ` +
-                    `not a function. The fill is a function of the occurrence's args returning the object ` +
-                    `the markup reads: \`${prop}={args => ({ … })}\`. Nothing binds until it is.`
-                );
-              }
-              return undefined;
-            }
-            const owner = createOwner();
-            fillScopes.set(key, owner);
-            ctx.onCleanup(() => {
-              if (fillScopes.get(key) === owner) fillScopes.delete(key);
-              owner.dispose();
-            });
-            runWithOwner(owner, () => {
-              const args = ctx.onUpdate
-                ? liveSlotProps(slotProps, ctx)
-                : slotArgsProxy(() => slotProps);
-              tierLoads.bind.r.bind(
-                fill,
-                args,
-                ctx,
-                IS_DEV ? `the \`${prop}\` binding-slot fill` : undefined
-              );
-            });
-            return undefined;
           }
           // A range occurrence without its end marker has no anchor to bind
           // before (the document is corrupted — `FRAME_MARKER_CORRUPTED`,
@@ -791,15 +736,20 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // pending fill's nodes are legitimately detached while its
           // covering boundary shows the fallback; the boundary, not a frame
           // cleanup, decides when that render is done with). Their range
-          // binding gets an owner of its own below.
+          // binding gets an owner of its own.
+          //
+          // The binding's owner: the fill's own (a stream-mounted fill), else
+          // one minted here — TRANSPARENT, so a fill mounting inside the
+          // hydrate pass consumes no id from the adopting component's counter
+          // (a keyed sibling after the frame keys the same whether a fill
+          // mounted at t=0 or after a hold; the claim window has its own id).
           const fillOwner = streamInvoke ? createOwner() : null;
-          if (fillOwner && key !== undefined && ctx) {
-            fillScopes.set(key, fillOwner);
-            ctx.onCleanup(() => {
-              if (fillScopes.get(key) === fillOwner) fillScopes.delete(key);
-              fillOwner.dispose();
-            });
-          }
+          const owner = fillOwner || createOwner({ transparent: true });
+          fillScopes.set(key, owner);
+          ctx.onCleanup(() => {
+            if (fillScopes.get(key) === owner) fillScopes.delete(key);
+            owner.dispose();
+          });
           // The prop is read INSIDE the claim scope: compiled component props
           // are getters, so JSX evaluates lazily at access — deferring the
           // access into the scoped owner is what makes plain JSX (no thunks)
@@ -852,12 +802,11 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // re-call with existing nodes must render for real — claiming would
           // no-op its inserts and silently drop whatever the re-call
           // displaced, e.g. moved-out {$frame} region ranges (#547).
-          const value = fillOwner
-            ? runWithOwner(fillOwner, () =>
-                adopted ? claimRender(prefix, ctx.existing, evaluate, scope) : evaluate()
-              )
-            : adopted
-              ? claimRender(prefix, ctx.existing, evaluate, scope)
+          const claim = adopted && runWithOwner(owner, () => createOwner({ id: prefix }));
+          const value = adopted
+            ? claimRender(prefix, claim, ctx.existing, evaluate, scope)
+            : fillOwner
+              ? runWithOwner(fillOwner, evaluate)
               : evaluate();
           // Every fill is one `insert` before the range's end marker — the
           // primitive compiled JSX uses for `{expr}` positions — so the
@@ -889,28 +838,18 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // inert: the boundary's own resume still claimed the swapped-in
           // server markup, so the region looked right, but nothing
           // downstream (a route change out of it) ever re-rendered it again.
-          //
-          // The binding's owner: the fill's own (a stream-mounted fill,
-          // already in `fillScopes` with its cleanup), else one minted here
-          // and registered the same way — TRANSPARENT, so a fill mounting
-          // inside the hydrate pass consumes no id from the adopting
-          // component's counter (a keyed sibling after the frame keys the
-          // same whether a fill mounted at t=0 or after a hold; the claim
-          // window below has its own id).
-          const owner = fillOwner || createOwner({ transparent: true });
-          if (!fillOwner) {
-            fillScopes.set(key, owner);
-            ctx.onCleanup(() => {
-              if (fillScopes.get(key) === owner) fillScopes.delete(key);
-              owner.dispose();
-            });
-          }
           const end = range.end;
           const bind = () => insert(end.parentNode as any, value, end, [...ctx.existing]);
-          runWithOwner(owner, () =>
-            adopted ? claimRender(prefix, ctx.existing, bind, scope, true) : bind()
-          );
+          adopted
+            ? claimRender(prefix, claim, ctx.existing, bind, scope, true)
+            : runWithOwner(owner, bind);
           return undefined;
+        };
+        // A fill nested in a region mounts where the region is placed (the
+        // regions tier's `nest`; no region exists without the tier).
+        return (slotProps: any, ctx: any) => {
+          const R = tierLoads.regions?.r;
+          R ? R.nest(mount, slotProps, ctx) : mount(slotProps, ctx);
         };
       }
     }

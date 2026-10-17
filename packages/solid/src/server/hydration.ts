@@ -316,7 +316,7 @@ function ssrLoadingBoundary(
       },
       // Located where it was THROWN (the owner it escaped), the boundary that
       // met it in `data` — the same two facts the server error hook carries.
-      throwerOf(err) ?? o
+      throwerOf(err, ctx._errorScope) ?? o
     );
   };
   let serializeBuffer: [string, any, boolean?][] = [];
@@ -397,7 +397,8 @@ function ssrLoadingBoundary(
         err,
         { kind: "render", handling: "client", boundary: id },
         o,
-        ctx.errorPolicy
+        ctx.errorPolicy,
+        ctx._errorScope
       );
     }
     return done!(outcome && outcome.value, err, outcome && outcome.escaped);
@@ -482,7 +483,8 @@ function ssrLoadingBoundary(
         err,
         { kind: "render", handling: "failed", boundary: id },
         o,
-        ctx.errorPolicy
+        ctx.errorPolicy,
+        ctx._errorScope
       );
       ctx.failRender ? ctx.failRender(err) : console.error(err);
       return;
@@ -496,7 +498,8 @@ function ssrLoadingBoundary(
           caught,
           { kind: "render", handling: "failed", boundary: id },
           o,
-          ctx.errorPolicy
+          ctx.errorPolicy,
+          ctx._errorScope
         );
         ctx.failRender ? ctx.failRender(caught) : console.error(caught);
       }
