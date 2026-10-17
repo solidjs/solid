@@ -392,6 +392,108 @@ describe("renderToStream.hasErrors", () => {
     }
   );
 
+  test("resolves pipeTo only after a slow consumer drains a failed render", async () => {
+    const gate = Promise.withResolvers<WeakMap<object, unknown>>();
+    const events: string[] = [];
+    configureServerErrors({ onError: () => undefined });
+    const stream = renderToStream(() => {
+      sharedConfig.context!.serialize("bad", gate.promise);
+      return <p>shell</p>;
+    });
+    await stream.pipeTo(
+      new WritableStream({
+        async write() {
+          events.push("write");
+          gate.resolve(new WeakMap());
+          await new Promise(resolve => setTimeout(resolve, 20));
+          events.push("written");
+        },
+        close() {
+          events.push("close");
+        }
+      })
+    );
+    events.push("resolved");
+    expect(events).toEqual(["write", "written", "close", "resolved"]);
+    expect(stream.hasErrors).toBe(true);
+  });
+
+  test.each(["await", "pipe", "pipeTo", "readable"] as const)(
+    "contains a cleanup that throws as a healthy render completes (%s)",
+    async consumer => {
+      const onError = vi.fn<ServerErrorHook>(() => undefined);
+      configureServerErrors({ onError });
+      const unhandled = vi.fn();
+      process.on("unhandledRejection", unhandled);
+      try {
+        const stream = renderToStream(() => {
+          onCleanup(() => {
+            throw new Error("cleanup");
+          });
+          return <p>healthy</p>;
+        });
+        let html: Promise<string>;
+        if (consumer === "await") html = Promise.resolve(stream);
+        else if (consumer === "pipe") {
+          const chunks: string[] = [];
+          html = new Promise(resolve =>
+            stream.pipe({ write: chunk => chunks.push(chunk), end: () => resolve(chunks.join("")) })
+          );
+        } else if (consumer === "pipeTo") {
+          const chunks: string[] = [];
+          html = stream
+            .pipeTo(
+              new WritableStream({
+                write: chunk => {
+                  chunks.push(new TextDecoder().decode(chunk));
+                }
+              })
+            )
+            .then(() => chunks.join(""));
+        } else html = new Response(stream.readable).text();
+        const timeout = new Promise<"timeout">(resolve =>
+          setTimeout(() => resolve("timeout"), 1000)
+        );
+        expect(await Promise.race([html, timeout])).toContain("healthy");
+        await new Promise(resolve => setTimeout(resolve));
+        expect(unhandled).not.toHaveBeenCalled();
+        expect(stream.hasErrors).toBe(true);
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(onError.mock.calls[0]?.[1]).toMatchObject({ handling: "failed" });
+      } finally {
+        process.off("unhandledRejection", unhandled);
+      }
+    }
+  );
+
+  test("completes once when a custom serializer calls onDone twice", async () => {
+    const onCompleteAll = vi.fn();
+    let ends = 0;
+    const options = {
+      onCompleteAll,
+      serializer: ({ onDone }: HydrationSerializerOptions) => ({
+        write() {},
+        flush() {
+          onDone?.();
+          onDone?.();
+        }
+      })
+    };
+    const stream = renderToStream(() => <p>shell</p>, options);
+    await new Promise<void>(resolve =>
+      stream.pipe({
+        write() {},
+        end() {
+          ends++;
+          resolve();
+        }
+      })
+    );
+    await new Promise(resolve => setTimeout(resolve));
+    expect(onCompleteAll).toHaveBeenCalledTimes(1);
+    expect(ends).toBe(1);
+  });
+
   test("still terminates when the global serialization hook throws", async () => {
     configureServerErrors({
       onError: () => {

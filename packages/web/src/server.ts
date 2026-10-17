@@ -2143,22 +2143,11 @@ export function renderToStream(code, options = {}) {
     const sink = writable;
     buffer = { write() {} };
     writable = { end() {} };
-    // Contained (#4029): an `onCleanup` that throws here must not escape the
-    // teardown. On the `signal` path this runs inside an `abort` listener,
-    // where a throw becomes an uncaught exception that takes the process down;
-    // on the `failRender` path it would cut the wind-down short. It is the
-    // render's failure, so it goes to the hook as one (`handling: "failed"`),
-    // and with no hook anywhere it is never silent.
+    // The render's dispose contains a throwing `onCleanup` (#4029).
     if (dispose) {
       const d = dispose;
       dispose = () => {};
-      try {
-        d();
-      } catch (err) {
-        recordRenderError();
-        reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
-        if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
-      }
+      d();
     }
     // Close the serializer AFTER `dead` is set: seroval's `close()` runs
     // each pending write's cleanup — a serialized async iterator gets its
@@ -2347,8 +2336,9 @@ export function renderToStream(code, options = {}) {
     // trace `doShell` reads (`traceMetaMarkup(context.trace)`), and the
     // consumer was completed by the wind-down (`abandon`) — a disconnect has
     // nobody to complete. Serialized promises still settle after the
-    // wind-down, so seroval still reaches here; do nothing (#3569).
-    if (dead || hasSerializationError) return;
+    // wind-down, so seroval still reaches here; do nothing (#3569). A custom
+    // serializer that calls onDone again finds the render already complete.
+    if (dead || hasSerializationError || completed) return;
     writeTasks();
     // Every blocker has settled by definition here (the render is complete),
     // so doShell's growth gate has nothing to wait for: align its baseline
@@ -3106,7 +3096,20 @@ export function renderToStream(code, options = {}) {
         // The render is over: no later read finds its trace (see above).
         context.trace = undefined;
         if (onAbort) signal.removeEventListener("abort", onAbort);
-        d();
+        // Contained (#4029): an `onCleanup` that throws must not escape the
+        // teardown. Inside an `abort` listener the throw becomes an uncaught
+        // exception that takes the process down; in the wind-down it cuts it
+        // short; at completion the consumer is never completed and the throw
+        // surfaces as an unhandled rejection. It is the render's failure, so
+        // it goes to the hook as one (`handling: "failed"`), and with no hook
+        // anywhere it is never silent.
+        try {
+          d();
+        } catch (err) {
+          recordRenderError();
+          reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
+          if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
+        }
       };
       rootOwner = claimRenderRoot(context);
       if (requestEvent) claimEventRender(requestEvent, context);
@@ -3322,11 +3325,12 @@ export function renderToStream(code, options = {}) {
     // settles and the writable — alive; the RENDER died — is closed so a
     // `Response` built on `readable` completes instead of hanging. Post-
     // shell the live wrapper ends (flushing what it coalesced, then the
-    // writer's own close path); pre-shell nothing was written yet.
+    // writer's own close path, which settles the promise once the writes
+    // drain); pre-shell nothing was written yet.
     onFailure(sink => {
       try {
-        if (sink) sink.end();
-        else w.close().catch(() => {});
+        if (sink) return sink.end();
+        w.close().catch(() => {});
       } catch (_) {}
       resolve();
     });
