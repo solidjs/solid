@@ -2241,11 +2241,12 @@ const traps: ProxyHandler<StoreTarget> = {
     // one" shape drifted the count up by one per write until a three-key
     // object crossed the overlay threshold and paid a rebuild on every
     // commit after.
+    const committed = target.ovl && hasOwn.call(target.v, key);
     if (hasOwn.call(pb, key)) {
       delete pb[key as any];
-      if (!target.ovl || !hasOwn.call(target.v, key)) target.kc--;
+      committed || target.kc--;
     }
-    if (target.ovl && hasOwn.call(target.v, key)) (target.del ??= new Set()).add(key);
+    if (committed) (target.del ??= new Set()).add(key);
     if (override) notifyWrites(target);
     return true;
   }
