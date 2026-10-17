@@ -584,7 +584,7 @@ export interface HandleServerFunctionOptions {
    * This request's server error hook, ahead of `configureServerErrors`' (see
    * `ServerErrorHook` in `@solidjs/web`): the function's throw
    * (`handling: "thrown"`) and a failure escaping through its result graph
-   * (`"channel"`), once per error, before the wire policy applies. Entry-only
+   * (`"channel"`), once per error per request, before the wire policy applies. Entry-only
    * like `wrapInvocation`: a direct call the body makes during a render
    * reports through the ambient hook.
    */
@@ -3480,10 +3480,11 @@ export function sanitizeServerError(value: unknown): unknown;
 // with the function named, before `sanitizeServerError` applies. The hook's
 // mapping, when it gives one, IS the wire value (intent, as a
 // `wrapInvocation` mapping is). The verdict is shared with the render side
-// through the same once-per-error cache (`reportServerError`), so a direct
-// call that throws during SSR is reported here as the function's failure
-// and the <Errored> that contains it reuses the answer without reporting
-// again. Per-request hooks ride the event (the handler's option); the
+// through the same once-per-error-per-request cache (`reportServerError`;
+// a direct call's derived event shares the request it was made under), so
+// a direct call that throws during SSR is reported here as the function's
+// failure and the <Errored> that contains it reuses the answer without
+// reporting again. Per-request hooks ride the event (the handler's option); the
 // channel sites read the event off the scope their operations run in. A
 // direct call reports through the hook of the render serving its request
 // (`requestErrorHook`). None is ever read off the global SSR context: that

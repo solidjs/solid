@@ -3519,9 +3519,13 @@ export { NoHydrateContext };
 //  - A value branded with `markSafeError` (`Symbol.for("solid.SafeError")`,
 //    registered so this needs nothing from `@solidjs/web`) is intentional
 //    client-facing content and passes through.
-//  - One verdict per original: the same error reaches this through several
-//    roads (the boundary's catch, the channel it rejected, a Loading re-pull
-//    recurring the throw), and every road hands the client the same value.
+//  - One verdict per original PER SCOPE: the same error reaches this through
+//    several roads (the boundary's catch, the channel it rejected, a Loading
+//    re-pull recurring the throw), and every road hands the client the same
+//    value. The scope is the request (#4125): an error object outlives the
+//    request it was first met in (a module-level constant, a cached
+//    rejection), and another request meeting it is another failure to hear
+//    and another wire to decide — never the first request's answer.
 //
 // THE SERVER ERROR HOOK (sentry-integration-plan C6, #3468 part 3). The
 // prod tier has no `OBSERVE`, so everything the runtime HANDLES — a
@@ -3529,7 +3533,8 @@ export { NoHydrateContext };
 // server-function throw sanitized — was invisible to a production error
 // monitor; only the failure that fails the request reached `onError`. The
 // hook is the prod-tier seam for both reporting and mapping: called ONCE
-// per error object, at first sight, with where the failure was met; its
+// per error object per request (per render outside any request — see
+// `verdictOf`), at first sight, with where the failure was met; its
 // return, when not `undefined`, is the wire value — the author's intent,
 // like a `wrapInvocation` mapping, not second-guessed. Two tiers, as
 // `wrapInvocation` has: ambient (`configureServerErrors` in `@solidjs/web`,
@@ -3567,58 +3572,76 @@ export interface ServerErrorSite {
 }
 export type ServerErrorHook = (error: unknown, context: ServerErrorSite) => unknown | void;
 
-/** The verdict on one error object: whether the hook has heard of it, and the wire value once decided. */
+/** The verdict on one error object in one scope: whether the hook has heard of it, and the wire value once decided. */
 interface Verdict {
-  reported: boolean;
-  decided: boolean;
+  reported?: boolean;
+  decided?: boolean;
   wire?: unknown;
-  recorded: boolean;
+  recorded?: boolean;
 }
-const verdicts = new WeakMap<object, Verdict>();
+/** Scope → error object → verdict. */
+const verdicts = new WeakMap<object, WeakMap<object, Verdict>>();
 const isObject = (value: unknown): value is object =>
   value !== null && (typeof value === "object" || typeof value === "function");
-const verdictOf = (value: unknown): Verdict | undefined => {
-  if (!isObject(value)) return undefined;
-  let verdict = verdicts.get(value);
-  if (verdict === undefined)
-    verdicts.set(value, (verdict = { reported: false, decided: false, recorded: false }));
+/**
+ * The verdict on `value` within `scope`, the scope the failure belongs to —
+ * never process-wide, which would silence every later request that meets
+ * the same object. The callers pass the render's `_errorScope` when they
+ * have it in hand (the request event the render started under, else an
+ * object of its own), else the request event the site names or the request
+ * scope holds, else nothing: no request, no render — nothing to dedupe
+ * within, so every sight is heard (a fresh verdict, kept by nobody; so is a
+ * non-object's). An event counts by its `request`, which the derived event
+ * a direct SSR-time server-function call runs under shares with the render
+ * that made it.
+ */
+const verdictOf = (value: unknown, scope: any): Verdict => {
+  if (!isObject(value) || !scope) return {};
+  let inScope = verdicts.get((scope = scope.request || scope));
+  if (!inScope) verdicts.set(scope, (inScope = new WeakMap()));
+  let verdict = inScope.get(value);
+  if (!verdict) inScope.set(value, (verdict = {}));
   return verdict;
 };
 
 /** The ambient hook (`configureServerErrors`), read off the registered slot. */
 function ambientServerErrorHook(): ServerErrorHook | undefined {
-  const slot = (globalThis as { [SERVER_ERRORS]?: { hook?: ServerErrorHook } })[SERVER_ERRORS];
-  return slot === undefined ? undefined : slot.hook;
+  return (globalThis as { [SERVER_ERRORS]?: { hook?: ServerErrorHook } })[SERVER_ERRORS]?.hook;
 }
 /** The request in scope, read the way `getRequestEvent()` reads it — the registered request store. */
 function currentRequestEvent(): unknown {
-  const store = (globalThis as { [REQUEST_CONTEXT]?: { getStore?(): unknown } })[REQUEST_CONTEXT];
-  return store !== undefined && typeof store.getStore === "function" ? store.getStore() : undefined;
+  return (globalThis as { [REQUEST_CONTEXT]?: { getStore?(): unknown } })[
+    REQUEST_CONTEXT
+  ]?.getStore?.();
 }
 
 /**
- * Tells the server error hook about `value` — once per error object, at
- * first sight — and returns `{ mapped: true, value }` when the hook (now or
- * on an earlier sight) gave a wire value, `{ mapped: false }` otherwise.
+ * Tells the server error hook about `value` — once per error object per
+ * scope (`verdictOf`), at first sight — and returns `{ mapped: true, value }`
+ * when the hook (now or on an earlier sight in that scope) gave a wire
+ * value, `{ mapped: false }` otherwise.
  * `hook` is the hook of the render or request the failure belongs to (a
  * render's `onError`, the server-function handler's), `undefined` when it
  * has none or the failure belongs to none — the ambient registration then
  * answers alone. A throwing hook is reported on the console and treated as
  * having said nothing. `ownerPath` is filled from `subject` when the site
- * did not name it.
+ * did not name it. `scope` is the render's (`_errorScope`), when the caller
+ * has one.
  * @internal
  */
 export function reportServerError(
   value: unknown,
   site: ServerErrorSite,
   subject?: DiagnosticSubject | null,
-  hook?: ServerErrorHook
+  hook?: ServerErrorHook,
+  scope?: object
 ): { mapped: boolean; value?: unknown } {
-  const verdict = verdictOf(value);
-  if (verdict !== undefined && verdict.reported) {
+  const event = site.event || currentRequestEvent();
+  const verdict = verdictOf(value, scope || event);
+  if (verdict.reported) {
     return verdict.decided ? { mapped: true, value: verdict.wire } : { mapped: false };
   }
-  if (verdict !== undefined) verdict.reported = true;
+  verdict.reported = true;
   const target = hook ?? ambientServerErrorHook();
   if (target === undefined) return { mapped: false };
   const context: ServerErrorSite = { ...site };
@@ -3629,10 +3652,7 @@ export function reportServerError(
     if (path !== undefined) context.ownerPath = path;
   }
   if (context.boundaryPath === undefined && boundary !== undefined) context.boundaryPath = boundary;
-  if (context.event === undefined) {
-    const event = currentRequestEvent();
-    if (event !== undefined) context.event = event;
-  }
+  if (event) context.event = event;
   let mapped: unknown;
   try {
     mapped = target(value, context);
@@ -3643,10 +3663,8 @@ export function reportServerError(
   // A request that fails has no wire: the hook's return is ignored there,
   // and does not bind the roads a later sight of the same error may take.
   if (mapped === undefined || site.handling === "failed") return { mapped: false };
-  if (verdict !== undefined) {
-    verdict.decided = true;
-    verdict.wire = mapped;
-  }
+  verdict.decided = true;
+  verdict.wire = mapped;
   return { mapped: true, value: mapped };
 }
 
@@ -3675,36 +3693,35 @@ function ownerLabels(subject: DiagnosticSubject): string[] | undefined {
  * and for the roads that carry the value without meeting it (a channel's
  * rejection, a live hole's message) — the default: `value` itself in the dev
  * build or when branded safe, else one generic `Error` per original. The
- * verdict is cached on the object, so every road hands the client the same
- * value. Outside dev a replacement is recorded once as
- * `SERVER_ERROR_SANITIZED` (observe/dev) with `data.source: "ssr"`, the
+ * verdict is cached per original per scope (`verdictOf`), so every road
+ * hands the client the same value. Outside dev a replacement is recorded
+ * once as `SERVER_ERROR_SANITIZED` (observe/dev) with `data.source: "ssr"`, the
  * original in `data.error` — advisory (`info`): the failure itself is the
  * `SSR_RENDER_ERROR_CONTAINED` finding's, and this is the record of what
  * the wire carried instead.
  * `subject` locates it (the boundary's owner; `null` from a funnel); `hook`
- * is the owning render's, as `reportServerError` takes it.
+ * and `scope` are the owning render's, as `reportServerError` takes them.
  * @internal
  */
 export function ssrSanitizeError(
   value: unknown,
   subject?: DiagnosticSubject | null,
   site?: ServerErrorSite,
-  hook?: ServerErrorHook
+  hook?: ServerErrorHook,
+  scope?: object
 ): unknown {
-  const verdict = verdictOf(value);
+  const verdict = verdictOf(value, scope || (site && site.event) || currentRequestEvent());
   if (site !== undefined) {
-    const report = reportServerError(value, site, subject, hook);
+    const report = reportServerError(value, site, subject, hook, scope);
     if (report.mapped) return record(value, report.value, verdict, subject);
   }
-  if (verdict !== undefined && verdict.decided) return verdict.wire;
+  if (verdict.decided) return verdict.wire;
   const wire =
     IS_DEV || (isObject(value) && (value as any)[SAFE_ERROR])
       ? value
       : new Error(GENERIC_SERVER_ERROR_MESSAGE);
-  if (verdict !== undefined) {
-    verdict.decided = true;
-    verdict.wire = wire;
-  }
+  verdict.decided = true;
+  verdict.wire = wire;
   return record(value, wire, verdict, subject);
 }
 
@@ -3712,11 +3729,11 @@ export function ssrSanitizeError(
 function record(
   value: unknown,
   wire: unknown,
-  verdict: Verdict | undefined,
+  verdict: Verdict,
   subject: DiagnosticSubject | null | undefined
 ): unknown {
-  if (wire === value || (verdict !== undefined && verdict.recorded)) return wire;
-  if (verdict !== undefined) verdict.recorded = true;
+  if (wire === value || verdict.recorded) return wire;
+  verdict.recorded = true;
   if (IS_OBSERVE)
     emitFinding(
       {
@@ -3880,7 +3897,8 @@ export function createErrorBoundary<T, U>(
       err,
       owner,
       { kind: "render", handling: "fallback", boundary: boundaryId },
-      ctx && ctx.errorPolicy
+      ctx && ctx.errorPolicy,
+      ctx && ctx._errorScope
     );
     serializeError(wire);
     fallbackResult = renderFallback(wire);

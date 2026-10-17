@@ -396,7 +396,8 @@ function ssrLoadingBoundary(
         err,
         { kind: "render", handling: "client", boundary: id },
         o,
-        ctx.errorPolicy
+        ctx.errorPolicy,
+        ctx._errorScope
       );
     }
     return done!(outcome && outcome.value, err, outcome && outcome.escaped);
@@ -481,7 +482,8 @@ function ssrLoadingBoundary(
         err,
         { kind: "render", handling: "failed", boundary: id },
         o,
-        ctx.errorPolicy
+        ctx.errorPolicy,
+        ctx._errorScope
       );
       ctx.failRender ? ctx.failRender(err) : console.error(err);
       return;
@@ -495,7 +497,8 @@ function ssrLoadingBoundary(
           caught,
           { kind: "render", handling: "failed", boundary: id },
           o,
-          ctx.errorPolicy
+          ctx.errorPolicy,
+          ctx._errorScope
         );
         ctx.failRender ? ctx.failRender(caught) : console.error(caught);
       }
