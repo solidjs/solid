@@ -40,7 +40,8 @@ import {
   ssrHandleError,
   ssrSanitizeError,
   creationStamp,
-  shareAsyncIterable
+  shareAsyncIterable,
+  trackFillReads
 } from "solid-js/internal";
 
 // EXPERIMENTAL — the frames/server-components surface ships as an
@@ -1350,6 +1351,44 @@ function tapFirstYield(iterable) {
  * the range. Fill liveness is the RECORD's story: arg re-emissions update
  * the adopted occurrence's props.
  */
+/**
+ * Dependency edges: a reader list on the wire — one string, runs of
+ * `prop#n` occurrences folded to `prop#a-b` (`card#0-399 cartSummary#0`).
+ */
+function packOccurrences(occs: string[]): string {
+  const out: string[] = [];
+  let prop = "",
+    a = -1,
+    b = -1;
+  const flush = () => a >= 0 && out.push(prop + "#" + (a === b ? a : a + "-" + b));
+  for (const o of occs) {
+    const m = /^(.*)#(\d+)$/.exec(o);
+    if (m && m[1] === prop && +m[2] === b + 1 && a >= 0) {
+      b++;
+      continue;
+    }
+    flush();
+    a = b = -1;
+    if (m) {
+      prop = m[1];
+      a = b = +m[2];
+    } else out.push(o);
+  }
+  flush();
+  return out.join(" ");
+}
+
+/** Dependency edges: whether rendered SSR output still holds an async hole. */
+function hasAsyncHoles(node, depth = 0): boolean {
+  if (!node || typeof node !== "object" || depth > 64) return false;
+  if (Array.isArray(node)) {
+    for (const n of node) if (hasAsyncHoles(n, depth + 1)) return true;
+    return false;
+  }
+  if (node.h && node.h.length) return true;
+  return false;
+}
+
 function suppressedFill(render) {
   const live = sharedConfig.context && sharedConfig.context.liveHoles;
   if (!live) return render();
@@ -1424,6 +1463,45 @@ export function createDocumentSlotProps(
 
 export function createDocumentSlotProps(clientProps, frameId) {
   const counts = Object.create(null);
+  // Deferred hydration, dependency edges: which occurrences read which
+  // plain signals they did not create, aggregated per frame as
+  // `sid -> "card#0-399 cart#0"` and shipped in batches
+  // (`sc:deps:<frame>:<n>`, one per synchronous span of fills; the first
+  // always, empty or not, so the client knows the frame's records exist).
+  // `*` lists signals whose readers are not tracked (wide: a write mounts
+  // everything); `!` lists occurrences with reads the server could not see
+  // (async holes left by the fill, client-source or tracked effects): a
+  // write to any named signal mounts them.
+  let depsBatch: Record<string, string[]> | null = null;
+  let depsN = 0;
+  let wideSent = 0;
+  const depsContext = sharedConfig.context;
+  const noteDeps = (occurrence: string, reads: Set<string> | null, untracked: boolean) => {
+    // Records only from a render that names its signals (`edges`, set at
+    // render start when the server-components codec is configured): without
+    // them the client mounts everything on a write, as before.
+    if (!depsContext || !depsContext.serialize || !(depsContext as any).edges) return;
+    const own = `sc-${frameId}-${occurrence}-`;
+    const batch = () => {
+      if (depsBatch) return depsBatch;
+      queueMicrotask(() => {
+        const b: Record<string, string> = {};
+        for (const sid in depsBatch!) b[sid] = packOccurrences(depsBatch![sid]);
+        depsBatch = null;
+        const wide: Set<string> | null = (depsContext as any).edgeWide?.s || null;
+        if (wide && wide.size > wideSent) {
+          b["*"] = [...wide].slice(wideSent).join(" ");
+          wideSent = wide.size;
+        }
+        if (depsN === 0 || Object.keys(b).length)
+          depsContext.serialize(`sc:deps:${frameId}:${depsN++}`, b);
+      });
+      return (depsBatch = Object.create(null) as Record<string, string[]>);
+    };
+    const b = batch();
+    if (reads) for (const sid of reads) if (!sid.startsWith(own)) (b[sid] ||= []).push(occurrence);
+    if (untracked) (b["!"] ||= []).push(occurrence);
+  };
   const getters = new Map();
   // Repeated keyed calls are one occurrence within a render (see keyedId).
   const repeats = new Map();
@@ -1756,9 +1834,13 @@ export function createDocumentSlotProps(clientProps, frameId) {
             const finish = owner => {
               if (deferred) declare();
               try {
-                const out = suppressedFill(() =>
-                  scoped(occurrence, () => range(occurrence, slot(resolved), flip), owner)
+                const tracked = trackFillReads(() =>
+                  suppressedFill(() =>
+                    scoped(occurrence, () => range(occurrence, slot(resolved), flip), owner)
+                  )
                 );
+                const out = tracked.result;
+                noteDeps(occurrence, tracked.reads, tracked.untracked || hasAsyncHoles(out));
                 if (context) {
                   // One record shape (A5, server-components-principles.md): the
                   // t=0 document emits the record a stream would — every invoked

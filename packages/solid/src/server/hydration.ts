@@ -14,7 +14,8 @@ import {
   throwerOf,
   ownerId,
   onCleanup,
-  inServerComponentScope
+  inServerComponentScope,
+  edgeHooks
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
@@ -520,10 +521,13 @@ function ssrLoadingBoundary(
     const prevCount = (o as any)._childCount;
     (o as any).id = flattenId;
     (o as any)._childCount = resolveCount;
+    // Dependency edges: the scope's plain-signal count continues too.
+    const prevSig = edgeHooks !== null ? edgeHooks.enter(resolveIn, o, true) : 0;
     try {
       return run();
     } finally {
       resolveCount = (o as any)._childCount;
+      if (edgeHooks !== null) edgeHooks.leave(resolveIn, o, prevSig, 2);
       (o as any).id = contentId;
       (o as any)._childCount = prevCount;
     }

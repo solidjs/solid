@@ -26,7 +26,8 @@ import {
   sourceOwners,
   ssrScope as scope,
   ssrSanitizeError,
-  reportServerError
+  reportServerError,
+  beginEdgesRender
 } from "solid-js/internal";
 import type { Owner } from "solid-js";
 import type { ServerErrorSite } from "solid-js/internal";
@@ -2769,6 +2770,11 @@ export function renderToStream(code, options = {}) {
     // frame stream (`options.sink`). Read by the server runtime's dev check
     // on undeclared unbounded sources, which only a document render pays for.
     document: !options.sink,
+    // Dependency edges (deferred hydration): a render configured with the
+    // server-components codec names its plain signals and records which ones
+    // each slot fill reads (solid's server edges.ts). Every other render
+    // takes the plain paths.
+    edges: !!options.plugins && options.plugins.some(p => p.tag === "solid/server-component"),
     // The document face's live-hole carrier (Stage 4). Components render
     // under per-component context CLONES (spread copies), so a mutation on
     // the clone a server component armed under never reaches this root
@@ -3080,44 +3086,55 @@ export function renderToStream(code, options = {}) {
   const onAbort = signal
     ? () => abandon("signal", !!(signal.reason && signal.reason.quiet === true))
     : undefined;
-  let html = root(
-    d => {
-      dispose = () => {
-        // The render is over: no later read finds its trace (see above).
-        context.trace = undefined;
-        if (onAbort) signal.removeEventListener("abort", onAbort);
-        d();
-      };
-      rootOwner = claimRenderRoot(context);
-      if (requestEvent) claimEventRender(requestEvent, context);
-      let res;
-      try {
-        res = resolveSSRNode(escape(code()));
-      } catch (err) {
-        // The first pass throws out of `renderToStream` to the caller: the
-        // hook hears it first, as for `renderToString`.
-        reportServerError(
-          err,
-          { kind: "render", handling: "failed" },
-          null,
-          options.onError,
-          errorScope
-        );
-        throw err;
-      }
-      if (!res.h.length) return res.t[0];
-      rootHoles = [];
-      let out = res.t[0];
-      for (let i = 0; i < res.h.length; i++) {
-        const id = nextHoleId++;
-        rootHoles.push({ id, fn: res.h[i] });
-        out += `<!--rh${id}-->` + res.t[i + 1];
-      }
-      for (const p of res.p) blockingPromises.add(p);
-      return out;
-    },
-    { id: renderId }
-  );
+  // Dependency edges: the server's signal-naming hooks are installed while
+  // an edges render is in flight; this one releases them at its final
+  // dispose, or here if the root pass throws.
+  const endEdges = context.edges ? beginEdgesRender() : undefined;
+  let html;
+  try {
+    html = root(
+      d => {
+        dispose = () => {
+          // The render is over: no later read finds its trace (see above).
+          context.trace = undefined;
+          if (onAbort) signal.removeEventListener("abort", onAbort);
+          if (endEdges) endEdges();
+          d();
+        };
+        rootOwner = claimRenderRoot(context);
+        if (requestEvent) claimEventRender(requestEvent, context);
+        let res;
+        try {
+          res = resolveSSRNode(escape(code()));
+        } catch (err) {
+          // The first pass throws out of `renderToStream` to the caller: the
+          // hook hears it first, as for `renderToString`.
+          reportServerError(
+            err,
+            { kind: "render", handling: "failed" },
+            null,
+            options.onError,
+            errorScope
+          );
+          throw err;
+        }
+        if (!res.h.length) return res.t[0];
+        rootHoles = [];
+        let out = res.t[0];
+        for (let i = 0; i < res.h.length; i++) {
+          const id = nextHoleId++;
+          rootHoles.push({ id, fn: res.h[i] });
+          out += `<!--rh${id}-->` + res.t[i + 1];
+        }
+        for (const p of res.p) blockingPromises.add(p);
+        return out;
+      },
+      { id: renderId }
+    );
+  } catch (err) {
+    if (endEdges) endEdges();
+    throw err;
+  }
   if (onAbort) {
     // A request already gone when the render starts has nobody to render
     // for: tear down now, after the root pass so the finding counts what it

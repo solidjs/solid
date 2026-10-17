@@ -4548,8 +4548,20 @@ module.exports = [
     // in a region mounts under the owner that placed it (the regions tier's
     // placement), and a fill's two claim windows share one claim owner. Cap at
     // measured + 10 B rounded up to 0.01 KB.
-    limit: "12.25 KB",
-    capMinified: 36845,
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 12.25 -> 12.79 KB, measured locally (linux) at 12,778 B
+    // brotli / 38,769 B minified against next's 12,235 / 36,845 (+543 B; +1924
+    // B minified). Deferred hydration mounts only the slot occurrences the
+    // server recorded as readers of the written signal (an index built from the
+    // per-frame `sc:deps` records), falling back to mounting everything on an
+    // unnamed, wide or unrecorded write; a dev-only check warns when a mount
+    // reads a signal its record lacks. The plain-signal namer (`<owner
+    // id>~<n>`, restarted on each owner pass) ships with the frames client,
+    // which installs it into a null-checked slot in createSignal; signals and
+    // app scenarios are unchanged. Cap at measured + 10 B rounded up to 0.01
+    // KB; recorded minified = measured.
+    limit: "12.79 KB",
+    capMinified: 38769,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4911,6 +4923,18 @@ module.exports = [
     // in a region mounts under the owner that placed it (the regions tier's
     // placement), and a fill's two claim windows share one claim owner. Cap
     // (floor-caps.json) at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 33.46 -> 34.03 KB, measured locally (linux) at 34,013 B
+    // brotli / 104,884 B minified against next's 33,441 / 102,629 (+572 B;
+    // +2255 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal (an index built from
+    // the per-frame `sc:deps` records), falling back to mounting everything on
+    // an unnamed, wide or unrecorded write; a dev-only check warns when a mount
+    // reads a signal its record lacks. The plain-signal namer (`<owner
+    // id>~<n>`, restarted on each owner pass) ships with the frames client,
+    // which installs it into a null-checked slot in createSignal; signals and
+    // app scenarios are unchanged. Cap at measured + 10 B rounded up to 0.01
+    // KB; recorded minified = measured.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5213,6 +5237,18 @@ module.exports = [
     // in a region mounts under the owner that placed it (the regions tier's
     // placement), and a fill's two claim windows share one claim owner. Cap
     // (floor-caps.json) at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 37.58 -> 38.29 KB, measured locally (linux) at 38,275 B
+    // brotli / 118,244 B minified against next's 37,565 / 115,982 (+710 B;
+    // +2262 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal (an index built from
+    // the per-frame `sc:deps` records), falling back to mounting everything on
+    // an unnamed, wide or unrecorded write; a dev-only check warns when a mount
+    // reads a signal its record lacks. The plain-signal namer (`<owner
+    // id>~<n>`, restarted on each owner pass) ships with the frames client,
+    // which installs it into a null-checked slot in createSignal; signals and
+    // app scenarios are unchanged. Cap at measured + 10 B rounded up to 0.01
+    // KB; recorded minified = measured.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5343,8 +5379,20 @@ module.exports = [
     // in a region mounts under the owner that placed it (the regions tier's
     // placement), and a fill's two claim windows share one claim owner. Cap at
     // measured + 10 B rounded up to 0.01 KB.
-    limit: "35.42 KB",
-    capMinified: 108973,
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 35.42 -> 36.07 KB, measured locally (linux) at 36,053 B
+    // brotli / 111,228 B minified against next's 35,408 / 108,973 (+645 B;
+    // +2255 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal (an index built from
+    // the per-frame `sc:deps` records), falling back to mounting everything on
+    // an unnamed, wide or unrecorded write; a dev-only check warns when a mount
+    // reads a signal its record lacks. The plain-signal namer (`<owner
+    // id>~<n>`, restarted on each owner pass) ships with the frames client,
+    // which installs it into a null-checked slot in createSignal; signals and
+    // app scenarios are unchanged. Cap at measured + 10 B rounded up to 0.01
+    // KB; recorded minified = measured.
+    limit: "36.07 KB",
+    capMinified: 111228,
     alias: pageAlias
   },
   {
@@ -5437,8 +5485,20 @@ module.exports = [
     // measured locally (linux) at 41,463 B (123,926 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
-    limit: "41.48 KB",
-    capMinified: 123926,
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 41.48 -> 42.05 KB, measured locally (linux) at 42,037 B
+    // brotli / 126,218 B minified against next's 41,439 / 123,929 (+598 B;
+    // +2289 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal (an index built from
+    // the per-frame `sc:deps` records), falling back to mounting everything on
+    // an unnamed, wide or unrecorded write; a dev-only check warns when a mount
+    // reads a signal its record lacks. The plain-signal namer (`<owner
+    // id>~<n>`, restarted on each owner pass) ships with the frames client,
+    // which installs it into a null-checked slot in createSignal; signals and
+    // app scenarios are unchanged. Cap at measured + 10 B rounded up to 0.01
+    // KB; recorded minified = measured.
+    limit: "42.05 KB",
+    capMinified: 126218,
     alias: pageAlias
   },
   {
@@ -5608,8 +5668,20 @@ module.exports = [
     // measured locally (linux) at 40,884 B (126,460 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
-    limit: "40.90 KB",
-    capMinified: 126460,
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 40.90 -> 41.57 KB, measured locally (linux) at 41,559 B
+    // brotli / 128,715 B minified against next's 40,817 / 126,463 (+742 B;
+    // +2252 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal (an index built from
+    // the per-frame `sc:deps` records), falling back to mounting everything on
+    // an unnamed, wide or unrecorded write; a dev-only check warns when a mount
+    // reads a signal its record lacks. The plain-signal namer (`<owner
+    // id>~<n>`, restarted on each owner pass) ships with the frames client,
+    // which installs it into a null-checked slot in createSignal; signals and
+    // app scenarios are unchanged. Cap at measured + 10 B rounded up to 0.01
+    // KB; recorded minified = measured.
+    limit: "41.57 KB",
+    capMinified: 128715,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5748,8 +5820,20 @@ module.exports = [
     // measured locally (linux) at 47,001 B (141,204 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
-    limit: "47.02 KB",
-    capMinified: 141204,
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 47.02 -> 47.76 KB, measured locally (linux) at 47,741 B
+    // brotli / 143,506 B minified against next's 47,006 / 141,205 (+735 B;
+    // +2301 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal (an index built from
+    // the per-frame `sc:deps` records), falling back to mounting everything on
+    // an unnamed, wide or unrecorded write; a dev-only check warns when a mount
+    // reads a signal its record lacks. The plain-signal namer (`<owner
+    // id>~<n>`, restarted on each owner pass) ships with the frames client,
+    // which installs it into a null-checked slot in createSignal; signals and
+    // app scenarios are unchanged. Cap at measured + 10 B rounded up to 0.01
+    // KB; recorded minified = measured.
+    limit: "47.76 KB",
+    capMinified: 143506,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }

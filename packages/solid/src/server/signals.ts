@@ -192,7 +192,8 @@ let currentOwner: SSROwner | null = null;
 const OWNER_POOL_MAX = 4096;
 const ownerPool: SSROwner[] = [];
 
-function formatChildId(prefix: string, id: number): string {
+/** @internal */
+export function formatChildId(prefix: string, id: number): string {
   const num = id.toString(36);
   const len = num.length - 1;
   return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
@@ -207,7 +208,8 @@ function formatChildId(prefix: string, id: number): string {
  * never pays for the string. Idempotent; the string is byte-identical
  * whenever it is built.
  */
-function materializeId(owner: SSROwner): string | undefined {
+/** @internal */
+export function materializeId(owner: SSROwner): string | undefined {
   if (owner._scopeSlot >= 0) {
     owner.id = formatChildId(owner.id!, owner._scopeSlot);
     owner._scopeSlot = -1;
@@ -663,6 +665,7 @@ export function ssrScope<T>(fn: () => T): () => unknown {
     parent.id = prefix;
     parent._scopeSlot = slot;
     parent._childCount = resume ? resumeCount : 0;
+    const prevSig = edgeHooks !== null ? edgeHooks.enter(fn, parent, resume !== undefined) : 0;
     // The unwrap step in flight, so the one catch below can record the
     // resume point: a single handler frame on the NotReady unwind (see
     // `runWithOwner`) instead of an inner catch and an outer finally.
@@ -679,13 +682,16 @@ export function ssrScope<T>(fn: () => T): () => unknown {
       while (typeof v === "function") {
         next = v as () => unknown;
         count = parent._childCount;
+        if (edgeHooks !== null) edgeHooks.mark(fn, parent);
         v = next();
       }
     } catch (err) {
       parent.id = prevId;
       parent._scopeSlot = prevSlot;
       parent._childCount = prevCount;
-      if (next !== undefined && err instanceof NotReadyError) {
+      const kept = next !== undefined && err instanceof NotReadyError;
+      if (edgeHooks !== null) edgeHooks.leave(fn, parent, prevSig, kept ? 1 : 0);
+      if (kept) {
         resume = next;
         resumeCount = count;
       }
@@ -694,6 +700,7 @@ export function ssrScope<T>(fn: () => T): () => unknown {
     parent.id = prevId;
     parent._scopeSlot = prevSlot;
     parent._childCount = prevCount;
+    if (edgeHooks !== null) edgeHooks.leave(fn, parent, prevSig, 0);
     return v;
   };
 }
@@ -1224,6 +1231,48 @@ function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
 // projections, and of any memo whose last compute read one of those.
 let asyncReads = 0;
 
+// ---------------------------------------------------------------------------
+// Deferred hydration, dependency edges: plain-signal identities and read
+// tracking live in edges.ts, which only the frames server loads. These
+// paths hold one null-checked slot, so a render without server components
+// carries none of it.
+/** @internal The dependency-edge hooks (edges.ts). */
+export interface EdgeHooks {
+  /** The current render asked for edges. */
+  on(): boolean;
+  /** A plain signal created under the current owner: its named read. */
+  signal<T>(read: () => T): () => T;
+  /** Run a memo's compute (keyed by its owner), keeping what it read. Only when `on()`. */
+  run<T>(owner: object, fn: () => T): T;
+  /** A memo was read: report what its last compute read. */
+  report(owner: object): void;
+  /** A projection's compute, its reads reported as wide. */
+  projection<F extends Function>(ctx: object, fn: F): F;
+  /** The current slot fill ran a computation whose reads the server cannot see. */
+  untracked(): void;
+  /**
+   * An id scope (`key`) swaps in over `owner`: its plain-signal count starts
+   * at 0, or where the scope's last kept pass left it (`resumed`). Returns
+   * the count to restore.
+   */
+  enter(key: object, owner: object, resumed: boolean): number;
+  /** The scope's resume point: `owner`'s count now. */
+  mark(key: object, owner: object): void;
+  /** The scope swaps out: keep its mark (1) or its count (2) for a resumed pass; restore `prev`. */
+  leave(key: object, owner: object, prev: number, keep: 0 | 1 | 2): void;
+  /**
+   * A reused row owner starts a pass: its plain-signal count restarts (and
+   * restarts again whenever its id moves on to the next row).
+   */
+  reset(owner: object): void;
+}
+/** @internal */
+export let edgeHooks: EdgeHooks | null = null;
+/** @internal */
+export function setEdgeHooks(hooks: EdgeHooks | null): void {
+  edgeHooks = hooks;
+}
+
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 // Commit #0 (loadingValue) removes the uninitialized window: never undefined
@@ -1260,9 +1309,10 @@ export function createSignal<T>(
       }) as Setter<T | undefined>
     ];
   }
-  // Plain value form — no ID allocation (IDs are only for owners/computations)
+  // Plain value form — no ID allocation (IDs are only for owners/computations).
+  const read = () => first as T;
   return [
-    () => first as T,
+    edgeHooks !== null ? edgeHooks.signal(read) : read,
     v => {
       warnServerWrite("signal");
       return ((first as any) = typeof v === "function" ? (v as (prev: T) => T)(first as T) : v);
@@ -1372,7 +1422,13 @@ export function createMemo<T>(
     sharedConfig.context = ctx;
     const reads = asyncReads;
     try {
-      return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
+      return runWithOwner(owner, () =>
+        runWithObserver(comp, () =>
+          edgeHooks !== null && edgeHooks.on()
+            ? edgeHooks.run(owner, () => comp.compute(comp.value))
+            : comp.compute(comp.value)
+        )
+      );
     } finally {
       sharedConfig.context = prev;
       if (asyncReads !== reads) comp.moving = true;
@@ -1434,6 +1490,7 @@ export function createMemo<T>(
   const ssrSource = options?.ssrSource;
   if (ssrSource === "client") {
     // Skip computation. Owner created for ID parity.
+    if (edgeHooks !== null) edgeHooks.untracked();
     comp.computed = true;
     if (loadingState) {
       // Client-source with commit #0: markup flushes the loading value; the
@@ -1463,6 +1520,8 @@ export function createMemo<T>(
       update();
     }
     if (comp.moving) asyncReads++;
+    // Dependency edges: a read re-reports what the last compute read.
+    if (edgeHooks !== null) edgeHooks.report(owner);
     if (comp.errored) {
       // A client hole read outside a Loading discovery pass must fail loudly
       // rather than wedge the stream (see clientHoleRead). Identity check on
@@ -1525,7 +1584,6 @@ function createSyncMemo<T>(
   let epoch: number | undefined;
   // See ServerComputation.moving.
   let moving = false;
-
   function pull(): T | undefined {
     // Inlined `runWithOwner` — avoids the per-pull `() => compute(value)`
     // closure alloc that `runWithOwner(owner, fn)` would force. Hot for the
@@ -1545,7 +1603,11 @@ function createSyncMemo<T>(
     // inline, the catch restores and re-raises.
     let result: T;
     try {
-      result = compute(value) as T;
+      result = (
+        edgeHooks !== null && edgeHooks.on()
+          ? edgeHooks.run(owner, () => compute(value))
+          : compute(value)
+      ) as T;
     } catch (err) {
       currentOwner = prev;
       if (asyncReads !== reads) moving = true;
@@ -1587,6 +1649,8 @@ function createSyncMemo<T>(
   return (() => {
     if (moving) asyncReads++;
     if (cached && (!ctx?.commitEpoch || ctx.commitEpoch() === epoch)) {
+      // Dependency edges: a read re-reports what the last compute read.
+      if (edgeHooks !== null) edgeHooks.report(owner);
       if (errored) throw error;
       return value;
     }
@@ -1598,7 +1662,10 @@ function createSyncMemo<T>(
     // Stale epoch (a commit happened since this computed — frame renders
     // only) or never computed: (re)pull. Purity is the memo contract, so an
     // epoch recompute is the client's source-driven re-run, pull-paced.
-    return pull();
+    if (edgeHooks === null) return pull();
+    const v = pull();
+    edgeHooks.report(owner);
+    return v;
   }) as SourceAccessor<T | undefined>;
 }
 
@@ -2319,6 +2386,7 @@ function serverEffect<T>(
 ): void {
   const ssrSource = options?.ssrSource;
   if (ssrSource === "client") {
+    if (edgeHooks !== null) edgeHooks.untracked();
     createOwner();
     return;
   }
@@ -2438,7 +2506,9 @@ export function createTrackedEffect(
   compute: () => void | (() => void),
   options?: { name?: string }
 ): void {
-  // No-op on server, but allocate computation ID
+  // No-op on server, but allocate computation ID. Its reads are the
+  // client's only, so a slot fill running one has edges the server misses.
+  if (edgeHooks !== null) edgeHooks.untracked();
   const o = getOwner();
   if (o?.id != null) getNextChildId(o);
 }
@@ -2481,7 +2551,10 @@ export function createOptimistic<T>(
   // The updater is not invoked at all — nothing could observe its result.
   // (Broader direction, recorded: server writes may eventually throw under
   // a dev-mode server build; that waits on having one.)
-  const [read] = (createSignal as Function)(first, second) as Signal<T | undefined>;
+  const [read] =
+    typeof first === "function"
+      ? ((createSignal as Function)(first, second) as Signal<T | undefined>)
+      : ([() => first as T] as unknown as Signal<T | undefined>);
   return [
     read,
     (() => {
@@ -2739,6 +2812,9 @@ export function createProjection<T extends object = {}>(
   options?: ServerProjectionOptions
 ): Store<T> {
   const ctx = sharedConfig.context;
+  // Dependency edges: a projection's readers are not tracked (store
+  // reads report nothing), so the signals its compute reads are WIDE.
+  if (ctx && edgeHooks !== null) fn = edgeHooks.projection(ctx, fn);
   const owner = createOwner();
   // The projection's own owner, read at creation — never a swapped hole scope.
   const id = ownerId(owner);
@@ -3314,6 +3390,9 @@ export function mapArray<T, U>(
       // Reset per pass so retries re-synthesize row/fallback ids from 0,
       // like the client's fresh row owners on its first successful pass.
       rowOwner._childCount = 0;
+      // Edges: the rows' plain-signal counts restart with each pass (a row's
+      // id moving on restarts its own; nothing in the row loop itself).
+      if (edgeHooks !== null) edgeHooks.reset(rowOwner);
       if (items && items.length) {
         runWithOwner(rowOwner as unknown as Owner, () => {
           // Own owner, not a swapped hole scope: a row's holes swap it only
@@ -3420,6 +3499,7 @@ export function repeat<T>(
       const len = count();
       const offset = options.from?.() || 0;
       rowOwner._childCount = 0;
+      if (edgeHooks !== null) edgeHooks.reset(rowOwner);
       if (!len) {
         if (!options.fallback) return [];
         const fo = runWithOwner(rowOwner as unknown as Owner, () => createOwner());
