@@ -17,6 +17,8 @@ export interface Segment {
   /** A fenced code block (highlighted), or everything between two of them. */
   code: boolean;
   html: string;
+  /** A code block's own text, for its Copy button. */
+  text?: string;
 }
 
 /**
@@ -41,7 +43,7 @@ export function render(md: string, partial: boolean): Segment[] {
       const html = hljs.getLanguage(lang)
         ? hljs.highlight(token.text, { language: lang }).value
         : escapeHtml(token.text);
-      out.push({ code: true, html });
+      out.push({ code: true, html, text: token.text });
     } else {
       prose.push(token.raw);
     }
