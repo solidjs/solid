@@ -121,6 +121,13 @@ export type { ServerErrorSite, ServerErrorHook } from "solid-js";
 /** Server: a monotonic stamp for owner creation order. Client: `0`. */
 export const creationStamp: () => number = core.creationStamp;
 
+/**
+ * Client: set (or clear, `null`) a callback run before every signal or store
+ * write lands — the server-components client's deferred hydration mounts
+ * what it left unmounted. Server: no-op.
+ */
+export const setWriteHook: (hook: (() => void) | null) => void = core.setWriteHook;
+
 /** Server: the live projection trace behind a value, if any. Client: `undefined`. */
 export const getProjectionTrace: (
   value: unknown

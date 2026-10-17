@@ -26,6 +26,7 @@ export default defineConfig({
     environment: "jsdom",
     pool: "threads",
     globals: true,
+    setupFiles: ["test/setup-frames-eager.ts"],
     exclude: [
       "**/node_modules/**",
       "wip_tests/**",
