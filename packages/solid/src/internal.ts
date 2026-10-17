@@ -103,7 +103,7 @@ export const ssrSanitizeError: (
 
 /**
  * Server: tells the server error hook about a failure — once per error
- * object per request (per render outside one), at first sight — with where
+ * object per kind per request (per render outside one), at first sight — with where
  * it was met; `{ mapped: true, value }` when the hook gave a wire value (now
  * or earlier), `{ mapped: false }` otherwise. `hook` is the hook of the render or request the failure
  * belongs to (a render's `onError`, the server-function handler's) — the

@@ -3606,7 +3606,11 @@ export { NoHydrateContext };
 //    value. The scope is the request (#4125): an error object outlives the
 //    request it was first met in (a module-level constant, a cached
 //    rejection), and another request meeting it is another failure to hear
-//    and another wire to decide — never the first request's answer.
+//    and another wire to decide — never the first request's answer. Within
+//    the verdict the hook hears each `kind` once: a direct server-function
+//    call's throw that a boundary then contains is the function failing AND
+//    the render falling back, two things a monitor counts, while the wire
+//    stays the first answer given.
 //
 // THE SERVER ERROR HOOK (sentry-integration-plan C6, #3468 part 3). The
 // prod tier has no `OBSERVE`, so everything the runtime HANDLES — a
@@ -3614,8 +3618,8 @@ export { NoHydrateContext };
 // server-function throw sanitized — was invisible to a production error
 // monitor; only the failure that fails the request reached `onError`. The
 // hook is the prod-tier seam for both reporting and mapping: called ONCE
-// per error object per request (per render outside any request — see
-// `verdictOf`), at first sight, with where the failure was met; its
+// per error object per kind per request (per render outside any request —
+// see `verdictOf`), at first sight, with where the failure was met; its
 // return, when not `undefined`, is the wire value — the author's intent,
 // like a `wrapInvocation` mapping, not second-guessed. Two tiers, as
 // `wrapInvocation` has: ambient (`configureServerErrors` in `@solidjs/web`,
@@ -3654,12 +3658,14 @@ export interface ServerErrorSite {
 export type ServerErrorHook = (error: unknown, context: ServerErrorSite) => unknown | void;
 
 /**
- * The verdict on one error object in one scope: whether the hook has heard
- * of it, the wire value once decided, and the owner it was thrown under.
+ * The verdict on one error object in one scope: the kinds the hook has heard
+ * it as, the wire value once decided, and the owner it was thrown under.
  */
 interface Verdict {
-  reported?: boolean;
+  heard?: { [kind: string]: true };
   decided?: boolean;
+  /** The wire is a hook's answer (not the default policy's), which a later kind keeps. */
+  mapped?: boolean;
   wire?: unknown;
   recorded?: boolean;
   thrower?: Owner;
@@ -3702,9 +3708,12 @@ function currentRequestEvent(): unknown {
 
 /**
  * Tells the server error hook about `value` — once per error object per
- * scope (`verdictOf`), at first sight — and returns `{ mapped: true, value }`
- * when the hook (now or on an earlier sight in that scope) gave a wire
- * value, `{ mapped: false }` otherwise.
+ * `site.kind` per scope (`verdictOf`), at first sight — and returns
+ * `{ mapped: true, value }` when the hook (now or on an earlier sight in
+ * that scope) gave a wire value, `{ mapped: false }` otherwise. The first
+ * value given stays the wire: a later kind is heard, not re-decided. A
+ * `kind: "request"` failure is the catch-all, heard only when no other kind
+ * was (`reportRequestFailure` on a render's own throw adds nothing).
  * `hook` is the hook of the render or request the failure belongs to (a
  * render's `onError`, the server-function handler's), `undefined` when it
  * has none or the failure belongs to none — the ambient registration then
@@ -3723,12 +3732,15 @@ export function reportServerError(
 ): { mapped: boolean; value?: unknown } {
   const event = site.event || currentRequestEvent();
   const verdict = verdictOf(value, scope || event);
-  if (verdict.reported) {
+  const heard = verdict.heard || (verdict.heard = {});
+  if (site.kind === "request" ? Object.keys(heard).length : heard[site.kind]) {
     return verdict.decided ? { mapped: true, value: verdict.wire } : { mapped: false };
   }
-  verdict.reported = true;
+  heard[site.kind] = true;
+  // A new kind's sight: the wire is a hook's earlier answer, when it gave one.
+  const answer = () => (verdict.mapped ? { mapped: true, value: verdict.wire } : { mapped: false });
   const target = hook ?? ambientServerErrorHook();
-  if (target === undefined) return { mapped: false };
+  if (target === undefined) return answer();
   const context: ServerErrorSite = { ...site };
   const boundary = subject ? ownerLabels(subject) : undefined;
   if (context.ownerPath === undefined) {
@@ -3743,12 +3755,12 @@ export function reportServerError(
     mapped = target(value, context);
   } catch (hookError) {
     console.error(hookError);
-    return { mapped: false };
+    return answer();
   }
   // A request that fails has no wire: the hook's return is ignored there,
   // and does not bind the roads a later sight of the same error may take.
-  if (mapped === undefined || site.handling === "failed") return { mapped: false };
-  verdict.decided = true;
+  if (mapped === undefined || site.handling === "failed" || verdict.mapped) return answer();
+  verdict.decided = verdict.mapped = true;
   verdict.wire = mapped;
   return { mapped: true, value: mapped };
 }

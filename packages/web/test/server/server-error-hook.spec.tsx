@@ -10,15 +10,16 @@
  *
  * The contract under test:
  *
- *  - ONE call per error object PER REQUEST (per render outside any request
- *    scope; never once per process — #4125), at first sight, with where it
- *    was met (`kind`/`handling`, the boundary's id, the function's id, the
+ *  - ONE call per error object PER KIND PER REQUEST (per render outside
+ *    any request scope; never once per process — #4125), at first sight,
+ *    with where it was met (`kind`/`handling`, the boundary's id, the function's id, the
  *    owner path, the request event);
  *  - the return is the wire value — rendered into the fallback, serialized
  *    for hydration, sent as the RPC error — `undefined` for the default;
- *  - a direct server-function call's plain failure during SSR is reported once
- *    as the FUNCTION's failure; the boundary that contains it reuses the
- *    verdict and does not report again;
+ *  - a direct server-function call's plain failure during SSR is reported
+ *    first as the FUNCTION's failure; the boundary that contains it is heard
+ *    again as the render's (`kind: "render"`, #4125), and reuses the
+ *    function's answer as its wire;
  *  - a thrown Response or envelope bypasses the direct call's report, as in
  *    HTTP dispatch; a response caught by a boundary is reported by the render;
  *  - two tiers: ambient (`configureServerErrors`) and per request
@@ -518,7 +519,7 @@ describe("server functions", () => {
     expect(calls[0].context).toMatchObject({ kind: "render", handling: "fallback" });
   });
 
-  test("a direct call that throws during SSR is reported ONCE, as the function's failure; the boundary reuses the verdict", () => {
+  test("a direct call that throws during SSR is heard as the function's failure, then as the render's; the boundary reuses the function's answer", () => {
     const boom = new Error("connect ECONNREFUSED");
     configureServerErrors({ onError: hook(() => new Error("Data unavailable")) });
     const load = createServerReference(
@@ -536,7 +537,7 @@ describe("server functions", () => {
         </Errored>
       ))
     );
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     expect(calls[0].error).toBe(boom);
     expect(calls[0].context).toMatchObject({
       kind: "server-function",
@@ -544,7 +545,11 @@ describe("server functions", () => {
       functionId: "hook/direct",
       direct: true
     });
-    // The <Errored> rendered the hook's answer without asking again.
+    // The render falling back is its own report (#4125): `kind: "render"`
+    // alone answers whether this render failed.
+    expect(calls[1].error).toBe(boom);
+    expect(calls[1].context).toMatchObject({ kind: "render", handling: "fallback" });
+    // The <Errored> rendered the function's answer.
     expect(bare(html)).toContain('<p class="fallback">Data unavailable</p>');
     expect(html).toContain('new Error("Data unavailable")');
     expect(html).not.toContain("ECONNREFUSED");
@@ -638,9 +643,13 @@ describe("once per request, never once per process (#4125)", () => {
     expect(b).not.toContain("for A");
   });
 
-  test("within one request, a direct server-function failure that escapes into a <Loading> is heard once, and every road carries its one answer", async () => {
+  test("within one request, a direct server-function failure that escapes into a <Loading> is heard once per kind, and every road carries the first answer", async () => {
+    let n = 0;
     const boom = new Error("connect ECONNREFUSED");
-    configureServerErrors({ onError: hook(() => new Error("Data unavailable")) });
+    // A second answer, if one were taken, would show on the wire.
+    configureServerErrors({
+      onError: hook(() => new Error(n++ ? "Second answer" : "Data unavailable"))
+    });
     const load = createServerReference(
       registerServerReference("hook/escapes-into-loading", async () => {
         await delay(5);
@@ -660,11 +669,12 @@ describe("once per request, never once per process (#4125)", () => {
         )),
       event("page")
     );
-    expect(calls).toHaveLength(1);
-    expect(calls[0].error).toBe(boom);
+    // The #4125 repro: the function failed, and so did this render.
+    expect(calls.map(c => [c.error, c.context.kind, c.context.handling])).toEqual([
+      [boom, "server-function", "thrown"],
+      [boom, "render", "client"]
+    ]);
     expect(calls[0].context).toMatchObject({
-      kind: "server-function",
-      handling: "thrown",
       functionId: "hook/escapes-into-loading",
       direct: true
     });

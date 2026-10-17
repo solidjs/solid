@@ -3483,8 +3483,8 @@ export function sanitizeServerError(value: unknown): unknown;
 // through the same once-per-error-per-request cache (`reportServerError`;
 // a direct call's derived event shares the request it was made under), so
 // a direct call that throws during SSR is reported here as the function's
-// failure and the <Errored> that contains it reuses the answer without
-// reporting again. Per-request hooks ride the event (the handler's option); the
+// failure and the <Errored> that contains it reuses the answer, heard again
+// only as the render's (`kind: "render"`: one per kind). Per-request hooks ride the event (the handler's option); the
 // channel sites read the event off the scope their operations run in. A
 // direct call reports through the hook of the render serving its request
 // (`requestErrorHook`). None is ever read off the global SSR context: that
