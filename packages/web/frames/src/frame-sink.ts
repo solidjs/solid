@@ -45,11 +45,13 @@ import {
   trackFillReads
 } from "solid-js/internal";
 
-// Dependency edges: a server that renders server components names its plain
-// signals (`<owner id>~<n>`, as the client's signals core does) so slot fills
-// can record which ones they read. Installed at load, ahead of any request;
-// an app that never loads the frames server names nothing. A no-op in the
-// client build (a browser test may load this module beside the client).
+// Dependency edges: the frames server installs the server's signal-naming
+// hooks (`<owner id>~<n>`, as the client's signals core names them) so slot
+// fills can record which plain signals they read. They act only inside a
+// render whose context has `edges` set (renderToStream sets it when the
+// server-components codec is among its plugins); every other render takes
+// the plain paths. A no-op in the client build (a browser test may load this
+// module beside the client).
 setServerSignalIdentities(true);
 
 // EXPERIMENTAL — the frames/server-components surface ships as an
@@ -1485,7 +1487,10 @@ export function createDocumentSlotProps(clientProps, frameId) {
   let wideSent = 0;
   const depsContext = sharedConfig.context;
   const noteDeps = (occurrence: string, reads: Set<string> | null, untracked: boolean) => {
-    if (!depsContext || !depsContext.serialize) return;
+    // Records only from a render that names its signals (`edges`, set at
+    // render start when the server-components codec is configured): without
+    // them the client mounts everything on a write, as before.
+    if (!depsContext || !depsContext.serialize || !(depsContext as any).edges) return;
     const own = `sc-${frameId}-${occurrence}-`;
     const batch = () => {
       if (depsBatch) return depsBatch;

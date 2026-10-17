@@ -150,8 +150,6 @@ export { createErrorBoundary, createRevealOrder } from "./signals.js";
 /** @internal */
 export {
   creationStamp,
-  trackFillReads,
-  setServerSignalIdentities,
   runInServerComponentScope,
   inServerComponentScope,
   inLiveServerComponentScope,
@@ -161,6 +159,8 @@ export {
   reportServerError
 } from "./signals.js";
 export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
+/** @internal Dependency edges (the frames server installs them). */
+export { trackFillReads, setServerSignalIdentities } from "./edges.js";
 /** @internal Client-only: the server has no writes to observe. */
 export function setWriteHook(_hook: ((node?: object) => void) | null): void {}
 /** @internal Dependency edges: client-only (the server names through `setServerSignalIdentities`). */

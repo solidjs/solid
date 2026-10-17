@@ -2769,6 +2769,11 @@ export function renderToStream(code, options = {}) {
     // frame stream (`options.sink`). Read by the server runtime's dev check
     // on undeclared unbounded sources, which only a document render pays for.
     document: !options.sink,
+    // Dependency edges (deferred hydration): a render configured with the
+    // server-components codec names its plain signals and records which ones
+    // each slot fill reads (solid's server edges.ts). Every other render
+    // takes the plain paths.
+    edges: !!options.plugins && options.plugins.some(p => p.tag === "solid/server-component"),
     // The document face's live-hole carrier (Stage 4). Components render
     // under per-component context CLONES (spread copies), so a mutation on
     // the clone a server component armed under never reaches this root

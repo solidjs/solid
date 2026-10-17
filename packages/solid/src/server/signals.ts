@@ -207,7 +207,8 @@ function formatChildId(prefix: string, id: number): string {
  * never pays for the string. Idempotent; the string is byte-identical
  * whenever it is built.
  */
-function materializeId(owner: SSROwner): string | undefined {
+/** @internal */
+export function materializeId(owner: SSROwner): string | undefined {
   if (owner._scopeSlot >= 0) {
     owner.id = formatChildId(owner.id!, owner._scopeSlot);
     owner._scopeSlot = -1;
@@ -540,7 +541,6 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
       // every boundary discovery pass drifts the ids of the eventual
       // successful run past the client's (#2900).
       node._childCount = 0;
-      if (sigCounts !== null) sigCounts.delete(node);
       node._scopeSlot = -1;
     }
     return;
@@ -554,7 +554,6 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
   }
   node._firstChild = null;
   node._childCount = 0;
-  if (sigCounts !== null) sigCounts.delete(node);
   // Defensive: a kept-alive owner (`self=false`) re-runs from its own,
   // settled id. The slot is swap-owned (`ssrScope` restores it in `finally`),
   // so this is never observed set here — pinned by `ownerId`'s dev check.
@@ -597,7 +596,6 @@ export function resetOwnerForRerun(owner: Owner): void {
   const node = owner as unknown as SSROwner;
   if (node._firstChild || node._disposal) disposeOwner(owner, false);
   node._childCount = 0;
-  if (sigCounts !== null) sigCounts.delete(node);
   node._scopeSlot = -1;
 }
 
@@ -659,7 +657,6 @@ export function ssrScope<T>(fn: () => T): () => unknown {
   // inner effect.
   let resume: (() => unknown) | undefined;
   let resumeCount = 0;
-  let resumeSig = 0;
   return () => {
     const prevId = parent.id;
     const prevSlot = parent._scopeSlot;
@@ -667,13 +664,12 @@ export function ssrScope<T>(fn: () => T): () => unknown {
     parent.id = prefix;
     parent._scopeSlot = slot;
     parent._childCount = resume ? resumeCount : 0;
-    const prevSig = swapSigCount(parent, resume ? resumeSig : 0);
+    const prevSig = edgeHooks !== null ? edgeHooks.enter(fn, parent, resume !== undefined) : 0;
     // The unwrap step in flight, so the one catch below can record the
     // resume point: a single handler frame on the NotReady unwind (see
     // `runWithOwner`) instead of an inner catch and an outer finally.
     let next: (() => unknown) | undefined;
     let count = 0;
-    let sigCount = 0;
     let v: unknown;
     try {
       v = resume || fn();
@@ -685,25 +681,25 @@ export function ssrScope<T>(fn: () => T): () => unknown {
       while (typeof v === "function") {
         next = v as () => unknown;
         count = parent._childCount;
-        sigCount = swapSigCount(parent, -1);
+        if (edgeHooks !== null) edgeHooks.mark(fn, parent);
         v = next();
       }
     } catch (err) {
       parent.id = prevId;
       parent._scopeSlot = prevSlot;
       parent._childCount = prevCount;
-      swapSigCount(parent, prevSig);
-      if (next !== undefined && err instanceof NotReadyError) {
+      const kept = next !== undefined && err instanceof NotReadyError;
+      if (edgeHooks !== null) edgeHooks.leave(fn, parent, prevSig, kept ? 1 : 0);
+      if (kept) {
         resume = next;
         resumeCount = count;
-        resumeSig = sigCount;
       }
       throw err;
     }
     parent.id = prevId;
     parent._scopeSlot = prevSlot;
     parent._childCount = prevCount;
-    swapSigCount(parent, prevSig);
+    if (edgeHooks !== null) edgeHooks.leave(fn, parent, prevSig, 0);
     return v;
   };
 }
@@ -1236,98 +1232,39 @@ let asyncReads = 0;
 
 // ---------------------------------------------------------------------------
 // Deferred hydration, dependency edges: plain-signal identities and read
-// tracking. A plain signal created under an id-bearing owner is named
-// `<owner id>~<n>` (n counts plain signals under that owner, reset with its
-// child counter), as the client's signals core names it. A read reports the
-// name to the current sink: a slot fill's (`trackFillReads`), a memo's — a
-// memo read re-reports what its compute read, so an edge through a memo
-// lands on its sources — or the request's WIDE sink, for reads whose
-// readers are not tracked (a projection's compute): a write to a wide
-// signal mounts everything left.
-//
-// Off until the frames server installs it (`setServerSignalIdentities`, at its
-// module load): an app that renders no server components names nothing,
-// and its signal reads and memo pulls take the plain paths.
-type ReadSink = { s: Set<string> | null; wide?: true; untracked?: true };
-let identities = false;
-// Plain signals created under each id-bearing owner, dropped wherever the
-// owner's child counter resets. `null` while identities are off.
-let sigCounts: WeakMap<SSROwner, number> | null = null;
-/** @internal Dependency edges: name and track plain signals from now on (`on`). */
-export function setServerSignalIdentities(on: boolean): void {
-  identities = on;
-  sigCounts = on ? sigCounts || new WeakMap() : null;
+// tracking live in edges.ts, which only the frames server loads. These
+// paths hold one null-checked slot, so a render without server components
+// carries none of it.
+/** @internal The dependency-edge hooks (edges.ts). */
+export interface EdgeHooks {
+  /** A plain signal created under the current owner: its named read. */
+  signal<T>(read: () => T): () => T;
+  /** Run a memo's compute (keyed by its owner), keeping what it read. */
+  run<T>(owner: object, fn: () => T): T;
+  /** A memo was read: report what its last compute read. */
+  report(owner: object): void;
+  /** A projection's compute, its reads reported as wide. */
+  projection<F extends Function>(ctx: object, fn: F): F;
+  /** The current slot fill ran a computation whose reads the server cannot see. */
+  untracked(): void;
+  /**
+   * An id scope (`key`) swaps in over `owner`: its plain-signal count starts
+   * at 0, or where the scope's last kept pass left it (`resumed`). Returns
+   * the count to restore.
+   */
+  enter(key: object, owner: object, resumed: boolean): number;
+  /** The scope's resume point: `owner`'s count now. */
+  mark(key: object, owner: object): void;
+  /** The scope swaps out: keep its mark (1) or its count (2) for a resumed pass; restore `prev`. */
+  leave(key: object, owner: object, prev: number, keep: 0 | 1 | 2): void;
+  /** `owner`'s child counter was reset without disposing it (a reused row owner). */
+  reset(owner: object): void;
 }
-/**
- * @internal Set `owner`'s plain-signal count to `n` (a scope swap), returning
- * the previous one; `n < 0` only reads it. A no-op while identities are off.
- */
-export function swapSigCount(owner: unknown, n: number): number {
-  if (sigCounts === null) return 0;
-  const prev = sigCounts.get(owner as SSROwner) || 0;
-  if (n >= 0) sigCounts.set(owner as SSROwner, n);
-  return prev;
-}
-let readSink: ReadSink | null = null;
-// The innermost slot fill being tracked (`trackFillReads`), for computations
-// whose reads the server cannot see: a client-source memo or effect, a
-// tracked effect (its compute never runs here). The fill's edges are then
-// incomplete, and it mounts on every named write.
-let fillSink: ReadSink | null = null;
-function markFillUntracked(): void {
-  if (fillSink !== null) fillSink.untracked = true;
-}
-function reportRead(sid: string): void {
-  const sink = readSink!;
-  (sink.s ||= new Set()).add(sid);
-}
-function reportReads(reads: Set<string> | null): void {
-  if (reads === null || readSink === null) return;
-  const s = (readSink.s ||= new Set());
-  for (const sid of reads) s.add(sid);
-}
-function signalIdentity(owner: SSROwner | null): string | undefined {
-  if (!owner) return undefined;
-  let o: SSROwner = owner;
-  while (o._transparent && o._parent) o = o._parent;
-  if (o.id == null) return undefined;
-  const id = materializeId(o);
-  const n = sigCounts!.get(o) || 0;
-  sigCounts!.set(o, n + 1);
-  return id + "~" + n;
-}
-/**
- * @internal Run a slot fill, returning its result, the plain-signal
- * identities it read, and whether it ran a computation whose reads the
- * server cannot see (`untracked`).
- */
-export function trackFillReads<T>(fn: () => T): {
-  result: T;
-  reads: Set<string> | null;
-  untracked: boolean;
-} {
-  const prev = readSink;
-  const prevFill = fillSink;
-  const sink: ReadSink = { s: null };
-  readSink = fillSink = sink;
-  try {
-    const result = fn();
-    return { result, reads: sink.s, untracked: !!sink.untracked };
-  } finally {
-    readSink = prev;
-    fillSink = prevFill;
-  }
-}
-/** Run `fn` with its reads reported to the request's wide sink (`context.edgeWide`). */
-function wideReads<T>(ctx: any, fn: () => T): T {
-  if (!ctx) return fn();
-  const prev = readSink;
-  readSink = ctx.edgeWide ||= { s: null, wide: true };
-  try {
-    return fn();
-  } finally {
-    readSink = prev;
-  }
+/** @internal */
+export let edgeHooks: EdgeHooks | null = null;
+/** @internal */
+export function setEdgeHooks(hooks: EdgeHooks | null): void {
+  edgeHooks = hooks;
 }
 
 export function createSignal<T>(): Signal<T | undefined>;
@@ -1367,15 +1304,9 @@ export function createSignal<T>(
     ];
   }
   // Plain value form — no ID allocation (IDs are only for owners/computations).
-  // Dependency edges: an identity, reported on read (see `readSink`).
-  const sid = identities ? signalIdentity(currentOwner) : undefined;
+  const read = () => first as T;
   return [
-    sid !== undefined
-      ? () => {
-          if (readSink !== null) reportRead(sid);
-          return first as T;
-        }
-      : () => first as T,
+    edgeHooks !== null ? edgeHooks.signal(read) : read,
     v => {
       warnServerWrite("signal");
       return ((first as any) = typeof v === "function" ? (v as (prev: T) => T)(first as T) : v);
@@ -1479,22 +1410,20 @@ export function createMemo<T>(
   // after another request may have set its own, and everything the pass
   // creates — a sync memo it pulls, a slot's content — would take that
   // render's ids (#3972).
-  // Dependency edges: what the last compute read, re-reported on read.
-  let memoReads: Set<string> | null = null;
   const run = () => {
     resetOwnerForRerun(owner);
     const prev = sharedConfig.context;
     sharedConfig.context = ctx;
     const reads = asyncReads;
-    const prevSink = readSink;
-    const sink: ReadSink | null = identities ? (readSink = { s: null }) : null;
     try {
-      return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
+      return runWithOwner(owner, () =>
+        runWithObserver(comp, () =>
+          edgeHooks !== null
+            ? edgeHooks.run(owner, () => comp.compute(comp.value))
+            : comp.compute(comp.value)
+        )
+      );
     } finally {
-      if (sink !== null) {
-        readSink = prevSink;
-        memoReads = sink.s;
-      }
       sharedConfig.context = prev;
       if (asyncReads !== reads) comp.moving = true;
     }
@@ -1555,7 +1484,7 @@ export function createMemo<T>(
   const ssrSource = options?.ssrSource;
   if (ssrSource === "client") {
     // Skip computation. Owner created for ID parity.
-    markFillUntracked();
+    if (edgeHooks !== null) edgeHooks.untracked();
     comp.computed = true;
     if (loadingState) {
       // Client-source with commit #0: markup flushes the loading value; the
@@ -1585,7 +1514,8 @@ export function createMemo<T>(
       update();
     }
     if (comp.moving) asyncReads++;
-    if (memoReads !== null) reportReads(memoReads);
+    // Dependency edges: a read re-reports what the last compute read.
+    if (edgeHooks !== null) edgeHooks.report(owner);
     if (comp.errored) {
       // A client hole read outside a Loading discovery pass must fail loudly
       // rather than wedge the stream (see clientHoleRead). Identity check on
@@ -1648,9 +1578,6 @@ function createSyncMemo<T>(
   let epoch: number | undefined;
   // See ServerComputation.moving.
   let moving = false;
-  // Dependency edges: what the last compute read, re-reported on read.
-  let memoReads: Set<string> | null = null;
-
   function pull(): T | undefined {
     // Inlined `runWithOwner` — avoids the per-pull `() => compute(value)`
     // closure alloc that `runWithOwner(owner, fn)` would force. Hot for the
@@ -1666,19 +1593,15 @@ function createSyncMemo<T>(
     // (#2801, generalized to all retry paths in #2900).
     resetOwnerForRerun(owner);
     const reads = asyncReads;
-    const prevSink = readSink;
-    const sink: ReadSink | null = identities ? (readSink = { s: null }) : null;
     // One handler frame (see `runWithOwner`): the normal path restores
     // inline, the catch restores and re-raises.
     let result: T;
     try {
-      result = compute(value) as T;
+      result = (
+        edgeHooks !== null ? edgeHooks.run(owner, () => compute(value)) : compute(value)
+      ) as T;
     } catch (err) {
       currentOwner = prev;
-      if (sink !== null) {
-        readSink = prevSink;
-        memoReads = sink.s;
-      }
       if (asyncReads !== reads) moving = true;
       if (err instanceof NotReadyError) {
         // Don't latch a value — the engine re-pulls — but keep the signal
@@ -1694,10 +1617,6 @@ function createSyncMemo<T>(
       throw err;
     }
     currentOwner = prev;
-    if (sink !== null) {
-      readSink = prevSink;
-      memoReads = sink.s;
-    }
     if (asyncReads !== reads) moving = true;
     value = result;
     error = undefined;
@@ -1722,7 +1641,8 @@ function createSyncMemo<T>(
   return (() => {
     if (moving) asyncReads++;
     if (cached && (!ctx?.commitEpoch || ctx.commitEpoch() === epoch)) {
-      if (memoReads !== null) reportReads(memoReads);
+      // Dependency edges: a read re-reports what the last compute read.
+      if (edgeHooks !== null) edgeHooks.report(owner);
       if (errored) throw error;
       return value;
     }
@@ -1734,8 +1654,9 @@ function createSyncMemo<T>(
     // Stale epoch (a commit happened since this computed — frame renders
     // only) or never computed: (re)pull. Purity is the memo contract, so an
     // epoch recompute is the client's source-driven re-run, pull-paced.
+    if (edgeHooks === null) return pull();
     const v = pull();
-    if (memoReads !== null) reportReads(memoReads);
+    edgeHooks.report(owner);
     return v;
   }) as SourceAccessor<T | undefined>;
 }
@@ -2457,7 +2378,7 @@ function serverEffect<T>(
 ): void {
   const ssrSource = options?.ssrSource;
   if (ssrSource === "client") {
-    markFillUntracked();
+    if (edgeHooks !== null) edgeHooks.untracked();
     createOwner();
     return;
   }
@@ -2579,7 +2500,7 @@ export function createTrackedEffect(
 ): void {
   // No-op on server, but allocate computation ID. Its reads are the
   // client's only, so a slot fill running one has edges the server misses.
-  markFillUntracked();
+  if (edgeHooks !== null) edgeHooks.untracked();
   const o = getOwner();
   if (o?.id != null) getNextChildId(o);
 }
@@ -2885,10 +2806,7 @@ export function createProjection<T extends object = {}>(
   const ctx = sharedConfig.context;
   // Dependency edges: a projection's readers are not tracked (store
   // reads report nothing), so the signals its compute reads are WIDE.
-  if (ctx && identities) {
-    const compute = fn;
-    fn = ((...args: [T]) => wideReads(ctx, () => compute(...args))) as typeof fn;
-  }
+  if (ctx && edgeHooks !== null) fn = edgeHooks.projection(ctx, fn);
   const owner = createOwner();
   // The projection's own owner, read at creation — never a swapped hole scope.
   const id = ownerId(owner);
@@ -3487,7 +3405,7 @@ export function mapArray<T, U>(
                 rowOwner.id = formatChildId(origId, i);
               }
               rowOwner._childCount = 0;
-              if (sigCounts !== null) sigCounts.delete(rowOwner);
+              if (edgeHooks !== null) edgeHooks.reset(rowOwner);
               s.push(
                 options.keyed === false
                   ? indexes
@@ -3585,7 +3503,7 @@ export function repeat<T>(
               rowOwner.id = formatChildId(origId, i);
             }
             rowOwner._childCount = 0;
-            if (sigCounts !== null) sigCounts.delete(rowOwner);
+            if (edgeHooks !== null) edgeHooks.reset(rowOwner);
             out[i] = mapFn(i + offset);
           }
         } finally {
