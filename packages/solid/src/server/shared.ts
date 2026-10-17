@@ -118,6 +118,8 @@ export type HydrationContext = {
    * another request's context by the time an async failure lands.
    */
   errorPolicy?: (error: unknown, context: any) => unknown | void;
+  /** @internal Records render integrity independently of error mapping and diagnostic deduplication. */
+  recordRenderError?: () => void;
   /**
    * @internal The scope the server error hook's once-per-error ledger keys
    * on for this render (see `reportServerError`): the request event it

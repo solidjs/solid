@@ -1982,6 +1982,18 @@ export function renderToStream<T>(
   }
 ): {
   /**
+   * Whether this render observed an error, including an Errored fallback,
+   * a rejected Loading fragment, or a reported serialization failure. Monotonic
+   * and local to this render, independent of onError's once-per-error reporting.
+   * Failures of the default serializer terminate the render and are recorded
+   * regardless of whether an error hook is installed. Custom serializers must
+   * throw synchronously or report through their supplied onError callback;
+   * errors they suppress internally are not observable here.
+   * Read after completion when deciding whether to publish the whole HTML.
+   * False does not imply completion: an aborted render may have no errors.
+   */
+  readonly hasErrors: boolean;
+  /**
    * Awaiting the stream resolves with the complete HTML once every boundary
    * settles — the fully-settled-string form of the render (`const html =
    * await renderToStream(...)`). Render errors route through `onError` and
@@ -2032,6 +2044,11 @@ export function renderToStream(code, options = {}) {
   const errorScope = requestEvent || {};
   let dispose;
   let dead = false;
+  let hasErrors = false;
+  let hasSerializationError = false;
+  const recordRenderError = () => {
+    hasErrors = true;
+  };
   // The render's `"render"` record (`timeDocument`, once the context is up):
   // its shell stamped at `doShell`, settled at `onDone` or by the wind-down.
   let render;
@@ -2041,6 +2058,15 @@ export function renderToStream(code, options = {}) {
   // render starts, by which point it is assigned; the hoist keeps that from
   // being a temporal-dead-zone assumption.
   let serializer;
+  const writeSerialized = (id, value) => {
+    if (hasSerializationError) return defuse(value);
+    try {
+      return serializer.write(id, value);
+    } catch (err) {
+      recordRenderError();
+      throw err;
+    }
+  };
   // Client-disconnect teardown. A sink that throws from `write`/`end` (its
   // transport is gone) or a consumer cancelling the readable view means
   // nobody is listening anymore: stop touching the sink, mark the render
@@ -2127,27 +2153,11 @@ export function renderToStream(code, options = {}) {
     const sink = writable;
     buffer = { write() {} };
     writable = { end() {} };
-    // Contained (#4029): an `onCleanup` that throws here must not escape the
-    // teardown. On the `signal` path this runs inside an `abort` listener,
-    // where a throw becomes an uncaught exception that takes the process down;
-    // on the `failRender` path it would cut the wind-down short. It is the
-    // render's failure, so it goes to the hook as one (`handling: "failed"`),
-    // and with no hook anywhere it is never silent.
+    // The render's dispose contains a throwing `onCleanup` (#4029).
     if (dispose) {
       const d = dispose;
       dispose = () => {};
-      try {
-        d();
-      } catch (err) {
-        reportServerError(
-          err,
-          { kind: "render", handling: "failed" },
-          null,
-          options.onError,
-          errorScope
-        );
-        if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
-      }
+      d();
     }
     // Close the serializer AFTER `dead` is set: seroval's `close()` runs
     // each pending write's cleanup — a serialized async iterator gets its
@@ -2166,6 +2176,7 @@ export function renderToStream(code, options = {}) {
       try {
         serializer.close();
       } catch (err) {
+        recordRenderError();
         reportServerError(
           err,
           { kind: "render", handling: "serialize" },
@@ -2202,6 +2213,7 @@ export function renderToStream(code, options = {}) {
   // Exposed to the reactive library's boundary resume loop as
   // `context.failRender` (see the ssrLoadingBoundary finalizeError path).
   const failRender = err => {
+    recordRenderError();
     // The server error hook is the one channel (`handling: "failed"`); a
     // boundary that already reported this error with its location leaves
     // this a no-op (once per error). With no hook anywhere the failure is
@@ -2315,12 +2327,12 @@ export function renderToStream(code, options = {}) {
     stubBatch = null;
     if (batch.size === 1) {
       const [id, p] = batch.entries().next().value;
-      serializer.write(id, p);
+      writeSerialized(id, p);
       return;
     }
     const obj = {};
     for (const [id, p] of batch) obj[id] = p;
-    serializer.write(STUB_BATCH_KEY, obj);
+    writeSerialized(STUB_BATCH_KEY, obj);
     pushTask(
       `(b=>{for(var k in b)_$HY.r[k]=b[k];delete _$HY.r["${STUB_BATCH_KEY}"]})(_$HY.r["${STUB_BATCH_KEY}"])`
     );
@@ -2346,8 +2358,9 @@ export function renderToStream(code, options = {}) {
     // trace `doShell` reads (`traceMetaMarkup(context.trace)`), and the
     // consumer was completed by the wind-down (`abandon`) — a disconnect has
     // nobody to complete. Serialized promises still settle after the
-    // wind-down, so seroval still reaches here; do nothing (#3569).
-    if (dead) return;
+    // wind-down, so seroval still reaches here; do nothing (#3569). A custom
+    // serializer that calls onDone again finds the render already complete.
+    if (dead || hasSerializationError || completed) return;
     writeTasks();
     // Every blocker has settled by definition here (the render is complete),
     // so doShell's growth gate has nothing to wait for: align its baseline
@@ -2474,16 +2487,39 @@ export function renderToStream(code, options = {}) {
   // flows through onData is a contract between the serializer and the sink
   // (hydration scripts for the document sink, keyed codec records for the
   // frame sink); the core never inspects it.
-  serializer = (options.serializer || createHydrationSerializer)({
+  const customSerializer = options.serializer;
+  const observeSerializerError = hook => {
+    if (customSerializer) {
+      const onError = serializerErrorHook(hook, errorScope);
+      return onError === undefined
+        ? undefined
+        : err => {
+            recordRenderError();
+            onError(err);
+          };
+    }
+    return err => {
+      if (dead || hasSerializationError) return;
+      hasSerializationError = true;
+      recordRenderError();
+      // A synchronous write registers its cleanup only after this callback returns.
+      queue(abandon);
+      reportServerError(err, { kind: "render", handling: "serialize" }, null, hook, errorScope);
+      if (hook === undefined && ambientServerErrorHook() === undefined) console.error(err);
+    };
+  };
+  serializer = (customSerializer || createHydrationSerializer)({
     scopeId: options.renderId,
     // Containers (projections) serialize as traces on BOTH faces — the
     // document's hydration serializer and the frame sink's codec resolve
     // their plugin sets through the codec defaults, which carry the trace
     // plugin (inert until the reactive core installs its resolver).
     plugins: options.plugins,
-    onData: payload => sink.data(payload),
+    onData: payload => {
+      if (!hasSerializationError) sink.data(payload);
+    },
     onDone,
-    onError: serializerErrorHook(options.onError)
+    onError: observeSerializerError(options.onError)
   });
   let rootAssetsSerialized = false;
   const serializeRootAssets = () => {
@@ -2868,7 +2904,7 @@ export function renderToStream(code, options = {}) {
       if (p && typeof p === "object" && typeof p.then === "function") {
         if (!firstFlushed && deferStream) {
           blockingPromises.add(p);
-          p.then(d => serializer.write(id, d)).catch(e => serializer.write(id, e));
+          p.then(d => writeSerialized(id, d)).catch(e => writeSerialized(id, e));
           return;
         }
         // Every pending promise handed to seroval joins the abandonment
@@ -2885,7 +2921,7 @@ export function renderToStream(code, options = {}) {
           return;
         }
       }
-      serializer.write(id, p);
+      writeSerialized(id, p);
     },
     escape: escape,
     resolve: resolveSSRNode,
@@ -2941,7 +2977,7 @@ export function renderToStream(code, options = {}) {
         });
         if (canBatchStubs && !shellCompleted && !dead)
           (stubBatch ||= new Map()).set(key + "_fr", p);
-        else serializer.write(key + "_fr", p);
+        else writeSerialized(key + "_fr", p);
       }
       return (value, error, escaped) => {
         if (registry.has(key)) {
@@ -3057,6 +3093,7 @@ export function renderToStream(code, options = {}) {
   // post-flush a fragment rejects to the client; pre-flush it inlines or
   // fails the request.
   context.errorPolicy = options.onError;
+  context.recordRenderError = recordRenderError;
   context._errorScope = errorScope;
   context.flushed = () => firstFlushed;
   // The trace this render belongs to (see `getTraceContext`): the request's
@@ -3086,7 +3123,26 @@ export function renderToStream(code, options = {}) {
         // The render is over: no later read finds its trace (see above).
         context.trace = undefined;
         if (onAbort) signal.removeEventListener("abort", onAbort);
-        d();
+        // Contained (#4029): an `onCleanup` that throws must not escape the
+        // teardown. Inside an `abort` listener the throw becomes an uncaught
+        // exception that takes the process down; in the wind-down it cuts it
+        // short; at completion the consumer is never completed and the throw
+        // surfaces as an unhandled rejection. It is the render's failure, so
+        // it goes to the hook as one (`handling: "failed"`), and with no hook
+        // anywhere it is never silent.
+        try {
+          d();
+        } catch (err) {
+          recordRenderError();
+          reportServerError(
+            err,
+            { kind: "render", handling: "failed" },
+            null,
+            options.onError,
+            errorScope
+          );
+          if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
+        }
       };
       rootOwner = claimRenderRoot(context);
       if (requestEvent) claimEventRender(requestEvent, context);
@@ -3096,6 +3152,7 @@ export function renderToStream(code, options = {}) {
       } catch (err) {
         // The first pass throws out of `renderToStream` to the caller: the
         // hook hears it first, as for `renderToString`.
+        recordRenderError();
         reportServerError(
           err,
           { kind: "render", handling: "failed" },
@@ -3197,6 +3254,9 @@ export function renderToStream(code, options = {}) {
     // root-hole/head gates above so this runs exactly once, on the attempt
     // that actually flushes).
     flushStubBatch();
+    // A serialization failure in this attempt already queued the wind-down:
+    // the consumer completes as a failed render, with no shell.
+    if (hasSerializationError) return;
     // Shell head flush: commits every registration not owned by a
     // still-pending fragment (those flush with their fragment later).
     const head = renderShellHead(
@@ -3304,11 +3364,12 @@ export function renderToStream(code, options = {}) {
     // settles and the writable — alive; the RENDER died — is closed so a
     // `Response` built on `readable` completes instead of hanging. Post-
     // shell the live wrapper ends (flushing what it coalesced, then the
-    // writer's own close path); pre-shell nothing was written yet.
+    // writer's own close path, which settles the promise once the writes
+    // drain); pre-shell nothing was written yet.
     onFailure(sink => {
       try {
-        if (sink) sink.end();
-        else w.close().catch(() => {});
+        if (sink) return sink.end();
+        w.close().catch(() => {});
       } catch (_) {}
       resolve();
     });
@@ -3382,6 +3443,9 @@ export function renderToStream(code, options = {}) {
     return p;
   };
   return {
+    get hasErrors() {
+      return hasErrors;
+    },
     // Proper thenable: `await renderToStream(...)` resolves with the full
     // HTML once every boundary settles — the replacement for the removed
     // renderToStringAsync. Render errors route through `onError` (the
@@ -6073,8 +6137,11 @@ export const RequestContext: unique symbol = Symbol.for("solid.RequestContext") 
  * subtree; `failed`: nothing contained it and the request fails — including
  * a synchronous throw out of `renderToString` or `renderToStream`'s first
  * pass, reported before it reaches the caller;
- * `serialize`: a hydration value would not serialize and the render went on
- * without it (a render that passed `onError`). `kind: "server-function"` — `thrown`:
+ * `serialize`: a hydration value would not serialize; `renderToStream`'s
+ * default serializer ends the render, with or without a render hook, while
+ * under `renderToString` or a custom serializer it is reported for a render
+ * that passed `onError` and the render goes on without the value.
+ * `kind: "server-function"` — `thrown`:
  * the body threw; `channel`: a rejection or throw escaping through the
  * result graph (a promise, an iterable, a stream) with the head already
  * committed. `kind: "request"` (always `failed`): a failure that fails the
@@ -6169,14 +6236,13 @@ export function reportRequestFailure(error: unknown, event: RequestEvent): void;
  * value that would not serialize here instead of throwing at the write
  * (that difference is why this is only wired when a hook was given — as
  * `onError` always was). The hook hears it as `handling: "serialize"`,
- * deduped within the request in scope (what seroval reports is, as a rule,
- * its own error, fresh per failure — nothing render-wide to dedupe against).
+ * deduped within the owning request or render, including async callbacks.
  */
-function serializerErrorHook(hook) {
+function serializerErrorHook(hook, scope) {
   return hook === undefined
     ? undefined
     : err => {
-        reportServerError(err, { kind: "render", handling: "serialize" }, null, hook);
+        reportServerError(err, { kind: "render", handling: "serialize" }, null, hook, scope);
       };
 }
 

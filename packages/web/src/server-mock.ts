@@ -246,6 +246,8 @@ export function renderToStream<T>(
     signal?: AbortSignal;
   }
 ): {
+  /** Render-local error state. Read after completion; false does not imply completion. */
+  readonly hasErrors: boolean;
   /**
    * Awaiting the stream resolves with the complete HTML once every boundary
    * settles — the fully-settled-string form of the render. Render errors
