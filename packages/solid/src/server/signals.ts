@@ -147,6 +147,8 @@ interface SSROwner {
   _parent: SSROwner | null;
   _context: Record<symbol | string, unknown>;
   _childCount: number;
+  /** SPIKE (dependency edges): plain signals created under this owner, reset with `_childCount`. */
+  _sigCount: number;
   _firstChild: SSROwner | null;
   _nextSibling: SSROwner | null;
   _disposed: boolean;
@@ -337,6 +339,7 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
     owner._parent = parent;
     owner._context = ctx;
     owner._childCount = 0;
+    owner._sigCount = 0;
     owner._firstChild = null;
     owner._nextSibling = null;
     owner._disposed = false;
@@ -358,6 +361,7 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
           _parent: parent,
           _context: ctx,
           _childCount: 0,
+          _sigCount: 0,
           _firstChild: null,
           _nextSibling: null,
           _disposed: false,
@@ -372,6 +376,7 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
           _parent: parent,
           _context: ctx,
           _childCount: 0,
+          _sigCount: 0,
           _firstChild: null,
           _nextSibling: null,
           _disposed: false,
@@ -539,7 +544,7 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
       // retry reset (`self=false`) must still rewind the counter — otherwise
       // every boundary discovery pass drifts the ids of the eventual
       // successful run past the client's (#2900).
-      node._childCount = 0;
+      node._childCount = node._sigCount = 0;
       node._scopeSlot = -1;
     }
     return;
@@ -552,7 +557,7 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
     child = next;
   }
   node._firstChild = null;
-  node._childCount = 0;
+  node._childCount = node._sigCount = 0;
   // Defensive: a kept-alive owner (`self=false`) re-runs from its own,
   // settled id. The slot is swap-owned (`ssrScope` restores it in `finally`),
   // so this is never observed set here — pinned by `ownerId`'s dev check.
@@ -594,7 +599,7 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
 export function resetOwnerForRerun(owner: Owner): void {
   const node = owner as unknown as SSROwner;
   if (node._firstChild || node._disposal) disposeOwner(owner, false);
-  node._childCount = 0;
+  node._childCount = node._sigCount = 0;
   node._scopeSlot = -1;
 }
 
@@ -656,18 +661,22 @@ export function ssrScope<T>(fn: () => T): () => unknown {
   // inner effect.
   let resume: (() => unknown) | undefined;
   let resumeCount = 0;
+  let resumeSig = 0;
   return () => {
     const prevId = parent.id;
     const prevSlot = parent._scopeSlot;
     const prevCount = parent._childCount;
+    const prevSig = parent._sigCount;
     parent.id = prefix;
     parent._scopeSlot = slot;
     parent._childCount = resume ? resumeCount : 0;
+    parent._sigCount = resume ? resumeSig : 0;
     // The unwrap step in flight, so the one catch below can record the
     // resume point: a single handler frame on the NotReady unwind (see
     // `runWithOwner`) instead of an inner catch and an outer finally.
     let next: (() => unknown) | undefined;
     let count = 0;
+    let sigCount = 0;
     let v: unknown;
     try {
       v = resume || fn();
@@ -679,21 +688,25 @@ export function ssrScope<T>(fn: () => T): () => unknown {
       while (typeof v === "function") {
         next = v as () => unknown;
         count = parent._childCount;
+        sigCount = parent._sigCount;
         v = next();
       }
     } catch (err) {
       parent.id = prevId;
       parent._scopeSlot = prevSlot;
       parent._childCount = prevCount;
+      parent._sigCount = prevSig;
       if (next !== undefined && err instanceof NotReadyError) {
         resume = next;
         resumeCount = count;
+        resumeSig = sigCount;
       }
       throw err;
     }
     parent.id = prevId;
     parent._scopeSlot = prevSlot;
     parent._childCount = prevCount;
+    parent._sigCount = prevSig;
     return v;
   };
 }
@@ -1224,6 +1237,58 @@ function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
 // projections, and of any memo whose last compute read one of those.
 let asyncReads = 0;
 
+// ---------------------------------------------------------------------------
+// SPIKE (deferred hydration, dependency edges): plain-signal identities and
+// read tracking. A plain signal created under an id-bearing owner is named
+// `<owner id>~<n>` (n counts plain signals under that owner, reset with its
+// child counter), as the client's signals core names it. A read reports the
+// name to the current sink: a slot fill's (`trackFillReads`), a memo's — a
+// memo read re-reports what its compute read, so an edge through a memo
+// lands on its sources — or the request's WIDE sink, for reads whose
+// readers are not tracked (a projection's compute): a write to a wide
+// signal mounts everything left.
+type ReadSink = { s: Set<string> | null; wide?: true };
+let readSink: ReadSink | null = null;
+function reportRead(sid: string): void {
+  const sink = readSink!;
+  (sink.s ||= new Set()).add(sid);
+}
+function reportReads(reads: Set<string> | null): void {
+  if (reads === null || readSink === null) return;
+  const s = (readSink.s ||= new Set());
+  for (const sid of reads) s.add(sid);
+}
+function signalIdentity(owner: SSROwner | null): string | undefined {
+  if (!owner) return undefined;
+  let o: SSROwner = owner;
+  while (o._transparent && o._parent) o = o._parent;
+  if (o.id == null) return undefined;
+  const id = materializeId(o);
+  return id + "~" + o._sigCount++;
+}
+/** @internal SPIKE: run `fn`, returning its result and the plain-signal identities it read. */
+export function trackFillReads<T>(fn: () => T): { result: T; reads: Set<string> | null } {
+  const prev = readSink;
+  const sink: ReadSink = { s: null };
+  readSink = sink;
+  try {
+    return { result: fn(), reads: sink.s };
+  } finally {
+    readSink = prev;
+  }
+}
+/** Run `fn` with its reads reported to the request's wide sink (`context.edgeWide`). */
+function wideReads<T>(ctx: any, fn: () => T): T {
+  if (!ctx) return fn();
+  const prev = readSink;
+  readSink = ctx.edgeWide ||= { s: null, wide: true };
+  try {
+    return fn();
+  } finally {
+    readSink = prev;
+  }
+}
+
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 // Commit #0 (loadingValue) removes the uninitialized window: never undefined
@@ -1260,9 +1325,16 @@ export function createSignal<T>(
       }) as Setter<T | undefined>
     ];
   }
-  // Plain value form — no ID allocation (IDs are only for owners/computations)
+  // Plain value form — no ID allocation (IDs are only for owners/computations).
+  // SPIKE (dependency edges): an identity, reported on read (see `readSink`).
+  const sid = signalIdentity(currentOwner);
   return [
-    () => first as T,
+    sid !== undefined
+      ? () => {
+          if (readSink !== null) reportRead(sid);
+          return first as T;
+        }
+      : () => first as T,
     v => {
       warnServerWrite("signal");
       return ((first as any) = typeof v === "function" ? (v as (prev: T) => T)(first as T) : v);
@@ -1366,14 +1438,20 @@ export function createMemo<T>(
   // after another request may have set its own, and everything the pass
   // creates — a sync memo it pulls, a slot's content — would take that
   // render's ids (#3972).
+  // SPIKE (dependency edges): what the last compute read, re-reported on read.
+  let memoReads: Set<string> | null = null;
   const run = () => {
     resetOwnerForRerun(owner);
     const prev = sharedConfig.context;
     sharedConfig.context = ctx;
     const reads = asyncReads;
+    const prevSink = readSink;
+    const sink: ReadSink = (readSink = { s: null });
     try {
       return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
     } finally {
+      readSink = prevSink;
+      memoReads = sink.s;
       sharedConfig.context = prev;
       if (asyncReads !== reads) comp.moving = true;
     }
@@ -1463,6 +1541,7 @@ export function createMemo<T>(
       update();
     }
     if (comp.moving) asyncReads++;
+    if (memoReads !== null) reportReads(memoReads);
     if (comp.errored) {
       // A client hole read outside a Loading discovery pass must fail loudly
       // rather than wedge the stream (see clientHoleRead). Identity check on
@@ -1525,6 +1604,8 @@ function createSyncMemo<T>(
   let epoch: number | undefined;
   // See ServerComputation.moving.
   let moving = false;
+  // SPIKE (dependency edges): what the last compute read, re-reported on read.
+  let memoReads: Set<string> | null = null;
 
   function pull(): T | undefined {
     // Inlined `runWithOwner` — avoids the per-pull `() => compute(value)`
@@ -1541,6 +1622,8 @@ function createSyncMemo<T>(
     // (#2801, generalized to all retry paths in #2900).
     resetOwnerForRerun(owner);
     const reads = asyncReads;
+    const prevSink = readSink;
+    const sink: ReadSink = (readSink = { s: null });
     // One handler frame (see `runWithOwner`): the normal path restores
     // inline, the catch restores and re-raises.
     let result: T;
@@ -1548,6 +1631,8 @@ function createSyncMemo<T>(
       result = compute(value) as T;
     } catch (err) {
       currentOwner = prev;
+      readSink = prevSink;
+      memoReads = sink.s;
       if (asyncReads !== reads) moving = true;
       if (err instanceof NotReadyError) {
         // Don't latch a value — the engine re-pulls — but keep the signal
@@ -1563,6 +1648,8 @@ function createSyncMemo<T>(
       throw err;
     }
     currentOwner = prev;
+    readSink = prevSink;
+    memoReads = sink.s;
     if (asyncReads !== reads) moving = true;
     value = result;
     error = undefined;
@@ -1587,6 +1674,7 @@ function createSyncMemo<T>(
   return (() => {
     if (moving) asyncReads++;
     if (cached && (!ctx?.commitEpoch || ctx.commitEpoch() === epoch)) {
+      if (memoReads !== null) reportReads(memoReads);
       if (errored) throw error;
       return value;
     }
@@ -1598,7 +1686,9 @@ function createSyncMemo<T>(
     // Stale epoch (a commit happened since this computed — frame renders
     // only) or never computed: (re)pull. Purity is the memo contract, so an
     // epoch recompute is the client's source-driven re-run, pull-paced.
-    return pull();
+    const v = pull();
+    if (memoReads !== null) reportReads(memoReads);
+    return v;
   }) as SourceAccessor<T | undefined>;
 }
 
@@ -2481,7 +2571,10 @@ export function createOptimistic<T>(
   // The updater is not invoked at all — nothing could observe its result.
   // (Broader direction, recorded: server writes may eventually throw under
   // a dev-mode server build; that waits on having one.)
-  const [read] = (createSignal as Function)(first, second) as Signal<T | undefined>;
+  const [read] =
+    typeof first === "function"
+      ? ((createSignal as Function)(first, second) as Signal<T | undefined>)
+      : ([() => first as T] as unknown as Signal<T | undefined>);
   return [
     read,
     (() => {
@@ -2739,6 +2832,12 @@ export function createProjection<T extends object = {}>(
   options?: ServerProjectionOptions
 ): Store<T> {
   const ctx = sharedConfig.context;
+  // SPIKE (dependency edges): a projection's readers are not tracked (store
+  // reads report nothing), so the signals its compute reads are WIDE.
+  if (ctx) {
+    const compute = fn;
+    fn = ((...args: [T]) => wideReads(ctx, () => compute(...args))) as typeof fn;
+  }
   const owner = createOwner();
   // The projection's own owner, read at creation — never a swapped hole scope.
   const id = ownerId(owner);
@@ -3336,7 +3435,7 @@ export function mapArray<T, U>(
               if (origId !== undefined) {
                 rowOwner.id = formatChildId(origId, i);
               }
-              rowOwner._childCount = 0;
+              rowOwner._childCount = rowOwner._sigCount = 0;
               s.push(
                 options.keyed === false
                   ? indexes
@@ -3433,7 +3532,7 @@ export function repeat<T>(
             if (origId !== undefined) {
               rowOwner.id = formatChildId(origId, i);
             }
-            rowOwner._childCount = 0;
+            rowOwner._childCount = rowOwner._sigCount = 0;
             out[i] = mapFn(i + offset);
           }
         } finally {

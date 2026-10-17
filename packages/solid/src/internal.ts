@@ -129,7 +129,16 @@ export const creationStamp: () => number = core.creationStamp;
  * write lands — the server-components client's deferred hydration mounts
  * what it left unmounted. Server: no-op.
  */
-export const setWriteHook: (hook: (() => void) | null) => void = core.setWriteHook;
+export const setWriteHook: (hook: ((sid?: string) => void) | null) => void = core.setWriteHook;
+/** SPIKE (dependency edges). Client: name plain signals (`<owner id>~<n>`) from now on. Server: no-op. */
+export const setSignalIdentities: (on: boolean) => void = core.setSignalIdentities;
+/**
+ * SPIKE (dependency edges). Server: run a slot fill, returning the plain-signal
+ * identities it read (through memos too), and those any projection read
+ * (`wide`: their readers are unknown). Client: runs it.
+ */
+export const trackFillReads: <T>(fn: () => T) => { result: T; reads: Set<string> | null } =
+  core.trackFillReads;
 
 /** Server: the live projection trace behind a value, if any. Client: `undefined`. */
 export const getProjectionTrace: (

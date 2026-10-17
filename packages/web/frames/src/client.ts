@@ -62,7 +62,12 @@ import {
   stagedContent,
   type ServerComponentHandlerOptions
 } from "./frame-transport.js";
-import { createLoadingBoundary, setWriteHook, sharedConfig } from "solid-js/internal";
+import {
+  createLoadingBoundary,
+  setSignalIdentities,
+  setWriteHook,
+  sharedConfig
+} from "solid-js/internal";
 
 // The container tier (DR-2 case 3): server projections cross the border as
 // TRACES (snapshot + patch batches) and materialize back into live local
@@ -1272,6 +1277,7 @@ function adoptBoundary(
   // `data-fid` is the site scope: the function id on the first mount, `<id>~n` later.
   const siteId = el.getAttribute(FRAME_ID_ATTR)!;
   claimedBoundaries.add(siteId);
+  edgeRoots.set(siteId, el);
   // Content is keyed by the CALL's address (the identity split): the frame
   // binds the address's resident store, while the site scope (`data-fid`) is
   // the key records and region ids on the page are written under. The address
@@ -1593,6 +1599,149 @@ function mountAllDeferred() {
   deferDone();
 }
 
+// SPIKE (deferred hydration, dependency edges). The server ships, per
+// document frame, which occurrences read which plain signals they did not
+// create (`sc:deps:<site>:<n>` batches of `sid -> [occurrence]`; `*` wide
+// signals, `!` occurrences with untracked reads). With edges on, a write to
+// a named signal mounts only the unmounted occurrences that read it — each
+// with the occurrences enclosing it first, as an event would — instead of
+// everything left. Anything the records cannot vouch for falls back to
+// mounting everything: a write with no name (a store, a derived or
+// optimistic signal, an unnamed owner), a wide signal, a write while the
+// document is still streaming (records may not have arrived), or a deferred
+// frame under a root that shipped no records.
+let edges = false;
+const edgeRoots = new Map<string, Element>();
+type EdgeIndex = {
+  readers: Map<string, [string, string][]>;
+  wide: Set<string>;
+  untracked: [string, string][];
+  sites: Set<string>;
+  starts: Map<string, Map<string, Comment>>;
+};
+let edgeIndex: EdgeIndex | undefined;
+const DEPS = "sc:deps:";
+function buildEdgeIndex(): EdgeIndex | undefined {
+  const r = (globalThis as any)._$HY?.r;
+  if (!r) return undefined;
+  const idx: EdgeIndex = {
+    readers: new Map(),
+    wide: new Set(),
+    untracked: [],
+    sites: new Set(),
+    starts: new Map()
+  };
+  for (const site of edgeRoots.keys())
+    for (let n = 0, batch; (batch = r[DEPS + site + ":" + n]); n++) {
+      if (typeof batch !== "object") return undefined;
+      idx.sites.add(site);
+      for (const sid in batch) {
+        const occs = unpackOccurrences(batch[sid]);
+        if (sid === "*") occs.forEach(w => idx.wide.add(w));
+        else if (sid === "!") occs.forEach(o => idx.untracked.push([site, o]));
+        else {
+          let list = idx.readers.get(sid);
+          if (!list) idx.readers.set(sid, (list = []));
+          for (const o of occs) list.push([site, o]);
+        }
+      }
+    }
+  return idx;
+}
+/** `card#0-2 cart#0` -> `card#0 card#1 card#2 cart#0` (see the sink's packOccurrences). */
+function unpackOccurrences(packed: string): string[] {
+  const out: string[] = [];
+  for (const part of packed.split(" ")) {
+    const m = /^(.*)#(\d+)-(\d+)$/.exec(part);
+    if (!m) part && out.push(part);
+    else for (let i = +m[2]; i <= +m[3]; i++) out.push(m[1] + "#" + i);
+  }
+  return out;
+}
+function startOf(idx: EdgeIndex, site: string, occ: string): Comment | undefined {
+  let m = idx.starts.get(site);
+  if (!m) {
+    idx.starts.set(site, (m = new Map()));
+    const root = edgeRoots.get(site);
+    if (root) {
+      const w = document.createTreeWalker(root, 128 /* SHOW_COMMENT */);
+      for (let c = w.nextNode() as Comment | null; c; c = w.nextNode() as Comment | null) {
+        const d = c.data;
+        if (d.startsWith("slot:") && d.endsWith(":start")) m.set(d.slice(5, -6), c);
+      }
+    }
+  }
+  return m.get(occ);
+}
+/** Every deferred frame sits under a root whose records arrived. */
+function edgesCover(idx: EdgeIndex): boolean {
+  outer: for (const f of deferredFrames()) {
+    for (const [site, root] of edgeRoots)
+      if (idx.sites.has(site) && root.contains(f.el)) continue outer;
+    return false;
+  }
+  return true;
+}
+function mountAll(sid?: string) {
+  const g = globalThis as any;
+  const t0 = performance.now();
+  const c0 = g.__scDeferMounted || 0;
+  mountAllDeferred();
+  (g.__scEdgeMounts ||= []).push([
+    sid ?? null,
+    "all",
+    performance.now() - t0,
+    0,
+    g.__scDeferMounted - c0,
+    c0
+  ]);
+}
+function mountForWrite(sid?: string) {
+  if (mounting || (sharedConfig as any).hydrating) return;
+  if (!edges || sid === undefined || document.readyState === "loading") return mountAll(sid);
+  const t0 = performance.now();
+  const idx = (edgeIndex ||= buildEdgeIndex());
+  if (!idx || idx.wide.has(sid) || !edgesCover(idx)) return mountAll(sid);
+  const readers = idx.readers.get(sid);
+  if (!readers && !idx.untracked.length) return;
+  const t1 = performance.now();
+  let n = 0;
+  mounting = true;
+  try {
+    for (const list of [readers || [], idx.untracked])
+      for (const [site, occ] of list) {
+        // The occurrence's own deferred frame mounts it from its walk; one
+        // inside an occurrence not mounted yet (a region's fill) is found in
+        // the document and mounted with its enclosing ones first.
+        const root = edgeRoots.get(site);
+        let done = false;
+        for (const f of deferredFrames())
+          if (root && root.contains(f.el) && f.mountOccurrence(occ)) {
+            done = true;
+            n++;
+            break;
+          }
+        if (done) continue;
+        const start = startOf(idx, site, occ);
+        const target = start && (start.nextSibling || start);
+        if (!target) continue;
+        for (let f; (f = liveFrameAt(target)) && f.mountEnclosing(target); ) n++;
+      }
+  } finally {
+    mounting = false;
+  }
+  const g = globalThis as any;
+  (g.__scEdgeMounts ||= []).push([
+    sid,
+    "edges",
+    performance.now() - t0,
+    t1 - t0,
+    n,
+    g.__scDeferMounted - n
+  ]);
+  deferDone();
+}
+
 let idlePass: Promise<void> | undefined;
 function mountIdle() {
   return (idlePass ||= (async () => {
@@ -1626,6 +1775,8 @@ function deferDone() {
   if (deferredFrames().length) return;
   if (deferring) {
     deferring = false;
+    edgeIndex = undefined;
+    (globalThis as any).__scDeferDoneAt = performance.now();
     setWriteHook(null);
     DEFER_EVENTS.forEach(t => document.removeEventListener(t, wakeAt, true));
   }
@@ -1648,7 +1799,7 @@ let deferring = false;
 function deferFrame(frame: any) {
   if (!deferring) {
     deferring = true;
-    setWriteHook(mountAllDeferred);
+    setWriteHook(mountForWrite);
     DEFER_EVENTS.forEach(t => document.addEventListener(t, wakeAt, true));
   }
   // An event that landed before the frame existed waits in hydration's
@@ -1752,6 +1903,15 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
   // early as the page's `_$HY` allows (when this call precedes the page's
   // bootstrap, the first documentBoundary re-attempts).
   installRevealHook();
+  // SPIKE (dependency edges): A/B switches read at boot, one build for all
+  // modes — cookie `sc-defer=0` mounts at adoption (eager), `sc-edges=1`
+  // turns edges on (signals are named so a write reports which one).
+  if (typeof document !== "undefined") {
+    const cookie = document.cookie;
+    if (/(?:^|; )sc-defer=0/.test(cookie)) deferHydration = false;
+    edges = deferHydration && /(?:^|; )sc-edges=1/.test(cookie);
+    if (edges) setSignalIdentities(true);
+  }
   if (typeof document !== "undefined" && deferHydration) setDeferDriver(deferFrame);
   const handler = createServerComponentHandler({
     host,

@@ -1107,6 +1107,10 @@ export let deferDriver: ((frame: any) => void) | null = null;
 export function setDeferDriver(driver: ((frame: any) => void) | null): void {
   deferDriver = driver;
 }
+/** SPIKE debug: occurrences mounted by deferred hydration so far (`__scDeferMounted`). */
+const deferCount = () => {
+  (globalThis as any).__scDeferMounted = ((globalThis as any).__scDeferMounted || 0) + 1;
+};
 /** @internal The live frames still owing their adoption-time mounts, outermost first. */
 export function deferredFrames(): any[] {
   return [...liveFrames].filter(f => f.deferred);
@@ -1925,6 +1929,7 @@ class FrameImpl {
     this.#deferWaiting = this.#mountFound(new Map([[id, outer]])) || this.#deferWaiting;
     if (!this.#mountedSlots.has(id)) return false;
     this.#deferMounted.set(id, outer);
+    deferCount();
     return true;
   }
 
@@ -1946,13 +1951,39 @@ class FrameImpl {
     for (const [id, start] of found) {
       found.delete(id);
       this.#deferWaiting = this.#mountFound(new Map([[id, start]])) || this.#deferWaiting;
-      if (this.#mountedSlots.has(id)) this.#deferMounted.set(id, start);
+      if (this.#mountedSlots.has(id)) {
+        this.#deferMounted.set(id, start);
+        deferCount();
+      }
       if (deadline !== undefined && found.size && performance.now() > deadline) return false;
     }
     this.#deferred = false;
     this.#deferFound = undefined;
     this.#deferMounted.clear();
     if (this.#deferWaiting && !this.#hold) this.#hold = this.#options.hold?.();
+    return true;
+  }
+
+  /**
+   * SPIKE (dependency edges): mount one occurrence of THIS frame by id, from
+   * the walk the slices mount from (taken now if no slice has run yet).
+   * False when this frame does not owe it (not deferred, not its occurrence,
+   * or already mounted).
+   */
+  mountOccurrence(id: string): boolean {
+    if (!this.#deferred) return false;
+    let found = this.#deferFound;
+    if (!found) {
+      found = this.#deferFound = new Map();
+      this.#collectSlots(found);
+    }
+    const start = found.get(id);
+    if (!start) return false;
+    found.delete(id);
+    this.#deferWaiting = this.#mountFound(new Map([[id, start]])) || this.#deferWaiting;
+    if (!this.#mountedSlots.has(id)) return false;
+    this.#deferMounted.set(id, start);
+    deferCount();
     return true;
   }
 

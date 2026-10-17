@@ -516,16 +516,21 @@ function ssrLoadingBoundary(
   // hydrated dead (#3414). Retry passes resume the surviving holes in the
   // same scope, the counter continuing where the last pass left it.
   let resolveCount = 0;
+  let resolveSig = 0;
   function resolveIn<T>(run: () => T): T {
     const prevCount = (o as any)._childCount;
+    const prevSig = (o as any)._sigCount;
     (o as any).id = flattenId;
     (o as any)._childCount = resolveCount;
+    (o as any)._sigCount = resolveSig;
     try {
       return run();
     } finally {
       resolveCount = (o as any)._childCount;
+      resolveSig = (o as any)._sigCount;
       (o as any).id = contentId;
       (o as any)._childCount = prevCount;
+      (o as any)._sigCount = prevSig;
     }
   }
 
