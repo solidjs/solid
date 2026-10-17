@@ -212,8 +212,8 @@ form[aria-busy] button {
   font-size: 13px;
 }
 
-/* Code blocks are server-rendered with a copy button the client answers
-   (components/copy-code.tsx) — the wrapper anchors the button over the pre. */
+/* Code blocks are server-rendered with a Copy button the server places in
+   each (components/copy-code.tsx) — the wrapper anchors it over the pre. */
 .md .code-block {
   position: relative;
   margin: 0 0 12px;

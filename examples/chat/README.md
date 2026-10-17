@@ -83,7 +83,7 @@ const getThread = liveQuery(
   live(
     GET(async (id: string) => {
       "use server";
-      return (props: { composer: ComposerSlot; copyCode: Slot }) => {
+      return (props: { composer: ComposerSlot; copyCode: CopySlot }) => {
         const view = createMemo(() => db.watchThread(id, gone.signal));
         return (
           <article class="thread">
@@ -93,7 +93,6 @@ const getThread = liveQuery(
               {view().messages.filter(m => m.status === "generating").map(…)}
             </ol>
             <props.composer $key={id} threadId={id} seen={…} busy={…} />
-            <props.copyCode />
           </article>
         );
       };
@@ -123,13 +122,13 @@ never settles: each retry of the render makes a new one.
   its conversation. Its form is the send action; the message it shows while
   the server does not have it yet steps aside by derivation, the moment the
   server's render says it has that id (`seen`).
-- **Copy.** Each code block's button is server markup. What it does is a
-  second client component
-  ([src/components/copy-code.tsx](./src/components/copy-code.tsx)), placed
-  once at the foot of the thread (`<props.copyCode />`). It answers every
-  button's click from the document, including buttons that arrive mid-reply.
-  It is placed once and not in each block because a slot placed in markup
-  that re-renders from the live source would stop that markup updating.
+- **Copy.** Each code block's button is a client component
+  ([src/components/copy-code.tsx](./src/components/copy-code.tsx)) that the
+  server places in the block with the block's text
+  (`<Copy $key={…} code={…} />`), including in the reply being written. The
+  key is the message and the block's place in it, so while the reply grows
+  the button stays mounted and gets each new text as a prop, and when the
+  reply finishes and moves into the finished list it is the same button.
 - **Navigation.** The sidebar is a second live server component
   (`getThreads` in [src/router.tsx](./src/router.tsx)): the list of threads,
   with a mark where a reply is being written. Its links are server markup;

@@ -9,8 +9,8 @@
 // reply as far as it has got, and two tabs show the same thing.
 //
 // The browser owns two things here, and the server places both: the
-// composer, a client component in a slot at the foot of the thread, and what
-// the Copy button on a code block does, a second client component in a slot.
+// composer, a client component in a slot at the foot of the thread, and each
+// code block's Copy button, a client component in a slot in that block.
 import { createMemo, For, Loading, onCleanup } from "solid-js";
 import { dynamicComponent, getRequestEvent, redirect } from "@solidjs/web";
 import { GET, live } from "@solidjs/web/server-functions";
@@ -25,6 +25,7 @@ import * as model from "~/server/model";
 import type { Message, Thread } from "~/types";
 
 type ComposerSlot = Slot<{ threadId: string; seen: string[]; busy: boolean }>;
+type CopySlot = Slot<{ code: string }>;
 
 // Stops the reply being written. A plain form posts it, so it works before
 // the page's JavaScript has loaded; the thread's own stream shows the result.
@@ -71,7 +72,7 @@ const getThread = liveQuery(
   live(
     GET(async (id: string) => {
       "use server";
-      return (props: { composer: ComposerSlot; copyCode: Slot }) => {
+      return (props: { composer: ComposerSlot; copyCode: CopySlot }) => {
         // This render lives as long as its response. When the tab goes away
         // the watcher below is told at once.
         const gone = new AbortController();
@@ -94,9 +95,9 @@ const getThread = liveQuery(
                   message is unchanged, so a streaming reply doesn't render
                   the whole history again on every write (#4056). */}
               <For each={view().messages.filter(m => m.status !== "generating")}>
-                {message => messageMarkup(message)}
+                {message => messageMarkup(message, props.copyCode)}
               </For>
-              {messagesMarkup(view().messages, true)}
+              {messagesMarkup(view().messages, true, props.copyCode)}
             </ol>
             {/* Keyed by thread: going to another conversation is a new
                 composer, so a half-typed message stays with its thread. */}
@@ -106,9 +107,6 @@ const getThread = liveQuery(
               seen={view().messages.map(m => m.id)}
               busy={view().messages.some(m => m.status === "generating")}
             />
-            {/* What every code block's Copy button does: placed once, here,
-                not in each block (see components/copy-code.tsx). */}
-            <props.copyCode />
           </article>
         );
       };
@@ -136,16 +134,18 @@ function headMarkup(thread: Thread | undefined) {
 }
 
 // The finished messages, or the one being written.
-function messagesMarkup(messages: Message[], writing: boolean) {
+function messagesMarkup(messages: Message[], writing: boolean, Copy: CopySlot) {
   return messages
     .filter(m => (m.status === "generating") === writing)
-    .map(message => messageMarkup(message));
+    .map(message => messageMarkup(message, Copy));
 }
 
 // One message as markup. A plain function, not a component: the server
 // re-runs the read that called it and sends the result, and there is nothing
-// here to keep between runs.
-function messageMarkup(message: Message) {
+// here to keep between runs. The Copy buttons are kept by the browser: each
+// is keyed by its message and place, so it is the same button while the
+// reply is written and after it moves into the finished list.
+function messageMarkup(message: Message, Copy: CopySlot) {
   const { id, text } = message;
   if (message.role === "user") {
     return (
@@ -170,12 +170,10 @@ function messageMarkup(message: Message) {
         </details>
       )}
       <div class="md">
-        {markdown.render(text, generating).map(segment =>
+        {markdown.render(text, generating).map((segment, i) =>
           segment.code ? (
             <div class="code-block">
-              <button class="copy-code" type="button">
-                Copy
-              </button>
+              <Copy $key={`${id}.${i}`} code={segment.text!} />
               <pre>
                 <code class="hljs" innerHTML={segment.html} />
               </pre>
@@ -215,7 +213,7 @@ export default function ThreadRoute(props: RouteSectionProps) {
     <Loading fallback={<p class="muted">Loading the conversation…</p>}>
       <Thread
         composer={p => <Composer threadId={p.threadId} seen={p.seen} busy={p.busy} />}
-        copyCode={() => <CopyCode />}
+        copyCode={p => <CopyCode code={p.code} />}
       />
     </Loading>
   );

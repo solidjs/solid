@@ -1,26 +1,24 @@
-// Copy, for every code block in the thread. The buttons are server markup;
-// this client component is placed once by the thread (a slot) and answers
-// their clicks from the document, so a button that arrives mid-reply works
-// with nothing bound to it. It renders nothing.
-//
-// Once rather than per block: a slot placed inside markup that re-renders
-// from the live source (the reply being written) would stop that markup
-// updating, since the server cannot place a client component twice.
-import { onSettled } from "solid-js";
+// A code block's Copy button. The block is server markup; the server places
+// this client component in it (a slot) with the block's text. In the reply
+// being written the block keeps growing: each new text reaches the mounted
+// button as a new prop, so it stays the same button, "Copied" and all.
+import { createSignal } from "solid-js";
 
-export default function CopyCode() {
-  onSettled(() => {
-    const onClick = (e: MouseEvent) => {
-      const button = (e.target as Element | null)?.closest?.("button.copy-code");
-      if (!button) return;
-      const code = button.parentElement?.querySelector("code");
-      if (!code) return;
-      navigator.clipboard.writeText(code.textContent ?? "").catch(() => {});
-      button.textContent = "Copied";
-      setTimeout(() => (button.textContent = "Copy"), 1200);
-    };
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
-  });
-  return null;
+export default function CopyCode(props: { code: string }) {
+  const [copied, setCopied] = createSignal(false);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return (
+    <button
+      class="copy-code"
+      type="button"
+      onClick={() => {
+        navigator.clipboard.writeText(props.code).catch(() => {});
+        setCopied(true);
+        clearTimeout(timer);
+        timer = setTimeout(() => setCopied(false), 1200);
+      }}
+    >
+      {copied() ? "Copied" : "Copy"}
+    </button>
+  );
 }
