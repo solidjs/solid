@@ -170,7 +170,8 @@ live here.
 | Cell | Spec / test | Status |
 | --- | --- | --- |
 | thunk content hole marked with an identified pair; eager (static-compiled) holes get no marker/binding | `test/server/frame-live-holes.spec.tsx` › marking | pass |
-| slot positions never marked (getter and called-occurrence shapes); a hole that emits slot records latches (records are emit-once) | `test/server/frame-live-holes.spec.tsx` › marking | pass |
+| slot positions never marked (getter and called-occurrence shapes); a hole that calls a slot stays live: a call's position keeps its render id across re-runs, a re-run sends records only for new or changed occurrences, a dropped occurrence is forgotten (its return re-sends), `$key` reorders send none | `test/server/live-hole-slots.spec.tsx` | pass |
+| hole morph over slot ranges: survivors keep nodes and state (also moved across parents, or between holes in one sweep), new ones mount, dropped ones dispose; deferred hydration: a kept unmounted occurrence claims with its first record, then takes the changed one | `test/consistency/live-hole-slots.spec.tsx` | pass |
 | hostless document fallback: without a channel host (no ReadableStream), t=0 latches to the V1 snapshot and attr addressing injects nothing | `test/server/frame-live-holes.spec.tsx` › marking + attr cells | pass |
 | armed document face (t=0): holes inside a server component mark and bind; plain document content keeps its exact bytes (scope barrier); ops ride ONE `sc:live` channel record, serialized eagerly; the end latch ships last values and closes the channel before flush | `test/server/document-live-holes.spec.tsx` (node env) | pass |
 | document face × real core: an iterable-fed hole marks, its pump holds the response, yields ride the channel as ops (single-copy — final value appears once), and the response latches at completion | `test/server/document-live-holes.spec.tsx` | pass |

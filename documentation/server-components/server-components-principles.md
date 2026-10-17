@@ -1016,10 +1016,18 @@ retired as a pole and survives only as potential authoring sugar.
      re-run them, equality-gate the resolved HTML (marker-stripped
      baselines), and re-emit changes as keyed `hole` chunks the client
      morphs in place. Convergence is commit-driven and impurity-gated:
-     an evaluation that emits records or creates reactive scopes latches
-     (the record gate and the rxcore creation stamp), retry chains
-     resolve mint-suppressed (`$lhSuppress` through `buildAsyncWrap`),
-     and boundary/slot machinery is `$lhSkip`-tagged out.
+     an evaluation that creates reactive scopes latches (the rxcore
+     creation stamp), retry chains resolve mint-suppressed
+     (`$lhSuppress` through `buildAsyncWrap`), and boundary/slot
+     machinery is `$lhSkip`-tagged out. *[Shipped with a record gate
+     too: a hole whose evaluation called a slot latched, records being
+     emit-once. Retired (2026-10-17): a hole is an occurrence scope, a
+     call's position in it keeps the id the render gave it, and a re-run
+     re-sends a record only for a new occurrence or changed args; the
+     client's hole morph resolves slot ranges against the frame's
+     displaced-range index, as the root morph does, so a surviving
+     occurrence stays mounted. A client component in a slot inside
+     markup that re-renders from a live source is an ordinary case.]*
    - Content holes + the chat slice: **done.** The chat demo streams
      markdown token-by-token through a `<Loading>`-wrapped iterable-fed
      `innerHTML` hole, no client component; `ctx.hold()` keeps the
