@@ -3,6 +3,7 @@
 import {
   Feature,
   Serializer,
+  SerovalParserError,
   getCrossReferenceHeader,
   toCrossJSONStream,
   createPlugin as createPluginImpl,
@@ -302,7 +303,12 @@ export function createJSONSerializer({
   const cancels = new Set();
   let pendingWrites = 0;
   let flushed = false;
+  let closed = false;
   let done = false;
+  // Refs below this count reached onData. Seroval numbers refs by the map's
+  // size, so the refs a failed parse added past it are ids no record defines:
+  // dropping them keeps a later write from pointing at them.
+  let delivered = 0;
   const maybeDone = () => {
     if (flushed && pendingWrites === 0 && !done) {
       done = true;
@@ -319,6 +325,8 @@ export function createJSONSerializer({
       // the write ended, which calls onDone a second time.
       let settled = false;
       let parsed = false;
+      let starting = true;
+      let failure = null;
       let cancel = null;
       const settle = () => {
         if (settled) return;
@@ -336,21 +344,38 @@ export function createJSONSerializer({
             resolved.disabledFeatures |
             serializeOnlyDisabledFeatures(resolved.serializeErrorStacks),
           onParse(node, initial) {
+            if (closed || failure) return;
             if (initial) parsed = true;
+            delivered = refs.size;
             onData({ key, node, initial });
           },
-          onError,
+          onError(err) {
+            if (refs.size > delivered)
+              for (const [ref, id] of refs) if (id >= delivered) refs.delete(ref);
+            if (onError) return onError(err);
+            // Without onError seroval throws, leaving the parse it started
+            // with no handle to stop it: hold the error until the write ends it.
+            const error = err instanceof SerovalParserError ? err : new SerovalParserError(err);
+            if (!starting) throw error;
+            failure = error;
+          },
           onDone: settle
         });
       } catch (err) {
-        // Without onError a failed parse throws, and seroval never settles the write.
+        // An onError that throws leaves seroval's write unsettled.
         settle();
         throw err;
+      }
+      starting = false;
+      if (failure) {
+        stream();
+        throw failure;
       }
       if (settled) return;
       // A failed parse reported through onError delivers no initial node and
       // never settles either: end the write, releasing what it already parsed.
-      if (!parsed) return stream();
+      // A close() from the write's first record ends it the same way.
+      if (!parsed || closed) return stream();
       cancel = stream;
       cancels.add(cancel);
     },
@@ -359,7 +384,7 @@ export function createJSONSerializer({
       maybeDone();
     },
     close() {
-      flushed = true;
+      flushed = closed = true;
       for (const cancel of cancels) cancel();
       cancels.clear();
     }

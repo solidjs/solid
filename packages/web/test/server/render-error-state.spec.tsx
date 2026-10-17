@@ -14,6 +14,7 @@ import {
   type RequestEvent,
   type ServerErrorHook
 } from "@solidjs/web";
+import { SerovalParserError } from "seroval";
 import { NotReadyError, createMemo, onCleanup } from "solid-js";
 import { sharedConfig } from "solid-js/internal";
 import { createPlugin, type HydrationSerializerOptions } from "@solidjs/web/serialization";
@@ -664,6 +665,66 @@ describe("renderToStream.hasErrors", () => {
       expect(onDone).toHaveBeenCalledTimes(1);
     }
   );
+
+  test.each([true, false])(
+    "decodes a value a failed JSON write shared with a later write (onError: %s)",
+    withOnError => {
+      const shared = { label: "shared" };
+      const table = createJSONDataTable();
+      const serializer = createJSONSerializer({
+        onData: record => table.apply(record),
+        ...(withOnError ? { onError() {} } : {})
+      });
+      const fail = () => serializer.write("bad", { shared, value: new WeakMap() });
+      if (withOnError) fail();
+      else expect(fail).toThrow();
+      serializer.write("after", { shared });
+      expect(table.resolve({ $ref: "after" })).toEqual({ shared: { label: "shared" } });
+    }
+  );
+
+  test.each([true, false])(
+    "releases the async sources of a JSON write whose parse fails (onError: %s)",
+    async withOnError => {
+      const release = vi.fn();
+      const items = {
+        [Symbol.asyncIterator]: () => ({
+          next: () => new Promise<IteratorResult<number>>(() => {}),
+          return() {
+            release();
+            return Promise.resolve({ done: true as const, value: undefined });
+          }
+        })
+      };
+      const serializer = createJSONSerializer({
+        onData() {},
+        ...(withOnError ? { onError() {} } : {})
+      });
+      const fail = () => serializer.write("bad", { items, value: new WeakMap() });
+      if (withOnError) fail();
+      else expect(fail).toThrow(SerovalParserError);
+      await new Promise(resolve => setTimeout(resolve));
+      expect(release).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  test("stops a JSON write when close() runs inside its first record", async () => {
+    const pending = Promise.withResolvers<number>();
+    const records: boolean[] = [];
+    const onDone = vi.fn();
+    const serializer: ReturnType<typeof createJSONSerializer> = createJSONSerializer({
+      onData(record: { initial: boolean }) {
+        records.push(record.initial);
+        if (record.initial) serializer.close();
+      },
+      onDone
+    });
+    serializer.write("value", pending.promise);
+    pending.resolve(1);
+    await new Promise(resolve => setTimeout(resolve));
+    expect(records).toEqual([true]);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
 
   test("marks a root retry failure while preserving the existing completion policy", async () => {
     let first = true;
