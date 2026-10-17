@@ -45,6 +45,7 @@ import {
   createFrameHost,
   deferredFrames,
   FRAME_ID_ATTR,
+  FRAME_TAG,
   isAsyncValue,
   liveFrameAt,
   prepareTier,
@@ -510,9 +511,13 @@ function claimScope(el: Element): ClaimScope & { index(root: ParentNode): void }
  * evaluated. It claims under the same prefix but gathers nothing: the
  * first window's gather is still in the registry, and gathering again
  * would put the keys the evaluation already claimed back as unclaimed.
+ * Both windows run under the fill's ONE claim `owner` (id `prefix`): the
+ * window claims that subtree only, and what the first evaluated lazily — a
+ * context provider's children — creates under it when the second reads it.
  */
 function claimRender(
   prefix: string,
+  owner: any,
   existing: Node[],
   render: () => any,
   scope?: ClaimScope,
@@ -521,14 +526,11 @@ function claimRender(
   const sc: any = sharedConfig;
   // No window, or no registry gathered yet (no `hydrate()` pass has run):
   // nothing to claim against — render fresh over the markup.
-  if (!sc.hydrateWindow || !sc.registry) return render();
+  if (!sc.hydrateWindow || !sc.registry) return runWithOwner(owner, render);
   const prevRoots = sc.claimRoots;
   sc.claimRoots = existing;
   try {
-    // The claim owner too: the window claims this fill's subtree only.
-    return runWithOwner(createOwner({ id: prefix }), () =>
-      sc.hydrateWindow(bound ? undefined : prefix, render, scope)
-    );
+    return runWithOwner(owner, () => sc.hydrateWindow(bound ? undefined : prefix, render, scope));
   } finally {
     sc.claimRoots = prevRoots;
   }
@@ -670,6 +672,7 @@ function slotArgsProxy(args: () => Record<string, any>) {
           reads.set(key, read);
         }
         const v = read();
+        if (v instanceof Element) place(v);
         return v instanceof Boxed ? v.c : v;
       },
       has: (_, key) => key in args(),
@@ -678,6 +681,37 @@ function slotArgsProxy(args: () => Record<string, any>) {
         key in args() ? { enumerable: true, configurable: true } : undefined
     }
   );
+}
+
+/**
+ * Regions by element: the owner that placed one (null until placed, and
+ * again once that placement is disposed), and the nested fills mounted or
+ * waiting under it, by occurrence.
+ */
+const placements = new WeakMap<
+  Element,
+  { o: any; m: Map<string, { live: boolean; run(): void }> }
+>();
+const regionOf = (node: Node) => (node.parentNode as Element).closest?.(FRAME_TAG);
+function interior(range: { start: Node; end: Node }) {
+  const nodes: Node[] = [];
+  for (let n = range.start.nextSibling; n && n !== range.end; n = n.nextSibling) nodes.push(n);
+  return nodes;
+}
+
+/**
+ * A fill read a region (a slot arg that is server content): the reader's
+ * owner places it, as reading `props.children` places client children. The
+ * region's nested fills mount under it — those waiting for the placement,
+ * and those a disposed placement took down.
+ */
+function place(el: Element) {
+  const o = getOwner();
+  const p = placements.get(el);
+  if (!o || !p || p.o === o) return;
+  p.o = o;
+  onCleanup(() => p.o === o && (p.o = null));
+  for (const entry of p.m.values()) entry.live || entry.run();
 }
 
 /**
@@ -701,7 +735,8 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
     {
       get(_, prop) {
         if (typeof prop !== "string" || !(prop in props)) return undefined;
-        return (slotProps: any, ctx: any) => {
+        // `entry`: a nested fill's placement entry (see the callback below).
+        const mount = (slotProps: any, ctx: any, entry?: { live: boolean }) => {
           const key = ctx && ctx.key;
           // A re-call replaces the invocation wholesale (the frame only
           // runs slot cleanups at unmount, not between re-calls): the
@@ -733,15 +768,28 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // pending fill's nodes are legitimately detached while its
           // covering boundary shows the fallback; the boundary, not a frame
           // cleanup, decides when that render is done with). Their range
-          // binding gets an owner of its own below.
+          // binding gets an owner of its own.
+          //
+          // The binding's owner: the fill's own (a stream-mounted fill), else
+          // one minted here — TRANSPARENT, so a fill mounting inside the
+          // hydrate pass consumes no id from the adopting component's counter
+          // (a keyed sibling after the frame keys the same whether a fill
+          // mounted at t=0 or after a hold; the claim window has its own id).
           const fillOwner = streamInvoke ? createOwner() : null;
-          if (fillOwner && key !== undefined && ctx) {
-            fillScopes.set(key, fillOwner);
-            ctx.onCleanup(() => {
-              if (fillScopes.get(key) === fillOwner) fillScopes.delete(key);
-              fillOwner.dispose();
-            });
-          }
+          const owner = fillOwner || createOwner({ transparent: true });
+          fillScopes.set(key, owner);
+          ctx.onCleanup(() => {
+            if (fillScopes.get(key) === owner) fillScopes.delete(key);
+            owner.dispose();
+          });
+          // A nested fill's placement disposing it (see below) leaves the
+          // entry to mount again at the next placement.
+          if (entry) runWithOwner(owner, () => onCleanup(() => (entry.live = false)));
+          // Server content in the args is a region this fill places: its
+          // own fills wait for the placement (see `place`).
+          for (const k in slotProps)
+            if (slotProps[k] instanceof Element && !placements.has(slotProps[k]))
+              placements.set(slotProps[k], { o: null, m: new Map() });
           // The prop is read INSIDE the claim scope: compiled component props
           // are getters, so JSX evaluates lazily at access — deferring the
           // access into the scoped owner is what makes plain JSX (no thunks)
@@ -794,12 +842,11 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // re-call with existing nodes must render for real — claiming would
           // no-op its inserts and silently drop whatever the re-call
           // displaced, e.g. moved-out {$frame} region ranges (#547).
-          const value = fillOwner
-            ? runWithOwner(fillOwner, () =>
-                adopted ? claimRender(prefix, ctx.existing, evaluate, scope) : evaluate()
-              )
-            : adopted
-              ? claimRender(prefix, ctx.existing, evaluate, scope)
+          const claim = adopted && runWithOwner(owner, () => createOwner({ id: prefix }));
+          const value = adopted
+            ? claimRender(prefix, claim, ctx.existing, evaluate, scope)
+            : fillOwner
+              ? runWithOwner(fillOwner, evaluate)
               : evaluate();
           // Every fill is one `insert` before the range's end marker — the
           // primitive compiled JSX uses for `{expr}` positions — so the
@@ -831,28 +878,36 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // inert: the boundary's own resume still claimed the swapped-in
           // server markup, so the region looked right, but nothing
           // downstream (a route change out of it) ever re-rendered it again.
-          //
-          // The binding's owner: the fill's own (a stream-mounted fill,
-          // already in `fillScopes` with its cleanup), else one minted here
-          // and registered the same way — TRANSPARENT, so a fill mounting
-          // inside the hydrate pass consumes no id from the adopting
-          // component's counter (a keyed sibling after the frame keys the
-          // same whether a fill mounted at t=0 or after a hold; the claim
-          // window below has its own id).
-          const owner = fillOwner || createOwner({ transparent: true });
-          if (!fillOwner) {
-            fillScopes.set(key, owner);
-            ctx.onCleanup(() => {
-              if (fillScopes.get(key) === owner) fillScopes.delete(key);
-              owner.dispose();
-            });
-          }
           const end = range.end;
           const bind = () => insert(end.parentNode as any, value, end, [...ctx.existing]);
-          runWithOwner(owner, () =>
-            adopted ? claimRender(prefix, ctx.existing, bind, scope, true) : bind()
-          );
+          adopted
+            ? claimRender(prefix, claim, ctx.existing, bind, scope, true)
+            : runWithOwner(owner, bind);
           return undefined;
+        };
+        // A fill nested in a region — server content an enclosing fill
+        // places — is that fill's child, as in any client tree: it mounts
+        // under the owner that placed the region, so it reads the context
+        // the enclosing fill provides there, and lives as long as that
+        // placement does. Until the region is placed (occluded, or the
+        // placement disposed) it waits; the next placement mounts it fresh.
+        return (slotProps: any, ctx: any) => {
+          const p = ctx && ctx.range && placements.get(regionOf(ctx.range.start));
+          if (!p) return mount(slotProps, ctx);
+          const key = ctx.key;
+          let first = true;
+          const entry = {
+            live: false,
+            run() {
+              entry.live = true;
+              const at = first ? ctx : { ...ctx, adopted: false, existing: interior(ctx.range) };
+              first = false;
+              runWithOwner(p.o, () => mount(slotProps, at, entry));
+            }
+          };
+          p.m.set(key, entry);
+          ctx.onCleanup(() => p.m.get(key) === entry && p.m.delete(key));
+          p.o ? entry.run() : fillScopes.get(key)?.dispose();
         };
       }
     }
