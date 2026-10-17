@@ -1408,8 +1408,7 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     limit: "7.86 KB",
-    capMinified: 21584,
-    capMinified: 22716
+    capMinified: 21584
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -2583,8 +2582,9 @@ module.exports = [
     // -> 93,933 B; measured locally (linux) at 29,908 B (93,933 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    limit: "29.91 KB",
-    capMinified: 93933,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 29.91 -> 30.09 KB, measured at 30,075 B brotli / 94,579 B minified (+165 B brotli over the cap, +646 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "30.09 KB",
+    capMinified: 94579,
     alias
   },
   {
@@ -2867,8 +2867,9 @@ module.exports = [
     // 36,256 B; measured locally (linux) at 12,857 B (36,256 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "12.87 KB",
-    capMinified: 36256,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 12.87 -> 13.14 KB, measured at 13,122 B brotli / 36,900 B minified (+252 B brotli over the cap, +644 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "13.14 KB",
+    capMinified: 36900,
     alias
   },
   {
@@ -3204,8 +3205,9 @@ module.exports = [
     // router or cache can stamp without the engine, and `lazy()` stamps its
     // import and the read wrapper. Prod unchanged. Cap at measured + 10 B
     // rounded up to 0.01 KB.
-    limit: "14.60 KB",
-    capMinified: 41212,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 14.60 -> 14.91 KB, measured at 14,892 B brotli / 41,859 B minified (+292 B brotli over the cap, +647 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "14.91 KB",
+    capMinified: 41859,
     alias: observeAlias
   },
   {
@@ -3693,8 +3695,9 @@ module.exports = [
     // 29,108 (+72 B; +210 B minified, 87,372 -> 87,582) — the observe scenario's
     // change (the slot's stamps, `lazy()`'s marks) less the engine's own
     // origin map, which now delegates to the slot.
-    limit: "29.19 KB",
-    capMinified: 87582,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 29.19 -> 29.48 KB, measured at 29,462 B brotli / 88,235 B minified (+272 B brotli over the cap, +653 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "29.48 KB",
+    capMinified: 88235,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -3892,8 +3895,9 @@ module.exports = [
     // 80,206 B; measured locally (linux) at 25,646 B (80,206 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "25.66 KB",
-    capMinified: 80206,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 25.66 -> 25.95 KB, measured at 25,940 B brotli / 80,846 B minified (+280 B brotli over the cap, +640 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "25.95 KB",
+    capMinified: 80846,
     alias
   },
   {
@@ -4039,8 +4043,9 @@ module.exports = [
     // 100,760 B; measured locally (linux) at 31,705 B (100,760 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    limit: "31.72 KB",
-    capMinified: 100760,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 31.72 -> 31.96 KB, measured at 31,950 B brotli / 101,408 B minified (+230 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "31.96 KB",
+    capMinified: 101408,
     alias
   },
   {
@@ -4889,6 +4894,11 @@ module.exports = [
     // so slot occurrences that survive stay mounted, new ones mount and dropped
     // ones dispose; deferred, an occurrence not mounted yet keeps the record its
     // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 35.85 KB -> 33.44 KB, recorded minified 110,156 -> 102,617 B;
+    // measured locally (linux) at 33,421 B (102,617 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5180,6 +5190,11 @@ module.exports = [
     // so slot occurrences that survive stay mounted, new ones mount and dropped
     // ones dispose; deferred, an occurrence not mounted yet keeps the record its
     // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 40.00 KB -> 37.52 KB, recorded minified 123,516 -> 115,976 B;
+    // measured locally (linux) at 37,510 B (115,976 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5290,26 +5305,22 @@ module.exports = [
     // 109,100 B; measured locally (linux) at 35,353 B (109,100 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
-    // 35.370 -> 36.29 KB, measured at 36,278 B brotli / 112,068 B minified
-    // (recorded 109,100). The adoption pass mounts no slot occurrence; an event,
-    // a write or idle slices after load mount them. HN story page, 4x CPU: script
-    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
-    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    // Binding slots removed (2026-10-16): 36.29 KB -> 35.06 KB, measured
-    // locally (linux) at 35,041 B brotli / 108,065 B minified
-    // (-1,237 B brotli / -4,003 B minified against the
-    // #4120 head's 36,278 / 112,068). The lazy `bind.js` (6,856 B minified / 2,540 B brotli) is gone too.
-    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
-    // 2026-10-17): 35.06 -> 35.08 KB, measured at 35,063 B brotli / 108,309 B
-    // minified against this branch's 35,041 / 108,065 (+22 B; +244 B minified).
-    // A re-run live hole's markup is morphed against the displaced-range index,
-    // so slot occurrences that survive stay mounted, new ones mount and dropped
-    // ones dispose; deferred, an occurrence not mounted yet keeps the record its
-    // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
-    limit: "35.08 KB",
-    capMinified: 108309,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 35.37 -> 35.78 KB, measured at 35,768 B brotli / 109,754 B minified (+398 B brotli over the cap, +654 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 35.78 -> 36.63 KB, measured at 36,618 B brotli / 112,720 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 36.63 -> 36.76 KB, measured at 36,745 B brotli / 113,081 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 36.76 KB -> 35.30 KB, recorded minified 113,081 -> 108,961 B;
+    // measured locally (linux) at 35,290 B (108,961 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    limit: "35.30 KB",
+    capMinified: 108961,
     alias: pageAlias
   },
   {
@@ -5388,26 +5399,22 @@ module.exports = [
     // 124,433 -> 124,010 B; measured locally (linux) at 41,483 B (124,010 B
     // minified). Lower only: cap at measured + 10 B rounded up to 0.01 KB;
     // recorded minified never raised.
-    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
-    // 41.214 -> 42.32 KB, measured at 42,306 B brotli / 126,985 B minified
-    // (recorded 124,010). The adoption pass mounts no slot occurrence; an event,
-    // a write or idle slices after load mount them. HN story page, 4x CPU: script
-    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
-    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    // Binding slots removed (2026-10-16): 42.32 KB -> 41.07 KB, measured
-    // locally (linux) at 41,060 B brotli / 123,032 B minified
-    // (-1,246 B brotli / -3,953 B minified against the
-    // #4120 head's 42,306 / 126,985). The lazy `bind.js` (6,879 B minified / 2,553 B brotli) is gone too.
-    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
-    // 2026-10-17): 41.07 -> 41.13 KB, measured at 41,115 B brotli / 123,276 B
-    // minified against this branch's 41,060 / 123,032 (+55 B; +244 B minified).
-    // A re-run live hole's markup is morphed against the displaced-range index,
-    // so slot occurrences that survive stay mounted, new ones mount and dropped
-    // ones dispose; deferred, an occurrence not mounted yet keeps the record its
-    // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
-    limit: "41.13 KB",
-    capMinified: 123276,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 41.21 -> 41.77 KB, measured at 41,758 B brotli / 124,658 B minified (+544 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 41.77 -> 42.68 KB, measured at 42,667 B brotli / 127,635 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 42.68 -> 42.78 KB, measured at 42,765 B brotli / 127,996 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 42.78 KB -> 41.48 KB, recorded minified 127,996 -> 123,926 B;
+    // measured locally (linux) at 41,463 B (123,926 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    limit: "41.48 KB",
+    capMinified: 123926,
     alias: pageAlias
   },
   {
@@ -5563,19 +5570,22 @@ module.exports = [
     // 130,066 B; measured locally (linux) at 41,944 B (130,066 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
-    // 41.960 -> 42.81 KB, measured at 42,792 B brotli / 133,034 B minified
-    // (recorded 130,066). The adoption pass mounts no slot occurrence; an event,
-    // a write or idle slices after load mount them. HN story page, 4x CPU: script
-    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
-    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    // Binding slots removed (2026-10-16): 42.81 KB -> 40.53 KB, measured
-    // locally (linux) at 40,514 B brotli / 125,564 B minified
-    // (-2,278 B brotli / -7,470 B minified against the
-    // #4120 head's 42,792 / 133,034). The lazy `bind.js` (6,863 B minified / 2,555 B brotli) is gone too.
-    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "40.53 KB",
-    capMinified: 125564,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, from CI run 38867513870 — a local bundle of this scenario resolves the router differently and measures ~7 KB smaller, so CI's bytes set this cap): 41.96 -> 42.25 KB, measured at 42,233 B brotli / 130,720 B minified (+295 B brotli over base, +273 B over the cap, +654 B minified over the recorded size): the same window-staged commit as the other list scenarios.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 42.25 -> 43.09 KB, measured at 43,074 B brotli / 133,686 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 43.09 -> 43.26 KB, measured at 43,247 B brotli / 134,047 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 43.26 KB -> 40.90 KB, recorded minified 134,047 -> 126,460 B;
+    // measured locally (linux) at 40,884 B (126,460 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    limit: "40.90 KB",
+    capMinified: 126460,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5700,26 +5710,22 @@ module.exports = [
     // already sat 19 B over the recorded minified, so the allowance was spent.
     // Re-based on the measurement: cap at measured + 10 B rounded up to
     // 0.01 KB, recorded minified 144,773.
-    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
-    // 48.160 -> 49.13 KB, measured at 49,114 B brotli / 147,757 B minified
-    // (recorded 144,773). The adoption pass mounts no slot occurrence; an event,
-    // a write or idle slices after load mount them. HN story page, 4x CPU: script
-    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
-    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    // Binding slots removed (2026-10-16): 49.13 KB -> 46.66 KB, measured
-    // locally (linux) at 46,642 B brotli / 140,305 B minified
-    // (-2,472 B brotli / -7,452 B minified against the
-    // #4120 head's 49,114 / 147,757). The lazy `bind.js` (6,893 B minified / 2,553 B brotli) is gone too.
-    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
-    // 2026-10-17): 46.66 -> 46.76 KB, measured at 46,744 B brotli / 140,549 B
-    // minified against this branch's 46,642 / 140,305 (+102 B; +244 B minified).
-    // A re-run live hole's markup is morphed against the displaced-range index,
-    // so slot occurrences that survive stay mounted, new ones mount and dropped
-    // ones dispose; deferred, an occurrence not mounted yet keeps the record its
-    // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
-    limit: "46.76 KB",
-    capMinified: 140549,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, from CI run 38867513870 — a local bundle of this scenario resolves the router differently and measures ~7 KB smaller, so CI's bytes set this cap): 48.16 -> 48.46 KB, measured at 48,444 B brotli / 145,422 B minified (+294 B brotli over base, +284 B over the cap, +649 B minified over the recorded size): the same window-staged commit as the other list scenarios.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 48.46 -> 49.37 KB, measured at 49,352 B brotli / 148,410 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 49.37 -> 49.47 KB, measured at 49,458 B brotli / 148,771 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 49.47 KB -> 47.02 KB, recorded minified 148,771 -> 141,204 B;
+    // measured locally (linux) at 47,001 B (141,204 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    limit: "47.02 KB",
+    capMinified: 141204,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5836,6 +5842,10 @@ module.exports = [
     // Slot occurrences in a live hole are scoped to the hole (render-id table,
     // per-scope counters), and a re-run sends a record only for a new occurrence
     // or changed args. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 20.65 KB -> 20.59 KB, recorded minified 72,466 -> 72,154 B;
+    // measured locally (linux) at 20,573 B (72,154 B minified). Lower only: cap
+    // at measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["server: renderToString (the server-render floor)"],
     capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,

@@ -300,6 +300,101 @@ function commitSmallMove<Item, MappedItem>(
   return true;
 }
 
+/** Stage a PURE REMOVAL without the key map: when the new window is the old
+ * window with items dropped, in order (one-item removals, every-nth, the
+ * table filters), a two-pointer walk lands every survivor in the window
+ * stage with one key call per item and returns the leavers; a shape that is
+ * not an ordered subsequence returns null with the node stage cleared, and
+ * the map path below starts from scratch (it rewrites every window slot of
+ * `temp` / `rows` / `indexes`, so only `tempNodes`' `!== undefined` probe
+ * needs the reset). The stage arrays are scratch — nothing live is touched. */
+function stageRemoval<Item, MappedItem>(
+  data: MapData<Item, MappedItem>,
+  newItems: readonly Item[],
+  start: number,
+  end: number,
+  newEnd: number,
+  temp: MappedItem[],
+  tempNodes: Root[],
+  rows: Signal<Item>[] | undefined,
+  indexes: Signal<number>[] | undefined
+): Root[] | null {
+  const key = data._key;
+  const oldItems = data._items;
+  const nodes = data._nodes;
+  const removed: Root[] = [];
+  let i = start;
+  for (let j = start; j <= newEnd; i++, j++) {
+    const nk = key ? key(newItems[j]) : newItems[j];
+    while (i <= end && (key ? key(oldItems[i]) : oldItems[i]) !== nk) removed.push(nodes[i++]);
+    if (i > end) {
+      tempNodes.fill(undefined as any);
+      return null;
+    }
+    temp[j] = data._mappings[i];
+    tempNodes[j - start] = nodes[i];
+    if (rows) rows[j - start] = data._rows![i];
+    if (indexes) indexes[j - start] = data._indexes![i];
+  }
+  for (; i <= end; i++) removed.push(nodes[i]);
+  return removed;
+}
+
+/** Land a staged window into the live bookkeeping arrays in place: shift the
+ * suffix by `dif` (a loop walked from the side that never overwrites an
+ * unread slot), take the window from the stage, write survivors' row and
+ * index signals. Its own function so the general path's body stays under
+ * the JIT's optimization budget — the inlined commit measured ~10% slower on
+ * full-window reorders (the small-move note has the same finding). */
+function commitWindow<Item>(
+  data: MapData<Item, unknown>,
+  newItems: readonly Item[],
+  newLen: number,
+  start: number,
+  end: number,
+  newEnd: number,
+  tempNodes: Root[],
+  rows: Signal<Item>[] | undefined,
+  indexes: Signal<number>[] | undefined
+): void {
+  const nodes = data._nodes;
+  const liveRows = data._rows;
+  const liveIndexes = data._indexes;
+  const oldLen = data._len;
+  const dif = newLen - oldLen;
+  let i: number, j: number;
+  if (dif > 0) {
+    // Grow first: a store past the end from the top is a third slower than
+    // filling a pre-sized tail (measured on 1k refs, 2026-10-15).
+    nodes.length = newLen;
+    if (liveRows) liveRows.length = newLen;
+    if (liveIndexes) liveIndexes.length = newLen;
+    for (i = oldLen - 1, j = newLen - 1; i > end; i--, j--) {
+      nodes[j] = nodes[i];
+      if (liveRows) liveRows[j] = liveRows[i];
+      if (liveIndexes) liveIndexes[j] = liveIndexes[i];
+    }
+  } else if (dif < 0) {
+    for (i = end + 1, j = newEnd + 1; i < oldLen; i++, j++) {
+      nodes[j] = nodes[i];
+      if (liveRows) liveRows[j] = liveRows[i];
+      if (liveIndexes) liveIndexes[j] = liveIndexes[i];
+    }
+    nodes.length = newLen;
+    if (liveRows) liveRows.length = newLen;
+    if (liveIndexes) liveIndexes.length = newLen;
+  }
+  for (j = start; j <= newEnd; j++) {
+    nodes[j] = tempNodes[j - start];
+    if (liveRows) setSignal((liveRows[j] = rows![j - start]), newItems[j]);
+    if (liveIndexes) setSignal((liveIndexes[j] = indexes![j - start]), j);
+  }
+  for (j = newEnd + 1; j < newLen; j++) {
+    if (liveRows) setSignal(liveRows[j], newItems[j]);
+    if (liveIndexes && dif !== 0) setSignal(liveIndexes[j], j);
+  }
+}
+
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
   // Untracked reads inside the internal owner resolve via _parentComputed:
   // routed through the node, a store-proxy lookup sees pending writes (not a
@@ -315,6 +410,10 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
   runWithOwner(this._owner, () => {
     let i: number,
       j: number,
+      // The stage slot a mapper writes its row/index signal into: `j` on the
+      // create-all path, `j - start` on the general path, whose stage arrays
+      // are sized to the changed WINDOW, not the list.
+      slot: number,
       rows: Signal<Item>[] | undefined,
       indexes: Signal<number>[] | undefined,
       // Mappers write freshly-created row/index signals into the STAGE
@@ -322,22 +421,22 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       mapper = this._rows
         ? this._byIndex
           ? () => {
-              rows![j] = signal(newItems[j], pureOptions);
-              return this._map(accessor(rows![j]), j);
+              rows![slot] = signal(newItems[j], pureOptions);
+              return this._map(accessor(rows![slot]), j);
             }
           : () => {
-              rows![j] = signal(newItems[j], pureOptions);
-              indexes && (indexes[j] = signal(j, pureOptions));
+              rows![slot] = signal(newItems[j], pureOptions);
+              indexes && (indexes[slot] = signal(j, pureOptions));
               return this._map(
-                accessor(rows![j]),
-                indexes ? accessor(indexes[j]) : (undefined as any)
+                accessor(rows![slot]),
+                indexes ? accessor(indexes[slot]) : (undefined as any)
               );
             }
         : this._indexes
           ? () => {
               const item = newItems[j];
-              indexes![j] = signal(j, pureOptions);
-              return this._map(item, accessor<number>(indexes![j]));
+              indexes![slot] = signal(j, pureOptions);
+              return this._map(item, accessor<number>(indexes![slot]));
             }
           : () => {
               const item = newItems[j];
@@ -373,8 +472,10 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       indexes = this._indexes && new Array(newLen);
 
       try {
-        for (j = 0; j < newLen; j++)
+        for (j = 0; j < newLen; j++) {
+          slot = j;
           mappings[j] = runWithOwner<MappedItem>((nodes[j] = createOwner()), mapper)!;
+        }
       } catch (err) {
         for (i = 0; i <= j!; i++) nodes[i]?.dispose();
         throw err;
@@ -483,85 +584,93 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       }
 
       const dif = newLen - this._len;
+      // WINDOW-SIZED STAGING, IN-PLACE COMMIT (2026-10-15). The strong-abort
+      // contract (#2903) only needs the pass to touch nothing live before
+      // every mapper has succeeded; it never needed four fresh newLen-sized
+      // arrays. Only the changed window [start, newEnd] is staged — the
+      // prefix and suffix are, by construction, the rows that did not move
+      // relative to each other — and at commit the bookkeeping arrays
+      // (`_nodes`, `_rows`, `_indexes`) take the window in place with the
+      // suffix shifted by a plain loop (`copyWithin` is a generic
+      // per-element builtin in V8 — 30× slower than the loop on 1k refs,
+      // measured 2026-10-15). `_mappings` alone is
+      // rebuilt: its fresh identity is the change signal downstream relies
+      // on. A one-row edit on a 500-row list used to allocate ~20 KB of
+      // staging plus a position-sized chain array per commit (uibench's
+      // one-item tree ops at 4–6× Octane, jfb-reorder `removefirst` at
+      // 2.5×); now it stages one slot.
+      const wLen = newEnd - start + 1;
       const temp: MappedItem[] = new Array(newLen);
-      const tempNodes: Root[] = new Array(newLen);
-      rows = this._rows ? new Array(newLen) : undefined;
-      indexes = this._indexes ? new Array(newLen) : undefined;
+      const tempNodes: Root[] = new Array(wLen);
+      rows = this._rows ? new Array(wLen) : undefined;
+      indexes = this._indexes ? new Array(wLen) : undefined;
 
-      // 0) prepare a map of all indices in the changed window of newItems,
-      // scanning backwards so we encounter them in natural order
-      newIndices = new Map<Item, number>();
-      newIndicesNext = new Array(newEnd + 1);
-      for (j = newEnd; j >= start; j--) {
-        item = newItems[j];
-        key = this._key ? this._key(item) : item;
-        i = newIndices.get(key)!;
-        newIndicesNext[j] = i === undefined ? -1 : i;
-        newIndices.set(key, j);
-      }
-
-      // 1) step through the old changed window and see if items can be found
-      // in the new set; if so, stage them at their new positions; if not,
-      // queue them for disposal at commit
-      for (i = start; i <= end; i++) {
-        item = this._items[i];
-        key = this._key ? this._key(item) : item;
-        j = newIndices.get(key)!;
-        if (j !== undefined && j !== -1) {
-          temp[j] = this._mappings[i];
-          tempNodes[j] = this._nodes[i];
-          rows && (rows[j] = this._rows![i]);
-          indexes && (indexes[j] = this._indexes![i]);
-          j = newIndicesNext[j];
+      // A shrinking pass is tried as a pure removal first (stageRemoval: no
+      // key map, one key call per item); anything else takes the map path.
+      const pure =
+        dif < 0
+          ? stageRemoval(this, newItems, start, end, newEnd, temp, tempNodes, rows, indexes)
+          : null;
+      if (pure !== null) {
+        // (The list-churn census below wants removals AND creations in one
+        // pass; a pure removal has none, so no item ledger is kept here.)
+        if (pure.length !== 0) removed = pure;
+      } else {
+        // 0) prepare a map of all indices in the changed window of newItems,
+        // scanning backwards so we encounter them in natural order
+        newIndices = new Map<Item, number>();
+        newIndicesNext = new Array(wLen);
+        for (j = newEnd; j >= start; j--) {
+          item = newItems[j];
+          key = this._key ? this._key(item) : item;
+          i = newIndices.get(key)!;
+          newIndicesNext[j - start] = i === undefined ? -1 : i;
           newIndices.set(key, j);
-        } else {
-          (removed ??= []).push(this._nodes[i]);
-          if (__OBSERVE__ && attrHooks !== null) (removedItems ??= []).push(item);
+        }
+
+        // 1) step through the old changed window and see if items can be found
+        // in the new set; if so, stage them at their new positions; if not,
+        // queue them for disposal at commit
+        for (i = start; i <= end; i++) {
+          item = this._items[i];
+          key = this._key ? this._key(item) : item;
+          j = newIndices.get(key)!;
+          if (j !== undefined && j !== -1) {
+            temp[j] = this._mappings[i];
+            tempNodes[j - start] = this._nodes[i];
+            rows && (rows[j - start] = this._rows![i]);
+            indexes && (indexes[j - start] = this._indexes![i]);
+            j = newIndicesNext[j - start];
+            newIndices.set(key, j);
+          } else {
+            (removed ??= []).push(this._nodes[i]);
+            if (__OBSERVE__ && attrHooks !== null) (removedItems ??= []).push(item);
+          }
+        }
+
+        // 2) create new rows into the window stage; an abort disposes only these
+        try {
+          for (j = start; j <= newEnd; j++) {
+            if (tempNodes[j - start] !== undefined) continue;
+            (created ??= []).push((tempNodes[j - start] = createOwner()));
+            if (__OBSERVE__ && attrHooks !== null) (createdItems ??= []).push(newItems[j]);
+            slot = j - start;
+            temp[j] = runWithOwner<MappedItem>(tempNodes[j - start], mapper)!;
+          }
+        } catch (err) {
+          if (created) for (i = 0; i < created.length; i++) created[i].dispose();
+          throw err;
         }
       }
 
-      // 2) create new rows into the temp arrays; an abort disposes only these
-      try {
-        for (j = start; j <= newEnd; j++) {
-          if (tempNodes[j] !== undefined) continue;
-          (created ??= []).push((tempNodes[j] = createOwner()));
-          if (__OBSERVE__ && attrHooks !== null) (createdItems ??= []).push(newItems[j]);
-          temp[j] = runWithOwner<MappedItem>(tempNodes[j], mapper)!;
-        }
-      } catch (err) {
-        if (created) for (i = 0; i < created.length; i++) created[i].dispose();
-        throw err;
-      }
-
-      // 3) commit: land the retained prefix and suffix plus the staged window
-      // into the fresh arrays, swap them in (new identity for downstream
-      // change propagation), then dispose exited rows
-      for (i = 0; i < start; i++) {
-        temp[i] = this._mappings[i];
-        tempNodes[i] = this._nodes[i];
-        rows && (rows[i] = this._rows![i]);
-        indexes && (indexes[i] = this._indexes![i]);
-      }
-      for (j = start; j <= newEnd; j++) {
-        if (rows) write(rows[j], newItems[j]);
-        if (indexes) write(indexes[j], j);
-      }
-      for (j = newEnd + 1; j < newLen; j++) {
-        temp[j] = this._mappings[j - dif];
-        tempNodes[j] = this._nodes[j - dif];
-        if (rows) {
-          rows[j] = this._rows![j - dif];
-          write(rows[j], newItems[j]);
-        }
-        if (indexes) {
-          indexes[j] = this._indexes![j - dif];
-          if (dif !== 0) write(indexes[j], j);
-        }
-      }
+      // 3) commit: the retained prefix and suffix land in the fresh mapped
+      // array; the bookkeeping arrays take the staged window IN PLACE (own
+      // function: kept out of this body on purpose, see commitWindow); then
+      // the exited rows dispose
+      for (i = 0; i < start; i++) temp[i] = this._mappings[i];
+      for (j = newEnd + 1; j < newLen; j++) temp[j] = this._mappings[j - dif];
+      commitWindow(this, newItems, newLen, start, end, newEnd, tempNodes, rows, indexes);
       this._mappings = temp;
-      this._nodes = tempNodes;
-      rows && (this._rows = rows);
-      indexes && (this._indexes = indexes);
       this._len = newLen;
       // save a copy of the mapped items for the next update
       this._items = newItems.slice(0);

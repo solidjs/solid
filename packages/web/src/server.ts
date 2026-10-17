@@ -3917,23 +3917,30 @@ export function createLiveHoles(sink, scoped, settled) {
   // calls there; `ids` maps each position to the id the render gave it.
   let tops = 0;
   const ids = new Map();
+  // Every content hole opens a scope, and most never hold a slot call, so a
+  // scope names itself (`scopeId`) and a binding collects occurrences
+  // (`occ`, a Map) only once a call needs it.
   const scopeFor = hole => {
     const p = engine.scope;
-    return { id: p ? p.id + "." + p.c++ : String(tops++), n: null, c: 0, h: hole };
+    return { id: undefined, p, i: p ? p.c++ : tops++, n: null, c: 0, h: hole };
   };
+  const scopeId = s =>
+    s.id !== undefined ? s.id : (s.id = s.p ? scopeId(s.p) + "." + s.i : String(s.i));
+  // Collect an occurrence into a binding (or a re-evaluation's collector).
+  const collect = (v, id, forget) => (v.occ || (v.occ = new Map())).set(id, forget);
   // A binding's re-evaluation (sweep or retry) under its own scope, with
   // the occurrences it reaches collected: what the client's range will hold.
   function rescope(b, hole, fn) {
     const prevScope = engine.scope;
     const prevVisit = engine.visit;
-    engine.scope = { id: b.scope, n: null, c: 0, h: hole };
-    const occ = (engine.visit = new Map());
+    engine.scope = { id: scopeId(b.scope), p: null, i: 0, n: null, c: 0, h: hole };
+    const visit = (engine.visit = { occ: null });
     try {
       return fn();
     } finally {
       engine.scope = prevScope;
       engine.visit = prevVisit;
-      b.next = occ;
+      b.next = visit.occ;
     }
   }
   // The client's range now holds what the binding's last re-evaluation
@@ -3943,9 +3950,17 @@ export function createLiveHoles(sink, scoped, settled) {
   function settleOccurrences(b) {
     const occ = b.next;
     b.next = null;
-    for (const [id, forget] of b.occ) if (!occ.has(id)) forget();
+    if (b.occ) for (const [id, forget] of b.occ) if (!occ || !occ.has(id)) forget();
     b.occ = occ;
-    for (let a = b.up; a; a = a.up) for (const [id, forget] of occ) a.occ.set(id, forget);
+    if (occ) for (let a = b.up; a; a = a.up) for (const [id, forget] of occ) collect(a, id, forget);
+  }
+  // Close a minted hole's evaluation window: restore the enclosing frame,
+  // and what this hole's range holds is also in the enclosing one's.
+  function leave(b, parent, scope, visit) {
+    engine.parent = parent;
+    engine.scope = scope;
+    engine.visit = visit;
+    if (visit && b.occ) for (const [id, forget] of b.occ) collect(visit, id, forget);
   }
   const engine = {
     // In-tag routing from `ssr()` and retry-chain resolution (`$lhSuppress`)
@@ -3986,17 +4001,18 @@ export function createLiveHoles(sink, scoped, settled) {
       const n = s.n || (s.n = Object.create(null));
       const i = n[prop] || 0;
       n[prop] = i + 1;
-      const at = s.id + "." + i + "\0" + prop;
+      const sid = scopeId(s);
+      const at = sid + "." + i + "\0" + prop;
       if (given !== undefined) {
         ids.set(at, given);
         return given;
       }
-      return ids.get(at) || `${prop}#~${s.id}.${i}`;
+      return ids.get(at) || `${prop}#~${sid}.${i}`;
     },
     /** A slot occurrence reached by the evaluation in progress; `forget` runs
      *  once a re-evaluation of its hole no longer reaches it. */
     seen(id, forget) {
-      if (engine.visit) engine.visit.set(id, forget);
+      if (engine.visit) collect(engine.visit, id, forget);
     },
     /**
      * Enter a nested hole's scope on the path that resolves it unminted (a
@@ -4082,9 +4098,9 @@ export function createLiveHoles(sink, scoped, settled) {
         rows: null,
         fn: hole.$fn,
         closed: false,
-        // The occurrence scope's name, the occurrences the client's range
-        // holds (and the next set, from a re-evaluation not yet shipped),
-        // and the binding this one was minted inside.
+        // The occurrence scope, the occurrences the client's range holds (null
+        // until one is reached), the next set (from a re-evaluation not yet
+        // shipped), and the binding this one was minted inside.
         scope: undefined,
         occ: null,
         next: null,
@@ -4152,9 +4168,7 @@ export function createLiveHoles(sink, scoped, settled) {
       const prevParent = engine.parent;
       const prevScope = engine.scope;
       const prevVisit = engine.visit;
-      const scope = scopeFor(hole);
-      b.scope = scope.id;
-      b.occ = new Map();
+      const scope = (b.scope = scopeFor(hole));
       // The parent frame spans EVALUATION as well as resolve: `ssr()`
       // resolves its holes at construction time, so a nested template's
       // interior holes mint during `hole()` itself — they must land in
@@ -4162,15 +4176,9 @@ export function createLiveHoles(sink, scoped, settled) {
       // the ranges those children mark, so their bindings retire with it).
       // The occurrence scope spans the same window, and what this hole's
       // range holds is also in each enclosing hole's.
-      const leave = () => {
-        engine.parent = prevParent;
-        engine.scope = prevScope;
-        engine.visit = prevVisit;
-        if (prevVisit) for (const [id, forget] of b.occ) prevVisit.set(id, forget);
-      };
       engine.parent = b;
       engine.scope = scope;
-      engine.visit = b.occ;
+      engine.visit = b;
       let value;
       let escalated = null;
       try {
@@ -4181,7 +4189,7 @@ export function createLiveHoles(sink, scoped, settled) {
           // Real error at first render: existing content semantics are
           // "contribute nothing" — no marker, no binding. Interior holes
           // minted before the throw rode markup discarded with it.
-          leave();
+          leave(b, prevParent, prevScope, prevVisit);
           closeChildren(b);
           return "";
         }
@@ -4194,7 +4202,7 @@ export function createLiveHoles(sink, scoped, settled) {
       ) {
         // …and a slot-tagged value resolves unmarked (suppressed, so a
         // wrapped getter isn't re-intercepted one level down).
-        leave();
+        leave(b, prevParent, prevScope, prevVisit);
         const r = { t: [""], h: [], p: [] };
         engine.suppressed++;
         try {
@@ -4223,12 +4231,12 @@ export function createLiveHoles(sink, scoped, settled) {
         try {
           rows = resolveValue(value, res);
         } catch (_) {
-          leave();
+          leave(b, prevParent, prevScope, prevVisit);
           closeChildren(b);
           return "";
         }
       }
-      leave();
+      leave(b, prevParent, prevScope, prevVisit);
       // The impurity gate (see the engine fields): this evaluation created
       // reactive scopes, so re-running it would duplicate them. The hole
       // latches: no marker, no binding. Interior holes minted during this
