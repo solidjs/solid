@@ -133,8 +133,11 @@ export const setWriteHook: (hook: ((node?: object) => void) | null) => void =
   core.setWriteHook as any;
 /** Dependency edges. Client: name plain signals (`<owner id>~<n>`) from now on. Server: no-op. */
 export const setSignalIdentities: (on: boolean) => void = core.setSignalIdentities;
-/** Dependency edges. Server: name and track plain signals from now on. Client: no-op. */
-export const setServerSignalIdentities: (on: boolean) => void = core.setServerSignalIdentities;
+/**
+ * Dependency edges. Server: a render that names and tracks plain signals
+ * starts; call the returned function when it ends. Client: no-op.
+ */
+export const beginEdgesRender: () => () => void = core.beginEdgesRender;
 /** Dependency edges, dev only. Client: watch every node read. Server: no-op. */
 export const setReadWatch: (watch: ((node: object) => void) | null) => void = core.setReadWatch;
 /** Dependency edges. Client: a plain signal's identity, if it was named. Server: `undefined`. */

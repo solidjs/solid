@@ -160,10 +160,10 @@ export {
 } from "./signals.js";
 export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
 /** @internal Dependency edges (the frames server installs them). */
-export { trackFillReads, setServerSignalIdentities } from "./edges.js";
+export { trackFillReads, beginEdgesRender } from "./edges.js";
 /** @internal Client-only: the server has no writes to observe. */
 export function setWriteHook(_hook: ((node?: object) => void) | null): void {}
-/** @internal Dependency edges: client-only (the server names through `setServerSignalIdentities`). */
+/** @internal Dependency edges: client-only (the server names through `beginEdgesRender`). */
 export function setSignalIdentities(_on: boolean): void {}
 /** @internal Dependency edges: client-only. */
 export function setReadWatch(_watch: ((node: object) => void) | null): void {}

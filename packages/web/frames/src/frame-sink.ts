@@ -41,18 +41,8 @@ import {
   ssrSanitizeError,
   creationStamp,
   shareAsyncIterable,
-  setServerSignalIdentities,
   trackFillReads
 } from "solid-js/internal";
-
-// Dependency edges: the frames server installs the server's signal-naming
-// hooks (`<owner id>~<n>`, as the client's signals core names them) so slot
-// fills can record which plain signals they read. They act only inside a
-// render whose context has `edges` set (renderToStream sets it when the
-// server-components codec is among its plugins); every other render takes
-// the plain paths. A no-op in the client build (a browser test may load this
-// module beside the client).
-setServerSignalIdentities(true);
 
 // EXPERIMENTAL — the frames/server-components surface ships as an
 // experimental preview, excluded from the 2.0 stability guarantee: API

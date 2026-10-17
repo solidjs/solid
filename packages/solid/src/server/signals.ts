@@ -1237,9 +1237,11 @@ let asyncReads = 0;
 // carries none of it.
 /** @internal The dependency-edge hooks (edges.ts). */
 export interface EdgeHooks {
+  /** The current render asked for edges. */
+  on(): boolean;
   /** A plain signal created under the current owner: its named read. */
   signal<T>(read: () => T): () => T;
-  /** Run a memo's compute (keyed by its owner), keeping what it read. */
+  /** Run a memo's compute (keyed by its owner), keeping what it read. Only when `on()`. */
   run<T>(owner: object, fn: () => T): T;
   /** A memo was read: report what its last compute read. */
   report(owner: object): void;
@@ -1418,7 +1420,7 @@ export function createMemo<T>(
     try {
       return runWithOwner(owner, () =>
         runWithObserver(comp, () =>
-          edgeHooks !== null
+          edgeHooks !== null && edgeHooks.on()
             ? edgeHooks.run(owner, () => comp.compute(comp.value))
             : comp.compute(comp.value)
         )
@@ -1598,7 +1600,9 @@ function createSyncMemo<T>(
     let result: T;
     try {
       result = (
-        edgeHooks !== null ? edgeHooks.run(owner, () => compute(value)) : compute(value)
+        edgeHooks !== null && edgeHooks.on()
+          ? edgeHooks.run(owner, () => compute(value))
+          : compute(value)
       ) as T;
     } catch (err) {
       currentOwner = prev;

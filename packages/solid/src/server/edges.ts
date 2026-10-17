@@ -1,8 +1,9 @@
 // Deferred hydration, dependency edges: plain-signal identities and read
-// tracking on the server. Only the frames server loads this (it installs the
-// hooks at its module load, `setServerSignalIdentities`); the render paths in
-// signals.ts hold one null-checked slot, and the hooks act only inside a
-// render that asked for edges (`on`), so other renders take the plain paths.
+// tracking on the server. The render paths in signals.ts hold one
+// null-checked slot, filled only while an edges render is in flight
+// (`beginEdgesRender`, renderToStream with the server-components codec); the
+// hooks act only inside such a render's context (`on`), allocating nothing
+// for any other.
 //
 // A plain signal created under an id-bearing owner is named `<owner id>~<n>`
 // (n counts plain signals under that owner since its child counter last
@@ -57,6 +58,7 @@ function reportReads(reads: Set<string>): void {
 }
 
 const hooks: EdgeHooks = {
+  on,
   signal<T>(read: () => T): () => T {
     let o: any = getOwner();
     if (!o || !on()) return read;
@@ -71,7 +73,6 @@ const hooks: EdgeHooks = {
     };
   },
   run<T>(owner: object, fn: () => T): T {
-    if (!on()) return fn();
     const prev = readSink;
     const sink: ReadSink = (readSink = { s: null });
     try {
@@ -128,9 +129,27 @@ const hooks: EdgeHooks = {
   }
 };
 
-/** @internal Dependency edges: name and track plain signals from now on (`on`). */
-export function setServerSignalIdentities(on: boolean): void {
-  setEdgeHooks(on ? hooks : null);
+// Edges renders in flight. The hooks are installed only while one is: a
+// process that never starts one (or has none running) keeps the plain paths
+// with nothing behind the slot. Interleaved async renders still check their
+// own context (`on`).
+let active = 0;
+/** @internal Edges renders in flight (tests). */
+export function edgesRenders(): number {
+  return active;
+}
+/**
+ * @internal An edges render starts (renderToStream with the server-components
+ * codec): install the hooks. Call the returned function once when it ends.
+ */
+export function beginEdgesRender(): () => void {
+  if (active++ === 0) setEdgeHooks(hooks);
+  let ended = false;
+  return () => {
+    if (ended) return;
+    ended = true;
+    if (--active === 0) setEdgeHooks(null);
+  };
 }
 
 /**

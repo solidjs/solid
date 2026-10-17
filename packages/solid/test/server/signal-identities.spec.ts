@@ -13,20 +13,23 @@ import {
   createOwner,
   createRoot,
   createSignal,
+  edgeHooks,
   resetOwnerForRerun,
   runWithOwner
 } from "../../src/server/signals.js";
-import { setServerSignalIdentities, trackFillReads } from "../../src/server/edges.js";
+import { beginEdgesRender, edgesRenders, trackFillReads } from "../../src/server/edges.js";
 import { sharedConfig } from "../../src/server/shared.js";
 
+let end: (() => void) | undefined;
 afterEach(() => {
-  setServerSignalIdentities(false);
+  end?.();
+  end = undefined;
   sharedConfig.context = undefined;
 });
 
-/** A render that asked for edges. */
+/** A render that asked for edges is in flight. */
 function edgesRender() {
-  setServerSignalIdentities(true);
+  end = beginEdgesRender();
   sharedConfig.context = { edges: true } as any;
 }
 
@@ -45,7 +48,7 @@ describe("server plain-signal identities", () => {
   });
 
   test("installed, but the render did not ask: nothing is named", () => {
-    setServerSignalIdentities(true);
+    end = beginEdgesRender();
     sharedConfig.context = { edges: false } as any;
     const reads = createRoot(
       () => {
@@ -90,5 +93,17 @@ describe("server plain-signal identities", () => {
     );
     expect(names[0]).toHaveLength(1);
     expect(names[1]).toEqual(names[0]);
+  });
+
+  test("the hooks are installed only while an edges render is in flight", () => {
+    const a = beginEdgesRender();
+    const b = beginEdgesRender();
+    expect(edgesRenders()).toBe(2);
+    a();
+    a();
+    expect(edgesRenders()).toBe(1);
+    b();
+    expect(edgesRenders()).toBe(0);
+    expect(edgeHooks).toBeNull();
   });
 });
