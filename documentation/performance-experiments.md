@@ -10023,3 +10023,46 @@ uibench after it: the general keyed path on single-row edits (1.35× Vapor:
 key map, per-survivor row-signal write, and the DOM diff's own map), the
 sparse filters at 1.07, and the worst-case reorders at 2.7× — all list-diff
 structure, §12's territory.
+
+### 14 (Vapor lane): the board after everything (2026-10-17, 14:38–15:40)
+
+Ryan: "run the updated suite with all the changes to get a feel where the
+geomean sits after everything." One tree — `next` @ fb4984917 with the
+three open PRs merged in (#4132 store key count, #4133 reconciler walks,
+#4136 root `_flags` slot; branch `bench/next-all-oct17`, clean merge, nine
+files) — through the same 26 suites as the Oct 15 board, on the fork at
+`bench/next-linked-oct15` (pinned streaming-ssr harness, `flush(fn)`
+signal-favoring fixture). Results `results-all-oct17`; compare with
+`board-compare.mjs` (uibench added to its list), same-run pairing per suite.
+The baseline is the Oct 15 board, so the delta is everything since: the
+merged #4104/#4114/#4115/#4122 as well as the three open PRs.
+
+| geomean over suites | Oct 15 | now |
+| --- | ---: | ---: |
+| Solid ÷ Octane (22 suites) | 0.929 | **0.853** |
+| Solid ÷ Vapor (21 suites) | 1.045 | **0.970** |
+
+Where it moved (Solid ÷ Octane, Solid ÷ Vapor): uibench 1.90 → 1.19,
+1.70 → 1.15 (the Oct 15 uibench run was invalid; against the valid Oct 16
+run it is 1.58 → 1.19 and 1.50 → 1.15 — §13's slot, with §11's walks);
+event-delegation 0.84 → 0.71, 1.33 → 1.01 (`delegated_input_burst` 3.6 →
+2.98 ms); signal-favoring 0.86 → 0.73, 1.54 → 1.27 (the fixture form, §5–6,
+and `unmount` 1.21 → 0.85 of Vapor); memo-wall 0.66 → 0.58, 1.16 → 1.02
+(`one_change` 23.6 → 14.1 µs); effectful-list 1.13 → 1.01 of Vapor;
+chat-stream 1.21 → 1.08 of Vapor; js-framework 1.16 → 1.05 of Octane (swap
+and select, §8–§11); js-framework-reorder 1.01 → 0.92; scaling-curves 0.76
+→ 0.69; dbmon 1.03 → 1.00. Streaming-ssr against the pinned Oct 16 run:
+1.60 → 1.46 of Octane (§18's unwind). Flat or inside noise: todomvc,
+svg-dashboard, store-selector-fanout, spa-navigation, controlled-form,
+application-composition, suspense-recovery, scheduler-responsiveness,
+lifecycle-memory, external-store-fanout. Two suites carry a pre-existing
+harness gate exit in both runs and are not to be read: recursive-context
+(the context-cache Map gate fails on the `one`/`two` variants, Oct 15 and
+today alike; its 84% swing is on quantized 25 µs cells) and
+hydration-interactivity.
+
+Read: Solid is now ahead of Vapor on the board's geomean and 15% ahead of
+Octane, with the remaining Vapor deficits concentrated where the lane left
+them — js-framework 1.35 (swap and select, design), signal-favoring 1.27
+(the per-write constant), uibench 1.15 (the general keyed path), chat-stream
+1.08, hydration-interactivity 1.10 (unread, gate exit), dbmon 1.07.
