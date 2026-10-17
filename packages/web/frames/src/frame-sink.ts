@@ -1436,6 +1436,10 @@ function structuralArgsKey(raw) {
  * container — a pending projection's reads throw) by reference.
  */
 function argDigest(value) {
+  // A primitive is its own digest (NaN, which equals nothing, takes the
+  // structural path).
+  const t = typeof value;
+  if (value == null || (t !== "object" && t !== "function" && value === value)) return value;
   if (isContainerTraced(value)) return value;
   try {
     const key = structuralArgsKey([value]);
