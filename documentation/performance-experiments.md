@@ -5571,7 +5571,7 @@ Design preserved for future revisit (see `documentation/performance-experiments.
 
 - Surgical udomdiff fix: **landed in `/Users/ryancarniato/Development/dom-expressions/packages/dom-expressions/src/reconcile.js`**, validated against `dom-expressions` test suite (`439/439 passed`) and now confirmed on j-f-b. Recommended for upstream submission.
 - Solid 2.0 competitive position: **better than React (`2.93×`), better than Svelte 5 (`-21% geomean`), `+20%` slower than Solid 1.x** (architectural; not reconcile-related).
-- Metadata-channel optimization: **deferred**, design captured. Trigger condition for revisit: real-world `repeat`-heavy workload measurement, or if `02_replace1k` regresses against svelte/react in future runs.
+- Metadata-channel optimization: **deferred**, design captured. Trigger condition for revisit: real-world `repeat`-heavy workload measurement, or if `02_replace1k` regresses against svelte/react in future runs. _(2026-10-17: a narrower form — mapArray's small-move set carried to `reconcileArrays` — was built and measured; see "12 (Vapor lane): the move-hint probe". Swap 25 → 15.8 µs where it applies, a 3% tax on every list where it does not, ~300 B brotli per app bundle, and never for a keyed-by-function `<For>`. Parked on `perf/reconcile-move-hints`.)_
 - Next strategic lane: architectural mount cost (`07_create10k`, UIBench `*/render`) — Signal/Store overhead, render-effect machinery. Different problem, different toolset.
 
 Bundle sizes (post all optimizations through this session):
@@ -9576,11 +9576,16 @@ Rerun on `next` @ 7010268db with the `flush(fn)` adapter: bumps 0.42 →
 way (board log has the table and the harness note). A fixture change;
 Solid's code did not move.
 
-**Lane ledger.** Runtime changes to solidjs/solid from the Vapor lane:
-none shipped. `perf/insert-text-slot` (7a5a81422) is parked: ~0.05 µs,
-inside noise. `perf/reconcile-window` (e557a8313) is parked: measured
-nothing, and it is the metadata channel the journal had already deferred
-(§2). Fixture and harness changes, in the fork: signal-favoring bumps
+**Lane ledger.** Runtime changes to solidjs/solid from the Vapor lane
+(as of this section; §8–§12 add to it): none shipped. Later the same day:
+#4132 (the store key-count fix, §8: select 7.2 → 6.2 µs on the board) and
+#4133 (the reconciler walks without the per-row probe, §11: swap 29.5 →
+25 µs, uibench long-walk cases −10 to −17%), both open. `perf/insert-text-slot`
+(7a5a81422) is parked: ~0.05 µs, inside noise. `perf/reconcile-window`
+(e557a8313) is parked: measured nothing, and it is the metadata channel
+the journal had already deferred (§2). `perf/reconcile-move-hints`
+(708b773d1) is parked: the channel built and measured, §12. Fixture and
+harness changes, in the fork: signal-favoring bumps
 through `flush(fn)` (b183e78c1; the bump column above); the streaming-ssr
 pinning (b30fef17a, earlier). Harness findings not yet acted on: the
 sweep cells need the batched protocol; js-framework `remove` and `update`
@@ -9611,3 +9616,327 @@ Closed here. Next, if the single-update constant is pursued: profile
 count what runs for one dirty effect — `resyncUnflushedCompanions`,
 `sweepDormant`, the heap pass, `settle`, the effect queues — against what
 one effect needs.
+
+### 7 (Vapor lane): selection — what Vapor does, what the store costs, the fixture benched (2026-10-17 02:31)
+
+Vapor's compiler turns `:class="{danger: row.id === selected}"` inside a
+keyed `v-for` into a runtime `createSelector`: a `Map<key, effect[]>`,
+one registration per row under its id, and on a change the effects of
+the old and the new key run after the flush — Solid 1's `createSelector`,
+emitted automatically for that one syntactic shape; anything else (a
+helper, a Set, a prop, a negation) falls back to a per-row effect on the
+source. Solid 2.0 dropped `createSelector` for the keyed store /
+projection idiom (04-stores.md), which the fixture uses: a plain
+`createStore({selected})` with a key per row id. The store releases a
+key's node when its last reader unlinks (`releaseSlot`), so the idiom
+holds for memory; what it pays is the staged write.
+
+Profiled with the call profiler on the unminified build, Solid on `next`
+@ 7010268db (`.logs/select-fixture-2026-10-17.log`):
+
+| select, µs per click | current fixture (`delete s[prev]`) | `s[prev] = false` + reset on run/clear | Vapor |
+| --- | ---: | ---: | ---: |
+| wall | 5.47 | **3.92** | 1.62 |
+| store write path | `materializePB` 1.37, `ensurePB` 0.32, `storeSetter` 1.69 incl, `deleteProperty` 0.41 | `foldTarget` 0.60, `storeSetter` 1.08 incl, `settle` 0.71 incl, `notifyWrites` 0.13 | — |
+| DOM | `setAttribute` 0.41, `set` 0.82 incl | same | `setClassName` 0.36 |
+
+The delete forced the overlay rebuild at commit (`overlayRebuilds`: any
+delete, #3689's shape-stability rule); writing `false` keeps the fold on
+the in-place flatten. −28%, 2.4× Vapor instead of 3.4×. Fork commit
+`js-framework/solid: selection writes false instead of deleting; reset on
+run/clear` — a fixture change; the board's js-framework column moves
+when the suite is rerun. What remains is the transaction itself
+(`storeSetter` + `foldTarget` + `settle` ≈ 2.4 µs for two keys) against
+a map lookup; the within-the-system candidates are a size gate on the
+delete-rebuild rule (a small object does not need dictionary-mode
+protection) and a cheaper fold for a small owned plain object, both
+store-core questions. The compiler-detected selector is Vapor's answer
+and has the gaps a heuristic has.
+
+### 8 (Vapor lane): the selection cost was a store bug — key count drift on delete (02:36–02:50)
+
+Ryan's objection to the `= false` fixture (the user never had to reset
+anything before) sent the question back to the engine, and the profile's
+`materializePB` did not add up: it only runs for an overlay draft, which
+needs more than `OVERLAY_MIN_KEYS` (32) keys, and the `delete`-form
+selection store holds three. `store.ts` counts keys in `kc`: `++` on
+every new key in the set trap, `-=` only inside the overlay rebuild
+paths. `deleteProperty` on a plain-clone draft, and an overlay's delete
+of its own add, never decremented. So "delete the old key, set the new
+one" drifted `kc` up by one per select; after 32 the object crossed the
+threshold, drafted as an overlay, and — any delete rebuilds an overlay
+(#3689) — paid a full clone of its backing on every commit after. The
+fixture's natural code was right; the store miscounted it.
+
+Fix on `fix/store-delete-key-count` (from `next` @ fb4984917, commit
+84589d32e, changeset `store-delete-key-count.md`): `deleteProperty`
+decrements for an own key of the draft that leaves (a clone's key, an
+overlay's own add) and leaves an overlay's committed key to `del`,
+counted at the rebuild as before. Four tests (`delete-key-count.test.ts`:
+200 selections stay at two keys and never draft as an overlay; delete and
+re-add; delete of a never-committed key; the overlay's two cases); the
+#3689 rebuild tests pass unchanged; signals 5343, solid 869, web default
+1379 pass. The fork fixture is back to `delete s[prev]`, no resets.
+
+| js-framework select, call profiler, µs per click | wall | store write path |
+| --- | ---: | --- |
+| before (buggy count, delete fixture) | 5.47 | `materializePB` 1.37, `ensurePB` 0.32, `storeSetter` 1.69 incl |
+| `= false` workaround (dropped) | 3.92 | `foldTarget` 0.60, `storeSetter` 1.08 incl |
+| **fixed store, delete fixture** | **3.38** | `storeSetter` 0.89 incl, `ensurePB` 0.22, `settle` 0.18, `deleteProperty` 0.34 incl |
+| Vapor (compiled selector) | 1.65 | — |
+
+2.05× Vapor from 3.3×, with the user's code unchanged — the first
+runtime change in this lane that moves a board op (js-framework `select`
+7.6 µs on the harness; `select_lots` the same shape), and it reaches any
+app whose keyed store adds and deletes keys over time, which is what a
+selection map, a cache, or an id-keyed set of open rows does. The
+remaining 1.7 µs is the transaction itself against a map lookup (§7).
+
+### 9 (Vapor lane): js-framework rerun with the store fix (03:05)
+
+`results-kcfix-oct17` vs `results-window-oct16` (Solid at
+`fix/store-delete-key-count`, the fork's fixture in its original
+`delete` form; all targets rerun):
+
+| op | Solid before | Solid after | Octane | Vapor | Solid ÷ Octane | Solid ÷ Vapor |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| select | 7.2 µs | **6.2 µs** | 5.6 | 2.8 | 1.09 | 2.22 |
+| select_lots | 4.4 µs | **3.7 µs** | 3.7 | 1.8 | 1.00 | 2.06 |
+| swap | 55 µs | 55 µs | 22 | 16 | 2.51 | 3.39 |
+| the seven real-time ops | — | within noise | | | 0.71–1.15 | 0.83–1.12 |
+
+Suite geomean Solid ÷ Octane 1.19 → 1.09, Solid ÷ Vapor 1.44 → 1.41.
+The harness shows −14/−16% on the two selection ops where the call
+profiler showed −38% on the framework's own work: its protocol (a
+synchronous click dispatch per select, alternating two rows) carries a
+fixed share that does not move. select_lots is now level with Octane and
+select within 10%; both remain ~2.1× Vapor, which is the transaction
+against the compiled selector (§7–8). Ryan: selection is the shape Solid
+always won against React's, and he tested it thoroughly before dropping
+`createSelector` — the drift was a 2.0 bug under the design, not the
+design.
+
+### 10 (Vapor lane): the store rewrite's own share of select — none, once the count is right (03:40)
+
+Ryan placed the rewrite "around rc.1"; the log agrees: one commit,
+079721584 (2026-08-19, "Store rewrite: single-home storage model replaces
+the legacy store (#3019)"), shipped the same day as 2.0.0-rc.1. The tree
+before it has the old package layout (`solid-signals`, `solid-web`,
+pre-rxcore-collapse), so the comparison used the published packages:
+standalone copies of the js-framework Solid fixture (same `delete`-form
+source, outside the fork's workspace so its `link:` overrides do not
+apply) on `solid-js` / `@solidjs/web` / `@solidjs/signals` 2.0.0-rc.0
+(2026-08-12, the last legacy-store release) and 2.0.0-rc.1 (the rewrite as
+first shipped; `@solidjs/signals` pinned by override, since rc.1's range
+resolves to rc.15 today), each with the `@solidjs/vite-plugin` published
+that day (3.0.0-next.28 / next.31); the call profiler, unminified builds,
+select of a different row per click. Log `.logs/select-rc-ab-2026-10-17.log`.
+
+| select, µs per click | median | where it goes |
+| --- | ---: | --- |
+| rc.0, legacy store | 3.64 (repeat 3.66) | `notifyStoreProperty` 0.56, `getNode` 0.17, `set` 0.53; DOM 0.44 |
+| rc.1, the rewrite as shipped | **40.5** | `notifyWrites` 21.0, `drainFolds` 16.2, `ensurePB` 2.6 — the O(keys) notify and fold the Aug 24 "written-keys notify bound" and #3044 overlay work then removed |
+| today, `fix/store-delete-key-count` | 3.36 (repeat 3.39) | `storeSetter` 0.90 incl, `deleteProperty` 0.28, `notifyWrites` 0.10; DOM 0.32 |
+| Vue Vapor, compiled selector | 1.61 | `setClassName` 0.31 |
+
+So: the rewrite as it first shipped was eleven times slower on this op;
+the perf work of the following weeks brought it back; and with the key
+count fixed, today's store is 8% faster than the legacy store on the
+selection shape. The "still slower post rewrite" that the harness showed
+was the key-count drift (§8), not the design. What remains against Vapor
+is the same ~2× the legacy store also had: a store write of any kind
+against a keyed notify — the `createSelector` question, which this does
+not reopen; it was the same 2× when you tested it.
+
+Interleaved repeats under a steady background load (two system services
+at ~85% CPU each on other cores) moved each cell by under 1%.
+
+### 11 (Vapor lane): swap — was it always this bad, and where it goes (2026-10-17, 04:00–04:30)
+
+Ryan: "was swap always this bad.. you still have rc.0 numbers?" The rc
+fixture copies from §10 were still built, so the same call profiler ran
+the js-framework `swap` (rows 1 and 998 of 1000) on each. Log
+`.logs/swap-rc-ab-2026-10-17.log`.
+
+| swap, µs per click | median (repeats) | where it goes |
+| --- | ---: | --- |
+| rc.0, legacy store | 53.8 (54.3, 55.0) | `updateKeyedMap` 38.8, `reconcileArrays` 13.2 incl, `normalize` 7.2 |
+| rc.1, the store rewrite | 54.3 (53.8) | the same shape; the rewrite did not touch it |
+| today (`next` + #4132) | 29.4 (29.4, 29.4) | `reconcileArrays` **24.4** incl (`isLive` 9.1 self), small-move 5.8, `normalize` 1.5 |
+| Vue Vapor | 8.9 (9.1) | `renderList` 8.7 incl, one pass over blocks that carry key and nodes |
+
+So yes: it was worse, and the work since rc.1 (the small-move path, the
+reconciler fixes) took 45% off it. On the Octane board swap has read 49–60
+µs since September against Vapor's 13–16 and Octane's 21–22 — the harness
+protocol over the same 29 µs. The journal's older js-framework-benchmark
+rows say the same thing in its units: Solid 2 trailed Solid 1 on
+`05_swap1k` by 46–77% from the first baselines, with the udomdiff
+reconciler named as the cause and the two-anchor swap-backward branch as
+the lever — a lever the single-anchor rewrite of 2026-05-07 (dom-expressions
+2fe6310f) already closed, validated then on `05_swap1k` and uibench reverse.
+
+What the profile says is left, read against the code: the single-anchor
+branch fires exactly once for this shape, the walk then drops into the map
+branch, and the cost is the full-length common-prefix walk with an
+`isLive` probe per row plus a map of ~997 nodes. Two things, then: the
+per-row probe, and the fact that the DOM diff re-derives from two flat
+node arrays what mapArray's small-move path had just computed (§12).
+
+**`isLive`, and why it was there.** Two steps, both in dom-expressions
+before the runtime was absorbed. The slot-ownership tags (78bb855c,
+2026-05-16, for solidjs/solid#2030 and #2357): nodes that migrate out of
+their JSX slot between renders — a ref appended elsewhere, a node moved
+into a sibling slot, another runtime's content — could make `replaceChild`
+throw or be destroyed by the slot's cleanup, so every inserted node is
+tagged with its slot's marker and every destructive op gates on
+parent-and-tag ownership; the prefix/suffix walks were untouched, and the
+commit kept the swap inner loop split precisely to protect `05_swap1k`.
+Then the walks gained the probe (9052dcf5, 2026-08-21, dom-expressions#574):
+after a map-branch `replaceChild` and a swap move, a node could be out of
+the DOM while still listed in `a[]`; the suffix walk counted it as a live
+common end and never reinserted it (`A B C D E → B A E C D` lost C; a
+`<For>` rendered four rows of five). The fix made every prefix and suffix
+match require liveness — a correctness patch over the May perf change,
+paid per row on every list update since.
+
+**The sharper fix.** Tracing #574: the suffix loop had no bound, so it
+walked back past `aStart` into consumed entries, where it met the node a
+replace had taken out while it was still pending in `b`. Inside the open
+range `[aStart, aEnd)` this pass never detaches a node — replace, remove
+and swap all consume the node they take out. So bounding the suffix walk
+to the open range closes #574 at its cause, and neither walk needs
+`isLive`; a user-migrated node is skipped by the walks and left alone by
+the gates below, which is the May semantics. Every anchor read and
+destructive branch keeps its gate. Branch `perf/reconcile-walk-gate` →
+**PR #4133** (open, Auto-fix on), one file, a web patch changeset.
+
+| swap, µs per click | median (three readings) |
+| --- | ---: |
+| today | 30.0 / 29.5 / 29.4 |
+| #4133 | 24.4 / 25.0 / 25.1 |
+| Vapor | 9.0 / 9.0 |
+
+`reconcileArrays` inclusive 24.4 → 13.8 µs; `isLive` gone from the
+profile. Ryan's condition — "we probably can't accept change here without
+testing uibench tree structures" — was the gate: uibench through the board
+runner, oracle identical to the previous run (96 cases, 23,331 elements,
+32,543 shared keyed identities), `tree/[500]/[virtual_dom_worst_case]`
+−17%, `[snabbdom_worst_case]` −14%, `[moveFromEndToStart(1)]` −11%, tree
+removeAll −7 to −11%, reverse flat on all four shapes, geomean Solid ÷
+Vapor 1.496 → 1.452 (tree insert/remove/move cases 1.384 → 1.338). Suites:
+insert spec with the #574 and five migration cases, web default / server /
+hydrate at the same counts as `next`; a throwaway 4000-seed permutation
+fuzz (DOM order and node identity after every transition, with and without
+a marker) passed and was not committed. CodSpeed on the PR: four
+single-item list benchmarks 15–51% faster, 192 untouched. The size report
+warned on six scenarios a few bytes over their brotli caps with the
+minified size below the recorded one on every row — the gate's "warn", and
+the check passed.
+
+The uibench matrix also makes the structural half plain, separately from
+this change: single inserts, removes and moves in a 500-node tree are
+still 2× Vapor and 3–4× Octane, `react_worst_case` 7×, with no per-row
+probe left — mapArray diffs items, then `reconcileArrays` diffs nodes and
+builds its own map.
+
+### 12 (Vapor lane): the move-hint probe — built, measured, parked (2026-10-17, 04:30–05:40)
+
+Ryan's first reaction to "carry mapArray's move set into the reconciler"
+was the journal's: "every time we've tried something similar in the past
+it underperformed." Checked, that conflates two histories. The four
+delivery mechanisms that were built and tested — patch driver, regions,
+Unified For slot, Unified For engine — each **replaced or bypassed** the
+mapArray-plus-reconcile pair with a second system that owned placement,
+and that is what the standing ruling ("every parallel list mechanism paid
+back its win in coordination bugs") is about. The **metadata channel was
+designed in May and never built**: the entry at "Implications for the
+metadata-channel design" evaluates a full-replace fast path and a `repeat`
+range dispatch on paper, finds the udomdiff surgical fix had already
+closed the replace gap it targeted, and defers it with "design captured".
+The only built piece was §2's window branch (a start/suffix window, the
+wrong payload for a swap, measured nothing). So the channel was unproven
+in both directions, and Ryan said to build it.
+
+**Design** (branch `perf/reconcile-move-hints`, stacked on #4133, one WIP
+commit 708b773d1, not pushed). `commitSmallMove` in
+`packages/signals/src/map.ts` records a hint beside the array it publishes:
+the array it replaced, old and new lengths, the old indices of rows that
+left, and for each displaced row its new index and the old index it came
+from — nothing else moved, by the small-move path's own construction.
+`flatten` carries the hint onto its result only when every row flattened
+to itself as an object (no fragments, accessors, primitives or skipped
+values) and remembers which flattened array each mapped array produced.
+`reconcileArrays` applies the hint only when the previous array it holds
+is exactly the flattening of the hint's previous list, both lengths agree,
+every displaced node is the same object on both sides and every anchor is
+still a node under this parent; then it removes the leavers and places
+each displaced row before its successor, highest destination first. Any
+failed check falls through to the general diff with nothing mutated. The
+identity guard on the previous array is what keeps a stale hint out: a
+skipped render, a held pass or a cleared list each produce a different
+previous array. Two WeakMaps in flatten.ts, ~70 lines in all.
+
+**Correctness.** Signals 5339, solid 869, insert spec 68, web default /
+server / hydrate 1381 / 1719 / 509 — the same counts as `next`. A
+throwaway pipeline fuzz (signal list → `mapArray` → `r.insert`): a
+1000-row swap; 300 seeds of 120-row lists with swaps, rotations, single
+moves, scattered removals, adds, reversals and shuffles, with and without
+a slot marker; two lists sharing a parent; a migrated row — DOM order and
+node identity asserted after every flush, the hint confirmed taken on the
+120-row loops. uibench oracle identical (96 / 23,331 / 32,543).
+
+**Measured.** Logs `.logs/swap-movehint-2026-10-17.log`,
+`.logs/select-movehint-ab-2026-10-17.log`, `.logs/uibench-control-2026-10-17.log`;
+results `results-movehint-oct17`, control `results-walkgate2-oct17`.
+
+| swap, µs per click | median (three readings) |
+| --- | ---: |
+| #4133 | 24.6 / 26.3 / 24.9 |
+| probe | 15.8 / 15.7 / 15.9 |
+| Vapor | 9.0 / 9.1 |
+
+`reconcileArrays` leaves the profile; what remains is the small-move scan
+(5.7), the insert effect's normalize pass (2.7), recompute overhead and two
+native inserts — the two-pass item diff plus flatten, not the DOM diff.
+js-framework through the board runner: swap 55.3 → 19.5 µs (Vapor 16.7,
+Octane 22.9; Solid ÷ Vapor 3.39 → 1.17), every other op within ±3% except
+select / select_lots at +22 / +24% and update at −17% in the same run —
+an interleaved select A/B on the two servers (cached rows, three pairs)
+read 5.53 / 5.66 / 5.56 against 5.66 / 5.63 / 5.78 µs, so the select rows
+were noise; geomean Solid ÷ Vapor 1.44 → 1.21, ÷ Octane 1.19 → 1.00.
+
+Then the two findings that park it:
+
+1. **The hint never fires on uibench.** Its fixture renders every list
+   with `<For each keyed={byId}>`; a key function allocates `_rows`, and
+   `mapArray` skips the small-move path whenever `_rows` or `_indexes`
+   exist (and for a changed window of 64 rows or fewer). So keyed-by-
+   function lists, index-reading lists and short lists never get a hint —
+   the win is confined to an identity-keyed `<For>` without index reads,
+   over 64 changed rows.
+2. **It taxes every list update where it does not apply.** uibench, probe
+   against a back-to-back walk-gate control (the control itself 1.005 of
+   the morning's run, Vapor 0.987 — a 1.5% noise floor): probe ÷ control
+   **1.033** over all 96 cells, 1.027 under 25 µs, 1.042 at 25 µs and up.
+   The probe's only code on those paths is the bookkeeping — a WeakMap
+   write per flattened list, a WeakMap read per reconcile, a per-row type
+   check in flatten — and on 2–10 µs cells that is the whole 3%. (The
+   snabbdom / virtual_dom worst cases that read +20–25% against the morning
+   run moved +16–18% in the control too: the machine, not the probe.)
+
+And the size: every app and page scenario grew 190–340 B brotli (~900 B
+minified across flatten, map and reconcile), the signals-only scenarios
+unchanged — fifteen Size-Exceptions for a PR.
+
+**Verdict: parked.** The probe proves the diagnosis — the remaining swap
+gap is the DOM diff re-deriving the move set, and removing that puts swap
+at 1.17× Vapor — but it is a win in one list shape paid for by every
+bundle and a 3% tax on every list that cannot use it. The tax is
+reducible (carry the flattened array on the hint instead of the per-
+flatten WeakMap write, at the cost of the first swap after a general-path
+pass falling through), the size and the keyed-For exclusion are not. The
+May trigger conditions for the channel stand, with these numbers attached
+for whoever reopens it: the ceiling is ~9 µs on the js-framework swap and
+the whole `reconcileArrays` share on any small-move shape; the floor is
+the bookkeeping cost and ~300 B brotli. The branch keeps the WIP commit;
+the fuzz specs are not in the tree.
