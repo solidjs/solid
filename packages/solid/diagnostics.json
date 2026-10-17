@@ -45,15 +45,6 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/async-waterfall"
   },
   {
-    "code": "BINDING_SLOT_POSITION",
-    "kind": ["ssr", "render"],
-    "severity": ["warn", "error"],
-    "category": "ssr/render",
-    "trigger": "Binding-slot value where it cannot bind; `data.reason` names the position (spread is an error and throws), client reasons `orphan`/`fill-shape`",
-    "repair": "A binding slot's property (`const row = props.row(args); row.done`) landed where the server template cannot bind it.",
-    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/binding-slot-position"
-  },
-  {
     "code": "CLEANUP_IN_FORBIDDEN_SCOPE",
     "kind": ["lifecycle"],
     "severity": ["error"],

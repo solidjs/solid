@@ -32,8 +32,7 @@ import type { Element as SolidElement } from "solid-js";
 // already uses — importing it from the runtime source instead bundles a second
 // copy of `insert` and the reconcile/render machinery it drags in (~4kb the app
 // already has). Kept external in rollup.config.js for the same reason the
-// server-functions/client import below is. (`assign` — a binding slot's
-// position writer — is the bind tier's import, not this entry's.)
+// server-functions/client import below is.
 // `installServerComponentHydration` is the server-component half of
 // hydration — solid's hold, claim window, fragment ownership and ledger
 // answer, and the DOM runtime's declared claim roots and frame exclusion of
@@ -51,7 +50,6 @@ import {
   prepareTier,
   releaseDeferHolds,
   setDeferDriver,
-  slotShapeFinding,
   tierLoaders,
   tierLoads,
   type TierModule
@@ -106,17 +104,6 @@ tierLoaders.regions = () => import("@solidjs/web/frames/regions");
 // fallback stays on screen, no segment reveals unstyled. The module's
 // exports are the dispatch (`gate`, `apply`); no install.
 tierLoaders.assets = () => import("@solidjs/web/frames/assets");
-// The bind tier (frames savings pass §3 row C6): binding-slot positions
-// (principles §9.2.3) — the `_s:*` marker parsers, consumer discovery, the
-// morph's owned-position arms, the per-frame consumer set and the fill's
-// binding (`assign` over every consuming element) — as the chunk
-// `@solidjs/web/frames/bind` (bind-tier.ts). The server announces `bind`
-// wherever a slot is read as data (the slot proxy's `needs("bind")`); a
-// marker met in a frame's content while the tier is absent is noted by
-// the sync's walk and the frame holds on the note, its load started by
-// the readiness check (frame-client.ts, `#syncSlots`). The module's
-// exports are the dispatch; no install.
-tierLoaders.bind = () => import("@solidjs/web/frames/bind");
 // The live wire tier (frames savings pass §3 row C2): what a `live()`
 // loop's connection needs of the frames transport — the per-address
 // connection (join / open / supersede), the SSE reader selection and the
@@ -162,11 +149,6 @@ export {
 } from "./frame-client.js";
 // The shape a tier loader resolves (`InstallOptions.tiers`); type-only.
 export type { TierModule } from "./frame-client.js";
-// The bind tier's import of this entry (bind-tier.ts): one copy of the
-// async-value probe, and the edge that keeps the chunk attached to the
-// entry's graph in an app's bundler.
-/** @internal */
-export { isAsyncValue } from "./frame-client.js";
 // `FRAME_HAVE_HEADER` / `FRAME_HAVE_BUDGET` are the SERVER entry's
 // (`@solidjs/web/frames/server`): the client sends the have-list itself
 // (`resume`, through the handler) and no consumer of this entry reads the
@@ -184,7 +166,7 @@ export {
 // Server components are authored in universal code, so the slot type has to
 // resolve under the browser condition too. Type-only, so nothing crosses into
 // the client bundle.
-export type { Slot, BindingSlot, SlotOutput, SlotError } from "./server.js";
+export type { Slot } from "./server.js";
 
 /**
  * Client-condition twin of the server face's `asyncArg` (DR-2 value tier):
@@ -730,46 +712,6 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           if (prevFill) {
             fillScopes.delete(key);
             prevFill.dispose();
-          }
-          // Binding slot (§9.2.3): the occurrence's node is the set of server
-          // elements reading its properties at bound positions. Always under
-          // a per-occurrence owner: the binding must die with the occurrence
-          // (a later response dropping it, or every consumer replaced by
-          // the morph). The binding itself is the BIND TIER's
-          // (`bind`, bind-tier.ts) — resident by construction: positions
-          // exist only once the tier parsed the markers.
-          if (ctx && ctx.positions) {
-            const fill = props[prop];
-            if (typeof fill !== "function") {
-              if (IS_DEV) {
-                slotShapeFinding(
-                  { reason: "fill-shape", occurrence: key, shape: typeof fill },
-                  `[BINDING_SLOT_POSITION] Server markup reads slot \`${prop}\` as data (\`${key}\`), ` +
-                    `but the client prop is ${typeof fill === "object" ? "an object" : `a ${typeof fill}`}, ` +
-                    `not a function. The fill is a function of the occurrence's args returning the object ` +
-                    `the markup reads: \`${prop}={args => ({ … })}\`. Nothing binds until it is.`
-                );
-              }
-              return undefined;
-            }
-            const owner = createOwner();
-            fillScopes.set(key, owner);
-            ctx.onCleanup(() => {
-              if (fillScopes.get(key) === owner) fillScopes.delete(key);
-              owner.dispose();
-            });
-            runWithOwner(owner, () => {
-              const args = ctx.onUpdate
-                ? liveSlotProps(slotProps, ctx)
-                : slotArgsProxy(() => slotProps);
-              tierLoads.bind.r.bind(
-                fill,
-                args,
-                ctx,
-                IS_DEV ? `the \`${prop}\` binding-slot fill` : undefined
-              );
-            });
-            return undefined;
           }
           // A range occurrence without its end marker has no anchor to bind
           // before (the document is corrupted — `FRAME_MARKER_CORRUPTED`,

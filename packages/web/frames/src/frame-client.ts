@@ -149,8 +149,7 @@ export type FrameChunk = (
 /**
  * The in-band tier announcement (frames savings pass §2; additive — RFC 11
  * addendum): the frames-client tiers the render first needed since the
- * last chunk left — `"bind"`, `"regions"`, `"assets"`, `"trace"`,
- * `"wire"` — on whichever chunk leaves next. The response head carries the
+ * last chunk left — `"regions"`, `"assets"`, `"trace"`, `"wire"` — on whichever chunk leaves next. The response head carries the
  * tiers minted before it (`X-Frame-Tiers`); a tier minted later rides
  * here. The client starts each named tier's load before applying the
  * chunk; a `data` chunk additionally AWAITS them (its node tree needs the
@@ -220,8 +219,8 @@ export interface SlotContext {
    * — the anchor the fill owns its interior through: bind or place the
    * output before `end` (over `existing`) with the framework's insert
    * primitive. The frame never touches a range's interior itself (server
-   * morphs protect slot ranges). Absent for a binding-slot occurrence
-   * (`positions`) and for a range whose end marker is missing.
+   * morphs protect slot ranges). Absent for a range whose end marker is
+   * missing.
    */
   range?: { start: Comment; end: Comment };
 }
@@ -547,63 +546,11 @@ const SLOT_START = /^slot:(.+):start$/;
 const SLOT_END = /^slot:(.+):end$/;
 const slotEnd = id => `slot:${id}:end`;
 
-// === Binding slots (principles §9.2.3: a slot read at positions of server markup) ===
-//
-// A server element that reads a binding slot's properties carries one marker
-// per bound position — `_s:<attribute>="<occurrence>:<key>"`, with the
-// class name / style property appended for a name inside `class`/`style`
-// (`_s:class="row#1:done=completed,row#1:busy=pending"`), `_s:on:<event>`
-// for a handler, `_s:ref` for a ref. The OCCURRENCE is the slot call (one
-// data context — `props.row({ id, completed })`), not the element: any
-// number of elements consume it, and the sync mounts it once, handing the
-// consumer every (element, position, key) it found. The fill runs once per
-// occurrence with the occurrence's args (the same `slot:<occurrence>` record
-// a markup slot's call emits) and writes each position from its returned
-// object; a re-emitted record updates the args in place, as for markup
-// occurrences. The elements stay server-owned: the morph keeps them (keyed
-// or positional), and reads the markers off INCOMING markup to know which
-// positions are the client's (see `morphAttributes`) — no ownership table.
-//
-// A TEXT position is a comment pair around the value,
-// `<!--_s:t=<occurrence>:<key>-->…<!--/_s:t-->`, registered on its parent
-// element beside that element's attribute positions (`{ pos: "text", key,
-// start }`); the fill writes the one text node between the markers, and the
-// morph keeps a pair it meets again (see `reconcileChildren`).
-//
-// Everything that READS a marker — the entry parser, the consumer
-// registration (`positions` / `text`), the owned-position arms of the
-// morph (`owned` / `apply`), the per-frame consumer set and rebinder
-// (`sync` / `rebinder` / `unmount`) and the fill's binding (`bind`) — is
-// the BIND TIER's (`@solidjs/web/frames/bind`, bind-tier.ts; frames savings
-// pass §3 row C6), reached through its resident stamp (`tierLoads.bind.r`).
-// The eager client keeps the constants, one test — whether a node carries
-// a marker at all (`hasSlotMarker`, `isTextStart`) — and the morph's
-// text-pair arm (a position's text survives a morph by not being
-// reconciled; see `reconcileChildren`). The sync's walk NOTES a marker met
-// while the tier is absent (`found.b`) and the frame holds on the note —
-// the tier's load started by the readiness check, the install's flush
-// re-walking with the tier in place.
-/** @internal (the bind tier's own copy — see bind-tier.ts) */
-export const SLOT_MARKER = "_s:";
-/** @internal (the bind tier's own copy — see bind-tier.ts) */
-export const SLOT_TEXT = SLOT_MARKER + "t=";
-const SLOT_TEXT_END = "/" + SLOT_MARKER + "t";
-
-const isTextStart = n => n.nodeType === COMMENT_NODE && n.data.startsWith(SLOT_TEXT);
-
-/** Whether an element carries any `_s:*` marker (the detection alone; the
- *  tier parses it). */
-function hasSlotMarker(el) {
-  const attrs = el.attributes;
-  for (let i = 0; i < attrs.length; i++) if (attrs[i].name.startsWith(SLOT_MARKER)) return true;
-  return false;
-}
-
 /**
  * Whether a slot arg value is an async value passed whole (a promise or an
  * async iterable) — DR-2's value tier. The server never resolves these to
  * dead values; the client suspends at the consumption read.
- * @internal (the client entry's and the bind tier's — each its own copy)
+ * @internal (the client entry's)
  */
 export function isAsyncValue(v: any): boolean {
   return (
@@ -614,37 +561,6 @@ export function isAsyncValue(v: any): boolean {
 }
 
 /**
- * A value's shape, as the binding-slot shape findings name it.
- * @internal (dev only; the client entry's and the bind tier's)
- */
-export function shapeOf(v: unknown): string {
-  return v === null
-    ? "null"
-    : typeof Node === "function" && v instanceof Node
-      ? "a DOM node"
-      : Array.isArray(v)
-        ? "an array"
-        : isAsyncValue(v)
-          ? "an async value"
-          : typeof v;
-}
-
-/**
- * Dev finding (`BINDING_SLOT_POSITION`): the client side of a binding slot
- * has the wrong shape — the fill's return is not an object or the prop is
- * not a function (`fill-shape`), or a text position's value is not a
- * primitive (`text-shape`). Through the diagnostics channel, so an
- * observer captures it beside the server's findings.
- * @internal (dev only; the client entry's and the bind tier's)
- */
-export function slotShapeFinding(data: Record<string, string>, message: string) {
-  DEV!.report(
-    OBSERVE!.diagnostics.emit(
-      { code: "BINDING_SLOT_POSITION", kind: "render", severity: "warn", message, data },
-      null
-    )
-  );
-} /**
  * Maps a wire chunk onto resident-store record writes. `data` chunks map to
  * no records — they are response-scoped and the host applies them through
  * its data hook.
@@ -1121,9 +1037,8 @@ export const FRAME_APPLIED_EVENT = "frame:applied";
 // === Tiers (frames savings pass §2: the server-announced tier mechanism) ===
 //
 // A TIER is a named slice of the frames client's capability that may live
-// in its own chunk and load on demand: `bind` (binding-slot positions),
-// `regions` (nested server-content regions), `assets`, `trace` (container
-// traces), `wire` (the live loop). The server knows at render time which
+// in its own chunk and load on demand: `regions` (nested server-content
+// regions), `assets`, `trace` (container traces), `wire` (the live loop). The server knows at render time which
 // of them a response or a document needs — it mints the feature — and
 // ANNOUNCES the names (`X-Frame-Tiers` on a stream, `_$HY.r["sc:tiers"]`
 // plus `modulepreload` links on a document, `chunk.tiers` in-band), so the
@@ -1141,7 +1056,7 @@ export const FRAME_APPLIED_EVENT = "frame:applied";
 // entry, client.ts) carries the tiers that have been cut — `trace`, the
 // container tier's client half (plan step C3); `regions`, nested
 // server-content regions (C4); `assets`, the head mirror and the
-// stylesheet gate (C5); `bind`, binding-slot positions (C6) — and
+// stylesheet gate (C5) — and
 // `installServerComponents({ tiers })` adds or replaces entries; a name
 // with no loader is eager and resident by definition (`wire` today).
 /**
@@ -1328,17 +1243,6 @@ class FrameImpl {
   // keeps (kept here too, as the ledger is absent while the tier loads) —
   // the base a row-op record must name to be applied (#4064).
   #shows = {};
-  // The last full slot walk's result (#syncSlots' found map; dropped by a
-  // root morph and an empty write) and, during a flush, the ranges its
-  // live holes morphed — `[open, close]` for a hole, `[element]` for an
-  // attr patch.
-  #found;
-  #morphed;
-  // Content a reveal or a materialized fallback inserts (its first node),
-  // until a full walk has seen it in the frame: a reveal boundary whose
-  // fills pend inserts it later, outside any flush, and the sync after it
-  // lands must walk the whole frame.
-  #pendingReveals: Node[] = [];
   // The have-list (RFC 11 §9.5) — what this mount currently shows, by the
   // server's own digests — is the live wire tier's ledger (wire-tier.ts,
   // `have` / `haveOf`): this frame hands it every applied content record
@@ -1353,10 +1257,6 @@ class FrameImpl {
   // REGIONS TIER's (`@solidjs/web/frames/regions`, plan C4), kept by that
   // module per frame and reached through its resident stamp
   // (`tierLoads.regions.r`).
-  // Nor data-occurrence state (§9.2.3): the consumer set last handed to a
-  // mount and the mount's rebind callback (`ctx.onRebind`) are the BIND
-  // TIER's (`@solidjs/web/frames/bind`, plan C6), kept by that module per
-  // frame (`sync` / `rebinder` / `unmount` off `tierLoads.bind.r`).
   // Nor the mounts' output: the fill owns its range (it places or binds
   // before the end marker through `ctx.range`), and nothing reads the
   // nodes back — "mounted" is `#mountedSlots`, not a check on them.
@@ -1505,14 +1405,7 @@ class FrameImpl {
       this.#resetStreamState();
     }
 
-    // Only a root morph and a reveal change the frame's DOM outside the
-    // ranges live holes morph, so any other write — a sweep's `ops` unit, a
-    // re-sent slot record, the bulk of a live stream — has its slot sync
-    // walk just those ranges instead of the whole frame (see #syncSlots).
-    // An empty write is the "re-walk what you hold" signal (a tier
-    // install, the document face's reveal): it drops the last walk.
-    let key;
-    for (key in write.r) {
+    for (const key in write.r) {
       // Deferred, an occurrence not mounted yet still shows the markup its
       // record was rendered from: it mounts claiming with that record, and
       // a later one applies after (see the hold in #mountFound).
@@ -1527,7 +1420,6 @@ class FrameImpl {
         this.#heldRecords.has(occurrence) || this.#heldRecords.set(occurrence, prev);
       this.#store[key] = write.r[key];
     }
-    if (key === undefined) this.#found = undefined;
     this.#flush();
   }
 
@@ -1596,7 +1488,6 @@ class FrameImpl {
     this.#appliedHoles.clear();
     this.#liveTargets.clear();
     this.#shows = {};
-    this.#pendingReveals = [];
   }
 
   #flush() {
@@ -1666,7 +1557,6 @@ class FrameImpl {
     // `frame:applied` must never read the DOM with one of its holes moved
     // and a sibling still showing the previous value).
     let morphed = false;
-    this.#morphed = [];
     // The pass's displaced-range index (see #applyHole), made at its first
     // hole morph: `r`, the frame's slot ranges by occurrence; `g`, the
     // subtrees the morphs inserted whole.
@@ -1715,7 +1605,7 @@ class FrameImpl {
       this.#deferFound = undefined;
       this.#deferMounted.clear();
     }
-    this.#syncSlots(undefined, this.#morphed);
+    this.#syncSlots();
   }
 
   /**
@@ -1772,14 +1662,7 @@ class FrameImpl {
   // then the filled fragment is committed. Those occurrences mount here and are
   // skipped by the next full sync; the unmount sweep is full-frame-only (a
   // scoped fill only ADDS occurrences, never removes the frame's others).
-  //
-  // `ranges`, when given, are the ranges a flush's live holes morphed
-  // (possibly none). Unless the last walk was dropped or a reveal's content
-  // landed since, nothing outside them changed, so discovery reuses the
-  // last full walk's result and walks only them (the bind tier's `reuse`):
-  // a live stream's every write otherwise re-walked, and re-parsed the
-  // binding markers of, everything the frame shows.
-  #syncSlots(root?, ranges?) {
+  #syncSlots(root?) {
     if (!this.#slots && !this.#outer) return;
 
     // Range-driven discovery: find every server-owned slot occurrence in this
@@ -1787,52 +1670,9 @@ class FrameImpl {
     // "comment#0"); the callback is looked up by its prop — the part before
     // "#" — so one callback services N occurrences from an iterated render
     // prop.
-    // Data occurrences (`_s:*` markers, principles §9.2.3) land in the same
-    // map, keyed the same way, with their CONSUMERS as the occurrence's
-    // node: an array of `{ element, positions }` in document order. The
-    // loop below treats them as occurrences whose mount binds those
-    // positions rather than filling a range (no interior, no regions, never
-    // replaced), and whose consumer set may change without a re-call.
-    const found: Map<any, any> & { b?: boolean } = new Map();
-    // The bind tier loading but not resident (an announced tier's load
-    // starts at install): the install's flush re-syncs with the tier in
-    // place, so this sync only needs to hold. Note it up front and walk
-    // comments alone — an element scan for `_s:*` positions here would be
-    // thrown away.
-    const loading = tierLoads.bind;
-    const elements = loading && !loading.r ? void (found.b = true) : found;
-    if (root) collectSlots(root, found, elements);
-    else {
-      // The reuse is the bind tier's (`reuse`): consumer lists are what a
-      // walk costs and what reuse must keep exact. Without the tier the
-      // walk sees comments alone, which the platform steps natively.
-      const el = this.#element;
-      const pending = this.#pendingReveals;
-      const B = tierLoads.bind?.r;
-      if (
-        !ranges ||
-        !elements ||
-        !B ||
-        pending.some(n => el.contains(n)) ||
-        !B.reuse(this.#found, ranges, found, el)
-      ) {
-        this.#collectSlots(found, elements);
-        this.#pendingReveals = pending.filter(n => !el.contains(n));
-      }
-      this.#found = elements ? found : undefined;
-    }
-    let waiting = this.#mountFound(found);
-
-    // The bind tier's wait (frames savings pass §1, "bind"; §3 row C6): the
-    // walk met a `_s:*` marker — an element's or a text position's — while
-    // the tier that parses it is absent, and noted it (`found.b`) without
-    // registering an occurrence. The data occurrences stay as the server
-    // left them — positions at the server's values, handlers inert, their
-    // events queued behind each consumer's own `_hk` stamp — and the frame
-    // waits: the check starts the load (the un-announced fallback;
-    // announced, it is already in flight), the install's flush re-syncs
-    // with the tier in place and the loop above mounts them.
-    if (found.b && !tierReady("bind")) waiting = true;
+    const found = new Map();
+    this.#collectSlots(found, root);
+    const waiting = this.#mountFound(found);
 
     // Unmount occurrences whose range has disappeared from the server content
     // — full-frame syncs only; a scoped fragment fill never removes siblings.
@@ -1863,26 +1703,16 @@ class FrameImpl {
     // record, for a `{$ref}`'s data: a claim the frame owes the page and has
     // not made yet (see the hold at the end).
     let waiting = false;
-    // The regions and bind tiers' appliers, if resident (an install cannot
-    // land mid-sync: it is a load's continuation). Absent, nothing in this
-    // sync can need them — a record naming a region waits (`needsRegions`);
-    // a marker met with the bind tier absent is a NOTE on the found map
-    // (`found.b`, no consumer entry — see `collectSlots`) and the sync
-    // holds on it below, so `B` is resident wherever `consumers` exist.
+    // The regions tier's appliers, if resident (an install cannot land
+    // mid-sync: it is a load's continuation). Absent, nothing in this sync
+    // can need them — a record naming a region waits (`needsRegions`).
     const R = tierLoads.regions?.r;
-    const B = tierLoads.bind?.r;
 
     for (const [occurrence, start] of found) {
       const callback = this.#resolveSlot(propOf(occurrence));
-      const consumers = Array.isArray(start) ? start : null;
-      if (!callback) {
-        // No client impl for this prop up the tree. A range stays empty,
-        // which content can mean; bound positions never bind, which
-        // nothing can mean — the elements sit inert with no error. Dev
-        // names them (once per occurrence).
-        if ("_SOLID_DEV_" && consumers) devSlotOrphan(this, occurrence, consumers, "fill");
-        continue;
-      }
+      // No client impl for this prop up the tree: the range stays empty,
+      // which content can mean.
+      if (!callback) continue;
       const record = this.#resolveSlotRecord(occurrence);
       // A mounted occurrence is one this frame invoked and has not unmounted;
       // the morph never destroys a mount's output (identity-first matching
@@ -1917,8 +1747,6 @@ class FrameImpl {
       // it there (the document's declaration may still settle).
       if (record === undefined && isCalled(occurrence)) {
         waiting ||= !mounted;
-        if ("_SOLID_DEV_" && consumers && !mounted && !this.#options.adopt)
-          devSlotOrphan(this, occurrence, consumers, "record");
         continue;
       }
       // A record's args are client values by the time it is here: the host
@@ -1944,15 +1772,11 @@ class FrameImpl {
       // absent). Resident tiers cost one test; an absent one has its load
       // started by the check (`tierReady`) and the occurrence stays as the
       // server left it — its interior on screen — until the install's
-      // flush re-syncs. (A data occurrence's own tier, `bind`, is waited
-      // for at the walk: absent, no consumer entry reaches this loop — see
-      // the note after it.) On the adopt path this wait is one more reason
-      // in the frame's registered hold (3.1): hydration-done waits. The
-      // hold does NOT keep the delegated-event replay window open for the
-      // page's elements — replay is keyed on each `_hk` element's
-      // completion, which the root pass grants long before the hold lifts;
-      // an event-slot consumer's window is its own `_hk` stamp, completed
-      // by the bind tier at the bind (see bind-tier.ts).
+      // flush re-syncs. On the adopt path this wait is one more reason in
+      // the frame's registered hold (3.1): hydration-done waits. The hold
+      // does NOT keep the delegated-event replay window open for the page's
+      // elements — replay is keyed on each `_hk` element's completion,
+      // which the root pass grants long before the hold lifts.
       if (
         !mounted &&
         record &&
@@ -1967,11 +1791,7 @@ class FrameImpl {
         // replacement's args instead would trust markup rendered from the
         // old ones and leave every differing text hole stale: a claim pass
         // never rewrites text (frames-rulings 3.6).
-        // A data occurrence mounts with the CURRENT record instead: its
-        // positions are written whole at the bind (the fill's object over
-        // the server's values — never claimed), so the latest args are the
-        // right ones and the held/current two-step would write twice.
-        if (this.#options.adopt && !consumers)
+        if (this.#options.adopt)
           this.#heldRecords.has(occurrence) || this.#heldRecords.set(occurrence, record);
         continue;
       }
@@ -2006,9 +1826,6 @@ class FrameImpl {
         this.#heldRecords.delete(occurrence);
         const mountRecord = held || record;
         this.#invokeSlot(occurrence, callback, mountRecord, start, this.#options.adopt);
-        // A data occurrence's consumer set is handed to the tier (`sync`),
-        // which keeps it per frame for the rebind below.
-        if (consumers) B.sync(this, occurrence, consumers);
         this.#mountedSlots.add(occurrence);
         // Bind the occurrence's regions (the tier): a frame over each region
         // element #resolveArgs minted or — on the adopt path — discovered in
@@ -2016,12 +1833,6 @@ class FrameImpl {
         R?.bind(this, occurrence);
         if (mountRecord === record || !record || record.kind !== "slot") continue;
       }
-      // A mounted data occurrence whose CONSUMERS changed — a morph replaced
-      // one of its elements, a response added or dropped a bound position
-      // — rebinds in place: the fill's computation stays, the binding gets
-      // the new set. The tier compares against the set it keeps and calls
-      // the mount's rebinder. Independent of an args change, which follows.
-      if (consumers) B.sync(this, occurrence, consumers);
       if (record !== this.#slotArgs.get(occurrence)) {
         // A new record that names a region while the regions tier is absent
         // (a refetch adding a `{$frame}` arg to a mounted occurrence — the
@@ -2130,8 +1941,7 @@ class FrameImpl {
     let found = this.#deferFound;
     if (!found) {
       found = this.#deferFound = new Map();
-      const loading = tierLoads.bind;
-      this.#collectSlots(found, loading && !loading.r ? void (found.b = true) : found);
+      this.#collectSlots(found);
     }
     for (const [id, start] of found) {
       found.delete(id);
@@ -2142,8 +1952,7 @@ class FrameImpl {
     this.#deferred = false;
     this.#deferFound = undefined;
     this.#deferMounted.clear();
-    if ((this.#deferWaiting || (found.b && !tierReady("bind"))) && !this.#hold)
-      this.#hold = this.#options.hold?.();
+    if (this.#deferWaiting && !this.#hold) this.#hold = this.#options.hold?.();
     return true;
   }
 
@@ -2179,10 +1988,7 @@ class FrameImpl {
     // the range.
     let existing = [];
     let end = null;
-    // A data occurrence's node is its consumer list: no interior to collect,
-    // no end marker. The consumer gets the positions instead.
-    const positions = Array.isArray(start) ? start : undefined;
-    if (start && !positions) end = eachInRange(start, occurrence, n => existing.push(n));
+    if (start) end = eachInRange(start, occurrence, n => existing.push(n));
     const ctx = {
       // Identity for hydration-claim scoping: consumers derive the same
       // key prefix the document producer used for this occurrence. The
@@ -2213,18 +2019,7 @@ class FrameImpl {
       // The range's own markers, when it has them: the fill places or binds
       // its output before `end` — the frame never touches the interior
       // (morphs protect slot ranges).
-      range: end ? { start, end } : undefined,
-      // Binding slot (§9.2.3): the positions of server markup that read this
-      // occurrence — `[{ element, positions: [{ pos, key, name }] }]` in
-      // document order. The consumer runs the fill and writes each position
-      // from its returned object (there is nothing to place). `onRebind`
-      // receives the new set when consumers change
-      // (a morph replaced an element; a response bound a new position)
-      // without the args changing — the fill's computation survives. The
-      // rebinder is kept by the bind tier (resident: positions exist only
-      // once it is), beside the consumer set it compares.
-      positions,
-      onRebind: positions ? fn => tierLoads.bind.r.rebinder(this, occurrence, fn) : undefined
+      range: end ? { start, end } : undefined
     };
     // One record shape (A5): the t=0 record carries used regions as
     // `{$frame}` refs like any stream record would, and #resolveArgs
@@ -2258,9 +2053,8 @@ class FrameImpl {
     this.#runSlotCleanups(key);
     // The occurrence's regions (the tier's): their frames dispose, the
     // entries go. Nothing to do while the tier is absent — no region was
-    // ever bound. Likewise its consumer set and rebinder (the bind tier's).
+    // ever bound.
     tierLoads.regions?.r?.unmount(this, key);
-    tierLoads.bind?.r?.unmount(this, key);
   }
 
   #runSlotCleanups(key) {
@@ -2315,10 +2109,10 @@ class FrameImpl {
     return props;
   }
 
-  /** Collect this frame's own top-level slot ranges (bounded to its content),
-   *  and — for the slot sync — its binding-slot elements into the same map. */
-  #collectSlots(found, elements) {
-    collectSlots(this.#element, found, elements);
+  /** Collect this frame's own top-level slot ranges (bounded to its
+   *  content, or to `root`, a detached fragment being revealed). */
+  #collectSlots(found, root?) {
+    collectSlots(root || this.#element, found);
   }
 
   /** The `pl-<name>` template in `root` (a segment's content being
@@ -2423,7 +2217,6 @@ class FrameImpl {
   #applyRoot(html) {
     this.#liveTargets.clear();
     this.#shows = {};
-    this.#found = undefined;
     const fragment = parseFragment(html);
     const parent = this.#element;
     if (!this.#hasContent) {
@@ -2499,14 +2292,8 @@ class FrameImpl {
       if (!wire) return false;
       if (
         this.#shows[marker] !== record.base ||
-        !wire.rows(
-          open,
-          close,
-          record.rows,
-          parseFragment,
-          (start, end, fragment) =>
-            reconcileChildren(start.parentNode, fragment, start, end, claim),
-          this.#morphed
+        !wire.rows(open, close, record.rows, parseFragment, (start, end, fragment) =>
+          reconcileChildren(start.parentNode, fragment, start, end, claim)
         )
       ) {
         // Once: the record is spent, the resume re-sends the hole whole.
@@ -2515,26 +2302,18 @@ class FrameImpl {
         return false;
       }
     } else {
-      // One index for the pass, made by the first morph that places or
-      // holds a slot range: a range one hole drops may be the one another
-      // hole now places. Other morphs walk no further than their own range.
-      const ranges = index.r || new Map();
-      if (
-        !index.r &&
-        (record.value.includes("<!--slot:") ||
-          (collectSlots(open.parentNode, ranges, undefined, open, close), ranges.size))
-      )
-        (this.#collectSlots((index.r = ranges)), (index.g = []));
+      // One index for the pass: a range one hole drops may be the one
+      // another hole now places. A frame with no slot range needs none.
+      if (!index.r) (this.#collectSlots((index.r = new Map())), (index.g = []));
       reconcileChildren(
         open.parentNode,
         parseFragment(record.value),
         open,
         close,
         claim,
-        index.r?.size ? index.r : null,
+        index.r.size ? index.r : null,
         index.g
       );
-      this.#morphed.push([open, close]);
     }
     return true;
   }
@@ -2571,33 +2350,24 @@ class FrameImpl {
       n => n.nodeType === ELEMENT_NODE && n.getAttribute("data-lha") === addr
     );
     if (!el) return false;
-    this.#morphed.push([el]);
     const parsed = parseFragment(`<i${text}></i>`).firstChild;
     const keepOpen = preservesOpen(el);
-    // Binding-slot positions the rebuilt text marks stay the client's, as in
-    // the root morph (`morphAttributes`).
-    const owned = parsed ? ownedPositions(parsed) : null;
     const current = el.attributes;
     for (let i = current.length - 1; i >= 0; i--) {
       const name = current[i].name;
       if (name === "data-lha" || (keepOpen && name === "open")) continue;
-      if (!parsed || !parsed.hasAttribute(name)) {
-        if (applyOwned(el, name, "", owned) !== undefined) continue;
-        el.removeAttribute(name);
-      }
+      if (!parsed || !parsed.hasAttribute(name)) el.removeAttribute(name);
     }
     if (parsed) {
       for (let i = 0; i < parsed.attributes.length; i++) {
         const { name, value } = parsed.attributes[i];
         if (keepOpen && name === "open") continue;
-        if (applyOwned(el, name, value, owned) !== undefined) continue;
         if (el.getAttribute(name) !== value) el.setAttribute(name, value);
       }
     }
     if (removed)
       for (const name of removed) {
         if (keepOpen && name === "open") continue;
-        if (applyOwned(el, name, "", owned) !== undefined) continue;
         el.removeAttribute(name);
       }
     return true;
@@ -2739,7 +2509,6 @@ class FrameImpl {
         this.#syncSlots(materialized);
         this.#claimTree(materialized);
         this.#revealSegments(materialized);
-        if (materialized.firstChild) this.#pendingReveals.push(materialized.firstChild);
         return materialized;
       }
     });
@@ -2759,7 +2528,6 @@ class FrameImpl {
     if (!closing) return false;
     const fallback = tpl.content.cloneNode(true);
     this.#claimTree(fallback);
-    if (fallback.firstChild) this.#pendingReveals.push(fallback.firstChild);
     closing.parentNode.insertBefore(fallback, closing);
     return true;
   }
@@ -2972,104 +2740,41 @@ function findPlaceholder(n, end, id) {
  * (the child discovers, with callbacks and records threaded down), so slots
  * belonging to nested frames / client content are ignored.
  *
- * ONE pass per walk, as a TreeWalker over the node kinds the pass needs
- * (`whatToShow` — no filter callback: one costs a JS call per node, more
- * than the walk it was to save; measured on the HN story page, 11.7 ms
- * against 6.1): the platform steps over text nodes natively — and over
- * elements too when nothing asks for them — and a comment's data is tested
- * by prefix before any regex runs, so the marker vocabulary a page's
- * comments mostly ARE (`$`/`/` hole pairs, `lh:` live holes) never reaches
- * one. A range's interior is skipped by stepping the walker to its end
- * marker (a sibling scan from the start); the end marker missing is the
+ * ONE pass per walk, as a TreeWalker over comments alone (`whatToShow` —
+ * no filter callback: one costs a JS call per node, more than the walk it
+ * was to save; measured on the HN story page, 11.7 ms against 6.1): the
+ * platform steps over text nodes and elements natively, and a comment's
+ * data is tested by prefix before any regex runs, so the marker vocabulary
+ * a page's comments mostly ARE (`$`/`/` hole pairs, `lh:` live holes) never
+ * reaches one. A range's interior is skipped by stepping the walker to its
+ * end marker (a sibling scan from the start); the end marker missing is the
  * truncated range (dev reports it) and the rest of that sibling list is
- * abandoned, as before. A nested frame element is stepped over whole when
- * elements are shown; a comments-only walk sees its comments and tests a
- * slot start's ancestry instead — once per start marker, not per node.
- *
- * Binding-slot markers (`_s:*`) are looked for when the caller wants them
- * — the slot sync does (`elements`); the morph's range index does not (an
- * element is reconciled as an element, not relocated as a protected range)
- * — AND the page may carry them (`bind`). The server knows at render time
- * whether it minted a binding-slot position and announces the `bind` tier
- * where it did (frames savings pass §2 — the announcement read for the
- * SCAN, not only the load): the document's `sc:tiers` record
- * (frame-sink.ts `documentNeeds`, re-written cumulatively — read HERE, at
- * each walk, not snapshotted at install, so a name a later data script
- * added is seen by the boundary it was added for); a stream's
- * `X-Frame-Tiers` head or in-band `chunk.tiers`, both of which start the
- * tier's load before the chunk that carries the markers applies
- * (`tierLoads.bind` is set from then on, by an announcement or by the
- * walk's own detection). So: the load started, or the record names the
- * tier, or the page announced NOTHING (no record: a page that minted no
- * tier, a sync render, an older producer) — detection stays, as the
- * un-announced fallback. Only a page that announced OTHER tiers and not
- * this one is trusted to carry no position: its walk sees comments alone
- * (a `_s:` marker it meets anyway is a producer out of step with its own
- * announcement, not a client-side case). Only then are elements shown to
- * the walk at all.
- *
- * The BIND TIER parses the markers: a text position's start marker joins
- * its parent element's consumer entry (`text`); an element's positions
- * join its occurrence's consumer list, in document order (`positions`).
- * With the tier absent, the walk only NOTES that a marker was met
- * (`elements.b`) — the sync holds on the note and the install's flush
- * re-walks. A text pair's interior (one text node, the end marker) and the
- * element's interior are walked like any server content: they may hold
- * further occurrences of either kind.
+ * abandoned, as before. A slot start inside a nested frame element is that
+ * frame's: its ancestry is tested once per start marker, not per node.
  */
-/** @internal (exported for the bind tier's `reuse`) */
-export function collectSlots(root, out, elements, from?, to?) {
-  let announced;
-  // `elements` is the found map or undefined; `tierLoads.bind` a promise or undefined.
-  const bind =
-    elements &&
-    (tierLoads.bind ||
-      !(announced = (globalThis as any)._$HY?.r?.["sc:tiers"]) ||
-      announced.includes("bind"));
-  const B = bind && tierLoads.bind?.r;
-  // `NodeFilter.SHOW_COMMENT`, `| SHOW_ELEMENT` — as literals (the same on
-  // every platform).
-  const w = root.ownerDocument.createTreeWalker(root, bind ? 0x81 : 0x80);
-  // A range walk (`from`/`to`, siblings under `root`): the nodes between.
-  if (from) w.currentNode = from;
+function collectSlots(root, out) {
+  // `NodeFilter.SHOW_COMMENT`, as a literal (the same on every platform).
+  const w = root.ownerDocument.createTreeWalker(root, 0x80);
   let n, p;
-  while ((n = w.nextNode()) && n !== to) {
-    if (n.nodeType !== COMMENT_NODE) {
-      // An element (shown only when markers are looked for): a nested frame
-      // is stepped over whole (below); any other with attributes is parsed
-      // or noted.
-      if (!n.hasAttribute(FRAME_ID_ATTR)) {
-        if (n.hasAttributes())
-          B ? B.positions(n, elements) : hasSlotMarker(n) && (elements.b = true);
-        continue;
-      }
-      p = n;
-    } else if (n.data.startsWith("slot:")) {
-      const id = slotStartId(n);
-      if (!id) continue;
-      if (!bind) {
-        // Comments-only: a start inside a nested frame element is its own.
-        for (p = n.parentNode; p !== root; p = p.parentNode)
-          if (p.hasAttribute(FRAME_ID_ATTR)) break;
-        if (p !== root) continue;
-      }
-      if (!out.has(id)) out.set(id, n);
-      const end = findMarker(n, slotEnd(id));
-      if (end) {
-        w.currentNode = end;
-        continue;
-      }
-      if ("_SOLID_DEV_") devReportRange(id);
-      // Truncated: abandon the rest of this sibling list (below).
-      p = n.parentNode;
-      if (p === root) return;
-    } else {
-      if (bind && n.data.startsWith(SLOT_TEXT)) B ? B.text(n, elements) : (elements.b = true);
+  while ((n = w.nextNode())) {
+    if (!n.data.startsWith("slot:")) continue;
+    const id = slotStartId(n);
+    if (!id) continue;
+    for (p = n.parentNode; p !== root; p = p.parentNode) if (p.hasAttribute(FRAME_ID_ATTR)) break;
+    if (p !== root) continue;
+    if (!out.has(id)) out.set(id, n);
+    const end = findMarker(n, slotEnd(id));
+    if (end) {
+      w.currentNode = end;
       continue;
     }
-    // Step over `p`'s subtree: from its deepest last descendant, the
-    // walker's `nextNode` climbs out (a `nextSibling` call would stop at
-    // an accepted parent).
+    if ("_SOLID_DEV_") devReportRange(id);
+    // Truncated: abandon the rest of this sibling list. Step over the
+    // parent's subtree: from its deepest last descendant, the walker's
+    // `nextNode` climbs out (a `nextSibling` call would stop at an accepted
+    // parent).
+    p = n.parentNode;
+    if (p === root) return;
     while (p.lastChild) p = p.lastChild;
     w.currentNode = p;
   }
@@ -3156,54 +2861,15 @@ function preservesOpen(el) {
   return t === "DETAILS" || t === "DIALOG";
 }
 
-// Binding-slot ownership (principles §9.2.3). The INCOMING element's `_s:*`
-// markers say which of its positions a client fill writes: `_s:hidden` owns
-// the `hidden` attribute; `_s:class="occ:k=done"` owns the class name
-// `done` and `_s:class="occ:k"` the whole `class` string (likewise `style`
-// and its properties); `_s:on:*` / `_s:ref` are not attributes and need no
-// guard. A position the client owns is left alone by the morph: not
-// removed, not set. `class`/`style` are shared attributes — the server's
-// classes and the fill's toggled names live in one string — so when a fill
-// owns NAMES within them the morph applies the server's value and re-imposes
-// the owned names' live state on top. The markers themselves are ordinary
-// attributes and morph like any other, which is what lets the slot sync
-// see a consumer change.
-//
-// The parse and the re-imposition are the BIND TIER's (`owned` / `apply`,
-// bind-tier.ts): while it is absent nothing is bound, so nothing is the
-// client's and the morph writes the server's values whole — `null` here,
-// the "no owned positions" answer the arms already take.
-/** The incoming element's owned positions, or null (none, or the tier
- *  absent). */
-const ownedPositions = el => {
-  const B = tierLoads.bind?.r;
-  return B ? B.owned(el) : null;
-};
-/**
- * Apply the server's value for `name` (null: absent) to an element with
- * binding-slot positions: a client-owned attribute is left alone; owned
- * `class`/`style` NAMES are re-imposed over the server's string. Returns
- * whether the attribute changed, or undefined when the position is not
- * owned and the caller writes it.
- */
-const applyOwned = (oldEl, name, value, owned) =>
-  owned === null ? undefined : tierLoads.bind.r.apply(oldEl, name, value, owned);
-
 function morphAttributes(oldEl, newEl, claim) {
   let reclaim = false;
   let changed = false;
   const keepOpen = preservesOpen(oldEl);
-  const owned = ownedPositions(newEl);
   const oldAttrs = oldEl.attributes;
   for (let i = oldAttrs.length - 1; i >= 0; i--) {
     const name = oldAttrs[i].name;
     if (keepOpen && name === "open") continue;
     if (!newEl.hasAttribute(name)) {
-      const handled = applyOwned(oldEl, name, "", owned);
-      if (handled !== undefined) {
-        changed = handled || changed;
-        continue;
-      }
       oldEl.removeAttribute(name);
       changed = true;
       reclaim ||= claimedAttr(name);
@@ -3214,11 +2880,6 @@ function morphAttributes(oldEl, newEl, claim) {
     const attr = newAttrs[i];
     const name = attr.name;
     if (keepOpen && name === "open") continue;
-    const handled = applyOwned(oldEl, name, attr.value, owned);
-    if (handled !== undefined) {
-      changed = handled || changed;
-      continue;
-    }
     if (oldEl.getAttribute(name) !== attr.value) {
       oldEl.setAttribute(name, attr.value);
       changed = true;
@@ -3257,8 +2918,6 @@ function morphNode(oldNode, newNode, claim, ranges, grafts) {
 
 /** The sibling immediately after the `slot:<id>:end` marker for `start`. */
 const afterRange = (start, id) => findMarker(start, slotEnd(id))?.nextSibling;
-/** The sibling after a text position's end marker. */
-const afterText = start => findMarker(start, SLOT_TEXT_END)?.nextSibling;
 
 /** The first `end` comment among the siblings after `start` (null if the
  *  range is truncated). */
@@ -3269,52 +2928,6 @@ function findMarker(start, end) {
     n = n.nextSibling;
   }
   return null;
-}
-
-/**
- * Dev: a binding-slot occurrence's marked positions cannot bind — no
- * fill resolves for its prop (`why` = "fill"), or a called occurrence has
- * no args record once records can no longer arrive ("record"). The
- * failure this names is otherwise silent: a handler that never fires, a
- * class that never updates, indistinguishable from nothing happening.
- * One report per occurrence per frame (`slotOrphans`, keyed by frame so
- * the class carries no dev-only field); the elements ride along in `data`
- * so a console can jump to them. A module function, not a method, so the
- * production build sheds it whole with its gated call sites.
- */
-let slotOrphans;
-function devSlotOrphan(frame, occurrence, consumers, why) {
-  if (!"_SOLID_DEV_") return;
-  let seen = (slotOrphans ??= new WeakMap()).get(frame);
-  if (!seen) slotOrphans.set(frame, (seen = new Set()));
-  if (seen.has(occurrence)) return;
-  seen.add(occurrence);
-  const prop = propOf(occurrence);
-  const positions = new Set();
-  for (const c of consumers) for (const p of c.positions) positions.add(p.pos);
-  const where = `${consumers.length} element${consumers.length === 1 ? "" : "s"} (positions: ${[...positions].join(", ")})`;
-  DEV.report(
-    OBSERVE.diagnostics.emit(
-      {
-        code: "BINDING_SLOT_POSITION",
-        kind: "render",
-        severity: "warn",
-        message:
-          why === "fill"
-            ? `[BINDING_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no client fill ` +
-              `resolves for slot \`${prop}\` — those positions never bind and the elements are inert. ` +
-              `Pass \`${prop}\` to the server component on the client (a function returning the object the ` +
-              `markup reads), or check that the prop name matches on both sides.`
-            : `[BINDING_SLOT_POSITION] Server markup binds \`${occurrence}\` at ${where}, but no args record ` +
-              `for it arrived and none can — the fill mounts with empty args. A called slot always emits its ` +
-              `record ahead of the markup that reads it, so this is the frame protocol out of step, not the fill: ` +
-              `a client and server from different builds (a stale dev prebundle, a cached asset), or a runtime ` +
-              `bug minting the marker and the record under different ids.`,
-        data: { reason: "orphan", why, occurrence, elements: consumers.map(c => c.element) }
-      },
-      null
-    )
-  );
 }
 
 /**
@@ -3445,24 +3058,6 @@ function reconcileChildren(
     // Treat reaching the upper bound as "no more old nodes".
     const old = oldChild === boundEnd ? null : oldChild;
 
-    if (
-      old &&
-      isTextStart(newChild) &&
-      old.nodeType === COMMENT_NODE &&
-      old.data === newChild.data
-    ) {
-      // The same binding-slot text position: its interior is the client's
-      // (the incoming one is empty on the stream face) — keep it and skip
-      // both ranges. Any other case reconciles as ordinary nodes; the
-      // consumer change that follows rebinds the owner, which writes the
-      // new range. Eager, not the bind tier's: reconciled as ordinary nodes
-      // the pair's text would be dropped and its unchanged position would
-      // not rebind (same start marker), and a dispatch point here costs
-      // what the arm does (measured, C6).
-      oldChild = afterText(old);
-      newChild = afterText(newChild);
-      continue;
-    }
     if (pid !== null) {
       if (old && slotStartId(old) === pid) {
         // Same slot already here: preserve its live interior untouched

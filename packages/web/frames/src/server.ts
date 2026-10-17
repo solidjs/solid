@@ -51,68 +51,6 @@ setAsyncIterableSharer(shareAsyncIterable);
  */
 export type Slot<P = {}> = (props: P & { $key?: string | number }) => SolidElement;
 
-declare const slotError: unique symbol;
-
-/**
- * A binding slot's rejected return shape: assigning to it fails, and the
- * error names the reason `M`.
- * @experimental
- */
-export type SlotError<M extends string> = { [slotError]: M };
-
-/**
- * What a binding slot's fill may return: `J` when it is a plain object with no
- * `$`-prefixed key (reserved for occurrence identity), otherwise a
- * `SlotError` naming why not.
- * @experimental
- */
-export type SlotOutput<J> = J extends readonly unknown[]
-  ? SlotError<"binding slot output must be an object, not an array">
-  : J extends Node
-    ? SlotError<"binding slot output must be an object, not a DOM node">
-    : J extends (...args: any[]) => any
-      ? SlotError<"binding slot output must be an object, not a function">
-      : J extends PromiseLike<unknown> | AsyncIterable<unknown>
-        ? SlotError<"binding slot output must be settled, not async">
-        : Extract<keyof J, `$${string}`> extends never
-          ? J
-          : SlotError<`reserved key: ${Extract<keyof J, `$${string}`> & string}`>;
-
-/**
- * A binding slot (principles §9.2.3): the client renders an object instead of
- * markup, and the server template binds its properties at positions —
- * `const row = props.row({ id, completed });` then
- * `<li class={row.rowClass} hidden={row.removed}><input checked={row.done}
- * onInput={row.toggle} /></li>`. One call is one data context: any element
- * in the template may read from it, and the client owns exactly the values
- * the template read. Keys are the client's names; the position decides what
- * a property IS (attribute, class name, style property, handler, ref, or
- * text — `<strong>{list.remaining}</strong>`, a string or number). On
- * the server a property is a stand-in, never the value: bind it, never
- * branch on it or compute with it.
- *
- * The fill runs once per occurrence, untracked, as a component body does:
- * state it creates lives with the occurrence, a top-level read is a
- * one-time read, and a getter is the reactive form. Handlers and refs are
- * read once, when an element binds.
- *
- * `P` is the args the server passes (reactive props to the fill, as for
- * `Slot`); `J` is the object the fill returns — the same type a shared
- * component takes as a prop when the client renders it directly, so one
- * `TodoRow` serves both sides. `$key` is occurrence identity, as for `Slot`,
- * and optional: within a render, repeated calls with structurally equal
- * args are one occurrence (a call in a component prop is re-evaluated per
- * position the component binds), so the natural spelling needs no key;
- * `$key` is for state inside the fill's scope that must follow the entity
- * across responses. A slot with no args (`P` empty) is called bare —
- * `const filters = props.filters();` — and is one occurrence named by the
- * prop.
- * @experimental
- */
-export type BindingSlot<P = {}, J extends object = Record<string, unknown>> = {} extends P
-  ? (props?: P & { $key?: string | number }) => SlotOutput<J>
-  : (props: P & { $key?: string | number }) => SlotOutput<J>;
-
 /**
  * Types an async value crossing the slot border (DR-2, value tier). What you
  * pass is what ships — the promise / async iterable itself rides the data

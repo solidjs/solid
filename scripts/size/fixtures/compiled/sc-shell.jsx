@@ -4,7 +4,8 @@
 // sc-live-app.js keep the same runtime pieces alive as values and never
 // compile a template, so the attribute runtime a compiled template imports
 // — `className`, `style`, `setAttribute`, `addEvent`, `delegateEvents` —
-// reaches those pages only through the bind tier's `assign` edge, and a
+// does not reach those pages at all (it reached them through the bind
+// tier's `assign` edge until binding slots were removed, 2026-10-16), and a
 // change that "removes" it there removes nothing from a real one. Here it
 // is reached the way compiled templates reach it. Each construct is here
 // because a real page has it:

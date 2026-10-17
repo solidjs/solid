@@ -77,7 +77,6 @@ export interface PluginConfig {
   memoWrapper: string | false;
   validate: boolean;
   inlineStyles: boolean;
-  serverComponents: boolean;
   /** SSR only: emit each component's props literal with getters as a
    * module-level constructor with shared getters (one hidden class per call
    * site, no closure per getter per instance) instead of an object literal,
@@ -122,7 +121,6 @@ const config: PluginConfig = {
   memoWrapper: "memo",
   validate: true,
   inlineStyles: true,
-  serverComponents: false,
   hoistProps: true
 };
 

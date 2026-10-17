@@ -78,13 +78,12 @@ const floorMinified = Object.fromEntries(
 // 2026-10-06: nested server-content regions) is the third, `regions.js`,
 // and its ASSETS TIER (`@solidjs/web/frames/assets` — plan step C5,
 // 2026-10-06: the stylesheet gate, module / typed preloads, inline styles)
-// the fourth, `assets.js`, and its BIND TIER (`@solidjs/web/frames/bind` —
-// plan step C6, 2026-10-06: binding-slot positions, `assign` with them)
-// the fifth, `bind.js`, and its LIVE WIRE TIER (`@solidjs/web/frames/wire`
+// the fourth, `assets.js`, and its LIVE WIRE TIER (`@solidjs/web/frames/wire`
 // — plan step C2, 2026-10-06: a `live()` loop's connection — join / open /
 // supersede, the SSE reader, the lifetime told to the loop, the have-list
-// ledger and the resume request) the sixth, `wire.js` — each lazy, not
-// counted. The "frames: eager client consumer" scenario measures the
+// ledger and the resume request) the fifth, `wire.js` — each lazy, not
+// counted. (A bind tier, `bind.js`, was the fifth until binding slots were
+// removed, 2026-10-16.) The "frames: eager client consumer" scenario measures the
 // package; these measure the page.
 // Subpath aliases first (see above) — the tier specifiers before
 // `@solidjs/web/frames` and `solid-js/internal`, which would otherwise
@@ -93,7 +92,6 @@ const pageAlias = {
   "@solidjs/web/frames/trace": "../../packages/web/frames/dist/trace.js",
   "@solidjs/web/frames/regions": "../../packages/web/frames/dist/regions.js",
   "@solidjs/web/frames/assets": "../../packages/web/frames/dist/assets.js",
-  "@solidjs/web/frames/bind": "../../packages/web/frames/dist/bind.js",
   "@solidjs/web/frames/wire": "../../packages/web/frames/dist/wire.js",
   "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
@@ -154,13 +152,12 @@ const framesExternal = [
   // The traces tier: lazily imported by the frames client (plan step C3,
   // 2026-10-06) — external like the codec, so this scenario keeps measuring
   // the eager graph alone; its own `solid-js` entry rides with it. The
-  // regions tier (C4), the assets tier (C5), the bind tier (C6) and the live
-  // wire tier (C2) likewise.
+  // regions tier (C4), the assets tier (C5) and the live wire tier (C2)
+  // likewise.
   "solid-js/internal/container-trace",
   "@solidjs/web/frames/trace",
   "@solidjs/web/frames/regions",
   "@solidjs/web/frames/assets",
-  "@solidjs/web/frames/bind",
   "@solidjs/web/frames/wire",
   "@solidjs/web",
   "@solidjs/web/serialization",
@@ -1411,8 +1408,7 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     limit: "7.86 KB",
-    capMinified: 21584,
-    capMinified: 22716
+    capMinified: 21584
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -4535,15 +4531,20 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    // Size-Exception (slots in live holes, 2026-10-17): 12.80 -> 12.90 KB,
-    // measured at 12,889 B brotli / 38,861 B minified against the base's 12,790
-    // / 38,500 (+99 B; +361 B minified). A re-run live hole's markup is morphed
-    // against the displaced-range index, so slot occurrences that survive stay
-    // mounted, new ones mount and dropped ones dispose; deferred, an occurrence
-    // not mounted yet keeps the record its markup was rendered from. Cap at
-    // measured + 10 B rounded up to 0.01 KB.
-    limit: "12.90 KB",
-    capMinified: 38861,
+    // Binding slots removed (2026-10-16): 12.80 KB -> 12.16 KB, measured
+    // locally (linux) at 12,149 B brotli / 36,598 B minified
+    // (-641 B brotli / -1,902 B minified against the
+    // #4120 head's 12,790 / 38,500).
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
+    // 2026-10-17): 12.16 -> 12.23 KB, measured at 12,216 B brotli / 36,842 B
+    // minified against this branch's 12,149 / 36,598 (+67 B; +244 B minified). A
+    // re-run live hole's markup is morphed against the displaced-range index, so
+    // slot occurrences that survive stay mounted, new ones mount and dropped
+    // ones dispose; deferred, an occurrence not mounted yet keeps the record its
+    // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "12.23 KB",
+    capMinified: 36842,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4882,13 +4883,23 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    // Size-Exception (slots in live holes, 2026-10-17): 35.43 -> 35.54 KB,
-    // measured at 35,525 B brotli / 109,504 B minified against the base's 35,418
-    // / 109,143 (+107 B; +361 B minified). A re-run live hole's markup is
-    // morphed against the displaced-range index, so slot occurrences that
-    // survive stay mounted, new ones mount and dropped ones dispose; deferred,
-    // an occurrence not mounted yet keeps the record its markup was rendered
-    // from. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Binding slots removed (2026-10-16): 35.43 KB -> 33.04 KB, measured
+    // locally (linux) at 33,027 B brotli / 101,716 B minified
+    // (-2,391 B brotli / -7,427 B minified against the
+    // #4120 head's 35,418 / 109,143). The lazy `bind.js` (6,859 B minified / 2,544 B brotli) is gone too.
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
+    // 2026-10-17): 33.04 -> 33.08 KB, measured at 33,070 B brotli / 101,960 B
+    // minified against this branch's 33,027 / 101,716 (+43 B; +244 B minified).
+    // A re-run live hole's markup is morphed against the displaced-range index,
+    // so slot occurrences that survive stay mounted, new ones mount and dropped
+    // ones dispose; deferred, an occurrence not mounted yet keeps the record its
+    // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 35.85 KB -> 33.44 KB, recorded minified 110,156 -> 102,617 B;
+    // measured locally (linux) at 33,421 B (102,617 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5168,13 +5179,23 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    // Size-Exception (slots in live holes, 2026-10-17): 39.64 -> 39.73 KB,
-    // measured at 39,714 B brotli / 122,873 B minified against the base's 39,623
-    // / 122,512 (+91 B; +361 B minified). A re-run live hole's markup is morphed
-    // against the displaced-range index, so slot occurrences that survive stay
-    // mounted, new ones mount and dropped ones dispose; deferred, an occurrence
-    // not mounted yet keeps the record its markup was rendered from. Cap at
-    // measured + 10 B rounded up to 0.01 KB.
+    // Binding slots removed (2026-10-16): 39.64 KB -> 37.23 KB, measured
+    // locally (linux) at 37,220 B brotli / 115,083 B minified
+    // (-2,403 B brotli / -7,429 B minified against the
+    // #4120 head's 39,623 / 122,512). The lazy `bind.js` (6,859 B minified / 2,543 B brotli) is gone too.
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
+    // 2026-10-17): 37.23 -> 37.28 KB, measured at 37,269 B brotli / 115,335 B
+    // minified against this branch's 37,220 / 115,083 (+49 B; +252 B minified).
+    // A re-run live hole's markup is morphed against the displaced-range index,
+    // so slot occurrences that survive stay mounted, new ones mount and dropped
+    // ones dispose; deferred, an occurrence not mounted yet keeps the record its
+    // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 40.00 KB -> 37.52 KB, recorded minified 123,516 -> 115,976 B;
+    // measured locally (linux) at 37,510 B (115,976 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5294,8 +5315,13 @@ module.exports = [
     // 36.63 -> 36.76 KB, measured at 36,745 B brotli / 113,081 B minified. A re-run live
     // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
     // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
-    limit: "36.76 KB",
-    capMinified: 113081,
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 36.76 KB -> 35.30 KB, recorded minified 113,081 -> 108,961 B;
+    // measured locally (linux) at 35,290 B (108,961 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    limit: "35.30 KB",
+    capMinified: 108961,
     alias: pageAlias
   },
   {
@@ -5383,8 +5409,13 @@ module.exports = [
     // 42.68 -> 42.78 KB, measured at 42,765 B brotli / 127,996 B minified. A re-run live
     // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
     // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
-    limit: "42.78 KB",
-    capMinified: 127996,
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 42.78 KB -> 41.48 KB, recorded minified 127,996 -> 123,926 B;
+    // measured locally (linux) at 41,463 B (123,926 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    limit: "41.48 KB",
+    capMinified: 123926,
     alias: pageAlias
   },
   {
@@ -5549,8 +5580,13 @@ module.exports = [
     // 43.09 -> 43.26 KB, measured at 43,247 B brotli / 134,047 B minified. A re-run live
     // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
     // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
-    limit: "43.26 KB",
-    capMinified: 134047,
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 43.26 KB -> 40.90 KB, recorded minified 134,047 -> 126,460 B;
+    // measured locally (linux) at 40,884 B (126,460 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    limit: "40.90 KB",
+    capMinified: 126460,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5684,9 +5720,13 @@ module.exports = [
     // 49.37 -> 49.47 KB, measured at 49,458 B brotli / 148,771 B minified. A re-run live
     // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
     // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
-    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 01270641): 49.47 -> 49.50 KB, measured locally at 49,487 B brotli / 148,822 B minified (+51 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
-    limit: "49.50 KB",
-    capMinified: 148822,
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 49.47 KB -> 47.02 KB, recorded minified 148,771 -> 141,204 B;
+    // measured locally (linux) at 47,001 B (141,204 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    limit: "47.02 KB",
+    capMinified: 141204,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5792,12 +5832,21 @@ module.exports = [
     // unchanged at 20.42 KB, recorded minified 71,813 B (first record);
     // CI-measured at 20,412 B (71,813 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
-    // Size-Exception (slots in live holes, 2026-10-17): 20.58 -> 20.63 KB,
-    // measured at 20,615 B brotli / 72,466 B minified against the base's 20,572
-    // / 72,381 (+43 B; +85 B minified). Slot occurrences in a live hole are
-    // scoped to the hole (render-id table, per-scope counters), and a re-run
-    // sends a record only for a new occurrence or changed args. Cap at measured
-    // + 10 B rounded up to 0.01 KB.
+    // Binding slots removed (2026-10-16): 20.58 KB -> 20.51 KB, measured
+    // locally (linux) at 20,492 B brotli / 72,065 B minified
+    // (-80 B brotli / -316 B minified against the
+    // #4120 head's 20,572 / 72,381).
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
+    // 2026-10-17): 20.51 -> 20.55 KB, measured at 20,538 B brotli / 72,150 B
+    // minified against this branch's 20,492 / 72,065 (+46 B; +85 B minified).
+    // Slot occurrences in a live hole are scoped to the hole (render-id table,
+    // per-scope counters), and a re-run sends a record only for a new occurrence
+    // or changed args. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 20.65 KB -> 20.59 KB, recorded minified 72,466 -> 72,154 B;
+    // measured locally (linux) at 20,573 B (72,154 B minified). Lower only: cap
+    // at measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["server: renderToString (the server-render floor)"],
     capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,

@@ -15,8 +15,8 @@
  *
  * Each entry is `{ code, kind, severity, category, trigger, repair, guideUrl }`:
  * `category` is the RFC's Category cell verbatim; `kind` is that cell split
- * into `DiagnosticKind` values (an array: a code such as
- * `BINDING_SLOT_POSITION` reports under more than one kind); `severity` is
+ * into `DiagnosticKind` values (an array: a code may report under more than
+ * one kind); `severity` is
  * the RFC's Severity cell split the same way into `DiagnosticSeverity` values
  * (`["info", "warn"]` when the tier depends on the finding); `guideUrl` is the
  * code's page on the docs site (what `DEV.guideUrl(code)` returns).
