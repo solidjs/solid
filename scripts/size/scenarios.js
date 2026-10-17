@@ -5196,6 +5196,13 @@ module.exports = [
     // measured locally (linux) at 37,510 B (115,976 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
+    // Size-Exception (a held error reaches a derivation of `latest`, #4113,
+    // #4106, 2026-10-17, merged over next @ 7010268d): 37.52 -> 37.57 KB,
+    // measured locally at 37,558 B brotli / 116,027 B minified (+51 B
+    // minified): `laneRead` and `verdictValue` hand a held error to an
+    // override/derived read the way they hand a value, and `stageError`
+    // schedules the verdict wake. Cap at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-17).
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5725,8 +5732,15 @@ module.exports = [
     // measured locally (linux) at 47,001 B (141,204 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
-    limit: "47.02 KB",
-    capMinified: 141204,
+    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17,
+    // merged over next @ 7010268d): 47.02 -> 47.05 KB, measured locally at
+    // 47,040 B brotli / 141,255 B minified (+51 B minified): `laneRead` and
+    // `verdictValue` hand a held error to an override/derived read the way
+    // they hand a value, and `stageError` schedules the verdict wake. Cap at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-17).
+    limit: "47.05 KB",
+    capMinified: 141255,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
