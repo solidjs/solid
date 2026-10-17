@@ -4047,8 +4047,9 @@ module.exports = [
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 31.72 -> 31.96 KB, measured at 31,950 B brotli / 101,408 B minified (+230 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "31.96 KB",
-    capMinified: 101408,
+    // store delete key-count fix (#4132, 2026-10-17): 31.96 -> 31.98 KB, measured at 31,962 B brotli / 101,441 B minified (+2 B brotli over the cap, +33 B minified over the recorded size; CI and local agree): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness.
+    limit: "31.98 KB",
+    capMinified: 101441,
     alias
   },
   {
