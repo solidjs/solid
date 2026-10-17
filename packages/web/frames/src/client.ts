@@ -69,7 +69,8 @@ import {
   setSignalIdentities,
   setWriteHook,
   signalName,
-  sharedConfig
+  sharedConfig,
+  storeName
 } from "solid-js/internal";
 
 // The container tier (DR-2 case 3): server projections cross the border as
@@ -1603,17 +1604,20 @@ function mountAllDeferred() {
 }
 
 // Dependency edges. The server ships, per document frame, which occurrences
-// read which plain signals they did not create (`sc:deps:<site>:<n>`
-// batches, `sid -> "card#0-399 cart#0"`; `*`: wide signals, whose readers it
-// could not track; `!`: occurrences with reads it could not see). A write to
-// a named signal mounts only the unmounted occurrences that read it — each
-// with the occurrences enclosing it first, as an event would — before the
-// write applies; a named signal no record names mounts nothing (no
-// unmounted occurrence read it). Everything the records cannot vouch for
-// mounts everything left: a write with no name (a store, a derived or
-// optimistic signal, a signal of an owner without an id), a wide signal, a
-// write while the document still streams (records may not have arrived), or
-// a deferred frame under a root that shipped no records.
+// read which plain signals and plain stores they did not create
+// (`sc:deps:<site>:<n>` batches, `sid -> "card#0-399 cart#0"`; `*`: wide
+// names, whose readers it could not track; `!`: occurrences with reads it
+// could not see). A store goes by its root's name: any read of it is a read
+// of that name, any setter call on it a write. A write to a name mounts only
+// the unmounted occurrences that read it — each with the occurrences
+// enclosing it first, as an event would — before the write applies; a name
+// no record lists mounts nothing (no unmounted occurrence read it).
+// Everything the records cannot vouch for mounts everything left: a write
+// with no name (a projection or optimistic store, a store named twice, a
+// derived or optimistic signal, a signal or store of an owner without an
+// id), a wide name, a write while the document still streams (records may
+// not have arrived), or a deferred frame under a root that shipped no
+// records.
 const edgeRoots = new Map<string, Element>();
 type EdgeIndex = {
   readers: Map<string, [site: string, occurrence: string][]>;
@@ -1688,7 +1692,8 @@ function edgesCover(idx: EdgeIndex): boolean {
 }
 function mountForWrite(node?: object) {
   if (mounting || (sharedConfig as any).hydrating) return;
-  const sid = signalName(node);
+  // A plain signal by its own name; a store setter by its store's.
+  const sid = signalName(node) ?? storeName(node);
   if (sid === undefined || document.readyState === "loading") return mountAllDeferred();
   const idx = (edgeIndex ||= buildEdgeIndex());
   if (!idx || idx.wide.has(sid) || !edgesCover(idx)) return mountAllDeferred();

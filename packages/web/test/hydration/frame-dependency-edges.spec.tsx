@@ -27,7 +27,7 @@ describe("document face — dependency edges — deferred hydrate", () => {
     // Every item reads the currency; the rest stays unmounted.
     expect(page.seen()).toEqual(["cart", "item:a", "item:b", "item:c", "item:d", "late"]);
     flush();
-    expect(page.text("item-c")).toBe("c:EUR:0");
+    expect(page.text("item-c")).toBe("c:EUR:0:0");
     expect(page.text("store")).toBe("store:0");
     await drain();
     expect(page.warnings).toEqual([]);

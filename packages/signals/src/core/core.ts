@@ -2030,15 +2030,16 @@ export function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T)
 }
 
 /**
- * A callback run before every signal or store write lands, while set. The
+ * A callback run before every signal or store write lands, while set, with
+ * the written signal or the store proxy whose setter runs. The
  * server-components client sets it while slot occurrences are left
  * unmounted after hydration (deferred hydration): a write may be one an
  * unmounted component would have observed, so the client mounts what is
  * left before the write applies, and clears the hook. `null` otherwise.
  */
-export let writeHook: ((node?: Signal<any> | Computed<any>) => void) | null = null;
+export let writeHook: ((node?: object) => void) | null = null;
 /** @internal */
-export function setWriteHook(hook: ((node?: Signal<any> | Computed<any>) => void) | null): void {
+export function setWriteHook(hook: ((node?: object) => void) | null): void {
   writeHook = hook;
 }
 

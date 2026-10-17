@@ -20,6 +20,7 @@ import { applyChunk, loadArtifact } from "./frame-live-document-helpers.js";
 export const ALL = [
   "cart",
   "derived",
+  "dstore",
   "item:a",
   "item:b",
   "item:c",

@@ -171,6 +171,10 @@ export function setReadWatch(_watch: ((node: object) => void) | null): void {}
 export function signalName(_node: object | undefined): string | undefined {
   return undefined;
 }
+/** @internal Dependency edges: client-only. */
+export function storeName(_proxy: object | undefined): string | undefined {
+  return undefined;
+}
 /** @internal */
 export { ssrHandleError, ssrScope } from "./hydration.js";
 // After the runtime modules above, so this import adds no edge to the module

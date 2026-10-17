@@ -1,12 +1,13 @@
 import { CONFIG_TRANSPARENT } from "./constants.js";
 import { DEV } from "./dev.js";
 import { getOwner } from "./owner.js";
-import type { Owner, Signal } from "./types.js";
+import type { Owner } from "./types.js";
 
 // Deferred hydration, dependency edges: plain-signal identities.
 // While on (`setSignalIdentities`; the server-components client turns it on
 // before hydrating), a plain signal created under an id-bearing owner is
-// named `<owner id>~<n>`, n counting the plain signals created under that
+// named `<owner id>~<n>`, n counting the plain signals (and plain store
+// roots: `createStore` over an object, store/edges.ts) created under that
 // owner in its current pass (transparent owners defer to the nearest
 // id-bearing one, as child ids do). The server names the same signal the
 // same way and restarts the count on every re-run, so an edge it shipped (a
@@ -24,7 +25,7 @@ export function signalName(node: object | undefined): string | undefined {
   return node === undefined ? undefined : names.get(node);
 }
 
-function identify(node: Signal<any>): void {
+function identify(node: object): void {
   let o = getOwner();
   if (!o) return;
   while (o._config & CONFIG_TRANSPARENT && o._parent) o = o._parent;
@@ -32,7 +33,11 @@ function identify(node: Signal<any>): void {
   const gen = (o as any)._depGen as number | undefined;
   let c = counts!.get(o);
   if (c === undefined || c[0] !== gen) counts!.set(o, (c = [gen, 0]));
-  names.set(node, o.id + "~" + c[1]++);
+  const sid = o.id + "~" + c[1]++;
+  // A store root named twice (one object made into two stores, or a store
+  // handed to `createStore`) is one target under two server names: its
+  // writes cannot be attributed (an empty name).
+  names.set(node, names.has(node) ? "" : sid);
 }
 
 /** @internal Name plain signals from now on (`on`), or stop. */
@@ -42,11 +47,12 @@ export function setSignalIdentities(on: boolean): void {
 }
 
 /**
- * @internal Called with every plain signal `createSignal` makes while set
- * (the namer above). Never set unless `setSignalIdentities` is imported, so
- * a bundle without it keeps only a null check.
+ * @internal Called with every plain signal `createSignal` makes, and every
+ * plain store root `createStore` makes, while set (the namer above). Never
+ * set unless `setSignalIdentities` is imported, so a bundle without it keeps
+ * only a null check.
  */
-export let signalHook: ((node: Signal<any>) => void) | null = null;
+export let signalHook: ((node: object) => void) | null = null;
 
 /**
  * @internal Dev only: `watch` is called with every node read while set (the

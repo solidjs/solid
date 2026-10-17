@@ -12,7 +12,9 @@ import {
   createMemo,
   createOwner,
   createRoot,
+  createProjection,
   createSignal,
+  createStore,
   edgeHooks,
   mapArray,
   resetOwnerForRerun,
@@ -116,6 +118,53 @@ describe("server plain-signal identities", () => {
     // Each row's two signals: `<row id>~0` and `<row id>~1`.
     for (const row of first) expect(row.map(n => n.split("~")[1])).toEqual(["0", "1"]);
     expect(passes[1]).toEqual(first);
+  });
+
+  test("a plain store is named by its root: any read of it, at any depth, reports that name", () => {
+    edgesRender();
+    const r = createRoot(
+      () => {
+        const [a] = createSignal(0);
+        const [store] = createStore({ user: { name: "a" }, tags: ["x", "y"], n: 1 });
+        const proj = createProjection<{ v: number }>(() => {}, { v: 0 });
+        const [b] = createSignal(0);
+        return {
+          a: readsOf(() => a()),
+          b: readsOf(() => b()),
+          leaf: readsOf(() => store.user.name),
+          keys: readsOf(() => Object.keys(store.user)),
+          iterate: readsOf(() => store.tags.map(t => t)),
+          has: readsOf(() => "n" in store),
+          proj: readsOf(() => proj.v),
+          same: store.user === store.user
+        };
+      },
+      { id: "st" }
+    );
+    // Signals around it keep their counts: the store took `st~1`, the
+    // projection none.
+    expect(r.a).toEqual(["st~0"]);
+    expect(r.b).toEqual(["st~2"]);
+    for (const reads of [r.leaf, r.keys, r.iterate, r.has]) expect(reads).toEqual(["st~1"]);
+    expect(r.proj).toEqual([]);
+    expect(r.same).toBe(true);
+  });
+
+  test("a store held inside another store makes the holder wide", () => {
+    edgesRender();
+    const ctx = sharedConfig.context as any;
+    const r = createRoot(
+      () => {
+        const [inner] = createStore({ n: 0 });
+        const [outer] = createStore({ inner });
+        return readsOf(() => outer.inner.n);
+      },
+      { id: "w" }
+    );
+    // The held store reads as itself; the holder is wide (a setter call on
+    // it can write the held store, whose own readers its name misses).
+    expect(r.sort()).toEqual(["w~0", "w~1"]);
+    expect([...ctx.edgeWide.s]).toEqual(["w~1"]);
   });
 
   test("the hooks are installed only while an edges render is in flight", () => {

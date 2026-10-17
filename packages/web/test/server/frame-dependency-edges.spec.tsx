@@ -33,22 +33,26 @@ describe("document face — dependency edges — server render", () => {
     const records = depsRecords(shell + rest, FID);
     expect(records.length).toBe(1);
     const deps = records[0];
-    // The shell's three plain signals, named in creation order under one owner.
+    // The shell's three plain signals and its plain store, named in creation
+    // order under one owner.
     const named = Object.keys(deps).filter(k => k !== "*" && k !== "!");
     const owner = named[0].slice(0, named[0].lastIndexOf("~"));
-    const [cart, currency, wideSource] = [0, 1, 2].map(n => `${owner}~${n}`);
+    const [cart, currency, wideSource, store] = [0, 1, 2, 3].map(n => `${owner}~${n}`);
     // `currency`: every item (one run); `cart`: the cart widget only (the
     // late widget reads it through a client-source memo the server never runs).
     expect(deps[currency]).toBe("item#0-3");
     expect(deps[cart]).toBe("cart#0");
+    // The store, by its root's name: the store widget read it.
+    expect(deps[store]).toBe("store#0");
     // A projection read `wideSource`: its readers are not tracked.
     expect(deps["*"]).toBe(wideSource);
     expect(deps[wideSource]).toBeUndefined();
     // The client-source memo's reads are the client's: `late` mounts on any named write.
     expect(deps["!"]).toBe("late#0");
-    // Own state (the items' click counters) and unnamed sources (the store,
-    // the derived signal) are not edges.
-    expect(named.sort()).toEqual([cart, currency].sort());
+    // Own state (the items' click counters and card-local stores) and
+    // unnamed sources (the projection store, the derived signal, the store
+    // created outside any owner) are not edges.
+    expect(named.sort()).toEqual([cart, currency, store].sort());
     writeArtifact("frame-dependency-edges", { name: "frame-dependency-edges", shell, rest });
   });
 });

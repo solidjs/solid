@@ -185,7 +185,7 @@ export function creationStamp(): number {
 /** @internal A callback run before every signal or store write lands (deferred hydration). */
 export { setWriteHook } from "@solidjs/signals";
 /** @internal Dependency edges: name plain signals so a write reports which one; dev read watch. */
-export { setSignalIdentities, setReadWatch, signalName } from "@solidjs/signals";
+export { setSignalIdentities, setReadWatch, signalName, storeName } from "@solidjs/signals";
 /** @internal Dependency edges: server-only (an edges render names plain signals). Client: no-op. */
 export function beginEdgesRender(): () => void {
   return () => {};

@@ -1,5 +1,5 @@
-// Deferred hydration, dependency edges: plain-signal identities and read
-// tracking on the server. The render paths in signals.ts hold one
+// Deferred hydration, dependency edges: plain-signal and plain-store
+// identities and read tracking on the server. The render paths in signals.ts hold one
 // null-checked slot, filled only while an edges render is in flight
 // (`beginEdgesRender`, renderToStream with the server-components codec); the
 // hooks act only inside such a render's context (`on`), allocating nothing
@@ -67,8 +67,72 @@ function reportReads(reads: Set<string>): void {
   for (const sid of reads) s.add(sid);
 }
 
+// Plain stores: a root is named like a plain signal (on the same count) and
+// read through a view that reports that one name for any read of it, at any
+// depth (a property, `in`, its keys); the client writes the whole store by
+// that name. Objects under it are viewed too. A store held inside another
+// is returned as its own view (its reads are its own); the holder becomes
+// wide, since a setter call on the holder can write the held store, whose
+// direct readers the holder's name does not reach.
+const RAW = Symbol();
+function viewable(v: any): boolean {
+  if (v === null || typeof v !== "object" || Object.isFrozen(v)) return false;
+  const p = Object.getPrototypeOf(v);
+  return p === Object.prototype || p === null || Array.isArray(v);
+}
+function storeView<T extends object>(raw: T, sid: string, views: WeakMap<object, object>): T {
+  let view = views.get(raw) as T | undefined;
+  if (view !== undefined) return view;
+  const read = () => {
+    if (readSink !== null) (readSink.s ||= new Set()).add(sid);
+  };
+  view = new Proxy(raw, {
+    get(t, k, r) {
+      if (k === RAW) return sid;
+      const v = Reflect.get(t, k, r);
+      if (typeof k === "symbol" || typeof v === "function") return v;
+      read();
+      if (!viewable(v)) return v;
+      if ((v as any)[RAW] !== undefined) {
+        const ctx = sharedConfig.context as any;
+        if (ctx) ((ctx.edgeWide ||= { s: null, wide: true }).s ||= new Set()).add(sid);
+        return v;
+      }
+      // A non-configurable read-only property must read as itself.
+      const d = Reflect.getOwnPropertyDescriptor(t, k);
+      return d && !d.configurable && !d.writable ? v : storeView(v as object, sid, views);
+    },
+    has(t, k) {
+      read();
+      return Reflect.has(t, k);
+    },
+    ownKeys(t) {
+      read();
+      return Reflect.ownKeys(t);
+    },
+    getOwnPropertyDescriptor(t, k) {
+      read();
+      return Reflect.getOwnPropertyDescriptor(t, k);
+    }
+  });
+  views.set(raw, view);
+  return view;
+}
+
 const hooks: EdgeHooks = {
   on,
+  store<T extends object>(state: T): T {
+    let o: any = getOwner();
+    if (!o || !on()) return state;
+    while (o._transparent && o._parent) o = o._parent;
+    if (o.id == null) return state;
+    const n = count(o);
+    counted(o, n + 1);
+    // A store handed to `createStore` again keeps its own view (the client
+    // names that target twice and attributes none of its writes).
+    if (!viewable(state) || (state as any)[RAW] !== undefined) return state;
+    return storeView(state, materializeId(o) + "~" + n, new WeakMap());
+  },
   signal<T>(read: () => T): () => T {
     let o: any = getOwner();
     if (!o || !on()) return read;

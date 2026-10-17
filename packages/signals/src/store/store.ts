@@ -73,6 +73,7 @@ import {
   registerGraph,
   warnStrictReadUntracked
 } from "../core/dev.js";
+import { signalHook } from "../core/identities.js";
 import { setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
 import { insertIntoHeap } from "../core/heap.js";
@@ -2304,7 +2305,7 @@ function devGuardStoreSetterResult(result: unknown): void {
 }
 
 export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true): void {
-  if (writeHook !== null) writeHook();
+  if (writeHook !== null) writeHook(proxy as object);
   if (__DEV__ && guard) devGuardStoreSetterWrite();
   const target: StoreTarget = (proxy as any)[$TARGET];
   const prevScopes = writeScopes;
@@ -2376,6 +2377,8 @@ export function createStore<T extends Record<PropertyKey, any>>(
       throw new Error("createStore({ shallow }): value is already a store proxy");
   }
   const proxy = wrap(initialValue);
+  // Dependency edges (store/edges.ts): the root is named like a plain signal.
+  if (signalHook !== null) signalHook((proxy as any)[$TARGET]);
   if (shallow) {
     ((proxy as any)[$TARGET] as StoreTarget).s = true;
     markRawIngest(initialValue);

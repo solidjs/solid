@@ -1242,6 +1242,8 @@ export interface EdgeHooks {
   on(): boolean;
   /** A plain signal created under the current owner: its named read. */
   signal<T>(read: () => T): () => T;
+  /** A plain store root created under the current owner: a view whose every read reports its name. */
+  store<T extends object>(state: T): T;
   /** Run a memo's compute (keyed by its owner), keeping what it read. Only when `on()`. */
   run<T>(owner: object, fn: () => T): T;
   /** A memo was read: report what its last compute read. */
@@ -2603,7 +2605,7 @@ export function createStore<T extends object = {}>(
     return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
-  return [state as Store<T>, storeSetter(state)];
+  return [(edgeHooks !== null ? edgeHooks.store(state) : state) as Store<T>, storeSetter(state)];
 }
 
 /**
@@ -2646,7 +2648,12 @@ export function createOptimisticStore<T extends object = {}>(
   // masks that revert at settle, and server output is settled state. The
   // setter never invokes its function — a draft mutation here would be a
   // literal (permanent) mutation, the opposite of optimistic.
-  const [store] = (createStore as Function)(first, second, third) as [Store<T>, StoreSetter<T>];
+  // An object seed is served as is: not named for dependency edges (the
+  // client names no optimistic store; a write to one mounts everything).
+  const store =
+    typeof first === "function"
+      ? ((createStore as Function)(first, second, third) as [Store<T>, StoreSetter<T>])[0]
+      : (first as Store<T>);
   return [store, (() => warnServerWrite("optimistic")) as StoreSetter<T>];
 }
 
@@ -2844,7 +2851,9 @@ export function createProjection<T extends object = {}>(
     return proxy;
   };
   // Seedless: the root starts as an empty record (the client's base too).
-  const [state] = createStore((seed || {}) as NoFn<T>);
+  // The seed itself, not a `createStore` over it: a projection's state is
+  // not a plain store (no dependency-edge name; the client names none).
+  const state = (seed || {}) as T;
 
   if (options?.ssrSource === "client") {
     // seedLoadingValue = declared commit #0: the seed renders. Bare = the

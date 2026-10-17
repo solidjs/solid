@@ -20,7 +20,7 @@ describe("document face — dependency edges — deferred hydrate, fallback", ()
     expect(page.seen()).toEqual(ALL);
     flush();
     expect(page.text("derived")).toBe("derived:3");
-    expect(page.text("item-a")).toBe("a:USD:0");
+    expect(page.text("item-a")).toBe("a:USD:0:0");
     expect(page.warnings).toEqual([]);
     page.dispose();
   });

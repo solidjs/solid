@@ -4,15 +4,21 @@
  * Dependency edges under deferred hydration. The route shell owns shared
  * state and provides it through context; the server component places slot
  * fills that read some of it:
- *   - four `item` fills read `currency` and their own click counter;
+ *   - four `item` fills read `currency` and their own state: a click
+ *     counter and a card-local store;
  *   - `cart` reads `cart`;
- *   - `store` reads a store (writes to a store carry no signal name);
+ *   - `store` reads a plain store (named by its root, like a signal);
+ *   - `dstore` reads a derived store (a projection: its writes carry no
+ *     name);
  *   - `wide` reads a projection derived from `wideSource` (a projection's
  *     readers are not tracked, so `wideSource` is wide);
  *   - `derived` reads a writable derived signal (no name either);
  *   - `late` runs a client-source memo over `cart` (a read the server never
  *     sees), so it mounts on every named write.
  * Every fill notes its mount in `mounted`.
+ *
+ * `loose` is a store created outside any owner: it has no name, so a write
+ * to it mounts everything.
  *
  * `drift` (client only) creates one extra plain signal in the shell ahead
  * of the shared ones, so the client names them differently from the server.
@@ -45,12 +51,17 @@ export type Shop = {
   setCurrency: Setter<string>;
   store: { n: number };
   setStore: (fn: (s: { n: number }) => void) => void;
+  dstore: { v: number };
+  setDStore: (fn: (s: { v: number }) => void) => void;
   setWideSource: Setter<number>;
   wide: { v: number };
   derived: Accessor<number>;
   setDerived: Setter<number>;
 };
 export const ShopCtx = createContext<Shop>();
+
+/** A store created outside any owner: unnamed. */
+export const [loose, setLoose] = createStore({ n: 0 });
 
 /** Each fill mount, by name; the last shell's state, for the test's writes. */
 export const mounted: string[] = [];
@@ -62,6 +73,7 @@ export function Shell(props: { drift?: boolean; children: JSX.Element }) {
   const [currency, setCurrency] = createSignal("USD");
   const [wideSource, setWideSource] = createSignal(1);
   const [store, setStore] = createStore({ n: 0 });
+  const [dstore, setDStore] = createStore<{ v: number }>(() => {}, { v: 0 });
   const wide = createProjection<{ v: number }>(
     d => {
       d.v = wideSource();
@@ -76,6 +88,8 @@ export function Shell(props: { drift?: boolean; children: JSX.Element }) {
     setCurrency,
     store,
     setStore,
+    dstore,
+    setDStore,
     setWideSource,
     wide,
     derived,
@@ -87,10 +101,15 @@ export function Shell(props: { drift?: boolean; children: JSX.Element }) {
 export function Item(props: { id: string }) {
   const s = useContext(ShopCtx)!;
   const [clicks, setClicks] = createSignal(0);
+  const [own, setOwn] = createStore({ n: 0 });
   mounted.push(`item:${untrack(() => props.id)}`);
+  const click = () => {
+    setClicks(c => c + 1);
+    setOwn(o => void (o.n += 10));
+  };
   return (
-    <button id={`item-${props.id}`} onClick={() => setClicks(c => c + 1)}>
-      {props.id}:{s.currency()}:{clicks()}
+    <button id={`item-${props.id}`} onClick={click}>
+      {props.id}:{s.currency()}:{clicks()}:{own.n}
     </button>
   );
 }
@@ -103,6 +122,11 @@ export function StoreView() {
   const s = useContext(ShopCtx)!;
   mounted.push("store");
   return <p id="store">store:{s.store.n}</p>;
+}
+export function DerivedStoreView() {
+  const s = useContext(ShopCtx)!;
+  mounted.push("dstore");
+  return <p id="dstore">dstore:{s.dstore.v}</p>;
 }
 export function WideView() {
   const s = useContext(ShopCtx)!;
@@ -132,6 +156,7 @@ export function makeApp(source: () => any, options: { drift?: boolean } = {}) {
             item={(p: any) => <Item {...p} />}
             cart={() => <Cart />}
             store={() => <StoreView />}
+            dstore={() => <DerivedStoreView />}
             wide={() => <WideView />}
             derived={() => <DerivedView />}
             late={() => <Late />}
@@ -144,7 +169,15 @@ export function makeApp(source: () => any, options: { drift?: boolean } = {}) {
 
 /** The server component: the four items, then the cart sidebar's widgets. */
 export function makePageComponent() {
-  return (props: { item: any; cart: any; store: any; wide: any; derived: any; late: any }) => (
+  return (props: {
+    item: any;
+    cart: any;
+    store: any;
+    dstore: any;
+    wide: any;
+    derived: any;
+    late: any;
+  }) => (
     <div id="page">
       <ul>
         {ITEMS.map(id => (
@@ -156,6 +189,7 @@ export function makePageComponent() {
       <aside>
         <props.cart />
         <props.store />
+        <props.dstore />
         <props.wide />
         <props.derived />
         <props.late />

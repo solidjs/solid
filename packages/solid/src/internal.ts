@@ -143,6 +143,11 @@ export const setReadWatch: (watch: ((node: object) => void) | null) => void = co
 /** Dependency edges. Client: a plain signal's identity, if it was named. Server: `undefined`. */
 export const signalName: (node: object | undefined) => string | undefined = core.signalName;
 /**
+ * Dependency edges. Client: the name a store proxy's writes go by (its
+ * root's, when the root was named and can be placed). Server: `undefined`.
+ */
+export const storeName: (proxy: object | undefined) => string | undefined = core.storeName;
+/**
  * Dependency edges. Server: run a slot fill, returning the plain-signal
  * identities it read (through memos too) and whether it ran a computation
  * whose reads the server cannot see. Client: runs it.
