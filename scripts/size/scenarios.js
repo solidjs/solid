@@ -2587,7 +2587,7 @@ module.exports = [
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 29.91 -> 30.09 KB, measured at 30,075 B brotli / 94,579 B minified (+165 B brotli over the cap, +646 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ f3973eae): 30.09 -> 30.14 KB, measured locally at 30,125 B brotli / 94,611 B minified (+32 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 01270641): 30.09 -> 30.14 KB, measured locally at 30,125 B brotli / 94,611 B minified (+32 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
     limit: "30.14 KB",
     capMinified: 94611,
     alias
@@ -4535,8 +4535,15 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "12.80 KB",
-    capMinified: 38500,
+    // Size-Exception (slots in live holes, 2026-10-17): 12.80 -> 12.90 KB,
+    // measured at 12,889 B brotli / 38,861 B minified against the base's 12,790
+    // / 38,500 (+99 B; +361 B minified). A re-run live hole's markup is morphed
+    // against the displaced-range index, so slot occurrences that survive stay
+    // mounted, new ones mount and dropped ones dispose; deferred, an occurrence
+    // not mounted yet keeps the record its markup was rendered from. Cap at
+    // measured + 10 B rounded up to 0.01 KB.
+    limit: "12.90 KB",
+    capMinified: 38861,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4875,6 +4882,13 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, 2026-10-17): 35.43 -> 35.54 KB,
+    // measured at 35,525 B brotli / 109,504 B minified against the base's 35,418
+    // / 109,143 (+107 B; +361 B minified). A re-run live hole's markup is
+    // morphed against the displaced-range index, so slot occurrences that
+    // survive stay mounted, new ones mount and dropped ones dispose; deferred,
+    // an occurrence not mounted yet keeps the record its markup was rendered
+    // from. Cap at measured + 10 B rounded up to 0.01 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5154,7 +5168,13 @@ module.exports = [
     // a write or idle slices after load mount them. HN story page, 4x CPU: script
     // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
     // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    // Size-Exception: A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 4ff65801): 39.93 -> 39.99 KB, measured locally at 39,974 B brotli / 123,206 B minified (+51 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Size-Exception (slots in live holes, 2026-10-17): 39.64 -> 39.73 KB,
+    // measured at 39,714 B brotli / 122,873 B minified against the base's 39,623
+    // / 122,512 (+91 B; +361 B minified). A re-run live hole's markup is morphed
+    // against the displaced-range index, so slot occurrences that survive stay
+    // mounted, new ones mount and dropped ones dispose; deferred, an occurrence
+    // not mounted yet keeps the record its markup was rendered from. Cap at
+    // measured + 10 B rounded up to 0.01 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5270,8 +5290,12 @@ module.exports = [
     // 35.78 -> 36.63 KB, measured at 36,618 B brotli / 112,720 B minified. The adoption pass
     // mounts no slot occurrence; an event, a write or idle slices after load mount them.
     // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "36.63 KB",
-    capMinified: 112720,
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 36.63 -> 36.76 KB, measured at 36,745 B brotli / 113,081 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    limit: "36.76 KB",
+    capMinified: 113081,
     alias: pageAlias
   },
   {
@@ -5355,8 +5379,12 @@ module.exports = [
     // 41.77 -> 42.68 KB, measured at 42,667 B brotli / 127,635 B minified. The adoption pass
     // mounts no slot occurrence; an event, a write or idle slices after load mount them.
     // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "42.68 KB",
-    capMinified: 127635,
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 42.68 -> 42.78 KB, measured at 42,765 B brotli / 127,996 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    limit: "42.78 KB",
+    capMinified: 127996,
     alias: pageAlias
   },
   {
@@ -5517,8 +5545,12 @@ module.exports = [
     // 42.25 -> 43.09 KB, measured at 43,074 B brotli / 133,686 B minified. The adoption pass
     // mounts no slot occurrence; an event, a write or idle slices after load mount them.
     // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "43.09 KB",
-    capMinified: 133686,
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 43.09 -> 43.26 KB, measured at 43,247 B brotli / 134,047 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    limit: "43.26 KB",
+    capMinified: 134047,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5648,9 +5680,13 @@ module.exports = [
     // 48.46 -> 49.37 KB, measured at 49,352 B brotli / 148,410 B minified. The adoption pass
     // mounts no slot occurrence; an event, a write or idle slices after load mount them.
     // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 4ff65801): 49.37 -> 49.39 KB, measured locally at 49,375 B brotli / 148,461 B minified (+51 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
-    limit: "49.39 KB",
-    capMinified: 148461,
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 49.37 -> 49.47 KB, measured at 49,458 B brotli / 148,771 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 01270641): 49.47 -> 49.50 KB, measured locally at 49,487 B brotli / 148,822 B minified (+51 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    limit: "49.50 KB",
+    capMinified: 148822,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5756,6 +5792,12 @@ module.exports = [
     // unchanged at 20.42 KB, recorded minified 71,813 B (first record);
     // CI-measured at 20,412 B (71,813 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Size-Exception (slots in live holes, 2026-10-17): 20.58 -> 20.63 KB,
+    // measured at 20,615 B brotli / 72,466 B minified against the base's 20,572
+    // / 72,381 (+43 B; +85 B minified). Slot occurrences in a live hole are
+    // scoped to the hole (render-id table, per-scope counters), and a re-run
+    // sends a record only for a new occurrence or changed args. Cap at measured
+    // + 10 B rounded up to 0.01 KB.
     limit: floorCaps["server: renderToString (the server-render floor)"],
     capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,
