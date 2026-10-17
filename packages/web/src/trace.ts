@@ -169,13 +169,17 @@ function parseTraceparent(
   return { traceId, parentId, sampled: (parseInt(flags, 16) & 1) === 1 };
 }
 
+// Trace and span ids have to be unique and well spread, not unguessable —
+// W3C Trace Context asks for randomness, and OpenTelemetry's default
+// IdGenerator draws them from Math.random. `crypto.getRandomValues` went
+// through Node's RandomBytesJob on every render and cost ~10 µs of a
+// streamed shell's ~73 µs of CPU (2026-10-16 profile); four Math.random
+// words cost under a microsecond.
 function randomHex(bytes: number): string {
-  const buffer = new Uint8Array(bytes);
-  crypto.getRandomValues(buffer);
   let out = "";
-  for (let i = 0; i < buffer.length; i++)
-    out += (buffer[i] < 16 ? "0" : "") + buffer[i].toString(16);
-  return out;
+  for (let i = 0; i < bytes; i += 4)
+    out += ((Math.random() * 0x100000000) >>> 0).toString(16).padStart(8, "0");
+  return out.length === bytes * 2 ? out : out.slice(0, bytes * 2);
 }
 
 function randomTraceId(): string {
