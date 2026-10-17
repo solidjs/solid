@@ -1,5 +1,72 @@
 # @solidjs/diagnostics
 
+## 2.0.0-rc.16
+
+### Patch Changes
+
+- 3d8a8a9: Diagnostics protocol: removed the `holds` and `feedback` entries from `DiagnosticsMethods` (and so from `DiagnosticsMethod`, `DiagnosticsRequest`, `DiagnosticsResponse`) in `@solidjs/diagnostics/protocol`. The `/__solid/diagnostics` dev-server endpoint never served them; it answers `begin`, `end`, `active`, `whyDidRun` and `costs`, and the holds and feedback tables arrive in the `end` payload (`attribution.holds`, `attribution.feedback`). The in-page bridge's `holds()`/`feedback()` queries are unchanged. The agent-loops skill's endpoint example no longer lists a `feedback` call.
+- 4a99c84: Captured findings carry `loc` (the source location the runtime resolved, `file:line:col`) as a plain event field through artifacts and the JSONL form; assertion failures print it with the rest of the offending event.
+- 3d8a8a9: Ship the Solid 2.0 primer for coding agents as the `solid-2.0` skill, emit `CHEATSHEET.md` as the `solid-2.0-cheatsheet` skill on build, give every shipped skill the `name`/`description` frontmatter the Agent Skills format requires, and add the `tanstack-intent` keyword so skill registries discover them in `node_modules`.
+- Updated dependencies [3d8a8a9]
+- Updated dependencies [a7fe050]
+- Updated dependencies [52008d9]
+- Updated dependencies [0b6765f]
+- Updated dependencies [b8617ec]
+- Updated dependencies [3643c5e]
+- Updated dependencies [86cf504]
+- Updated dependencies [4a99c84]
+- Updated dependencies [4a99c84]
+- Updated dependencies [4a99c84]
+- Updated dependencies [96b615d]
+- Updated dependencies [0f64d82]
+- Updated dependencies [467ac97]
+- Updated dependencies [8092282]
+- Updated dependencies [8163bc3]
+- Updated dependencies [1bcee91]
+- Updated dependencies [10b3f55]
+- Updated dependencies [1f3b5b4]
+- Updated dependencies [61c4436]
+- Updated dependencies [a39acdd]
+- Updated dependencies [0bda987]
+- Updated dependencies [ccd9948]
+- Updated dependencies [dbc5d00]
+- Updated dependencies [0e0c043]
+- Updated dependencies [7c36f2b]
+- Updated dependencies [0a49dd8]
+- Updated dependencies [51d005a]
+- Updated dependencies [347f242]
+- Updated dependencies [c5da908]
+- Updated dependencies [b972757]
+- Updated dependencies [8e2590e]
+- Updated dependencies [f3973ea]
+- Updated dependencies [8fbadfd]
+- Updated dependencies [e1bf2af]
+- Updated dependencies [e43e22f]
+- Updated dependencies [c12c420]
+- Updated dependencies [a2d5669]
+- Updated dependencies [4bc7969]
+- Updated dependencies [d3cddff]
+- Updated dependencies [c2513e3]
+- Updated dependencies [3f36f77]
+- Updated dependencies [8e2590e]
+- Updated dependencies [eb4e019]
+- Updated dependencies [dfb31ed]
+- Updated dependencies [8bd7a5b]
+- Updated dependencies [9ac1481]
+- Updated dependencies [3e94215]
+- Updated dependencies [a61c929]
+- Updated dependencies [36039e2]
+- Updated dependencies [3d8a8a9]
+- Updated dependencies [3d8a8a9]
+- Updated dependencies [4ff6580]
+- Updated dependencies [8d4a285]
+- Updated dependencies [8268cfd]
+- Updated dependencies [3fc5551]
+- Updated dependencies [42c2568]
+  - solid-js@2.0.0-rc.16
+  - @solidjs/signals@2.0.0-rc.16
+  - @solidjs/web@2.0.0-rc.16
+
 ## 2.0.0-rc.15
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
   "name": "board-example",
   "description": "A shared board over one live data source: lists of cards that several tabs drag at once, read into an optimistic store, with every write acknowledged on the stream",
-  "version": "0.0.1-rc.0",
+  "version": "0.0.1-rc.1",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",
