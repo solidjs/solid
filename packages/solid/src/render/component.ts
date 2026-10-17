@@ -405,7 +405,12 @@ export function lazy<T extends Component<any>>(
     } else if (!comp) {
       const [s] = createResource<T>(() => load().then(mod => mod.default));
       comp = s;
-      onCleanup(() => (comp = undefined));
+      // `load()` replaces `comp` with the resolved component. Only drop the shared
+      // cache while it still points at this resource, so an in-flight or failed
+      // import can be collected and retried without blanking a module that loaded.
+      onCleanup(() => {
+        if (comp === s) comp = undefined;
+      });
     }
     let Comp: T | undefined;
     return createMemo(() =>
