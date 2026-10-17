@@ -57,6 +57,50 @@ for (const failure of [undefined, null, false, 0, '']) {
 process.stdout.write(JSON.stringify({isDev, passed: true}));
 `;
 
+const serializationProbe = `
+import assert from 'node:assert/strict';
+import { configureServerErrors, renderToStream } from '@solidjs/web';
+import { createPlugin } from '@solidjs/web/serialization';
+import { sharedConfig } from 'solid-js/internal';
+let failure;
+class Value {}
+const plugin = createPlugin({
+  tag: 'test/render-error-state',
+  test: value => value instanceof Value,
+  parse: { sync: () => ({}), stream: () => ({}) },
+  serialize() { throw failure; },
+  deserialize: () => new Value()
+});
+for (const mode of ['async', 'sync', 'defer']) {
+  for (const hook of ['none', 'local', 'global']) {
+    failure = new Error('plugin serialization failure');
+    const calls = [];
+    const onError = error => { calls.push(error); };
+    configureServerErrors(hook === 'global' ? { onError } : {});
+    const abort = new AbortController();
+    const stream = renderToStream(() => {
+      sharedConfig.context.serialize('value', mode === 'sync' ? new Value() : Promise.resolve(new Value()), mode === 'defer');
+      return '<p>shell</p>';
+    }, { plugins: [plugin], signal: abort.signal, ...(hook === 'local' ? { onError } : {}) });
+    let timer;
+    try {
+      const html = await Promise.race([
+        Promise.resolve(stream),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('render did not complete')), 1000); })
+      ]);
+      assert.ok(html.includes('shell'));
+      assert.ok(!html.includes(failure.message));
+      assert.equal(stream.hasErrors, hook === 'local');
+      assert.deepEqual(calls, hook === 'local' ? [failure] : []);
+    } finally {
+      clearTimeout(timer);
+      abort.abort();
+    }
+  }
+}
+process.stdout.write('passed');
+`;
+
 describe("render error state in published artifacts", () => {
   test.each(["production", "development", "observe"])("%s", condition => {
     const args = condition === "production" ? [] : [`--conditions=${condition}`];
@@ -67,4 +111,17 @@ describe("render error state in published artifacts", () => {
     });
     expect(JSON.parse(output)).toEqual({ isDev: condition === "development", passed: true });
   });
+
+  test.each(["production", "development", "observe"])(
+    "preserves serializer error handling in %s",
+    condition => {
+      const args = condition === "production" ? [] : [`--conditions=${condition}`];
+      const output = execFileSync(
+        process.execPath,
+        [...args, "--input-type=module", "-e", serializationProbe],
+        { cwd, encoding: "utf8", timeout: 10_000 }
+      );
+      expect(output).toBe("passed");
+    }
+  );
 });

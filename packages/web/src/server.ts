@@ -1975,9 +1975,12 @@ export function renderToStream<T>(
   }
 ): {
   /**
-   * Whether this render encountered an error, including an Errored fallback,
-   * a rejected Loading fragment, or a serialization failure. Monotonic and
-   * local to this render, independent of onError's once-per-error reporting.
+   * Whether this render observed an error, including an Errored fallback,
+   * a rejected Loading fragment, or a reported serialization failure. Monotonic
+   * and local to this render, independent of onError's once-per-error reporting.
+   * Serializer errors thrown synchronously by a write or reported to a local
+   * onError hook are recorded. Errors suppressed internally by a serializer, or
+   * thrown asynchronously without a local hook, are not observable here.
    * Read after completion when deciding whether to publish the whole HTML.
    * False does not imply completion: an aborted render may have no errors.
    */
@@ -2043,6 +2046,14 @@ export function renderToStream(code, options = {}) {
   // render starts, by which point it is assigned; the hoist keeps that from
   // being a temporal-dead-zone assumption.
   let serializer;
+  const writeSerialized = (id, value) => {
+    try {
+      return serializer.write(id, value);
+    } catch (err) {
+      recordRenderError();
+      throw err;
+    }
+  };
   // Client-disconnect teardown. A sink that throws from `write`/`end` (its
   // transport is gone) or a consumer cancelling the readable view means
   // nobody is listening anymore: stop touching the sink, mark the render
@@ -2302,12 +2313,12 @@ export function renderToStream(code, options = {}) {
     stubBatch = null;
     if (batch.size === 1) {
       const [id, p] = batch.entries().next().value;
-      serializer.write(id, p);
+      writeSerialized(id, p);
       return;
     }
     const obj = {};
     for (const [id, p] of batch) obj[id] = p;
-    serializer.write(STUB_BATCH_KEY, obj);
+    writeSerialized(STUB_BATCH_KEY, obj);
     pushTask(
       `(b=>{for(var k in b)_$HY.r[k]=b[k];delete _$HY.r["${STUB_BATCH_KEY}"]})(_$HY.r["${STUB_BATCH_KEY}"])`
     );
@@ -2461,7 +2472,13 @@ export function renderToStream(code, options = {}) {
   // flows through onData is a contract between the serializer and the sink
   // (hydration scripts for the document sink, keyed codec records for the
   // frame sink); the core never inspects it.
-  const onSerializerError = serializerErrorHook(options.onError);
+  const observeSerializerError = hook =>
+    hook === undefined
+      ? undefined
+      : err => {
+          recordRenderError();
+          hook(err);
+        };
   serializer = (options.serializer || createHydrationSerializer)({
     scopeId: options.renderId,
     // Containers (projections) serialize as traces on BOTH faces — the
@@ -2471,11 +2488,7 @@ export function renderToStream(code, options = {}) {
     plugins: options.plugins,
     onData: payload => sink.data(payload),
     onDone,
-    onError: err => {
-      recordRenderError();
-      if (onSerializerError === undefined) throw err;
-      onSerializerError(err);
-    }
+    onError: observeSerializerError(serializerErrorHook(options.onError))
   });
   let rootAssetsSerialized = false;
   const serializeRootAssets = () => {
@@ -2860,7 +2873,7 @@ export function renderToStream(code, options = {}) {
       if (p && typeof p === "object" && typeof p.then === "function") {
         if (!firstFlushed && deferStream) {
           blockingPromises.add(p);
-          p.then(d => serializer.write(id, d)).catch(e => serializer.write(id, e));
+          p.then(d => writeSerialized(id, d)).catch(e => writeSerialized(id, e));
           return;
         }
         // Every pending promise handed to seroval joins the abandonment
@@ -2877,7 +2890,7 @@ export function renderToStream(code, options = {}) {
           return;
         }
       }
-      serializer.write(id, p);
+      writeSerialized(id, p);
     },
     escape: escape,
     resolve: resolveSSRNode,
@@ -2931,7 +2944,7 @@ export function renderToStream(code, options = {}) {
         });
         if (canBatchStubs && !shellCompleted && !dead)
           (stubBatch ||= new Map()).set(key + "_fr", p);
-        else serializer.write(key + "_fr", p);
+        else writeSerialized(key + "_fr", p);
       }
       return (value, error, escaped) => {
         if (registry.has(key)) {

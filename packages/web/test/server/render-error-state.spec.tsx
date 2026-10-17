@@ -15,6 +15,7 @@ import {
 } from "@solidjs/web";
 import { NotReadyError, createMemo } from "solid-js";
 import { sharedConfig } from "solid-js/internal";
+import { type HydrationSerializerOptions } from "@solidjs/web/serialization";
 import {
   createServerReference,
   registerServerReference
@@ -215,7 +216,14 @@ describe("renderToStream.hasErrors", () => {
         { signal: abort.signal }
       );
       try {
-        expect(() => context.serialize("unsupported", new WeakMap())).toThrow();
+        expect(() => context.serialize("unsupported", new WeakMap())).toThrow(
+          expect.objectContaining({
+            constructor: expect.objectContaining({ name: "SerovalParserError" }),
+            cause: expect.objectContaining({
+              constructor: expect.objectContaining({ name: "SerovalUnsupportedTypeError" })
+            })
+          })
+        );
         expect(stream.hasErrors).toBe(true);
         expect(onError).not.toHaveBeenCalled();
       } finally {
@@ -223,6 +231,87 @@ describe("renderToStream.hasErrors", () => {
       }
     }
   );
+
+  test.each(["none", "local", "global"])(
+    "preserves the custom serializer callback contract (%s hook)",
+    async hook => {
+      const error = new Error("custom serializer");
+      const onError = vi.fn<ServerErrorHook>(() => undefined);
+      if (hook === "global") configureServerErrors({ onError });
+      let received: unknown;
+      const options = {
+        onError: hook === "local" ? onError : undefined,
+        serializer({ onError, onDone }: HydrationSerializerOptions) {
+          received = onError;
+          return Object.freeze({
+            write() {},
+            flush() {
+              onError?.(error);
+              onError?.(error);
+              onDone?.();
+            }
+          });
+        }
+      };
+      const stream = renderToStream(() => <p>shell</p>, options);
+      await stream;
+      expect(typeof received).toBe(hook === "local" ? "function" : "undefined");
+      expect(stream.hasErrors).toBe(hook === "local");
+      expect(onError).toHaveBeenCalledTimes(hook === "local" ? 1 : 0);
+    }
+  );
+
+  test("reads the serializer factory before capturing its error hook", async () => {
+    let onError = vi.fn<ServerErrorHook>(() => undefined);
+    let received: unknown;
+    const options = {
+      get onError() {
+        return onError;
+      },
+      get serializer() {
+        onError = vi.fn<ServerErrorHook>(() => undefined);
+        return ({ onError, onDone }: HydrationSerializerOptions) => {
+          received = onError;
+          return {
+            write() {},
+            flush() {
+              onError?.(new Error("custom serializer"));
+              onDone?.();
+            }
+          };
+        };
+      }
+    };
+    const stream = renderToStream(() => <p>shell</p>, options);
+    await stream;
+    expect(received).toBeTypeOf("function");
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(stream.hasErrors).toBe(true);
+  });
+
+  test("records a frozen custom serializer's synchronous throw without replacing it", () => {
+    const error = new Error("custom write");
+    const abort = new AbortController();
+    let context!: NonNullable<typeof sharedConfig.context>;
+    const serializer = Object.freeze({
+      write() {
+        expect(this).toBe(serializer);
+        throw error;
+      },
+      flush() {}
+    });
+    const options = { signal: abort.signal, serializer: () => serializer };
+    const stream = renderToStream(() => {
+      context = sharedConfig.context!;
+      return <p>shell</p>;
+    }, options);
+    try {
+      expect(() => context.serialize("custom", 1)).toThrow(error);
+      expect(stream.hasErrors).toBe(true);
+    } finally {
+      abort.abort();
+    }
+  });
 
   test("marks a root retry failure while preserving the existing completion policy", async () => {
     let first = true;
