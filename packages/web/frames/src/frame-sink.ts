@@ -1352,7 +1352,7 @@ function tapFirstYield(iterable) {
  * the adopted occurrence's props.
  */
 /**
- * SPIKE (dependency edges): a reader list on the wire — one string, runs of
+ * Dependency edges: a reader list on the wire — one string, runs of
  * `prop#n` occurrences folded to `prop#a-b` (`card#0-399 cartSummary#0`).
  */
 function packOccurrences(occs: string[]): string {
@@ -1378,7 +1378,7 @@ function packOccurrences(occs: string[]): string {
   return out.join(" ");
 }
 
-/** SPIKE (dependency edges): whether rendered SSR output still holds an async hole. */
+/** Dependency edges: whether rendered SSR output still holds an async hole. */
 function hasAsyncHoles(node, depth = 0): boolean {
   if (!node || typeof node !== "object" || depth > 64) return false;
   if (Array.isArray(node)) {
@@ -1463,13 +1463,15 @@ export function createDocumentSlotProps(
 
 export function createDocumentSlotProps(clientProps, frameId) {
   const counts = Object.create(null);
-  // SPIKE (deferred hydration, dependency edges): which occurrences read
-  // which plain signals they did not create, aggregated per frame as
-  // `sid -> [occurrence]` and shipped in batches (`sc:deps:<frame>:<n>`, one
-  // per synchronous span of fills). `*` lists signals whose readers are not
-  // tracked (wide: a write mounts everything); `!` lists occurrences whose
-  // fill left async holes (reads after the fill returned are not tracked: a
-  // write to any named signal mounts them).
+  // Deferred hydration, dependency edges: which occurrences read which
+  // plain signals they did not create, aggregated per frame as
+  // `sid -> "card#0-399 cart#0"` and shipped in batches
+  // (`sc:deps:<frame>:<n>`, one per synchronous span of fills; the first
+  // always, empty or not, so the client knows the frame's records exist).
+  // `*` lists signals whose readers are not tracked (wide: a write mounts
+  // everything); `!` lists occurrences with reads the server could not see
+  // (async holes left by the fill, client-source or tracked effects): a
+  // write to any named signal mounts them.
   let depsBatch: Record<string, string[]> | null = null;
   let depsN = 0;
   let wideSent = 0;
@@ -1477,25 +1479,25 @@ export function createDocumentSlotProps(clientProps, frameId) {
   const noteDeps = (occurrence: string, reads: Set<string> | null, untracked: boolean) => {
     if (!depsContext || !depsContext.serialize) return;
     const own = `sc-${frameId}-${occurrence}-`;
-    const add = (sid: string) => {
-      if (!depsBatch) {
-        depsBatch = Object.create(null);
-        queueMicrotask(() => {
-          const b: Record<string, any> = {};
-          for (const sid in depsBatch!) b[sid] = packOccurrences(depsBatch![sid]);
-          depsBatch = null;
-          const wide: Set<string> | null = (depsContext as any).edgeWide?.s || null;
-          if (wide && wide.size > wideSent) {
-            b["*"] = [...wide].slice(wideSent).join(" ");
-            wideSent = wide.size;
-          }
+    const batch = () => {
+      if (depsBatch) return depsBatch;
+      queueMicrotask(() => {
+        const b: Record<string, string> = {};
+        for (const sid in depsBatch!) b[sid] = packOccurrences(depsBatch![sid]);
+        depsBatch = null;
+        const wide: Set<string> | null = (depsContext as any).edgeWide?.s || null;
+        if (wide && wide.size > wideSent) {
+          b["*"] = [...wide].slice(wideSent).join(" ");
+          wideSent = wide.size;
+        }
+        if (depsN === 0 || Object.keys(b).length)
           depsContext.serialize(`sc:deps:${frameId}:${depsN++}`, b);
-        });
-      }
-      (depsBatch![sid] ||= []).push(occurrence);
+      });
+      return (depsBatch = Object.create(null) as Record<string, string[]>);
     };
-    if (reads) for (const sid of reads) if (!sid.startsWith(own)) add(sid);
-    if (untracked) add("!");
+    const b = batch();
+    if (reads) for (const sid of reads) if (!sid.startsWith(own)) (b[sid] ||= []).push(occurrence);
+    if (untracked) (b["!"] ||= []).push(occurrence);
   };
   const getters = new Map();
   // Repeated keyed calls are one occurrence within a render (see keyedId).
@@ -1835,7 +1837,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
                   )
                 );
                 const out = tracked.result;
-                noteDeps(occurrence, tracked.reads, hasAsyncHoles(out));
+                noteDeps(occurrence, tracked.reads, tracked.untracked || hasAsyncHoles(out));
                 if (context) {
                   // One record shape (A5, server-components-principles.md): the
                   // t=0 document emits the record a stream would — every invoked

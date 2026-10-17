@@ -11,6 +11,7 @@ export {
   setSignal,
   setWriteHook,
   setSignalIdentities,
+  setReadWatch,
   identifySignal,
   setMemo,
   markRefresh,

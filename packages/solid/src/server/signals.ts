@@ -147,7 +147,7 @@ interface SSROwner {
   _parent: SSROwner | null;
   _context: Record<symbol | string, unknown>;
   _childCount: number;
-  /** SPIKE (dependency edges): plain signals created under this owner, reset with `_childCount`. */
+  /** Plain signals created under this owner (dependency-edge identities), reset with `_childCount`. */
   _sigCount: number;
   _firstChild: SSROwner | null;
   _nextSibling: SSROwner | null;
@@ -1238,8 +1238,8 @@ function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
 let asyncReads = 0;
 
 // ---------------------------------------------------------------------------
-// SPIKE (deferred hydration, dependency edges): plain-signal identities and
-// read tracking. A plain signal created under an id-bearing owner is named
+// Deferred hydration, dependency edges: plain-signal identities and read
+// tracking. A plain signal created under an id-bearing owner is named
 // `<owner id>~<n>` (n counts plain signals under that owner, reset with its
 // child counter), as the client's signals core names it. A read reports the
 // name to the current sink: a slot fill's (`trackFillReads`), a memo's — a
@@ -1247,8 +1247,16 @@ let asyncReads = 0;
 // lands on its sources — or the request's WIDE sink, for reads whose
 // readers are not tracked (a projection's compute): a write to a wide
 // signal mounts everything left.
-type ReadSink = { s: Set<string> | null; wide?: true };
+type ReadSink = { s: Set<string> | null; wide?: true; untracked?: true };
 let readSink: ReadSink | null = null;
+// The innermost slot fill being tracked (`trackFillReads`), for computations
+// whose reads the server cannot see: a client-source memo or effect, a
+// tracked effect (its compute never runs here). The fill's edges are then
+// incomplete, and it mounts on every named write.
+let fillSink: ReadSink | null = null;
+function markFillUntracked(): void {
+  if (fillSink !== null) fillSink.untracked = true;
+}
 function reportRead(sid: string): void {
   const sink = readSink!;
   (sink.s ||= new Set()).add(sid);
@@ -1266,15 +1274,26 @@ function signalIdentity(owner: SSROwner | null): string | undefined {
   const id = materializeId(o);
   return id + "~" + o._sigCount++;
 }
-/** @internal SPIKE: run `fn`, returning its result and the plain-signal identities it read. */
-export function trackFillReads<T>(fn: () => T): { result: T; reads: Set<string> | null } {
+/**
+ * @internal Run a slot fill, returning its result, the plain-signal
+ * identities it read, and whether it ran a computation whose reads the
+ * server cannot see (`untracked`).
+ */
+export function trackFillReads<T>(fn: () => T): {
+  result: T;
+  reads: Set<string> | null;
+  untracked: boolean;
+} {
   const prev = readSink;
+  const prevFill = fillSink;
   const sink: ReadSink = { s: null };
-  readSink = sink;
+  readSink = fillSink = sink;
   try {
-    return { result: fn(), reads: sink.s };
+    const result = fn();
+    return { result, reads: sink.s, untracked: !!sink.untracked };
   } finally {
     readSink = prev;
+    fillSink = prevFill;
   }
 }
 /** Run `fn` with its reads reported to the request's wide sink (`context.edgeWide`). */
@@ -1326,7 +1345,7 @@ export function createSignal<T>(
     ];
   }
   // Plain value form — no ID allocation (IDs are only for owners/computations).
-  // SPIKE (dependency edges): an identity, reported on read (see `readSink`).
+  // Dependency edges: an identity, reported on read (see `readSink`).
   const sid = signalIdentity(currentOwner);
   return [
     sid !== undefined
@@ -1438,7 +1457,7 @@ export function createMemo<T>(
   // after another request may have set its own, and everything the pass
   // creates — a sync memo it pulls, a slot's content — would take that
   // render's ids (#3972).
-  // SPIKE (dependency edges): what the last compute read, re-reported on read.
+  // Dependency edges: what the last compute read, re-reported on read.
   let memoReads: Set<string> | null = null;
   const run = () => {
     resetOwnerForRerun(owner);
@@ -1512,6 +1531,7 @@ export function createMemo<T>(
   const ssrSource = options?.ssrSource;
   if (ssrSource === "client") {
     // Skip computation. Owner created for ID parity.
+    markFillUntracked();
     comp.computed = true;
     if (loadingState) {
       // Client-source with commit #0: markup flushes the loading value; the
@@ -1604,7 +1624,7 @@ function createSyncMemo<T>(
   let epoch: number | undefined;
   // See ServerComputation.moving.
   let moving = false;
-  // SPIKE (dependency edges): what the last compute read, re-reported on read.
+  // Dependency edges: what the last compute read, re-reported on read.
   let memoReads: Set<string> | null = null;
 
   function pull(): T | undefined {
@@ -2409,6 +2429,7 @@ function serverEffect<T>(
 ): void {
   const ssrSource = options?.ssrSource;
   if (ssrSource === "client") {
+    markFillUntracked();
     createOwner();
     return;
   }
@@ -2528,7 +2549,9 @@ export function createTrackedEffect(
   compute: () => void | (() => void),
   options?: { name?: string }
 ): void {
-  // No-op on server, but allocate computation ID
+  // No-op on server, but allocate computation ID. Its reads are the
+  // client's only, so a slot fill running one has edges the server misses.
+  markFillUntracked();
   const o = getOwner();
   if (o?.id != null) getNextChildId(o);
 }
@@ -2832,7 +2855,7 @@ export function createProjection<T extends object = {}>(
   options?: ServerProjectionOptions
 ): Store<T> {
   const ctx = sharedConfig.context;
-  // SPIKE (dependency edges): a projection's readers are not tracked (store
+  // Dependency edges: a projection's readers are not tracked (store
   // reads report nothing), so the signals its compute reads are WIDE.
   if (ctx) {
     const compute = fn;

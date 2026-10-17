@@ -1107,10 +1107,18 @@ export let deferDriver: ((frame: any) => void) | null = null;
 export function setDeferDriver(driver: ((frame: any) => void) | null): void {
   deferDriver = driver;
 }
-/** SPIKE debug: occurrences mounted by deferred hydration so far (`__scDeferMounted`). */
-const deferCount = () => {
-  (globalThis as any).__scDeferMounted = ((globalThis as any).__scDeferMounted || 0) + 1;
-};
+/**
+ * @internal Dev only: wraps every deferred occurrence mount, with the claim
+ * scope (the document frame's site) and the occurrence id — the frames
+ * client's identity-drift check (client.ts).
+ */
+export let deferMountWatch: ((site: string, id: string, mount: () => void) => void) | null = null;
+/** @internal */
+export function setDeferMountWatch(
+  watch: ((site: string, id: string, mount: () => void) => void) | null
+): void {
+  deferMountWatch = watch;
+}
 /** @internal The live frames still owing their adoption-time mounts, outermost first. */
 export function deferredFrames(): any[] {
   return [...liveFrames].filter(f => f.deferred);
@@ -1926,10 +1934,18 @@ class FrameImpl {
     }
     const id = outer && slotStartId(outer);
     if (!id || this.#mountedSlots.has(id)) return false;
-    this.#deferWaiting = this.#mountFound(new Map([[id, outer]])) || this.#deferWaiting;
+    return this.#mountOne(id, outer);
+  }
+
+  /** Deferred hydration: mount one owed occurrence. Whether it mounted. */
+  #mountOne(id: string, start: Comment): boolean {
+    const mount = () => {
+      this.#deferWaiting = this.#mountFound(new Map([[id, start]])) || this.#deferWaiting;
+    };
+    if (deferMountWatch) deferMountWatch(this.#options.claimScope ?? this.#options.id, id, mount);
+    else mount();
     if (!this.#mountedSlots.has(id)) return false;
-    this.#deferMounted.set(id, outer);
-    deferCount();
+    this.#deferMounted.set(id, start);
     return true;
   }
 
@@ -1950,11 +1966,10 @@ class FrameImpl {
     }
     for (const [id, start] of found) {
       found.delete(id);
-      this.#deferWaiting = this.#mountFound(new Map([[id, start]])) || this.#deferWaiting;
-      if (this.#mountedSlots.has(id)) {
-        this.#deferMounted.set(id, start);
-        deferCount();
-      }
+      // One an event mounted already takes the sync's update path.
+      if (this.#mountedSlots.has(id))
+        this.#deferWaiting = this.#mountFound(new Map([[id, start]])) || this.#deferWaiting;
+      else this.#mountOne(id, start);
       if (deadline !== undefined && found.size && performance.now() > deadline) return false;
     }
     this.#deferred = false;
@@ -1965,13 +1980,15 @@ class FrameImpl {
   }
 
   /**
-   * SPIKE (dependency edges): mount one occurrence of THIS frame by id, from
-   * the walk the slices mount from (taken now if no slice has run yet).
-   * False when this frame does not owe it (not deferred, not its occurrence,
-   * or already mounted).
+   * Deferred hydration, dependency edges: mount one occurrence of THIS frame
+   * by id — a write's reader — from the walk the slices mount from (taken now
+   * if no slice has run yet). True when this frame owes it: mounted now, or
+   * by an event already. False when it is not this frame's (an occurrence in
+   * a region of one not mounted yet).
    */
   mountOccurrence(id: string): boolean {
     if (!this.#deferred) return false;
+    if (this.#mountedSlots.has(id)) return true;
     let found = this.#deferFound;
     if (!found) {
       found = this.#deferFound = new Map();
@@ -1980,10 +1997,7 @@ class FrameImpl {
     const start = found.get(id);
     if (!start) return false;
     found.delete(id);
-    this.#deferWaiting = this.#mountFound(new Map([[id, start]])) || this.#deferWaiting;
-    if (!this.#mountedSlots.has(id)) return false;
-    this.#deferMounted.set(id, start);
-    deferCount();
+    this.#mountOne(id, start);
     return true;
   }
 

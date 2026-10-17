@@ -184,11 +184,15 @@ export function creationStamp(): number {
 }
 /** @internal A callback run before every signal or store write lands (deferred hydration). */
 export { setWriteHook } from "@solidjs/signals";
-/** @internal SPIKE (dependency edges): name plain signals so a write reports which one. */
-export { setSignalIdentities } from "@solidjs/signals";
-/** @internal SPIKE (dependency edges): server-only read tracking; the client runs `fn`. */
-export function trackFillReads<T>(fn: () => T): { result: T; reads: Set<string> | null } {
-  return { result: fn(), reads: null };
+/** @internal Dependency edges: name plain signals so a write reports which one; dev read watch. */
+export { setSignalIdentities, setReadWatch } from "@solidjs/signals";
+/** @internal Dependency edges: server-only read tracking; the client runs `fn`. */
+export function trackFillReads<T>(fn: () => T): {
+  result: T;
+  reads: Set<string> | null;
+  untracked: boolean;
+} {
+  return { result: fn(), reads: null, untracked: false };
 }
 /** @internal */
 export function inServerComponentScope(): boolean {

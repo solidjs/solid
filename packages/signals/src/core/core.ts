@@ -366,6 +366,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // and own nothing to park.
     if (isEffect === EFFECT_TRACKED || el._config & CONFIG_STAGED) disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
+    // A pass that made only plain signals still restarts their names (the
+    // server resets every re-run).
+    else if (sigCounts !== null) sigCounts.delete(el);
     if (__DEV__) clearSignals(el);
   }
 
@@ -1689,6 +1692,7 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
 }
 
 export function read<T>(el: Signal<T> | Computed<T>): T {
+  if (__DEV__ && readWatch !== null && (el as any)._sid !== undefined) readWatch((el as any)._sid);
   if (__DEV__ && asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
     checkPostAwaitRead(
       el,
@@ -2042,7 +2046,7 @@ export function setWriteHook(hook: ((sid?: string) => void) | null): void {
   writeHook = hook;
 }
 
-// SPIKE (deferred hydration, dependency edges): plain-signal identities.
+// Deferred hydration, dependency edges: plain-signal identities.
 // While on (`setSignalIdentities`, the server-components client turns it on
 // before hydrating), a plain signal created under an id-bearing owner is
 // named `<owner id>~<n>`, n counting the plain signals created under that
@@ -2058,6 +2062,16 @@ export function setSignalIdentities(on: boolean): void {
 /** @internal Reset an owner's plain-signal counter (with its child counter). */
 export function resetSignalCount(owner: Owner): void {
   if (sigCounts !== null) sigCounts.delete(owner);
+}
+/**
+ * @internal Dev only: called with the identity of every named signal read
+ * while set — the frames client's identity-drift check watches what a
+ * deferred occurrence reads as it mounts. Never called in prod builds.
+ */
+export let readWatch: ((sid: string) => void) | null = null;
+/** @internal */
+export function setReadWatch(watch: ((sid: string) => void) | null): void {
+  if (__DEV__) readWatch = watch;
 }
 /** @internal */
 export function identifySignal(node: Signal<any>, owner: Owner | null): void {

@@ -50,6 +50,7 @@ import {
   prepareTier,
   releaseDeferHolds,
   setDeferDriver,
+  setDeferMountWatch,
   tierLoaders,
   tierLoads,
   type TierModule
@@ -64,6 +65,7 @@ import {
 } from "./frame-transport.js";
 import {
   createLoadingBoundary,
+  setReadWatch,
   setSignalIdentities,
   setWriteHook,
   sharedConfig
@@ -1599,23 +1601,23 @@ function mountAllDeferred() {
   deferDone();
 }
 
-// SPIKE (deferred hydration, dependency edges). The server ships, per
-// document frame, which occurrences read which plain signals they did not
-// create (`sc:deps:<site>:<n>` batches of `sid -> [occurrence]`; `*` wide
-// signals, `!` occurrences with untracked reads). With edges on, a write to
+// Dependency edges. The server ships, per document frame, which occurrences
+// read which plain signals they did not create (`sc:deps:<site>:<n>`
+// batches, `sid -> "card#0-399 cart#0"`; `*`: wide signals, whose readers it
+// could not track; `!`: occurrences with reads it could not see). A write to
 // a named signal mounts only the unmounted occurrences that read it — each
-// with the occurrences enclosing it first, as an event would — instead of
-// everything left. Anything the records cannot vouch for falls back to
-// mounting everything: a write with no name (a store, a derived or
-// optimistic signal, an unnamed owner), a wide signal, a write while the
-// document is still streaming (records may not have arrived), or a deferred
-// frame under a root that shipped no records.
-let edges = false;
+// with the occurrences enclosing it first, as an event would — before the
+// write applies; a named signal no record names mounts nothing (no
+// unmounted occurrence read it). Everything the records cannot vouch for
+// mounts everything left: a write with no name (a store, a derived or
+// optimistic signal, a signal of an owner without an id), a wide signal, a
+// write while the document still streams (records may not have arrived), or
+// a deferred frame under a root that shipped no records.
 const edgeRoots = new Map<string, Element>();
 type EdgeIndex = {
-  readers: Map<string, [string, string][]>;
+  readers: Map<string, [site: string, occurrence: string][]>;
   wide: Set<string>;
-  untracked: [string, string][];
+  untracked: [site: string, occurrence: string][];
   sites: Set<string>;
   starts: Map<string, Map<string, Comment>>;
 };
@@ -1648,7 +1650,7 @@ function buildEdgeIndex(): EdgeIndex | undefined {
     }
   return idx;
 }
-/** `card#0-2 cart#0` -> `card#0 card#1 card#2 cart#0` (see the sink's packOccurrences). */
+/** `card#0-2 cart#0` -> `card#0 card#1 card#2 cart#0` (the sink's `packOccurrences`). */
 function unpackOccurrences(packed: string): string[] {
   const out: string[] = [];
   for (const part of packed.split(" ")) {
@@ -1658,6 +1660,7 @@ function unpackOccurrences(packed: string): string[] {
   }
   return out;
 }
+/** An occurrence's start marker under its root (a nested one, found in the document). */
 function startOf(idx: EdgeIndex, site: string, occ: string): Comment | undefined {
   let m = idx.starts.get(site);
   if (!m) {
@@ -1682,30 +1685,13 @@ function edgesCover(idx: EdgeIndex): boolean {
   }
   return true;
 }
-function mountAll(sid?: string) {
-  const g = globalThis as any;
-  const t0 = performance.now();
-  const c0 = g.__scDeferMounted || 0;
-  mountAllDeferred();
-  (g.__scEdgeMounts ||= []).push([
-    sid ?? null,
-    "all",
-    performance.now() - t0,
-    0,
-    g.__scDeferMounted - c0,
-    c0
-  ]);
-}
 function mountForWrite(sid?: string) {
   if (mounting || (sharedConfig as any).hydrating) return;
-  if (!edges || sid === undefined || document.readyState === "loading") return mountAll(sid);
-  const t0 = performance.now();
+  if (sid === undefined || document.readyState === "loading") return mountAllDeferred();
   const idx = (edgeIndex ||= buildEdgeIndex());
-  if (!idx || idx.wide.has(sid) || !edgesCover(idx)) return mountAll(sid);
+  if (!idx || idx.wide.has(sid) || !edgesCover(idx)) return mountAllDeferred();
   const readers = idx.readers.get(sid);
   if (!readers && !idx.untracked.length) return;
-  const t1 = performance.now();
-  let n = 0;
   mounting = true;
   try {
     for (const list of [readers || [], idx.untracked])
@@ -1714,32 +1700,62 @@ function mountForWrite(sid?: string) {
         // inside an occurrence not mounted yet (a region's fill) is found in
         // the document and mounted with its enclosing ones first.
         const root = edgeRoots.get(site);
-        let done = false;
-        for (const f of deferredFrames())
-          if (root && root.contains(f.el) && f.mountOccurrence(occ)) {
-            done = true;
-            n++;
-            break;
-          }
-        if (done) continue;
+        if (root && deferredFrames().some(f => root.contains(f.el) && f.mountOccurrence(occ)))
+          continue;
         const start = startOf(idx, site, occ);
         const target = start && (start.nextSibling || start);
-        if (!target) continue;
-        for (let f; (f = liveFrameAt(target)) && f.mountEnclosing(target); ) n++;
+        if (target) for (let f; (f = liveFrameAt(target)) && f.mountEnclosing(target); );
       }
   } finally {
     mounting = false;
   }
-  const g = globalThis as any;
-  (g.__scEdgeMounts ||= []).push([
-    sid,
-    "edges",
-    performance.now() - t0,
-    t1 - t0,
-    n,
-    g.__scDeferMounted - n
-  ]);
   deferDone();
+}
+
+/**
+ * Dev: identity drift. A deferred occurrence mounting reads a named signal
+ * it did not create that its record does not list: the client named that
+ * signal differently from the server (a plain signal created on one side
+ * only, under the same owner, ahead of it), so a write to it would mount
+ * the wrong occurrences. Warned once per signal.
+ */
+let driftReads: Map<string, Set<string>> | undefined;
+const driftWarned = new Set<string>();
+function watchDeferredMount(site: string, occ: string, mount: () => void) {
+  const reads = new Set<string>();
+  setReadWatch(sid => reads.add(sid));
+  try {
+    mount();
+  } finally {
+    setReadWatch(null);
+  }
+  const idx = (edgeIndex ||= buildEdgeIndex());
+  if (!idx || !idx.sites.has(site) || idx.untracked.some(([s, o]) => s === site && o === occ))
+    return;
+  if (!driftReads) {
+    driftReads = new Map();
+    for (const [sid, list] of idx.readers)
+      for (const [s, o] of list) {
+        const key = s + " " + o;
+        let set = driftReads.get(key);
+        if (!set) driftReads.set(key, (set = new Set()));
+        set.add(sid);
+      }
+  }
+  const own = `sc-${site}-${occ}-`;
+  const listed = driftReads.get(site + " " + occ);
+  for (const sid of reads) {
+    if (sid.startsWith(own) || listed?.has(sid) || driftWarned.has(sid)) continue;
+    driftWarned.add(sid);
+    console.warn(
+      `[deferred hydration] The slot occurrence "${occ}" read the signal "${sid}" while mounting, ` +
+        `but the server did not record that read. The client and the server name this signal ` +
+        `differently: a plain signal is created on only one side, under the same component or ` +
+        `owner, before it (code that branches on isServer, or a client-only helper). A write to ` +
+        `it would mount the wrong occurrences. Create such signals after the shared ones, or ` +
+        `under their own owner.`
+    );
+  }
 }
 
 let idlePass: Promise<void> | undefined;
@@ -1775,8 +1791,7 @@ function deferDone() {
   if (deferredFrames().length) return;
   if (deferring) {
     deferring = false;
-    edgeIndex = undefined;
-    (globalThis as any).__scDeferDoneAt = performance.now();
+    edgeIndex = driftReads = undefined;
     setWriteHook(null);
     DEFER_EVENTS.forEach(t => document.removeEventListener(t, wakeAt, true));
   }
@@ -1793,6 +1808,8 @@ let deferHydration = true;
 export function setDeferredHydration(on: boolean): void {
   deferHydration = on;
   setDeferDriver(on && typeof document !== "undefined" ? deferFrame : null);
+  setSignalIdentities(on && typeof document !== "undefined");
+  if (IS_DEV) setDeferMountWatch(on ? watchDeferredMount : null);
 }
 
 let deferring = false;
@@ -1903,16 +1920,13 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
   // early as the page's `_$HY` allows (when this call precedes the page's
   // bootstrap, the first documentBoundary re-attempts).
   installRevealHook();
-  // SPIKE (dependency edges): A/B switches read at boot, one build for all
-  // modes — cookie `sc-defer=0` mounts at adoption (eager), `sc-edges=1`
-  // turns edges on (signals are named so a write reports which one).
-  if (typeof document !== "undefined") {
-    const cookie = document.cookie;
-    if (/(?:^|; )sc-defer=0/.test(cookie)) deferHydration = false;
-    edges = deferHydration && /(?:^|; )sc-edges=1/.test(cookie);
-    if (edges) setSignalIdentities(true);
+  if (typeof document !== "undefined" && deferHydration) {
+    setDeferDriver(deferFrame);
+    // Deferred hydration names plain signals, so a write reports which one
+    // (dependency edges); before hydration creates any.
+    setSignalIdentities(true);
+    if (IS_DEV) setDeferMountWatch(watchDeferredMount);
   }
-  if (typeof document !== "undefined" && deferHydration) setDeferDriver(deferFrame);
   const handler = createServerComponentHandler({
     host,
     // ONE mount component per function, and it IS the document placeholder:

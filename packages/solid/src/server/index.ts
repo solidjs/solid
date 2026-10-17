@@ -162,8 +162,10 @@ export {
 export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
 /** @internal Client-only: the server has no writes to observe. */
 export function setWriteHook(_hook: ((sid?: string) => void) | null): void {}
-/** @internal SPIKE (dependency edges): client-only. */
+/** @internal Dependency edges: client-only. */
 export function setSignalIdentities(_on: boolean): void {}
+/** @internal Dependency edges: client-only. */
+export function setReadWatch(_watch: ((sid: string) => void) | null): void {}
 /** @internal */
 export { ssrHandleError, ssrScope } from "./hydration.js";
 // After the runtime modules above, so this import adds no edge to the module

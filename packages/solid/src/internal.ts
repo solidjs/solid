@@ -130,15 +130,20 @@ export const creationStamp: () => number = core.creationStamp;
  * what it left unmounted. Server: no-op.
  */
 export const setWriteHook: (hook: ((sid?: string) => void) | null) => void = core.setWriteHook;
-/** SPIKE (dependency edges). Client: name plain signals (`<owner id>~<n>`) from now on. Server: no-op. */
+/** Dependency edges. Client: name plain signals (`<owner id>~<n>`) from now on. Server: no-op. */
 export const setSignalIdentities: (on: boolean) => void = core.setSignalIdentities;
+/** Dependency edges, dev only. Client: watch the identities of named signals read. Server: no-op. */
+export const setReadWatch: (watch: ((sid: string) => void) | null) => void = core.setReadWatch;
 /**
- * SPIKE (dependency edges). Server: run a slot fill, returning the plain-signal
- * identities it read (through memos too), and those any projection read
- * (`wide`: their readers are unknown). Client: runs it.
+ * Dependency edges. Server: run a slot fill, returning the plain-signal
+ * identities it read (through memos too) and whether it ran a computation
+ * whose reads the server cannot see. Client: runs it.
  */
-export const trackFillReads: <T>(fn: () => T) => { result: T; reads: Set<string> | null } =
-  core.trackFillReads;
+export const trackFillReads: <T>(fn: () => T) => {
+  result: T;
+  reads: Set<string> | null;
+  untracked: boolean;
+} = core.trackFillReads;
 
 /** Server: the live projection trace behind a value, if any. Client: `undefined`. */
 export const getProjectionTrace: (
