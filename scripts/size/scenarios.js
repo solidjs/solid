@@ -2586,8 +2586,9 @@ module.exports = [
     // -> 93,933 B; measured locally (linux) at 29,908 B (93,933 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    limit: "29.91 KB",
-    capMinified: 93933,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 29.91 -> 30.09 KB, measured at 30,075 B brotli / 94,579 B minified (+165 B brotli over the cap, +646 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "30.09 KB",
+    capMinified: 94579,
     alias
   },
   {
@@ -2870,8 +2871,9 @@ module.exports = [
     // 36,256 B; measured locally (linux) at 12,857 B (36,256 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "12.87 KB",
-    capMinified: 36256,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 12.87 -> 13.14 KB, measured at 13,122 B brotli / 36,900 B minified (+252 B brotli over the cap, +644 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "13.14 KB",
+    capMinified: 36900,
     alias
   },
   {
@@ -3207,8 +3209,9 @@ module.exports = [
     // router or cache can stamp without the engine, and `lazy()` stamps its
     // import and the read wrapper. Prod unchanged. Cap at measured + 10 B
     // rounded up to 0.01 KB.
-    limit: "14.60 KB",
-    capMinified: 41212,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 14.60 -> 14.91 KB, measured at 14,892 B brotli / 41,859 B minified (+292 B brotli over the cap, +647 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "14.91 KB",
+    capMinified: 41859,
     alias: observeAlias
   },
   {
@@ -3696,8 +3699,9 @@ module.exports = [
     // 29,108 (+72 B; +210 B minified, 87,372 -> 87,582) — the observe scenario's
     // change (the slot's stamps, `lazy()`'s marks) less the engine's own
     // origin map, which now delegates to the slot.
-    limit: "29.19 KB",
-    capMinified: 87582,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 29.19 -> 29.48 KB, measured at 29,462 B brotli / 88,235 B minified (+272 B brotli over the cap, +653 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "29.48 KB",
+    capMinified: 88235,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -3895,8 +3899,9 @@ module.exports = [
     // 80,206 B; measured locally (linux) at 25,646 B (80,206 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "25.66 KB",
-    capMinified: 80206,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 25.66 -> 25.95 KB, measured at 25,940 B brotli / 80,846 B minified (+280 B brotli over the cap, +640 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "25.95 KB",
+    capMinified: 80846,
     alias
   },
   {
@@ -4042,8 +4047,9 @@ module.exports = [
     // 100,760 B; measured locally (linux) at 31,705 B (100,760 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    limit: "31.72 KB",
-    capMinified: 100760,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 31.72 -> 31.96 KB, measured at 31,950 B brotli / 101,408 B minified (+230 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    limit: "31.96 KB",
+    capMinified: 101408,
     alias
   },
   {
@@ -5257,14 +5263,13 @@ module.exports = [
     // 109,100 B; measured locally (linux) at 35,353 B (109,100 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
-    // 35.370 -> 36.29 KB, measured at 36,278 B brotli / 112,068 B minified
-    // (recorded 109,100). The adoption pass mounts no slot occurrence; an event,
-    // a write or idle slices after load mount them. HN story page, 4x CPU: script
-    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
-    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "36.29 KB",
-    capMinified: 112068,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 35.37 -> 35.78 KB, measured at 35,768 B brotli / 109,754 B minified (+398 B brotli over the cap, +654 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 35.78 -> 36.63 KB, measured at 36,618 B brotli / 112,720 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "36.63 KB",
+    capMinified: 112720,
     alias: pageAlias
   },
   {
@@ -5343,14 +5348,13 @@ module.exports = [
     // 124,433 -> 124,010 B; measured locally (linux) at 41,483 B (124,010 B
     // minified). Lower only: cap at measured + 10 B rounded up to 0.01 KB;
     // recorded minified never raised.
-    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
-    // 41.214 -> 42.32 KB, measured at 42,306 B brotli / 126,985 B minified
-    // (recorded 124,010). The adoption pass mounts no slot occurrence; an event,
-    // a write or idle slices after load mount them. HN story page, 4x CPU: script
-    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
-    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "42.32 KB",
-    capMinified: 126985,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 41.21 -> 41.77 KB, measured at 41,758 B brotli / 124,658 B minified (+544 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 41.77 -> 42.68 KB, measured at 42,667 B brotli / 127,635 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "42.68 KB",
+    capMinified: 127635,
     alias: pageAlias
   },
   {
@@ -5506,14 +5510,13 @@ module.exports = [
     // 130,066 B; measured locally (linux) at 41,944 B (130,066 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
-    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
-    // 41.960 -> 42.81 KB, measured at 42,792 B brotli / 133,034 B minified
-    // (recorded 130,066). The adoption pass mounts no slot occurrence; an event,
-    // a write or idle slices after load mount them. HN story page, 4x CPU: script
-    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
-    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "42.81 KB",
-    capMinified: 133034,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, from CI run 38867513870 — a local bundle of this scenario resolves the router differently and measures ~7 KB smaller, so CI's bytes set this cap): 41.96 -> 42.25 KB, measured at 42,233 B brotli / 130,720 B minified (+295 B brotli over base, +273 B over the cap, +654 B minified over the recorded size): the same window-staged commit as the other list scenarios.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 42.25 -> 43.09 KB, measured at 43,074 B brotli / 133,686 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "43.09 KB",
+    capMinified: 133686,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5638,14 +5641,13 @@ module.exports = [
     // already sat 19 B over the recorded minified, so the allowance was spent.
     // Re-based on the measurement: cap at measured + 10 B rounded up to
     // 0.01 KB, recorded minified 144,773.
-    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
-    // 48.160 -> 49.13 KB, measured at 49,114 B brotli / 147,757 B minified
-    // (recorded 144,773). The adoption pass mounts no slot occurrence; an event,
-    // a write or idle slices after load mount them. HN story page, 4x CPU: script
-    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
-    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
-    limit: "49.13 KB",
-    capMinified: 147757,
+    // mapArray window-staged commit (perf, #4114, 2026-10-16, from CI run 38867513870 — a local bundle of this scenario resolves the router differently and measures ~7 KB smaller, so CI's bytes set this cap): 48.16 -> 48.46 KB, measured at 48,444 B brotli / 145,422 B minified (+294 B brotli over base, +284 B over the cap, +649 B minified over the recorded size): the same window-staged commit as the other list scenarios.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 48.46 -> 49.37 KB, measured at 49,352 B brotli / 148,410 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    limit: "49.37 KB",
+    capMinified: 148410,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
