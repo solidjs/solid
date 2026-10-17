@@ -45,7 +45,6 @@ import {
   createFrameHost,
   deferredFrames,
   FRAME_ID_ATTR,
-  FRAME_TAG,
   isAsyncValue,
   liveFrameAt,
   prepareTier,
@@ -672,7 +671,8 @@ function slotArgsProxy(args: () => Record<string, any>) {
           reads.set(key, read);
         }
         const v = read();
-        if (v instanceof Element) place(v);
+        // A region read is its placement (the regions tier's `place`).
+        if (v instanceof Element) tierLoads.regions.r.place(v);
         return v instanceof Boxed ? v.c : v;
       },
       has: (_, key) => key in args(),
@@ -681,37 +681,6 @@ function slotArgsProxy(args: () => Record<string, any>) {
         key in args() ? { enumerable: true, configurable: true } : undefined
     }
   );
-}
-
-/**
- * Regions by element: the owner that placed one (null until placed, and
- * again once that placement is disposed), and the nested fills mounted or
- * waiting under it, by occurrence.
- */
-const placements = new WeakMap<
-  Element,
-  { o: any; m: Map<string, { live: boolean; run(): void }> }
->();
-const regionOf = (node: Node) => (node.parentNode as Element).closest?.(FRAME_TAG);
-function interior(range: { start: Node; end: Node }) {
-  const nodes: Node[] = [];
-  for (let n = range.start.nextSibling; n && n !== range.end; n = n.nextSibling) nodes.push(n);
-  return nodes;
-}
-
-/**
- * A fill read a region (a slot arg that is server content): the reader's
- * owner places it, as reading `props.children` places client children. The
- * region's nested fills mount under it — those waiting for the placement,
- * and those a disposed placement took down.
- */
-function place(el: Element) {
-  const o = getOwner();
-  const p = placements.get(el);
-  if (!o || !p || p.o === o) return;
-  p.o = o;
-  onCleanup(() => p.o === o && (p.o = null));
-  for (const entry of p.m.values()) entry.live || entry.run();
 }
 
 /**
@@ -735,8 +704,7 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
     {
       get(_, prop) {
         if (typeof prop !== "string" || !(prop in props)) return undefined;
-        // `entry`: a nested fill's placement entry (see the callback below).
-        const mount = (slotProps: any, ctx: any, entry?: { live: boolean }) => {
+        const mount = (slotProps: any, ctx: any) => {
           const key = ctx && ctx.key;
           // A re-call replaces the invocation wholesale (the frame only
           // runs slot cleanups at unmount, not between re-calls): the
@@ -782,14 +750,6 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
             if (fillScopes.get(key) === owner) fillScopes.delete(key);
             owner.dispose();
           });
-          // A nested fill's placement disposing it (see below) leaves the
-          // entry to mount again at the next placement.
-          if (entry) runWithOwner(owner, () => onCleanup(() => (entry.live = false)));
-          // Server content in the args is a region this fill places: its
-          // own fills wait for the placement (see `place`).
-          for (const k in slotProps)
-            if (slotProps[k] instanceof Element && !placements.has(slotProps[k]))
-              placements.set(slotProps[k], { o: null, m: new Map() });
           // The prop is read INSIDE the claim scope: compiled component props
           // are getters, so JSX evaluates lazily at access — deferring the
           // access into the scoped owner is what makes plain JSX (no thunks)
@@ -885,29 +845,11 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
             : runWithOwner(owner, bind);
           return undefined;
         };
-        // A fill nested in a region — server content an enclosing fill
-        // places — is that fill's child, as in any client tree: it mounts
-        // under the owner that placed the region, so it reads the context
-        // the enclosing fill provides there, and lives as long as that
-        // placement does. Until the region is placed (occluded, or the
-        // placement disposed) it waits; the next placement mounts it fresh.
+        // A fill nested in a region mounts where the region is placed (the
+        // regions tier's `nest`; no region exists without the tier).
         return (slotProps: any, ctx: any) => {
-          const p = ctx && ctx.range && placements.get(regionOf(ctx.range.start));
-          if (!p) return mount(slotProps, ctx);
-          const key = ctx.key;
-          let first = true;
-          const entry = {
-            live: false,
-            run() {
-              entry.live = true;
-              const at = first ? ctx : { ...ctx, adopted: false, existing: interior(ctx.range) };
-              first = false;
-              runWithOwner(p.o, () => mount(slotProps, at, entry));
-            }
-          };
-          p.m.set(key, entry);
-          ctx.onCleanup(() => p.m.get(key) === entry && p.m.delete(key));
-          p.o ? entry.run() : fillScopes.get(key)?.dispose();
+          const R = tierLoads.regions?.r;
+          R ? R.nest(mount, slotProps, ctx) : mount(slotProps, ctx);
         };
       }
     }

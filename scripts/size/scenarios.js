@@ -4542,8 +4542,14 @@ module.exports = [
     // slot occurrences that survive stay mounted, new ones mount and dropped
     // ones dispose; deferred, an occurrence not mounted yet keeps the record its
     // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
-    limit: "12.23 KB",
-    capMinified: 36842,
+    // Size-Exception (nested slot fills see the enclosing fill's context,
+    // 2026-10-17, over next @ 7010268d): 12.23 -> 12.25 KB, measured at
+    // 12,235 B brotli / 36,845 B minified (+19 B brotli, +3 B minified). A fill
+    // in a region mounts under the owner that placed it (the regions tier's
+    // placement), and a fill's two claim windows share one claim owner. Cap at
+    // measured + 10 B rounded up to 0.01 KB.
+    limit: "12.25 KB",
+    capMinified: 36845,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4899,6 +4905,12 @@ module.exports = [
     // measured locally (linux) at 33,421 B (102,617 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
+    // Size-Exception (nested slot fills see the enclosing fill's context,
+    // 2026-10-17, over next @ 7010268d): 33.44 -> 33.46 KB, measured at
+    // 33,441 B brotli / 102,629 B minified (+20 B brotli, +12 B minified). A fill
+    // in a region mounts under the owner that placed it (the regions tier's
+    // placement), and a fill's two claim windows share one claim owner. Cap
+    // (floor-caps.json) at measured + 10 B rounded up to 0.01 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5195,6 +5207,12 @@ module.exports = [
     // measured locally (linux) at 37,510 B (115,976 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
+    // Size-Exception (nested slot fills see the enclosing fill's context,
+    // 2026-10-17, over next @ 7010268d): 37.52 -> 37.58 KB, measured at
+    // 37,565 B brotli / 115,982 B minified (+55 B brotli, +6 B minified). A fill
+    // in a region mounts under the owner that placed it (the regions tier's
+    // placement), and a fill's two claim windows share one claim owner. Cap
+    // (floor-caps.json) at measured + 10 B rounded up to 0.01 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5319,8 +5337,14 @@ module.exports = [
     // measured locally (linux) at 35,290 B (108,961 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
-    limit: "35.30 KB",
-    capMinified: 108961,
+    // Size-Exception (nested slot fills see the enclosing fill's context,
+    // 2026-10-17, over next @ 7010268d): 35.30 -> 35.42 KB, measured at
+    // 35,408 B brotli / 108,973 B minified (+118 B brotli, +12 B minified). A fill
+    // in a region mounts under the owner that placed it (the regions tier's
+    // placement), and a fill's two claim windows share one claim owner. Cap at
+    // measured + 10 B rounded up to 0.01 KB.
+    limit: "35.42 KB",
+    capMinified: 108973,
     alias: pageAlias
   },
   {
