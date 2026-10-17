@@ -7993,32 +7993,32 @@ invalidated (below) are marked as such.
 `dd908fc12` vs Octane 0.2.13 / Vapor rc.1; Oct 15 = `3e94215b4` vs 0.13.8 /
 rc.10.
 
-| suite                   | vs Octane Sep 17 |     Oct 15 | vs Vapor Sep 17 |    Oct 15 |
-| ----------------------- | ---------------: | ---------: | --------------: | --------: |
-| js-framework            |            0.91× |      1.16× |           1.09× |     1.38× |
-| js-framework-reorder    |            0.81× |      1.01× |           0.49× |     1.10× |
-| dbmon                   |            1.04× |      1.03× |           1.21× |     1.12× |
-| todomvc                 |            0.78× |      0.88× |           1.30× |     1.04× |
-| chat-stream             |            1.07× |      0.79× |           0.97× |     1.21× |
-| svg-dashboard           |            0.85× |      1.25× |               — |         — |
-| signal-favoring         |            0.63× |      0.86× |           2.47× |     1.54× |
-| effectful-list          |            0.47× |      1.11× |           0.67× |     1.13× |
-| memo-wall               |            0.20× |      0.66× |           0.99× |     1.16× |
-| store-selector-fanout   |            0.59× |      0.61× |           0.95× |     0.87× |
-| scaling-curves          |            0.83× |      0.76× |           1.11× |     0.99× |
-| spa-navigation          |            0.31× |      0.87× |           0.51× |     0.37× |
-| recursive-context       |            0.82× |      0.98× |           0.92× |     0.87× |
-| external-store-fanout   |            0.75× |      0.72× |           1.00× |     1.00× |
-| controlled-form         |            0.93× |      0.90× |           0.94× |     0.92× |
-| event-delegation        |            0.87× |      0.84× |           0.91× |     1.33× |
-| application-composition |            0.90× |      0.87× |           1.01× |     0.98× |
-| suspense-recovery       |            0.98× |      0.98× |           1.00× |     0.98× |
-| scheduler-responsiveness|            1.00× |      0.99× |           1.02× |     0.98× |
-| hydration-interactivity |                — |          — |           1.14× |     1.08× |
-| lifecycle-memory        |            0.61× |      0.61× |           1.00× |     0.99× |
-| streaming-ssr           |            1.29× |      1.35× |               — |         — |
-| uibench                 |            1.20× |      1.65× |           1.16× |     1.60× |
-| **overall geomean**     |       **0.739×** | **0.898×** |      **0.981×** | **1.020×** |
+| suite                    | vs Octane Sep 17 |     Oct 15 | vs Vapor Sep 17 |     Oct 15 |
+| ------------------------ | ---------------: | ---------: | --------------: | ---------: |
+| js-framework             |            0.91× |      1.16× |           1.09× |      1.38× |
+| js-framework-reorder     |            0.81× |      1.01× |           0.49× |      1.10× |
+| dbmon                    |            1.04× |      1.03× |           1.21× |      1.12× |
+| todomvc                  |            0.78× |      0.88× |           1.30× |      1.04× |
+| chat-stream              |            1.07× |      0.79× |           0.97× |      1.21× |
+| svg-dashboard            |            0.85× |      1.25× |               — |          — |
+| signal-favoring          |            0.63× |      0.86× |           2.47× |      1.54× |
+| effectful-list           |            0.47× |      1.11× |           0.67× |      1.13× |
+| memo-wall                |            0.20× |      0.66× |           0.99× |      1.16× |
+| store-selector-fanout    |            0.59× |      0.61× |           0.95× |      0.87× |
+| scaling-curves           |            0.83× |      0.76× |           1.11× |      0.99× |
+| spa-navigation           |            0.31× |      0.87× |           0.51× |      0.37× |
+| recursive-context        |            0.82× |      0.98× |           0.92× |      0.87× |
+| external-store-fanout    |            0.75× |      0.72× |           1.00× |      1.00× |
+| controlled-form          |            0.93× |      0.90× |           0.94× |      0.92× |
+| event-delegation         |            0.87× |      0.84× |           0.91× |      1.33× |
+| application-composition  |            0.90× |      0.87× |           1.01× |      0.98× |
+| suspense-recovery        |            0.98× |      0.98× |           1.00× |      0.98× |
+| scheduler-responsiveness |            1.00× |      0.99× |           1.02× |      0.98× |
+| hydration-interactivity  |                — |          — |           1.14× |      1.08× |
+| lifecycle-memory         |            0.61× |      0.61× |           1.00× |      0.99× |
+| streaming-ssr            |            1.29× |      1.35× |               — |          — |
+| uibench                  |            1.20× |      1.65× |           1.16× |      1.60× |
+| **overall geomean**      |       **0.739×** | **0.898×** |      **0.981×** | **1.020×** |
 
 (Overall rows as `board-compare` prints them from the board run: 21 suites vs
 Octane including the board's invalid streaming-ssr reading of 1.45× — 0.877×
@@ -8120,17 +8120,17 @@ sides and the runner rebuilt the fixtures. Results in
 runner's own noise rule (regression iff median > 1.15× **and** min > 1.10×).
 Octane's own B/A drift is the machine check — nothing but Solid changed.
 
-| suite                | Solid B/A (ops) | Octane B/A | flagged                                                   |
-| -------------------- | --------------: | ---------: | --------------------------------------------------------- |
-| uibench              |     0.960 (96)  |      1.008 | none; one-item tree ops 0.76–0.89, worst cases 0.83–0.91  |
-| js-framework         |     0.999 (10)  |      0.985 | none                                                      |
-| js-framework-reorder |     1.051 (14)  |      0.970 | none; append100 1.37 / insertmid100 1.22 / prepend100 1.11 by median with **mins unchanged** (0.30 → 0.30) — bimodal 8-sample medians, rerun interleaved |
-| effectful-list       |      1.009 (6)  |      0.970 | none                                                      |
-| memo-wall            |      0.987 (7)  |      0.986 | none                                                      |
-| todomvc              |      0.896 (8)  |      0.855 | `complete25` 0.76 and `filterCycle` 0.70 improved (Octane moved 0.86 too — part machine) |
-| dbmon                |      1.044 (6)  |      1.011 | none                                                      |
-| streaming-ssr        |      1.503 (4)  |      1.235 | `shell_allfast` 0.143 → 0.360 ms and `shell_staggered` 0.535 → 1.287 **regressed** |
-| **overall**          | **0.985 (151)** |            | 2 regressed (both streaming-ssr shells), 2 improved       |
+| suite                | Solid B/A (ops) | Octane B/A | flagged                                                                                                                                                  |
+| -------------------- | --------------: | ---------: | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| uibench              |      0.960 (96) |      1.008 | none; one-item tree ops 0.76–0.89, worst cases 0.83–0.91                                                                                                 |
+| js-framework         |      0.999 (10) |      0.985 | none                                                                                                                                                     |
+| js-framework-reorder |      1.051 (14) |      0.970 | none; append100 1.37 / insertmid100 1.22 / prepend100 1.11 by median with **mins unchanged** (0.30 → 0.30) — bimodal 8-sample medians, rerun interleaved |
+| effectful-list       |       1.009 (6) |      0.970 | none                                                                                                                                                     |
+| memo-wall            |       0.987 (7) |      0.986 | none                                                                                                                                                     |
+| todomvc              |       0.896 (8) |      0.855 | `complete25` 0.76 and `filterCycle` 0.70 improved (Octane moved 0.86 too — part machine)                                                                 |
+| dbmon                |       1.044 (6) |      1.011 | none                                                                                                                                                     |
+| streaming-ssr        |       1.503 (4) |      1.235 | `shell_allfast` 0.143 → 0.360 ms and `shell_staggered` 0.535 → 1.287 **regressed**                                                                       |
+| **overall**          | **0.985 (151)** |            | 2 regressed (both streaming-ssr shells), 2 improved                                                                                                      |
 
 **DOM lanes: the rewrite did not cost anything measurable.** Every browser
 suite is within noise of Sep 17 on the same harness, uibench is 4% better
@@ -8233,14 +8233,14 @@ window of one) — the commit.
 paths in the general branch, after the small-move probe so its pinned
 shapes stay with it, and only when the length changed.
 
-- *Pure removal* (`isRemovalOnly`: the new window is an ordered
+- _Pure removal_ (`isRemovalOnly`: the new window is an ordered
   subsequence of the old — two pointers, one key call per item, pure reads):
   `commitRemoval` compacts `_nodes` / `_rows` / `_indexes` IN PLACE from
   `start` (a survivor's new index is its write index), rebuilds only
   `_mappings` (its fresh identity is the change signal downstream), writes
   survivors' row signals (same key, maybe a new object) and index signals,
   shrinks the lengths, disposes the leavers last.
-- *Pure insertion* (`isInsertionOnly`, the mirror): the new rows are
+- _Pure insertion_ (`isInsertionOnly`, the mirror): the new rows are
   created FIRST into created-sized stage arrays (the mapper now writes
   `rows![slot]` / `indexes![slot]`, `slot` = `j` on the full-length paths),
   so an abort disposes only them with the live arrays untouched; then
@@ -8264,26 +8264,26 @@ owners balance). Full suites green: signals 5,327 / web 1,732 + 511.
 
 **Measured** (batch of three, machine idle, 22:00–22:05):
 
-| lane | op | before | after | note |
-| --- | --- | --- | --- | --- |
-| Tier-1 `single-item-ops.bench.tsx` (jsdom, µs per remove+insert pair, mean of two alternated runs) | tail | 97.9 | 88.8 | −9% |
-| | head | 89.3 | 85.2 | −5% |
-| | middle (500) | 101.3 | 95.4 | −6% |
-| | scattered (every 10th ×100) | 2,233 | 2,155 | −4% |
-| | tail, keyed by fn | 116.8 | 106.2 | −9% |
-| uibench fixture, unminified, `prof.mjs --mode=time` (ms median, two rounds) | `tree/[500]/[removeLast(1)]` | 0.060 / 0.065 | 0.050 / 0.050 | −20%, min 0.040 → 0.025 |
-| | `tree/[500]/[insertLast(1)]` | 0.060 / 0.060 | 0.045 / 0.045 | −25% |
-| | `tree/[500]/[removeFirst(1)]` | 0.065 / 0.065 | 0.050 / 0.045 | −27% |
-| | `table/[100,4]/filter/4` | 0.095 / 0.095 | 0.085 / 0.090 | −8% |
-| | `tree/[10,50]/removeAll` (control) | 0.260 / 0.270 | 0.275 / 0.270 | flat |
-| | `tree/[500]/[react_worst_case]` (control) | 0.150 / 0.140 | 0.155 / 0.150 | flat |
-| Octane harness, same day (`results-ab-oct15` / `results-il-oct15-2` → `results-cand1-oct15`) | uibench, 96 ops | 1.654× Octane, 1.602× Vapor | **1.521× / 1.455×** | Solid 0.919 of itself, Octane's own drift 1.000 |
-| | uibench one-item insert/remove (16) | 3.13× / 1.82× | 2.64× / 1.51× | Solid 0.84; `tree/[500]` removeFirst 0.57, insertFirst 0.60, insertLast 0.66, removeLast 0.72 |
-| | uibench table filters (16) | 1.84× / 2.82× | 1.23× / 1.87× | Solid 0.68 |
-| | uibench removeAll / renders / one-item moves / activate / anim / no_change (controls) | | | Solid 1.01 / 1.00 / 1.00 / 1.04 / 0.98 / 1.00 |
-| | uibench worst-case reorders (4) | 2.37× | 2.66× | Solid 1.09 — see below |
-| | js-framework-reorder, 14 ops | 1.012× / 1.122× | **0.983× / 1.040×** | `removefirst` 0.071–0.090, `removeevery10` 0.80–0.82, the 100-row inserts 0.82–0.91 |
-| | effectful-list, 6 ops | 1.274× | 1.322× | Octane's own drift 0.897 that run; Solid 0.93 of itself, `remove_100_scattered` 0.97 — its cost is 100 disposals, not arrays |
+| lane                                                                                               | op                                                                                    | before                      | after               | note                                                                                                                         |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Tier-1 `single-item-ops.bench.tsx` (jsdom, µs per remove+insert pair, mean of two alternated runs) | tail                                                                                  | 97.9                        | 88.8                | −9%                                                                                                                          |
+|                                                                                                    | head                                                                                  | 89.3                        | 85.2                | −5%                                                                                                                          |
+|                                                                                                    | middle (500)                                                                          | 101.3                       | 95.4                | −6%                                                                                                                          |
+|                                                                                                    | scattered (every 10th ×100)                                                           | 2,233                       | 2,155               | −4%                                                                                                                          |
+|                                                                                                    | tail, keyed by fn                                                                     | 116.8                       | 106.2               | −9%                                                                                                                          |
+| uibench fixture, unminified, `prof.mjs --mode=time` (ms median, two rounds)                        | `tree/[500]/[removeLast(1)]`                                                          | 0.060 / 0.065               | 0.050 / 0.050       | −20%, min 0.040 → 0.025                                                                                                      |
+|                                                                                                    | `tree/[500]/[insertLast(1)]`                                                          | 0.060 / 0.060               | 0.045 / 0.045       | −25%                                                                                                                         |
+|                                                                                                    | `tree/[500]/[removeFirst(1)]`                                                         | 0.065 / 0.065               | 0.050 / 0.045       | −27%                                                                                                                         |
+|                                                                                                    | `table/[100,4]/filter/4`                                                              | 0.095 / 0.095               | 0.085 / 0.090       | −8%                                                                                                                          |
+|                                                                                                    | `tree/[10,50]/removeAll` (control)                                                    | 0.260 / 0.270               | 0.275 / 0.270       | flat                                                                                                                         |
+|                                                                                                    | `tree/[500]/[react_worst_case]` (control)                                             | 0.150 / 0.140               | 0.155 / 0.150       | flat                                                                                                                         |
+| Octane harness, same day (`results-ab-oct15` / `results-il-oct15-2` → `results-cand1-oct15`)       | uibench, 96 ops                                                                       | 1.654× Octane, 1.602× Vapor | **1.521× / 1.455×** | Solid 0.919 of itself, Octane's own drift 1.000                                                                              |
+|                                                                                                    | uibench one-item insert/remove (16)                                                   | 3.13× / 1.82×               | 2.64× / 1.51×       | Solid 0.84; `tree/[500]` removeFirst 0.57, insertFirst 0.60, insertLast 0.66, removeLast 0.72                                |
+|                                                                                                    | uibench table filters (16)                                                            | 1.84× / 2.82×               | 1.23× / 1.87×       | Solid 0.68                                                                                                                   |
+|                                                                                                    | uibench removeAll / renders / one-item moves / activate / anim / no_change (controls) |                             |                     | Solid 1.01 / 1.00 / 1.00 / 1.04 / 0.98 / 1.00                                                                                |
+|                                                                                                    | uibench worst-case reorders (4)                                                       | 2.37×                       | 2.66×               | Solid 1.09 — see below                                                                                                       |
+|                                                                                                    | js-framework-reorder, 14 ops                                                          | 1.012× / 1.122×             | **0.983× / 1.040×** | `removefirst` 0.071–0.090, `removeevery10` 0.80–0.82, the 100-row inserts 0.82–0.91                                          |
+|                                                                                                    | effectful-list, 6 ops                                                                 | 1.274×                      | 1.322×              | Octane's own drift 0.897 that run; Solid 0.93 of itself, `remove_100_scattered` 0.97 — its cost is 100 disposals, not arrays |
 
 Nothing flagged by the runner's rule in either direction. The Tier-1
 deltas are small because jsdom's DOM dominates a pair there; the fixture
@@ -8326,14 +8326,14 @@ separate paths).
 
 Measured the same way (batch, idle machine, 22:35–22:48): **a step back.**
 
-| | base → cand 2 |
-| --- | --- |
-| fixture `tree/[500]/[removeLast(1)]` / `[insertLast(1)]` (median, 3 rounds) | 0.92 / 0.83 — the tail still wins |
-| fixture `tree/[500]/[removeFirst(1)]` | **1.23** (min 1.22) |
-| fixture worst-case reorders (4) | 1.04–1.12 |
-| Tier-1 head / middle pair | 1.30 / 1.15; tail 0.94, keyed tail 0.90 |
-| uibench suite | 1.654× → **1.691×** Octane; one-item group 1.05 (heads 1.2, tails 0.85) |
-| js-framework-reorder | 1.012× → 1.060× |
+|                                                                             | base → cand 2                                                           |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| fixture `tree/[500]/[removeLast(1)]` / `[insertLast(1)]` (median, 3 rounds) | 0.92 / 0.83 — the tail still wins                                       |
+| fixture `tree/[500]/[removeFirst(1)]`                                       | **1.23** (min 1.22)                                                     |
+| fixture worst-case reorders (4)                                             | 1.04–1.12                                                               |
+| Tier-1 head / middle pair                                                   | 1.30 / 1.15; tail 0.94, keyed tail 0.90                                 |
+| uibench suite                                                               | 1.654× → **1.691×** Octane; one-item group 1.05 (heads 1.2, tails 0.85) |
+| js-framework-reorder                                                        | 1.012× → 1.060×                                                         |
 
 Two causes, both then measured in Node (`micro-shift.mjs`, 1k object refs):
 
@@ -8368,13 +8368,13 @@ Same batch each (idle machine; Octane's own drift per run within 0.97–1.03
 on every group, so the Solid columns are read raw). Solid candidate / base
 per uibench op group; suite rows are `solid/octane` and `solid/vapor`.
 
-| | size, minified / brotli over cap (per list scenario) | one-item insert/remove (16) | `tree/[500]` one-item (4) | table filters (16) | worst-case reorders (4) | removeAll / renders / moves / activate / anim / no_change | uibench suite | jfb-reorder suite | jfb `removefirst` |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| base | — | — | 5.04× Octane | 1.84× | 2.37× | — | 1.654× / 1.602× | 1.012× / 1.122× | 3.30× |
-| c1 subsequence paths | +1,590 B / ~+500 B | 0.84 | 0.64 | 0.68 | 1.09 | 1.01 / 1.00 / 1.00 / 1.04 / 0.98 / 1.00 | 1.521× / 1.455× | 0.983× / 1.040× | 0.71–0.90 |
-| c2 `copyWithin` | +170 B / ~+100 B | 1.05 | — | 1.02 | 1.11 | flat | 1.691× / 1.653× | 1.060× / 1.118× | 0.96 |
-| c3 loop shifts + commit helper | +220 B / ~+180 B | 0.93 | 0.78 | 0.98 | **1.03** | 1.00 / 1.02 / 1.00 / 1.04 / 0.98 / 0.99 | 1.654× / 1.586× | 1.026× / 1.148× | 0.72 |
-| c4 = c3 + Map-free pure removal + length-first growth | +645 B / ~+310 B | 0.91 | 0.75 | **0.70** | 1.11 | 1.00 / 1.00 / 0.98 / 1.03 / 0.99 / 0.99 | **1.530× / 1.482×** | 1.001× / 1.090× | 0.70 |
+|                                                       | size, minified / brotli over cap (per list scenario) | one-item insert/remove (16) | `tree/[500]` one-item (4) | table filters (16) | worst-case reorders (4) | removeAll / renders / moves / activate / anim / no_change | uibench suite       | jfb-reorder suite | jfb `removefirst` |
+| ----------------------------------------------------- | ---------------------------------------------------- | --------------------------- | ------------------------- | ------------------ | ----------------------- | --------------------------------------------------------- | ------------------- | ----------------- | ----------------- |
+| base                                                  | —                                                    | —                           | 5.04× Octane              | 1.84×              | 2.37×                   | —                                                         | 1.654× / 1.602×     | 1.012× / 1.122×   | 3.30×             |
+| c1 subsequence paths                                  | +1,590 B / ~+500 B                                   | 0.84                        | 0.64                      | 0.68               | 1.09                    | 1.01 / 1.00 / 1.00 / 1.04 / 0.98 / 1.00                   | 1.521× / 1.455×     | 0.983× / 1.040×   | 0.71–0.90         |
+| c2 `copyWithin`                                       | +170 B / ~+100 B                                     | 1.05                        | —                         | 1.02               | 1.11                    | flat                                                      | 1.691× / 1.653×     | 1.060× / 1.118×   | 0.96              |
+| c3 loop shifts + commit helper                        | +220 B / ~+180 B                                     | 0.93                        | 0.78                      | 0.98               | **1.03**                | 1.00 / 1.02 / 1.00 / 1.04 / 0.98 / 0.99                   | 1.654× / 1.586×     | 1.026× / 1.148×   | 0.72              |
+| c4 = c3 + Map-free pure removal + length-first growth | +645 B / ~+310 B                                     | 0.91                        | 0.75                      | **0.70**           | 1.11                    | 1.00 / 1.00 / 0.98 / 1.03 / 0.99 / 0.99                   | **1.530× / 1.482×** | 1.001× / 1.090×   | 0.70              |
 
 Fixture timing (unminified, 3 rounds, medians) agrees on the wins —
 c4: `removeLast` 0.85, `insertLast` 0.83, `removeFirst` 0.77,
@@ -8444,11 +8444,11 @@ afternoon's interleave).
 its clean same-day run (22 suites vs Octane, 21 vs Vapor, uibench and the
 clean streaming-ssr rerun included):
 
-| | vs Octane | vs Vapor |
-| --- | ---: | ---: |
-| Sep 17 (Octane's bad run) | 0.754× | 0.988× |
-| today, before | 0.945× | 1.044× |
-| today, after candidate 4 | **0.926×** | **1.039×** |
+|                           |  vs Octane |   vs Vapor |
+| ------------------------- | ---------: | ---------: |
+| Sep 17 (Octane's bad run) |     0.754× |     0.988× |
+| today, before             |     0.945× |     1.044× |
+| today, after candidate 4  | **0.926×** | **1.039×** |
 
 Where it moved: uibench 1.65× → 1.53× / 1.60× → 1.48×, js-framework-reorder
 1.07× → 1.00× / 1.13× → 1.09×, todomvc 0.95× → 0.72× / 1.01× → 0.88×. The
@@ -8479,3 +8479,1135 @@ floor on this build; then the September list (disposal / owner count per
 row for removeAll, `Show`'s second memo, the compiler's static-child insert,
 `shell_staggered`). Fixture pass queued: effectful-list to the shallow-store
 shape, todomvc's `editing` to an id-keyed selector.
+
+## Streaming SSR Shell Lane (2026-10-16, 01:40–02:30): the first chunk
+
+September open target 4 (`shell_staggered` 2.6×), re-measured today at
+2.8× Octane staggered / 1.6× all-fast with totals at parity. Instruments:
+`benchmarks/streaming-ssr/tools/shell-prof.mjs` in the fork (drives
+`dist/<target>/entry-server.js` under the harness's own protocol; CDP-in-
+process CPU profile windowed between a sentinel before `renderStream()` and
+one inside the first `onChunk`; `--prespin`, `--probe`, `--nostack`,
+`--dist`, `--target`, `--mode=time`), `tools/spin-worker-run.mjs` (the same
+with a Worker spinning for the process lifetime), and an unminified Solid
+bundle at `dist-prof/solid` (`vite build --ssr src/entry-server.ts --minify
+false` from the fixture; the harness's own build inlines the linked runtime
+and minifies it). Node v26.4.0, Apple M5 (4 P + 6 E cores).
+
+### 1. The code path has no hop
+
+`pipe()` → `allSettled(blockingPromises)` (empty: the cards are inside
+boundaries) → `scheduleFlush` → ≥ 8 microtask drain turns, each running
+`flushStubBatch` → `doShell` (gates, root assets, stub batch into seroval,
+head, select values) → `sink.shell` → `assembleDocument` + `withShellEnd`
+→ `coalesceWrites` flushed synchronously. The `setTimeout(attempt)` fallback
+fires only on a no-progress retry. First-chunk time is synchronous CPU.
+
+### 2. The staggered penalty is the machine, not the render
+
+| condition, Solid staggered (ms, median / min)     | shell                                               |
+| ------------------------------------------------- | --------------------------------------------------- |
+| unprofiled                                        | 1.03–1.09 / 0.42–0.59                               |
+| pre-spin 0.05 / 0.2 / 1 ms before each render     | 1.02 / 0.95 / 1.02 — unchanged                      |
+| `--no-flush-bytecode --no-flush-baseline-code`    | 1.06                                                |
+| + `--no-memory-reducer`                           | 1.08                                                |
+| **CPU profiler attached (sampler thread, 20 µs)** | **0.16 attributed; 0.36 incl. the 0.2 ms sentinel** |
+| **a Worker spinning in the process**              | **0.133 / 0.093 — equal to all-fast (0.12–0.14)**   |
+| all-fast, unprofiled                              | 0.121–0.137 / 0.093–0.105                           |
+
+Octane shows the same shape: staggered 0.31–0.34 unprofiled, 0.058
+attributed with the profiler, all-fast 0.058–0.102. The **probe** — a fixed
+2·10⁵-iteration integer loop timed immediately before each render — runs
+**2.8 ms in the staggered loop and 1.05 ms in all-fast** for Solid (Octane
+2.84 / 1.2), and 0.84 ms with the spinning worker: in the staggered loop the
+main thread itself executes ~2.7× slower. A Node process whose main thread
+is idle for most of every 50 ms is scheduled onto an efficiency core; a
+process with a busy thread keeps it on a performance core; a 1 ms spin does
+not re-classify it, a 20 µs sampler does. **`shell_staggered` on an
+Apple-Silicon box measures the first chunk on an E-core, for every
+framework, multiplied ~6×.** Rule: for a Node-only suite with idle gaps,
+time a fixed-work probe beside the op; if it moves with the scenario, the
+numbers are core placement. Keeping the process busy (a spinning Worker) is
+the measurement fix; it belongs in the harness, upstream, not in a fixture.
+
+### 3. What survives: Solid's first chunk is ~115 µs of CPU, Octane's ~58
+
+Unminified profile, staggered, 300 renders, 20 µs sampling, 153 µs/render
+attributed, `renderToStream` 113 inclusive:
+
+| part                                                                                                                                                                                                                     |                       µs/render | note                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| the ten boundaries: `createLoadingBoundary` 74 incl → `ssrLoadingBoundary` 71 → `runLoadingPhase` 51 → `CardBody` 38; `createMemo` 82 incl (`pull` 82, `update` 13, `processResult` 11, `read` 8.7 self, `recordSlot` 4) |                             ~75 | the structural part: a boundary + an async memo + a `NotReadyError` per card                                                                                                         |
+| `NotReadyError` constructions                                                                                                                                                                                            | ≥ 3.6 self, more in `(program)` | **2.8 µs each** (micro: `new` of an Error subclass at depth 30; stackless 0.08; `stackTraceLimit = 0` around `super()` 0.34) — a control-flow signal paying for a stack nobody reads |
+| stub batch into seroval (`flushStubBatch` 18 incl, `write` 15, `parseProperties` 8)                                                                                                                                      |                              18 | serializing `{id: Promise}` × 10 through seroval per render                                                                                                                          |
+| serializer setup (`createHydrationSerializer` 6 + `createSerializer` 6: `dedupePlugins`, `parsePluginStream`, `serializeOnlyDisabledFeatures`, `createIndexForValue`)                                                    |                              12 | seroval re-resolves the plugin set per instance, i.e. per request                                                                                                                    |
+| trace id (`traceFor` 12 → `randomHex` 10.5 → `randomFillSync` 8 → `RandomBytesJob`)                                                                                                                                      |                              12 | two `crypto.getRandomValues` per render for a W3C traceparent; OpenTelemetry's default generator uses `Math.random`                                                                  |
+| `ssr` templates 19, `resolveSSRNode` 13, `escape` 1                                                                                                                                                                      |                             ~30 | the HTML                                                                                                                                                                             |
+| `doShell` 7, `assembleDocument` 5, `withShellEnd` 0.4, `renderShellHead` 0.4, `attempt` loop 27 incl of which the above                                                                                                  |                             ~12 | the shell assembly itself is not the cost                                                                                                                                            |
+
+Levers, cheapest first, none size-positive by more than a few bytes:
+(a) trace ids from `Math.random` (−10 µs); (b) `NotReadyError` without a
+stack in prod — `stackTraceLimit = 0` around `super()`, keep stacks in dev
+(−2.5 µs per throw; the `--nostack` experiment measures the real share on
+this page); (c) cache the resolved seroval plugin set per options identity
+(−8 µs); (d) hand-write the pending-stub script instead of serializing a
+`{id: Promise}` object (−10–15 µs; touches the hydration protocol). (a)–(c)
+take ~115 → ~75 µs, ≈ 1.3× Octane; the remaining 60 is the ten boundaries
+and memos, the May SSR lane's territory.
+
+### 4. Stack-capture share, and the warm figure (02:35)
+
+`Error.stackTraceLimit = 0` for the whole process (`--nostack=1`), same
+unminified profile: staggered 157.6 → 151.0 µs/render attributed (−6.6,
+4%), all-fast 100.9 → 100.7 (0). So two or three `NotReadyError`s are
+constructed per render here, not ten (`setPendingError` reuses the
+instance for the same source); lever (b) is worth ~6 µs on this page and
+is demoted, though it stays correct in principle for pages with many
+suspended reads.
+
+The all-fast run is the **warm** reading and the honest CPU comparison:
+`renderToStream` 73 µs inclusive, 101 attributed per render, shell median
+0.127 ms unprofiled, against Octane's 0.058 — **≈ 1.3× Octane**. The same
+render under the staggered loop costs 110–113 µs inside `renderToStream`
+even with the profiler holding the thread on a performance core: after
+50 ms of near-idle the caches are cold for the render's code, which is the
+other half of the suite's penalty and, again, every framework's.
+
+Revised levers against the warm 73 µs: (a) `Math.random` trace ids −10 µs
+(14%), (c) seroval plugin set resolved once per options identity instead of
+per request −8 µs (11%), (d) hand-written pending-stub script instead of
+serializing `{id: Promise}` through seroval −10–15 µs (14–20%, touches the
+hydration protocol), (b) stackless `NotReadyError` in prod −3–6 µs. (a)+(c)
+alone put the warm first chunk at ~55 µs, Octane's number; (d) would pass
+it. None changes the ten boundaries' own ~50 µs, which is the May SSR
+lane's territory (owner pool, row-owner elision) and not a shell problem.
+
+Ruling for the suite: `shell_staggered` as measured today is an
+Apple-Silicon core-placement artifact multiplied onto a ~1.3× CPU gap, and
+it is not a Solid regression (the Sep 17 build reads the same, § earlier).
+The harness fix — keep the process busy during timing — belongs upstream;
+until it lands, read this suite's shell ops with the spinning-worker driver
+beside the harness number.
+
+### 5. Lever (a) implemented; lever (c) read and withdrawn (02:50–03:20)
+
+Branch `perf/ssr-shell-request-setup` (worktree, from `next` @ 4a99c8446).
+
+**(a) `trace.ts` `randomHex`** now builds the id from `Math.random` words
+(`((Math.random() * 2^32) >>> 0).toString(16).padStart(8, "0")`, four for
+a trace id, two for a span id); the zero-id rejection loops are unchanged.
+W3C Trace Context wants unique, well-spread ids, not unguessable ones, and
+OpenTelemetry's default `IdGenerator` is the same construction. Trace specs
+(server-trace, concurrent-render-trace, trace-client, performance-tracks:
+106 tests) and the full web suite pass. Size: `server: renderToString`
+floor −1 B minified / +28 B brotli (layout noise, under its cap); nothing
+else moves. Changeset `trace-ids-math-random.md`.
+
+**(c) withdrawn.** seroval 1.6.7's per-instance work is `resolvePlugins`
+— a Set dedupe over the plugin list, ~1.5 µs — plus the serializer
+context's own Maps; `parsePluginStream` and `createIndexForValue`, which
+the first profile filed under "setup", run per serialized VALUE (the ten
+pending promises), not per instance. Our wrapper's per-request work is the
+plugin-array copy in `resolveSerializerPlugins` and the feature-bit
+computation (a `process.env.NODE_ENV` read is 0.1 µs; the 3 µs the profile
+hung on `serializeOnlyDisabledFeatures` is inlining attribution). Nothing
+worth a cache under the size rule; the 12 µs is seroval constructing a
+serializer, which a per-render serializer needs. Lever (d) — writing the
+pending-stub script by hand instead of serializing `{id: Promise}` through
+seroval — is where the serializer time actually lives, and it is a protocol
+change, filed for its own pass.
+
+Measured after (a), same driver: all-fast warm 100.9 → **97.5 µs/render
+attributed (−3%)**, `renderToStream` 72.7 → 73.2 inclusive (unchanged
+within sampling), shell median 0.127 → 0.129 ms; the `traceFor` /
+`randomHex` / `randomFillSync` / `RandomBytesJob` frames are gone from the
+profile. Staggered unpinned 0.95 ms (before 1.03–1.09; inside that
+condition's swing), worker-pinned 0.165 (before 0.133; single 100-render
+timings, p90 0.21). So the 12 µs the cold profile charged to the trace id
+was mostly the cold core inflating a kernel-side random fill; warm it was
+~3 µs. Kept: a strict 3% of the shell for zero bytes, and the generator
+OpenTelemetry uses. The warm profile's next per-request items are
+`assembleDocument` at 6.5 µs self (9%) — `indexOf` / slice surgery over the
+~10 KB document for the head and task splices — and the signals `read`
+at 10 µs self across the ten memos; the boundaries' ~50 µs remain the bulk.
+
+### 6. The harness fixed locally: pinned numbers for every framework (03:09)
+
+The artifact in §2 is ours to remove rather than only to report: the
+fork's `benchmarks/streaming-ssr/run.mjs` now starts a `Worker` that
+spins for the measurement pass (default; `--no-pin` opts out), times a
+fixed-work probe before and after, and writes both to `BENCH_JSON` under
+`scheduling`. Commit on `bench/next-linked-oct15`. Pinned and unpinned
+back to back, same builds, 30 renders per cell, the suite's own 5-render
+warmup (results-pin-oct16 / results-nopin-oct16; the probe read 0.70 ms
+before and 0.72 after pinned, 0.68 before and **1.59 after** unpinned):
+
+| shell score, ms  | pinned    | unpinned | unpin/pin | pinned ÷ octane | unpinned ÷ octane |
+| ---------------- | --------- | -------- | --------- | --------------- | ----------------- |
+| octane staggered | 0.066     | 0.350    | 5.3×      | 1.00            | 1.00              |
+| react            | 0.092     | 0.398    | 4.3×      | 1.38            | 1.14              |
+| preact           | 0.099     | 0.620    | 6.3×      | 1.50            | 1.77              |
+| **solid**        | **0.219** | 0.995    | 4.5×      | **3.30**        | 2.85              |
+| ripple           | 0.067     | 0.172    | 2.6×      | 1.00            | 0.49              |
+| inferno          | 0.059     | 0.233    | 3.9×      | 0.89            | 0.67              |
+| octane all-fast  | 0.044     | 0.151    | 3.4×      | 1.00            | 1.00              |
+| react            | 0.049     | 0.109    | 2.2×      | 1.10            | 0.72              |
+| preact           | 0.052     | 0.128    | 2.4×      | 1.19            | 0.85              |
+| **solid**        | **0.090** | 0.136    | 1.5×      | **2.05**        | 0.90              |
+| ripple           | 0.022     | 0.034    | 1.5×      | 0.50            | 0.22              |
+| inferno          | 0.027     | 0.106    | 3.9×      | 0.61            | 0.70              |
+
+Pinned spreads are tight (rme 6–13%, minima in the same order: Solid
+staggered min 0.175 vs Octane 0.051, all-fast 0.078 vs 0.039), so thirty
+samples carry it. Total-time ops do not move (they are the fixture's data
+delays, ~50.7 ms staggered for everyone).
+
+Three corrections to §3–5 follow from the real numbers:
+
+1. **The gap is wider than the profile said, not narrower.** The warm CPU
+   window (§4) put Solid's first chunk at ~1.3× Octane's; the harness's
+   wall-clock first-chunk latency on a performance core is **2.05× all-fast
+   and 3.3× staggered**. The all-fast 0.90× on the unpinned board was
+   Octane being parked harder than us in that scenario (unpin/pin 3.4× vs
+   our 1.5×), not Solid being faster. Pinned, Solid has the slowest shell
+   on the board in both public scenarios; Ripple (0.022) and Inferno
+   (0.027) are 2× faster than Octane.
+2. **Staggered costs us 2.4× all-fast; Octane 1.5×.** Staggered should be
+   _less_ work for the shell (ten fallbacks in place of ten resolved
+   cards), so the extra ~130 µs is latency, not render: something between
+   the ten unresolved boundaries and the first write — the drain-turn
+   count in `scheduleFlush`, or a hop the all-fast path never takes. §1
+   read the code as "no macrotask on the first attempt"; the pinned number
+   says re-read it with the pending-boundary case in hand and time the
+   hops directly (performance marks at `renderToStream` entry, `doShell`
+   entry, `sink.shell` and the first `write`).
+3. **Trace ids stay a 3% footnote.** On 90 µs wall-clock the ~3 µs holds
+   as measured; it is not what separates us from 44.
+
+Upstream: the harness change and this table go to octanejs/octane as a PR
+(the probe lets them see the artifact on their own machines); the board
+column for streaming-ssr is rerun pinned at the next refresh. Memory and
+strategy doc updated for the `--no-pin` flag and the probe fields.
+
+### 7. Hops between the pending boundaries and the first write (03:25, pinned)
+
+Instrumented without touching the branch: `dist-marks/solid` is the
+unminified fixture bundle with eleven `__mark()` timestamps spliced in
+(renderToStream entry, `pipe`, the flush's `allSettled` continuation, each
+drain `attempt` before and after its `flushStubBatch`, `doShell`, its
+gates, `serializeRootAssets`, `flushStubBatch`, `renderShellHead`,
+`assembleDocument`, shell done, `writeRaw`); `tools/shell-prof.mjs
+--marks=1 --pin=1` reports per-hop medians, and `--pin=1` spins the Worker
+in-process. The marked bundle times the same as `dist-prof` and the
+minified `dist` (0.130 / 0.133 / 0.145 ms staggered; 0.099 / 0.098 / 0.099
+all-fast), so the hops read against the harness's numbers.
+
+Median ms since render start, 100 renders, pinned:
+
+| hop                                   | staggered | Δ         | all-fast | Δ         |
+| ------------------------------------- | --------- | --------- | -------- | --------- |
+| renderToStream entry                  | 0.002     |           | 0.000    |           |
+| `pipe` (sync render pass done)        | 0.125     | **0.123** | 0.065    | **0.065** |
+| `allSettled` continuation             | 0.126     | 0.001     | 0.066    | 0.001     |
+| first attempt, after `flushStubBatch` | 0.147     | **0.021** | 0.078    | **0.012** |
+| tenth attempt → `doShell`             | 0.149     | 0.002     | 0.079    | 0.001     |
+| gates + root assets + stubs + head    | 0.152     | 0.003     | 0.080    | 0.001     |
+| `assembleDocument` → shell done       | 0.161     | **0.008** | 0.086    | **0.005** |
+| `writeRaw` → harness `onChunk`        | 0.162     | 0.001     | 0.087    | 0.001     |
+
+Ten drain attempts every render in both scenarios (eight minimum turns
+plus the registry-size resets); the drain's cost beyond the first
+attempt's stub batch is ~2 µs. **There is no idle hop.** `allSettled` of an
+empty blocking set, the microtask drain and the handoff to the sink are
+each a microsecond or two; the first chunk is all CPU, in three places:
+the synchronous render pass (75% of it), the seroval stub batch for the ten
+pending promises (13%), and `assembleDocument`'s head/task splicing (5%).
+§1's reading stands, and the `MIN_DRAIN_TURNS` / `setTimeout` fallback
+never fires on this fixture.
+
+**The staggered excess is a uniform slowdown, not different work.** Every
+CPU segment is 1.6–1.9× slower after a 50 ms staggered render than after a
+1.3 ms all-fast one: the render pass 123 vs 65 µs, the stub batch 21 vs
+12, assembly 8 vs 5, the head 1.3 vs 0.7 — the same ten fallbacks and ten
+stubs each time (`all-fast` resolves on a 1 ms timer, so its shell also
+ships pending). Yet the fixed-work probe reads 0.839 ms in both scenarios
+(min 0.836 in every cell) and a 0.2 or 1 ms busy spin on the main thread
+right before the render changes nothing (staggered 0.133 → 0.130 → 0.131;
+all-fast 0.101 → 0.102 → 0.102), so neither the core nor its clock is
+different. Octane in the same condition: 0.044 staggered vs 0.041
+all-fast, a 7% penalty where Solid pays 30–85%. What differs after a
+50 ms render with ten timer-driven resolutions is the heap and the
+caches, not the thread — and the integer probe and spin allocate nothing.
+§8 discriminates between the new space after idle-time GC work and cold
+code/data caches.
+
+### 8. Not the heap: memory reducer, semi-space, GC counts (03:37, pinned)
+
+Solid staggered / all-fast shell medians, 100 renders each (the batch
+started with the chat renderer at 155% CPU, so read cells against the
+baseline in their own row, not against §7):
+
+| cell                                                         | staggered                                      | all-fast                     |
+| ------------------------------------------------------------ | ---------------------------------------------- | ---------------------------- |
+| D0 baseline                                                  | 0.178 (min 0.115)                              | 0.099 (min 0.073)            |
+| D1 `--no-memory-reducer --no-memory-reducer-for-small-heaps` | 0.183                                          | 0.100                        |
+| D2 `--min-semi-space-size=16`                                | 0.161 (−10%)                                   | 0.088 (−11%)                 |
+| D3 50k small objects allocated right before the render       | 0.155 (min 0.085, p90 0.246)                   | 0.095 (p90 0.199)            |
+| D4 `--trace-gc`, 140 renders                                 | 20 scavenges, 2 mark-compacts, no idle-time GC | 18 scavenges, 1 mark-compact |
+
+Octane staggered: 0.041 baseline, **0.089 with D3** — the allocating
+pre-warm hurts a small working set (its scavenges land inside the timed
+render) and only muddies ours (lower min, higher p90). The memory reducer
+never runs (no idle-time GC lines in either scenario; D1 changes nothing);
+a larger new space is worth the same ~10% in both scenarios (fewer
+scavenges per render), so it is not the staggered mechanism either.
+Scavenge counts are the same in both scenarios. **The heap is ruled out.**
+
+What is left is the render's own working set being cold after 50 ms away
+from it: code (icache, branch predictors, V8's inline caches staying hot
+is not the issue — they are in the heap) and data (the module's tables,
+seroval's, the string tables). The integer probe and spin touch none of
+it, which is why they read flat. §9 tests it directly: run the fixture's
+own synchronous render pass, untimed, right before the timed render.
+
+### 9. Confirmed: the staggered excess is Solid's working set going cold (08:47, pinned)
+
+`tools/shell-prof.mjs --prewarm=sync` runs the fixture's own synchronous
+render pass (`createBenchmarkStream("all-fast")`, never piped) right
+before each timed render, outside the timing and with no idle gap;
+`--prewarm=allfast` runs a full untimed all-fast render first (1.3 ms,
+ending in a ~1 ms gap). Shell medians, 100 renders:
+
+|                  | none              | sync pre-warm         | all-fast pre-warm     |
+| ---------------- | ----------------- | --------------------- | --------------------- |
+| solid staggered  | 0.146 (min 0.092) | **0.101** (min 0.080) | **0.099** (min 0.081) |
+| solid all-fast   | 0.099 (min 0.072) | 0.081 (min 0.070)     | 0.088                 |
+| octane staggered | 0.042 (min 0.034) | 0.038                 | 0.036                 |
+| octane all-fast  | 0.038             | 0.035                 | 0.037                 |
+
+Pre-warmed, staggered equals all-fast to the microsecond, and the hops
+confirm it segment by segment: render pass 65.0 µs (was 123 cold, 64.5
+all-fast), first-attempt stub batch 17.5 (21 / 12), assembly 6.4 (8 / 5).
+Octane gains 10% from the same pre-warm. **The whole staggered-vs-all-fast
+gap is the render's own code and data being cold after 50 ms away from
+it**, with the heap, the core and the scheduler ruled out in §7–8. The
+same mechanism, over the smaller 1.3 ms gap, is worth ~15% in all-fast.
+
+What this settles for the lane:
+
+- **Two numbers, both real.** Warm, Solid's first chunk is 2.0–2.3×
+  Octane's (0.081–0.099 vs 0.035–0.044). Cold — the production condition,
+  where a server's requests arrive milliseconds apart with other code in
+  between — it is 3.3× (0.219 vs 0.066 on the harness), because our
+  working set per request is larger and pays more to be refetched. Making
+  the server bundle touch less code and data per request is a latency
+  lever here, not only a download one: the size work has an SSR payoff.
+- **No scheduling lever exists.** `MIN_DRAIN_TURNS`, the `allSettled`
+  continuation, the sink handoff and `deferFlush` cost ~2 µs together on
+  this fixture; nothing to move.
+- **The warm gap is the render pass**: 65 µs for fifty shell elements and
+  ten pending boundaries against Octane's 41 µs for its entire shell.
+  Next: the marked unminified bundle under the 20 µs sampler, pinned and
+  pre-warmed, attributed by function, with the per-boundary cost
+  (`createLoadingBoundary`, the `NotReadyError` throw and catch, fragment
+  registration, the stub) separated from the element path (`ssrElement`,
+  `escape`, string assembly).
+- **The stub batch stays the second lever** (12–17 µs, 13–18%): a
+  hand-written `$dfj`-style stub script instead of seroval for the ten
+  pending promises, filed as the protocol pass.
+
+Driver flags added tonight (all in `tools/shell-prof.mjs`, fork-local):
+`--pin=1`, `--marks=1` (with `--dist=dist-marks`), `--prealloc=N`,
+`--prewarm=sync|allfast`. Logs: `results-pin-oct16/{hops,newspace,prewarm}.log`.
+
+### 10. The warm render pass by function: per-boundary vs per-element (09:00)
+
+`tools/shell-prof.mjs --dist=dist-marks --pin=1 --prewarm=sync
+--interval=20 --reps=300` on staggered (pre-warmed, so the warm condition;
+unprofiled median 0.092 ms, 100.2 µs/render attributed over 299 windows,
+`renderToStream` 66.7 µs inclusive, the drain's first `attempt` 25.2,
+`doShell` 6.7). Log: `results-pin-oct16/profile-warm-staggered.log`.
+Grouped by inclusive time, µs per render (the shell is the same ten
+pending boundaries in both scenarios):
+
+| group                | µs  | per unit       | what                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------- | --- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| elements             | ~17 | 0.19 / element | `ssr` 16.5 incl (`resolveSSRNode` 10.7), `escape` 0.5, the fixture's template fns 3.3 — ~90 elements, the ten skeletons included                                                                                                                                                                                                                                                                             |
+| boundary wrapper     | ~14 | 1.4 / boundary | `createLoadingBoundary` 50.8 incl minus `CardBody` 30.1 minus the skeletons' share of `ssr`: `ssrLoadingBoundary` 3.1 self, the `ssrScope` closure 2.8, `setContext` 1.4 (an object spread per call), `runWithBoundaryErrorContext` 1.4, `registerFragment` 1.6, owners 1.0, `Object.create(ctx)` + ~15 closures per boundary                                                                                |
+| suspend and register | ~30 | 3.0 / boundary | `CardBody`: `createMemo` → `update` → `processResult` (`recordSlot` 2.8 self: a per-id store object; `createDeferredPromise` 0.4; `ctx.serialize` → `trackSerialized` 1.9 self: a `Promise.race` and two promises per boundary) then the `data()` read throwing: `read` 9.3 self (the unwind through `pull` → component → scope closure → loading phase) and `NotReadyError` 2.1 (stack capture already off) |
+| stub batch           | ~17 | 1.7 / boundary | `flushStubBatch` 16.9 incl → serializer `write` 14.5: seroval `parsePlainObject` 9.7 / `parseProperties` 8.9 / `parsePromise` 2.1 / `parsePluginStream` 2.8 / `createIndexForValue` 1.3 for `{id: Promise}` × 10                                                                                                                                                                                             |
+| document             | ~5  |                | `assembleDocument` 5.3 self (head/task splices over the ~10 KB document)                                                                                                                                                                                                                                                                                                                                     |
+| setup and harness    | ~12 |                | `(program)` 3.7, fixture `setTimeout` × 10 2.7, `traceFor` 1.4, `pipe` 1.3, asset tracking 1.0, serializer 0.8, `mapArray` 0.7                                                                                                                                                                                                                                                                               |
+
+**A pending boundary costs ~6 µs all-in (wrapper + suspend + stub), 61% of
+the warm shell; an element costs 0.19 µs.** Octane renders the same DOM
+and the same ten fallbacks in 41 µs total. Its design
+(`packages/octane/src/runtime.server.ts` §"Suspense"): one synchronous
+pass; a `use()` of a pending thenable pushes `{promise, key}` onto a
+module-level `SUSPENDED` array and throws a shared sentinel; the nearest
+`@try` catches it and renders the `@pending` arm; nothing is allocated
+per boundary beyond that record, no owner, no computation, no promise
+wrapper, no serializer call, no per-boundary script in the shell (its
+seeds stream later, in render order). Ours allocates an owner with a
+context spread, a buffered-context prototype object and a dozen closures
+for the error/retry machinery, a memo with its own owner, a deferred
+promise, a slot record, a `Promise.race` tracker, an error object, and
+hands the promise to seroval, per boundary, on the shell path.
+
+Levers, by µs on the warm shell (Octane is 41; we are 100):
+
+1. **Stub batch, −12 to −15 (15%)**: write the ten pending stubs by hand
+   (`id` → pending record) instead of serializing `{id: Promise}` through
+   seroval; the promise still registers with the serializer for its
+   later resolution. Protocol change on the client's `.s` convention —
+   the pass already filed in §5.
+2. **Suspend-and-register, −8 to −12**: collapse `trackSerialized`'s
+   race + deferred + slot store into one `id → promise` registration when
+   the read happens under an async boundary at shell time; the
+   `recordSlot` store object and `createDeferredPromise` go with it.
+3. **Boundary wrapper, −4 to −6**: build the retry/error closures and
+   the buffered context lazily (only once the first pass actually
+   suspends or errors, which is this fixture's path, so the win is in
+   not allocating what the pass never calls); `setContext` without the
+   spread for the reveal-group null.
+4. **The throw itself, ~11, stays**: a non-throwing suspension protocol
+   is a model change, not a lever; Octane's sentinel throw costs it the
+   same unwind. Stack capture is already suppressed.
+5. **`assembleDocument`, −2 to −3**: the head and task splices.
+
+Together 1–3 put the warm shell near 65–70 µs, 1.6× Octane rather than
+2.3×; the cold (production) number follows proportionally and additionally
+from whatever the levers remove from the working set. Each lever is a
+`packages/web/src/server.ts` (1, 2, 5) or `packages/signals` boundary (3)
+change measured with `--pin=1 --prewarm=sync` and the harness's pinned
+run; the size gate applies to all of them.
+
+### 11. Lever 1, first cut: fragment stubs by script (09:00–09:20)
+
+Branch `perf/ssr-fragment-stubs` (worktree, from `next` @ dbc5d0005),
+commit 0794db9db. The ten `<key>_fr` records — the half of the pre-shell
+stub batch that only ever settles with `true` or an error — are declared
+by one hand-written task (`_$HY.pf([keys])`) and settled by another
+(`_$HY.sf(key)` / `_$HY.sf(key,1)` after a `<key>_fe` error write); the
+ten data promises stay in seroval's batch. Client contract unchanged;
+the settle rides two microtasks after the fragment's writes, the depth the
+serialized promise's `Promise.race` + `.then` had, which the
+projection-repeat hydration test pins (its first-yield snapshot must
+precede the settle in the stream — it did by that margin, and still does).
+Full web suites pass; the size scenarios do not cover `renderToStream`
+and the `renderToString` floor is byte-identical. Changeset
+`ssr-fragment-stubs.md`.
+
+**Measured: at most 3 µs, inside run-to-run noise.** Pinned, warm (sync
+pre-warm), hop medians (`results-pin-oct16/fragstub-after.log`, the first
+cells under a 118%-CPU chat renderer, then repeated quiet):
+
+|                                            | before         | after (quiet)                                                      |
+| ------------------------------------------ | -------------- | ------------------------------------------------------------------ |
+| staggered: first-attempt stub batch        | 17.5 µs        | 17.6 µs                                                            |
+| staggered: shell                           | 0.096–0.101 ms | 0.099 (minified) / 0.112 (marks, noisier)                          |
+| all-fast: first-attempt stub batch         | 12.0 µs        | 9.2 µs                                                             |
+| all-fast: shell                            | 0.081 ms       | 0.080–0.081 ms                                                     |
+| harness pinned, solid staggered / all-fast | 0.219 / 0.090  | 0.186 / 0.090 (react and ripple moved −15% in the same run: drift) |
+
+Halving the batch's promise count did not halve its cost: the 15–17 µs
+is the serializer _session_ (one `crossSerializeStream` per write:
+parser context, plugin resolution, cross-reference bookkeeping, the
+object node, the `$B` spreader task), not the per-promise nodes. The §10
+estimate (−12 to −15 µs) was built on a per-promise cost that the §10
+profile had not actually separated from the per-write cost. What the cut
+does buy: a server `Promise` + `defuse` subscription fewer per fragment,
+ten fewer seroval resolver refs per page, roughly neutral bytes.
+
+Where that leaves lever 1: the shell's serializer cost is the session.
+Removing it from the shell path entirely means hand-writing the data
+stubs too and writing each data value on its own resolution — which
+opens a seroval session per resolution post-shell. Whether that is a
+good trade (TTFB −15 µs against +10 × a session of post-shell CPU) hangs
+on what a session costs, which the same profile that mis-sized this cut
+can answer when pointed at `flushStubBatch` alone (20 µs sampler, pinned,
+pre-warmed, attributed under `write`). Until then the branch is a tidy,
+measured-neutral change, not a perf PR: hold it, or fold it into the full
+cut if the session number says to go.
+
+### 12. The stub batch priced: a session is ~3 µs, the rest is per value (09:30)
+
+`tools/shell-prof.mjs --under=flushStubBatch` (new: a second table of the
+samples whose stack passes through one function), pinned, pre-warmed,
+staggered, 20 µs, 398 windows, on the fragment-stub branch (ten data
+promises in the batch; log `results-pin-oct16/profile-stubbatch.log`).
+`flushStubBatch` is 15.3 µs/render, 13.4% of the shell:
+
+| part                                                                                 | µs     | what                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| serializer `write` → `crossSerializeStream`                                          | 11.3   | the batch's one session                                                                                                                                                                                           |
+| … parse of the batch object (`parseProperties`)                                      | 7.2    | per entry ~0.7: plugin probing 0.15 (`parsePluginStream` tries every plugin's `test` before the promise branch), the promise node + its resolver index 0.25, the key string 0.1, `parseProperties` self 2.3 total |
+| … serialize (`serializeTopCross`)                                                    | 1.4    | per entry ~0.12                                                                                                                                                                                                   |
+| … `onParse` → our `onData` → `pushTask`                                              | 1.9    |                                                                                                                                                                                                                   |
+| … session: `crossSerializeStream` self, `resolvePlugins` + `dedupePlugins`, contexts | ~1.5–3 | **what a session costs**                                                                                                                                                                                          |
+| `flushStubBatch` self                                                                | 2.6    | the Map → object loop and the `$B` spreader task                                                                                                                                                                  |
+| `declareFragmentStubs` + `scriptSafe`                                                | 1.5    | the new fragment declaration (ten keys)                                                                                                                                                                           |
+
+Against the pre-change profile (twenty entries: `write` 14.5,
+`parseProperties` 8.9, `parsePromise` 2.1, `parsePluginStream` 2.8,
+`serializeProperty` 2.5): the per-entry parts did halve, the fixed parts
+(`parseProperties` self, the object node, the loop, the spreader, the
+session) did not, and the declaration task added 1.5 — net −1.6 µs, which
+is what the hops said. §11's "the session dominates" was wrong too: the
+session is ~3 µs; the batch is ~5 µs fixed plus ~0.8 per promise.
+
+**The full cut does not pay.** Hand-writing the data stubs too removes
+the write from the shell (−12 to −13 µs TTFB) but each data value then
+needs its own `serializer.write` on resolution — a session each, ~3 µs ×
+ten — on top of the value parse it already does: about +30 µs of
+post-shell CPU per request against −13 on the first chunk. A worse
+request, a slightly earlier first byte. Not taken. A seroval plugin for a
+pending-stub wrapper would skip the plugin probing and the promise node
+(~0.4 of the 0.8 per entry): −4 µs, for a plugin that has to replicate
+seroval's resolution protocol. Not worth it either.
+
+**Lever 1 closes at ≈ −2 µs.** `perf/ssr-fragment-stubs` stays parked
+(measured neutral; ten server promises fewer per page is tidy, not a
+perf PR). The shell's serializer cost is what it is: ~15 µs for ten
+pending sources, of which ~10 is seroval's per-value and fixed parsing.
+What remains of the 100 µs warm shell is the render pass: the
+suspend-and-register path (§10 lever 2, ~30 µs: `trackSerialized`'s
+race and promises, `recordSlot`, the deferred, `NotReadyError` + the
+unwind) and the boundary wrapper (lever 3, ~14 µs). Those are
+`packages/signals` + `server.ts` boundary work, measured the same way.
+
+### 13. Lever 2 read: what one suspending read costs the server (09:45)
+
+The path for `createMemo(() => props.promise)` read under a `<Loading>`
+during the shell pass (`packages/solid/src/server/signals.ts`
+`createMemo` / `processResult` / `settleServerAsync` /
+`createDeferredPromise`; `packages/web/src/server.ts` `serialize` /
+`guardChannel` / `trackSerialized`), per boundary:
+
+1. **Node**: `createOwner` (id slot), the `comp` record, five closures
+   (`run`, `update`, `armDispose`, `read`, the dispose `flag`), the
+   `_disposal` registration on the creation owner.
+2. **Compute**: `resetOwnerForRerun`, a `sharedConfig.context` swap,
+   `runWithOwner` and `runWithObserver` — three nested `try/finally`
+   around a compute that returns the promise.
+3. **processResult**: `ownerId` (string), `getContext(NoHydrateContext)`,
+   the `recordSlot` closure and its `{s, v, d}` record in the ctx's slot
+   store, `createDeferredPromise` (a Promise, its resolve/reject closures,
+   the record, and a `.then(undefined, noop)` subscription — #3570's
+   guard for channels nobody subscribes to), `flattenResolvedIterable`
+   closure, `settleServerAsync` (`pending` and `attempt` closures,
+   `Promise.resolve(p).then(onSuccess, onError)`: one derived promise),
+   `new NotReadyError(deferred.promise)` (stack capture already off).
+4. **serialize** (web): `guardChannel` — a WeakMap lookup, then
+   `p.then(borderForm, verdictNow)` (derived promise 1) and a WeakMap set;
+   `trackSerialized` — `Promise.race([p, new Promise(r => settle = r)])`
+   (promises 2 and 3, plus race's two subscriptions), `raced.catch(noop)`
+   (4), `pendingSerialized.set`, `p.then(drop, drop)` (5); then the batch
+   `Map.set`. Seroval later adds its own two handlers on the raced promise.
+5. **The read**: `read()` throws `comp.error`; the unwind passes the
+   component's template function, `createComponent`, the `ssrScope`
+   closure's `try/finally`, `runWithOwner`'s, `runWithObserver`'s, `run`'s,
+   and lands in `runLoadingPhase`'s catch (`runWithBoundaryErrorContext`),
+   which sets `retryPromise = err.source`; the boundary's async loop then
+   `await`s it (one more subscription).
+
+So one suspending read makes about seven promises and nine subscriptions,
+three closures-with-records, one error, and rethrows through four
+`finally` frames. From the §10 profile: `read` self 9.3 µs for ten (the
+unwind, ~0.9 each), `recordSlot` 2.8, `NotReadyError` 2.1, `trackSerialized`
+1.9, `processResult` self 1.5, `setContext` 1.4 (the error-context spread
+in `runWithBoundaryErrorContext`), `allocateOwner` 0.9, `createDeferredPromise`
+0.4, `guardChannel` 0.8 — the promises themselves are cheap (V8: ~0.05 µs
+to create, similar to subscribe); the unwind and the per-call objects are
+what shows.
+
+Candidate folds, each a few hundred nanoseconds per boundary:
+
+- **(a) one channel promise** in `serialize`: fold `guardChannel`'s
+  border/verdict mapping and `trackSerialized`'s race + settle + drop into
+  a single `new Promise` whose handlers do all three (border-form on
+  resolve, sanitize on reject, clear the ledger on settle, and the
+  abandonment `settle` resolves it) — five promises and subscriptions
+  become one and two. Same wire, same ledger semantics; the
+  `guardedChannels` WeakMap keeps dedupe for a promise serialized twice.
+- **(b) skip the deferred's noop subscription when a channel subscribes**:
+  `serializes` is known before `createDeferredPromise`; the channel's
+  handler attaches synchronously in the same call, so the #3570 guard is
+  only needed when nothing serializes (renderToString, NoHydration,
+  `serialize: false`).
+- **(c) one `try/finally` per compute**: `run` swaps owner, observer and
+  context itself instead of nesting `runWithOwner` and `runWithObserver`
+  — three finally frames on the unwind become one; the sync-memo path
+  already does its own swap.
+- **(d) `setContext` without the spread** when the owner's `_context` is
+  fresh (a new owner has no inherited record of its own: assign a
+  prototype-chained record instead of copying the parent's) — the
+  error-context set per boundary, and the reveal-group one.
+- **(e) the slot record**: keep; it is the #3003 contract. The
+  `recordSlot` closure can become a module function taking `(ctx, id)`
+  (one closure fewer per node).
+
+Together perhaps −1 µs per boundary (−10 on the 100 µs shell), diffuse,
+touching hydration semantics in (a) and (b): the `--under=CardBody` and
+`--under=createLoadingBoundary` subtree tables (pinned, pre-warmed,
+20 µs) decide which of these are real before any is written — the same
+profile that priced the serializer session.
+
+### 14. The subtree profiles: it is the throw, counted in handler frames (09:55)
+
+`--under=CardBody` (34.2 µs/render, 29.7% of the shell) and
+`--under=createLoadingBoundary` (56.0 µs, 53.8%), pinned, pre-warmed,
+staggered, 400 windows (`results-pin-oct16/profile-under-*.log`). Self
+time inside the boundary subtree, µs per render for ten boundaries:
+
+|                                                              | µs   | nature                                |
+| ------------------------------------------------------------ | ---- | ------------------------------------- |
+| `read` (the data memo's accessor: `throw comp.error`)        | 10.1 | the throw                             |
+| `pull` (sync memo: `catch` rethrow + `finally`)              | 5.4  | two rethrows per pull                 |
+| `ssrScope` closure (inner `catch` rethrow + outer `finally`) | 2.3  | two rethrows                          |
+| `NotReadyError` constructor                                  | 2.4  | `super()` with the stack limit at 0   |
+| `recordSlot`                                                 | 2.4  | the slot record                       |
+| `ssrLoadingBoundary` self                                    | 3.5  | ~15 closures + records per boundary   |
+| `runWithBoundaryErrorContext` self (+ `setContext` 0.7)      | 2.4  | the error-context closure, the spread |
+| `trackSerialized` + `guardChannel` + `serialize`             | 3.1  | the channel promises                  |
+| `hasFinalHole`                                               | 1.7  |                                       |
+| the `(async () => …)()` retry loop, `runDiscovery` closure   | 2.2  |                                       |
+| `_currentBoundaryId` accessor `set`                          | 1.2  | an accessor on the base context       |
+| `registerFragment`, owners, `getContext`, deferred           | 2.9  |                                       |
+| skeleton fallbacks (`ssr`, `_P$2`, `buildAsyncWrap`)         | ~6   | the element path                      |
+
+Two findings the §13 reading missed:
+
+1. **Every suspended hole is pulled twice.** `createSyncMemo` pulls
+   eagerly at creation (`if (!options?.lazy) try { pull() } catch {}` —
+   the NotReady is swallowed, "surface on read"), then `ssr` reads the
+   accessor and, `cached` being false after a NotReady, pulls again: the
+   compute runs twice, the data memo's `read` throws twice, and the sync
+   memo's `catch` + `finally` rethrow twice each. `createMemo.sync` 6.1 µs
+   inclusive and the accessor `get` 5.9 are the two halves. Within one
+   synchronous pass nothing can settle the source (server renders are pure;
+   promises settle on microtasks), so the second pull can only reproduce
+   the first's NotReady.
+2. **A `finally` is a rethrow.** V8 implements `finally` as catch-and-
+   rethrow, so each handler frame between the throwing `read` and the
+   boundary's `catch` re-raises: `pull` (`catch` + `finally`: 2), the
+   `ssrScope` closure (inner `catch` + outer `finally`: 2), the component's
+   and the boundary's `runWithOwner` (`catch` for `stampThrower` +
+   `finally`: 2 each), `runWithBoundaryErrorContext` (`finally`: 1) — on
+   the order of eight raises per suspended boundary, at ~0.25 µs each, and
+   the sampler files the unwind under whichever frame re-raises (`read`
+   10.1, `pull` 5.4, the closure 2.3). Octane throws its sentinel once and
+   catches it in the `@try` arm.
+
+The channel promises (§13 fold a) are 3.1 µs for ten — real but third.
+
+**Picked, in order**, all runtime-only (`packages/solid/src/server/signals.ts`),
+no wire or protocol change:
+
+- **R0 — one pull per suspended hole.** When the eager pull throws
+  NotReady, keep the error on the memo and let a read in the same
+  synchronous turn rethrow it without re-pulling; a single shared
+  microtask per turn clears every such latch (a module-level list, one
+  `queueMicrotask` while any is armed), so the next turn re-pulls as
+  today. Saves a compute, a `read` throw and two rethrows per hole:
+  ~−6 µs here.
+- **R1 — `runWithOwner` with one handler**: restore `currentOwner` on the
+  normal path and in the `catch` (which also stamps), no `finally`. Every
+  throw through any owner scope on the server saves a raise.
+- **R2 — `pull` with one handler**: same shape; the NotReady branch
+  restores and rethrows, the error branch records, restores and rethrows.
+- **R3 — `ssrScope` with one handler**: the unwrap loop's `next`/`count`
+  move out of the try so the single `catch` can set the resume point,
+  restore the ids and rethrow.
+- **R4 — `runWithBoundaryErrorContext` does its own owner swap** inside
+  its one `try`, instead of wrapping `runWithOwner` (and saves the
+  closure).
+
+Expected: eight raises become about three, plus the second pull gone:
+−12 to −15 µs on the 100 µs warm shell (the cold shell proportionally
+more), nothing on the wire. The error-path semantics to keep under test:
+`stampThrower` still runs at the first owner scope an error crosses;
+`moving`/`asyncReads` bookkeeping on the skipped pull (the eager pull
+already recorded it); the `resume` point in `ssrScope`. Then the channel
+fold (a) and `NotReadyError` via `Object.create` (no `super()`), each
+~2 µs, as a second cut if the first measures as expected.
+
+### 15. Lever 2, first cut measured: −4.5 µs by profile, invisible to timing (11:08)
+
+Branch `perf/ssr-suspend-unwind` (worktree, from `next` @ dbc5d0005),
+commit 149adbdcc, changeset `ssr-suspend-unwind.md`: R0–R4 from §14,
+107 lines in `packages/solid/src/server/signals.ts`. Typecheck, solid,
+web (default, server, hydrate) and signals suites pass; no wire change.
+Log `results-pin-oct16/unwind-after.log` (the batch started under a 97%
+Spotlight `mds_stores`, so its first cells are high; the subtree profiles
+ran last and clean).
+
+Subtree self time, µs per render for ten boundaries, before → after:
+
+|                                       | before    | after     |
+| ------------------------------------- | --------- | --------- |
+| `createLoadingBoundary` subtree total | 56.0      | **51.5**  |
+| `read` (the data memo's throw)        | 10.1      | 5.2       |
+| sync memo `pull`                      | 5.4       | 1.6       |
+| `ssrScope` closure                    | 2.3       | 4.4       |
+| `ssrLoadingBoundary` self             | 3.5       | 3.4       |
+| `runWithBoundaryErrorContext` self    | 2.4       | 2.4       |
+| `recordSlot` / `NotReadyError`        | 2.4 / 2.4 | 2.9 / 2.3 |
+| `CardBody` subtree total              | 34.2      | 32.3      |
+
+What moved is what R0 and R2 target: the second pull's compute and the
+pull's two handler passes (5.4 → 1.6) and the unwind the sampler filed
+under `read` (10.1 → 5.2); the `ssrScope` closure now carries the one
+re-raise it still does (2.3 → 4.4). Net −4.5 µs on the boundary
+subtree, ~5% of the warm shell. Wall-clock cells are inside noise:
+warm staggered 0.098–0.107 ms (before 0.096–0.101), warm all-fast 0.081
+(0.081); the harness moved every framework by the same −19% (the before
+run had the chat renderer at 92% CPU at its start), Solid staying at
+3.29× / 2.15× Octane.
+
+Why less than the §14 estimate: a `finally` re-raise is cheaper than the
+original throw (the estimate priced them equal), and R0 removes the
+second _compute and pull_ but not the second _throw_ — the read still
+raises the latched NotReady, and that raise, plus the eager pull's own,
+is what `read`'s 5.2 + `NotReadyError`'s 2.3 still are. One throw per
+hole needs the eager pull not to happen for a hole memo at all: a hole is
+created as an `ssr()` argument and read by it in the same expression, so
+a lazy pull changes nothing about _when_ its children's ids allocate (a
+memo's owner id is taken eagerly at `createOwner`; its children's ids
+derive from that owner, not from the parent's counter) — the question is
+only whether any compiler-emitted `_$memo` is created and never read on
+the server, where laziness would skip a compute the client runs. That is
+the next cut: `createMemo.sync` lazy by default (or the compiler passing
+`lazy` for holes), one pull and one throw per suspended hole, worth
+roughly the remaining `read` + `pull` + `NotReadyError` under CardBody
+(~−9 µs) if the id-parity argument holds under the hydration suites.
+
+The branch as it stands: green, semantically neutral, a 5% CPU cut on
+the shell path by profile and nothing by stopwatch. Hold it for the
+lazy-hole cut and ship the two together with one measurement, rather than
+a standalone PR that cannot show its number on the harness.
+
+### 16. Lazy sync memos, tried (11:40): ids hold, eight unit tests read nothing
+
+On top of `perf/ssr-suspend-unwind` (uncommitted): `createSyncMemo` pulls
+on first read unless `lazy: false`. First, a correction to §15: the
+fixture's compiled holes are not memos — `@tsrx/solid` emits
+`ssrScope(() => escape(data().title))` thunks that `ssr()` evaluates — so
+the sync memo in the boundary subtree is `For`'s (`mapArray`'s
+`createMemo(…, {sync: true})`), created while the enclosing `ssr()`'s
+arguments are evaluated. Its eager pull reads `data()` and meets the
+NotReady first (a throw, swallowed at creation); the first hole then meets
+it again (the throw that reaches the boundary). Lazy, the `For` memo is
+never pulled in a suspended pass — one throw per boundary instead of two —
+and the same holds for `Show`, `Switch`, `Dynamic` and `lazy()` wrappers
+in any template that suspends.
+
+Why it is id-safe: an owner's hydration id is computed at `allocateOwner`
+(`nextChildIdFor(parent)`, folding a pending hole slot via
+`materializeId`), and a memo's children derive their ids from the memo's
+owner, so a pull that runs later allocates the same ids. What a lazy pull
+moves is _when_ the memo's compute — and whatever it renders — runs
+relative to components the same template calls eagerly as arguments
+(`escape(Comp(props))`): the fragment registration order inside one
+template (sequential reveal groups), head and asset registration order,
+and a flow component whose result is never read on the server no longer
+renders its children there (the client's memo would).
+
+Suites: signals 5322 pass; web default 1405 pass; **web hydrate 511 pass
+(16 expected fail, 2 skipped) — the streamed documents hydrate with
+aligned ids**; web server 1734 pass and 3 fail; solid 864 pass and 5
+fail. The eight failures are one pattern: `flow.spec.ts` "Hydration key
+alignment" / "Transparent insert effect alignment" and
+`dynamic-hydration.spec.tsx` create a `Show` / `dynamic` and never read
+the returned accessor, asserting the owner id their children getter saw
+during the eager pull — under lazy the getter never runs, so they see
+`undefined`, not a different id. Reading the accessor in those tests
+restores the assertions as written (the ids are allocated eagerly either
+way).
+
+Not measured yet. The decision is whether the ordering change is
+acceptable for a ~−6 µs (one fewer throw per suspended boundary: the
+`read` + `NotReadyError` + `pull` the §15 after-profile still shows) —
+or whether to scope it: `lazy` only for `mapArray`/`repeat` (whose rows
+are read by the template right after creation) leaves `Show`'s and
+`Dynamic`'s children ordering untouched and still removes the throw this
+fixture pays.
+
+### 17. Lazy list memos measured, the throw count explained, and the lane closed (11:25–12:00)
+
+Scoped to `mapArray` and `repeat` (`{ sync: true, lazy: true }`, commit
+960bcc498 on `perf/ssr-suspend-unwind`; every suite green). Measured
+pinned (`results-pin-oct16/lazylist-after.log`, `results-lazylist-oct16`):
+
+|                                 | before (§6–10) | unwind (§15)      | unwind + lazy list                         |
+| ------------------------------- | -------------- | ----------------- | ------------------------------------------ |
+| warm staggered shell, minified  | 0.096–0.101    | 0.098–0.107       | **0.092–0.095**                            |
+| cold staggered shell, minified  | 0.133–0.146    | 0.202 (Spotlight) | **0.117–0.124**                            |
+| warm all-fast shell             | 0.081          | 0.081             | 0.083                                      |
+| `CardBody` subtree (profile)    | 34.2 µs        | 32.3              | **28.0**                                   |
+| `createLoadingBoundary` subtree | 56.0           | 51.5              | 55.1 (run at a slower shell median; noisy) |
+| harness, Solid ÷ Octane         | 3.30× / 2.05×  | 3.29× / 2.15×     | 3.37× / 2.17×                              |
+
+A counting build (`dist-count`: counters in `NotReadyError`, the memo
+`read`'s throw and the sync memo's `pull`, one untimed render) says why
+the gains are the size they are: at the first chunk a staggered render
+constructs **10 NotReadyErrors and throws from `read` 50 times**, with 12
+sync memos pulled 12 times (the lazy list memos pull once, at the read).
+Five throws per boundary: `ssr()` evaluates _every_ hole of a suspended
+component and collects each NotReady's source (the engine's
+waterfall-avoidance: a boundary awaits all of its pending sources at
+once), so `title`, `subtitle`, the list, `tag` and `note` each throw —
+four of them for a source already known pending. The throw itself is
+~0.2 µs (50 → ~10 µs of `read` self); the unwind cuts (§15) and the
+lazy list (one pull fewer per boundary) took the per-throw handler cost
+and one of the five, which is the −6 to −8 µs the profiles show. Octane
+throws once per component: its `use()` aborts the component at the first
+pending source.
+
+Skipping the remaining holes once a NotReady has been seen would trade
+the waterfall guarantee (independent sources in one component discovered
+in one pass) for ~8 µs here; collecting only _distinct_ sources is what
+the engine already does, the throws are the price of finding out. Not
+taken.
+
+**Lane closed.** Final ledger, runtime changes only (what changed in
+solidjs/solid):
+
+| change                                                         | where                          | measured                                                 | status                                     |
+| -------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------- | ------------------------------------------ |
+| trace ids from `Math.random`                                   | `@solidjs/web` `trace.ts`      | −3% warm shell CPU (97.5 vs 100.9 µs attributed)         | PR #4115, open                             |
+| fragment stubs by script                                       | `@solidjs/web` `server.ts`     | −2 µs (seroval's cost is per write, not per promise)     | branch `perf/ssr-fragment-stubs`, parked   |
+| one handler frame per owner scope; one pull per suspended hole | `solid-js` server `signals.ts` | −4.5 µs on the boundary subtree by profile               | branch `perf/ssr-suspend-unwind` 149adbdcc |
+| list memos pull at the read                                    | same                           | CardBody subtree 32 → 28 µs; warm shell 0.098 → 0.093 ms | same branch, 960bcc498                     |
+
+Harness and fixture changes, which change what is measured and not the
+framework: the fork's streaming-ssr pins the main thread (b30fef17a;
+every framework's shell 2.5–6× lower, Solid's ratio to Octane _worse_:
+3.3× staggered, 2.1× all-fast); the profiling drivers
+(`shell-prof.mjs` with `--pin --prewarm --marks --under`,
+`build-prof.mjs`, the counting build). No fixture shape changed in this
+lane.
+
+What the lane established about Solid's streaming shell: warm, 2.1× Octane
+(81 vs 38 µs on ten pending boundaries), of which ~55% is per-boundary
+machinery (owners, contexts, closures, the slot record, the channel
+promises, five throws) and ~17% the serializer; cold — the production
+condition — 3.3×, because the working set is larger and all of it is
+refetched after a 50 ms gap. The rest is architectural: a suspension
+protocol that throws per hole and allocates per boundary, against one
+that pushes a record and throws once. A smaller per-request working set
+(the size work) and a per-boundary allocation diet are the two levers
+left, both larger than a lane.
+
+## Vapor Lane (2026-10-16, 12:30–13:30): where Solid trails Vue Vapor, by function
+
+Direction (Ryan): the suites where Solid trails Vapor are the ones that say
+something about Solid's own design — same fine-grained model, so less
+excuse than against Octane's different architecture. Board (§"Octane
+Board Refresh", Solid ÷ Vapor): signal-favoring 1.54, uibench 1.48,
+js-framework 1.43, event-delegation 1.33, effectful-list 1.29, chat-stream
+1.21, memo-wall 1.16, dbmon 1.10. Per op (`scratchpad/vapor-ops.mjs`
+over the board JSONs), the pattern is two families:
+
+- **a single update's fixed cost**: signal-favoring `bump_*` 0.42 vs
+  0.19 µs; memo-wall `one_change` 23.6 vs 12.7; effectful-list
+  `update_nodeps` 2 vs 1; js-framework `select` 7.6 vs 2.8; chat-stream
+  `type160` 1.42 vs 0.74 ms;
+- **list edits that touch few rows**: js-framework `swap` 57 vs 16 µs;
+  uibench `removeAll` 2.8×, `filter` 2–2.5×, single-row moves/removes
+  2.3×, `tree/[500]/react_worst_case` 9×; effectful-list
+  `remove_100_scattered` 2.05×. Mounts and full renders go the other way
+  (uibench renders 0.4–0.5×, memo-wall mount 0.62×, effectful-list mount
+  0.87×).
+
+### 1. Three ops profiled on unminified builds (13:00)
+
+`benchmarks/tools/prof-call.mjs` (new, fork-local): drives a window hook
+or a DOM-click snippet N times in Playwright Chromium with the CDP
+profiler at 20 µs, sentinel-windowed like `uibench/tools/prof.mjs`;
+timing batches sized by time (a `vite preview` page has a 100 µs clock).
+Unminified `dist-prof` builds of both fixtures served on 5390–5393. Log
+`.logs/vapor-prof-2026-10-16.log`. Wall-clock per call (batched medians):
+
+| op                                                        | Solid   | Vapor    | ratio |
+| --------------------------------------------------------- | ------- | -------- | ----- |
+| signal-favoring bump (write + sync flush → one text node) | 0.56 µs | 0.175 µs | 3.2×  |
+| js-framework select (row click → class on two rows)       | 5.75 µs | 1.74 µs  | 3.3×  |
+| js-framework swap (rows 2 and 999)                        | 30.3 µs | 9.1 µs   | 3.3×  |
+
+What the attribution says (µs per call, Solid unless noted; the sentinel
+and `evaluate` frames are excluded by reading inclusive time under the
+hook):
+
+**Bump** — `window.__bumpAt1` 1.04 inclusive: `setSignal` 0.335, of
+which **`queueMicrotask` 0.300** — `schedule()` books a microtask flush
+on every write even when the caller flushes synchronously next; `flush`
+0.665 → `runEffect` 0.449 → **`insertExpression` 0.428**: the hole
+`1:{v()} <C2/>` is a multi-slot insert, so a changed primitive goes
+through `normalize` (array wrap), the materialization loop (`prev.data =
+item`) and a `reconcileArrays` call on an identical one-node array.
+Vapor: `setText` 0.150, `flushJobs` 0.275 inclusive. Two levers: the
+fixture should write through `flush(() => bump())`, the API made for a
+synchronous commit (`syncDepth` suppresses the microtask) — the other
+adapters' `flushSync` wrappers are the same shape; and a core fast path
+in the multi-slot insert for "primitive into a single existing text
+node": `.data` write, no array, no reconcile — Vapor's `setText`.
+
+**Select** — the fixture selects through an id-keyed store
+(`delete s[prev]; s[id] = true`). The store write path is ~3 µs of the
+5.75: `materializePB` 1.37 self + `ensurePB` 0.21 + `foldTarget` 1.43
+inclusive + `settle` 1.6 inclusive + `storeSetter` 1.55 inclusive; the
+`delete` forces the overlay rebuild (`overlayRebuilds`: any delete). The
+DOM part is 1 µs (`className` 0.52, `setAttribute` 0.47). Vapor compiles
+`:class="{danger: row.id === selected}"` to a keyed selector:
+`setClassName` 0.65 + flush 0.4. Our like-for-like idiom is
+`createSelector` (exported from `solid-js`): fixture lever. The store's
+single-key write cost on a map-shaped object (clone on delete) is a core
+item for the store-using suites (dbmon, todomvc), separately.
+
+**Swap** — `mapArray` does its part in 5 µs (`trySmallMove` 4.0 +
+`commitSmallMove` 1.1); the DOM side then spends **24 µs**:
+`reconcileArrays` 12.8 self + **`isLive` 9.4 self** (the per-node
+`parentNode`/`$$SLOT` check, run on every node of the common prefix and
+suffix — 1000 calls for a two-row swap) + `normalize` 2.1 + the two DOM
+moves 1.8. Vapor: `renderList` 8.4 inclusive with `planMoves` and two
+`insertBefore`s. The queued "DOM-side list pass" now has its number:
+the reconcile has no idea the change was two rows at indices 1 and 998,
+and re-derives it by walking a thousand nodes with a liveness check each.
+Levers: carry mapArray's window (start, end, displaced) to the insert so
+the reconcile scans only the window, and take the `isLive` probe off the
+common-prefix fast path (it guards #574 — nodes replace/swap moved out —
+which a window from the same flush cannot contain).
+
+### Levers, split
+
+Runtime (solidjs/solid):
+
+1. `reconcileArrays` with a window from `mapArray` and no per-node
+   liveness probe on the common ends — swap 30 → ~10 µs, and the
+   single-row uibench moves/removes and scattered removals with it.
+2. Multi-slot primitive fast path in `insertExpression` — the bump's
+   0.43 µs → ~0.15, every dynamic text beside a sibling.
+3. Store: a single-key write on a map-shaped store should not clone the
+   object on a delete (`overlayRebuilds`) — select 3 µs → <1.
+
+Fixture (fork, reported apart): signal-favoring bumps through
+`flush(fn)`; js-framework selection through `createSelector`.
+
+### 2. Lever 1, first cut: the window reaches the diff and changes nothing (15:55–16:20)
+
+Branch `perf/reconcile-window` (worktree, on top of the #4114 branch at
+1f213bb73), commit e557a8313. `mapArray`'s three commit paths and `repeat`
+record `start | suffix << 16` for the array they publish in a WeakMap
+beside the array (`stampListWindow` / `listWindowOf` in
+`signals/src/flatten.ts`; a first cut put a symbol property on the array
+and broke `toEqual` in three signals tests — arrays must stay plain);
+`flatten` carries the record when every row flattened to itself;
+`reconcileArrays` trims to the window after checking both arrays agree at
+its edges. Every suite green with new tests for the record per commit path
+and the `<For>` DOM outcomes. Size: +300–400 B minified, +90–230 B brotli
+on every app scenario — over every cap.
+
+Measured (log `.logs/window-measure-2026-10-16.log`, `results-window-oct16`
+vs `results-cand4v-oct15` / `results-cand4-oct15`): **nothing**.
+js-framework after/before geomean 0.995 (Vapor's drift 0.989); `swap`
+0.057 → 0.055; uibench 1.013 (Vapor 1.004); single-row inserts and removes
+0.86–0.97, inside noise. The swap profile is unchanged: `reconcileArrays`
+13.3 self + `isLive` 8.3.
+
+An instrumented bundle says why: the record is present and _applied_ on
+every swap (61 of 61), but a swap of rows 1 and 998 has a window of
+[1, 998] — the 996 retained rows between them sit inside it, and the diff
+then walks them with its own prefix scan and a liveness probe each. A
+start/suffix window describes contiguous edits; a swap, a far move or a
+scattered removal needs the displaced positions themselves — which the
+small-move path (`srcPos` / `dstPos` / `runs`) and the pure-removal stager
+(the leavers' old indices) already hold and throw away. And for the
+single-end edits the window does describe (insertLast, removeFirst), the
+scan was not the bulk of a 20 µs op.
+
+What would work, and what it costs:
+
+- **Edit lists** from the two fast paths: `{ d: displaced destinations, r:
+removed old indices, n: old length }`. The diff then applies them
+  directly — remove each `a[r]`, then for each displaced destination from
+  the highest down `insertBefore(b[p], b[p + 1] ?? after)` (the retained
+  runs keep their relative order, so a displaced node inserted before its
+  new successor lands right) — O(k), no scan: swap 30 → ~8 µs (mapArray's
+  5 + two DOM moves), scattered removals likewise; `react_worst_case` and
+  `snabbdom_worst_case` (uibench's 9× and 2.6×) if their shapes fit the
+  32-displaced budget.
+- **Trust identity when a record exists**: the general path and `repeat`
+  record only "same list, next pass", and the prefix/suffix scan compares
+  identity without `isLive` — the probe guards nodes another slot moved
+  out, which a consecutive pass of the same list cannot contain.
+- Drop the start/suffix form: it buys nothing the two above do not.
+
+Roughly the same bytes as the first cut (the edit-list apply replaces the
+window check), so the size question stands either way: ~150 B brotli on
+the hello-world floor for the list-edit speedups, with cap raises and a
+ledger line, as #4114 did for its 635 B.
+
+### 18 (SSR lane, addendum): the lazy list memos are out of #4122 (16:30)
+
+Ryan reported #4122 breaking `<Reveal>`. The cause is the second commit's
+ordering change, named in §16 as the risk: a sequential `<Reveal>`
+reveals in registration order, a boundary registers when its component
+renders, and a lazily pulled `<For>` renders its rows when the template
+reads the accessor — after a sibling boundary the template evaluated
+eagerly as an argument — so the sibling registered first and revealed
+first. No suite covered that shape. Reverted (fd76d0430) and pinned by
+`web/test/server/reveal-for-order.spec.tsx`, which fails against the lazy
+commit (sibling activation at offset 971, rows at 2938) and passes with
+eager lists. #4122 is now the unwind change alone (−4.5 µs on the
+boundary subtree by profile, nothing by stopwatch); its body says so.
+
+### 3 (Vapor lane): js-framework, per op (16:45)
+
+Asked for the breakdown of the "huge" js-framework gap
+(`results-window-oct16`, Solid vs Vapor vs Octane):
+
+| op          |   Solid |   Vapor |  Octane | Solid ÷ Vapor |
+| ----------- | ------: | ------: | ------: | ------------: |
+| swap        |   55 µs |   13 µs |   21 µs |          4.36 |
+| select      |    7 µs |    3 µs |    5 µs |          2.77 |
+| select_lots |    4 µs |    2 µs |    4 µs |          2.50 |
+| remove      |  260 µs |  120 µs |  260 µs |          2.17 |
+| clear       | 21.6 ms | 20.1 ms | 20.5 ms |          1.07 |
+| replace     |  5.1 ms |  5.3 ms |  5.2 ms |          0.96 |
+| add         |  1.8 ms |  1.9 ms |  1.6 ms |          0.92 |
+| runlots     | 15.9 ms | 17.9 ms | 14.3 ms |          0.89 |
+| update      |  340 µs |  400 µs |  320 µs |          0.85 |
+| run         |  2.5 ms |  3.1 ms |  2.4 ms |          0.80 |
+
+Geomean Solid ÷ Vapor over all ten: 1.44; over the seven ops that take
+real time: 1.03; over the three sub-millisecond ops alone: 3.11. Were
+swap, select and select_lots at Vapor's numbers the suite would read
+1.02. Against Octane: 1.19 overall, 1.05 without the three. The suite
+weighs a 13 µs swap like a 20 ms clear. Where the three go: swap is the
+DOM diff's thousand-node walk (§2, the deferred metadata channel);
+select is the fixture's keyed-store write and its overlay rebuild on
+delete (#3689, by design) where Vapor's compiler emits a keyed selector
+(`createSelector` is our idiom); `remove`, the one real-time op we trail,
+is unprofiled and shares the per-row removal path with uibench's
+scattered removes.
+
+### 4 (Vapor lane): js-framework `remove`, profiled (17:10)
+
+`tools/prof-call.mjs`, the remove link of the second row per call
+(refilling with `#run` when the table runs out), 300 profiled calls at
+20 µs on the unminified builds; log `.logs/vapor-prof-remove-2026-10-16.log`.
+
+|                                                  |                                                                                                                                                                            Solid |                             Vapor |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | --------------------------------: |
+| wall per call (click + commit + `querySelector`) |                                                                                                                                                                          10.0 µs |                            8.6 µs |
+| framework CPU, by frame                          |                                                                                                                                                                           ~17 µs |                             ~7 µs |
+| of which the list update                         | `recompute` 10.9 self (mapArray's `updateKeyedMap` inlined: the prefix identity scan, `newItems.slice(0)`, the fresh `temp` with its prefix/suffix copies) + the map closure 3.0 |             `renderList` 6.6 incl |
+| children resolution                              |                                                                                                                                          `flatten`'s copy of the 1000 rows, ~1.5 |                                 — |
+| DOM                                              |                                                                                 `insertExpression` 3.5 incl, of which `remove` 3.0; the window record makes the diff itself ~0.2 | `removeChild` 2.6, `updateAt` 0.8 |
+| owner teardown                                   |                                                                                                                                                            `disposeChildren` 0.5 |                                 — |
+
+So on the framework's own work the gap is ~1.5× on CPU and 1.16× on the
+wall clock, and it sits in three O(n) passes mapArray and the renderer
+pay on every list update that Vapor's single diff pass does not: the
+defensive `newItems.slice(0)` (a user array may be mutated in place), the
+fresh mapped array (the identity change downstream propagation keys on)
+and `flatten`'s copy (the children contract). Each is ~1–3 ns per row;
+together ~11 µs on a thousand rows. They are the system's costs, not
+bugs, and the way to pay less is not to add a channel around them.
+
+The harness's 260 vs 120 µs is something else: `remove` runs on the
+single-click protocol with `document.querySelector('tbody tr:nth-child(5)
+td:nth-child(3) a')` inside the timed loop per click, and Solid's and
+Octane's fixtures commit synchronously inside `click()` (`flush()` /
+`flushSync`) where Vapor's `__benchFlush` awaits `nextTick`, so what the
+browser does between a synchronous mutation and the end of the dispatch
+lands in our window and not theirs. Solid and Octane read the same 260;
+the framework-level difference above is 10 µs. A harness note for the
+fork, alongside the pinning fix, when the Vapor lane's fixture items go
+in.
+
+### 5 (Vapor lane): lever 2 measured — the fast path is noise, the fixture form is the win (2026-10-17 01:31)
+
+Branch `perf/insert-text-slot` (worktree, from `next` @ 012706418 — #4114,
+#4115 and #4122 all merged), commit 7a5a81422: a multi-slot insert whose
+new and current arrays both name the same live node skips
+`reconcileArrays`; a node user code moved out still takes the diff. Spec
+with three cases; web default (1408), server (1750) and hydrate (518)
+suites pass. Changeset `insert-single-slot.md`. Log
+`.logs/textslot-measure-2026-10-17.log`.
+
+| signal-favoring bump, `prof-call`, µs per call |    median |  `insertExpression` self | `queueMicrotask` |
+| ---------------------------------------------- | --------: | -----------------------: | ---------------: |
+| before (§1)                                    |      0.56 |                0.41–0.43 |             0.30 |
+| A: core fast path, fixture as is               |     0.535 |                     0.37 |             0.26 |
+| B: A + fixture bumps through `flush(fn)`       | **0.355** | 0.49 (attribution noise) |                — |
+| Vapor                                          |     0.173 |           `setText` 0.15 |                — |
+
+**The core fast path is worth ~0.05 µs, inside this scale's noise**: the
+one-element `reconcileArrays` call was cheaper than its closure, anchor
+read and probe suggested, and most of `insertExpression`'s 0.4 µs is its
+own body (the hydration gates, the type dispatch, the materialization
+loop). Parked, unpushed: +~60 B for a change the stopwatch cannot see is
+not a PR. **The fixture's `flush(fn)` form is the win**: the write no
+longer books a microtask flush that the synchronous `flush()` makes a
+no-op, and the bump drops 34% to 0.355 µs — 2.05× Vapor where the board
+read 3.1×. `flush(fn)` is the documented synchronous-commit form, the
+same shape as the other adapters' `flushSync` wrappers; committed in the
+fork (`signal-favoring/solid: bumps and sweeps commit through flush(fn)`),
+a fixture change, reported as such: the board's signal-favoring column
+moves when the suite is rerun, Solid's code did not.
+
+What remains of the 0.355 vs 0.173: `insertExpression`'s body (~0.35 of
+the 1.0 µs under the hook), `settle` 0.23, the flush and effect machinery
+(`flush` 1.0 inclusive → `runEffect` 0.56). A single write-to-DOM in Solid
+2.0 runs the full scheduler cycle — companion resync, dormant sweep, the
+heap, effect queues, settle — for one effect; Vapor's `queueJob` →
+`flushJobs` → `setText` runs three functions. That fixed cycle is the
+design; its per-flush constant is the measurable thing left here, and it
+is a signals-core question (the scheduler's empty-flush cost), not a
+renderer one.
+
+### 6 (Vapor lane): the signal-favoring column, and the lane closed (01:36–01:50)
+
+Rerun on `next` @ 7010268db with the `flush(fn)` adapter: bumps 0.42 →
+0.32 µs (Vapor 0.18, Octane 0.40), Solid ÷ Vapor on the suite 1.54 →
+1.36; the sweep cells are quantized to 4 µs steps and unreadable either
+way (board log has the table and the harness note). A fixture change;
+Solid's code did not move.
+
+**Lane ledger.** Runtime changes to solidjs/solid from the Vapor lane:
+none shipped. `perf/insert-text-slot` (7a5a81422) is parked: ~0.05 µs,
+inside noise. `perf/reconcile-window` (e557a8313) is parked: measured
+nothing, and it is the metadata channel the journal had already deferred
+(§2). Fixture and harness changes, in the fork: signal-favoring bumps
+through `flush(fn)` (b183e78c1; the bump column above); the streaming-ssr
+pinning (b30fef17a, earlier). Harness findings not yet acted on: the
+sweep cells need the batched protocol; js-framework `remove` and `update`
+time a per-click `querySelector` and a synchronous commit inside
+`click()` that Vapor's `nextTick` form does not (`remove` framework-side
+is 10 vs 8.6 µs; the harness reads 260 vs 120).
+
+**What the lane established about Solid vs Vapor**, by op class:
+
+- _Full renders and mounts_: Solid ahead (uibench renders 0.4–0.5×,
+  memo-wall mount 0.62×, js-framework run/runlots/add 0.8–0.9×).
+- _Single update_: 0.32 vs 0.18 µs after the fixture fix. The remaining
+  ~0.15 µs is the scheduler's per-flush cycle run for one effect
+  (companion resync, dormant sweep, heap, effect queues, `settle`) against
+  Vapor's three-function `queueJob → flushJobs → setText`, plus
+  `insertExpression`'s body. A signals-core constant, within the system,
+  and the one runtime item with a measurable target left in this lane.
+- _List edits touching few rows_: 2–4× (swap, moves, scattered removes),
+  in the DOM diff's O(n) walk and mapArray's O(n) copies. The design
+  choices behind both are recorded (§2, §4); the fix that works is the
+  channel the project deferred, and "within the system" says leave it.
+- _Keyed selection_: the fixture's id-keyed store vs Vapor's compiled
+  selector; `createSelector` is the idiom to compare (fixture item, not
+  done).
+
+Closed here. Next, if the single-update constant is pursued: profile
+`flush()` on an empty-ish queue in `@solidjs/signals` (Node, no DOM) and
+count what runs for one dirty effect — `resyncUnflushedCompanions`,
+`sweepDormant`, the heap pass, `settle`, the effect queues — against what
+one effect needs.
