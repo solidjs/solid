@@ -201,8 +201,10 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
     setPendingError(el);
   el._pendingValue = error instanceof StatusError ? error : new StatusError(el, error);
   el._config |= CONFIG_STAGED | CONFIG_STAGED_ERROR;
-  // Readers parked on the flight re-run and derive from the staging.
+  // Readers parked on the flight re-run and derive from the staging; the
+  // verdict readers the walk wakes need a flush (#4106).
   settlePendingSource(el);
+  schedule();
   return true;
 }
 
