@@ -5802,7 +5802,7 @@ module.exports = [
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Size-Exception (slots in live holes, 2026-10-17): 20.58 -> 20.63 KB,
     // measured at 20,615 B brotli / 72,466 B minified against the base's 20,572
-    // / 72,373 (+43 B; +93 B minified). Slot occurrences in a live hole are
+    // / 72,381 (+43 B; +85 B minified). Slot occurrences in a live hole are
     // scoped to the hole (render-id table, per-scope counters), and a re-run
     // sends a record only for a new occurrence or changed args. Cap at measured
     // + 10 B rounded up to 0.01 KB.
