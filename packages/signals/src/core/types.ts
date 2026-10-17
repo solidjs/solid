@@ -158,6 +158,8 @@ export type Signal<T> = RawSignal<T>;
 export interface Owner {
   id?: string;
   _config: number;
+  /** Lifecycle flags (REACTIVE_*); roots carry only REACTIVE_DISPOSED. */
+  _flags: number;
   _snapshotScope?: boolean;
   /** Effect-returned cleanup; managed across reruns, invoked at true disposal */
   _cleanup?: () => void;
