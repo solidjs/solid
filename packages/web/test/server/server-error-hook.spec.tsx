@@ -586,6 +586,39 @@ describe("once per request, never once per process (#4125)", () => {
     expect(b).not.toContain("https://app.example/first");
   });
 
+  test("one Error object thrown by different components in two requests: each report names its own request's thrower", () => {
+    const shared = new Error("PRIVATE_shared");
+    configureServerErrors({ onError: hook() });
+    function First(): JSX.Element {
+      throw shared;
+    }
+    function Second(): JSX.Element {
+      throw shared;
+    }
+    // Labels are the JSX tag names the compiler emits, so each page names its own.
+    const first = () => (
+      <Errored fallback={Fallback}>
+        <First />
+      </Errored>
+    );
+    const second = () => (
+      <Errored fallback={Fallback}>
+        <Second />
+      </Errored>
+    );
+    underRequest(() => renderToString(first), event("first"));
+    underRequest(() => renderToString(second), event("second"));
+    // Outside any request too: the render is the scope the thrower is kept in.
+    renderToString(first);
+    renderToString(second);
+    expect(calls.map(c => c.context.ownerPath)).toEqual([
+      ["<Errored>", "<First>"],
+      ["<Errored>", "<Second>"],
+      ["<Errored>", "<First>"],
+      ["<Errored>", "<Second>"]
+    ]);
+  });
+
   test("two concurrent renders meeting one Error each hear it — outside any request, the render is the scope", async () => {
     const shared = new Error("PRIVATE_shared");
     const heard: Record<string, string[]> = { A: [], B: [] };

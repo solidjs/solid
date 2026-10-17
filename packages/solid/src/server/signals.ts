@@ -408,16 +408,23 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
  * it crosses (component bodies and effects run through `runWithOwner`, a
  * memo's pull through its inlined twin), kept as it propagates to the
  * boundary that meets it. Object errors only; a `NotReadyError` is the
- * engine's own signal, not a failure.
+ * engine's own signal, not a failure. Kept on the error's verdict in the
+ * scope it was thrown in (the request in scope, else the render running —
+ * see `verdictOf`), never process-wide: a reused error object (a
+ * module-level constant) must neither name the first request's owners to a
+ * later request nor keep that request's owner tree alive past its scope.
  */
-const throwers = new WeakMap<object, Owner>();
 function stampThrower(error: unknown, owner: Owner | null): void {
-  if (owner === null || !isObject(error) || error instanceof NotReadyError) return;
-  if (!throwers.has(error)) throwers.set(error, owner);
+  if (owner === null || error instanceof NotReadyError) return;
+  const verdict = verdictOf(error, currentRequestEvent() || sharedConfig.context?._errorScope);
+  if (!verdict.thrower) verdict.thrower = owner;
 }
-/** @internal The owner `error` was stamped as thrown under, if it crossed one. */
-export function throwerOf(error: unknown): Owner | undefined {
-  return isObject(error) ? throwers.get(error) : undefined;
+/**
+ * @internal The owner `error` was stamped as thrown under in `scope` (a
+ * render's `_errorScope`; the request in scope without one), if it crossed one.
+ */
+export function throwerOf(error: unknown, scope?: object): Owner | undefined {
+  return verdictOf(error, scope || currentRequestEvent()).thrower;
 }
 
 export function getOwner(): Owner | null {
@@ -3572,12 +3579,16 @@ export interface ServerErrorSite {
 }
 export type ServerErrorHook = (error: unknown, context: ServerErrorSite) => unknown | void;
 
-/** The verdict on one error object in one scope: whether the hook has heard of it, and the wire value once decided. */
+/**
+ * The verdict on one error object in one scope: whether the hook has heard
+ * of it, the wire value once decided, and the owner it was thrown under.
+ */
 interface Verdict {
   reported?: boolean;
   decided?: boolean;
   wire?: unknown;
   recorded?: boolean;
+  thrower?: Owner;
 }
 /** Scope → error object → verdict. */
 const verdicts = new WeakMap<object, WeakMap<object, Verdict>>();
@@ -3647,7 +3658,7 @@ export function reportServerError(
   const context: ServerErrorSite = { ...site };
   const boundary = subject ? ownerLabels(subject) : undefined;
   if (context.ownerPath === undefined) {
-    const thrower = throwerOf(value);
+    const thrower = verdict.thrower;
     const path = (thrower !== undefined ? ownerLabels(thrower) : undefined) ?? boundary;
     if (path !== undefined) context.ownerPath = path;
   }
@@ -3882,7 +3893,7 @@ export function createErrorBoundary<T, U>(
         }
       },
       // Located where it was THROWN, the boundary that met it in `data`.
-      throwerOf(err) ?? owner
+      throwerOf(err, ctx && ctx._errorScope) ?? owner
     );
   };
   // The finding first, with the original; then the one value the client may

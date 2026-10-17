@@ -316,7 +316,7 @@ function ssrLoadingBoundary(
       },
       // Located where it was THROWN (the owner it escaped), the boundary that
       // met it in `data` — the same two facts the server error hook carries.
-      throwerOf(err) ?? o
+      throwerOf(err, ctx._errorScope) ?? o
     );
   };
   let serializeBuffer: [string, any, boolean?][] = [];
