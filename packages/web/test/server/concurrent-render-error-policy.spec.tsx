@@ -320,7 +320,8 @@ describe("server functions", () => {
     otherRequest(b.onError);
     const html = await done;
     expect(b.heard).toEqual([]);
-    expect(a.heard).toHaveLength(1);
+    // The function's failure, then the render's (once per kind, #4125).
+    expect(a.heard.map(h => h.context.kind)).toEqual(["server-function", "render"]);
     expect(a.heard[0].context).toMatchObject({
       kind: "server-function",
       functionId: "concurrent/direct",
@@ -364,7 +365,10 @@ describe("server functions", () => {
     const html = await done;
     expect(b.heard).toEqual([]);
     expect(ambient.heard).toEqual([]);
-    expect(a.heard.map(h => h.context.direct)).toEqual([true]);
+    expect(a.heard.map(h => [h.context.kind, h.context.direct])).toEqual([
+      ["server-function", true],
+      ["render", undefined]
+    ]);
     expect(html).toContain("mapped by A");
   });
 

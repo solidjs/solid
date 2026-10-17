@@ -119,6 +119,12 @@ export type HydrationContext = {
    */
   errorPolicy?: (error: unknown, context: any) => unknown | void;
   /**
+   * @internal The scope the server error hook's once-per-error ledger keys
+   * on for this render (see `reportServerError`): the request event it
+   * started under, else an object of its own. Set by @solidjs/web.
+   */
+  _errorScope?: object;
+  /**
    * @internal Whether the shell has flushed — a fragment that fails now
    * rejects to the client (`handling: "client"`) rather than failing the
    * request or inlining into a parent's fallback. Set by @solidjs/web's

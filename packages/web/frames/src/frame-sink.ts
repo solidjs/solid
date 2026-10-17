@@ -953,7 +953,7 @@ export function renderServerComponent(component, options = {}) {
         // between renders ships alone.
         let unsettled = !!options.live;
         if (!unsettled) ctx.unsettled = () => void (unsettled = true);
-        ctx.liveHoles = createLiveHoles(sink, false, () => !unsettled);
+        ctx.liveHoles = createLiveHoles(sink, false, () => !unsettled, ctx._errorScope);
       }
       return serverComponentScope(() => component(props));
     };
@@ -1098,6 +1098,9 @@ function frameStream(makeCode, options) {
       // stream. (Async fragment errors already ride their rejected `_fr`
       // promise through the data codec.) What the chunk carries is the wire
       // policy's (#3468); the record beside it keeps the original.
+      // No render scope to pass (the render that threw is gone), and none
+      // needed: it heard this as `failed`, which decides no wire, so the
+      // default policy is the answer in any scope.
       const wire = ssrSanitizeError(err, null);
       sink.error("", wire instanceof Error ? wire.message : String(wire));
       sink.end();
@@ -1986,7 +1989,8 @@ function armDocumentLiveHoles(ctx) {
       }
     },
     /* scoped */ true,
-    /* settled */ () => !unsettled
+    /* settled */ () => !unsettled,
+    ctx._errorScope
   );
   ctx.commit = live.commit = scheduleSweep;
   ctx.commitEpoch = live.commitEpoch = () => epoch;
