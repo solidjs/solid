@@ -192,7 +192,8 @@ let currentOwner: SSROwner | null = null;
 const OWNER_POOL_MAX = 4096;
 const ownerPool: SSROwner[] = [];
 
-function formatChildId(prefix: string, id: number): string {
+/** @internal */
+export function formatChildId(prefix: string, id: number): string {
   const num = id.toString(36);
   const len = num.length - 1;
   return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
@@ -1259,7 +1260,10 @@ export interface EdgeHooks {
   mark(key: object, owner: object): void;
   /** The scope swaps out: keep its mark (1) or its count (2) for a resumed pass; restore `prev`. */
   leave(key: object, owner: object, prev: number, keep: 0 | 1 | 2): void;
-  /** `owner`'s child counter was reset without disposing it (a reused row owner). */
+  /**
+   * A reused row owner starts a pass: its plain-signal count restarts (and
+   * restarts again whenever its id moves on to the next row).
+   */
   reset(owner: object): void;
 }
 /** @internal */
@@ -3386,6 +3390,9 @@ export function mapArray<T, U>(
       // Reset per pass so retries re-synthesize row/fallback ids from 0,
       // like the client's fresh row owners on its first successful pass.
       rowOwner._childCount = 0;
+      // Edges: the rows' plain-signal counts restart with each pass (a row's
+      // id moving on restarts its own; nothing in the row loop itself).
+      if (edgeHooks !== null) edgeHooks.reset(rowOwner);
       if (items && items.length) {
         runWithOwner(rowOwner as unknown as Owner, () => {
           // Own owner, not a swapped hole scope: a row's holes swap it only
@@ -3409,7 +3416,6 @@ export function mapArray<T, U>(
                 rowOwner.id = formatChildId(origId, i);
               }
               rowOwner._childCount = 0;
-              if (edgeHooks !== null) edgeHooks.reset(rowOwner);
               s.push(
                 options.keyed === false
                   ? indexes
@@ -3493,6 +3499,7 @@ export function repeat<T>(
       const len = count();
       const offset = options.from?.() || 0;
       rowOwner._childCount = 0;
+      if (edgeHooks !== null) edgeHooks.reset(rowOwner);
       if (!len) {
         if (!options.fallback) return [];
         const fo = runWithOwner(rowOwner as unknown as Owner, () => createOwner());
@@ -3507,7 +3514,6 @@ export function repeat<T>(
               rowOwner.id = formatChildId(origId, i);
             }
             rowOwner._childCount = 0;
-            if (edgeHooks !== null) edgeHooks.reset(rowOwner);
             out[i] = mapFn(i + offset);
           }
         } finally {

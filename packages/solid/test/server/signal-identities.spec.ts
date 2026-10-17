@@ -14,6 +14,7 @@ import {
   createRoot,
   createSignal,
   edgeHooks,
+  mapArray,
   resetOwnerForRerun,
   runWithOwner
 } from "../../src/server/signals.js";
@@ -93,6 +94,28 @@ describe("server plain-signal identities", () => {
     );
     expect(names[0]).toHaveLength(1);
     expect(names[1]).toEqual(names[0]);
+  });
+
+  test("rows of one list count their own signals, from 0 on every pass", () => {
+    edgesRender();
+    const passes = createRoot(
+      () => {
+        const [items] = createSignal(["a", "b", "c"]);
+        const rows = mapArray(items, () => {
+          const [s] = createSignal(0);
+          const [t] = createSignal(0);
+          return readsOf(() => (s(), t()));
+        });
+        return [rows(), rows()];
+      },
+      { id: "l" }
+    );
+    const [first] = passes;
+    const names = first.flat();
+    expect(new Set(names).size).toBe(6);
+    // Each row's two signals: `<row id>~0` and `<row id>~1`.
+    for (const row of first) expect(row.map(n => n.split("~")[1])).toEqual(["0", "1"]);
+    expect(passes[1]).toEqual(first);
   });
 
   test("the hooks are installed only while an edges render is in flight", () => {

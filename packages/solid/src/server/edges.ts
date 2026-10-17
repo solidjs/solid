@@ -13,7 +13,7 @@
 // sources — or the request's WIDE sink, for reads whose readers are not
 // tracked (a projection's compute): a write to a wide signal mounts
 // everything left.
-import { getOwner, materializeId, setEdgeHooks, type EdgeHooks } from "./signals.js";
+import { formatChildId, getOwner, materializeId, setEdgeHooks, type EdgeHooks } from "./signals.js";
 import { sharedConfig } from "./shared.js";
 
 // Per render: only a render whose context has `edges` set (renderToStream,
@@ -31,17 +31,27 @@ let readSink: ReadSink | null = null;
 // incomplete, and it mounts on every named write.
 let fillSink: ReadSink | null = null;
 
-// Plain signals created under each id-bearing owner. An owner's entry is
-// dropped with its child counter: by a cleanup on the owner (dispose, retry
-// reset, rerun) or by `reset` (a reused row owner).
-const counts = new WeakMap<object, number>();
+// Plain signals created under each id-bearing owner, beside the id they
+// were counted under. An owner's entry is dropped with its child counter: by
+// a cleanup on the owner (dispose, retry reset, rerun) or by `reset` (a
+// reused row owner's pass); a count taken under another id is a previous
+// row's (a reused row owner moves its id on per row), so it reads as 0.
+const counts = new WeakMap<object, [id: unknown, n: number]>();
+// The id `materializeId` would give, without materializing it.
+function idOf(owner: any): unknown {
+  return owner._scopeSlot >= 0 ? formatChildId(owner.id, owner._scopeSlot) : owner.id;
+}
+function count(owner: any): number {
+  const c = counts.get(owner);
+  return c !== undefined && c[0] === idOf(owner) ? c[1] : 0;
+}
 function counted(owner: any, n: number): void {
   if (!counts.has(owner)) {
     const drop = () => void counts.delete(owner);
     const d = owner._disposal;
     owner._disposal = !d ? drop : Array.isArray(d) ? (d.push(drop), d) : [d, drop];
   }
-  counts.set(owner, n);
+  counts.set(owner, [idOf(owner), n]);
 }
 
 // What each memo's last compute read (keyed by its owner), re-reported when
@@ -64,7 +74,7 @@ const hooks: EdgeHooks = {
     if (!o || !on()) return read;
     while (o._transparent && o._parent) o = o._parent;
     if (o.id == null) return read;
-    const n = counts.get(o) || 0;
+    const n = count(o);
     counted(o, n + 1);
     const sid = materializeId(o) + "~" + n;
     return () => {
@@ -105,7 +115,7 @@ const hooks: EdgeHooks = {
   },
   enter(key: object, owner: object, resumed: boolean): number {
     if (!on()) return 0;
-    const prev = counts.get(owner) || 0;
+    const prev = count(owner);
     counted(owner, resumed ? scopes.get(key)?.resume || 0 : 0);
     return prev;
   },
@@ -113,14 +123,14 @@ const hooks: EdgeHooks = {
     if (!on()) return;
     let st = scopes.get(key);
     if (st === undefined) scopes.set(key, (st = { mark: 0, resume: 0 }));
-    st.mark = counts.get(owner) || 0;
+    st.mark = count(owner);
   },
   leave(key: object, owner: object, prev: number, keep: 0 | 1 | 2) {
     if (!on()) return;
     if (keep !== 0) {
       let st = scopes.get(key);
       if (st === undefined) scopes.set(key, (st = { mark: 0, resume: 0 }));
-      st.resume = keep === 1 ? st.mark : counts.get(owner) || 0;
+      st.resume = keep === 1 ? st.mark : count(owner);
     }
     counted(owner, prev);
   },
