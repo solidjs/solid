@@ -44,9 +44,13 @@ import {
   createFrame,
   createFrameElement,
   createFrameHost,
+  deferredFrames,
   FRAME_ID_ATTR,
   isAsyncValue,
+  liveFrameAt,
   prepareTier,
+  releaseDeferHolds,
+  setDeferDriver,
   slotShapeFinding,
   tierLoaders,
   tierLoads,
@@ -60,7 +64,7 @@ import {
   stagedContent,
   type ServerComponentHandlerOptions
 } from "./frame-transport.js";
-import { createLoadingBoundary, sharedConfig } from "solid-js/internal";
+import { createLoadingBoundary, setWriteHook, sharedConfig } from "solid-js/internal";
 
 // The container tier (DR-2 case 3): server projections cross the border as
 // TRACES (snapshot + patch batches) and materialize back into live local
@@ -1522,6 +1526,8 @@ function adoptBoundary(
   const [failed, onApply] = failing();
   frame = createFrame(el, {
     adopt: true,
+    // Deferred hydration (see `deferFrame`): occurrences mount on demand.
+    defer: true,
     host,
     id: address,
     slots: slotsFor(props, scope),
@@ -1595,6 +1601,127 @@ function adoptBoundary(
   // The boundary IS the element — hand hydration the single SSR'd node so it
   // claims it in place rather than re-rendering.
   return el as unknown as SolidElement;
+}
+
+// Deferred hydration. An adopted server component mounts none of its slot
+// occurrences at hydration (frame-client.ts `deferDriver`): each is a root
+// of its own — its props are the record's plain values, nothing above it is
+// a component on the client — so it can mount alone, out of order, with
+// the server's markup around it untouched. An occurrence mounts:
+// - when an event lands in it: in the capture phase, outermost enclosing
+//   occurrence first (its regions become frames, deferred in turn), so the
+//   delegated handler is bound by the time the event bubbles;
+// - before a write lands, while any is still unmounted: every signal or
+//   store write runs the hook first, which mounts everything left, since an
+//   unmounted component may read what is written (context, a shared
+//   signal) and must exist to observe it;
+// - otherwise in idle slices after first paint, until none is left.
+// The page's hydration stays in progress until the last one mounts.
+const DEFER_EVENTS = ["click", "input", "change", "keydown", "pointerdown", "submit", "focusin"];
+const DEFER_BUDGET = 8;
+let mounting = false;
+
+const idleTick = () =>
+  new Promise<void>(r =>
+    typeof requestIdleCallback === "function"
+      ? requestIdleCallback(() => r(), { timeout: 100 })
+      : setTimeout(r, 0)
+  );
+
+function wakeAt(e: Event) {
+  const target = e.target as Node | null;
+  if (!target || mounting) return;
+  mounting = true;
+  try {
+    for (let f; (f = liveFrameAt(target)) && f.mountEnclosing(target); );
+  } finally {
+    mounting = false;
+  }
+  deferDone();
+}
+
+function mountAllDeferred() {
+  // A write inside a hydration pass is the framework re-running what it
+  // hydrates (a boundary's resume trigger): the state is still the server's.
+  if (mounting || (sharedConfig as any).hydrating) return;
+  mounting = true;
+  try {
+    for (let frames; (frames = deferredFrames()).length; )
+      for (const f of frames) f.mountDeferred();
+  } finally {
+    mounting = false;
+  }
+  deferDone();
+}
+
+let idlePass: Promise<void> | undefined;
+function mountIdle() {
+  return (idlePass ||= (async () => {
+    // After the document has finished streaming (every segment it reveals is
+    // in place, so one pass sees all of it; the first paint is behind us) and
+    // after the tiers it announced — a mount needing one would only wait for
+    // it, leaving its occurrence to the install's full sync. (The record is
+    // read again: it may have streamed in after the install.)
+    if (document.readyState !== "complete")
+      await new Promise(r => addEventListener("load", r, { once: true }));
+    (globalThis as any)._$HY?.r?.["sc:tiers"]?.forEach(prepareTier);
+    await Promise.all(Object.values(tierLoads)).catch(() => {});
+    for (let frames; (frames = deferredFrames()).length; ) {
+      await idleTick();
+      const deadline = performance.now() + DEFER_BUDGET;
+      mounting = true;
+      try {
+        for (const f of frames)
+          if (!f.mountDeferred(deadline) || performance.now() > deadline) break;
+      } finally {
+        mounting = false;
+      }
+    }
+    idlePass = undefined;
+    deferDone();
+  })());
+}
+
+/** Nothing left to mount: drop the triggers and let hydration complete. */
+function deferDone() {
+  if (deferredFrames().length) return;
+  if (deferring) {
+    deferring = false;
+    setWriteHook(null);
+    DEFER_EVENTS.forEach(t => document.removeEventListener(t, wakeAt, true));
+  }
+  releaseDeferHolds();
+}
+
+let deferHydration = true;
+/**
+ * Turn deferred hydration off (or back on) for the frames this client
+ * adopts from now on: off, an adopted occurrence mounts in the adoption
+ * pass. A test seam for the specs that pin adoption-time ordering.
+ * @internal
+ */
+export function setDeferredHydration(on: boolean): void {
+  deferHydration = on;
+  setDeferDriver(on && typeof document !== "undefined" ? deferFrame : null);
+}
+
+let deferring = false;
+function deferFrame(frame: any) {
+  if (!deferring) {
+    deferring = true;
+    setWriteHook(mountAllDeferred);
+    DEFER_EVENTS.forEach(t => document.addEventListener(t, wakeAt, true));
+  }
+  // An event that landed before the frame existed waits in hydration's
+  // queue for its element to hydrate: mount its occurrence now, as the
+  // adoption-time sync would have, so the replay finds the handler.
+  const queued: [Element, Event][] | undefined = (sharedConfig as any).events;
+  if (queued && queued.length)
+    for (const [el, e] of queued)
+      if (frame.el.contains(el)) wakeAt({ target: e.target ?? el } as any);
+  // A frame deferring during the pass (a region of an occurrence it just
+  // mounted) is the pass's to reach; otherwise start one.
+  mountIdle();
 }
 
 /**
@@ -1686,6 +1813,7 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
   // early as the page's `_$HY` allows (when this call precedes the page's
   // bootstrap, the first documentBoundary re-attempts).
   installRevealHook();
+  if (typeof document !== "undefined" && deferHydration) setDeferDriver(deferFrame);
   const handler = createServerComponentHandler({
     host,
     // ONE mount component per function, and it IS the document placeholder:
