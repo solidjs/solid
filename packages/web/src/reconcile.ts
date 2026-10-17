@@ -11,9 +11,8 @@ export default function reconcileArrays(
 export default function reconcileArrays(parentNode: any, a: any[], b: any[], marker?: any) {
   // Ownership: an unclaimed node (no `$$SLOT`) is fair game; a tagged node
   // belongs only to the slot whose marker matches. `a[]` can name a node that
-  // replace/swap already took out of this parent (or out of this slot).
-  // Prefix/suffix must not treat those as still-live common ends — that was
-  // the 2fe6310f drop (#574).
+  // user code moved out of this parent (or into another slot of it); every
+  // anchor read and destructive op below checks before touching one.
   const isLive = n => {
     if (!n) return false;
     const tag = n[$$SLOT];
@@ -34,14 +33,20 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
     anchorTag;
 
   while (aStart < aEnd || bStart < bEnd) {
-    // common prefix
-    if (a[aStart] === b[bStart] && isLive(a[aStart])) {
+    // common prefix / suffix. Neither walk checks liveness: inside the open
+    // range [aStart, aEnd) this pass never detaches a node (replace, remove
+    // and swap all consume the node they take out), and a node user code
+    // migrated away is left alone by skipping it here — every destructive
+    // branch below still gates on ownership. The suffix walk is bounded to
+    // the open range: unbounded, it could reach back past `aStart` to a node
+    // a map-branch replace had already taken out while it was still pending
+    // in `b`, count it as a live common end, and never reinsert it (#574).
+    if (a[aStart] === b[bStart]) {
       aStart++;
       bStart++;
       continue;
     }
-    // common suffix
-    while (a[aEnd - 1] === b[bEnd - 1] && isLive(a[aEnd - 1])) {
+    while (aEnd > aStart && bEnd > bStart && a[aEnd - 1] === b[bEnd - 1]) {
       aEnd--;
       bEnd--;
     }
