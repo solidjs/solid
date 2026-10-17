@@ -1,5 +1,40 @@
 # @solidjs/html
 
+## 2.0.0-rc.16
+
+### Patch Changes
+
+- Updated dependencies [3d8a8a9]
+- Updated dependencies [86cf504]
+- Updated dependencies [4a99c84]
+- Updated dependencies [96b615d]
+- Updated dependencies [8092282]
+- Updated dependencies [8163bc3]
+- Updated dependencies [1bcee91]
+- Updated dependencies [10b3f55]
+- Updated dependencies [1f3b5b4]
+- Updated dependencies [ccd9948]
+- Updated dependencies [0e0c043]
+- Updated dependencies [0a49dd8]
+- Updated dependencies [347f242]
+- Updated dependencies [c5da908]
+- Updated dependencies [b972757]
+- Updated dependencies [8e2590e]
+- Updated dependencies [8fbadfd]
+- Updated dependencies [e1bf2af]
+- Updated dependencies [e43e22f]
+- Updated dependencies [3f36f77]
+- Updated dependencies [8e2590e]
+- Updated dependencies [8bd7a5b]
+- Updated dependencies [9ac1481]
+- Updated dependencies [3e94215]
+- Updated dependencies [a61c929]
+- Updated dependencies [36039e2]
+- Updated dependencies [3d8a8a9]
+- Updated dependencies [8d4a285]
+- Updated dependencies [8268cfd]
+  - @solidjs/web@2.0.0-rc.16
+
 ## 2.0.0-rc.15
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
   "name": "server-dbmon-example",
   "description": "DBMon as a live server component: a monitoring dashboard whose data lives on the server, rendered there and streamed to every open tab as it changes",
-  "version": "0.0.0",
+  "version": "0.0.1-rc.0",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",
