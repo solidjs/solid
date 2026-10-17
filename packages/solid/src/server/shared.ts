@@ -118,6 +118,8 @@ export type HydrationContext = {
    * another request's context by the time an async failure lands.
    */
   errorPolicy?: (error: unknown, context: any) => unknown | void;
+  /** @internal Records render integrity independently of error mapping and diagnostic deduplication. */
+  recordRenderError?: () => void;
   /**
    * @internal Whether the shell has flushed — a fragment that fails now
    * rejects to the client (`handling: "client"`) rather than failing the

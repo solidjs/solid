@@ -389,6 +389,7 @@ function ssrLoadingBoundary(
   // (its own finding names it; the "client re-renders" one would be wrong).
   let outcomeRendered = false;
   function failFragment(err: any, report: boolean): boolean {
+    ctx.recordRenderError?.();
     const outcome = errorOutcome(err);
     outcomeRendered = !!outcome && outcome.value !== undefined && !outcome.escaped;
     if (report && !outcomeRendered) {

@@ -1975,6 +1975,14 @@ export function renderToStream<T>(
   }
 ): {
   /**
+   * Whether this render encountered an error, including an Errored fallback,
+   * a rejected Loading fragment, or a serialization failure. Monotonic and
+   * local to this render, independent of onError's once-per-error reporting.
+   * Read after completion when deciding whether to publish the whole HTML.
+   * False does not imply completion: an aborted render may have no errors.
+   */
+  readonly hasErrors: boolean;
+  /**
    * Awaiting the stream resolves with the complete HTML once every boundary
    * settles — the fully-settled-string form of the render (`const html =
    * await renderToStream(...)`). Render errors route through `onError` and
@@ -2022,6 +2030,10 @@ export function renderToStream(code, options = {}) {
   if (requestEvent) setRequestErrorHook(requestEvent, options.onError);
   let dispose;
   let dead = false;
+  let hasErrors = false;
+  const recordRenderError = () => {
+    hasErrors = true;
+  };
   // The render's `"render"` record (`timeDocument`, once the context is up):
   // its shell stamped at `doShell`, settled at `onDone` or by the wind-down.
   let render;
@@ -2129,6 +2141,7 @@ export function renderToStream(code, options = {}) {
       try {
         d();
       } catch (err) {
+        recordRenderError();
         reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
         if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
       }
@@ -2150,6 +2163,7 @@ export function renderToStream(code, options = {}) {
       try {
         serializer.close();
       } catch (err) {
+        recordRenderError();
         reportServerError(err, { kind: "render", handling: "serialize" }, null, options.onError);
       }
     }
@@ -2180,6 +2194,7 @@ export function renderToStream(code, options = {}) {
   // Exposed to the reactive library's boundary resume loop as
   // `context.failRender` (see the ssrLoadingBoundary finalizeError path).
   const failRender = err => {
+    recordRenderError();
     // The server error hook is the one channel (`handling: "failed"`); a
     // boundary that already reported this error with its location leaves
     // this a no-op (once per error). With no hook anywhere the failure is
@@ -2455,7 +2470,7 @@ export function renderToStream(code, options = {}) {
     plugins: options.plugins,
     onData: payload => sink.data(payload),
     onDone,
-    onError: serializerErrorHook(options.onError)
+    onError: serializerErrorHook(options.onError, recordRenderError)
   });
   let rootAssetsSerialized = false;
   const serializeRootAssets = () => {
@@ -3025,6 +3040,7 @@ export function renderToStream(code, options = {}) {
   // post-flush a fragment rejects to the client; pre-flush it inlines or
   // fails the request.
   context.errorPolicy = options.onError;
+  context.recordRenderError = recordRenderError;
   context.flushed = () => firstFlushed;
   // The trace this render belongs to (see `getTraceContext`): the request's
   // under a request scope, the render's own otherwise. Set before the render
@@ -3063,6 +3079,7 @@ export function renderToStream(code, options = {}) {
       } catch (err) {
         // The first pass throws out of `renderToStream` to the caller: the
         // hook hears it first, as for `renderToString`.
+        recordRenderError();
         reportServerError(err, { kind: "render", handling: "failed" }, null, options.onError);
         throw err;
       }
@@ -3343,6 +3360,9 @@ export function renderToStream(code, options = {}) {
     return p;
   };
   return {
+    get hasErrors() {
+      return hasErrors;
+    },
     // Proper thenable: `await renderToStream(...)` resolves with the full
     // HTML once every boundary settles — the replacement for the removed
     // renderToStringAsync. Render errors route through `onError` (the
@@ -6693,16 +6713,17 @@ export function reportRequestFailure(error: unknown, event: RequestEvent): void;
 
 /**
  * The serializer's `onError`, when a render passed one: seroval reports a
- * value that would not serialize here instead of throwing at the write
- * (that difference is why this is only wired when a hook was given — as
- * `onError` always was). The hook hears it as `handling: "serialize"`.
+ * value that would not serialize here instead of throwing at the write.
+ * Without a mapping hook, recording render integrity must preserve that
+ * throw. A supplied hook hears it as `handling: "serialize"`.
  */
-function serializerErrorHook(hook) {
-  return hook === undefined
-    ? undefined
-    : err => {
-        reportServerError(err, { kind: "render", handling: "serialize" }, null, hook);
-      };
+function serializerErrorHook(hook, recordRenderError?) {
+  if (hook === undefined && recordRenderError === undefined) return undefined;
+  return err => {
+    recordRenderError?.();
+    if (hook === undefined) throw err;
+    reportServerError(err, { kind: "render", handling: "serialize" }, null, hook);
+  };
 }
 
 /** The ambient hook (`configureServerErrors`), for the render's own reads. */

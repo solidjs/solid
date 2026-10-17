@@ -3872,6 +3872,7 @@ export function createErrorBoundary<T, U>(
   // mismatch). See `ssrSanitizeError`.
   const handleError = (err: any) => {
     if (fallbackSettled) return fallbackResult;
+    ctx?.recordRenderError?.();
     reportContained(err);
     const wire = ssrSanitizeError(
       err,
