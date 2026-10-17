@@ -2461,6 +2461,7 @@ export function renderToStream(code, options = {}) {
   // flows through onData is a contract between the serializer and the sink
   // (hydration scripts for the document sink, keyed codec records for the
   // frame sink); the core never inspects it.
+  const onSerializerError = serializerErrorHook(options.onError);
   serializer = (options.serializer || createHydrationSerializer)({
     scopeId: options.renderId,
     // Containers (projections) serialize as traces on BOTH faces — the
@@ -2470,7 +2471,11 @@ export function renderToStream(code, options = {}) {
     plugins: options.plugins,
     onData: payload => sink.data(payload),
     onDone,
-    onError: serializerErrorHook(options.onError, recordRenderError)
+    onError: err => {
+      recordRenderError();
+      if (onSerializerError === undefined) throw err;
+      onSerializerError(err);
+    }
   });
   let rootAssetsSerialized = false;
   const serializeRootAssets = () => {
@@ -6713,17 +6718,16 @@ export function reportRequestFailure(error: unknown, event: RequestEvent): void;
 
 /**
  * The serializer's `onError`, when a render passed one: seroval reports a
- * value that would not serialize here instead of throwing at the write.
- * Without a mapping hook, recording render integrity must preserve that
- * throw. A supplied hook hears it as `handling: "serialize"`.
+ * value that would not serialize here instead of throwing at the write
+ * (that difference is why this is only wired when a hook was given — as
+ * `onError` always was). The hook hears it as `handling: "serialize"`.
  */
-function serializerErrorHook(hook, recordRenderError?) {
-  if (hook === undefined && recordRenderError === undefined) return undefined;
-  return err => {
-    recordRenderError?.();
-    if (hook === undefined) throw err;
-    reportServerError(err, { kind: "render", handling: "serialize" }, null, hook);
-  };
+function serializerErrorHook(hook) {
+  return hook === undefined
+    ? undefined
+    : err => {
+        reportServerError(err, { kind: "render", handling: "serialize" }, null, hook);
+      };
 }
 
 /** The ambient hook (`configureServerErrors`), for the render's own reads. */
