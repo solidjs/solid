@@ -9940,3 +9940,86 @@ for whoever reopens it: the ceiling is ~9 µs on the js-framework swap and
 the whole `reconcileArrays` share on any small-move shape; the floor is
 the bookkeeping cost and ~300 B brotli. The branch keeps the WIP commit;
 the fuzz specs are not in the tree.
+
+### 13 (Vapor lane): uibench's keyed lists — the general path, and disposal's missing slot (2026-10-17, 05:50–08:00)
+
+Next lane by the board: uibench, Solid ÷ Vapor 1.45 after #4133, with
+`tree/[500]/[react_worst_case]` at 7–9× the single largest ratio anywhere.
+§12 had shown why the move hint could not help here: the fixture's
+`<For each keyed={byId}>` allocates `_rows`, and `mapArray` skips the
+small-move path whenever row or index signals exist. So every uibench edit
+runs the general keyed path. Four cases profiled on Solid and Vapor with
+the fork's uibench profiler (`tools/prof.mjs`, CPU and allocation,
+unminified builds; log `.logs/uibench-prof-2026-10-17.log`):
+
+| µs per op (CPU attributed; wall) | react_worst_case | insertFirst(1) | removeFirst(1) | table/[100,4]/removeAll |
+| --- | ---: | ---: | ---: | ---: |
+| Solid / Vapor wall | 135 / 30 | 45 / 35 | 55 / 25 | 165 / 55 |
+| `updateKeyedMap` incl | 70 | 20 | 19 | 120 (disposal 118) |
+| `reconcileArrays` incl | 18 | 3.5 | 5 | 0 |
+| `disposeChildren` | 4 | 0 | 4.5 | **118** |
+| `cleanChildren` (native `textContent = ""`) | 0 | 0 | 0 | 60 |
+| allocation, Solid / Vapor | 58 / 6.7 KB | 14 KB | 13 KB | 18 / 7.3 KB |
+
+Three findings. (1) react_worst_case — two rows out, one far move — is
+mapArray's general path: the key map over 498 rows, the step-one walk with
+two key calls and two map operations per row, the row-signal rewrite for
+every survivor at commit, and a wasted `stageRemoval` pre-pass that pushed
+~497 leavers into a 9 KB array before the first survivor failed to appear.
+28 of the 58 KB are the two ~500-entry maps, mapArray's and the DOM diff's
+(§12's double diff, in bytes). (2) removeAll's `cleanChildren` is the
+native clear of 600 nodes, at parity with Vapor's 60 µs of removals; the
+excess was `disposeChildren`: 118 µs for ~1200 nodes and 12 KB allocated
+per run, against Vapor's 13 µs `reset`. (3) Nothing `disposeChildren` calls
+allocates on its face.
+
+**The bound** (`perf/stage-removal-bound`, local WIP): a pure removal can
+skip at most old-window − new-window items, so `stageRemoval` now bails
+after that many. Correct, and it measured nothing — react_worst_case 140 →
+135 µs, the other four cases flat, board 0.992 of control. The walk was 1
+µs and 9 KB of garbage, not the 5–10 µs estimated. Parked, not a PR.
+
+**The slot.** The allocation profile rerun with `--no-turbo-inlining
+--no-maglev-inlining` (a `--jsflags=` option added to prof.mjs) left the
+12 KB and 113 µs in `disposeChildren`'s own frame. It only writes fields,
+and a field write allocates when the field does not exist: the root
+literal in `createOwner` declares `_config` and `_childCount` and no
+`_flags`, and `disposeChildren` writes `_flags` on every owner it kills.
+Every `createRoot`, every mapArray row and nested-list cell is such a root,
+so a 100×4 table teardown added a property — a map transition plus an
+out-of-object properties store — to ~600 objects. (The `(node as any)._flags`
+casts in owner.ts and deleteFromHeap's "tolerates plain Owners, whose
+_flags is undefined" were the tell.) Fix: `_flags: REACTIVE_NONE` in both
+root literals and `_flags: number` on `Owner`. Branch
+`perf/owner-flags-slot` → **PR #4136** (Auto-fix on). Suites at `next`'s
+counts; size +4 B minified, inside the allowance. A sweep of every
+property the engine writes through an any-cast found no other hot late
+add (`_modified` is gated on effect `_type` and declared there;
+`_devWindows` is observe-only; store nodes declare `_owner`; one cold case,
+`_boundRunEffect` on an effect born under a hold).
+
+| uibench, µs, two interleaved rounds | before | after | Vapor |
+| --- | ---: | ---: | ---: |
+| table/[100,4]/removeAll | 165 | 50–55 | 55 |
+| tree/[500]/removeAll | 270 | 75–80 | 155 |
+| tree/[50,10]/removeAll | 300 | 80 | 134 |
+| table/[100,4]/filter/4 | 70 | 35–40 | 15 |
+| tree/[500]/[removeFirst(1)] | 45 | 40 | 25 |
+
+`disposeChildren` 118 → 18 µs; its allocation 12 → 0.2 KB. Board, against
+the back-to-back walk-gate control, oracle identical (96 / 23,331 /
+32,543): removeAll family 0.36×, filters 0.56×, single insert/remove/move
+0.78×, activate 0.96, renders 0.99, reverse 1.03, worst cases 0.97; Solid ÷
+Vapor over the 96 cases **1.48 → 1.14** (removeAll 1.76 → 0.63, filters
+1.90 → 1.07, single-row ops 1.72 → 1.35), Solid ÷ Octane 1.17. js-framework
+through the same runner: clear −3%, creates within ±3%, the select cells
++20% (the harness drift the morning's interleaved A/B showed to be noise).
+Results `results-ownerflags-oct17`; logs `.logs/owner-flags-ab-2026-10-17.log`,
+`.logs/stage-removal-ab-2026-10-17.log`.
+
+This was the journal's open target number one ("Disposal — untouched all
+campaign"), and it was a shape bug, not a design cost. What remains on
+uibench after it: the general keyed path on single-row edits (1.35× Vapor:
+key map, per-survivor row-signal write, and the DOM diff's own map), the
+sparse filters at 1.07, and the worst-case reorders at 2.7× — all list-diff
+structure, §12's territory.
