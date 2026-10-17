@@ -10,6 +10,7 @@ export function renderToString<T>(
   options?: {
     nonce?: string;
     renderId?: string;
+    transformSerializedScript?: (script: string) => string;
   }
 ): string {
   throwInBrowser(renderToString);
@@ -20,6 +21,7 @@ export function renderToStringAsync<T>(
     timeoutMs?: number;
     nonce?: string;
     renderId?: string;
+    transformSerializedScript?: (script: string) => string;
   }
 ): Promise<string> {
   throwInBrowser(renderToStringAsync);
@@ -29,6 +31,7 @@ export function renderToStream<T>(
   options?: {
     nonce?: string;
     renderId?: string;
+    transformSerializedScript?: (script: string) => string;
     onCompleteShell?: (info: { write: (v: string) => void }) => void;
     onCompleteAll?: (info: { write: (v: string) => void }) => void;
   }
