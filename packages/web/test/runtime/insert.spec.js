@@ -767,10 +767,66 @@ describe("r.insert with migrating nodes", () => {
     expect(parent.contains(C)).toBe(true);
   });
 
-  // The prefix and suffix walks match by identity alone, so the node the
-  // append branch anchors on can be one user code moved away. Anchoring on it
-  // threw NotFoundError and halted reactivity; falling back to the region end
-  // put the insert past the live suffix.
+  // The migration rule from the slot-ownership change (May 2026): nothing
+  // throws, a node moved out of the slot is never destroyed by it, and every
+  // destructive op touches only nodes the slot owns. The prefix and suffix
+  // walks match by identity alone, as they did then: a node moved away that
+  // sits in the unchanged prefix or suffix stays where it was moved. Nodes in
+  // the changed window are placed in list order.
+  it("a moved-away node in the unchanged prefix stays where it was moved", () => {
+    const parent = document.createElement("div");
+    const other = document.createElement("div");
+    const mk = t => Object.assign(document.createElement("span"), { textContent: t });
+    const [n1, n2, n3, n4] = ["1", "2", "3", "4"].map(mk);
+    [n1, n2, n3].forEach(n => parent.appendChild(n));
+    other.appendChild(n2);
+    reconcileArrays(parent, [n1, n2, n3], [n1, n2, n3, n4]);
+    expect([...parent.children].map(n => n.textContent)).toEqual(["1", "3", "4"]);
+    expect(other.contains(n2)).toBe(true);
+  });
+
+  it("a removed node in the unchanged suffix stays removed", () => {
+    const parent = document.createElement("div");
+    const mk = t => Object.assign(document.createElement("span"), { textContent: t });
+    const [n0, n1, n2, n3] = ["0", "1", "2", "3"].map(mk);
+    [n1, n2, n3].forEach(n => parent.appendChild(n));
+    n3.remove();
+    reconcileArrays(parent, [n1, n2, n3], [n0, n1, n2, n3]);
+    expect([...parent.children].map(n => n.textContent)).toEqual(["0", "1", "2"]);
+    expect(n3.parentNode).toBe(null);
+  });
+
+  it("a moved-away node the new list drops stays where it was moved", () => {
+    const parent = document.createElement("div");
+    const other = document.createElement("div");
+    const mk = t => Object.assign(document.createElement("span"), { textContent: t });
+    const [a1, a2, a3, a4] = ["1", "2", "3", "4"].map(mk);
+    [a1, a2, a3].forEach(n => parent.appendChild(n));
+    other.appendChild(a2);
+    reconcileArrays(parent, [a1, a2, a3], [a3, a4, a1]);
+    expect([...parent.children].map(n => n.textContent)).toEqual(["3", "4", "1"]);
+    expect(other.contains(a2)).toBe(true);
+  });
+
+  // A dead old node in the map branch used to be "replaced" by inserting the
+  // new node at the region's end: [a, b] with a moved away, then [d, b, a],
+  // came out [b, d, a]. The dead node is now consumed and d lands in order.
+  it("the changed window is placed in list order around a moved-away node", () => {
+    const parent = document.createElement("div");
+    const other = document.createElement("div");
+    const mk = t => Object.assign(document.createElement("span"), { textContent: t });
+    const [a, b, d] = ["a", "b", "d"].map(mk);
+    parent.appendChild(a);
+    parent.appendChild(b);
+    other.appendChild(a);
+    reconcileArrays(parent, [a, b], [d, b, a]);
+    expect([...parent.children].map(n => n.textContent)).toEqual(["d", "b", "a"]);
+  });
+
+  // With the walks matching by identity, the node the append branch anchors
+  // on can be one user code moved away. Anchoring on it threw NotFoundError
+  // and halted reactivity; falling back to the region end put the insert past
+  // the live suffix.
   it("reconcileArrays does not anchor an insert on a migrated suffix node", () => {
     const parent = document.createElement("div");
     const other = document.createElement("div");

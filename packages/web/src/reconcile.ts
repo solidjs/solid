@@ -114,6 +114,14 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
       }
       // fallback to map
     } else {
+      // An old node that is no longer ours holds no position in this region:
+      // it can neither be replaced nor anchor an insert — both used to put the
+      // new node at the region's end, out of order. Consume it and let the new
+      // node land when its own turn comes.
+      if (!isLive(a[aStart])) {
+        aStart++;
+        continue;
+      }
       if (!map) {
         map = new Map();
         let i = bStart;
@@ -134,28 +142,19 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
           }
 
           if (sequence > index - bStart) {
-            const head = a[aStart];
-            const node = isLive(head) ? head : after;
+            const node = a[aStart];
             while (bStart < index) {
               const n = b[bStart++];
               parentNode.insertBefore(n, node);
               if (marker) n[$$SLOT] = marker;
             }
           } else {
-            const oldNode = a[aStart++];
             const newNode = b[bStart++];
-            if (isLive(oldNode)) {
-              parentNode.replaceChild(newNode, oldNode);
-            } else {
-              parentNode.insertBefore(newNode, after);
-            }
+            parentNode.replaceChild(newNode, a[aStart++]);
             if (marker) newNode[$$SLOT] = marker;
           }
         } else aStart++;
-      } else {
-        const n = a[aStart++];
-        if (isLive(n)) n.remove();
-      }
+      } else a[aStart++].remove();
     }
   }
 }
