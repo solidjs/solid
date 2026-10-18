@@ -7,7 +7,8 @@ import {
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
   REACTIVE_ZOMBIE,
-  STATUS_PENDING
+  STATUS_PENDING,
+  REACTIVE_NONE
 } from "./constants.js";
 import {
   assertNotInEffectCallback,
@@ -354,6 +355,11 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
     ? ({
         id: inheritId(options, transparent, parent),
         _config: transparent ? CONFIG_TRANSPARENT : 0,
+        // Present from birth: disposeChildren marks death here on roots too, and
+        // a first store of a missing property is a shape transition plus a
+        // properties-store allocation per root — on a 100×4 table teardown that
+        // was 12 KB and most of disposal's time (2026-10-17).
+        _flags: REACTIVE_NONE,
         _root: true,
         _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,
         _firstChild: null,
@@ -371,6 +377,11 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
     : ({
         id: inheritId(options, transparent, parent),
         _config: transparent ? CONFIG_TRANSPARENT : 0,
+        // Present from birth: disposeChildren marks death here on roots too, and
+        // a first store of a missing property is a shape transition plus a
+        // properties-store allocation per root — on a 100×4 table teardown that
+        // was 12 KB and most of disposal's time (2026-10-17).
+        _flags: REACTIVE_NONE,
         _root: true,
         _parentComputed: (parent as Root)?._root ? (parent as Root)._parentComputed : parent,
         _firstChild: null,

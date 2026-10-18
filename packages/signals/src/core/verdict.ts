@@ -379,7 +379,10 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     probeFound = true;
     if (tracked && flushTransaction !== null) verdictRead(c!, flushTransaction);
   }
-  if (el._config & CONFIG_OVERRIDE) {
+  if (
+    el._config & CONFIG_OVERRIDE &&
+    !(owner._statusFlags & STATUS_ERROR && !(el._config & CONFIG_GUESS))
+  ) {
     const l = txOf(el);
     if (tracked) verdictRead(c!, l._parent ?? l);
     const flying = (owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner);
