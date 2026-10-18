@@ -54,10 +54,17 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
     if (aEnd === aStart) {
       let node;
       if (bEnd < bLength) {
-        if (bStart) {
-          const prev = b[bStart - 1];
-          node = isLive(prev) ? prev.nextSibling : after;
-        } else node = b[bEnd - bStart];
+        // The walks no longer check liveness, so the prefix node before the
+        // insert and the suffix's first node can each be one user code moved
+        // away: anchoring on it threw (NotFoundError) or, falling back to
+        // `after`, landed the insert past the live suffix. Anchor on the last
+        // live prefix node's successor, else the first suffix node still ours.
+        if (bStart && isLive((node = b[bStart - 1]))) node = node.nextSibling;
+        else {
+          let k = bEnd;
+          while (k < bLength && !isLive(b[k])) k++;
+          node = k < bLength ? b[k] : after;
+        }
       } else node = after;
 
       while (bStart < bEnd) {

@@ -767,6 +767,80 @@ describe("r.insert with migrating nodes", () => {
     expect(parent.contains(C)).toBe(true);
   });
 
+  // The prefix and suffix walks match by identity alone, so the node the
+  // append branch anchors on can be one user code moved away. Anchoring on it
+  // threw NotFoundError and halted reactivity; falling back to the region end
+  // put the insert past the live suffix.
+  it("reconcileArrays does not anchor an insert on a migrated suffix node", () => {
+    const parent = document.createElement("div");
+    const other = document.createElement("div");
+    const mk = t => Object.assign(document.createElement("span"), { textContent: t });
+    const x = mk("x"),
+      y = mk("y");
+    other.appendChild(x);
+    expect(() => reconcileArrays(parent, [x], [y, x])).not.toThrow();
+    expect(parent.contains(y)).toBe(true);
+    expect(other.contains(x)).toBe(true);
+  });
+
+  it("a prepend over a migrated tail stays in its slot and keeps reacting", () => {
+    // via insert: render [z, x]; user code moves x into a modal; then [y, x].
+    const mk = t => Object.assign(document.createElement("span"), { textContent: t });
+    const x = mk("x"),
+      y = mk("y"),
+      z = mk("z"),
+      w = mk("w");
+    const parent = document.createElement("div");
+    const before = parent.appendChild(mk("before"));
+    const marker = parent.appendChild(document.createTextNode(""));
+    const after = parent.appendChild(mk("after"));
+    const other = document.createElement("div");
+    const [list, setList] = createSignal([z, x]);
+    createRoot(() => r.insert(parent, list, marker));
+    flush();
+    other.appendChild(x);
+    setList([y, x]);
+    expect(() => flush()).not.toThrow();
+    const kids = [...parent.childNodes];
+    expect(kids.indexOf(before)).toBeLessThan(kids.indexOf(y));
+    expect(kids.indexOf(y)).toBeLessThan(kids.indexOf(marker));
+    expect(kids.indexOf(marker)).toBeLessThan(kids.indexOf(after));
+    expect(parent.contains(z)).toBe(false);
+    // still reactive after the transition
+    setList([y, w]);
+    flush();
+    expect(parent.contains(w)).toBe(true);
+    expect(kids.indexOf(before)).toBeLessThan([...parent.childNodes].indexOf(w));
+  });
+
+  it("an insert after a migrated prefix node lands before the live suffix", () => {
+    const parent = document.createElement("div");
+    const other = document.createElement("div");
+    const mk = t => Object.assign(document.createElement("span"), { textContent: t });
+    const x = mk("x"),
+      y = mk("y"),
+      s = mk("s");
+    parent.appendChild(x);
+    parent.appendChild(s);
+    other.appendChild(x);
+    reconcileArrays(parent, [x, s], [x, y, s]);
+    expect([...parent.children].map(n => n.textContent)).toEqual(["y", "s"]);
+  });
+
+  it("an insert before a migrated suffix head anchors on the next live suffix node", () => {
+    const parent = document.createElement("div");
+    const other = document.createElement("div");
+    const mk = t => Object.assign(document.createElement("span"), { textContent: t });
+    const x = mk("x"),
+      y = mk("y"),
+      s = mk("s");
+    parent.appendChild(x);
+    parent.appendChild(s);
+    other.appendChild(x);
+    reconcileArrays(parent, [x, s], [y, x, s]);
+    expect([...parent.children].map(n => n.textContent)).toEqual(["y", "s"]);
+  });
+
   it("reconcile keeps a migrated node alive when its array drops it", () => {
     // Insert [n1, n2, n3]; user code migrates n2 to another parent; then
     // reconcile from [n1, n2, n3] to [n1, n3]. The remove-branch and
