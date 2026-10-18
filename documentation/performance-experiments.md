@@ -10066,3 +10066,71 @@ Octane, with the remaining Vapor deficits concentrated where the lane left
 them — js-framework 1.35 (swap and select, design), signal-favoring 1.27
 (the per-write constant), uibench 1.15 (the general keyed path), chat-stream
 1.08, hydration-interactivity 1.10 (unread, gate exit), dbmon 1.07.
+
+### 15 (Vapor lane): leave-one-out — what each change buys (2026-10-17, 21:39–22:33)
+
+Ryan, on the §14 numbers: "decide if all these improvements are sound…
+and if they all are worth their weight; often we try more things than
+ultimately what makes the difference." The integration branch
+(`bench/next-all-oct17`) was rebuilt four ways, each with one change
+reverted (`abl/no-4114`, `abl/no-4133`, `abl/no-4136`, `abl/no-4122`; all
+four reverts clean in runtime source, #4114's only conflicts in docs and
+size caps). Eleven client suites ran on a fresh baseline and on each
+client revert; streaming-ssr ran three interleaved rounds with and without
+#4122 (pinned harness). Results `results-abl-*-oct17`; log
+`.logs/ablation-2026-10-17.log`; reader script in the session scratchpad.
+"Buys" below is Solid ÷ Vapor with the change reverted over the same with
+it in — within-run pairing, so machine drift cancels; the noise column is
+the fresh baseline against §14's run of the same build.
+
+| suite (Solid ÷ Vapor) | noise | #4114 buys | #4133 buys | #4136 buys |
+| --- | ---: | ---: | ---: | ---: |
+| uibench | +2.0% | **+11.7%** | +3.1% | **+29.9%** |
+| js-framework-reorder | +4.6% | +3.8% | **+11.4%** | +1.6% |
+| memo-wall | −0.2% | +4.8% | **+9.7%** | −0.2% |
+| scaling-curves | +2.5% | +8.3% | (+14.9 / +3.1 vs Octane) | (+12.1 / −3.1 vs Octane) |
+| todomvc | +8.1% | +4.8% | −6.2% | +19.0% |
+| js-framework, chat-stream, signal-favoring, dbmon | ±1–4% | inside noise | inside noise | inside noise |
+| event-delegation | **−23.7%** | unreadable | unreadable | unreadable |
+| effectful-list | −10.3% | suite unreadable; per op below | | |
+
+Per family or op where the effect clears its own noise:
+
+- **#4136** (root `_flags` slot): uibench removeAll **+191%**, filters +87%,
+  single-row insert/remove/move +25%; effectful-list `clear` +34%; todomvc
+  toggleAll / clearCompleted / filterCycle +18–36% (per-op noise up to 38%,
+  so read as "real, size uncertain"). The teardown fix, everywhere a list
+  or branch is torn down.
+- **#4114** (mapArray window commit): uibench **filters +80%**, single-row
+  +7%; reorder `removeevery10` +26%, `insertmid100` +14%; effectful-list
+  `remove_100_scattered` +28%; memo-wall `one_change` +23%; todomvc
+  destroy25 / clearCompleted +14–15%. Its Map-free pure-removal path is
+  what filters and scattered removals run through; with #4136 in, it still
+  earns its ~640 B minified.
+- **#4133** (reconciler walks): reorder rotations +13%, displacements
+  +10–24%, `insertmid100` +44%; memo-wall `one_change` **+37–54%**; uibench
+  single-row +8%; effectful-list scattered remove +13%.
+- **#4122** (suspend unwind): `shell_staggered`, Solid's own ms, every round
+  faster with it — 0.158 vs 0.195, 0.163 vs 0.177, 0.150 vs 0.173 (mean
+  0.157 vs 0.182 ms, **−14%**, ~25 µs of time-to-first-byte under suspended
+  boundaries); `shell_allfast` 0.095 vs 0.100 (inside noise); totals are the
+  50 ms timers. Suite ÷ Octane 1.561 → 1.517. The SSR lane's earlier "invisible to the
+  stopwatch" was an unpinned, uninterleaved reading.
+
+Two corrections to §14. **event-delegation** is not a mover: its single op
+swung 24% between two runs of the identical build, so its 1.33 → 1.01 is
+noise, not a gain. **signal-favoring**'s move is the fixture (`flush(fn)`,
+§5–6); no runtime revert moves it. chat-stream and dbmon are inside noise
+for all three client changes — their Oct 15 → today moves came from other
+merges or drift and are not this lane's.
+
+Verdict, per Ryan's two questions. Sound: each of the six fixes a defect or
+cost any app pays — teardown (#4136), keyed maps with deletes (#4132),
+reorders in long lists (#4133), filters and scattered removals (#4114),
+suspended SSR shells (#4122), per-render crypto (#4115) — and none
+special-cases a benchmark shape. Worth their weight: all six earn
+measurable time on real-world shapes; #4114 is the only one with a real
+byte cost and it is the second-largest earner. What did not make the
+difference was everything parked: the window record (§2), the text-slot
+skip, the fragment stubs, the move hints (§12), the stageRemoval bound
+(§13), and the lazy list memos (reverted). None of them shipped.
