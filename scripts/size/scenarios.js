@@ -2584,9 +2584,11 @@ module.exports = [
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 29.91 -> 30.09 KB, measured at 30,075 B brotli / 94,579 B minified (+165 B brotli over the cap, +646 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
+    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 01270641): 30.09 -> 30.14 KB, measured locally at 30,125 B brotli / 94,611 B minified (+32 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
     // store delete key-count fix (#4132, 2026-10-17): 30.09 -> 30.14 KB, measured at 30,129 B brotli / 94,616 B minified (+39 B brotli over the cap, +37 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
+    // Merged over next @ 7093b074b after #4129 raised this same cap 30.09 -> 30.14 KB for its own bytes (2026-10-17): the two together measured locally at 30,116 B brotli / 94,644 B minified, under the cap, so the cap stays at 30.14 KB; recorded minified 94,611 -> 94,644.
     limit: "30.14 KB",
-    capMinified: 94616,
+    capMinified: 94644,
     alias
   },
   {
@@ -5217,6 +5219,13 @@ module.exports = [
     // in a region mounts under the owner that placed it (the regions tier's
     // placement), and a fill's two claim windows share one claim owner. Cap
     // (floor-caps.json) at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (a held error reaches a derivation of `latest`, #4113,
+    // #4106, 2026-10-17, merged over next @ fb498491): 37.58 -> 37.65 KB,
+    // measured locally at 37,634 B brotli / 116,033 B minified (+51 B
+    // minified): `laneRead` and `verdictValue` hand a held error to an
+    // override/derived read the way they hand a value, and `stageError`
+    // schedules the verdict wake. Cap at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-17).
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5752,8 +5761,15 @@ module.exports = [
     // measured locally (linux) at 47,001 B (141,204 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
-    limit: "47.02 KB",
-    capMinified: 141204,
+    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17,
+    // merged over next @ 7010268d): 47.02 -> 47.05 KB, measured locally at
+    // 47,040 B brotli / 141,255 B minified (+51 B minified): `laneRead` and
+    // `verdictValue` hand a held error to an override/derived read the way
+    // they hand a value, and `stageError` schedules the verdict wake. Cap at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-17).
+    limit: "47.05 KB",
+    capMinified: 141255,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
