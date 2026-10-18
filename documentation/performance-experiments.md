@@ -10134,3 +10134,98 @@ byte cost and it is the second-largest earner. What did not make the
 difference was everything parked: the window record (§2), the text-slot
 skip, the fragment stubs, the move hints (§12), the stageRemoval bound
 (§13), and the lazy list memos (reverted). None of them shipped.
+
+### 16 (Vapor lane): #4133 under review — #574 without reclaim, the May rule, and the lane closed (2026-10-18)
+
+Ryan's review of #4133 (posted through Claude Code) found one bug and one
+behaviour change. Both reshaped the PR before it merged as 8e2446f6a.
+
+**The bug.** With identity-only walks, the append branch could anchor on a
+node user code moved away: `reconcileArrays(p, [x], [y, x])` with x
+detached threw `NotFoundError`, which halts reactivity. The suggested guard
+(`isLive(b[bEnd]) ? b[bEnd] : after`) stopped the throw but put the insert
+past the live suffix when the moved node was not the suffix's last; the
+anchor became the last owned prefix node's successor, else the first
+suffix node still owned, else the region end.
+
+**The behaviour change, and the history behind it.** On `next`, a node
+moved out of the slot that the new list still held was always pulled
+back; with identity-only walks, one sitting in the unchanged prefix or
+suffix stayed where it was moved. The record (dom-expressions):
+
+| date | commit | what it did to the walks |
+| --- | --- | --- |
+| May 7 | 2fe6310f, single-anchor end-swap (perf) | none; it introduced the #574 drop |
+| May 16 | 78bb855c, slot-owned nodes for safe migration | none — destructive ops gated on ownership, foreign or migrated nodes "left alone"; `05_swap1k` measured |
+| Aug 21 | 9052dcf5, the #574 fix | added the ownership check to every row of both walks |
+
+So the reclaim was never a decision: it came with the #574 remedy, and
+nothing recorded its cost (on js-framework-benchmark's ms-scale,
+paint-dominated swap, 5 µs is invisible). Ryan: "I only care about what
+May promised." The bounded suffix walk fixes #574 at its cause — on clean
+arrays the review's differential fuzz found 0 divergences from `next` in
+100k seeds — so the walks went back to the May design.
+
+**Option 3, measured and dropped.** A variant keeping the reclaim with the
+cheapest possible check (`parentNode` only when there is no slot marker,
+the full check with one) kept none of the swap gain (29.5 vs `next` 29.9
+vs PR 25.8 µs) and 15–30% of the rest (Solid ÷ Vapor, option 3 over the
+PR: reorder +9.7%, displacements +15.2%, memo-wall +7.8%, `one_change`
++35.3%, uibench +2.1%). The cost is the per-row DOM read itself, not the
+symbol read or the closure.
+
+**A bug since May, found on the way.** In the map branch, an old node that
+is no longer ours was "replaced" by inserting the new node at the region's
+end, and the sequence branch anchored on the region's end the same way:
+`[a, b]` with a moved away, then `[d, b, a]`, came out `[b, d, a]`. The
+dead node is now consumed and the new one lands in its turn. An oracle
+fuzz of the May rule (nothing throws; every unmoved node of the new list
+in the slot, in list order; a moved node the list dropped stays put),
+20,000 seeds with and without a slot marker:
+
+| reconciler | rule violations |
+| --- | ---: |
+| `next` before #4133 | 9,714, all out of order |
+| #4133 before the map-branch change | 7,510, all out of order |
+| #4133 as merged | **0** |
+
+(Against a reclaim oracle `next` failed 8,427 of 20,000 with user moves
+and 0 without: its reclaim had never placed reliably either.) Tests pin
+the May rule: a moved-away node in the unchanged prefix, a removed node in
+the unchanged suffix, a moved-away node the list drops, the window in
+order around a moved-away node, and the anchor cases. Six fail on the old
+`next`; the ordering test fails without the map-branch change.
+
+**Final numbers, same base** (`next` @ e1ced780e with #4129/#4132/#4136/
+#4138; log `.logs/final-check-2026-10-18.log`; results `results-fc-*`):
+swap 29.4–29.8 → 24.8–25.9 µs (Vapor 9.0). Solid ÷ Vapor, two rounds,
+#4133 against `next`: memo-wall −7.9% (`one_change` −25.2%),
+js-framework-reorder −5.8% (rotations −9.7%, displacements −5.9%), uibench
+−1.9% (single-row −4.8%, filters −7.0%), reverse and removeAll flat. The
+map-branch change costs nothing on swap and ~2% on rotations and
+displacements, against ~1% noise there. **Correction to §15:** its #4133
+column (reorder +11.4%, memo-wall +9.7%, uibench +3.1%) came from the
+integration tree on the older base, before the map-branch change; these
+are the numbers that shipped.
+
+**Size.** The anchor fix alone (+33 B minified) failed the gate; with the
+map-branch change the PR came out ~10 B under its recorded sizes. A second
+failure was not #4133's: #4129 (+51 B minified) and #4136 (+4 B) each
+passed the `signals: + isPending/latest` cap alone and broke it together
+on `next`; #4138 re-based that cap.
+
+**Lane closed.** Runtime changes shipped from the Vapor lane: #4114
+(mapArray window commit), #4132 (store key count), #4133 (reconciler walks,
+May migration rule), #4136 (root `_flags` slot); from the SSR lane #4115
+(trace ids) and #4122 (suspend unwind). The leave-one-out (§15) and this
+section show each earning measurable time on real-world shapes. Parked and
+not shipped: the window record, the text-slot skip, the fragment stubs,
+the move hints, the stageRemoval bound, the lazy list memos, and both
+reclaim variants of #4133. Left for later, deliberately outside this lane:
+the per-write transaction constant (update, select, signal-favoring
+bumps), the two-pass list diff (swap 2.7×, uibench worst cases 2.7× of
+Vapor), store writes against Vapor's compiled selector (select 2×); the
+fork's two harness changes (signal-favoring `flush(fn)` adapter,
+streaming-ssr pinning) are not yet upstream at octanejs/octane, and
+recursive-context and hydration-interactivity fail a harness gate in every
+run.

@@ -1377,8 +1377,15 @@ module.exports = [
     // 28,005 B; measured locally (linux) at 9,943 B (28,005 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "9.96 KB",
-    capMinified: 28005,
+    // A held error reaches a derivation of `latest` (#4129, #4106) plus the
+    // store delete key count (#4132) and root owners' flags slot (#4136),
+    // 2026-10-18, measured on next @ 5c8ec966: 9.96 -> 9.98 KB, measured
+    // locally at 9,963 B brotli / 28,064 B minified (+59 B minified: 51 B from
+    // #4129's `laneRead`/`verdictValue`/`stageError`, which passed alone under
+    // the brotli cap, and 4 B from each of the other two). Cap at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    limit: "9.98 KB",
+    capMinified: 28064,
     alias
   },
   {
@@ -5461,6 +5468,13 @@ module.exports = [
     // measured locally (linux) at 41,463 B (123,926 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
+    // A held error reaches a derivation of `latest` (#4129, #4106) plus the
+    // store delete key count (#4132) and root owners' flags slot (#4136),
+    // 2026-10-18, measured on next @ 5c8ec966: 41.48 -> 41.52 KB, measured
+    // locally at 41,503 B brotli / 123,984 B minified (+58 B minified: 51 B from
+    // #4129, which passed alone under the brotli cap, and the rest from the
+    // other two). Cap at measured + 10 B rounded up to 0.01 KB. Accepted by
+    // the maintainer (2026-10-17).
     // record-only writes mount from the last slot walk (#4139, 2026-10-18): 41.48 -> 41.64 KB, measured locally at 41,628 B brotli / 124,449 B minified (+523 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
     limit: "41.64 KB",
     capMinified: 124449,
