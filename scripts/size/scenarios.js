@@ -1377,14 +1377,13 @@ module.exports = [
     // 28,005 B; measured locally (linux) at 9,943 B (28,005 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    // Merge-order re-base (2026-10-18, on #4133, which touches no signals
-    // code): #4129 (+51 B minified, a held error reaching a derivation of
-    // latest) and #4136 (+4 B, the root owner `_flags` slot) each passed
-    // under this cap alone; together, on next @ 5c8ec9665, they measure
-    // 9,963 B brotli / 28,064 B minified — 3 B over the cap, +59 B minified
-    // over the recorded size, so every PR against next failed this row.
-    // 9.96 -> 9.98 KB (measured + 10 B rounded up to 0.01 KB); recorded
-    // minified 28,005 -> 28,064.
+    // A held error reaches a derivation of `latest` (#4129, #4106) plus the
+    // store delete key count (#4132) and root owners' flags slot (#4136),
+    // 2026-10-18, measured on next @ 5c8ec966: 9.96 -> 9.98 KB, measured
+    // locally at 9,963 B brotli / 28,064 B minified (+59 B minified: 51 B from
+    // #4129's `laneRead`/`verdictValue`/`stageError`, which passed alone under
+    // the brotli cap, and 4 B from each of the other two). Cap at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
     limit: "9.98 KB",
     capMinified: 28064,
     alias
@@ -5458,8 +5457,15 @@ module.exports = [
     // measured locally (linux) at 41,463 B (123,926 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
-    limit: "41.48 KB",
-    capMinified: 123926,
+    // A held error reaches a derivation of `latest` (#4129, #4106) plus the
+    // store delete key count (#4132) and root owners' flags slot (#4136),
+    // 2026-10-18, measured on next @ 5c8ec966: 41.48 -> 41.52 KB, measured
+    // locally at 41,503 B brotli / 123,984 B minified (+58 B minified: 51 B from
+    // #4129, which passed alone under the brotli cap, and the rest from the
+    // other two). Cap at measured + 10 B rounded up to 0.01 KB. Accepted by
+    // the maintainer (2026-10-17).
+    limit: "41.52 KB",
+    capMinified: 123984,
     alias: pageAlias
   },
   {
