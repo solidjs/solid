@@ -54,6 +54,7 @@ import {
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SCREEN_READ,
   REACTIVE_STAGED_READ,
+  STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
@@ -553,9 +554,11 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
   if (c !== null && c._config & CONFIG_AUTHORITATIVE) return GlobalQueue._truth!(el);
+  const status = (el as Computed<any>)._statusFlags;
+  // An errored member's lane value predates its error; the error is the answer (#4106).
+  if (!guess && status & STATUS_ERROR) return NOT_PENDING;
   if (c === null) return laneValueOf(el);
   const l = txOf(el);
-  const status = (el as Computed<any>)._statusFlags;
   if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) {
     // An untracked read inside lane work derives from the lane like a
     // tracked one, minus the subscription — `untrack` is about
