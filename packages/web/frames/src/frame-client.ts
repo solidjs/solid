@@ -1214,6 +1214,10 @@ class FrameImpl {
   #outer;
   #version;
   #store = Object.create(null);
+  // The store's keys other than slot records, in write order: the content
+  // passes of a flush (assets, segments, holes) walk these, so a document's
+  // hundreds of slot record writes don't each enumerate the whole store.
+  #content = new Set<string>();
   // The applied state is keyed by RECORD identity (frames-rulings 2.1,
   // 2.2): the root record this mount morphed, the error record it notified.
   // A new record under the same version applies again; the version bump
@@ -1427,7 +1431,8 @@ class FrameImpl {
       )
         this.#heldRecords.has(occurrence) || this.#heldRecords.set(occurrence, prev);
       this.#store[key] = write.r[key];
-      if (only) key.startsWith("slot:") ? only.push(occurrence) : (only = undefined);
+      if (key.startsWith("slot:")) only?.push(occurrence);
+      else (this.#content.add(key), (only = undefined));
     }
     // Slot records alone (an empty write is a re-sync: content changed
     // around the frame, as a document-face reveal does).
@@ -1496,6 +1501,7 @@ class FrameImpl {
   #resetStreamState() {
     this.#found = undefined;
     this.#store = Object.create(null);
+    this.#content.clear();
     this.#appliedRoot = this.#appliedError = undefined;
     this.#appliedHoles.clear();
     this.#liveTargets.clear();
@@ -1539,7 +1545,7 @@ class FrameImpl {
     // met while the tier is absent starts its load (`tierReady`) and stays
     // pending — the install's flush applies it; the walk stops there (the
     // rest wait on the same load).
-    for (const key in this.#store) {
+    for (const key of this.#content) {
       const record = this.#store[key];
       if (!key.endsWith(":assets") || !record || this.#appliedHoles.get(key) === record) continue;
       const tier = tierReady("assets");
@@ -1552,7 +1558,7 @@ class FrameImpl {
     // in the frame's range reveals; a revealed segment's own range is
     // applied as it is revealed (nested segments included — see
     // #revealSegments), so one pass over the frame suffices.
-    this.#revealSegments();
+    const revealed = this.#revealSegments();
 
     // Live-hole records, one pass: range morphs (`hole:`), element attr
     // patches (`attr:`), and hole-keyed error diagnostics. After the
@@ -1573,7 +1579,7 @@ class FrameImpl {
     // hole morph: `r`, the frame's slot ranges by occurrence; `g`, the
     // subtrees the morphs inserted whole.
     const index: { r?: Map<string, any>; g?: Node[] } = {};
-    for (const key in this.#store) {
+    for (const key of this.#content) {
       const record = this.#store[key];
       if (!record || this.#appliedHoles.get(key) === record) continue;
       if (key.startsWith("hole:")) {
@@ -1607,10 +1613,18 @@ class FrameImpl {
       if (!morphed && this.#appliedRoot === applied) {
         // A segment this flush revealed brings occurrences the walk has not
         // seen: the next slice walks again (mounted ones pass over). The
-        // occurrences an event mounted take the flush's record changes.
-        this.#deferFound = undefined;
-        if (this.#deferMounted.size)
-          this.#deferWaiting = this.#mountFound(new Map(this.#deferMounted)) || this.#deferWaiting;
+        // occurrences an event mounted take the flush's record changes. A
+        // write of slot records alone keeps the walk and touches the ones it
+        // names; one a slice already passed waiting takes a new walk.
+        if (revealed || !only) this.#deferFound = undefined;
+        const mounted = only ? new Map() : new Map(this.#deferMounted);
+        if (only)
+          for (const id of only) {
+            const start = this.#deferMounted.get(id);
+            if (start) mounted.set(id, start);
+            else if (!this.#deferFound?.has(id)) this.#deferFound = undefined;
+          }
+        if (mounted.size) this.#deferWaiting = this.#mountFound(mounted) || this.#deferWaiting;
         return;
       }
       this.#deferred = false;
@@ -2432,7 +2446,8 @@ class FrameImpl {
    */
   #revealSegments(root?) {
     const version = this.#version;
-    for (const key in this.#store) {
+    let revealed = false;
+    for (const key of this.#content) {
       const record = this.#store[key];
       const name = segmentName(key);
       if (name === null || !record || this.#appliedHoles.get(key) === record) continue;
@@ -2440,9 +2455,10 @@ class FrameImpl {
         this.#appliedHoles.set(key, record);
         this.#revealSegment(name, root);
         this.#applied(version, "reveal");
+        revealed = true;
       }
     }
-    for (const key in this.#store) {
+    for (const key of this.#content) {
       const m = /^seg:([^:]+):fallback$/.exec(key);
       if (!m || this.#appliedHoles.has(key) || this.#appliedHoles.has(`seg:${m[1]}`)) continue;
       if (this.#showFallback(m[1], root)) {
@@ -2450,6 +2466,7 @@ class FrameImpl {
         this.#applied(version, "reveal");
       }
     }
+    return revealed;
   }
 
   #segmentReady(name, root) {
