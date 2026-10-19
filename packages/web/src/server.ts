@@ -3260,6 +3260,14 @@ export function renderToStream(code, options = {}) {
   let lastBlockingSize = -1;
   let lastRegistrySize = -1;
   let drainTurn = 0;
+  // One task of grace once the microtask drain settles, while fragments are
+  // pending: a read whose retry chain outruns the drain turns (a server
+  // function over an in-memory catalog, a cache answering on `setImmediate`,
+  // I/O that already completed) still renders inline instead of shipping its
+  // fallback, a template and a reveal that shifts the page. 1.x waited a task
+  // before every shell flush. A render with nothing pending pays nothing;
+  // genuinely pending I/O pays one task of TTFB.
+  let graced = false;
   const scheduleFlush = (fn, awaited) => {
     const attempt = () => {
       // Flush batched stubs at the TOP of the drain, not at doShell: a
@@ -3276,12 +3284,20 @@ export function renderToStream(code, options = {}) {
         queue(attempt);
         return;
       }
+      if (!graced && registry.size) {
+        graced = true;
+        lastRegistrySize = -1;
+        drainTurn = 0;
+        deferFlush(attempt);
+        return;
+      }
       fn();
     };
     const progressed = awaited !== lastBlockingSize;
     lastBlockingSize = awaited;
     lastRegistrySize = -1;
     drainTurn = 0;
+    graced = false;
     progressed ? queue(attempt) : setTimeout(attempt);
   };
   let cachedReadable;
