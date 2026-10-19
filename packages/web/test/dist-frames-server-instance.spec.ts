@@ -211,13 +211,14 @@ describe("a single-flight server-component call carries its invocation id (#3641
           body: "[]"
         })
       );
-    // Length-prefixed frames: \`;0x<8 hex>;\` + JSON.
+    // Length-prefixed frames: \`;0x<8 hex>;\` + JSON — record batches
+    // (\`{ id, version, r }\`) beside the \`start\` / \`outcome\` messages.
     const chunksOf = async res =>
       (await res.text())
         .split(/;0x[0-9a-f]{8};/)
         .filter(Boolean)
         .map(s => JSON.parse(s))
-        .map(({ type, id, html }) => ({ type, id, html }));
+        .map(({ type, id, r }) => ({ type, id, keys: r && Object.keys(r), html: r && r[""] && r[""].value }));
 
     const res = await call("view-1", true);
     const chunks = await chunksOf(res);
@@ -232,7 +233,7 @@ describe("a single-flight server-component call carries its invocation id (#3641
         contentType: res.headers.get("content-type"),
         handlerSawInvocation,
         chunks,
-        selectHtml: frame.find(c => c.type === "html").html
+        selectHtml: frame.find(c => c.html !== undefined).html
       })
     );
   `;
@@ -271,8 +272,8 @@ describe("a single-flight server-component call carries its invocation id (#3641
       expect(out.header).toBe("view-1");
       expect(out.chunks).toEqual([
         { type: "start", id: "view-1" },
-        { type: "html", id: "view-1", html: "view markup" },
-        { type: "complete", id: "view-1" },
+        { id: "view-1", keys: [""], html: "view markup" },
+        { id: "view-1", keys: [":complete"] },
         expect.objectContaining({ type: "outcome" })
       ]);
       // The renderer behind the frame stream is the one compiled output arms.

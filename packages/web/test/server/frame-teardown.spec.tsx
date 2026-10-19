@@ -113,11 +113,11 @@ describe("frame teardown on disconnect (Stage 8 B1)", () => {
     await tick();
     expect(state.returned).toBe(true);
     // The abort came after the first flush, so a PLAIN response ends as at
-    // its time bound — `complete.bound: "time"` (the client can tell a
+    // its time bound — `:complete` with `:bound: "time"` (the client can tell a
     // deadline from a death) — and then the body closes.
     const rest = await drain(reader);
-    expect(rest).toContain('"type":"complete"');
-    expect(rest).toContain('"bound":"time"');
+    expect(rest).toContain('":complete":true');
+    expect(rest).toContain('":bound":"time"');
     // No abandonment finding: the response ended at a bound, nobody left.
     expect(capture.events.filter(e => e.code === "SSR_STREAM_ABANDONED")).toHaveLength(0);
   });
@@ -137,7 +137,7 @@ describe("frame teardown on disconnect (Stage 8 B1)", () => {
     }
     await tick();
     expect(state.returned).toBe(state.pulls > 0);
-    expect(text).not.toContain('"complete"');
+    expect(text).not.toContain('":complete"');
   });
 
   it("through the handler: frameTransformResult passes the request's signal", async () => {
@@ -180,7 +180,7 @@ describe("frame teardown on disconnect (Stage 8 B1)", () => {
     // The frame in progress had flushed: it ends at its time bound; the
     // body closes after it with no outcome.
     const rest = await drain(reader);
-    expect(rest).toContain('"bound":"time"');
+    expect(rest).toContain('":bound":"time"');
     expect(rest).not.toContain('"outcome"');
   });
 });

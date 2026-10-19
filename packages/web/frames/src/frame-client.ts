@@ -23,133 +23,33 @@
 import { DEV, OBSERVE } from "solid-js";
 
 /**
- * One transport chunk of a frame stream, addressed by frame `id`. Any
- * chunk may carry `tiers` (see `TierAnnouncement`).
- * @experimental
- */
-/**
  * Row ops for a live hole whose value is a `For`'s rows (#4064): the new
  * row count `n` and the rows that changed or were appended, as
  * `[index, html]`. A count below the range's truncates it.
  */
 export type HoleRows = { n: number; r: [number, string][] };
 
-export type FrameChunk = (
-  | { type: "start"; id: string; version: number }
-  | {
-      type: "html";
-      id: string;
-      version: number;
-      html: string;
-      /** Server-minted digest of the root's skeleton (RFC 11 §9.5, Hole hashes). */
-      digest?: string;
-      /** Digests of the live holes inside the html, by ledger key (`lh:N`, `lha:N`). */
-      holes?: Record<string, string>;
-    }
-  | {
-      type: "fragment";
-      id: string;
-      version: number;
-      key: string;
-      html: string;
-      digest?: string;
-      holes?: Record<string, string>;
-    }
-  | {
-      type: "hole";
-      id: string;
-      version: number;
-      key: string;
-      html: string;
-      digest?: string;
-      holes?: Record<string, string>;
-      /** Row ops for a `For` hole (#4064), against the emission `base`. */
-      rows?: HoleRows;
-      base?: string;
-    }
-  | {
-      type: "attr";
-      id: string;
-      version: number;
-      key: string;
-      attrs: string;
-      removed?: string[];
-      digest?: string;
-    }
-  | {
-      type: "reveal";
-      id: string;
-      version: number;
-      keys: string[];
-      waitForStyles?: boolean;
-      fallback?: boolean;
-    }
-  | {
-      type: "data";
-      id: string;
-      version: number;
-      key?: string;
-      node?: unknown;
-      initial?: boolean;
-      /** Eval-style hydration script — only when produced with the hydration serializer. */
-      payload?: string;
-    }
-  | {
-      type: "assets";
-      id: string;
-      version: number;
-      key: string;
-      modules?: string[];
-      styles?: string[];
-      inlineStyles?: { id: string; content?: string; attrs?: Record<string, string> }[];
-      preloads?: { href?: string; attrs: Record<string, string> }[];
-    }
-  | { type: "slot"; id: string; version: number; key: string; args: Record<string, unknown> }
-  | {
-      /**
-       * One server sweep's re-emissions as one unit (RFC 11 addendum, C13):
-       * the `hole` / `attr` members a sweep produced, unaddressed (the
-       * envelope addresses them), applied as one write — one flush, one
-       * `frame:applied`. A sweep that changed one binding is emitted as
-       * that member alone.
-       */
-      type: "ops";
-      id: string;
-      version: number;
-      ops: (
-        | {
-            type: "hole";
-            key: string;
-            html: string;
-            digest?: string;
-            rows?: HoleRows;
-            base?: string;
-          }
-        | { type: "attr"; key: string; attrs: string; removed?: string[]; digest?: string }
-      )[];
-    }
-  | {
-      type: "complete";
-      id: string;
-      version: number;
-      /**
-       * Present when the producer ended a plain (non-`live`) response at
-       * its streaming bound rather than at its sources' settling (RFC 11
-       * addendum): `"yields"` — the later-yield count; `"time"` — the
-       * wall-clock bound after the first flush, or the request's abort
-       * after it. The content shown is a cut-off, not a settled value;
-       * `live()` is the declared way past the bound.
-       */
-      bound?: "yields" | "time";
-    }
-  | { type: "error"; id: string; version: number; key?: string; error: unknown }
-) &
-  TierAnnouncement;
+/**
+ * A `data` message: one node of the response-scoped data table the
+ * records' `{$ref}` args resolve through — not frame state (it never enters
+ * the store), ordered ahead of the records that read it.
+ * @experimental
+ */
+export type FrameData = {
+  type: "data";
+  id: string;
+  version: number;
+  key?: string;
+  node?: unknown;
+  initial?: boolean;
+  /** Eval-style hydration script — only when produced with the hydration serializer. */
+  payload?: string;
+};
 
 /**
  * The in-band tier announcement (frames savings pass §2; additive — RFC 11
  * addendum): the frames-client tiers the render first needed since the
- * last chunk left — `"regions"`, `"assets"`, `"trace"`, `"wire"` — on whichever chunk leaves next. The response head carries the
+ * last message left — `"regions"`, `"assets"`, `"trace"`, `"wire"` — on whichever chunk leaves next. The response head carries the
  * tiers minted before it (`X-Frame-Tiers`); a tier minted later rides
  * here. The client starts each named tier's load before applying the
  * chunk; a `data` chunk additionally AWAITS them (its node tree needs the
@@ -162,9 +62,25 @@ export interface TierAnnouncement {
 }
 
 /**
- * One store write applied to a frame: `r` maps record keys to values
- * (`chunkToRecords` produces these from wire chunks) and `version` is the
- * stream stamp — an older version than the frame's current one is ignored.
+ * One message of a frame stream on the wire, addressed by frame `id`: a
+ * versioned batch of keyed records — the store write itself (`r`, see
+ * `FrameWrite`) — or one of the messages that are not records: `start`
+ * (a response's version opens on the address), `data` (a node of the
+ * response's data table). Any message may carry `tiers` (see
+ * `TierAnnouncement`).
+ * @experimental
+ */
+export type FrameMessage = (
+  | { type?: undefined; id: string; version: number; r: Record<string, unknown> }
+  | { type: "start"; id: string; version: number }
+  | FrameData
+) &
+  TierAnnouncement;
+
+/**
+ * One store write applied to a frame: `r` maps record keys to values (a
+ * wire batch's own `r`) and `version` is the stream stamp — an older
+ * version than the frame's current one is ignored.
  * @experimental
  */
 export interface FrameWrite {
@@ -267,11 +183,12 @@ export interface Frame {
 }
 
 /**
- * Routes a flat stream of addressed chunks to frames by id, buffering chunks
- * for frames that have not registered yet (only the newest version's chunks
- * are kept). `data` chunks are response-scoped and go to `applyData`; a
- * `slot` chunk's `{$ref}` args are resolved at the write, through the
- * response's data (a value, or a pending read the response settles).
+ * Routes a flat stream of addressed messages to frames by id, writing each
+ * batch into the address's resident store (an address no frame has
+ * registered for yet simply warms). `data` messages are response-scoped and
+ * go to `applyData`; a `slot:` record's `{$ref}` args are resolved at the
+ * write, through the response's data (a value, or a pending read the
+ * response settles).
  *
  * An id may have several frames (the same server component mounted more
  * than once): chunks fan out to all of them, and a frame registering after
@@ -282,17 +199,17 @@ export interface FrameHost {
   register(id: string, frame: Frame): void;
   /** Remove one frame (or all frames of the id when `frame` is omitted). */
   unregister(id: string, frame?: Frame): void;
-  apply(chunk: FrameChunk): void;
+  apply(msg: FrameMessage): void;
   /**
    * The reactive half of a staged response (see
-   * `createServerComponentHandler`): a `slot` chunk's args — settled
-   * through its own response's table, as at a write — reach the
+   * `createServerComponentHandler`): a batch's `slot:` records' args —
+   * settled through its own response's table, as at a write — reach the
    * occurrences mounted under its id as re-resolved props into their live
    * bindings, while the store, the markup, and every structural change
-   * wait for the chunk's `apply`. Other chunk types are ignored.
+   * wait for the batch's `apply`. Other records are ignored.
    * @internal
    */
-  preview?(chunk: FrameChunk): void;
+  preview?(msg: FrameMessage): void;
   /** The first registered frame under the id, if any. */
   get(id: string): Frame | undefined;
   /**
@@ -352,7 +269,7 @@ export interface FrameHostOptions {
    * `applyData: c => table.apply(c)` (see `createJSONDataTable`); a table
    * per response keys on `chunk.version` (see `resolve` for `current`).
    */
-  applyData?(chunk: Extract<FrameChunk, { type: "data" }>, current?: number): void;
+  applyData?(chunk: FrameData, current?: number): void;
   /**
    * The response (one version of one id) has ended — its `complete`, or
    * its `error` with no key — and a key it never delivered never comes:
@@ -560,106 +477,7 @@ export function isAsyncValue(v: any): boolean {
   );
 }
 
-/**
- * Maps a wire chunk onto resident-store record writes. `data` chunks map to
- * no records — they are response-scoped and the host applies them through
- * its data hook.
- * @experimental
- */
-export function chunkToRecords(chunk: FrameChunk): Record<string, unknown>;
-
-/**
- * Map a wire chunk onto resident-store record writes. `html` is the root,
- * `fragment` a keyed segment, `reveal` sets segment gates (fallback reveals
- * set fallback gates), and so on. Control chunks (`complete`/`error`) are
- * stored as flag keys rather than fired as events, consistent with the store
- * model. `data` chunks return no records — they are response-scoped, not
- * frame-scoped, and the host applies them through its data hook.
- */
-export function chunkToRecords(chunk) {
-  switch (chunk.type) {
-    case "start":
-    case "data":
-      return {};
-    // Content records carry the server's digests through (see the ledger
-    // on FrameImpl): the root's and a fragment's own, and the map of live
-    // holes inside them.
-    case "html":
-      return { "": { kind: "html", value: chunk.html, digest: chunk.digest, holes: chunk.holes } };
-    case "fragment":
-      return {
-        [`seg:${chunk.key}`]: {
-          kind: "html",
-          value: chunk.html,
-          digest: chunk.digest,
-          holes: chunk.holes
-        }
-      };
-    case "reveal": {
-      const records = {};
-      const gate = chunk.fallback ? "fallback" : "reveal";
-      for (const key of chunk.keys) records[`seg:${key}:${gate}`] = true;
-      return records;
-    }
-    case "assets":
-      return { [`seg:${chunk.key}:assets`]: chunk };
-    case "slot":
-      // A named slot invocation: the client render function for `key` is
-      // called with these (resolved) args. Data args are serializer refs;
-      // server-content args are frame refs resolved to nested regions.
-      return { [`slot:${chunk.key}`]: { kind: "slot", args: chunk.args } };
-    case "hole":
-      // A live-hole re-emission: the re-resolved HTML for a marked content
-      // range (`<!--lh:N-->…<!--lh:/N-->`). Response-scoped like segments —
-      // hole ids restart per render — so these clear on version bumps.
-      return {
-        [`hole:${chunk.key}`]: {
-          kind: "html",
-          value: chunk.html,
-          digest: chunk.digest,
-          holes: chunk.holes,
-          // Row ops against the emission digested `base` (#4064).
-          rows: chunk.rows,
-          base: chunk.base
-        }
-      };
-    case "attr":
-      // A live attr-hole re-emission: rebuilt attribute text for the
-      // element addressed `data-lha="key"`, with explicit removals.
-      // Response-scoped like hole records (addresses restart per render).
-      return {
-        [`attr:${chunk.key}`]: {
-          kind: "attrs",
-          value: chunk.attrs,
-          removed: chunk.removed,
-          digest: chunk.digest
-        }
-      };
-    case "ops":
-      // One sweep's members as one write: the records merge into one map
-      // and the frame flushes once over all of them (C13).
-      return Object.assign({}, ...chunk.ops.map(chunkToRecords));
-    case "complete":
-      // `:bound` beside `:complete` — the producer's streaming bound when
-      // it cut the response there (`undefined` for a settled one, as
-      // `holes` is for a root without them): a consumer can tell a cut-off
-      // from a settled value; the frame landed either way.
-      return { ":complete": true, ":bound": chunk.bound };
-    case "error":
-      // Keyed errors scope to what the key names: a hole key (`lh:N`) is a
-      // failed live-hole sweep — terminal for the hole, whose range latched
-      // at its last markup (response-scoped like the hole records, so these
-      // clear on version bumps). Other keys are segment-scoped (an errored
-      // fragment). Unkeyed errors are stream-level — `frame.error` reads
-      // that record.
-      if (!chunk.key) return { ":error": chunk.error };
-      return {
-        [`${/^lha?:/.test(chunk.key) ? "hole" : "seg"}:${chunk.key}:error`]: chunk.error
-      };
-    default:
-      return {};
-  }
-} /** @experimental */
+/** @experimental */
 export function createFrameHost(options?: FrameHostOptions): FrameHost;
 
 /**
@@ -773,19 +591,20 @@ export function createFrameHost(options = {}) {
       store.version = version;
       store.records = {};
     }
-    // Root assets reuse one key for the shell and late chunks. Accumulate
-    // their arrays so frames registered later receive the full snapshot.
+    // Root assets reuse one key for the shell and late records. Accumulate
+    // their arrays so frames registered later receive the full snapshot, as
+    // a new record: a mounted frame applies a record identity once.
     const assets = records["seg::assets"];
     const previous = assets && store.records["seg::assets"];
-    if (!previous || previous === assets) {
-      Object.assign(store.records, records);
-    } else {
+    Object.assign(store.records, records);
+    if (previous && previous !== assets) {
+      const merged = { ...previous };
       for (const name in assets) {
         const values = assets[name];
-        if (Array.isArray(values)) {
-          previous[name] ? previous[name].push(...values) : (previous[name] = values);
-        }
+        if (Array.isArray(values))
+          merged[name] = previous[name] ? previous[name].concat(values) : values;
       }
+      store.records["seg::assets"] = merged;
     }
     return true;
   };
@@ -901,43 +720,52 @@ export function createFrameHost(options = {}) {
         landings.delete(id);
       }
     },
-    apply(chunk) {
+    apply(msg) {
       // Data payloads are response-scoped: they go to the data hook, not
       // the store — but under the store's version guard like every other
-      // chunk (frames-rulings 1.2): a `data` chunk of a response the
+      // message (frames-rulings 1.2): a `data` node of a response the
       // address has moved past lands nowhere, never in the table that is
-      // now the current response's (the transport restamps every chunk
+      // now the current response's (the transport restamps every message
       // with its response's version; the integration rotates the table at
       // the header and creates it at first use, so the first use must be
-      // the current response's). A record waiting on the chunk's key is
+      // the current response's). A record waiting on the node's key is
       // answered by the table's own apply (see `settleArgs`).
-      if (chunk.type === "data") {
-        const store = stores.get(chunk.id);
+      if (msg.type === "data") {
+        const store = stores.get(msg.id);
         const current = store && store.version;
-        // (`n < undefined` is false: a store with no version yet, or a chunk
-        // with none, guards nothing.)
-        if (store && chunk.version < current) return;
-        options.applyData && options.applyData(chunk, current);
+        // (`n < undefined` is false: a store with no version yet, or a
+        // message with none, guards nothing.)
+        if (store && msg.version < current) return;
+        options.applyData && options.applyData(msg, current);
         return;
       }
+      // The wire IS the store's write (frame-sink.ts): a batch's records are
+      // written as they arrive. A slot record is the one the host finishes
+      // — its refs settle at the write (below), on a copy: the same batch
+      // can be applied again (the document channel's catch-up replays it).
+      let records = msg.r || {};
+      let slots;
+      for (const key in records)
+        if (key.startsWith("slot:")) {
+          if (!slots) records = { ...records };
+          (slots ??= []).push(key);
+          records[key] = { ...records[key] };
+        }
       // Write through to the resident store first: the store version-guards
       // once for all mounts, and an unmounted address simply warms.
-      const records = chunkToRecords(chunk);
-      const store = storeFor(chunk.id);
-      if (!write(store, chunk.version, records)) return;
+      const store = storeFor(msg.id);
+      if (!write(store, msg.version, records)) return;
       // The record's refs resolve through ITS response's data — the table
       // current for the version the write just made the store's.
-      if (chunk.type === "slot") {
-        const key = `slot:${chunk.key}`;
-        settleArgs(store, key, records[key], chunk);
-      }
+      if (slots) for (const key of slots) settleArgs(store, key, records[key], msg);
       // The producer cut a plain response at its streaming bound: what the
       // address shows is a cut-off, not a settled value. `live()` is the
       // declared way past the bound; say so once per response, in dev.
-      if ("_SOLID_DEV_" && chunk.type === "complete" && chunk.bound) {
+      if ("_SOLID_DEV_" && records[":bound"]) {
+        const bound = records[":bound"];
         console.warn(
-          `Server component "${chunk.id}" kept streaming past the server's ${chunk.bound} ` +
-            `bound and was cut off (complete.bound: "${chunk.bound}"); its content is the last ` +
+          `Server component "${msg.id}" kept streaming past the server's ${bound} ` +
+            `bound and was cut off (:bound: "${bound}"); its content is the last ` +
             `value the server sent, not a settled one. A source meant to keep streaming is ` +
             `declared with live(): wrap the server function (live(fn)) so the client holds a ` +
             `standing connection instead.`
@@ -956,28 +784,28 @@ export function createFrameHost(options = {}) {
       // REJECTING (frames-rulings 3.3): whoever awaited the landing sees the
       // error — the mount's content node throws it to the nearest client
       // `<Errored>` — and the address shows no landing until a later flight
-      // lands one (`landing` below). The `complete` that follows an errored
-      // response's `error` settles nothing: the error already did, and a
+      // lands one (`landing` below). The `:complete` that follows an errored
+      // response's `:error` settles nothing: the error already did, and a
       // promise minted since is the next flight's.
-      if (chunk.type === "start") store.open = true;
+      if (msg.type === "start") store.open = true;
       else if (lands(records)) {
         store.open = false;
         store.shown = r = store.records;
-        store.shownVersion = chunk.version;
-        const landed = landings.get(chunk.id);
+        store.shownVersion = msg.version;
+        const landed = landings.get(msg.id);
         if (landed && !(":complete" in records && ":error" in r)) {
-          landings.delete(chunk.id);
+          landings.delete(msg.id);
           ":error" in records ? landed.j(records[":error"]) : landed.r();
         }
       }
-      applyTo(chunk.id, chunk.version, r);
+      applyTo(msg.id, msg.version, r);
       // The response's end: a key it never delivered never comes, and every
       // read waiting on one fails where it is read (L1) — the integration
       // closes the response's table, a mount that waited for the record
-      // runs and its read throws. After the end chunk's own apply, so the
+      // runs and its read throws. After the end record's own apply, so the
       // frame has the response's last word first.
       if (":complete" in records || ":error" in records)
-        options.closeData && options.closeData(chunk.id, chunk.version, records[":error"]);
+        options.closeData && options.closeData(msg.id, msg.version, records[":error"]);
     },
     landing(id) {
       const store = stores.get(id);
@@ -996,18 +824,21 @@ export function createFrameHost(options = {}) {
       }
       return wait.p;
     },
-    preview(chunk) {
-      if (chunk.type !== "slot") return;
-      const set = frames.get(chunk.id);
-      if (!set) return;
-      const records = chunkToRecords(chunk);
-      const key = `slot:${chunk.key}`;
-      // Through the STAGED response's table (its version's): a key it has
-      // not delivered is that table's pending read — never the shown
-      // response's — and this record is never the store's, so its settle
-      // re-applies nothing; the committed write's own settle does.
-      settleArgs(storeFor(chunk.id), key, records[key], chunk);
-      for (const frame of set) frame.preview && frame.preview(records);
+    preview(msg) {
+      const set = frames.get(msg.id);
+      if (!set || !msg.r) return;
+      let records;
+      for (const key in msg.r)
+        if (key.startsWith("slot:")) {
+          const record = ((records ??= {})[key] = { ...msg.r[key] });
+          // Through the STAGED response's table (its version's): a key it
+          // has not delivered is that table's pending read — never the
+          // shown response's — and this record is never the store's, so its
+          // settle re-applies nothing; the committed write's own settle
+          // does.
+          settleArgs(storeFor(msg.id), key, record, msg);
+        }
+      if (records) for (const frame of set) frame.preview && frame.preview(records);
     },
     get(id) {
       const set = frames.get(id);

@@ -10,8 +10,8 @@
  * `applyInlineStyles`, `findHeadElement`'s attribute-compared lookup and
  * head.ts's `qualifierValue`), the per-frame flush a pending stylesheet
  * wakes, and the assets pass over a record (modules, typed preloads, inline
- * styles). The eager client keeps the record itself (`chunkToRecords`'
- * `assets` case, the host's `seg::assets` accumulate), the pass's walk over
+ * styles). The eager client keeps the record itself (the wire's
+ * `seg:<k>:assets` record, the host's `seg::assets` accumulate), the pass's walk over
  * the store, and the reveal's READINESS TERM: a segment whose assets record
  * carries stylesheets or inline styles while this tier is not resident is
  * not ready — the server's `<Loading>` fallback stays on screen; the reveal

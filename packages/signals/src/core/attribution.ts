@@ -1995,9 +1995,11 @@ function checkEffectCycle(el: Computed<any>, causes: ChangeRecord[]): void {
 // - sole writer: every write to `S` in the session came from this effect.
 //   Medium — real state grows other writers eventually — so it sharpens the
 //   text, not the severity.
-// A tear whose write is neither is `info` (a DOM-measurement effect tears
-// legitimately: the cost of measuring) until the same relay has torn
-// repeatedly, then `warn`.
+// A tear whose write is neither is `info` until the same relay has torn
+// repeatedly, then `warn`. An apply half that takes no argument is reading
+// something other than its compute output (layout, time, a ref — a signal
+// read there is STRICT_READ's): its matching write is no copy, and its tears
+// stay `info` however often they repeat — the cost of measuring.
 
 interface RelayState {
   count: number;
@@ -2023,7 +2025,15 @@ function trackEffectWrite(node: Signal<any> | Computed<any>, record: ChangeRecor
   const writer = info === undefined ? 0 : devId(info.node);
   recordNodes.set(record, node);
   n._devSoleWriter = n._devSoleWriter === undefined || n._devSoleWriter === writer ? writer : null;
-  if (info !== undefined && value !== undefined && value === info.node._value) {
+  // An apply half that takes no argument cannot be copying its compute
+  // output: a match is coincidence (`createEffect(open, () =>
+  // setFlipped(measure()))`).
+  if (
+    info !== undefined &&
+    value !== undefined &&
+    value === info.node._value &&
+    ((info.node as any)._effectFn?.length ?? 1)
+  ) {
     copyWrites.add(record);
     n._devCopyRuns = n._devCopyFrom === writer ? (n._devCopyRuns ?? 0) + 1 : 1;
     n._devCopyFrom = writer;
@@ -2129,7 +2139,13 @@ function checkRelayTear(
   // "reset editable state from a source" shape — the tear is real, but a memo
   // is not the answer, so it stays advisory like any other non-derivable tear.
   const derivable = copy && soleWriter;
-  const severity = derivable || state.count >= RELAY_WARN_AT ? "warn" : "info";
+  // An apply half that ignores its argument writes from outside the graph
+  // (layout, time, a ref; a signal read there is STRICT_READ's): measuring,
+  // so it stays advisory however often it repeats.
+  const severity =
+    derivable || (state.count >= RELAY_WARN_AT && ((relay.node as any)._effectFn?.length ?? 1))
+      ? "warn"
+      : "info";
   // First sighting always reports (advisory); afterwards only the escalation.
   if (state.count > 1 && (severity !== "warn" || state.warned)) return;
   // One verdict per derivable signal: the copy report (checkCopyEffect) and
@@ -2148,12 +2164,10 @@ function checkRelayTear(
         `writers — editable state reset from a source. If the reset is the intent, the tear ` +
         `is its cost; if "${write.name}" only ever mirrors the source, drop the local copy ` +
         `and read the source.`
-      : soleWriter
-        ? `Nothing else writes "${write.name}" — it is derived state: make it a memo over what ` +
-          `the effect reads and every reader gets it in the same flush.`
-        : `If "${write.name}" is computed from what the effect reads, make it a memo so readers ` +
-          `get it in the same flush; if the write reads something outside the graph (layout, ` +
-          `time), the tear is the cost of measuring.`;
+      : (soleWriter ? `Nothing else writes "${write.name}". ` : "") +
+        `If "${write.name}" is computed from what the effect reads, make it a memo so readers ` +
+        `get it in the same flush; if the write reads something outside the graph (layout, ` +
+        `time), the tear is the cost of measuring.`;
   const message =
     `[EFFECT_RELAY_TEAR] ${victimKind} "${nodeName(victim)}" ran twice for one write of ` +
     `"${shared.name}": once in the flush where "${shared.name}" changed, and again after ` +

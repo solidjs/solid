@@ -14,7 +14,8 @@ import {
   createRoot,
   createSignal,
   flush,
-  OBSERVE
+  OBSERVE,
+  untrack
 } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
@@ -123,7 +124,9 @@ describe("EFFECT_RELAY_TEAR", () => {
     expect(tears).toHaveLength(1);
     expect(tears[0].severity).toBe("info");
     expect(tears[0].data!.copy).toBe(false);
-    expect(tears[0].message).toContain('Nothing else writes "filtered" — it is derived state');
+    expect(tears[0].message).toContain(
+      'Nothing else writes "filtered". If "filtered" is computed from what the effect reads'
+    );
     expect(console.warn).not.toHaveBeenCalled();
     for (const q of ["b", "c", "d", "e"]) {
       setQuery(q);
@@ -269,5 +272,107 @@ describe("EFFECT_RELAY_TEAR", () => {
     setSource(2);
     flush();
     expect(tears).toEqual([]);
+  });
+  it("stays advisory for a layout measurement keyed on a boolean (no copy, no escalation)", () => {
+    const tears = arm();
+    const [open, setOpen] = createSignal(false, { name: "open" });
+    const [fallback, setFallback] = createSignal(false, { name: "alignFallback" });
+    // Near the screen edge: the measurement agrees with `open` every time.
+    const measure = () => untrack(open);
+    createRoot(() => {
+      createEffect(
+        open,
+        () => {
+          setFallback(measure());
+        },
+        { name: "measureFallback" }
+      );
+      createEffect(
+        () => (open() ? (fallback() ? "fallback" : "aligned") : "closed"),
+        () => {},
+        { name: "position" }
+      );
+    });
+    flush();
+    for (let i = 0; i < 5; i++) {
+      setOpen(true);
+      flush();
+      setOpen(false);
+      flush();
+    }
+    expect(tears.map(t => t.severity)).toEqual(["info"]);
+    expect(tears[0].data).toMatchObject({ copy: false, soleWriter: true });
+    expect(tears[0].message).toContain("the tear is the cost of measuring");
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it("never escalates a relay whose same input wrote different values", () => {
+    const tears = arm();
+    const [query, setQuery] = createSignal("", { name: "query" });
+    const [width, setWidth] = createSignal(0, { name: "width" });
+    let layout = 0;
+    createRoot(() => {
+      createEffect(
+        query,
+        () => {
+          setWidth(++layout);
+        },
+        { name: "measureWidth" }
+      );
+      createEffect(
+        () => `${query()}/${width()}`,
+        () => {},
+        { name: "row" }
+      );
+    });
+    flush();
+    for (const q of ["a", "b", "a", "c", "d", "e"]) {
+      setQuery(q);
+      flush();
+    }
+    expect(tears.map(t => t.severity)).toEqual(["info"]);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+  it("still flags a boolean mirror and a boolean-keyed derivation (the apply half takes its value)", () => {
+    const tears = arm();
+    const [open, setOpen] = createSignal(false, { name: "open" });
+    const [mirror, setMirror] = createSignal(false, { name: "mirror" });
+    const [label, setLabel] = createSignal("Open", { name: "label" });
+    createRoot(() => {
+      createEffect(
+        open,
+        v => {
+          setMirror(v);
+        },
+        { name: "syncMirror" }
+      );
+      createEffect(
+        open,
+        v => {
+          setLabel(v ? "Close" : "Open");
+        },
+        { name: "syncLabel" }
+      );
+      createEffect(
+        () => `${open()}/${mirror()}`,
+        () => {},
+        { name: "mirrorRow" }
+      );
+      createEffect(
+        () => `${open()}/${label()}`,
+        () => {},
+        { name: "labelRow" }
+      );
+    });
+    flush();
+    for (let i = 0; i < 3; i++) {
+      setOpen(true);
+      flush();
+      setOpen(false);
+      flush();
+    }
+    const warned = tears.filter(t => t.severity === "warn").map(t => t.data!.wrote);
+    expect(warned).toContain("mirror");
+    expect(warned).toContain("label");
   });
 });
