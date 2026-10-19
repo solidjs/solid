@@ -301,13 +301,15 @@ export function getOwner(): Owner | null {
 /**
  * Low-level: registers `fn` as a disposal callback on the current owner.
  * Most code should use `onCleanup()` from `solid-js`, which adds dev-mode
- * checks. `cleanup()` is the unchecked primitive used by internals.
+ * checks. `cleanup()` is the unchecked primitive used by internals; `owner`
+ * (internal) targets a specific owner's disposal list instead of the ambient
+ * one.
  */
-export function cleanup(fn: Disposable): Disposable {
-  if (!context) return fn;
-  if (!context._disposal) context._disposal = fn;
-  else if (Array.isArray(context._disposal)) context._disposal.push(fn);
-  else context._disposal = [context._disposal, fn];
+export function cleanup(fn: Disposable, owner: Owner | null = context): Disposable {
+  if (!owner) return fn;
+  if (!owner._disposal) owner._disposal = fn;
+  else if (Array.isArray(owner._disposal)) owner._disposal.push(fn);
+  else owner._disposal = [owner._disposal, fn];
   return fn;
 }
 

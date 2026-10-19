@@ -52,9 +52,10 @@ export class StatusError extends Error {
     original: any
   ) {
     // Best-effort message: formatting must never replace the original (#4112).
-    let message: string | undefined;
     try {
-      message = String(original instanceof Error ? original.message : original);
+      var message: string | undefined = String(
+        original instanceof Error ? original.message : original
+      );
     } catch {}
     super(message, { cause: original });
   }
