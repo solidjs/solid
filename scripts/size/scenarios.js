@@ -594,6 +594,7 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 7.25 KB -> 7.27 KB, measured in CI at 7,257 B brotli / 19,827 B minified (+37 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 7.27 -> 7.35 KB, recorded minified 19,827 -> 19,934 B, measured locally (linux) at 7,336 B brotli / 19,934 B minified (+107 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
@@ -1085,8 +1086,9 @@ module.exports = [
     // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 44,865 -> 44,924 B, measured locally (linux) at 14,798 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
     // Unread key beside a held sibling publishes at flush (#4146, 2026-10-19, over next @ 2aa9e86a): 14.82 -> 14.83 KB, measured in CI at 14,812 B brotli / 44,930 B minified (+48 B minified over this PR's base): a mainline write to a held container creates that key's leaf instead of writing into the held staging, so whether the write is held no longer depends on a live reader (R1). Correctness; only runs when the container is held. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Unread key beside a held sibling publishes at flush (#4146), re-measured after merging next @ 8c75f82f (2026-10-19): 14.82 -> 14.85 KB, measured locally (linux) at 14,837 B brotli / 44,972 B minified (+48 B minified over next).
-    limit: "14.85 KB",
-    capMinified: 44972,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 14.85 -> 14.90 KB, recorded minified 44,972 -> 45,089 B, measured locally (linux) at 14,882 B brotli / 45,089 B minified (+117 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "14.90 KB",
+    capMinified: 45089,
     alias
   },
   {
@@ -1390,8 +1392,9 @@ module.exports = [
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
     // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 2aa9e86a): 9.98 -> 10.03 KB, measured in CI at 10,019 B brotli / 28,197 B minified (+124 B minified over this PR's base): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 28,197 -> 28,247 B, measured locally (linux) at 10,023 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
-    limit: "10.03 KB",
-    capMinified: 28247,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 10.03 -> 10.12 KB, recorded minified 28,247 -> 28,356 B, measured locally (linux) at 10,103 B brotli / 28,356 B minified (+109 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "10.12 KB",
+    capMinified: 28356,
     alias
   },
   {
@@ -1422,8 +1425,9 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 7.86 KB -> 7.88 KB, measured in CI at 7,863 B brotli / 21,639 B minified (+38 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "7.88 KB",
-    capMinified: 21639
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 7.88 -> 7.95 KB, recorded minified 21,639 -> 21,745 B, measured locally (linux) at 7,937 B brotli / 21,745 B minified (+106 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "7.95 KB",
+    capMinified: 21745
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -1672,6 +1676,7 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 9.56 KB -> 9.59 KB, measured in CI at 9,576 B brotli / 26,715 B minified (+38 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 9.59 -> 9.66 KB, recorded minified 26,715 -> 26,824 B, measured locally (linux) at 9,644 B brotli / 26,824 B minified (+109 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -2060,6 +2065,7 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 18.19 KB -> 18.24 KB, measured in CI at 18,226 B brotli / 53,291 B minified (+42 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 18.24 -> 18.29 KB, recorded minified 53,291 -> 53,401 B, measured locally (linux) at 18,275 B brotli / 53,401 B minified (+110 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2607,8 +2613,9 @@ module.exports = [
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 30.20 KB -> 30.23 KB, measured in CI at 30,217 B brotli / 94,834 B minified (+45 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Unread key beside a held sibling publishes at flush (#4146, 2026-10-19, over next @ 2aa9e86a): 30.14 -> 30.17 KB, measured in CI at 30,159 B brotli / 94,695 B minified (+48 B minified over this PR's base): a mainline write to a held container creates that key's leaf instead of writing into the held staging, so whether the write is held no longer depends on a live reader (R1). Correctness; only runs when the container is held. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Unread key beside a held sibling publishes at flush (#4146), re-measured after merging next @ 8c75f82f (2026-10-19): 30.23 KB (unchanged), measured locally (linux) at 30,220 B brotli / 94,882 B minified (+48 B minified over next).
-    limit: "30.23 KB",
-    capMinified: 94882,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 30.23 -> 30.30 KB, recorded minified 94,882 -> 94,999 B, measured locally (linux) at 30,289 B brotli / 94,999 B minified (+117 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "30.30 KB",
+    capMinified: 94999,
     alias
   },
   {
@@ -2893,8 +2900,9 @@ module.exports = [
     // never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 12.87 -> 13.14 KB, measured at 13,122 B brotli / 36,900 B minified (+252 B brotli over the cap, +644 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 13.14 KB -> 13.19 KB, measured in CI at 13,173 B brotli / 36,948 B minified (+35 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "13.19 KB",
-    capMinified: 36948,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 13.19 -> 13.24 KB, recorded minified 36,948 -> 37,060 B, measured locally (linux) at 13,226 B brotli / 37,060 B minified (+112 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "13.24 KB",
+    capMinified: 37060,
     alias
   },
   {
@@ -3232,8 +3240,9 @@ module.exports = [
     // rounded up to 0.01 KB.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 14.60 -> 14.91 KB, measured at 14,892 B brotli / 41,859 B minified (+292 B brotli over the cap, +647 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 14.91 KB -> 14.95 KB, measured in CI at 14,939 B brotli / 41,908 B minified (+36 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "14.95 KB",
-    capMinified: 41908,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 14.95 -> 14.99 KB, recorded minified 41,908 -> 42,019 B, measured locally (linux) at 14,971 B brotli / 42,019 B minified (+111 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "14.99 KB",
+    capMinified: 42019,
     alias: observeAlias
   },
   {
@@ -3722,8 +3731,9 @@ module.exports = [
     // change (the slot's stamps, `lazy()`'s marks) less the engine's own
     // origin map, which now delegates to the slot.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 29.19 -> 29.48 KB, measured at 29,462 B brotli / 88,235 B minified (+272 B brotli over the cap, +653 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "29.48 KB",
-    capMinified: 88235,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 29.48 -> 29.59 KB, recorded minified 88,235 -> 88,339 B, measured locally (linux) at 29,572 B brotli / 88,339 B minified (+104 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "29.59 KB",
+    capMinified: 88339,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -3808,8 +3818,9 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 9.77 KB -> 9.79 KB, measured in CI at 9,775 B brotli / 27,247 B minified (+38 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "9.79 KB",
-    capMinified: 27247,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 9.79 -> 9.86 KB, recorded minified 27,247 -> 27,356 B, measured locally (linux) at 9,849 B brotli / 27,356 B minified (+109 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "9.86 KB",
+    capMinified: 27356,
     alias
   },
   {
@@ -3926,8 +3937,9 @@ module.exports = [
     // store delete key-count fix (#4132, 2026-10-17): 25.95 -> 26.03 KB, measured at 26,011 B brotli / 80,879 B minified (+61 B brotli over the cap, +33 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
     // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 80,879 -> 80,929 B, measured locally (linux) at 25,989 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
     // Unread key beside a held sibling publishes at flush (#4146), re-measured after merging next @ 8c75f82f (2026-10-19): 26.03 KB (unchanged), recorded minified 80,929 -> 80,977 B, measured locally (linux) at 26,025 B brotli / 80,977 B minified (+48 B minified over next).
-    limit: "26.03 KB",
-    capMinified: 80977,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 26.03 -> 26.10 KB, recorded minified 80,977 -> 81,083 B, measured locally (linux) at 26,089 B brotli / 81,083 B minified (+106 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "26.10 KB",
+    capMinified: 81083,
     alias
   },
   {
@@ -4078,8 +4090,9 @@ module.exports = [
     // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 101,441 -> 101,500 B, measured locally (linux) at 31,972 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
     // Unread key beside a held sibling publishes at flush (#4146, 2026-10-19, over next @ 2aa9e86a): 31.98 -> 32.01 KB, measured in CI at 31,998 B brotli / 101,499 B minified (+48 B minified over this PR's base; the store bytes the compiled app retains): a mainline write to a held container creates that key's leaf instead of writing into the held staging, so whether the write is held no longer depends on a live reader (R1). Correctness; only runs when the container is held. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Unread key beside a held sibling publishes at flush (#4146), re-measured after merging next @ 8c75f82f (2026-10-19): 31.98 -> 32.02 KB, measured locally (linux) at 32,002 B brotli / 101,548 B minified (+48 B minified over next).
-    limit: "32.02 KB",
-    capMinified: 101548,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 32.02 -> 32.13 KB, recorded minified 101,548 -> 101,651 B, measured locally (linux) at 32,111 B brotli / 101,651 B minified (+103 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "32.13 KB",
+    capMinified: 101651,
     alias
   },
   {
@@ -4996,6 +5009,7 @@ module.exports = [
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 33.31 KB -> 33.12 KB (floor-caps.json), measured locally (linux) at 33,107 B brotli / 101,166 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Re-recorded on next @ 7ad2342c (2026-10-19, accepted by the maintainer): recorded minified 101,166 -> 101,200 B, measured locally (linux) at 33,059 B brotli. #4154 recorded its sizes one commit before its final head, so next sat 34 B or more over the recorded minified and brotli noise failed unrelated PRs. Cap unchanged.
     // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 101,200 -> 101,246 B, measured locally (linux) at 33,107 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 33.12 -> 33.16 KB, recorded minified 101,246 -> 101,352 B, measured locally (linux) at 33,149 B brotli / 101,352 B minified (+106 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5332,6 +5346,7 @@ module.exports = [
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 37.54 KB -> 37.37 KB (floor-caps.json), measured locally (linux) at 37,354 B brotli / 114,567 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Re-recorded on next @ 7ad2342c (2026-10-19, accepted by the maintainer): recorded minified 114,567 -> 114,737 B, measured locally (linux) at 37,345 B brotli. #4154 recorded its sizes one commit before its final head, so next sat 34 B or more over the recorded minified and brotli noise failed unrelated PRs. Cap unchanged.
     // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 114,737 -> 114,782 B, measured locally (linux) at 37,341 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 37.37 -> 37.46 KB, recorded minified 114,782 -> 114,901 B, measured locally (linux) at 37,442 B brotli / 114,901 B minified (+119 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5486,8 +5501,9 @@ module.exports = [
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 35.29 KB -> 35.14 KB, measured locally (linux) at 35,125 B brotli / 107,510 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Re-recorded on next @ 7ad2342c (2026-10-19, accepted by the maintainer): recorded minified 107,510 -> 107,544 B, measured locally (linux) at 35,081 B brotli. #4154 recorded its sizes one commit before its final head, so next sat 34 B or more over the recorded minified and brotli noise failed unrelated PRs. Cap unchanged.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 35.14 KB -> 35.16 KB, measured in CI at 35,148 B brotli / 107,588 B minified (+38 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "35.16 KB",
-    capMinified: 107588,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 35.16 -> 35.19 KB, recorded minified 107,588 -> 107,701 B, measured locally (linux) at 35,175 B brotli / 107,701 B minified (+113 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "35.19 KB",
+    capMinified: 107701,
     alias: pageAlias
   },
   {
@@ -5611,8 +5627,9 @@ module.exports = [
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 41.38 KB -> 41.11 KB, measured locally (linux) at 41,098 B brotli / 122,561 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 32652bba): 41.11 KB -> 41.17 KB, measured in CI at 41,159 B brotli / 122,731 B minified (+136 B minified over next): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work (a lane-derived node, or an effect listed in the lane) instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 41.17 KB -> 41.23 KB, measured in CI at 41,215 B brotli / 122,766 B minified (+29 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "41.23 KB",
-    capMinified: 122766,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 41.23 -> 41.31 KB, recorded minified 122,766 -> 122,880 B, measured locally (linux) at 41,294 B brotli / 122,880 B minified (+114 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "41.31 KB",
+    capMinified: 122880,
     alias: pageAlias
   },
   {
@@ -5806,8 +5823,9 @@ module.exports = [
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 40.81 KB -> 40.56 KB, measured locally (linux) at 40,543 B brotli / 125,001 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Re-measured on #4137's CI (2026-10-19, over next @ 32652bba): 40.56 -> 40.58 KB, 40,566 B brotli / 125,035 B minified. 0 B minified from #4137 itself (this scenario has no lane engine); next's own bytes since the records-on-the-wire cut had drifted 34 B past the recorded minified. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 125,035 -> 125,074 B, measured locally (linux) at 40,538 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
-    limit: "40.58 KB",
-    capMinified: 125074,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 40.58 -> 40.71 KB, recorded minified 125,074 -> 125,181 B, measured locally (linux) at 40,699 B brotli / 125,181 B minified (+107 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "40.71 KB",
+    capMinified: 125181,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5977,8 +5995,9 @@ module.exports = [
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 46.92 KB -> 46.72 KB, measured locally (linux) at 46,701 B brotli / 139,850 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 32652bba): 46.72 KB -> 46.76 KB, measured in CI at 46,748 B brotli / 140,020 B minified (+136 B minified over next): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work (a lane-derived node, or an effect listed in the lane) instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 46.76 KB -> 46.79 KB, measured in CI at 46,776 B brotli / 140,055 B minified (+29 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "46.79 KB",
-    capMinified: 140055,
+    // Lazy memo read through a rebuilt child memo (#4142, 2026-10-19, over next @ a9b9f9e4, accepted by the maintainer): 46.79 -> 46.86 KB, recorded minified 140,055 -> 140,165 B, measured locally (linux) at 46,845 B brotli / 140,165 B minified (+110 B minified over the recorded size): a disposal during a pending pass defers releasing lazy memos until the pass ends, so a memo the rebuilt child reads again is not released and re-run. Correctness; CI re-bases.
+    limit: "46.86 KB",
+    capMinified: 140165,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
