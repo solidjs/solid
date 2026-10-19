@@ -14,7 +14,7 @@ import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, frameResponse, openFrameResponse, dataChunks, pump } from "./harness.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 // One reference per matrix row; ids are namespaced so nothing collides with
 // other suites' claimed-boundary bookkeeping.

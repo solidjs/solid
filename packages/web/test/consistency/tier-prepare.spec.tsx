@@ -36,7 +36,7 @@ import { applyFrameResponse, installServerComponents } from "../../frames/src/cl
 import { createServerReference } from "../../server-functions/src/client.js";
 import { createChunk } from "../../server-functions/src/shared.js";
 import { bootPage, frameHtml, freshFid, makeHost, pump, quiesce, type Page } from "./support.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 /** A loader the test settles: the import's promise, and the module — the
  *  test's `install` hook over the appliers of `module` (a real tier's, when

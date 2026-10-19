@@ -19,7 +19,7 @@ import { installServerComponents } from "../../frames/src/client.js";
 import { prepareTier } from "../../frames/src/frame-client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, frameResponse, dataChunks, createDataSource, pump, settle } from "./harness.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 // The regions tier, resident before any cell runs (see the header).
 beforeAll(() => prepareTier("regions"));

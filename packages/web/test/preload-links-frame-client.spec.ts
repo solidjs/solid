@@ -6,7 +6,7 @@ import {
   prepareTier,
   tierLoaders
 } from "../frames/src/frame-client.js";
-import { encodeFrameChunk } from "../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 beforeAll(async () => {
   // Preloads apply through the ASSETS TIER (`@solidjs/web/frames/assets`,

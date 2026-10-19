@@ -56,7 +56,7 @@ import {
   serializeStream
 } from "../server-functions/src/shared.js";
 import { applyFrameResponse } from "../frames/src/frame-transport.js";
-import { encodeFrameChunk } from "../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 const unsubscribes: Array<() => void> = [];
 afterEach(() => {

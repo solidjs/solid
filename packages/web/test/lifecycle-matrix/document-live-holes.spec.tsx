@@ -25,7 +25,7 @@ import { installServerComponents } from "../../frames/src/client.js";
 import { prepareTier } from "../../frames/src/frame-client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, pump } from "./harness.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 // Live content applies through the live wire tier (frames/wire), which a
 // live page announces and preloads; this spec sends hole ops at once, so

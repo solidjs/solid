@@ -24,7 +24,7 @@
 import { describe, expect, test } from "vitest";
 import { createFrameElement, createFrameHost } from "../../frames/src/frame-client.js";
 import { permutations } from "./support.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 // The response: a root with placeholder `a` (its fallback inline, as the
 // document shape carries it), segment `a` carrying a nested placeholder `b`

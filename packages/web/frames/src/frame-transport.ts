@@ -5,7 +5,7 @@
  *
  * The wire convention is shared with the server-function transport — each
  * chunk is length-prefixed (`;0x` + 32-bit hex byte length + `;`) UTF-8 of
- * `JSON.stringify(FrameMessage)` (frame-wire.ts) — so both transports read and write through
+ * `JSON.stringify(FrameMessage)` (frame-sink.ts) — so both transports read and write through
  * the one framing implementation in server-functions/shared.js. The server
  * half (`serverComponentResponse` / `frameTransformResult`) lives in
  * frame-sink.js; this module stays importable from client bundles.
@@ -32,7 +32,7 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 // experimental preview, excluded from the 2.0 stability guarantee: API
 // shapes and the wire format may change between prereleases (RFC 11).
 // Every export in this module is @experimental.
-import { FrameChunk, FrameHost, prepareMorph, prepareTier, tierLoads } from "./frame-client.js";
+import { FrameHost, prepareMorph, prepareTier, tierLoads } from "./frame-client.js";
 
 import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
 
@@ -119,7 +119,7 @@ export const FRAME_STREAM_HEADER = "X-Frame-Stream";
  * — `bind,regions,assets,trace,wire` — so the client starts their loads
  * before it reads the body. Omitted when nothing was minted. A tier first
  * needed after the head rides in-band instead: `tiers` on the next chunk
- * (`FrameChunk.tiers`). Additive wire: an old client ignores both; a new
+ * (`FrameMessage.tiers`). Additive wire: an old client ignores both; a new
  * client without them falls back to detection at the readiness check and
  * holds (frames-rulings 3.1) — the same DOM, later.
  * @experimental

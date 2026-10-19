@@ -53,7 +53,7 @@ import {
   stubHeldFetch,
   type Page
 } from "./support.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 const componentOf = (binding: any) => binding && binding[COMPONENT_BINDING]?.component;
 const addressOf = (binding: any) => binding && binding[COMPONENT_BINDING]?.address;

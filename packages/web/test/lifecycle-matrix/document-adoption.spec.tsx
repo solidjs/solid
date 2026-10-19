@@ -23,7 +23,7 @@ import { dynamic } from "../../src/index.js";
 import { installServerComponents, createFrame } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, openFrameResponse, pump } from "./harness.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 const getBasic = createServerReference("matrix/adopt/basic");
 const getMorph = createServerReference("matrix/adopt/morph");

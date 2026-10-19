@@ -38,7 +38,7 @@ import {
   setContainerTraceResolver
 } from "../../frames/src/frame-container-plugin.js";
 import { makeHost, frameResponse, createDataSource, pump, settle } from "./harness.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 const getStream = createServerReference("matrix/containers/stream");
 const getShared = createServerReference("matrix/containers/shared");

@@ -31,7 +31,7 @@ import {
   subscribeFlightData
 } from "../server-functions/src/shared.js";
 import { makeHost, frameResponse, openFrameResponse, pump } from "./lifecycle-matrix/harness.js";
-import { encodeFrameChunk } from "../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 const LIST = "morph-tx/list";
 const region = (version: number, text: string, id = LIST) => [

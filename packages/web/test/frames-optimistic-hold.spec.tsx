@@ -52,7 +52,7 @@ import {
   openFrameResponse,
   pump
 } from "./lifecycle-matrix/harness.js";
-import { encodeFrameChunk } from "../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 const TODOS = "hold/todos";
 const listHtml = "<ul><!--slot:row#0:start--><!--slot:row#0:end--></ul>";

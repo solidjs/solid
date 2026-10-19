@@ -989,7 +989,7 @@ const claimedBoundaries = new Set<string>();
 //
 // The document face ships live-hole re-emissions as ONE `sc:live` record
 // whose value is a ReadableStream of record batches ({ r, fid? } — the
-// stream's own batches minus addressing, frame-wire.ts). A stream has one
+// stream's own batches minus addressing, frame-sink.ts). A stream has one
 // reader, so the pump runs once at module level and BROADCASTS: every
 // adopted boundary applies every op into its own store at its own address,
 // and page geometry routes — hole ids are document-unique and each frame's

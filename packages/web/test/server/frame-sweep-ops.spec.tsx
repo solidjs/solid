@@ -4,11 +4,11 @@
  * C13 — one sweep, one frame: the SERVER half (frames-rulings §"The server
  * half", the sweep delimiter). The sink's `sweep()` walks every binding in
  * one span; the hole / attr re-emissions one pass produces leave as ONE
- * unit — `{ type: "ops", ops: [...] }` on the stream face (one chunk, one
- * wire line) and one `sc:live` op of the same shape on the document face —
- * so the client, whose unit of application is the chunk, lands the
- * server's flush as one flush. A pass that changes one binding emits that
- * member alone, as before (the client pins' control arm).
+ * unit — one record batch, never split across messages, on the stream face
+ * (one wire line) and one `sc:live` batch on the document face — so the
+ * client, whose unit of application is the message, lands the server's
+ * flush as one flush. A pass that changes one binding writes that record
+ * alone (the client pins' control arm).
  *
  * Shape: two content holes reading one async-iterable memo. Each yield is
  * one commit → one sweep → both bindings change in the same pass.
@@ -22,6 +22,7 @@ import {
   renderServerComponent,
   ServerComponentPlugin
 } from "../../frames/src/frame-sink.js";
+import { has, records, writesSegment } from "./wire.js";
 
 const tick = (ms = 5) => new Promise(r => setTimeout(r, ms));
 
@@ -94,7 +95,7 @@ function twoHoleComponent(source: () => AsyncIterable<[string, string]>) {
 }
 
 describe("C13 server half — the sink emits one sweep as one unit", () => {
-  it("stream face: a sweep that changes two holes emits ONE `ops` chunk; a sweep that changes one emits the plain `hole`", async () => {
+  it("stream face: a sweep that changes two holes writes ONE batch with both; a sweep that changes one writes that `hole:` record alone", async () => {
     const ch = channel<[string, string]>();
     const { chunks, until, done } = consume(
       renderServerComponent(
@@ -104,30 +105,32 @@ describe("C13 server half — the sink emits one sweep as one unit", () => {
     );
     await tick();
     ch.push(["a0", "b0"]);
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
+    const holes = (c: any) => records([c], "hole:");
     // Both move: one unit.
     ch.push(["a1", "b1"]);
-    await until(c => c.type === "ops");
-    // One moves (the second value repeats): the plain member.
+    await until(c => holes(c).length === 2);
+    // One moves (the second value repeats): its record alone.
     ch.push(["a2", "b1"]);
-    await until(c => c.type === "hole");
+    await until(c => holes(c).some(([, r]) => r.value === "a2"));
     ch.end();
     await done;
 
-    const ops = chunks.filter(c => c.type === "ops");
-    expect(ops).toHaveLength(1);
-    expect(ops[0].id).toBe("f");
-    expect(ops[0].version).toBe(1);
-    // Members are unaddressed (the envelope addresses them) and carry
-    // their digests like any re-emission.
-    expect(ops[0].ops.map((m: any) => [m.type, m.html, "id" in m])).toEqual([
-      ["hole", "a1", false],
-      ["hole", "b1", false]
+    const sweeps = chunks.filter(c => holes(c).length);
+    expect(sweeps).toHaveLength(2);
+    expect(sweeps[0].id).toBe("f");
+    expect(sweeps[0].version).toBe(1);
+    // Records are unaddressed (the batch addresses them) and carry their
+    // digests like any re-emission.
+    expect(holes(sweeps[0]).map(([key, r]) => [key.slice(0, 5), r.kind, r.value])).toEqual([
+      ["hole:", "html", "a1"],
+      ["hole:", "html", "b1"]
     ]);
-    for (const m of ops[0].ops) expect(typeof m.digest).toBe("string");
-    const holes = chunks.filter(c => c.type === "hole");
-    expect(holes.map(h => [h.id, h.version, h.html])).toEqual([["f", 1, "a2"]]);
-    expect(chunks[chunks.length - 1].type).toBe("complete");
+    for (const [, r] of holes(sweeps[0])) expect(typeof r.digest).toBe("string");
+    expect(sweeps.slice(1).map(c => [c.id, c.version, holes(c).map(([, r]) => r.value)])).toEqual([
+      ["f", 1, ["a2"]]
+    ]);
+    expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
   }, 8000);
 
   it("document face: a sweep that changes two holes pushes ONE two-record batch on `sc:live`", async () => {

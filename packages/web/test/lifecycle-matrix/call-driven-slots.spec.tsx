@@ -15,7 +15,7 @@ import { dynamic } from "../../src/index.js";
 import { installServerComponents, createFrameElement } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, frameResponse, pump } from "./harness.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 const getDirect = createServerReference("matrix/slot/direct");
 const getStatic = createServerReference("matrix/slot/static");

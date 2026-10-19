@@ -53,7 +53,7 @@ import {
   traceMarker,
   type Page
 } from "./support.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 /** The traces tier's load, gated by the test; `release()` installs the real module. */
 function gatedTrace() {

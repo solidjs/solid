@@ -579,30 +579,23 @@ export function isDeferredBody(value: unknown): boolean {
 }
 
 /**
- * The census one frame stream's chunks add up to, kept by either half: one
- * chunk of `type`, addressed to the stream's own frame (`own`) or to a
- * nested region's.
- */
-export function frameCensus(event: FrameEventBase, type: string, own: boolean): void {
-  event.chunks++;
-  countEvent(event, type, own);
-}
-
-/**
- * The client half's census of one wire message (frame-wire.ts): a batch
- * counts once, and each record by the producer event that writes it — the
- * root's content (`""`) the shell or a region, `seg:<k>` content a
- * fragment, `slot:<k>` a slot, any `:error` record an error — so both
- * halves add up to the same numbers.
+ * The census of one wire message (frame-sink.ts), kept by either half so
+ * both add up to the same numbers: a message counts once, and each record
+ * by what it writes — the root's content (`""`) a shell (or, addressed to
+ * a nested region, a region), `seg:<k>` content a fragment, `slot:<k>` a
+ * slot, any `:error` record an error. The end of the response (`:complete`,
+ * `:bound`) is not counted: a message writing only that is none.
  */
 export function frameRecordCensus(
   event: FrameEventBase,
   message: { type?: string; r?: Record<string, any> },
   own: boolean
 ): void {
-  event.chunks++;
   const r = message.r;
-  for (const key in r)
+  let counted = !r;
+  for (const key in r) {
+    if (key === ":complete" || key === ":bound") continue;
+    counted = true;
     countEvent(
       event,
       key === ""
@@ -616,6 +609,8 @@ export function frameRecordCensus(
               : key,
       own
     );
+  }
+  if (counted) event.chunks++;
 }
 
 function countEvent(event: FrameEventBase, type: string, own: boolean): void {
@@ -905,11 +900,8 @@ export function observeFrameApply(response: Response): FrameApplyObservation | u
         return;
       }
       if (current === undefined) return;
-      if (chunk.r && ":complete" in chunk.r) {
-        if (chunk.id === current.applied) close("complete");
-        return;
-      }
       frameRecordCensus(current.event, chunk, chunk.id === current.applied);
+      if (chunk.r && ":complete" in chunk.r && chunk.id === current.applied) close("complete");
     },
     end(error) {
       if (current !== undefined) close(error !== undefined ? "error" : "truncated", error);

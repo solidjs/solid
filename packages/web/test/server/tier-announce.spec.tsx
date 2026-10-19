@@ -4,8 +4,8 @@
 // The server-announced tier mechanism, server half (frames savings pass
 // §2, Phase B): both faces announce the frames-client tiers the render
 // MINTED — the stream face on the response head (`X-Frame-Tiers`, the tiers
-// the sync render pass produced) and in-band (`chunk.tiers` on the next
-// chunk out, for a tier first needed after the head left); the document
+// the sync render pass produced) and in-band (`tiers` on the next
+// message out, for a tier first needed after the head left); the document
 // face as the `_$HY.r["sc:tiers"]` hydration record (re-written cumulative
 // at each new mint) plus a `modulepreload` per tier whose chunk URL the
 // integration gave (`frameTransformDirectResult`'s `tierUrls`). Nothing is
@@ -161,11 +161,14 @@ describe("tier announcement — stream face", () => {
     const names = announced.flatMap(c => c.tiers).sort();
     expect(names).toEqual(["assets", "regions"]);
     // The announcement precedes (or is) the message that needs it: the
-    // `seg:<k>:assets` batch carries `assets`; the fragment with the
-    // region's slot does not precede the message naming `regions`.
+    // `seg:<k>:assets` record does not precede the message naming
+    // `assets` (the first message of its flush, which may be the region's
+    // batch ahead of it); the fragment with the region's slot does not
+    // precede the message naming `regions`.
     const [[assetsKey]] = records(chunks, "seg:").filter(([key]) => key.endsWith(":assets"));
     const assets = chunks.find(c => has(c, assetsKey));
-    expect(assets.tiers).toContain("assets");
+    const assetsAt = chunks.findIndex(c => c.tiers && c.tiers.includes("assets"));
+    expect(assetsAt).toBeLessThanOrEqual(chunks.indexOf(assets));
     const regionsAt = chunks.findIndex(c => c.tiers && c.tiers.includes("regions"));
     const segment = assetsKey.slice(0, -":assets".length);
     const fragmentAt = chunks.findIndex(c => has(c, segment));
@@ -174,7 +177,9 @@ describe("tier announcement — stream face", () => {
     // Reveal is style-gated, as before: the client's gate is the segment's
     // assets record, which names the stylesheet ahead of the reveal.
     expect(assets.r[assetsKey].styles).toEqual(["/late.css"]);
-    expect(chunks.indexOf(assets)).toBeLessThan(chunks.findIndex(c => has(c, `${segment}:reveal`)));
+    expect(chunks.indexOf(assets)).toBeLessThanOrEqual(
+      chunks.findIndex(c => has(c, `${segment}:reveal`))
+    );
   });
 
   it("a stream consumed without a Response (renderServerComponent) announces in-band only", async () => {
@@ -182,11 +187,9 @@ describe("tier announcement — stream face", () => {
     const announced = chunks.filter(c => c.tiers);
     expect(announced.length).toBe(1);
     expect(announced[0].tiers).toEqual(["regions"]);
-    // On the first emission after the mint, ahead of the shell's html that
-    // places the region.
-    expect(chunks.indexOf(announced[0])).toBeLessThanOrEqual(
-      chunks.findIndex(c => c.type === "html")
-    );
+    // On the first message after the mint, ahead of the root records (the
+    // region's own, then the shell's that places the region).
+    expect(chunks.indexOf(announced[0])).toBeLessThanOrEqual(chunks.findIndex(c => has(c, "")));
   });
 });
 

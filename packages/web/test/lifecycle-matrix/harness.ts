@@ -11,7 +11,7 @@ import { createJSONDataTable } from "../../serialization/src/serializer.js";
 import { createChunk, createEventChunk } from "../../server-functions/src/shared.js";
 import { createJSONSerializer } from "../../serialization/src/serializer.js";
 import { vi } from "vitest";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 export const settle = () => new Promise(r => setTimeout(r));
 

@@ -34,7 +34,7 @@ import { createRoot, enableHydration, flush, Loading } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
-import { encodeFrameChunk } from "../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 const settle = () => new Promise(r => setTimeout(r));
 

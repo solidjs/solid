@@ -1,37 +1,15 @@
 // @ts-nocheck
 /**
- * The frames wire's encoder — the server's half of "the wire is the store".
- *
- * A frame stream on the wire is a sequence of VERSIONED BATCHES OF KEYED
- * RECORDS, `{ id, version, r: { key: record, ... } }`: exactly the write the
- * client's resident store takes (`FrameWrite`, `host.apply`), so the client
- * applies what arrives without translating it. Three messages are not
- * records and keep a `type`:
- *
- *   - `start` — a response's version opens on the address (`store.open`):
- *     the flight the address is in until a write lands it. It writes no
- *     record; a record-less batch would be indistinguishable from the
- *     reveal-time empty re-sync.
- *   - `data` — a node of the response-scoped data table the records' `$ref`
- *     args resolve through. Not frame state (it never enters the store) and
- *     ordered ahead of the records that read it.
- *   - `outcome` — a single-flight response's envelope node (not addressed
- *     to any frame; `frameFlightResponse`).
- *
- * Any message may also carry `tiers` (the in-band tier announcement): it is
- * about the response, not the frame, so it rides beside `r`, never in it.
- *
- * The producer itself still speaks typed events (`FrameChunk`, what
- * `renderServerComponent` pipes): they drive server-side decisions — the
- * first flush the bound counts from, the census, the head's tier
- * announcement — and this encoder turns each one into its wire message at
- * the response's serialization seam.
- * @experimental
+ * Wire fixtures: client specs written as the producer's events — `html`,
+ * `fragment`, `reveal`, `assets`, `slot`, `hole`, `attr`, `ops`,
+ * `complete`, `error` — turned into the wire messages the server writes
+ * (frame-sink.ts): `{ id, version, r }` record batches, with `start`,
+ * `data` and `outcome` as they are. A message that already is a batch (a
+ * real producer's output) passes through.
  */
-import type { FrameChunk } from "./frame-client.js";
 
 /** The records one producer event writes (see `encodeFrameChunk`). */
-export function chunkRecords(chunk: FrameChunk): Record<string, unknown>;
+export function chunkRecords(chunk: any): Record<string, unknown>;
 
 export function chunkRecords(chunk) {
   switch (chunk.type) {
@@ -123,7 +101,6 @@ export function chunkRecords(chunk) {
  * One producer event as its wire message: `start` / `data` / `outcome` as
  * they are, everything else as a `{ id, version, r }` batch (`tiers` beside
  * it when the event carries an announcement).
- * @experimental
  */
 export function encodeFrameChunk(chunk: any): any;
 
@@ -134,6 +111,7 @@ export function encodeFrameChunk(chunk) {
     case "outcome":
       return chunk;
   }
+  if (chunk.r) return chunk;
   const message: any = { id: chunk.id, version: chunk.version, r: chunkRecords(chunk) };
   if (chunk.tiers) message.tiers = chunk.tiers;
   return message;
@@ -144,11 +122,11 @@ export function encodeFrameChunk(chunk) {
  * (every adopted boundary writes them at its own address), with the
  * producing frame's id (`fid`) on the ones only its boundary applies —
  * store-keyed slot records, the frame's own `:error`.
- * @experimental
  */
 export function encodeLiveOp(op: any): { r: Record<string, unknown>; fid?: string };
 
 export function encodeLiveOp(op) {
+  if (op.r) return op;
   const batch: any = { r: chunkRecords(op) };
   if (op.fid) batch.fid = op.fid;
   return batch;

@@ -19,7 +19,7 @@ import { installServerComponents, createFrameHost } from "../frames/src/client.j
 import { prepareTier } from "../frames/src/frame-client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
-import { encodeFrameChunk } from "../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 const settle = () => new Promise(r => setTimeout(r));
 

@@ -538,15 +538,29 @@ cut-off. Degrades to today's behaviour minus the (new) distinction.
 
 ### Addendum (2026-10-19 — the wire is the store)
 
-The translation point moved to the producer. A frame stream on the wire is a
-sequence of versioned batches of keyed records, `{ id, version, r }`: the
-`FrameWrite` the host applies as it arrives, with no client-side mapping
-(`chunkToRecords` left the client; frame-wire.ts's `encodeFrameChunk` turns
-each producer event into its message at the response's serialization seam).
-The record keys are the ones above: `""`, `seg:<k>`, `seg:<k>:reveal` /
-`:fallback` / `:assets` / `:error`, `slot:<k>`, `hole:<k>` (and
-`hole:<k>:error`), `attr:<k>`, `:complete` (with `:bound`), `:error`. An
-`ops` sweep and a multi-key `reveal` are one batch each.
+The translation point is gone. A frame stream on the wire is a sequence of
+versioned batches of keyed records, `{ id, version, r }`: the `FrameWrite`
+the host applies as it arrives, with no client-side mapping (`chunkToRecords`
+left the client), and the producer writes it natively — the frame sink's
+methods put records, and `renderServerComponent` / `renderToFrameStream`
+pipe the same messages the response serializes, so there is one format from
+the producer to the store. The record keys are the ones above: `""`,
+`seg:<k>`, `seg:<k>:reveal` / `:fallback` / `:assets` / `:error`,
+`slot:<k>`, `hole:<k>` (and `hole:<k>:error`), `attr:<k>`, `:complete`
+(with `:bound`), `:error`.
+
+A batch is a flush. The records the producer writes in one synchronous run
+leave as ONE message per frame, at the run's end (a microtask, never a
+timer): a segment's assets, content, error and reveal travel together, a
+reveal group is one batch per frame, a sweep is one batch (C13). A batch is
+merged into only while writes address its frame back to back with keys it
+does not hold yet; another frame's records, a repeated key (two writes that
+must both land, such as row ops against successive bases) or a `data` node
+start the next one, so write order is apply order. A late root assets record
+rides a batch of its own (the client accumulates it into the record it
+holds). The end of the response, the end of the synchronous render pass
+(what the response head's `X-Frame-Tiers` describes) and each sweep (the
+yield the plain-response bound counts) flush at once.
 
 Three messages are not records and keep a `type`: `start` (a version opens
 on the address — it writes nothing), `data` (a node of the response's data
@@ -554,8 +568,6 @@ table, never frame state) and `outcome` (a single-flight envelope node,
 addressed to no frame). `tiers` rides beside `r` on any message. The
 document face's `sc:live` channel carries the same batches, unaddressed,
 with `fid` on the ones only the producing frame's boundary applies.
-`renderServerComponent` still pipes the producer's typed events
-(`FrameChunk`).
 
 ### Two identity schemes
 

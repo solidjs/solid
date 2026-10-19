@@ -30,7 +30,7 @@ import {
   prepareTier,
   tierLoaders
 } from "../frames/src/frame-client.js";
-import { encodeFrameChunk } from "../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 beforeAll(async () => {
   // The frames client entry (client.ts) wires this loader in production;

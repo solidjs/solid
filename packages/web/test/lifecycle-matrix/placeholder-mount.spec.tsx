@@ -13,7 +13,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, createSignal, flush, Loading } from "solid-js";
 import { installServerComponents } from "../../frames/src/client.js";
 import { makeHost, pump } from "./harness.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();

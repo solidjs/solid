@@ -56,7 +56,7 @@ import {
   watchFrames,
   type Page
 } from "./support.js";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 /** The assets tier's load, gated by the test; `release()` installs the real module. */
 function gatedAssets() {

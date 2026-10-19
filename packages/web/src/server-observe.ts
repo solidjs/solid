@@ -16,7 +16,7 @@
 // channel is the core's, process-wide.
 import { sharedConfig } from "solid-js/internal";
 import {
-  frameCensus,
+  frameRecordCensus,
   isDeferredBody,
   records,
   settledPromise,
@@ -149,7 +149,7 @@ type ServerSharedConfig = { context?: { _currentBoundaryId?: string | null } };
 /** What the frame producer hands an observation: the stream's identity. */
 export interface FrameObservation {
   /** Counts the chunk — call for every chunk written after `start`. */
-  chunk(chunk: { type: string; id: string }): void;
+  chunk(message: { type?: string; id: string; r?: Record<string, any> }): void;
   /** Delivers the record. `error` is the value thrown on the synchronous failure path. */
   settle(outcome: FrameProducedEvent["outcome"], error?: unknown): void;
 }
@@ -178,9 +178,8 @@ export function observeFrame(frame: { id: string; version: number }): FrameObser
   };
   let settled = false;
   return {
-    chunk(chunk) {
-      if (chunk.type === "complete") return;
-      frameCensus(event, chunk.type, chunk.id === frame.id);
+    chunk(message) {
+      frameRecordCensus(event, message, message.id === frame.id);
     },
     settle(outcome, error) {
       if (settled) return;

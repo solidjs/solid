@@ -36,7 +36,7 @@ import { installServerComponents, createFrameHost, getFrameHost } from "../../fr
 import { reviveContainerTraces } from "../../frames/src/frame-container-plugin.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
 import { createChunk } from "../../server-functions/src/shared.js";
-import { encodeFrameChunk, encodeLiveOp } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk, encodeLiveOp } from "../wire-fixture.js";
 
 export {
   frameResponse,

@@ -30,128 +30,26 @@ import { DEV, OBSERVE } from "solid-js";
 export type HoleRows = { n: number; r: [number, string][] };
 
 /**
- * One event of a frame PRODUCER (what `renderServerComponent` pipes),
- * addressed by frame `id`. The wire carries each as a `FrameMessage`
- * (frame-wire.ts's `encodeFrameChunk`). Any event may carry `tiers` (see
- * `TierAnnouncement`).
+ * A `data` message: one node of the response-scoped data table the
+ * records' `{$ref}` args resolve through — not frame state (it never enters
+ * the store), ordered ahead of the records that read it.
  * @experimental
  */
-export type FrameChunk = (
-  | { type: "start"; id: string; version: number }
-  | {
-      type: "html";
-      id: string;
-      version: number;
-      html: string;
-      /** Server-minted digest of the root's skeleton (RFC 11 §9.5, Hole hashes). */
-      digest?: string;
-      /** Digests of the live holes inside the html, by ledger key (`lh:N`, `lha:N`). */
-      holes?: Record<string, string>;
-    }
-  | {
-      type: "fragment";
-      id: string;
-      version: number;
-      key: string;
-      html: string;
-      digest?: string;
-      holes?: Record<string, string>;
-    }
-  | {
-      type: "hole";
-      id: string;
-      version: number;
-      key: string;
-      html: string;
-      digest?: string;
-      holes?: Record<string, string>;
-      /** Row ops for a `For` hole (#4064), against the emission `base`. */
-      rows?: HoleRows;
-      base?: string;
-    }
-  | {
-      type: "attr";
-      id: string;
-      version: number;
-      key: string;
-      attrs: string;
-      removed?: string[];
-      digest?: string;
-    }
-  | {
-      type: "reveal";
-      id: string;
-      version: number;
-      keys: string[];
-      waitForStyles?: boolean;
-      fallback?: boolean;
-    }
-  | {
-      type: "data";
-      id: string;
-      version: number;
-      key?: string;
-      node?: unknown;
-      initial?: boolean;
-      /** Eval-style hydration script — only when produced with the hydration serializer. */
-      payload?: string;
-    }
-  | {
-      type: "assets";
-      id: string;
-      version: number;
-      key: string;
-      modules?: string[];
-      styles?: string[];
-      inlineStyles?: { id: string; content?: string; attrs?: Record<string, string> }[];
-      preloads?: { href?: string; attrs: Record<string, string> }[];
-    }
-  | { type: "slot"; id: string; version: number; key: string; args: Record<string, unknown> }
-  | {
-      /**
-       * One server sweep's re-emissions as one unit (RFC 11 addendum, C13):
-       * the `hole` / `attr` members a sweep produced, unaddressed (the
-       * envelope addresses them), applied as one write — one flush, one
-       * `frame:applied`. A sweep that changed one binding is emitted as
-       * that member alone.
-       */
-      type: "ops";
-      id: string;
-      version: number;
-      ops: (
-        | {
-            type: "hole";
-            key: string;
-            html: string;
-            digest?: string;
-            rows?: HoleRows;
-            base?: string;
-          }
-        | { type: "attr"; key: string; attrs: string; removed?: string[]; digest?: string }
-      )[];
-    }
-  | {
-      type: "complete";
-      id: string;
-      version: number;
-      /**
-       * Present when the producer ended a plain (non-`live`) response at
-       * its streaming bound rather than at its sources' settling (RFC 11
-       * addendum): `"yields"` — the later-yield count; `"time"` — the
-       * wall-clock bound after the first flush, or the request's abort
-       * after it. The content shown is a cut-off, not a settled value;
-       * `live()` is the declared way past the bound.
-       */
-      bound?: "yields" | "time";
-    }
-  | { type: "error"; id: string; version: number; key?: string; error: unknown }
-) &
-  TierAnnouncement;
+export type FrameData = {
+  type: "data";
+  id: string;
+  version: number;
+  key?: string;
+  node?: unknown;
+  initial?: boolean;
+  /** Eval-style hydration script — only when produced with the hydration serializer. */
+  payload?: string;
+};
 
 /**
  * The in-band tier announcement (frames savings pass §2; additive — RFC 11
  * addendum): the frames-client tiers the render first needed since the
- * last chunk left — `"regions"`, `"assets"`, `"trace"`, `"wire"` — on whichever chunk leaves next. The response head carries the
+ * last message left — `"regions"`, `"assets"`, `"trace"`, `"wire"` — on whichever chunk leaves next. The response head carries the
  * tiers minted before it (`X-Frame-Tiers`); a tier minted later rides
  * here. The client starts each named tier's load before applying the
  * chunk; a `data` chunk additionally AWAITS them (its node tree needs the
@@ -175,7 +73,7 @@ export interface TierAnnouncement {
 export type FrameMessage = (
   | { type?: undefined; id: string; version: number; r: Record<string, unknown> }
   | { type: "start"; id: string; version: number }
-  | Extract<FrameChunk, { type: "data" }>
+  | FrameData
 ) &
   TierAnnouncement;
 
@@ -371,7 +269,7 @@ export interface FrameHostOptions {
    * `applyData: c => table.apply(c)` (see `createJSONDataTable`); a table
    * per response keys on `chunk.version` (see `resolve` for `current`).
    */
-  applyData?(chunk: Extract<FrameChunk, { type: "data" }>, current?: number): void;
+  applyData?(chunk: FrameData, current?: number): void;
   /**
    * The response (one version of one id) has ended — its `complete`, or
    * its `error` with no key — and a key it never delivered never comes:
@@ -693,8 +591,10 @@ export function createFrameHost(options = {}) {
       store.version = version;
       store.records = {};
     }
-    // Root assets reuse one key for the shell and late chunks. Accumulate
-    // their arrays so frames registered later receive the full snapshot.
+    // Root assets reuse one key for the shell and late records. Accumulate
+    // their arrays so frames registered later receive the full snapshot. (A
+    // late root assets record rides a batch of its own — the producer's
+    // `asset` — so the merge is the whole write.)
     const assets = records["seg::assets"];
     const previous = assets && store.records["seg::assets"];
     if (!previous || previous === assets) {
@@ -840,7 +740,7 @@ export function createFrameHost(options = {}) {
         options.applyData && options.applyData(msg, current);
         return;
       }
-      // The wire IS the store's write (frame-wire.ts): a batch's records are
+      // The wire IS the store's write (frame-sink.ts): a batch's records are
       // written as they arrive. A slot record is the one the host finishes
       // — its refs settle at the write (below), on a copy: the same batch
       // can be applied again (the document channel's catch-up replays it).

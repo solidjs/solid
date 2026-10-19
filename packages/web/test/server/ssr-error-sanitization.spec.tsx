@@ -152,7 +152,8 @@ function describeSanitizing(name: string, conditions: string[], observe: boolean
 
     test("frame streams: the root error record and every keyed error record carry the replacement", () => {
       const { frameRoot, frameFragment } = run(conditions);
-      expect(frameRoot.value.map(writes)).toEqual(["start", ":error", ":complete"]);
+      // The error and the end are one flush: one batch.
+      expect(frameRoot.value.map(writes)).toEqual(["start", ":error :complete"]);
       expect(frameRoot.value[1].r[":error"]).toBe(GENERIC);
       expectNoSecrets(JSON.stringify(frameRoot.value));
 

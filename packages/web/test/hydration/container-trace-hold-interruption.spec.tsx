@@ -43,7 +43,7 @@ import {
   snapshotNodes,
   type Streams
 } from "./container-trace-hold-helpers.jsx";
-import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 describe("container-trace hold: interruptions", () => {
   afterEach(cleanupHold);
