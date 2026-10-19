@@ -10229,3 +10229,136 @@ fork's two harness changes (signal-favoring `flush(fn)` adapter,
 streaming-ssr pinning) are not yet upstream at octanejs/octane, and
 recursive-context and hydration-interactivity fail a harness gate in every
 run.
+
+### 17 (Vapor lane, follow-up): the per-write constant, and a hold bug it turned up (2026-10-18/19)
+
+§16 left the per-write transaction constant as the one gap that shows in
+several suites (update, select, the signal-favoring bumps) and that nobody
+had profiled. This section profiles it, tries four levers and ships none;
+the work found a held-frame bug, which shipped as #4155.
+
+**Setup.** Two measurements, both on `next` (096d4da05, then 745e807bd and
+2aa9e86ad as it moved; each comparison interleaved against the `next` it
+branched from):
+
+- *Core:* a Node microbenchmark with one signal and one render effect,
+  written through `flush(fn)`, 1M writes × 7 reps after a 300k warm-up,
+  against `@vue/reactivity` 3.6.0-rc.10 with Vapor's shape (a scheduled
+  effect and a synchronous queue drain).
+- *Renderer:* the fork's signal-favoring bump (`__bumpAt1`, one text update
+  beside siblings) on unminified builds, batched timing with 20 readings, plus
+  the CDP call profiler.
+
+Logs: `.logs/perwrite-bump-2026-10-18.log`,
+`.logs/perwrite-measure-2026-10-19.log`.
+
+| | Solid | Vue / Vapor | ratio |
+| --- | ---: | ---: | ---: |
+| core, ns per write | 130 | 36 | 3.6× |
+| bump, µs per call | 0.37 | 0.175 | 2.1× |
+
+**Where the core's 130 ns goes** (self time from a Node CPU profile, ns per
+write; the profile adds ~10 ns of overhead):
+
+| function | self | inclusive | what it does per write |
+| --- | ---: | ---: | --- |
+| `recompute` | 18 | 32 | runs the render effect's compute, stages its value |
+| `commitPendingNodes` | 18 | 19 | commits the staged value in the same flush |
+| `settle` | 14 | 39 | builds and drops the collection pairs (6 arrays) |
+| `read` | 8 | 10 | |
+| `setSignal` | 6 | 14 | |
+| `runEffect` | 6 | 8 | |
+| `flush` (both levels) | 11 | 120 | |
+| `runHeap`, `run`, `runQueue`, `enqueue`, `schedule` | 12 | | |
+
+No single item is large. The biggest structural cost is the render effect's
+stage-then-commit round trip inside one flush: `commitPendingNodes` plus part
+of `recompute`, about 25–30 ns. A render effect commits even when the
+computed value is equal. Vue's effect writes once and has no staging.
+
+**Where the bump's time goes.** Of the framework's sampled time per call,
+`insertExpression` is about half (0.49 of 1.0 µs inclusive under `flush`).
+The core cycle (`settle`, `runHeap`, `recompute`, `setSignal`) is most of the
+rest. Vapor's `setText` is `if (el.$txt !== value) el.nodeValue = el.$txt =
+value`: one JavaScript cache compare and one DOM write. That is about half
+of Vapor's flush.
+
+**Levers tried** (bump medians over three interleaved rounds; size is
+minified per app unless noted):
+
+| lever | branch / commit | result | size | verdict |
+| --- | --- | --- | --- | --- |
+| `settle` reuses two module-level lane pairs in place of the six arrays | `perf/write-path-constant` 9cae5f339 | core 130 → 124 ns (−5%); bump 0.370 → 0.365, noise | +34 B (signals) | dropped |
+| `insert` text fast path: a primitive into a slot beside siblings updates its text node in place, skipping `normalize`'s array and the general commit | `perf/write-path-constant` 37c4e2dbb | bump 0.372 → 0.325 µs (**−13%**, a quarter of the gap to Vapor; measured with the `settle` change on, which alone is noise) | ~+230 B (+85–130 B brotli) | dropped |
+| the same, golfed: keep `normalize`'s array, test `value[0]` at commit | `perf/insert-text-in-place` e5541279b | 0.372 → 0.352 µs (−5%) | +195 B | dropped |
+| `normalize` skips `flatten` for primitives, with `flatten`'s options hoisted | `perf/normalize-split` 0675108cf | 0.391 → 0.390 µs, none | +135–146 B | dropped |
+| split: functions and arrays normalized in compute, primitives, `null`, `false` and single nodes at commit, hydration text adoption at commit | stash on `perf/normalize-split` | not measured: broke three hold tests | | dropped |
+
+What limits the text path:
+
+- **The fast path only fires for text beside siblings** (`Count:
+  {count()}`). A text hole that is an element's only child already takes a
+  cheaper path, so js-framework's row labels, for example, never reach it.
+- **The cost sits in the one-element array built per update and the general
+  commit behind it, not in `flatten`.** V8 already absorbs `flatten` and its
+  options object, which is why the `normalize` change bought nothing.
+- **About half of what is left is the `.data` read.** The commit has to
+  compare because the render effect commits equal values. Only a cache of
+  the last written value, as Vapor does, would drop that read, and it would
+  stop rewriting a text node user code edited, which `next` does today.
+
+**Board impact of the 230 B path.** This is an estimate from counting
+compiled `insert` call sites per fixture, not a board run. Signal-favoring
+is the only suite whose hot path updates text beside siblings, where the
+path is worth about −8%. Memo-wall and todomvc touch the shape but barely
+move. Every other suite renders text as a sole child or through
+`textContent`. That comes to about 0.4% on the board geomean, inside its
+noise, so it was not shipped.
+
+**Why `normalize` stays on the compute side.** Ryan moved it there in 2.x so
+that it runs together with `flatten`, and the record agrees (dom-expressions
+d9b571c2, Apr 23, the nested render-effect rewrite). `flatten` with
+`doNotUnwrap` is what finds an accessor, and the inner effect has to be
+created in the compute, under the right owner. The inner effect's own
+`normalize` makes tracked reads and must throw a pending value there, not at
+commit. e9ae1d28b (Aug 25) already left primitives raw so the compute stays
+pure in transition forks. For a primitive, `null`, `false` or one node,
+`flatten` in the outer compute has nothing to look for, which made the split
+attractive. The split failed on a second, undocumented role: the outer
+effect read "this is not the first compute" off `prev !== undefined`, and a
+multi slot's normalized value is always an array.
+
+**The bug: #4155** (fda29a4ca). A single-child hole normalizes to
+`undefined` while it renders nothing, so it was already exposed to that
+marker. Content arriving there later as a function, such as a `<Show>`
+flipping on, looked like a first run. Its inner effect then ran inline in
+the compute, without `schedule: true`, and mounted ahead of a held frame:
+
+```jsx
+<main>
+  <Show when={open()}>{() => <Form />}</Show>   {/* <input disabled={isPending(data)} value={data()} /> */}
+</main>
+```
+
+`setOpen(true)` during an action holding `data` mounted an enabled, empty
+input before the commit, breaking the D-23 contract that
+`ispending-guard-born-held.spec.tsx` pins for the same tree with a sibling.
+The fix is a closure flag set once a compute has produced its value; it costs
++6 B minified. It is performance-neutral: the one changed path adds a queue
+push once per transition. First mounts, updates and multi slots are
+unchanged, and a sole-child `<For>` returns its function on the first
+compute. `ispending-guard-born-held-sole-child.spec.tsx` covers `show`,
+`show+loading` and `direct`. `show` and `direct` failed on `next`, while
+`show+loading` passed because its boundary catches the read. CodSpeed
+flagged one row, "memo + sync render effect only (reference)", +14.6%. It
+is the same signals-only mount benchmark that read as a 14–16% regression on
+#4132 and #4136, and it does not run `insert`: noise in both directions.
+
+**Where the constant stands.** The renderer half has no cheap lever left:
+the only real win, 13% on one shape, cost ~230 B for ~0.4% of the board.
+The core half is spread thin. Its one structural piece is the render
+effect's stage-then-commit round trip, ~25–30 of 130 ns, and changing it is
+a scheduler design question, not a tweak. A Vapor-style text cache would
+change behaviour. Local only: the branches `perf/write-path-constant`,
+`perf/insert-text-in-place` and `perf/normalize-split` with its stash, and
+the fork builds `dist-pw-*`, `dist-ip-*`, `dist-ns-*` and `dist-scan`.
