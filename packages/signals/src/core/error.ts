@@ -51,9 +51,13 @@ export class NotReadyError extends Error {
 export class StatusError extends Error {
   declare source: any;
   constructor(source: any, original: any) {
-    super(original instanceof Error ? original.message : String(original), {
-      cause: original
-    });
+    // Best-effort message: formatting must never replace the original (#4112).
+    try {
+      var message: string | undefined = String(
+        original instanceof Error ? original.message : original
+      );
+    } catch {}
+    super(message, { cause: original });
     this.source = source;
   }
 }
