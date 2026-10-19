@@ -63,6 +63,7 @@ import {
   REACTIVE_SNAPSHOT_STALE,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
+  STATUS_NONE,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
   type Refreshable
@@ -2211,7 +2212,11 @@ export function setMemo<T>(el: Computed<T>, v: T | ((prev: T) => T)): T {
     const value = (v as (prev: T) => T)(el._value);
     v = () => value;
   }
+  // #4110: the write replaces a failed derivation's outcome. It lands without
+  // re-running `_fn`, and nothing else clears STATUS_ERROR, so without this
+  // every later read keeps throwing the error the derivation left behind.
   v = setSignal(el, v);
+  if (el._statusFlags & STATUS_ERROR) notifyStatus(el, STATUS_NONE, undefined);
   if (held) {
     // The one write that re-runs: the staging it replaced was derived from
     // inputs the writer never saw, so the hold re-derives over the write.
