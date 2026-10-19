@@ -1083,8 +1083,10 @@ module.exports = [
     // never raised.
     // store delete key-count fix (#4132, 2026-10-17): 14.79 -> 14.82 KB, measured at 14,802 B brotli / 44,865 B minified (+12 B brotli over the cap, +33 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
     // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 44,865 -> 44,924 B, measured locally (linux) at 14,798 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
-    limit: "14.82 KB",
-    capMinified: 44924,
+    // Unread key beside a held sibling publishes at flush (#4146, 2026-10-19, over next @ 2aa9e86a): 14.82 -> 14.83 KB, measured in CI at 14,812 B brotli / 44,930 B minified (+48 B minified over this PR's base): a mainline write to a held container creates that key's leaf instead of writing into the held staging, so whether the write is held no longer depends on a live reader (R1). Correctness; only runs when the container is held. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Unread key beside a held sibling publishes at flush (#4146), re-measured after merging next @ 8c75f82f (2026-10-19): 14.82 -> 14.85 KB, measured locally (linux) at 14,837 B brotli / 44,972 B minified (+48 B minified over next).
+    limit: "14.85 KB",
+    capMinified: 44972,
     alias
   },
   {
@@ -2603,8 +2605,10 @@ module.exports = [
     // Merged over next @ 7093b074b after #4129 raised this same cap 30.09 -> 30.14 KB for its own bytes (2026-10-17): the two together measured locally at 30,116 B brotli / 94,644 B minified, under the cap, so the cap stays at 30.14 KB; recorded minified 94,611 -> 94,644.
     // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 2aa9e86a): 30.14 -> 30.20 KB, measured in CI at 30,185 B brotli / 94,763 B minified (+116 B minified over this PR's base): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 30.20 KB -> 30.23 KB, measured in CI at 30,217 B brotli / 94,834 B minified (+45 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Unread key beside a held sibling publishes at flush (#4146, 2026-10-19, over next @ 2aa9e86a): 30.14 -> 30.17 KB, measured in CI at 30,159 B brotli / 94,695 B minified (+48 B minified over this PR's base): a mainline write to a held container creates that key's leaf instead of writing into the held staging, so whether the write is held no longer depends on a live reader (R1). Correctness; only runs when the container is held. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Unread key beside a held sibling publishes at flush (#4146), re-measured after merging next @ 8c75f82f (2026-10-19): 30.23 KB (unchanged), measured locally (linux) at 30,220 B brotli / 94,882 B minified (+48 B minified over next).
     limit: "30.23 KB",
-    capMinified: 94834,
+    capMinified: 94882,
     alias
   },
   {
@@ -3921,8 +3925,9 @@ module.exports = [
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 25.66 -> 25.95 KB, measured at 25,940 B brotli / 80,846 B minified (+280 B brotli over the cap, +640 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     // store delete key-count fix (#4132, 2026-10-17): 25.95 -> 26.03 KB, measured at 26,011 B brotli / 80,879 B minified (+61 B brotli over the cap, +33 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
     // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 80,879 -> 80,929 B, measured locally (linux) at 25,989 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
+    // Unread key beside a held sibling publishes at flush (#4146), re-measured after merging next @ 8c75f82f (2026-10-19): 26.03 KB (unchanged), recorded minified 80,929 -> 80,977 B, measured locally (linux) at 26,025 B brotli / 80,977 B minified (+48 B minified over next).
     limit: "26.03 KB",
-    capMinified: 80929,
+    capMinified: 80977,
     alias
   },
   {
@@ -4071,8 +4076,10 @@ module.exports = [
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 31.72 -> 31.96 KB, measured at 31,950 B brotli / 101,408 B minified (+230 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     // store delete key-count fix (#4132, 2026-10-17): 31.96 -> 31.98 KB, measured at 31,962 B brotli / 101,441 B minified (+2 B brotli over the cap, +33 B minified over the recorded size; CI and local agree): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness.
     // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 101,441 -> 101,500 B, measured locally (linux) at 31,972 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
-    limit: "31.98 KB",
-    capMinified: 101500,
+    // Unread key beside a held sibling publishes at flush (#4146, 2026-10-19, over next @ 2aa9e86a): 31.98 -> 32.01 KB, measured in CI at 31,998 B brotli / 101,499 B minified (+48 B minified over this PR's base; the store bytes the compiled app retains): a mainline write to a held container creates that key's leaf instead of writing into the held staging, so whether the write is held no longer depends on a live reader (R1). Correctness; only runs when the container is held. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Unread key beside a held sibling publishes at flush (#4146), re-measured after merging next @ 8c75f82f (2026-10-19): 31.98 -> 32.02 KB, measured locally (linux) at 32,002 B brotli / 101,548 B minified (+48 B minified over next).
+    limit: "32.02 KB",
+    capMinified: 101548,
     alias
   },
   {
