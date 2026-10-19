@@ -298,16 +298,23 @@ export function bareDeferredModuleApp(options: {
   ready: Accessor<boolean>;
   module?: Promise<void>;
   settled?: () => void;
+  hydrationState?: (read: Accessor<boolean>) => void;
   clicked?: () => void;
 }) {
   function Content() {
     const label = useContext(Label);
     const id = createUniqueId();
     const [count, setCount] = createSignal(0);
+    const [hydrated, setHydrated] = createSignal(false);
+    onSettled(() => {
+      setHydrated(true);
+      options.hydrationState?.(hydrated);
+    });
     return (
       <button
         id={id}
         data-context={label}
+        data-hydrated={hydrated() ? "true" : "false"}
         onClick={() => {
           setCount(value => value + 1);
           options.clicked?.();

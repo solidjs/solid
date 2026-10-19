@@ -715,6 +715,7 @@ test("ancestor insertion retains a bare deferred module range while the browser 
   expect(button.id).toBe(id);
   expect(button.getAttribute("data-context")).toBe("preserved context");
   expect(button.textContent).toBe("bare module0");
+  expect(button.getAttribute("data-hydrated")).toBe("true");
   expect(container.querySelector("aside")).toBe(sibling);
   expect(settled).toBe(1);
   expect(ended).toBe(1);
@@ -725,3 +726,62 @@ test("ancestor insertion retains a bare deferred module range while the browser 
   expect(container.querySelector("button")).toBe(button);
   expect(ended).toBe(1);
 });
+
+test.each([true, false])(
+  "a synchronously ready child preserves its parent and sibling after its settled write (initial readiness: %s)",
+  async initiallyReady => {
+    applyChunk(container, artifact.bareModule.shell);
+    const parent = container.querySelector("main")!;
+    const button = container.querySelector("button")!;
+    const sibling = container.querySelector("aside")!;
+    const [ready, setReady] = createSignal(initiallyReady);
+    let settled = 0;
+    let clicks = 0;
+    let ended = 0;
+    let readHydrated: (() => boolean) | undefined;
+    const App = bareDeferredModuleApp({
+      ready,
+      hydrationState: read => {
+        readHydrated = read;
+      },
+      settled: () => {
+        settled++;
+      },
+      clicked: () => {
+        clicks++;
+      }
+    });
+    expect(button.getAttribute("data-hydrated")).toBe("false");
+    dispose = hydrate(() => <App />, container);
+    onHydrationEnd(() => ended++);
+    await settle();
+    if (!initiallyReady) {
+      expect(container.querySelector("main")).toBe(parent);
+      expect(container.querySelector("button")).toBe(button);
+      expect(container.querySelector("aside")).toBe(sibling);
+      expect(button.getAttribute("data-hydrated")).toBe("false");
+      expect(ended).toBe(0);
+      setReady(true);
+      await settle();
+    }
+    expect(container.querySelector("main")).toBe(parent);
+    expect(parent.parentNode).toBe(container);
+    expect(button.parentNode).toBe(parent);
+    expect(sibling.parentNode).toBe(parent);
+    expect(parent.querySelector("button")).toBe(button);
+    expect(parent.querySelector("aside")).toBe(sibling);
+    expect(readHydrated).toBeTypeOf("function");
+    expect(readHydrated?.()).toBe(true);
+    expect(button.getAttribute("data-hydrated")).toBe("true");
+    expect(settled).toBe(1);
+    expect(ended).toBe(1);
+    button.click();
+    await settle();
+    expect(clicks).toBe(1);
+    expect(button.textContent).toBe("bare module1");
+    expect(container.querySelector("main")).toBe(parent);
+    expect(button.parentNode).toBe(parent);
+    expect(sibling.parentNode).toBe(parent);
+    expect(button.getAttribute("data-hydrated")).toBe("true");
+  }
+);

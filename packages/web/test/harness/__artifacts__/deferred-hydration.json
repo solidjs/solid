@@ -35,7 +35,7 @@
     "rest": ""
   },
   "bareModule": {
-    "shell": "<main _hk=000><!--$--><button _hk=0010002 id=\"0010001\" data-context=\"preserved context\">bare module<!--$-->0<!--/--></button><!--/--><aside>following sibling</aside></main>",
+    "shell": "<main _hk=000><!--$--><button _hk=0010003 id=\"0010001\" data-context=\"preserved context\" data-hydrated=\"false\">bare module<!--$-->0<!--/--></button><!--/--><aside>following sibling</aside></main>",
     "chunks": [],
     "rest": ""
   }

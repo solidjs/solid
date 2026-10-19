@@ -3074,7 +3074,9 @@ function hydratedCreateLoadingBoundary<T, U>(
         },
         options
       );
-      coreEffect(
+      // Retire the claim before user lifecycle callbacks can write live state.
+      // Otherwise their render callbacks still run as claims and skip DOM writes.
+      coreRenderEffect(
         settled,
         ready => {
           if (!ready) return;
