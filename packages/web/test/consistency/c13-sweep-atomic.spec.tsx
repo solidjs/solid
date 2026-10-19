@@ -10,9 +10,10 @@
  *
  * Mechanism that carries it (frames-rulings §"The server half", C13 — the
  * sweep delimiter): the SINK's `sweep()` collects the pass's hole / attr
- * re-emissions and ships them as ONE `{ type: "ops", ops: [...] }` chunk
- * (stream face) / `sc:live` op (document face) — the chunk's edge is the
- * unit; `chunkToRecords` merges the members into one record map and
+ * re-emissions as ONE `{ type: "ops", ops: [...] }` event, which goes out
+ * as ONE record batch (stream face) / `sc:live` batch (document face) — the
+ * batch's edge is the unit; the encoder merges the members into one record
+ * map (`chunkRecords`, frame-wire.ts) and
  * `FrameImpl.apply` flushes once over them (one hole pass, one
  * `#applied("morph")`, one `frame:applied`). `applyFrames.drain` and
  * `applyLiveOp` pass the unit through unchanged. The server arm — that the

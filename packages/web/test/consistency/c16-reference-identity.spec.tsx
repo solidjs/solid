@@ -53,6 +53,7 @@ import {
   stubHeldFetch,
   type Page
 } from "./support.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 const componentOf = (binding: any) => binding && binding[COMPONENT_BINDING]?.component;
 const addressOf = (binding: any) => binding && binding[COMPONENT_BINDING]?.address;
@@ -83,7 +84,7 @@ function openFlightResponse() {
         [SINGLE_FLIGHT_HEADER]: "true"
       }
     }),
-    send: (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk))),
+    send: (chunk: any) => controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk)))),
     async outcome(envelope: unknown) {
       const reader = new ChunkReader(serializeStream(envelope, flightCodec(undefined)));
       for (let node = await reader.next(); !node.done; node = await reader.next())
