@@ -4585,8 +4585,9 @@ module.exports = [
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 12.99 KB -> 12.72 KB, measured locally (linux) at 12,704 B brotli / 38,357 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 12.72 KB -> 11.96 KB, measured locally (linux) at 11,943 B brotli / 35,581 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 11.96 KB -> 11.76 KB, measured locally (linux) at 11,745 B brotli / 34,852 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Re-recorded on next @ 7ad2342c (2026-10-19, accepted by the maintainer): recorded minified 34,852 -> 34,886 B, measured locally (linux) at 11,754 B brotli. #4154 recorded its sizes one commit before its final head, so next sat 34 B or more over the recorded minified and brotli noise failed unrelated PRs. Cap unchanged.
     limit: "11.76 KB",
-    capMinified: 34852,
+    capMinified: 34886,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4974,6 +4975,7 @@ module.exports = [
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 34.28 KB -> 34.00 KB (floor-caps.json), measured locally (linux) at 33,985 B brotli / 104,663 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 34.00 KB -> 33.31 KB (floor-caps.json), measured locally (linux) at 33,294 B brotli / 101,886 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 33.31 KB -> 33.12 KB (floor-caps.json), measured locally (linux) at 33,107 B brotli / 101,166 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Re-recorded on next @ 7ad2342c (2026-10-19, accepted by the maintainer): recorded minified 101,166 -> 101,200 B, measured locally (linux) at 33,059 B brotli. #4154 recorded its sizes one commit before its final head, so next sat 34 B or more over the recorded minified and brotli noise failed unrelated PRs. Cap unchanged.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5308,6 +5310,7 @@ module.exports = [
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 38.57 KB -> 38.32 KB (floor-caps.json), measured locally (linux) at 38,309 B brotli / 118,069 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 38.32 KB -> 37.54 KB (floor-caps.json), measured locally (linux) at 37,523 B brotli / 115,287 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 37.54 KB -> 37.37 KB (floor-caps.json), measured locally (linux) at 37,354 B brotli / 114,567 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Re-recorded on next @ 7ad2342c (2026-10-19, accepted by the maintainer): recorded minified 114,567 -> 114,737 B, measured locally (linux) at 37,345 B brotli. #4154 recorded its sizes one commit before its final head, so next sat 34 B or more over the recorded minified and brotli noise failed unrelated PRs. Cap unchanged.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5460,8 +5463,9 @@ module.exports = [
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 36.42 KB -> 36.05 KB, measured locally (linux) at 36,035 B brotli / 111,012 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 36.05 KB -> 35.29 KB, measured locally (linux) at 35,271 B brotli / 108,230 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 35.29 KB -> 35.14 KB, measured locally (linux) at 35,125 B brotli / 107,510 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Re-recorded on next @ 7ad2342c (2026-10-19, accepted by the maintainer): recorded minified 107,510 -> 107,544 B, measured locally (linux) at 35,081 B brotli. #4154 recorded its sizes one commit before its final head, so next sat 34 B or more over the recorded minified and brotli noise failed unrelated PRs. Cap unchanged.
     limit: "35.14 KB",
-    capMinified: 107510,
+    capMinified: 107544,
     alias: pageAlias
   },
   {
