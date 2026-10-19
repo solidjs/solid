@@ -243,7 +243,7 @@ describe("the live wire tier — preload-at-call", () => {
     await until(() => status.includes("closed"), 3000);
   }, 10000);
 
-  test("a non-live call never loads the tier: a plain frame stream reads through the eager transport, and a refetch's bump has no connection to cancel", async () => {
+  test("a non-live call's first materialize never loads the tier; a refetch's morph waits on it, the old content still showing, and lands whole on install (no connection to cancel)", async () => {
     const gate = gatedWire();
     const fid = freshFid("tier-wire-b");
     const WIRE = `${fid}/wire`;
@@ -268,7 +268,9 @@ describe("the live wire tier — preload-at-call", () => {
     expect(gate.loader).not.toHaveBeenCalled();
     expect(resident()).toBe(false);
     // A refetch of the same call: the next version — `bump` runs with the
-    // tier absent (nothing to cancel), the morph lands.
+    // tier absent (nothing to cancel). The root lands over content, so it
+    // morphs, and the morph rides the tier: the root starts its load and
+    // waits, the old content still showing; the install's flush lands it.
     const h1 = m.div.querySelector("h1")!;
     setTick(1);
     await pump();
@@ -277,10 +279,14 @@ describe("the live wire tier — preload-at-call", () => {
     responses[1].send(digestedRoot(WIRE, 1, "plain-2", "b000000000000002"));
     responses[1].send({ type: "complete", id: WIRE, version: 1 });
     responses[1].close();
+    await until(() => gate.loader.mock.calls.length > 0, 3000);
+    await pump();
+    expect(h1.textContent).toBe("plain");
+    expect(resident()).toBe(false);
+    await gate.release();
     await until(() => h1.textContent === "plain-2", 3000);
     expect(m.div.querySelector("h1")).toBe(h1);
-    expect(gate.loader).not.toHaveBeenCalled();
-    expect(resident()).toBe(false);
+    expect(gate.loader).toHaveBeenCalledTimes(1);
   });
 
   test("the degraded first connect (accepted): content a plain call applied before the tier was resident kept no ledger — the live connect sends no have-list and no position (a full snapshot); the live response's own root resets the ledger, and the reconnect names it", async () => {
