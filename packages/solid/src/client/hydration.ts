@@ -3197,5 +3197,12 @@ export function DeferredHydration(props: {
     },
     { transparent: true }
   );
-  return content as unknown as SolidElement;
+  // Resolve nested Loading accessors before an ancestor DOM binding sees
+  // them. That binding was created outside this claim context, so publishing
+  // a pending accessor there could clear the retained server range. Keep
+  // construction in `content` so settling does not recreate its child owners.
+  return coreMemo(() => flatten(content()), {
+    transparent: true,
+    sync: true
+  }) as unknown as SolidElement;
 }

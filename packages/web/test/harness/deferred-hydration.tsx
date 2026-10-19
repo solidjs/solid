@@ -5,6 +5,7 @@ import {
   createRoot,
   createSignal,
   createUniqueId,
+  flatten,
   onCleanup,
   onSettled,
   runWithOwner,
@@ -284,6 +285,73 @@ export function sequentialDeferredModuleApp(options: {
               </Loading>
             </DeferredHydration>
           </Dynamic>
+          <aside>following sibling</aside>
+        </main>
+      </Label>
+    );
+  };
+}
+
+// The ancestor DOM insertion is outside the deferred claim context. A pending
+// browser module must not publish an empty range into that retained SSR region.
+export function bareDeferredModuleApp(options: {
+  ready: Accessor<boolean>;
+  module?: Promise<void>;
+  settled?: () => void;
+  clicked?: () => void;
+}) {
+  function Content() {
+    const label = useContext(Label);
+    const id = createUniqueId();
+    const [count, setCount] = createSignal(0);
+    return (
+      <button
+        id={id}
+        data-context={label}
+        onClick={() => {
+          setCount(value => value + 1);
+          options.clicked?.();
+        }}
+      >
+        bare module{count()}
+      </button>
+    );
+  }
+  function readModule() {
+    const module = options.module;
+    if (!module) return <Content />;
+    let stop!: () => void;
+    const loaded = runWithOwner(null, () =>
+      createRoot(dispose => {
+        stop = dispose;
+        return createMemo(() => module.then(() => true));
+      })
+    );
+    onCleanup(() => stop());
+    return createMemo(
+      () => {
+        loaded();
+        return <Content />;
+      },
+      { transparent: true, sync: true }
+    );
+  }
+  function Claimed(props: { children: ReturnType<typeof readModule> }) {
+    onSettled(() => {
+      options.settled?.();
+    });
+    // Preserve the pending reader without eagerly reading it or adding an owner.
+    return flatten(props.children, { doNotUnwrap: true });
+  }
+  return function App() {
+    return (
+      <Label value="preserved context">
+        <main>
+          <DeferredHydration when={options.ready()}>
+            <Loading>
+              <Claimed>{readModule()}</Claimed>
+            </Loading>
+          </DeferredHydration>
           <aside>following sibling</aside>
         </main>
       </Label>

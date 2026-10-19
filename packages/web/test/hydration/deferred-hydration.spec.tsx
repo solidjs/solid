@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createRenderEffect, createSignal, flush, onHydrationEnd, runWithOwner } from "solid-js";
 import { hydrate, render } from "@solidjs/web";
 import {
+  bareDeferredModuleApp,
   deferredApp,
   deferredModuleApp,
   sequentialDeferredModuleApp
@@ -27,6 +28,7 @@ const artifact = JSON.parse(
   handledModule: { shell: string };
   nestedModule: { shell: string };
   sequentialModule: { shell: string };
+  bareModule: { shell: string };
 };
 let container: HTMLDivElement;
 let dispose: (() => void) | undefined;
@@ -666,6 +668,60 @@ test("ownerless render effects remain usable while a deferred claim is pending",
 
   setReady(true);
   await settle();
+  expect(container.querySelector("button")).toBe(button);
+  expect(ended).toBe(1);
+});
+
+test("ancestor insertion retains a bare deferred module range while the browser module is pending", async () => {
+  applyChunk(container, artifact.bareModule.shell);
+  const button = container.querySelector("button")!;
+  const sibling = container.querySelector("aside")!;
+  const id = button.id;
+  const [ready, setReady] = createSignal(false);
+  let resolveModule!: () => void;
+  const module = new Promise<void>(resolve => {
+    resolveModule = resolve;
+  });
+  let settled = 0;
+  let clicks = 0;
+  let ended = 0;
+  const App = bareDeferredModuleApp({
+    ready,
+    module,
+    settled: () => {
+      settled++;
+    },
+    clicked: () => {
+      clicks++;
+    }
+  });
+  dispose = hydrate(() => <App />, container);
+  onHydrationEnd(() => ended++);
+  await settle();
+  expect(container.querySelector("button")).toBe(button);
+  expect(ended).toBe(0);
+  setReady(true);
+  await settle();
+  expect(container.querySelector("button")).toBe(button);
+  expect(button.textContent).toBe("bare module0");
+  expect(container.querySelector("aside")).toBe(sibling);
+  expect(settled).toBe(0);
+  expect(ended).toBe(0);
+  resolveModule();
+  await settle();
+  await settle();
+  expect(container.querySelectorAll("button")).toHaveLength(1);
+  expect(container.querySelector("button")).toBe(button);
+  expect(button.id).toBe(id);
+  expect(button.getAttribute("data-context")).toBe("preserved context");
+  expect(button.textContent).toBe("bare module0");
+  expect(container.querySelector("aside")).toBe(sibling);
+  expect(settled).toBe(1);
+  expect(ended).toBe(1);
+  button.click();
+  await settle();
+  expect(clicks).toBe(1);
+  expect(button.textContent).toBe("bare module1");
   expect(container.querySelector("button")).toBe(button);
   expect(ended).toBe(1);
 });
