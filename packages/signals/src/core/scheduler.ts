@@ -32,6 +32,7 @@ import { attrHooks } from "./attribution-hooks.js";
 import { notifyStatus } from "./async.js";
 import { ext, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
+import { isSame } from "./error.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
 import { devCheckQuiescent } from "./invariants.js";
@@ -881,8 +882,7 @@ export class GlobalQueue implements IQueue {
           if (
             n._pendingValue !== NOT_PENDING &&
             !((n as Computed<any>)._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) &&
-            n._equals &&
-            n._equals(n._value, n._pendingValue) &&
+            isSame(n, n._value, n._pendingValue) &&
             n._x?._pendingFirstChild == null &&
             n._x?._pendingDisposal == null
           ) {

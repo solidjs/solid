@@ -66,7 +66,7 @@ import {
   STATUS_UNINITIALIZED,
   type Refreshable
 } from "./constants.js";
-import { NotReadyError } from "./error.js";
+import { isSame, NotReadyError } from "./error.js";
 import { clearDeps, dormantNodes, link, trimStaleDeps } from "./graph.js";
 import {
   deleteFromHeap,
@@ -588,10 +588,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     let valueChanged = false;
     try {
       valueChanged =
-        (!isEffect && wasUninitialized) ||
-        !!el._x?._shownError ||
-        !el._equals ||
-        !el._equals(compareValue, value);
+        (!isEffect && wasUninitialized) || !!el._x?._shownError || !isSame(el, compareValue, value);
     } catch (e) {
       // A throwing user comparator is an error of this node's computation.
       // Route it through the same status path as a compute-phase throw so
@@ -2084,8 +2081,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   const valueChanged =
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
     !!el._x?._shownError ||
-    !el._equals ||
-    !el._equals(currentValue, v);
+    !isSame(el, currentValue, v);
   if (!valueChanged) return v;
 
   // Attribution hook: this committed write is where a re-run chain begins.

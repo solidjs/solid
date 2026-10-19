@@ -46,6 +46,22 @@ export class NotReadyError extends Error {
   }
 }
 
+/**
+ * A node's `_equals` verdict. A comparator that read an unresolved async
+ * source has not shown the values equal (#4111): the value is a change, and
+ * its readers suspend in their own tracked context. Classed as the node's
+ * error it held a NotReadyError that no source retries. Other throws
+ * propagate (A3).
+ */
+export function isSame(el: { _equals: any }, a: unknown, b: unknown): boolean {
+  try {
+    return !!el._equals && el._equals(a, b);
+  } catch (e) {
+    if (e instanceof NotReadyError) return false;
+    throw e;
+  }
+}
+
 export class StatusError extends Error {
   constructor(
     public source: any,
