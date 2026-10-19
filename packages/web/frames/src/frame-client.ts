@@ -21,6 +21,8 @@
 // agreement, unlike the registered-symbol brands this module otherwise
 // duplicates by design. The prod build folds the call out with the gate.
 import { DEV, OBSERVE } from "solid-js";
+// Replaced per build: the observe tier's flight stamps fold out of prod.
+const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
 /**
  * One transport chunk of a frame stream, addressed by frame `id`. Any
@@ -35,7 +37,13 @@ import { DEV, OBSERVE } from "solid-js";
 export type HoleRows = { n: number; r: [number, string][] };
 
 export type FrameChunk = (
-  | { type: "start"; id: string; version: number }
+  | {
+      type: "start";
+      id: string;
+      version: number;
+      /** Observe tier: when the response's request went out (see `landing`). */
+      startedAt?: number;
+    }
   | {
       type: "html";
       id: string;
@@ -959,8 +967,17 @@ export function createFrameHost(options = {}) {
       // lands one (`landing` below). The `complete` that follows an errored
       // response's `error` settles nothing: the error already did, and a
       // promise minted since is the next flight's.
-      if (chunk.type === "start") store.open = true;
-      else if (lands(records)) {
+      if (chunk.type === "start") {
+        store.open = true;
+        // Observe tier: the flight's origin, for the landing promise (see
+        // `landing`) — the request's start when the transport knows it, else
+        // the first `start` seen for the version (the body's own `start`
+        // after a header-time one writes nothing new).
+        if (IS_OBSERVE && store.startedVersion !== chunk.version) {
+          store.startedVersion = chunk.version;
+          store.startedAt = chunk.startedAt ?? performance.now();
+        }
+      } else if (lands(records)) {
         store.open = false;
         store.shown = r = store.records;
         store.shownVersion = chunk.version;
@@ -993,6 +1010,11 @@ export function createFrameHost(options = {}) {
       if (!wait) {
         landings.set(id, (wait = {}));
         wait.p = new Promise((r, j) => ((wait.r = r), (wait.j = j)));
+        // Observe tier: a promise minted for a flight already in the air
+        // started with that flight, not with the consumer that asked for it
+        // (#4140): a late mount must not read it as new sequential work. One
+        // minted for an errored address awaits the re-ask's flight — new work.
+        if (IS_OBSERVE && store.open) OBSERVE.attribution.markFlight(wait.p, store.startedAt);
       }
       return wait.p;
     },

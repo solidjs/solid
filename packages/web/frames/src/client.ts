@@ -17,6 +17,7 @@
 // state survive (policy A).
 
 import {
+  OBSERVE,
   createMemo,
   createOwner,
   createRenderEffect,
@@ -132,6 +133,7 @@ tierLoaders.wire = () => import("@solidjs/web/frames/wire");
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
+const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 // This import must resolve to the SHARED built instance, not a bundled
 // copy: configuring the server-function client only counts if it's the same
 // module the compiled reference proxies call through
@@ -343,7 +345,16 @@ function landing<T>(host: any, address: string, value: T, failed: () => unknown)
     if (!wait) return value;
     // An errored address with no flight open (a flight's `start` clears
     // the mounts' error): this read is the re-ask.
-    return (state ? reask(address, wait) : wait).then(() => value);
+    const landed = (state ? reask(address, wait) : wait).then(() => value);
+    // Observe tier: the wrapper is the flight the engine sees — it carries
+    // the delivery's origin (the request's start, see `FrameHost.landing`),
+    // so a consumer mounted while the response streams reads it as work
+    // already in the air, not a waterfall link (#4140). A re-ask is new work.
+    if (IS_OBSERVE && !state) {
+      const origin = OBSERVE!.attribution.flightOrigin(wait);
+      if (origin !== undefined) OBSERVE!.attribution.markFlight(landed, origin);
+    }
+    return landed;
   });
 }
 
