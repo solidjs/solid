@@ -269,8 +269,9 @@ describe("the live wire tier — preload-at-call", () => {
     expect(resident()).toBe(false);
     // A refetch of the same call: the next version — `bump` runs with the
     // tier absent (nothing to cancel). The root lands over content, so it
-    // morphs, and the morph rides the tier: the root starts its load and
-    // waits, the old content still showing; the install's flush lands it.
+    // morphs, and the morph rides the tier: the call starts its load with
+    // the request (`prepareMorph`), the root waits for it with the old
+    // content still showing, and the install's flush lands it.
     const h1 = m.div.querySelector("h1")!;
     setTick(1);
     await pump();

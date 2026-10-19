@@ -4581,9 +4581,9 @@ module.exports = [
     // 0.01 KB; recorded minified = measured.
     // Re-measured after merging next @ ed51af36 (#4139 landed first): 12.80 KB -> 12.99 KB, measured locally (linux) at 12,980 B brotli / 39,466 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 12.99 KB -> 12.72 KB, measured locally (linux) at 12,704 B brotli / 38,357 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 12.72 KB -> 11.93 KB, measured locally (linux) at 11,919 B brotli / 35,547 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and the frame starts the tier load at the new version's header. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "11.93 KB",
-    capMinified: 35547,
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 12.72 KB -> 11.96 KB, measured locally (linux) at 11,943 B brotli / 35,581 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "11.96 KB",
+    capMinified: 35581,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4969,7 +4969,7 @@ module.exports = [
     // 0.01 KB; recorded minified = measured.
     // Re-measured after merging next @ ed51af36 (#4139 landed first): 34.08 KB -> 34.28 KB (floor-caps.json), measured locally (linux) at 34,270 B brotli / 105,776 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 34.28 KB -> 34.00 KB (floor-caps.json), measured locally (linux) at 33,985 B brotli / 104,663 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 34.00 KB -> 33.30 KB (floor-caps.json), measured locally (linux) at 33,288 B brotli / 101,844 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and the frame starts the tier load at the new version's header. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 34.00 KB -> 33.31 KB (floor-caps.json), measured locally (linux) at 33,294 B brotli / 101,886 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5302,7 +5302,7 @@ module.exports = [
     // 0.01 KB; recorded minified = measured.
     // Re-measured after merging next @ ed51af36 (#4139 landed first): 38.34 KB -> 38.57 KB (floor-caps.json), measured locally (linux) at 38,560 B brotli / 119,182 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 38.57 KB -> 38.32 KB (floor-caps.json), measured locally (linux) at 38,309 B brotli / 118,069 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 38.32 KB -> 37.55 KB (floor-caps.json), measured locally (linux) at 37,538 B brotli / 115,250 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and the frame starts the tier load at the new version's header. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 38.32 KB -> 37.54 KB (floor-caps.json), measured locally (linux) at 37,523 B brotli / 115,287 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5453,9 +5453,9 @@ module.exports = [
     // 0.01 KB; recorded minified = measured.
     // Re-measured after merging next @ ed51af36 (#4139 landed first): 36.10 KB -> 36.42 KB, measured locally (linux) at 36,407 B brotli / 112,125 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 36.42 KB -> 36.05 KB, measured locally (linux) at 36,035 B brotli / 111,012 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 36.05 KB -> 35.29 KB, measured locally (linux) at 35,272 B brotli / 108,193 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and the frame starts the tier load at the new version's header. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 36.05 KB -> 35.29 KB, measured locally (linux) at 35,271 B brotli / 108,230 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: "35.29 KB",
-    capMinified: 108193,
+    capMinified: 108230,
     alias: pageAlias
   },
   {
@@ -5575,9 +5575,9 @@ module.exports = [
     // 0.01 KB; recorded minified = measured.
     // Re-measured after merging next @ ed51af36 (#4139 landed first): 42.18 KB -> 42.39 KB, measured locally (linux) at 42,375 B brotli / 127,178 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 42.39 KB -> 42.13 KB, measured locally (linux) at 42,112 B brotli / 126,066 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 42.13 KB -> 41.35 KB, measured locally (linux) at 41,336 B brotli / 123,246 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and the frame starts the tier load at the new version's header. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "41.35 KB",
-    capMinified: 123246,
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 42.13 KB -> 41.38 KB, measured locally (linux) at 41,365 B brotli / 123,281 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "41.38 KB",
+    capMinified: 123281,
     alias: pageAlias
   },
   {
@@ -5767,9 +5767,9 @@ module.exports = [
     // 0.01 KB; recorded minified = measured.
     // Re-measured after merging next @ ed51af36 (#4139 landed first): 41.66 KB -> 41.81 KB, measured locally (linux) at 41,799 B brotli / 129,611 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 41.81 KB -> 41.58 KB, measured locally (linux) at 41,564 B brotli / 128,499 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 41.58 KB -> 40.84 KB, measured locally (linux) at 40,822 B brotli / 125,680 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and the frame starts the tier load at the new version's header. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "40.84 KB",
-    capMinified: 125680,
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 41.58 KB -> 40.81 KB, measured locally (linux) at 40,798 B brotli / 125,717 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "40.81 KB",
+    capMinified: 125717,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5935,9 +5935,9 @@ module.exports = [
     // 0.01 KB; recorded minified = measured.
     // Re-measured after merging next @ ed51af36 (#4139 landed first): 47.74 KB -> 47.97 KB, measured locally (linux) at 47,954 B brotli / 144,465 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 47.97 KB -> 47.69 KB, measured locally (linux) at 47,675 B brotli / 143,353 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 47.69 KB -> 46.91 KB, measured locally (linux) at 46,899 B brotli / 140,535 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and the frame starts the tier load at the new version's header. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "46.91 KB",
-    capMinified: 140535,
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 47.69 KB -> 46.92 KB, measured locally (linux) at 46,908 B brotli / 140,570 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "46.92 KB",
+    capMinified: 140570,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
