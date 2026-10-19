@@ -4,6 +4,7 @@ import {
   notifyStatus,
   parkLoadingWindow,
   releaseFlightTeardown,
+  releaseIfSettledUnobserved,
   settleErroredDependents,
   settlePendingSource,
   stageError
@@ -67,7 +68,14 @@ import {
   type Refreshable
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
-import { clearDeps, dormantNodes, link, trimStaleDeps } from "./graph.js";
+import {
+  clearDeps,
+  deferReleases,
+  deferredReleases,
+  dormantNodes,
+  link,
+  trimStaleDeps
+} from "./graph.js";
 import {
   deleteFromHeap,
   enqueueSub,
@@ -289,6 +297,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // §12d: any recompute can clean a marked subscriber — invalidate skips.
   bumpNotifyEpoch();
   const isEffect = (el as any)._type;
+  let released: Computed<any>[] | undefined;
   // Lanes (plan sec. 28): the seat of a pass is its node's. A node carrying a lane's
   // derived value runs as the lane's whoever dirtied it — a sync write, a
   // boundary reset, a frame rerun — so its children and its result are the
@@ -385,8 +394,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // frame parked before it stays parked. Otherwise they ARE the frame:
     // park them until this pass commits. Tracked effects run after the seam
     // and own nothing to park.
-    if (isEffect === EFFECT_TRACKED || el._config & CONFIG_STAGED) disposeChildren(el);
-    else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
+    if (isEffect === EFFECT_TRACKED || el._config & CONFIG_STAGED) {
+      // A lazy node only those children read is released when this pass
+      // ends, if the pass doesn't read it again (#4142).
+      const prev = deferredReleases;
+      deferReleases((released = []));
+      disposeChildren(el);
+      deferReleases(prev);
+    } else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
     // An error a pass staged (D-41) is replaced by this pass's answer: a
     // value, a flight, or an error of its own (#4109, #4145).
     if (el._config & CONFIG_STAGED_ERROR) {
@@ -546,6 +561,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           REACTIVE_PROBE_UNANSWERED)) |
       (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
+    if (released) for (const node of released) releaseIfSettledUnobserved(node);
     // A19 exc. 2: a pass that went pending on a `refresh()` re-asks the
     // question already answered — quiet for the verdict; any other pending
     // pass is a new question. Settled, there is nothing to classify.

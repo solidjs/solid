@@ -43,12 +43,14 @@ export function unlinkSubs(link: Link): Link | null {
       // read. The settle path runs this same last-one-out check when that
       // observer releases (the untracked-read dormancy sweep guards on
       // pending identically).
+      // During a pass's teardown of its unfinished frame, the release waits
+      // for the pass to end (`deferredReleases`, #4142).
       const c = dep as Computed<any>;
       (c as any)._fn &&
         c._config & CONFIG_AUTO_DISPOSE &&
         !(c._flags & REACTIVE_ZOMBIE) &&
         !(c._statusFlags & STATUS_PENDING) &&
-        unobserved(c);
+        (deferredReleases ? deferredReleases.push(c) : unobserved(c));
     }
   }
   return nextDep;
@@ -79,6 +81,18 @@ export function clearDeps(el: Computed<unknown>): void {
   el._deps = null;
   el._depsTail = null;
 }
+
+/**
+ * Last-one-out releases held back while a pass tears down the frame of an
+ * earlier pass that never committed (#4142). The pass is about to rebuild
+ * the same children, which read the same lazy nodes again. Released on the
+ * spot, a lazy async memo whose only reader was the old frame's child memo
+ * was torn down, re-ran on the new child's read, went pending, and the cycle
+ * repeated forever. `recompute` collects them around that teardown and
+ * releases what is still unobserved when the pass ends.
+ */
+export let deferredReleases: Computed<any>[] | null = null;
+export const deferReleases = (list: Computed<any>[] | null) => (deferredReleases = list);
 
 export function unobserved(el: Computed<unknown>) {
   deleteFromHeap(el, dirtyQueue);
