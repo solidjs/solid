@@ -4563,8 +4563,25 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB.
     // record-only writes mount from the last slot walk (#4139, 2026-10-18): 12.25 -> 12.37 KB, measured locally at 12,359 B brotli / 37,310 B minified (+465 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
     // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 12.37 KB -> 12.46 KB, measured locally at 12,445 B brotli / 37,516 B minified (+206 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
-    limit: "12.46 KB",
-    capMinified: 37516,
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 12.25 -> 12.80 KB, measured locally (linux) at 12,784 B
+    // brotli / 38,793 B minified against next's 12,235 / 36,845 (+549 B; +1948
+    // B minified). Deferred hydration mounts only the slot occurrences the
+    // server recorded as readers of the written signal or store (an index built
+    // from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 12.80 KB -> 12.99 KB, measured locally (linux) at 12,980 B brotli / 39,466 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "12.99 KB",
+    capMinified: 39466,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4932,6 +4949,23 @@ module.exports = [
     // slot records mounts the occurrences it names from the frame's cached
     // walk instead of walking the frame again. Accepted by the maintainer.
     // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 33.57 KB -> 33.62 KB (floor-caps.json), measured locally at 33,608 B brotli / 103,298 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 33.46 -> 34.08 KB, measured locally (linux) at 34,065 B
+    // brotli / 105,105 B minified against next's 33,441 / 102,629 (+624 B;
+    // +2476 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 34.08 KB -> 34.28 KB (floor-caps.json), measured locally (linux) at 34,270 B brotli / 105,776 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5246,6 +5280,23 @@ module.exports = [
     // brotli / 116,502 B minified (+465 B minified). Accepted by the
     // maintainer.
     // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 37.67 KB -> 37.78 KB (floor-caps.json), measured locally at 37,768 B brotli / 116,698 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 37.58 -> 38.34 KB, measured locally (linux) at 38,322 B
+    // brotli / 118,464 B minified against next's 37,565 / 115,982 (+757 B;
+    // +2482 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 38.34 KB -> 38.57 KB (floor-caps.json), measured locally (linux) at 38,560 B brotli / 119,182 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5378,8 +5429,25 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB.
     // record-only writes mount from the last slot walk (#4139, 2026-10-18): 35.42 -> 35.53 KB, measured locally at 35,517 B brotli / 109,446 B minified (+473 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
     // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 35.53 KB -> 35.58 KB, measured locally at 35,569 B brotli / 109,642 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
-    limit: "35.58 KB",
-    capMinified: 109642,
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 35.42 -> 36.10 KB, measured locally (linux) at 36,087 B
+    // brotli / 111,454 B minified against next's 35,408 / 108,973 (+679 B;
+    // +2481 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 36.10 KB -> 36.42 KB, measured locally (linux) at 36,407 B brotli / 112,125 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "36.42 KB",
+    capMinified: 112125,
     alias: pageAlias
   },
   {
@@ -5481,8 +5549,25 @@ module.exports = [
     // the maintainer (2026-10-17).
     // record-only writes mount from the last slot walk (#4139, 2026-10-18): 41.48 -> 41.64 KB, measured locally at 41,628 B brotli / 124,449 B minified (+523 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
     // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 41.64 KB -> 41.66 KB, measured locally at 41,649 B brotli / 124,645 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
-    limit: "41.66 KB",
-    capMinified: 124645,
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 41.48 -> 42.18 KB, measured locally (linux) at 42,169 B
+    // brotli / 126,460 B minified against next's 41,439 / 123,929 (+730 B;
+    // +2531 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 42.18 KB -> 42.39 KB, measured locally (linux) at 42,375 B brotli / 127,178 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "42.39 KB",
+    capMinified: 127178,
     alias: pageAlias
   },
   {
@@ -5654,8 +5739,25 @@ module.exports = [
     // raised.
     // record-only writes mount from the last slot walk (#4139, 2026-10-18): 40.90 -> 40.95 KB, measured locally at 40,937 B brotli / 126,936 B minified (+476 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
     // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 40.95 KB -> 41.04 KB, measured locally at 41,022 B brotli / 127,132 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
-    limit: "41.04 KB",
-    capMinified: 127132,
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 40.90 -> 41.66 KB, measured locally (linux) at 41,647 B
+    // brotli / 128,940 B minified against next's 40,817 / 126,463 (+830 B;
+    // +2477 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 41.66 KB -> 41.81 KB, measured locally (linux) at 41,799 B brotli / 129,611 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "41.81 KB",
+    capMinified: 129611,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5803,8 +5905,25 @@ module.exports = [
     // (2026-10-17).
     // record-only writes mount from the last slot walk (#4139, 2026-10-18): 47.05 -> 47.19 KB, measured locally at 47,173 B brotli / 141,725 B minified (+470 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
     // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 47.19 KB -> 47.23 KB, measured locally at 47,220 B brotli / 141,921 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
-    limit: "47.23 KB",
-    capMinified: 141921,
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 47.02 -> 47.74 KB, measured locally (linux) at 47,722 B
+    // brotli / 143,747 B minified against next's 47,006 / 141,205 (+716 B;
+    // +2542 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 47.74 KB -> 47.97 KB, measured locally (linux) at 47,954 B brotli / 144,465 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "47.97 KB",
+    capMinified: 144465,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }

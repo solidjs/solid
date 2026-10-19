@@ -159,8 +159,22 @@ export {
   reportServerError
 } from "./signals.js";
 export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
+/** @internal Dependency edges (the frames server installs them). */
+export { trackFillReads, beginEdgesRender } from "./edges.js";
 /** @internal Client-only: the server has no writes to observe. */
-export function setWriteHook(_hook: (() => void) | null): void {}
+export function setWriteHook(_hook: ((node?: object) => void) | null): void {}
+/** @internal Dependency edges: client-only (the server names through `beginEdgesRender`). */
+export function setSignalIdentities(_on: boolean): void {}
+/** @internal Dependency edges: client-only. */
+export function setReadWatch(_watch: ((node: object) => void) | null): void {}
+/** @internal Dependency edges: client-only. */
+export function signalName(_node: object | undefined): string | undefined {
+  return undefined;
+}
+/** @internal Dependency edges: client-only. */
+export function storeName(_proxy: object | undefined): string | undefined {
+  return undefined;
+}
 /** @internal */
 export { ssrHandleError, ssrScope } from "./hydration.js";
 // After the runtime modules above, so this import adds no edge to the module
