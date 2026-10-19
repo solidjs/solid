@@ -170,11 +170,16 @@ GlobalQueue._update = el => {
   } else recompute(el);
 };
 /** The zombie's frame was parked by lane work: the nearest non-zombie owner
- * (the one whose pass parked it) carries a lane's derived value. */
+ * (the one whose pass parked it) carries a lane's derived value — or, an
+ * effect (no lane value: `laneStage`), is listed in a lane (an `insert()`
+ * hole's render effect). */
 function laneFrameMember(el: Computed<any>): boolean {
   let o: any = el._parent;
   while (o._flags & REACTIVE_ZOMBIE) o = o._parent;
-  return (o._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE;
+  return (
+    (o._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE ||
+    (o._type && o._x?._transaction?._lane)
+  );
 }
 GlobalQueue._dispose = disposeChildren;
 
