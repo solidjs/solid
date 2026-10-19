@@ -369,7 +369,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (__DEV__) clearSignals(el);
   }
 
-  const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
+  const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
   // Capture both error and pending status before the compute clears them.
   // A conditional can drop its pending source and recover to an unchanged
   // value, leaving blocked dependents outside that source’s settle walk.
@@ -589,7 +589,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     try {
       valueChanged =
         (!isEffect && wasUninitialized) ||
-        el._x?._shownError ||
+        !!el._x?._shownError ||
         !el._equals ||
         !el._equals(compareValue, value);
     } catch (e) {
