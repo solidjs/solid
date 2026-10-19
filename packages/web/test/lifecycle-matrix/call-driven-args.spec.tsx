@@ -19,6 +19,7 @@ import { installServerComponents } from "../../frames/src/client.js";
 import { prepareTier } from "../../frames/src/frame-client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, frameResponse, dataChunks, createDataSource, pump, settle } from "./harness.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 // The regions tier, resident before any cell runs (see the header).
 beforeAll(() => prepareTier("regions"));
@@ -203,14 +204,16 @@ describe("call-driven/args/data-refs", () => {
     // Tables rotate per response, so the next stream's ref has a NEW key —
     // but it decodes to an equal value. Value-compare, don't re-call.
     const addr = "matrix/args/ref-same";
-    for (const c of data.chunks(addr, 2, { d2: { label: "x" } })) host.apply(c);
-    host.apply({
-      type: "slot",
-      id: addr,
-      version: 2,
-      key: "comment#0",
-      args: { data: { $ref: "d2" } }
-    });
+    for (const c of data.chunks(addr, 2, { d2: { label: "x" } })) host.apply(encodeFrameChunk(c));
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: addr,
+        version: 2,
+        key: "comment#0",
+        args: { data: { $ref: "d2" } }
+      })
+    );
     await pump(1);
 
     expect(mounts).toBe(1);
@@ -259,14 +262,16 @@ describe("call-driven/args/data-refs", () => {
     expect(li.textContent).toBe("x:1");
 
     const addr = "matrix/args/ref-changed";
-    for (const c of data.chunks(addr, 2, { d2: { label: "y" } })) host.apply(c);
-    host.apply({
-      type: "slot",
-      id: addr,
-      version: 2,
-      key: "comment#0",
-      args: { data: { $ref: "d2" } }
-    });
+    for (const c of data.chunks(addr, 2, { d2: { label: "y" } })) host.apply(encodeFrameChunk(c));
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: addr,
+        version: 2,
+        key: "comment#0",
+        args: { data: { $ref: "d2" } }
+      })
+    );
     await pump(1);
 
     expect(mounts).toBe(1); // live-props path, not a re-call
@@ -317,12 +322,14 @@ describe("call-driven/args/regions", () => {
 
     // A ROOT morph re-sends the shell around the slot range: the occurrence's
     // range — and the region element inside it — is protected, not rebuilt.
-    host.apply({
-      type: "html",
-      id: addr,
-      version: 2,
-      html: slotArticle.replace("<h1>T</h1>", "<h1>T2</h1>")
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: addr,
+        version: 2,
+        html: slotArticle.replace("<h1>T</h1>", "<h1>T2</h1>")
+      })
+    );
     await pump(1);
     expect(m.div.querySelector("h1")!.textContent).toBe("T2");
     expect(m.div.querySelector(".wrap solid-frame")).toBe(region);
@@ -333,19 +340,23 @@ describe("call-driven/args/regions", () => {
     // single-flight shape: regions render under the call's address). The
     // record re-send carries the renamed {$frame}; the live region rebinds
     // and the new stream's chunks reach the same element.
-    host.apply({
-      type: "slot",
-      id: addr,
-      version: 3,
-      key: "comment#0",
-      args: { cid: "c1", children: { $frame: `${addr}.comment#0.children` } }
-    });
-    host.apply({
-      type: "html",
-      id: `${addr}.comment#0.children`,
-      version: 1,
-      html: "<em>body-2</em>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: addr,
+        version: 3,
+        key: "comment#0",
+        args: { cid: "c1", children: { $frame: `${addr}.comment#0.children` } }
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: `${addr}.comment#0.children`,
+        version: 1,
+        html: "<em>body-2</em>"
+      })
+    );
     await pump(1);
 
     expect(mounts).toBe(1); // rename is a rebind, never a re-call
@@ -395,7 +406,7 @@ describe("call-driven/args/async-values", () => {
     // rides the (still open) stream as another data chunk.
     resolveBody("resolved-body");
     await settle();
-    for (const c of late.splice(0)) host.apply(c);
+    for (const c of late.splice(0)) host.apply(encodeFrameChunk(c));
     await pump();
 
     expect(m.div.textContent).not.toContain("fill-wait");
@@ -422,7 +433,7 @@ describe("call-driven/args/async-values", () => {
 
     const flushData = async () => {
       await settle();
-      for (const c of late.splice(0)) host.apply(c);
+      for (const c of late.splice(0)) host.apply(encodeFrameChunk(c));
       await pump();
     };
 

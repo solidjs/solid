@@ -16,6 +16,7 @@ import { prepareTier } from "../frames/src/frame-client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { createChunk } from "../server-functions/src/shared.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 const FN = "region";
 const REGION = `${FN}.wrap#0.children`;
@@ -62,7 +63,8 @@ function regionResponse(id: number) {
   ];
   const body = new ReadableStream({
     start(controller) {
-      for (const chunk of chunks) controller.enqueue(createChunk(JSON.stringify(chunk)));
+      for (const chunk of chunks)
+        controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
       controller.close();
     }
   });

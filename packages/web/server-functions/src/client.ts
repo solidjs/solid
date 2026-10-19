@@ -250,7 +250,10 @@ export interface ServerFunctionsClientConfig {
      * declared shape and per-call options as dispatched (a `GET`-declared
      * read stays a GET; a caller-supplied `signal` still owns the wire) —
      * for a handler re-asking on its own account (a frames boundary's
-     * `reset`, frames-rulings 3.3).
+     * `reset`, frames-rulings 3.3). Observe tier only: `ctx.startedAt` is
+     * when the request was sent (`performance.now()`), so a handler can
+     * stamp what it hands out with the request's start
+     * (`OBSERVE.attribution.markFlight`).
      */
     handle(
       response: Response,
@@ -260,6 +263,7 @@ export interface ServerFunctionsClientConfig {
         args: unknown[];
         context: unknown;
         retry(): Promise<unknown>;
+        startedAt?: number;
       }
     ): unknown;
     /**
@@ -817,6 +821,8 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
   // See CALL_OBSERVATION: the observation rides to `createRequest`.
   if (IS_OBSERVE && observation) options = { ...options, [CALL_OBSERVATION]: observation };
 
+  // Observe tier: when the request went out, for the handler's flight stamps.
+  const startedAt = IS_OBSERVE && handler ? performance.now() : undefined;
   const response = await initializeResponse(base, id, options, args, meta);
   if (IS_OBSERVE && observation) observation.response(response);
 
@@ -833,6 +839,7 @@ async function dispatchServerFunction(base, id, options, args, meta, callArgs = 
       context,
       retry: () => fetchServerFunction(base, id, sent, args, meta, callArgs)
     };
+    if (IS_OBSERVE) ctx.startedAt = startedAt;
     if (options[LIVE_WIRE]) ctx[LIVE_WIRE] = options[LIVE_WIRE];
     const handled = handler.handle(response, ctx);
     if (handled !== undefined) return handled;

@@ -597,7 +597,9 @@ describe("typed preload links", () => {
     expect(html).not.toContain("/late.woff2");
   });
 
-  it("carries shell and late links through frame asset chunks", async () => {
+  it("carries shell and late links through frame asset records", async () => {
+    // The root's assets record (`seg::assets`) in the batches that write it.
+    const assets = messages => messages.filter(m => m.r && "seg::assets" in m.r);
     const chunks = await renderToFrameStream(
       () => {
         const ctx = sharedConfig.context;
@@ -622,7 +624,7 @@ describe("typed preload links", () => {
       }
     );
 
-    expect(chunks.find(chunk => chunk.type === "assets").preloads).toEqual([
+    expect(assets(chunks)[0].r["seg::assets"].preloads).toEqual([
       {
         href: "/font.woff2",
         attrs: { as: "font", type: "font/woff2", crossorigin: "" }
@@ -651,7 +653,7 @@ describe("typed preload links", () => {
       ).pipe({
         write(chunk) {
           late.push(chunk);
-          if (chunk.type === "html") {
+          if (chunk.r && "" in chunk.r) {
             setTimeout(() => {
               sharedConfig.context.registerAsset("preload", {
                 href: "/late-frame.webp",
@@ -665,17 +667,17 @@ describe("typed preload links", () => {
         end: resolve
       });
     });
-    expect(late.filter(chunk => chunk.type === "assets")).toEqual([
-      {
-        type: "assets",
-        id: "late-links",
-        version: 1,
-        key: "",
-        preloads: [{ href: "/late-frame.webp", attrs: { as: "image", fetchpriority: "high" } }],
-        // The first assets chunk of the stream, minted after the head left:
-        // it announces the `assets` tier in-band (frames savings pass §2).
-        tiers: ["assets"]
-      }
+    const [lateAssets, ...more] = assets(late);
+    expect(more).toEqual([]);
+    expect(lateAssets.r["seg::assets"]).toEqual({
+      preloads: [{ href: "/late-frame.webp", attrs: { as: "image", fetchpriority: "high" } }]
+    });
+    // The first assets record of the stream, minted after the head left: its
+    // batch announces the `assets` tier in-band (frames savings pass §2).
+    expect([lateAssets.id, lateAssets.version, lateAssets.tiers]).toEqual([
+      "late-links",
+      1,
+      ["assets"]
     ]);
   });
 

@@ -707,6 +707,7 @@ export function handleAsync<T>(
       });
     }
     if (!innerIterator) return false;
+    syncValue = undefined as T;
     const landed = consumeIterator(value as AsyncIterable<T>, registerClose);
     if (!registerClose) liveLanded = landed;
     return true;

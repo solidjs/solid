@@ -21,9 +21,9 @@ describe("document live channel — server render (writes the artifact)", () => 
 
     // The first yield is the page's truth, marker-wrapped as a hole.
     expect(full).toMatch(/<!--lh:(\d+)-->w1<!--lh:\/\1-->/);
-    // Every later yield rode the channel as a `hole` op, exactly once; the
-    // last one appears nowhere else (no second markup rendering).
-    for (const later of YIELDS.slice(1)) expect(full.split(`html:"${later}"`).length).toBe(2);
+    // Every later yield rode the channel as a `hole:` record, exactly once;
+    // the last one appears nowhere else (no second markup rendering).
+    for (const later of YIELDS.slice(1)) expect(full.split(`value:"${later}"`).length).toBe(2);
     expect(full.split(YIELDS[YIELDS.length - 1]).length).toBe(2);
     expect(full).toContain("sc:live");
 

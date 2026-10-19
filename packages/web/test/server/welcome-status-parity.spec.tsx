@@ -36,7 +36,7 @@ describe("welcome/status parity — server render (document face)", () => {
       // progress yield that settles the slot) land before its 15 ms `stats`
       // promise, in the fixture's order, on every host.
       const usageDone = rest.indexOf('"done"');
-      const slot = rest.indexOf('type:"slot"');
+      const slot = rest.indexOf('kind:"slot"');
       const stats = rest.indexOf("tokens:42");
       expect(usageDone).toBeGreaterThan(-1);
       expect(slot).toBeGreaterThan(usageDone);

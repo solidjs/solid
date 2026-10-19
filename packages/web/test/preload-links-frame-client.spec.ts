@@ -6,6 +6,7 @@ import {
   prepareTier,
   tierLoaders
 } from "../frames/src/frame-client.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 beforeAll(async () => {
   // Preloads apply through the ASSETS TIER (`@solidjs/web/frames/assets`,
@@ -192,27 +193,33 @@ describe("frame preload links", () => {
 
   it("retains every late root asset record until a frame registers", () => {
     const host = createFrameHost();
-    host.apply({
-      type: "assets",
-      id: "warm-assets",
-      version: 1,
-      key: "",
-      modules: ["/warm-module-a.js"]
-    });
-    host.apply({
-      type: "assets",
-      id: "warm-assets",
-      version: 1,
-      key: "",
-      modules: ["/warm-module-b.js"]
-    });
-    host.apply({
-      type: "assets",
-      id: "warm-assets",
-      version: 1,
-      key: "",
-      preloads: [{ href: "/warm-font.woff2", attrs: { as: "font", crossorigin: "" } }]
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "assets",
+        id: "warm-assets",
+        version: 1,
+        key: "",
+        modules: ["/warm-module-a.js"]
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "assets",
+        id: "warm-assets",
+        version: 1,
+        key: "",
+        modules: ["/warm-module-b.js"]
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "assets",
+        id: "warm-assets",
+        version: 1,
+        key: "",
+        preloads: [{ href: "/warm-font.woff2", attrs: { as: "font", crossorigin: "" } }]
+      })
+    );
 
     expect(document.head.querySelector("link")).toBeNull();
     const boundary = document.createElement("div");
@@ -221,5 +228,48 @@ describe("frame preload links", () => {
     expect(document.head.querySelector('link[href="/warm-module-a.js"]')).not.toBeNull();
     expect(document.head.querySelector('link[href="/warm-module-b.js"]')).not.toBeNull();
     expect(document.head.querySelector('link[href="/warm-font.woff2"]')).not.toBeNull();
+  });
+
+  it("keeps the other records of a batch that merges late root assets", () => {
+    const host = createFrameHost();
+    host.apply({
+      id: "mixed-assets",
+      version: 1,
+      r: { "seg::assets": { modules: ["/mixed-a.js"] } }
+    });
+    host.apply({
+      id: "mixed-assets",
+      version: 1,
+      r: {
+        "seg::assets": { modules: ["/mixed-b.js"] },
+        "seg:01:assets": { modules: ["/mixed-seg.js"] }
+      }
+    });
+
+    const boundary = document.createElement("div");
+    document.body.appendChild(boundary);
+    createFrame(boundary, { id: "mixed-assets", host });
+    expect(document.head.querySelector('link[href="/mixed-a.js"]')).not.toBeNull();
+    expect(document.head.querySelector('link[href="/mixed-b.js"]')).not.toBeNull();
+    expect(document.head.querySelector('link[href="/mixed-seg.js"]')).not.toBeNull();
+  });
+
+  it("applies late root assets that ride a landing batch to a mounted frame", () => {
+    const host = createFrameHost();
+    const boundary = document.createElement("div");
+    document.body.appendChild(boundary);
+    createFrame(boundary, { id: "landing-assets", host });
+    host.apply({
+      id: "landing-assets",
+      version: 1,
+      r: { "": "<p>shell</p>", "seg::assets": { modules: ["/landing-a.js"] } }
+    });
+    host.apply({
+      id: "landing-assets",
+      version: 1,
+      r: { ":complete": true, "seg::assets": { modules: ["/landing-b.js"] } }
+    });
+    expect(document.head.querySelector('link[href="/landing-a.js"]')).not.toBeNull();
+    expect(document.head.querySelector('link[href="/landing-b.js"]')).not.toBeNull();
   });
 });

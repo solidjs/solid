@@ -72,7 +72,7 @@ describe("plain-response bound — the client", () => {
     // Named once, with the way past it.
     const named = warn.mock.calls.filter(c => String(c[0]).includes("bound"));
     expect(named).toHaveLength(1);
-    expect(String(named[0][0])).toContain('complete.bound: "yields"');
+    expect(String(named[0][0])).toContain(':bound: "yields"');
     expect(String(named[0][0])).toContain("live(");
     m.cleanup();
   });

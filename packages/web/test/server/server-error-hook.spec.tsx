@@ -853,10 +853,10 @@ describe("a render that throws synchronously to its caller", () => {
     expect(reported).toHaveLength(0);
   });
 
-  test("renderToFrameStream: the error chunk it sends was heard first as `render`/`failed`", async () => {
+  test("renderToFrameStream: the error record it sends was heard first as `render`/`failed`", async () => {
     configureServerErrors({ onError: hook() });
     const chunks: any[] = await (renderToFrameStream(() => <Bad />) as any);
-    expect(chunks.some(c => c.type === "error")).toBe(true);
+    expect(chunks.some(c => c.r && ":error" in c.r)).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0].error).toBe(boom);
     expect(calls[0].context).toMatchObject({ kind: "render", handling: "failed" });

@@ -13,6 +13,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { createRoot, createSignal, flush, Loading } from "solid-js";
 import { installServerComponents } from "../../frames/src/client.js";
 import { makeHost, pump } from "./harness.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -65,14 +66,24 @@ describe("placeholder/fill-by-later-stream", () => {
     expect(mounts).toBe(0);
 
     // The stream arrives and fills the waiting boundary.
-    host.apply({ type: "slot", id: FID, version: 1, key: "comment#0", args: { text: "one" } });
-    host.apply({
-      type: "html",
-      id: FID,
-      version: 1,
-      html: "<article><h1>Feed</h1><ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul></article>"
-    });
-    host.apply({ type: "complete", id: FID, version: 1 });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: FID,
+        version: 1,
+        key: "comment#0",
+        args: { text: "one" }
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: FID,
+        version: 1,
+        html: "<article><h1>Feed</h1><ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul></article>"
+      })
+    );
+    host.apply(encodeFrameChunk({ type: "complete", id: FID, version: 1 }));
     await pump();
 
     expect(frameEl.querySelector("h1")!.textContent).toBe("Feed");
@@ -83,13 +94,23 @@ describe("placeholder/fill-by-later-stream", () => {
     expect(li.textContent).toBe("one:1");
 
     // A newer version morphs in place: slot state survives, dedupe holds.
-    host.apply({ type: "slot", id: FID, version: 2, key: "comment#0", args: { text: "one" } });
-    host.apply({
-      type: "html",
-      id: FID,
-      version: 2,
-      html: "<article><h1>Feed 2</h1><ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul></article>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: FID,
+        version: 2,
+        key: "comment#0",
+        args: { text: "one" }
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: FID,
+        version: 2,
+        html: "<article><h1>Feed 2</h1><ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul></article>"
+      })
+    );
     await pump(1);
     expect(frameEl.querySelector("h1")!.textContent).toBe("Feed 2");
     expect(mounts).toBe(1);

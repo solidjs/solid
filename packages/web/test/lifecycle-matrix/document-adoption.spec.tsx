@@ -23,6 +23,7 @@ import { dynamic } from "../../src/index.js";
 import { installServerComponents, createFrame } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, openFrameResponse, pump } from "./harness.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 const getBasic = createServerReference("matrix/adopt/basic");
 const getMorph = createServerReference("matrix/adopt/morph");
@@ -164,14 +165,16 @@ describe("t=0/post-adoption-stream", () => {
 
     // A navigation-shaped stream lands on the adopted boundary (the document
     // wire id IS the argless call's address).
-    host.apply({
-      type: "html",
-      id: "matrix/adopt/morph",
-      version: 1,
-      html:
-        "<article><h1>Morphed</h1>" +
-        "<ul><!--slot:comment#c1:start--><!--slot:comment#c1:end--></ul></article>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "matrix/adopt/morph",
+        version: 1,
+        html:
+          "<article><h1>Morphed</h1>" +
+          "<ul><!--slot:comment#c1:start--><!--slot:comment#c1:end--></ul></article>"
+      })
+    );
     await pump(1);
 
     // In-place morph: same h1 node, new text; the slot range — and the
@@ -211,25 +214,29 @@ describe("t=0/adopted-occurrence-records", () => {
       .querySelector(".live-fill")!;
 
     // Identical re-send (a stream repeating the t=0 record): dedupe.
-    host.apply({
-      type: "slot",
-      id: "matrix/adopt/records",
-      version: 1,
-      key: "comment#c1",
-      args: { cid: "c1" }
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "matrix/adopt/records",
+        version: 1,
+        key: "comment#c1",
+        args: { cid: "c1" }
+      })
+    );
     await pump(1);
     expect(mounts).toBe(1);
     expect(reads).toEqual(["c1"]);
 
     // A genuine change: live props update the adopted instance in place.
-    host.apply({
-      type: "slot",
-      id: "matrix/adopt/records",
-      version: 2,
-      key: "comment#c1",
-      args: { cid: "c2" }
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "matrix/adopt/records",
+        version: 2,
+        key: "comment#c1",
+        args: { cid: "c2" }
+      })
+    );
     await pump(1);
     expect(mounts).toBe(1);
     expect(reads).toEqual(["c1", "c2"]);
@@ -287,13 +294,15 @@ describe("t=0/raw-frame-claim", () => {
   test("an adopt-mode frame's slot callback answering `undefined` CLAIMS the server interior — nothing moves, and later morphs still protect it", () => {
     const { host } = makeHost();
     // The record buffered before the frame exists (t=0 record drain shape).
-    host.apply({
-      type: "slot",
-      id: "raw/adopt-claim",
-      version: 0,
-      key: "comment#c1",
-      args: { cid: "c1" }
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "raw/adopt-claim",
+        version: 0,
+        key: "comment#c1",
+        args: { cid: "c1" }
+      })
+    );
 
     const el = document.createElement("solid-frame");
     el.setAttribute("data-fid", "raw/adopt-claim");
@@ -323,12 +332,14 @@ describe("t=0/raw-frame-claim", () => {
     expect(el.querySelector(".keep")).toBe(keep); // untouched
 
     // A later root morph re-sends the shell: the claimed range is protected.
-    host.apply({
-      type: "html",
-      id: "raw/adopt-claim",
-      version: 1,
-      html: "<article><h1>Raw2</h1><!--slot:comment#c1:start--><!--slot:comment#c1:end--></article>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "raw/adopt-claim",
+        version: 1,
+        html: "<article><h1>Raw2</h1><!--slot:comment#c1:start--><!--slot:comment#c1:end--></article>"
+      })
+    );
     expect(el.querySelector("h1")!.textContent).toBe("Raw2");
     expect(el.querySelector(".keep")).toBe(keep);
     expect(calls).toHaveLength(1);

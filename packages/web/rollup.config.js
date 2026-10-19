@@ -528,7 +528,9 @@ export default [
     // what a `live()` loop's connection needs of the frames transport — the
     // per-address connection (join / open / supersede), the SSE reader
     // selection and the connection's lifetime told to the loop, the
-    // mount's have-list ledger and the resume request — as a lazy chunk the
+    // mount's have-list ledger and the resume request, and the live-hole /
+    // attr-hole appliers (the range morph itself stays eager, handed in) —
+    // as a lazy chunk the
     // frames client loads through `prepareTier("wire")` (plan step C2;
     // preload-at-call from `live()`'s `onLive` hook). The eager client
     // entry is external by instance (externalizeFramesClient —

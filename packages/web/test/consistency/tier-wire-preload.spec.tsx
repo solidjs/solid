@@ -54,10 +54,12 @@ import { createServerReference, live } from "../../server-functions/src/client.j
 import { LAST_EVENT_ID_HEADER, frameAddress } from "../../server-functions/src/shared.js";
 import {
   freshFid,
+  holeHtml,
   makeHost,
   openFrameResponse,
   openLiveFrameResponse,
   pump,
+  stubHeldFetch,
   stubLiveFetch,
   until
 } from "./support.js";
@@ -112,6 +114,39 @@ function mountUnderLoading(Comp: any) {
 }
 
 const cleanups: (() => void)[] = [];
+
+describe("the live wire tier — live content applies through it", () => {
+  test("a hole record that lands before the tier is resident stays pending (the DOM keeps the previous value) and starts the load; the install's flush morphs it", async () => {
+    const gate = gatedWire();
+    const fid = freshFid("tier-wire-hole");
+    const { host } = makeHost();
+    installServerComponents(host, { tiers: gate.tiers });
+    const { held } = stubHeldFetch([fid]);
+    const getX = createServerReference(fid);
+    const Site = dynamic(() => getX() as any);
+    const site = mountUnderLoading(Site);
+    cleanups.push(site.cleanup);
+    await pump();
+    held[0].send({ type: "start", id: fid, version: 1 });
+    held[0].send({ type: "html", id: fid, version: 1, html: `<p>${holeHtml(0, "h0")}</p>` });
+    await pump();
+    const p = site.div.querySelector("p")!;
+    expect(p.textContent).toBe("h0");
+    // A plain response never loads the tier.
+    expect(gate.loader).not.toHaveBeenCalled();
+    held[0].send({ type: "hole", id: fid, version: 1, key: "lh:0", html: "h1" });
+    await pump();
+    expect(gate.loader).toHaveBeenCalledTimes(1);
+    expect(resident()).toBe(false);
+    expect(p.textContent).toBe("h0");
+    await gate.release();
+    await until(() => p.textContent === "h1");
+    // The morph kept the element: the hole's range changed in place.
+    expect(site.div.querySelector("p")).toBe(p);
+    held[0].send({ type: "complete", id: fid, version: 1 });
+    held[0].close();
+  });
+});
 afterEach(() => {
   for (const c of cleanups.splice(0)) c();
   vi.unstubAllGlobals();
@@ -208,7 +243,7 @@ describe("the live wire tier — preload-at-call", () => {
     await until(() => status.includes("closed"), 3000);
   }, 10000);
 
-  test("a non-live call never loads the tier: a plain frame stream reads through the eager transport, and a refetch's bump has no connection to cancel", async () => {
+  test("a non-live call's first materialize never loads the tier; a refetch's morph waits on it, the old content still showing, and lands whole on install (no connection to cancel)", async () => {
     const gate = gatedWire();
     const fid = freshFid("tier-wire-b");
     const WIRE = `${fid}/wire`;
@@ -233,7 +268,10 @@ describe("the live wire tier — preload-at-call", () => {
     expect(gate.loader).not.toHaveBeenCalled();
     expect(resident()).toBe(false);
     // A refetch of the same call: the next version — `bump` runs with the
-    // tier absent (nothing to cancel), the morph lands.
+    // tier absent (nothing to cancel). The root lands over content, so it
+    // morphs, and the morph rides the tier: the call starts its load with
+    // the request (`prepareMorph`), the root waits for it with the old
+    // content still showing, and the install's flush lands it.
     const h1 = m.div.querySelector("h1")!;
     setTick(1);
     await pump();
@@ -242,10 +280,14 @@ describe("the live wire tier — preload-at-call", () => {
     responses[1].send(digestedRoot(WIRE, 1, "plain-2", "b000000000000002"));
     responses[1].send({ type: "complete", id: WIRE, version: 1 });
     responses[1].close();
+    await until(() => gate.loader.mock.calls.length > 0, 3000);
+    await pump();
+    expect(h1.textContent).toBe("plain");
+    expect(resident()).toBe(false);
+    await gate.release();
     await until(() => h1.textContent === "plain-2", 3000);
     expect(m.div.querySelector("h1")).toBe(h1);
-    expect(gate.loader).not.toHaveBeenCalled();
-    expect(resident()).toBe(false);
+    expect(gate.loader).toHaveBeenCalledTimes(1);
   });
 
   test("the degraded first connect (accepted): content a plain call applied before the tier was resident kept no ledger — the live connect sends no have-list and no position (a full snapshot); the live response's own root resets the ledger, and the reconnect names it", async () => {

@@ -37,8 +37,11 @@ import {
 // (`@solidjs/web/frames/regions`, frames savings pass §3 row C4): wire its
 // loader as the entry does and warm it, so every region binds as it would
 // on a page that announced it.
+// Navigation morphs the boundary, and the morph rides the WIRE TIER
+// (`@solidjs/web/frames/wire`): wired and warmed the same way.
 tierLoaders.regions = () => import("../../frames/src/regions-tier.js");
-beforeAll(() => prepareTier("regions"));
+tierLoaders.wire = () => import("../../frames/src/wire-tier.js");
+beforeAll(() => Promise.all([prepareTier("regions"), prepareTier("wire")]));
 
 // A raw slot callback owns its range: it places its output before the
 // range's end marker over `ctx.existing` (the frame never writes an
