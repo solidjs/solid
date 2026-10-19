@@ -61,6 +61,7 @@ export {
   Match,
   Repeat,
   Errored,
+  DeferredHydration,
   NoHydration,
   Hydration
 } from "solid-js";

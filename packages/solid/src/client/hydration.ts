@@ -1,8 +1,10 @@
 import {
   getOwner,
+  untrack,
   NotReadyError,
   createLoadingBoundary as coreLoadingBoundary,
   createErrorBoundary as coreErrorBoundary,
+  flatten,
   flush,
   runWithOwner,
   onCleanup,
@@ -134,6 +136,25 @@ export type HydrationContext = {};
 export const NoHydrateContext: Context<boolean> = {
   id: Symbol("NoHydrateContext"),
   defaultValue: false
+};
+
+// Only a retained DeferredHydration subtree may keep its SSR content while
+// client-owned pending work has no corresponding serialized Loading record.
+type DeferredClaim = {
+  run?: <T>(compute: () => T) => T;
+  hold?: () => () => void;
+};
+const DeferredClaimContext: Context<DeferredClaim | null> = {
+  id: Symbol("DeferredClaimContext"),
+  defaultValue: null
+};
+type DeferredErrorScope = {
+  claims: Set<() => void>;
+  parent: DeferredErrorScope | null;
+};
+const DeferredErrorContext: Context<DeferredErrorScope | null> = {
+  id: Symbol("DeferredErrorContext"),
+  defaultValue: null
 };
 
 type SharedConfig = {
@@ -1257,8 +1278,15 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
 }
 
 function hydratedCreateMemo(compute: any, options?: any) {
-  if (!sharedConfig.hydrating) return coreMemo(compute, options);
-  return hydrateSignalLike(coreMemo, compute, options);
+  if (!sharedConfig.hydrating || noHydrationId()) return coreMemo(compute, options);
+  const claim = getContext(DeferredClaimContext)?.run;
+  return hydrateSignalLike(
+    claim
+      ? (fn: any, memoOptions: any) => coreMemo((prev: any) => claim(() => fn(prev)), memoOptions)
+      : coreMemo,
+    compute,
+    options
+  );
 }
 
 function hydratedCreateSignal(fn?: any, second?: any) {
@@ -1272,6 +1300,22 @@ function hydratedCreateErrorBoundary<T, U>(
 ): Accessor<T | U> {
   if (!sharedConfig.hydrating || noHydrationId()) return coreErrorBoundary(fn, fallback);
   markTopLevelSnapshotScope();
+  const scope: DeferredErrorScope = {
+    claims: new Set(),
+    parent: getContext(DeferredErrorContext)
+  };
+  const children = fn;
+  const renderFallback = fallback;
+  fn = () => {
+    setContext(DeferredErrorContext, scope);
+    return children();
+  };
+  fallback = (error, reset) => {
+    // The scheduler may deliver a descendant's rejection straight to this
+    // boundary without reading its Loading output again.
+    for (const finish of scope.claims) finish();
+    return renderFallback(error, reset);
+  };
   const parent = getOwner()!;
   const expectedId = peekNextChildId(parent);
   if (sharedConfig.has!(expectedId)) {
@@ -2946,6 +2990,83 @@ function hydratedCreateLoadingBoundary<T, U>(
       );
       return undefined;
     }
+    const parentClaim = getContext(DeferredClaimContext);
+    if (parentClaim) {
+      const scope = { registry: sharedConfig.registry, gather: sharedConfig.gather };
+      const [, , release] = initBoundaryResume(o, id);
+      const [settled, setSettled] = coreSignal(false, { ownedWrite: true });
+      const [claimRevision, setClaimRevision] = coreSignal(0, { ownedWrite: true });
+      let pendingChildren = 0;
+      const releaseParent = parentClaim.hold?.();
+      let claiming = true;
+      const errorClaims = getContext(DeferredErrorContext);
+      const unregister = () => {
+        for (let scope = errorClaims; scope; scope = scope.parent) scope.claims.delete(finish);
+      };
+      const finish = () => {
+        claiming = false;
+        releaseParent?.();
+        unregister();
+        if (release()) queueMicrotask(checkHydrationComplete);
+      };
+      // Every enclosing error fallback hides this range, even when its nearest
+      // Errored retains the failed content's owners for a later reset.
+      for (let scope = errorClaims; scope; scope = scope.parent) scope.claims.add(finish);
+      onCleanup(() => {
+        releaseParent?.();
+        unregister();
+      });
+      const hold = () => {
+        if (!claiming) return () => {};
+        // Signal writes are batched, but a child may acquire its hold while
+        // its parent is already flattening. Keep that first read synchronous.
+        pendingChildren++;
+        setClaimRevision(version => version + 1);
+        let held = true;
+        return () => {
+          if (!held) return;
+          held = false;
+          if (claiming && !isDisposed(o)) {
+            pendingChildren--;
+            setClaimRevision(version => version + 1);
+          }
+        };
+      };
+      const claim = <V>(compute: () => V): V =>
+        claiming ? hydrateWindow(id, compute, scope, o) : compute();
+      const content = coreLoadingBoundary(
+        () => {
+          setContext(DeferredClaimContext, { run: claim, hold });
+          const children = claim(fn);
+          // Keep the children computation alive while Loading's existing
+          // flatten node retries it. Recreating fn on every pending read would
+          // recreate client-owned async gates before they could settle.
+          return () => {
+            if (!claiming) return children;
+            claimRevision();
+            const value = claim(() => flatten(children));
+            // Publishing a partial array would remove the SSR nodes of a
+            // nested Loading that is still retaining its own claim range.
+            if (pendingChildren !== 0) return undefined;
+            setSettled(true);
+            return value;
+          };
+        },
+        () => {
+          return claiming ? undefined : fallback();
+        },
+        options
+      );
+      coreEffect(
+        settled,
+        ready => {
+          if (!ready) return;
+          finish();
+        },
+        { transparent: true }
+      );
+      return content;
+    }
     return coreLoadingBoundary(fn, fallback, options);
   }) as unknown as Accessor<T | U>;
 }
@@ -2993,4 +3114,57 @@ export function NoHydration(props: { children: SolidElement }): SolidElement {
  */
 export function Hydration(props: { id?: string; children: SolidElement }): SolidElement {
   return props.children as unknown as SolidElement;
+}
+
+/**
+ * Leaves server-rendered children inert until `when` becomes true, then claims
+ * them in their original hydration owner. Once claimed, later changes to
+ * `when` do not unmount the children. A client-only mount shows `fallback`
+ * until it is ready; the server always renders the children.
+ */
+export function DeferredHydration(props: {
+  when: boolean;
+  fallback?: SolidElement;
+  children: SolidElement;
+}): SolidElement {
+  let activated = false;
+  if (!sharedConfig.hydrating || noHydrationId()) {
+    // Latch readiness in its own memo. Its value stays true after activation,
+    // so a later false does not re-run the content's owner and remount it.
+    const ready = coreMemo(() => activated || (activated = props.when));
+    return coreMemo(() => (ready() ? props.children : props.fallback)) as unknown as SolidElement;
+  }
+  let resume: (() => void) | undefined;
+  let queued = false;
+  const content = coreMemo(() => {
+    setContext(DeferredClaimContext, {});
+    if (activated) return props.children;
+    if (untrack(() => props.when)) {
+      activated = true;
+      return props.children;
+    }
+    const owner = getOwner()!;
+    const [, claim] = initBoundaryResume(owner, owner.id!);
+    resume = () => {
+      activated = true;
+      claim();
+    };
+    // `undefined`, as for a pending streamed boundary, retains the server DOM.
+    return undefined;
+  });
+  // This watcher has no server counterpart and must consume no hydration id.
+  coreEffect(
+    () => props.when,
+    ready => {
+      if (!ready || !resume || activated || queued) return;
+      queued = true;
+      // Resuming flushes the claim, so it must run outside an effect flush.
+      queueMicrotask(() => {
+        queued = false;
+        resume?.();
+      });
+    },
+    { transparent: true }
+  );
+  return content as unknown as SolidElement;
 }

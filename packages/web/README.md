@@ -18,6 +18,39 @@ import { renderToString, renderToStream, isServer } from "@solidjs/web";
 
 The control-flow components from `solid-js` (`For`, `Show`, `Switch`/`Match`, `Loading`, `Errored`, `Repeat`, `Reveal`) are also re-exported from `@solidjs/web` for convenience.
 
+## Deferred hydration
+
+`DeferredHydration` always renders its children on the server. In the browser,
+`when={false}` leaves those exact server nodes in place without running their
+components. When `when` becomes true, Solid claims that subtree in its original
+hydration owner and replays queued events. Changing `when` back to false does
+not unmount it.
+
+```tsx
+import { createSignal, onSettled } from "solid-js";
+import { DeferredHydration } from "@solidjs/web";
+
+function DeferredWidget() {
+  const [ready, setReady] = createSignal(false);
+  onSettled(() => {
+    const id = setTimeout(() => setReady(true), 100);
+    return () => clearTimeout(id);
+  });
+  return (
+    <DeferredHydration when={ready()} fallback={<p>Loading widget</p>}>
+      <Widget />
+    </DeferredHydration>
+  );
+}
+```
+
+Set up the readiness trigger outside the deferred children. Nested boundaries
+can activate independently once their parent is claimed. A boundary disposed
+before activation never runs its children. During a client-only render, the
+optional `fallback` is shown until activation; during hydration the existing
+server content stays visible instead. Async children can use `Loading` inside
+the boundary as usual.
+
 ## More
 
 - [Documentation](https://v2.solidjs.com)

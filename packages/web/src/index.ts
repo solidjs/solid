@@ -45,6 +45,7 @@ export {
   Loading,
   Repeat,
   Reveal,
+  DeferredHydration,
   NoHydration,
   Hydration
 } from "solid-js";

@@ -1,5 +1,6 @@
 import {
   createOwner,
+  createMemo,
   disposeOwner,
   getOwner,
   runWithOwner,
@@ -804,4 +805,13 @@ export function Hydration(props: { id?: string; children: SolidElement }): Solid
     setContext(NoHydrateContext, false);
     return props.children;
   }) as unknown as SolidElement;
+}
+
+/** Server counterpart of DeferredHydration: render in the client's owner slot. */
+export function DeferredHydration(props: {
+  when: boolean;
+  fallback?: SolidElement;
+  children: SolidElement;
+}): SolidElement {
+  return createMemo(() => props.children, { sync: true }) as unknown as SolidElement;
 }

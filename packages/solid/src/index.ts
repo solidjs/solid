@@ -110,6 +110,7 @@ export {
   createOptimisticStore,
   createRenderEffect,
   createEffect,
+  DeferredHydration,
   NoHydration,
   Hydration,
   isHydrating,
