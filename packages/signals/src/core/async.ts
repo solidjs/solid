@@ -130,7 +130,7 @@ export function forEachDependent(
 // forever with zero subscribers (#2934). The node's own promise/iterator
 // callbacks handle their own release (settleAutodispose in handleAsync); this
 // covers derivatively-pending dependents, which have no callbacks of their own.
-function releaseIfSettledUnobserved(node: Computed<any>): void {
+export function releaseIfSettledUnobserved(node: Computed<any>): void {
   (node as any)._fn &&
     node._config & CONFIG_AUTO_DISPOSE &&
     !node._subs &&

@@ -219,7 +219,11 @@ it("a lazy memo made dormant and reawakened while its owner's held children drai
   setTick(1);
   flush();
   expect(cleaned).toEqual(["sibling1"]);
-  expect(chain(owner)).toEqual(["reader2", "lazy2", "sibling2", "lazy1"]);
+  // lazy1's last reader dies in the same teardown, so its release waits for
+  // the pass to end (#4142). It is never dormant mid-drain, the cleanup's
+  // read finds it alive, and it dies with the frame it belongs to instead of
+  // reawakening into the new one.
+  expect(chain(owner)).toEqual(["reader2", "lazy2", "sibling2"]);
 
   dispose();
   expect(cleaned).toEqual(["sibling1", "sibling2"]);
