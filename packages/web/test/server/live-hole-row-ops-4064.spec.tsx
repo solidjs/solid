@@ -107,6 +107,11 @@ test("off a live response the hole goes whole", async () => {
   const [op] = holes(chunks);
   expect(op.rows).toBeUndefined();
   expect(op.html).toBe("<!--lr--><li>a</li><!--lr--><li>B</li><!--lr--><li>c</li>");
+  // The client applies hole ops through its live wire tier, so the response
+  // announces it, no later than the first op.
+  const at = chunks.findIndex(c => c.tiers?.includes("wire"));
+  expect(at).toBeGreaterThanOrEqual(0);
+  expect(at).toBeLessThanOrEqual(chunks.findIndex(c => holes([c]).length));
 });
 
 test("appends and truncation ride the row count; the next op names its base", async () => {

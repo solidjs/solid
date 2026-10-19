@@ -14,7 +14,7 @@
 //
 // The mint sites: a nested server-content region (`regions`), an assets
 // chunk (`assets`), a traced container in a slot arg (`trace`), a `live`
-// response (`wire`).
+// response or a live hole (`wire`).
 import { describe, expect, it } from "vitest";
 import { Loading, renderToStream, renderToString, useHead } from "@solidjs/web";
 import { createMemo, createProjection } from "solid-js";
@@ -242,6 +242,25 @@ describe("tier announcement — document face", () => {
     // The in-process `live` declaration's brand (server-functions' `brandLive`).
     Inline[Symbol.for("solid.LiveSource")] = true;
     const html = await document(() => Inline({ children: () => <i>c</i> }));
+    expect(tiersRecord(html)).toEqual(["wire"]);
+  });
+
+  it("`wire`: a hole that changes after the shell announces the wire tier (the client applies its ops there)", async () => {
+    const Changing = () => {
+      const text = createMemo(async function* () {
+        yield "one";
+        await wait(5);
+        yield "one two";
+      });
+      return (
+        <Loading fallback={<span>FB</span>}>
+          <section>{text()}</section>
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(Changing, { id: "td-hole" }) as any;
+    const html = await document(() => Inline({}));
+    expect(html).toContain("one two");
     expect(tiersRecord(html)).toEqual(["wire"]);
   });
 

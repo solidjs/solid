@@ -296,7 +296,8 @@ export const SERVER_COMPONENT_BOOTSTRAP = SERVER_COMPONENT_BOOTSTRAP_EXPR + ";";
 export function createFrameSink(
   emit: (chunk: FrameChunk) => void,
   frame: FrameAddress,
-  have?: Record<string, string>
+  have?: Record<string, string>,
+  hooks?: { live?: boolean; onYield?: () => void }
 ): Record<string, (...args: any[]) => void>;
 
 // ---- hole digests (Stage 8 B4) ----
@@ -374,7 +375,8 @@ function withHoles(chunk, holes) {
  * @param {(chunk: object) => void} emit
  * @param {{ id: string, version: number }} frame
  * @param {Record<string, string>} [have]
- * @param {{ onYield?: () => void }} [hooks]
+ * @param {{ live?: boolean, onYield?: () => void }} [hooks] — `live`: the
+ *   response is a `live` connection's (row ops need its resume).
  */
 export function createFrameSink(write, frame, have, hooks) {
   const { id, version } = frame;
@@ -382,7 +384,7 @@ export function createFrameSink(write, frame, have, hooks) {
   // server-announced tier mechanism): the frames-client capabilities the
   // response needs, learned where the sink mints each feature — a nested
   // region (`regions`), an assets chunk (`assets`), a container trace in an
-  // arg (`trace`), a `live` response (`wire`). `announce()` hands the set to the response head
+  // arg (`trace`), a `live` response or a live hole (`wire`). `announce()` hands the set to the response head
   // (`X-Frame-Tiers`); a name minted since the last chunk left rides
   // IN-BAND on the next one (`chunk.tiers`) — so a tier the head could not
   // know (a later segment's) is still announced ahead of, or with, the
@@ -770,13 +772,13 @@ export function createFrameSink(write, frame, have, hooks) {
     // Produced by a sweep, so it joins the sweep's unit (see `sweep`).
     hole(key, html, rows) {
       const op: any = { type: "hole", key, digest: textDigest(html) };
-      // Row ops (#4064): on a live response (the wire tier's), only the
-      // rows of a `For` hole that changed since what the range shows,
-      // named by its digest `base`. A client whose range shows something
-      // else resyncs through the live connection's resume, whose have-list
-      // names what it shows. Anywhere else, the whole hole.
+      // Row ops (#4064): on a live response, only the rows of a `For` hole
+      // that changed since what the range shows, named by its digest
+      // `base`. A client whose range shows something else resyncs through
+      // the live connection's resume, whose have-list names what it shows.
+      // Anywhere else, the whole hole.
       const base = holeDigest.get(key);
-      if (rows && base && tiers.has("wire")) {
+      if (rows && base && hooks && hooks.live) {
         op.rows = rows;
         op.base = base;
       } else op.html = html;
@@ -806,6 +808,10 @@ export function createFrameSink(write, frame, have, hooks) {
      * position supersedes it.
      */
     openBinding(key, b) {
+      // A live hole (`lh:N`) or attr hole (`lha:N`) re-emits through the
+      // client's live wire tier, which applies it: announced at the
+      // binding, ahead of the first op (arg bindings are records).
+      if (/^lha?:/.test(key)) needs("wire");
       bindings.set(key, b);
     },
     /** A real error is terminal for its binding — same as the retry loop. */
@@ -1049,18 +1055,14 @@ function frameStream(makeCode, options) {
           timer = setTimeout(() => cut("time"), maxDurationMs);
       }
     };
-    const sink = createFrameSink(
-      emit,
-      frame,
-      options.resume && options.resume.have,
-      bounded
-        ? {
-            onYield() {
-              if (flushed && maxYields > 0 && ++yields >= maxYields) cut("yields");
-            }
+    const sink = createFrameSink(emit, frame, options.resume && options.resume.have, {
+      live: options.live,
+      onYield: bounded
+        ? () => {
+            if (flushed && maxYields > 0 && ++yields >= maxYields) cut("yields");
           }
         : undefined
-    );
+    });
     // A `live` response is the wire tier's: the standing connection the
     // client holds after this answer is that tier's code.
     if (options.live) sink.needs("wire");
@@ -2158,7 +2160,10 @@ function armDocumentLiveHoles(ctx) {
   };
   ctx.liveHoles = live.holes = createLiveHoles(
     {
+      // A hole that can change re-emits through the client's live wire
+      // tier, which applies it: announced with the document.
       openBinding(key, b) {
+        documentNeeds("wire");
         bindings.set(key, b);
       },
       closeBinding(key) {

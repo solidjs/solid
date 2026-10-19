@@ -22,8 +22,14 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { createMemo, createRoot, Loading } from "solid-js";
 import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
+import { prepareTier } from "../../frames/src/frame-client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, pump } from "./harness.js";
+
+// Live content applies through the live wire tier (frames/wire), which a
+// live page announces and preloads; this spec sends hole ops at once, so
+// it loads the tier up front.
+beforeAll(() => prepareTier("wire"));
 
 const getMorph = createServerReference("matrix/lh/morph");
 const getAttr = createServerReference("matrix/lh/attr");

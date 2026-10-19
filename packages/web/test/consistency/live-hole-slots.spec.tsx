@@ -18,6 +18,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vite
 import { createRoot, createSignal, flush, Loading, onCleanup, untrack } from "solid-js";
 import { dynamic, hydrate } from "@solidjs/web";
 import { installServerComponents, setDeferredHydration } from "../../frames/src/client.js";
+import { prepareTier } from "../../frames/src/frame-client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import {
   bootPage,
@@ -32,6 +33,11 @@ import {
   stubHeldFetch,
   type Page
 } from "./support.js";
+
+// Live content applies through the live wire tier (frames/wire), which a
+// live page announces and preloads; this spec sends hole ops at once, so
+// it loads the tier up front.
+beforeAll(() => prepareTier("wire"));
 
 let page: Page | undefined;
 const disposers: (() => void)[] = [];
