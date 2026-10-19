@@ -51,9 +51,12 @@ export class StatusError extends Error {
     public source: any,
     original: any
   ) {
-    super(original instanceof Error ? original.message : String(original), {
-      cause: original
-    });
+    // Best-effort message: formatting must never replace the original (#4112).
+    let message: string | undefined;
+    try {
+      message = String(original instanceof Error ? original.message : original);
+    } catch {}
+    super(message, { cause: original });
   }
 }
 

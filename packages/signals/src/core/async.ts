@@ -622,57 +622,66 @@ export function handleAsync<T>(
       // use the bare form as a promise-free fast path when a value is already
       // buffered (seroval's deserialized streams do), so a bare result is
       // assimilated as an already-settled step instead of crashing on `.then`.
-      const step = it.next();
-      const settled: PromiseLike<IteratorResult<T>> = isThenable(step)
-        ? step
-        : { then: onSettle => void onSettle!(step) as any };
-      settled.then(
-        r => {
-          // The sync stash only serves the INITIAL drain (handleAsync's caller
-          // consumes syncValue / throws NotReady from it). A sync-settled step
-          // after an async gap — seroval buffering values between pulls, a
-          // sync-thenable producer mid-stream — has no caller reading the
-          // stash: it must write through the async path or the value is
-          // silently dropped. (The deferred posture never has a caller, so
-          // initialRead starts false there and everything writes through.)
-          if (isSync && initialRead) {
-            syncResult = r;
-            resolved = true;
-            if (r.done) completed = true;
-          } else if (el._x?._inFlight !== result) {
-            return;
-          } else if (!r.done) {
-            hadValue = true;
-            asyncWrite(r.value, iterateOrRelease);
-          } else {
-            completed = true;
-            if (hadValue) {
-              schedule();
-              flush();
+      // A throw while invoking the protocol (next(), the step's then) is a
+      // rejection of this step: after an async gap there is no compute catch
+      // to route it, so it settles through the same path (#4112).
+      try {
+        const step = it.next();
+        const settled: PromiseLike<IteratorResult<T>> = isThenable(step)
+          ? step
+          : { then: onSettle => void onSettle!(step) as any };
+        settled.then(
+          r => {
+            // The sync stash only serves the INITIAL drain (handleAsync's caller
+            // consumes syncValue / throws NotReady from it). A sync-settled step
+            // after an async gap — seroval buffering values between pulls, a
+            // sync-thenable producer mid-stream — has no caller reading the
+            // stash: it must write through the async path or the value is
+            // silently dropped. (The deferred posture never has a caller, so
+            // initialRead starts false there and everything writes through.)
+            if (isSync && initialRead) {
+              syncResult = r;
+              resolved = true;
+              if (r.done) completed = true;
+            } else if (el._x?._inFlight !== result) {
+              return;
+            } else if (!r.done) {
+              hadValue = true;
+              asyncWrite(r.value, iterateOrRelease);
             } else {
-              // Empty completion settles like the immediately-done sync path.
-              asyncWrite(undefined as T);
+              completed = true;
+              if (hadValue) {
+                schedule();
+                flush();
+              } else {
+                // Empty completion settles like the immediately-done sync path.
+                asyncWrite(undefined as T);
+              }
+              settleAutodispose();
             }
-            settleAutodispose();
+          },
+          e => {
+            if (isSync && initialRead) {
+              syncError = e;
+              rejected = true;
+            } else if (el._x?._inFlight === result) {
+              completed = true;
+              handleError(e);
+              settleAutodispose();
+            }
           }
-        },
-        e => {
-          if (isSync && initialRead) {
-            syncError = e;
-            rejected = true;
-          } else if (el._x?._inFlight === result) {
-            completed = true;
-            handleError(e);
-            settleAutodispose();
-          }
-        }
-      );
+        );
+      } catch (e) {
+        syncError = e;
+        rejected = true;
+      }
       isSync = false;
       if (rejected) {
         // Match the promise branch, but only rethrow during the initial read.
         completed = true;
         handleError(syncError);
         if (initialRead) throw syncError;
+        settleAutodispose();
         return true;
       }
       if (resolved && !syncResult!.done) {
@@ -734,17 +743,25 @@ export function handleAsync<T>(
         if (isSync) {
           syncValue = v;
           resolved = true;
-        } else if (
-          el._x?._inFlight === result &&
-          !(el._flags & REACTIVE_DISPOSED) &&
-          flattenIfIterable(v, registerDeferredClose)
-        ) {
-          // Flattened: the stream is the value. Each yield lands through
-          // asyncWrite under this flight's identity; the first one clears
-          // pending exactly like a plain promise resolution would have.
-          // (Disposed nodes never start a pump — their disposal list has
-          // already run, so nothing could ever close the iterator.)
         } else {
+          try {
+            // Flattened: the stream is the value. Each yield lands through
+            // asyncWrite under this flight's identity; the first one clears
+            // pending exactly like a plain promise resolution would have.
+            // (Disposed nodes never start a pump — their disposal list has
+            // already run, so nothing could ever close the iterator.)
+            if (
+              el._x?._inFlight === result &&
+              !(el._flags & REACTIVE_DISPOSED) &&
+              flattenIfIterable(v, registerDeferredClose)
+            )
+              return;
+          } catch (e) {
+            // Iterator setup threw outside any compute catch (#4112).
+            handleError(e);
+            settleAutodispose();
+            return;
+          }
           asyncWrite(v);
           settleAutodispose();
         }
