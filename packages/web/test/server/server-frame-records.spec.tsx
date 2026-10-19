@@ -34,6 +34,7 @@ import {
   handleServerFunctionRequest,
   registerServerFunction
 } from "../../server-functions/src/server.js";
+import { has, records as wireRecords, writes } from "./wire.js";
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -99,15 +100,18 @@ describe("a stream that completed", () => {
     expect(event.shellMs!).toBeLessThanOrEqual(event.durationMs);
     expect(event.durationMs).toBeGreaterThanOrEqual(5);
     expect(event.durationMs).toBeLessThanOrEqual(after - before);
-    // The census is the wire, between `start` and `complete`.
-    const body = chunks.filter(c => c.type !== "start" && c.type !== "complete");
+    // The census is the wire, between `start` and the end: every message
+    // but one writing only `:complete`.
+    const body = chunks.filter(c => c.type !== "start" && writes(c) !== ":complete");
     expect(event.chunks).toBe(body.length);
-    expect(event.fragments).toBe(chunks.filter(c => c.type === "fragment").length);
+    expect(event.fragments).toBe(
+      wireRecords(chunks, "seg:").filter(([key]) => /^seg:[^:]+$/.test(key)).length
+    );
     expect(event.fragments).toBe(1);
     expect(event.slots).toBe(2);
-    // The server JSX slot arg went out as a nested region: an html chunk
+    // The server JSX slot arg went out as a nested region: a root record
     // addressed to a child frame id — counted as a region, not as the shell.
-    const regions = chunks.filter(c => c.type === "html" && c.id !== "f0");
+    const regions = chunks.filter(c => has(c, "") && c.id !== "f0");
     expect(regions).toHaveLength(1);
     expect(event.regions).toBe(1);
     expect(event.errors).toBe(0);
@@ -147,7 +151,8 @@ describe("failures", () => {
           { frame: { id: "f-err" } }
         )
       );
-      expect(chunks.map(c => c.type)).toEqual(["start", "error", "complete"]);
+      // The error and the end, written in one flush: one batch.
+      expect(chunks.map(writes)).toEqual(["start", ":error :complete"]);
       expect(seen).toHaveLength(1);
       const { event, live } = seen[0];
       expect(event.outcome).toBe("error");
@@ -183,11 +188,14 @@ describe("failures", () => {
           { frame: { id: "f-frag" } }
         )
       );
-      expect(chunks.some(c => c.type === "error")).toBe(true);
-      expect(chunks[chunks.length - 1].type).toBe("complete");
+      const errors = chunks
+        .flatMap(c => (c.r ? Object.keys(c.r) : []))
+        .filter(k => k.endsWith(":error"));
+      expect(errors.length).toBeGreaterThan(0);
+      expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
       expect(seen).toHaveLength(1);
       expect(seen[0].event.outcome).toBe("complete");
-      expect(seen[0].event.errors).toBe(chunks.filter(c => c.type === "error").length);
+      expect(seen[0].event.errors).toBe(errors.length);
       expect(seen[0].event.errors).toBeGreaterThanOrEqual(1);
       expect(seen[0].live).toEqual({});
     } finally {
@@ -263,7 +271,7 @@ describe("the channel", () => {
         })
       );
       const chunks = await collect(renderToFrameStream(() => <div>ok</div>));
-      expect(chunks[chunks.length - 1].type).toBe("complete");
+      expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
       expect(seen).toEqual(["complete"]);
       expect(error).toHaveBeenCalledTimes(1);
       expect((error.mock.calls[0][0] as Error).message).toBe("listener bug");
@@ -278,6 +286,7 @@ describe("the channel", () => {
     const chunks = await collect(renderToFrameStream(() => <div>ok</div>, { frame: { id: "q" } }));
     expect(seen).toHaveLength(0);
     expect(chunks[0]).toEqual({ type: "start", id: "q", version: 1 });
-    expect(chunks[chunks.length - 1]).toEqual({ type: "complete", id: "q", version: 1 });
+    const end = chunks[chunks.length - 1];
+    expect([end.id, end.version, end.r[":complete"]]).toEqual(["q", 1, true]);
   });
 });

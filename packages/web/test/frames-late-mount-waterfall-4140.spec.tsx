@@ -63,8 +63,8 @@ function stubFrameFetch(renderMs: number, headerMs = 0) {
     const send = (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk)));
     send({ type: "start", id: "srv", version: 1 });
     setTimeout(() => {
-      send({ type: "html", id: "srv", version: 1, html: "<p>Frame finished</p>" });
-      send({ type: "complete", id: "srv", version: 1 });
+      send({ id: "srv", version: 1, r: { "": { kind: "html", value: "<p>Frame finished</p>" } } });
+      send({ id: "srv", version: 1, r: { ":complete": true } });
       controller.close();
     }, renderMs);
     return new Response(body, { headers: { "X-Frame-Stream": "srv" } });

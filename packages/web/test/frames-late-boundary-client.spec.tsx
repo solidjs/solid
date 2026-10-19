@@ -29,6 +29,7 @@ import { installServerComponents, createFrameHost } from "../frames/src/client.j
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { createChunk } from "../server-functions/src/shared.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 const settle = () => new Promise(r => setTimeout(r));
 
@@ -81,7 +82,7 @@ function frameResponse(id: string, html: string) {
   ];
   const body = new ReadableStream({
     start(controller) {
-      for (const c of chunks) controller.enqueue(createChunk(JSON.stringify(c)));
+      for (const c of chunks) controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(c))));
       controller.close();
     }
   });
@@ -147,12 +148,14 @@ describe("boundary that arrives after the shell flush", () => {
 
     // The adopted element is the one the boundary owns: a navigation's stream
     // must morph THIS element (policy A), not some detached twin.
-    host.apply({
-      type: "html",
-      id: FID,
-      version: 1,
-      html: "<ul><li>navigated-item</li></ul>"
-    } as any);
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: FID,
+        version: 1,
+        html: "<ul><li>navigated-item</li></ul>"
+      } as any)
+    );
     flush();
     await settle();
     flush();

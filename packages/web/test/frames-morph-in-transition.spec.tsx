@@ -31,6 +31,7 @@ import {
   subscribeFlightData
 } from "../server-functions/src/shared.js";
 import { makeHost, frameResponse, openFrameResponse, pump } from "./lifecycle-matrix/harness.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 const LIST = "morph-tx/list";
 const region = (version: number, text: string, id = LIST) => [
@@ -59,7 +60,7 @@ function openFlightResponse() {
         [SINGLE_FLIGHT_HEADER]: "true"
       }
     }),
-    send: (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk))),
+    send: (chunk: any) => controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk)))),
     async outcome(envelope: unknown) {
       const reader = new ChunkReader(serializeStream(envelope, flightCodec(undefined)));
       for (let node = await reader.next(); !node.done; node = await reader.next())

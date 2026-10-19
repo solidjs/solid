@@ -6,7 +6,7 @@
  * (non-`live`) server component whose content reads a standing source
  * keeps its response open and ships each later commit as holes — with no
  * declaration of liveness anywhere. The producer ends such a response at a
- * bound, detectably: `complete` carries `bound: "yields" | "time"`, then
+ * bound, detectably: `:complete` with `:bound: "yields" | "time"` beside it, then
  * the body closes, and the render is torn down (its sources returned). A
  * `live` response is never bounded — liveness IS the declaration that
  * there is no bound. The request's `signal` aborting after the first flush
@@ -17,6 +17,7 @@ import { createMemo } from "solid-js";
 import { Loading } from "@solidjs/web";
 import { renderServerComponent, serverComponentResponse } from "../../frames/src/frame-sink.js";
 import { ChunkReader } from "../../server-functions/src/shared.js";
+import { completion, has, records, values, writesSegment } from "./wire.js";
 
 const tick = (ms = 5) => new Promise(r => setTimeout(r, ms));
 
@@ -96,9 +97,12 @@ function holeComponent(source: () => AsyncIterable<string>) {
   };
 }
 
-const complete = (chunks: any[]) => chunks.find(c => c.type === "complete");
+const complete = completion;
+// One emitting sweep is one batch writing its hole / attr records.
 const yields = (chunks: any[]) =>
-  chunks.filter(c => c.type === "hole" || c.type === "ops" || c.type === "attr").length;
+  chunks.filter(c => c.r && Object.keys(c.r).some(k => /^(hole|attr):/.test(k))).length;
+const writesHole = (c: any, value: string) =>
+  records([c], "hole:").some(([, r]) => r.value === value);
 
 async function readBody(response: Response) {
   const reader = new ChunkReader(response.body!);
@@ -114,7 +118,7 @@ describe("the plain-response streaming bound", () => {
     vi.useRealTimers();
   });
 
-  it('yields: a plain response over a source that keeps yielding ends at `maxYields` later yields with `complete.bound: "yields"`, and the source is returned', async () => {
+  it('yields: a plain response over a source that keeps yielding ends at `maxYields` later yields with `:bound: "yields"`, and the source is returned', async () => {
     const ch = channel<string>();
     const { chunks, until, done } = consume(
       renderServerComponent(
@@ -127,7 +131,7 @@ describe("the plain-response streaming bound", () => {
     );
     await tick();
     ch.push("v0");
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     // Later yields — more than the bound allows; each is one commit, one
     // emitting sweep, one hole.
     for (let i = 1; i <= 10; i++) {
@@ -138,12 +142,12 @@ describe("the plain-response streaming bound", () => {
 
     const end = complete(chunks);
     expect(end).toBeDefined();
-    expect(end.bound).toBe("yields");
+    expect(end.r[":bound"]).toBe("yields");
     expect(chunks[chunks.length - 1]).toBe(end);
     // Exactly the bound's worth of later yields shipped; the first yield
     // rode the fragment (not a later yield).
     expect(yields(chunks)).toBe(3);
-    expect(chunks.filter(c => c.type === "hole").map(h => h.html)).toEqual(["v1", "v2", "v3"]);
+    expect(values(chunks, "hole:")).toEqual(["v1", "v2", "v3"]);
     // The render was torn down at the cut: the source was returned, not
     // left pumping for a response that ended.
     expect(ch.state.closed).toBe(true);
@@ -159,13 +163,13 @@ describe("the plain-response streaming bound", () => {
     );
     await tick();
     ch.push("v0");
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     for (let i = 1; i <= 70; i++) {
       ch.push(`v${i}`);
       await tick(0);
     }
     await done;
-    expect(complete(chunks).bound).toBe("yields");
+    expect(complete(chunks).r[":bound"]).toBe("yields");
     expect(yields(chunks)).toBe(64);
   }, 8000);
 
@@ -182,7 +186,7 @@ describe("the plain-response streaming bound", () => {
     );
     await tick();
     ch.push("v0");
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     // Three repeats of the first value: three commits, no emission.
     ch.push("v0");
     await tick(1);
@@ -191,14 +195,14 @@ describe("the plain-response streaming bound", () => {
     ch.push("v0");
     await tick(1);
     ch.push("v1");
-    await until(c => c.type === "hole" && c.html === "v1");
+    await until(c => writesHole(c, "v1"));
     ch.push("v2");
     await done;
-    expect(complete(chunks).bound).toBe("yields");
-    expect(chunks.filter(c => c.type === "hole").map(h => h.html)).toEqual(["v1", "v2"]);
+    expect(complete(chunks).r[":bound"]).toBe("yields");
+    expect(values(chunks, "hole:")).toEqual(["v1", "v2"]);
   }, 8000);
 
-  it('time: a plain response ends `maxDurationMs` after its first flush with `complete.bound: "time"` (fake timers)', async () => {
+  it('time: a plain response ends `maxDurationMs` after its first flush with `:bound: "time"` (fake timers)', async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const ch = channel<string>();
     const { chunks, until, done } = consume(
@@ -212,13 +216,13 @@ describe("the plain-response streaming bound", () => {
     );
     // The shell flushes with the fallback (the first flush); the source
     // never yields. Nothing ends the response but the timer.
-    await until(c => c.type === "html");
+    await until(c => has(c, ""));
     await vi.advanceTimersByTimeAsync(999);
     expect(complete(chunks)).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
     await done;
-    expect(complete(chunks).bound).toBe("time");
-    expect(chunks[chunks.length - 1].type).toBe("complete");
+    expect(complete(chunks).r[":bound"]).toBe("time");
+    expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
     expect(ch.state.closed).toBe(true);
   });
 
@@ -231,12 +235,12 @@ describe("the plain-response streaming bound", () => {
         { frame: { id: "bt30" } }
       )
     );
-    await until(c => c.type === "html");
+    await until(c => has(c, ""));
     await vi.advanceTimersByTimeAsync(29_999);
     expect(complete(chunks)).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
     await done;
-    expect(complete(chunks).bound).toBe("time");
+    expect(complete(chunks).r[":bound"]).toBe("time");
   });
 
   it("time: the timer arms at the first flush, not at the request", async () => {
@@ -252,13 +256,13 @@ describe("the plain-response streaming bound", () => {
       renderServerComponent(Comp, { frame: { id: "bta" }, maxDurationMs: 1000 })
     );
     await vi.advanceTimersByTimeAsync(5000);
-    expect(chunks.some(c => c.type === "html")).toBe(false);
+    expect(chunks.some(c => has(c, ""))).toBe(false);
     expect(complete(chunks)).toBeUndefined();
     ch.push("v0");
-    await until(c => c.type === "html");
+    await until(c => has(c, ""));
     await vi.advanceTimersByTimeAsync(1000);
     await done;
-    expect(complete(chunks).bound).toBe("time");
+    expect(complete(chunks).r[":bound"]).toBe("time");
   });
 
   it("a `live` response is not bounded: neither count nor clock ends it; it completes when its source does, with no `bound`", async () => {
@@ -277,12 +281,12 @@ describe("the plain-response streaming bound", () => {
     );
     // Past the shell, so the first value streams as a fragment (a value
     // ready inside the shell's grace task would render inline).
-    await until(c => c.type === "html");
+    await until(c => has(c, ""));
     ch.push("v0");
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     for (let i = 1; i <= 5; i++) {
       ch.push(`v${i}`);
-      await until(c => c.type === "hole" && c.html === `v${i}`);
+      await until(c => writesHole(c, `v${i}`));
     }
     await vi.advanceTimersByTimeAsync(60_000);
     expect(complete(chunks)).toBeUndefined();
@@ -290,11 +294,11 @@ describe("the plain-response streaming bound", () => {
     await done;
     const end = complete(chunks);
     expect(end).toBeDefined();
-    expect("bound" in end).toBe(false);
-    expect(chunks.filter(c => c.type === "hole")).toHaveLength(5);
+    expect(":bound" in end.r).toBe(false);
+    expect(values(chunks, "hole:")).toHaveLength(5);
   });
 
-  it("`complete` without a bound is unchanged for a response whose sources settle", async () => {
+  it("`:complete` without a bound is unchanged for a response whose sources settle", async () => {
     const ch = channel<string>();
     const { chunks, until, done } = consume(
       renderServerComponent(
@@ -307,16 +311,18 @@ describe("the plain-response streaming bound", () => {
     );
     await tick();
     ch.push("v0");
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     ch.push("v1");
-    await until(c => c.type === "hole");
+    await until(c => records([c], "hole:").length > 0);
     ch.end();
     await done;
-    expect(complete(chunks)).toEqual({ type: "complete", id: "bs", version: 1 });
+    const end = complete(chunks);
+    expect([end.id, end.version, end.r[":complete"]]).toEqual(["bs", 1, true]);
+    expect(":bound" in end.r).toBe(false);
   });
 
   describe("the request's signal", () => {
-    it('aborting after the first flush ends a plain response as the time bound does: `complete.bound: "time"`, then the body closes', async () => {
+    it('aborting after the first flush ends a plain response as the time bound does: `:bound: "time"`, then the body closes', async () => {
       const ch = channel<string>();
       const controller = new AbortController();
       const response = serverComponentResponse(
@@ -337,12 +343,13 @@ describe("the plain-response streaming bound", () => {
       await tick();
       ch.push("v0");
       await tick(10);
-      expect(chunks.some(c => c.type === "fragment")).toBe(true);
+      // The wire's record batches: a fragment is a `seg:` record.
+      expect(chunks.some(c => c.r && Object.keys(c.r).some(k => /^seg:[^:]*$/.test(k)))).toBe(true);
       controller.abort();
       await ended;
-      const end = complete(chunks);
+      const end = chunks.find(c => c.r && ":complete" in c.r);
       expect(end).toBeDefined();
-      expect(end.bound).toBe("time");
+      expect(end.r[":bound"]).toBe("time");
       expect(chunks[chunks.length - 1]).toBe(end);
       expect(ch.state.closed).toBe(true);
     });
@@ -386,10 +393,10 @@ describe("the plain-response streaming bound", () => {
       await tick();
       ch.push("v0");
       await tick(10);
-      expect(out).toContain('"fragment"');
+      expect(out).toContain('"seg:');
       controller.abort();
       await reading;
-      expect(out).not.toContain('"complete"');
+      expect(out).not.toContain('":complete"');
     });
 
     it("the body's own cancel (the reader left) is a death, never a bound", async () => {

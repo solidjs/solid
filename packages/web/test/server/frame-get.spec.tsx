@@ -25,6 +25,7 @@ import {
   serverFunctionUrl
 } from "../../server-functions/src/server.js";
 import { ChunkReader, EventStreamReader } from "../../server-functions/src/shared.js";
+import { writes } from "./wire.js";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 beforeAll(() => {
@@ -87,8 +88,8 @@ describe("GET server components end to end (Stage 8 B6)", () => {
     const text = await response.clone().text();
     expect(text).toMatch(/^;0x[0-9a-f]{8};\{/);
     const chunks = await chunksOf(response);
-    expect(chunks.map(c => c.type)).toEqual(["start", "html", "complete"]);
-    expect(textOf(chunks[1].html)).toContain("hello ann");
+    expect(chunks.map(writes)).toEqual(["start", "", ":complete"]);
+    expect(textOf(chunks[1].r[""].value)).toContain("hello ann");
   });
 
   it("a GET at the live address answers the same records as an event stream — what `curl -N` shows", async () => {
@@ -108,9 +109,9 @@ describe("GET server components end to end (Stage 8 B6)", () => {
     expect(lines[0]).toMatch(/^data: \{"type":"start"/);
     expect(text).not.toMatch(/;0x[0-9a-f]{8};/);
     const chunks = await chunksOf(response);
-    expect(chunks.map(c => c.type)).toEqual(data.map(c => c.type));
-    expect(chunks[1].html).toBe(data[1].html);
-    expect(textOf(chunks[1].html)).toContain("hello bo");
+    expect(chunks.map(writes)).toEqual(data.map(writes));
+    expect(chunks[1].r[""].value).toBe(data[1].r[""].value);
+    expect(textOf(chunks[1].r[""].value)).toContain("hello bo");
   });
 
   it("the grant governs frame responses: an undeclared server component refuses GET at either address", async () => {
@@ -155,8 +156,8 @@ describe("GET server components end to end (Stage 8 B6)", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("application/x-frame-stream");
     const chunks = await chunksOf(response);
-    expect(chunks.map(c => c.type)).toEqual(["start", "html", "complete"]);
-    expect(textOf(chunks[1].html)).toContain("hello " + name);
+    expect(chunks.map(writes)).toEqual(["start", "", ":complete"]);
+    expect(textOf(chunks[1].r[""].value)).toContain("hello " + name);
   });
 
   it("serverFunctionUrl renders the GET component's data url, and a live reference's live address (open (d))", async () => {
@@ -171,6 +172,6 @@ describe("GET server components end to end (Stage 8 B6)", () => {
     const response = await handle(new Request("http://localhost" + url, { method: "GET" }));
     expect(response.headers.get("Content-Type")).toBe("text/event-stream");
     const chunks = await chunksOf(response);
-    expect(textOf(chunks[1].html)).toContain("hello ann");
+    expect(textOf(chunks[1].r[""].value)).toContain("hello ann");
   });
 });
