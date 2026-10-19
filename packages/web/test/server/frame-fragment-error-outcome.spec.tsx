@@ -30,6 +30,11 @@ import {
   renderServerComponent,
   ServerComponentPlugin
 } from "../../frames/src/frame-sink.js";
+import { content, has, record, records } from "./wire.js";
+
+/** The first segment content record, as `[key, record]`. */
+const segment = (chunks: any[]): [string, any] =>
+  records(chunks, "seg:").find(([key]) => /^seg:[^:]+$/.test(key)) || ["", undefined];
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -121,22 +126,22 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
       const chunks = await collectStream(
         renderServerComponent(Comp, { frame: { id: "eo" }, onError() {} })
       );
-      const fragment = chunks.find(c => c.type === "fragment");
+      const [key, fragment] = segment(chunks);
       expect(fragment).toBeDefined();
       // The outcome at the <Loading>'s position: the Errored's fallback,
       // not a blank; the Errored's own subtree (`<p>kept</p>`) is the
       // shell's and stays.
-      expect(unmarked(fragment.html)).toBe('<em class="fail">failed: boom</em>');
-      expect(chunks.find(c => c.type === "html").html).toContain("<p>kept</p>");
+      expect(unmarked(fragment.value)).toBe('<em class="fail">failed: boom</em>');
+      expect(record(chunks, "").value).toContain("<p>kept</p>");
       // Revealed, like any settled fragment.
-      expect(chunks.some(c => c.type === "reveal" && c.keys.includes(fragment.key))).toBe(true);
+      expect(record(chunks, `${key}:reveal`)).toBe(true);
       // The failure is still surfaced as the keyed diagnostic (a hole-keyed
       // one may ride beside it — the live hole inside the boundary meeting
       // the same rejection on its sweep, the existing per-hole diagnostic)...
-      expect(chunks.some(c => c.type === "error" && c.key === fragment.key)).toBe(true);
+      expect(record(chunks, `${key}:error`)).toBeDefined();
       // ...and NOT as the frame's own error: the server handled it.
-      expect(chunks.some(c => c.type === "error" && !c.key)).toBe(false);
-      expect(chunks[chunks.length - 1].type).toBe("complete");
+      expect(record(chunks, ":error")).toBeUndefined();
+      expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
     });
 
     it("without a server <Errored>: the error escapes — the frame's `:error` — and the position keeps the boundary's own fallback", async () => {
@@ -153,18 +158,20 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
       const chunks = await collectStream(
         renderServerComponent(Comp, { frame: { id: "eo-escape" }, onError() {} })
       );
-      const fragment = chunks.find(c => c.type === "fragment");
+      const [key, fragment] = segment(chunks);
       expect(fragment).toBeDefined();
       // Never a blank: the boundary's own markup.
-      expect(fragment.html).toBe("<i>loading</i>");
+      expect(fragment.value).toBe("<i>loading</i>");
       // The frame as one async value errored (the outward face), ahead of
-      // the fragment's settle; the keyed diagnostic rides too.
-      const unkeyed = chunks.findIndex(c => c.type === "error" && !c.key);
+      // the fragment's settle (in wire order, the same batch or an earlier
+      // one); the keyed diagnostic rides too.
+      const order = records(chunks, "").map(([k]) => k);
+      const unkeyed = order.indexOf(":error");
       expect(unkeyed).toBeGreaterThan(-1);
-      expect(unkeyed).toBeLessThan(chunks.indexOf(fragment));
-      expect(chunks[unkeyed].error).toBe("boom");
-      expect(chunks.some(c => c.type === "error" && c.key === fragment.key)).toBe(true);
-      expect(chunks[chunks.length - 1].type).toBe("complete");
+      expect(unkeyed).toBeLessThan(order.indexOf(key));
+      expect(record(chunks, ":error")).toBe("boom");
+      expect(record(chunks, `${key}:error`)).toBeDefined();
+      expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
     });
 
     it("a <Loading> between the failing one and the <Errored> passes the question up", async () => {
@@ -183,11 +190,10 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
       const chunks = await collectStream(
         renderServerComponent(Comp, { frame: { id: "eo-nested" }, onError() {} })
       );
-      const fragments = chunks.filter(c => c.type === "fragment");
       // The inner boundary carries the outcome; the outer settles with its
       // content (the inner's placeholder) as usual.
-      expect(fragments.map(f => unmarked(f.html))).toContain("<em>deep</em>");
-      expect(chunks.some(c => c.type === "error" && !c.key)).toBe(false);
+      expect(content(chunks, ["seg"]).map(unmarked)).toContain("<em>deep</em>");
+      expect(record(chunks, ":error")).toBeUndefined();
     });
   });
 
@@ -217,7 +223,7 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
       expect(fr.s).toBe(2);
       // Handled by the server's own <Errored>: no frame error on the channel.
       const ops = await readChannel(r["sc:live"]);
-      expect(ops.filter(op => op.type === "error" && !op.key)).toEqual([]);
+      expect(ops.filter(op => ":error" in op.r)).toEqual([]);
     });
 
     it("without a server <Errored>: the template keeps the boundary's fallback and the channel carries the frame's error, addressed to it", async () => {
@@ -240,8 +246,8 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
       // live hole inside the boundary met the same rejection on its sweep —
       // the existing per-hole diagnostic, geometry-routed).
       const ops = await readChannel(r["sc:live"]);
-      expect(ops.filter(op => op.type === "error" && !op.key)).toEqual([
-        { type: "error", fid: "eo/doc-escape", error: "doc-escape" }
+      expect(ops.filter(op => ":error" in op.r)).toEqual([
+        { fid: "eo/doc-escape", r: { ":error": "doc-escape" } }
       ]);
     });
 

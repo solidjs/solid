@@ -22,6 +22,7 @@ import {
   registerServerReference
 } from "../../server-functions/src/server.js";
 import { ChunkReader } from "../../server-functions/src/shared.js";
+import { record, writes } from "./wire.js";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 beforeAll(() => {
@@ -70,9 +71,9 @@ describe("a thrown server component is not cached behind respond() headers", () 
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("X-Frame-Stream")).toBe("frame-error-cache-throw");
     const chunks = await chunksOf(response);
-    const error = chunks.find(c => c.type === "error" && !c.key);
+    const error = record(chunks, ":error");
     expect(error).toBeTruthy();
-    expect(String(error.error)).toContain("id");
+    expect(String(error)).toContain("id");
   });
 
   it("a render that succeeds keeps the author's Cache-Control", async () => {
@@ -81,7 +82,7 @@ describe("a thrown server component is not cached behind respond() headers", () 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("public, max-age=60");
     const chunks = await chunksOf(response);
-    expect(chunks.map(c => c.type)).toEqual(["start", "html", "complete"]);
+    expect(chunks.map(writes)).toEqual(["start", "", ":complete"]);
   });
 
   it("a returned { error } value keeps the author's Cache-Control", async () => {

@@ -61,7 +61,7 @@
 import { applyFrameResponse } from "./client.js";
 // The transport's have-list header name and budget — two literals, bundled
 // (the client entry stops exporting them: frames residue pass, residue 1).
-import { FRAME_HAVE_BUDGET, FRAME_HAVE_HEADER } from "./frame-transport.js";
+import { FRAME_HAVE_BUDGET, FRAME_HAVE_HEADER, ends } from "./frame-transport.js";
 // The server-function wire layer — the SHARED built instance (external:
 // rollup.config.js's externalizeSharedTransport resolves this to
 // `@solidjs/web/server-functions/client`).
@@ -331,8 +331,7 @@ export function connect(
     apply(chunk: any) {
       if (drained) return;
       if (chunk.type === "start") open.set(chunk.id, chunk.version);
-      else if (chunk.type === "complete" || (chunk.type === "error" && !chunk.key))
-        open.delete(chunk.id);
+      else if (ends(chunk)) open.delete(chunk.id);
       host.apply(chunk);
     }
   };
@@ -358,10 +357,9 @@ export function connect(
       sweep: () => {
         for (const [id, version] of open)
           host.apply({
-            type: "error",
             id,
             version,
-            error: { message: String(dead && dead.message) }
+            r: { ":error": { message: String(dead && dead.message) } }
           });
       },
       close: () => {}

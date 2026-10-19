@@ -25,6 +25,7 @@ import {
 } from "../../frames/src/frame-sink.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
 import { hydrationRecordKeys } from "../harness/hydration-records.js";
+import { record } from "./wire.js";
 
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -415,7 +416,7 @@ describe("server components", () => {
   test("stream face: a server component's own render has no handler unless it sets one; the record rides the response", async () => {
     const Plain = () => <a href="/x">plain</a>;
     const plain: any[] = await renderServerComponent(Plain, { frame: { id: "lc-plain" } });
-    expect(plain.find(c => c.type === "html").html).toContain('<a href="/x">plain</a>');
+    expect(record(plain, "").value).toContain('<a href="/x">plain</a>');
     expect(plain.filter(c => c.type === "data")).toEqual([]);
 
     const Routed = () => (
@@ -424,7 +425,7 @@ describe("server components", () => {
       </Router>
     );
     const routed: any[] = await renderServerComponent(Routed, { frame: { id: "lc-routed" } });
-    expect(routed.find(c => c.type === "html").html).toContain(
+    expect(record(routed, "").value).toContain(
       '<a href="/x" data-active aria-current="page">routed</a>'
     );
     const table = createJSONDataTable();

@@ -2310,6 +2310,31 @@ export function renderToStream(code, options = {}) {
   const canBatchStubs = !options.serializer && !options.sink;
   let stubBatch = null;
   const STUB_BATCH_KEY = "$B";
+  // Async mode (the thenable: the whole document resolves at once) has no
+  // reader before completion, so nothing is gained by handing seroval a
+  // value as it arrives — and handing it over in arrival order makes the
+  // bytes follow settle order: reference ids and resolution chunks are
+  // assigned as seroval meets values, so identical data with different
+  // latency produced different documents and a body-digest ETag missed
+  // revalidations (#4028). From the moment the thenable is taken (after the
+  // synchronous first pass, whose writes are already in render order), the
+  // document's writes park here and the stub batch stays parked too; both
+  // are handed over once, at the serializer flush, sorted by hydration key,
+  // by which point the drained registry has settled what they hold —
+  // seroval then meets every value, and every fulfillment, in key order.
+  let stableOrder = false;
+  let parkedWrites = null;
+  const byKey = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const write = (id, value) => {
+    if (stableOrder && !dead) (parkedWrites ||= []).push([id, value]);
+    else serializer.write(id, value);
+  };
+  const flushParkedWrites = () => {
+    if (!parkedWrites) return;
+    const writes = parkedWrites.sort(byKey);
+    parkedWrites = null;
+    for (let i = 0; i < writes.length; i++) serializer.write(writes[i][0], writes[i][1]);
+  };
   const flushStubBatch = () => {
     if (!stubBatch) return;
     const batch = stubBatch;
@@ -2320,7 +2345,9 @@ export function renderToStream(code, options = {}) {
       return;
     }
     const obj = {};
-    for (const [id, p] of batch) obj[id] = p;
+    const entries = [...batch];
+    if (stableOrder) entries.sort(byKey);
+    for (const [id, p] of entries) obj[id] = p;
     serializer.write(STUB_BATCH_KEY, obj);
     pushTask(
       `(b=>{for(var k in b)_$HY.r[k]=b[k];delete _$HY.r["${STUB_BATCH_KEY}"]})(_$HY.r["${STUB_BATCH_KEY}"])`
@@ -2528,6 +2555,7 @@ export function renderToStream(code, options = {}) {
           // so the stub batch must land first. The task output still rides
           // the shell snapshot — `tasks` accumulates until doShell reads it.
           flushStubBatch();
+          flushParkedWrites();
           serializer.flush();
         })
       ); // double queue because of elsewhere
@@ -2874,7 +2902,7 @@ export function renderToStream(code, options = {}) {
       if (p && typeof p === "object" && typeof p.then === "function") {
         if (!firstFlushed && deferStream) {
           blockingPromises.add(p);
-          p.then(d => serializer.write(id, d)).catch(e => serializer.write(id, e));
+          p.then(d => write(id, d)).catch(e => write(id, e));
           return;
         }
         // Every pending promise handed to seroval joins the abandonment
@@ -2891,7 +2919,7 @@ export function renderToStream(code, options = {}) {
           return;
         }
       }
-      serializer.write(id, p);
+      write(id, p);
     },
     escape: escape,
     resolve: resolveSSRNode,
@@ -2947,7 +2975,7 @@ export function renderToStream(code, options = {}) {
         });
         if (canBatchStubs && !shellCompleted && !dead)
           (stubBatch ||= new Map()).set(key + "_fr", p);
-        else serializer.write(key + "_fr", p);
+        else write(key + "_fr", p);
       }
       return (value, error, escaped) => {
         if (registry.has(key)) {
@@ -3294,7 +3322,7 @@ export function renderToStream(code, options = {}) {
       // drain-turn runway they had when writes happened at registration
       // time, so a settled-before-shell record is visibly settled IN the
       // shell (client boundaries branch on `.s === 1` at hydrate time).
-      flushStubBatch();
+      if (!stableOrder) flushStubBatch();
       if (registry.size !== lastRegistrySize || drainTurn++ < MIN_DRAIN_TURNS) {
         if (registry.size !== lastRegistrySize) drainTurn = 0;
         lastRegistrySize = registry.size;
@@ -3436,6 +3464,9 @@ export function renderToStream(code, options = {}) {
     // still open then. Consumers see an already-committed stub, which
     // `createSSRResponse`/`commitEventResponse` pass through idempotently.
     then(onFulfilled, onRejected) {
+      // Document mode only: a custom serializer/sink addresses records by
+      // key and keeps its own delivery order.
+      if (canBatchStubs) stableOrder = true;
       const freezeHead = () => {
         if (requestEvent && requestEvent.response)
           commitResponseStub(requestEvent.response, { event: requestEvent });

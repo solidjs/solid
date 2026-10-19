@@ -68,9 +68,10 @@ describe("container-trace hold: record retention", () => {
     // Count the slot applies the boundary routes into the store, by key.
     const applied: Record<string, number> = {};
     const origApply = gated.host.apply.bind(gated.host);
-    gated.host.apply = (chunk: any) => {
-      if (chunk.type === "slot") applied[chunk.key] = (applied[chunk.key] ?? 0) + 1;
-      return origApply(chunk);
+    gated.host.apply = (msg: any) => {
+      for (const key in msg.r)
+        if (key.startsWith("slot:")) applied[key.slice(5)] = (applied[key.slice(5)] ?? 0) + 1;
+      return origApply(msg);
     };
     ledger.reveal(container);
     const T = (globalThis as any)._$SC.r(fid);
@@ -111,7 +112,10 @@ describe("container-trace hold: record retention", () => {
     // producer's end-of-stream flush does this on every page). Another
     // store write — equal args — while the occurrence is still held.
     const record = hy.r[`sc:slot:${fid}:comment#c1`];
-    liveController.enqueue({ type: "slot", fid, key: "comment#c1", args: { ...record } });
+    liveController.enqueue({
+      fid,
+      r: { "slot:comment#c1": { kind: "slot", args: { ...record } } }
+    });
     liveController.close();
     await sleep(10);
     flush();
