@@ -142,6 +142,33 @@ describe("deferred hydration", () => {
     dispose();
   });
 
+  test("records settling one by one during deferral mount their occurrences, the late one included", async () => {
+    const fid = freshFid("defer-records");
+    page = bootPage(
+      frameHtml(
+        fid,
+        `<ul>${OCCURRENCES.map(o => slotRange(o, fillHtml(fid, o, "a"))).join("")}</ul>`
+      )
+    );
+    const pending = OCCURRENCES.map(o => page!.declareSlotRecord(fid, o));
+    const Comp = (globalThis as any)._$SC.r(fid);
+    let mounted = 0;
+    const dispose = hydrate(() => <Comp item={() => (mounted++, (<li>a</li>))} />, page.container);
+    expect(mounted).toBe(0);
+    pending[0].settle({});
+    pending[1].settle({});
+    // The idle pass mounts the two with records; the third waits for its own.
+    await idle();
+    expect(mounted).toBe(2);
+    expect(hydrationInProgress()).toBe(true);
+    pending[2].settle({});
+    await idle();
+    expect(mounted).toBe(3);
+    expect(hydrationInProgress()).toBe(false);
+    expect(page.warnings.filter(w => w.includes("unclaimed"))).toEqual([]);
+    dispose();
+  });
+
   test("a frame with no slot range does not defer: hydration ends without waiting for load", async () => {
     // The document is still loading, so an idle pass would wait for the
     // load event; a frame owing nothing must not hold hydration for it.

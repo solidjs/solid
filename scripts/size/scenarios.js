@@ -4561,8 +4561,10 @@ module.exports = [
     // in a region mounts under the owner that placed it (the regions tier's
     // placement), and a fill's two claim windows share one claim owner. Cap at
     // measured + 10 B rounded up to 0.01 KB.
-    limit: "12.25 KB",
-    capMinified: 36845,
+    // record-only writes mount from the last slot walk (#4139, 2026-10-18): 12.25 -> 12.37 KB, measured locally at 12,359 B brotli / 37,310 B minified (+465 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 12.37 KB -> 12.46 KB, measured locally at 12,445 B brotli / 37,516 B minified (+206 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "12.46 KB",
+    capMinified: 37516,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4924,6 +4926,12 @@ module.exports = [
     // in a region mounts under the owner that placed it (the regions tier's
     // placement), and a fill's two claim windows share one claim owner. Cap
     // (floor-caps.json) at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (record-only writes mount from the last slot walk,
+    // #4139, 2026-10-18): 33.46 -> 33.57 KB, measured locally at 33,555 B
+    // brotli / 103,102 B minified (+465 B minified): a write carrying only
+    // slot records mounts the occurrences it names from the frame's cached
+    // walk instead of walking the frame again. Accepted by the maintainer.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 33.57 KB -> 33.62 KB (floor-caps.json), measured locally at 33,608 B brotli / 103,298 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5233,6 +5241,11 @@ module.exports = [
     // override/derived read the way they hand a value, and `stageError`
     // schedules the verdict wake. Cap at measured + 10 B rounded up to
     // 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Size-Exception (record-only writes mount from the last slot walk,
+    // #4139, 2026-10-18): 37.65 -> 37.67 KB, measured locally at 37,658 B
+    // brotli / 116,502 B minified (+465 B minified). Accepted by the
+    // maintainer.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 37.67 KB -> 37.78 KB (floor-caps.json), measured locally at 37,768 B brotli / 116,698 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5363,8 +5376,10 @@ module.exports = [
     // in a region mounts under the owner that placed it (the regions tier's
     // placement), and a fill's two claim windows share one claim owner. Cap at
     // measured + 10 B rounded up to 0.01 KB.
-    limit: "35.42 KB",
-    capMinified: 108973,
+    // record-only writes mount from the last slot walk (#4139, 2026-10-18): 35.42 -> 35.53 KB, measured locally at 35,517 B brotli / 109,446 B minified (+473 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 35.53 KB -> 35.58 KB, measured locally at 35,569 B brotli / 109,642 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "35.58 KB",
+    capMinified: 109642,
     alias: pageAlias
   },
   {
@@ -5464,8 +5479,10 @@ module.exports = [
     // #4129, which passed alone under the brotli cap, and the rest from the
     // other two). Cap at measured + 10 B rounded up to 0.01 KB. Accepted by
     // the maintainer (2026-10-17).
-    limit: "41.52 KB",
-    capMinified: 123984,
+    // record-only writes mount from the last slot walk (#4139, 2026-10-18): 41.48 -> 41.64 KB, measured locally at 41,628 B brotli / 124,449 B minified (+523 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 41.64 KB -> 41.66 KB, measured locally at 41,649 B brotli / 124,645 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "41.66 KB",
+    capMinified: 124645,
     alias: pageAlias
   },
   {
@@ -5635,8 +5652,10 @@ module.exports = [
     // measured locally (linux) at 40,884 B (126,460 B minified). Lower only:
     // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
     // raised.
-    limit: "40.90 KB",
-    capMinified: 126460,
+    // record-only writes mount from the last slot walk (#4139, 2026-10-18): 40.90 -> 40.95 KB, measured locally at 40,937 B brotli / 126,936 B minified (+476 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 40.95 KB -> 41.04 KB, measured locally at 41,022 B brotli / 127,132 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "41.04 KB",
+    capMinified: 127132,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5782,8 +5801,10 @@ module.exports = [
     // they hand a value, and `stageError` schedules the verdict wake. Cap at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // (2026-10-17).
-    limit: "47.05 KB",
-    capMinified: 141255,
+    // record-only writes mount from the last slot walk (#4139, 2026-10-18): 47.05 -> 47.19 KB, measured locally at 47,173 B brotli / 141,725 B minified (+470 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 47.19 KB -> 47.23 KB, measured locally at 47,220 B brotli / 141,921 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    limit: "47.23 KB",
+    capMinified: 141921,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }

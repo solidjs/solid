@@ -1214,6 +1214,10 @@ class FrameImpl {
   #outer;
   #version;
   #store = Object.create(null);
+  // The store's keys other than slot records, in write order: the content
+  // passes of a flush (assets, segments, holes) walk these, so a document's
+  // hundreds of slot record writes don't each enumerate the whole store.
+  #content = new Set<string>();
   // The applied state is keyed by RECORD identity (frames-rulings 2.1,
   // 2.2): the root record this mount morphed, the error record it notified.
   // A new record under the same version applies again; the version bump
@@ -1270,6 +1274,13 @@ class FrameImpl {
   // and the current record applies as the args change it is
   // (frames-rulings 3.6: a claim reads what the markup was rendered from).
   #heldRecords = new Map();
+  // The last full-frame walk (#syncSlots) while the content it walked is
+  // unchanged, and the occurrences any sync left waiting to mount: a write
+  // that only delivers slot records mounts or updates just the occurrences
+  // they name from this walk, instead of walking the frame again (a
+  // document's records arrive one write per occurrence).
+  #found;
+  #waiting = new Set();
   #disposed = false;
   // Deferred hydration: set while the adoption-time mounts are still owed
   // (see `deferDriver`); `#deferFound` is the walk the slices mount from.
@@ -1405,6 +1416,7 @@ class FrameImpl {
       this.#resetStreamState();
     }
 
+    let only: string[] | undefined = [];
     for (const key in write.r) {
       // Deferred, an occurrence not mounted yet still shows the markup its
       // record was rendered from: it mounts claiming with that record, and
@@ -1419,8 +1431,12 @@ class FrameImpl {
       )
         this.#heldRecords.has(occurrence) || this.#heldRecords.set(occurrence, prev);
       this.#store[key] = write.r[key];
+      if (key.startsWith("slot:")) only?.push(occurrence);
+      else (this.#content.add(key), (only = undefined));
     }
-    this.#flush();
+    // Slot records alone (an empty write is a re-sync: content changed
+    // around the frame, as a document-face reveal does).
+    this.#flush(only?.length ? only : undefined);
   }
 
   /**
@@ -1483,14 +1499,16 @@ class FrameImpl {
    * the new version's writes morph it.
    */
   #resetStreamState() {
+    this.#found = undefined;
     this.#store = Object.create(null);
+    this.#content.clear();
     this.#appliedRoot = this.#appliedError = undefined;
     this.#appliedHoles.clear();
     this.#liveTargets.clear();
     this.#shows = {};
   }
 
-  #flush() {
+  #flush(only?: string[]) {
     if (this.#disposed) return;
     const version = this.#version;
 
@@ -1527,7 +1545,7 @@ class FrameImpl {
     // met while the tier is absent starts its load (`tierReady`) and stays
     // pending — the install's flush applies it; the walk stops there (the
     // rest wait on the same load).
-    for (const key in this.#store) {
+    for (const key of this.#content) {
       const record = this.#store[key];
       if (!key.endsWith(":assets") || !record || this.#appliedHoles.get(key) === record) continue;
       const tier = tierReady("assets");
@@ -1540,7 +1558,7 @@ class FrameImpl {
     // in the frame's range reveals; a revealed segment's own range is
     // applied as it is revealed (nested segments included — see
     // #revealSegments), so one pass over the frame suffices.
-    this.#revealSegments();
+    const revealed = this.#revealSegments();
 
     // Live-hole records, one pass: range morphs (`hole:`), element attr
     // patches (`attr:`), and hole-keyed error diagnostics. After the
@@ -1561,7 +1579,7 @@ class FrameImpl {
     // hole morph: `r`, the frame's slot ranges by occurrence; `g`, the
     // subtrees the morphs inserted whole.
     const index: { r?: Map<string, any>; g?: Node[] } = {};
-    for (const key in this.#store) {
+    for (const key of this.#content) {
       const record = this.#store[key];
       if (!record || this.#appliedHoles.get(key) === record) continue;
       if (key.startsWith("hole:")) {
@@ -1595,15 +1613,37 @@ class FrameImpl {
       if (!morphed && this.#appliedRoot === applied) {
         // A segment this flush revealed brings occurrences the walk has not
         // seen: the next slice walks again (mounted ones pass over). The
-        // occurrences an event mounted take the flush's record changes.
-        this.#deferFound = undefined;
-        if (this.#deferMounted.size)
-          this.#deferWaiting = this.#mountFound(new Map(this.#deferMounted)) || this.#deferWaiting;
+        // occurrences an event mounted take the flush's record changes. A
+        // write of slot records alone keeps the walk and touches the ones it
+        // names; one a slice already passed waiting takes a new walk.
+        if (revealed || !only) this.#deferFound = undefined;
+        const mounted = only ? new Map() : new Map(this.#deferMounted);
+        if (only)
+          for (const id of only) {
+            const start = this.#deferMounted.get(id);
+            if (start) mounted.set(id, start);
+            else if (!this.#deferFound?.has(id)) this.#deferFound = undefined;
+          }
+        if (mounted.size) this.#deferWaiting = this.#mountFound(mounted) || this.#deferWaiting;
         return;
       }
       this.#deferred = false;
       this.#deferFound = undefined;
       this.#deferMounted.clear();
+    }
+    // A write of slot records alone over unchanged content: the occurrences
+    // they name, from the last walk. One the walk did not see, or whose
+    // range has left the document since, takes the walk.
+    const found = this.#found;
+    if (only && found && this.#appliedRoot === applied) {
+      const sub = new Map();
+      for (const id of only) {
+        const start = found.get(id);
+        if (!start?.isConnected) return this.#syncSlots();
+        sub.set(id, start);
+      }
+      this.#mountFound(sub);
+      return this.#holdIf(this.#waiting.size);
     }
     this.#syncSlots();
   }
@@ -1672,6 +1712,8 @@ class FrameImpl {
     // prop.
     const found = new Map();
     this.#collectSlots(found, root);
+    if (root) this.#found = undefined;
+    else ((this.#found = found), this.#waiting.clear());
     const waiting = this.#mountFound(found);
 
     // Unmount occurrences whose range has disappeared from the server content
@@ -1687,9 +1729,13 @@ class FrameImpl {
       // waits are bounded as a `<Loading>` resume's is: the record by its
       // declared value settling, the read by the stream's
       // `complete`/`:error`, the tier by its load settling.
-      if (waiting && !this.#hold) this.#hold = this.#options.hold?.();
-      else if (!waiting && this.#hold) this.#releaseHold();
+      this.#holdIf(waiting);
     }
+  }
+
+  #holdIf(waiting) {
+    if (waiting && !this.#hold) this.#hold = this.#options.hold?.();
+    else if (!waiting && this.#hold) this.#releaseHold();
   }
 
   /**
@@ -1709,6 +1755,7 @@ class FrameImpl {
     const R = tierLoads.regions?.r;
 
     for (const [occurrence, start] of found) {
+      this.#waiting.delete(occurrence);
       const callback = this.#resolveSlot(propOf(occurrence));
       // No client impl for this prop up the tree: the range stays empty,
       // which content can mean.
@@ -1746,7 +1793,7 @@ class FrameImpl {
       // under different ids), never something the fill can fix; dev names
       // it there (the document's declaration may still settle).
       if (record === undefined && isCalled(occurrence)) {
-        waiting ||= !mounted;
+        if (!mounted) ((waiting = true), this.#waiting.add(occurrence));
         continue;
       }
       // A record's args are client values by the time it is here: the host
@@ -1783,6 +1830,7 @@ class FrameImpl {
         (record.pending || needsRegions(record) || needsTrace(record.args))
       ) {
         waiting = true;
+        this.#waiting.add(occurrence);
         // Remember what the adopted interior was rendered from. A hold is
         // the t=0 mount deferred: when it lifts, the mount must do what t=0
         // would have — claim with THIS record — even if a later write has
@@ -2215,6 +2263,7 @@ class FrameImpl {
   }
 
   #applyRoot(html) {
+    this.#found = undefined;
     this.#liveTargets.clear();
     this.#shows = {};
     const fragment = parseFragment(html);
@@ -2264,6 +2313,7 @@ class FrameImpl {
    */
   #applyHole(marker, record, index) {
     if (!this.#hasContent) return false;
+    this.#found = undefined;
     const open = this.#liveTarget(
       "hole:" + marker,
       n => n.nodeType === COMMENT_NODE && n.data === marker
@@ -2396,7 +2446,8 @@ class FrameImpl {
    */
   #revealSegments(root?) {
     const version = this.#version;
-    for (const key in this.#store) {
+    let revealed = false;
+    for (const key of this.#content) {
       const record = this.#store[key];
       const name = segmentName(key);
       if (name === null || !record || this.#appliedHoles.get(key) === record) continue;
@@ -2404,9 +2455,10 @@ class FrameImpl {
         this.#appliedHoles.set(key, record);
         this.#revealSegment(name, root);
         this.#applied(version, "reveal");
+        revealed = true;
       }
     }
-    for (const key in this.#store) {
+    for (const key of this.#content) {
       const m = /^seg:([^:]+):fallback$/.exec(key);
       if (!m || this.#appliedHoles.has(key) || this.#appliedHoles.has(`seg:${m[1]}`)) continue;
       if (this.#showFallback(m[1], root)) {
@@ -2414,6 +2466,7 @@ class FrameImpl {
         this.#applied(version, "reveal");
       }
     }
+    return revealed;
   }
 
   #segmentReady(name, root) {
@@ -2458,6 +2511,7 @@ class FrameImpl {
   #revealSegment(name, root) {
     const tpl = this.#findPlaceholder(name, root);
     if (!tpl) return;
+    this.#found = undefined;
     // The segment's inline styles rode its assets record and landed in the
     // head at the record's arrival (the assets walk in #flush, ahead of the
     // segments), so they precede the content as the document face orders
