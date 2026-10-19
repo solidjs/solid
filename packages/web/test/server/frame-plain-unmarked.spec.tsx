@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { createMemo } from "solid-js";
 import { renderServerComponent } from "../../frames/src/frame-sink.js";
+import { content, record, records, values } from "./wire.js";
 
 async function collect(stream: any) {
   const chunks: any[] = [];
@@ -30,19 +31,19 @@ describe("frame-face marking off the live address", () => {
     const chunks = await collect(
       renderServerComponent(() => <Story {...story} />, { frame: { id: "f" } })
     );
-    const html = chunks.find(c => c.type === "html");
-    expect(html.html).toBe('<div><h1>Hello</h1><a href="/users/dang">dang</a></div>');
+    const html = record(chunks, "");
+    expect(html.value).toBe('<div><h1>Hello</h1><a href="/users/dang">dang</a></div>');
     expect(html.holes).toBeUndefined();
-    expect(chunks.some(c => c.type === "hole" || c.type === "attr")).toBe(false);
+    expect(records(chunks, "hole:").length + records(chunks, "attr:").length).toBe(0);
   });
 
   it("keeps every marker at the live address", async () => {
     const chunks = await collect(
       renderServerComponent(() => <Story {...story} />, { frame: { id: "f" }, live: true })
     );
-    const html = chunks.find(c => c.type === "html");
-    expect(html.html).toMatch(/<!--lh:\d+-->Hello<!--lh:\/\d+-->/);
-    expect(html.html).toMatch(/ data-lha="\d+"/);
+    const html = record(chunks, "");
+    expect(html.value).toMatch(/<!--lh:\d+-->Hello<!--lh:\/\d+-->/);
+    expect(html.value).toMatch(/ data-lha="\d+"/);
     expect(Object.keys(html.holes)).toContain("lh:0");
   });
 
@@ -57,11 +58,8 @@ describe("frame-face marking off the live address", () => {
       return <p>{text()}</p>;
     };
     const chunks = await collect(renderServerComponent(Comp, { frame: { id: "f" } }));
-    const shipped = chunks
-      .filter(c => c.type === "html" || c.type === "fragment")
-      .map(c => c.html)
-      .join("");
+    const shipped = content(chunks, ["", "seg"]).join("");
     expect(shipped).toMatch(/<!--lh:(\d+)-->(<!--!\$-->)?one<!--lh:\/\1-->/);
-    expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual(["one two"]);
+    expect(values(chunks, "hole:")).toEqual(["one two"]);
   }, 8000);
 });

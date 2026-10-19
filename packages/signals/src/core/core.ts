@@ -158,8 +158,29 @@ GlobalQueue._update = el => {
   // (REACTIVE_LANE_DIRTY — a lane shows ahead of any park): it runs now, as
   // the lane's work, for the reveal this seam (#3463).
   else if (el._flags & REACTIVE_ZOMBIE && !(el._flags & REACTIVE_LANE_DIRTY)) deferZombie(el);
-  else recompute(el);
+  // A lane frame's member (parked by a lane pass, #3698) follows mainline
+  // writes only: a lane's dirty on it is cancelled — the lane's apply retires
+  // it, and the pass that replaced it already decided what that screen shows
+  // (#4137: a `<Show>` branch withdrawn by its own lane re-ran on a falsy
+  // condition).
+  // (Lanes exist only with the lane engine installed: folded away without.)
+  else if (laneStageHook && el._flags & REACTIVE_ZOMBIE && laneFrameMember(el)) {
+    deleteFromHeap(el, dirtyQueue);
+    el._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_LANE_DIRTY);
+  } else recompute(el);
 };
+/** The zombie's frame was parked by lane work: the nearest non-zombie owner
+ * (the one whose pass parked it) carries a lane's derived value — or, an
+ * effect (no lane value: `laneStage`), is listed in a lane (an `insert()`
+ * hole's render effect). */
+function laneFrameMember(el: Computed<any>): boolean {
+  let o: any = el._parent;
+  while (o._flags & REACTIVE_ZOMBIE) o = o._parent;
+  return (
+    (o._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE ||
+    (o._type && o._x?._transaction?._lane)
+  );
+}
 GlobalQueue._dispose = disposeChildren;
 
 export const PRIMITIVE_IN_FORBIDDEN_SCOPE_MESSAGE =
