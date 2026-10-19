@@ -114,10 +114,15 @@ describe("document face — live holes against the real core", () => {
       if (r.done) break;
       ops.push(r.value);
     }
-    const holes = ops.filter(op => op.type === "hole").map(op => op.html);
-    expect(holes).toEqual(["w1 w2", "w1 w2 w3"]);
-    // Every op carries its digest (the ledger's currency on every face).
-    for (const op of ops) if (op.type === "hole") expect(typeof op.digest).toBe("string");
+    // Each op is a record batch; its `hole:` records are the re-emissions.
+    const holes = ops.flatMap(op =>
+      Object.keys(op.r)
+        .filter(key => key.startsWith("hole:"))
+        .map(key => op.r[key])
+    );
+    expect(holes.map(hole => hole.value)).toEqual(["w1 w2", "w1 w2 w3"]);
+    // Every record carries its digest (the ledger's currency on every face).
+    for (const hole of holes) expect(typeof hole.digest).toBe("string");
   });
 
   test("a live-branded iterable inside a server component keeps pumping (stream-face exception to auto-hybrid)", async () => {

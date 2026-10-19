@@ -40,6 +40,7 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
+import { writes } from "./wire.js";
 
 const FIXTURE = resolve(import.meta.dirname, "ssr-error-sanitization.fixture.mjs");
 const GENERIC = "Internal Server Error";
@@ -149,19 +150,26 @@ function describeSanitizing(name: string, conditions: string[], observe: boolean
       expect(byCode(findings, "SERVER_ERROR_SANITIZED")).toHaveLength(0);
     });
 
-    test("frame streams: the root error chunk and every keyed error chunk carry the replacement", () => {
+    test("frame streams: the root error record and every keyed error record carry the replacement", () => {
       const { frameRoot, frameFragment } = run(conditions);
-      expect(frameRoot.value.map(c => c.type)).toEqual(["start", "error", "complete"]);
-      expect(frameRoot.value[1].error).toBe(GENERIC);
+      // The error and the end are one flush: one batch.
+      expect(frameRoot.value.map(writes)).toEqual(["start", ":error :complete"]);
+      expect(frameRoot.value[1].r[":error"]).toBe(GENERIC);
       expectNoSecrets(JSON.stringify(frameRoot.value));
 
-      const errors = frameFragment.value.filter(c => c.type === "error");
+      const errors = frameFragment.value.flatMap(m =>
+        m.r
+          ? Object.keys(m.r)
+              .filter(k => k.endsWith(":error"))
+              .map(k => [k, m.r[k]])
+          : []
+      );
       // The fragment's error rides `{ message }`; a live hole's terminal
-      // failure rides its message bare (`lh:*`) — both the replacement's.
-      expect(errors.some(c => c.key === "00")).toBe(true);
-      expect(errors.some(c => String(c.key).startsWith("lh:"))).toBe(true);
-      for (const chunk of errors) {
-        expect(typeof chunk.error === "string" ? chunk.error : chunk.error.message).toBe(GENERIC);
+      // failure rides its message bare (`hole:lh:*`) — both the replacement's.
+      expect(errors.some(([key]) => key === "seg:00:error")).toBe(true);
+      expect(errors.some(([key]) => key.startsWith("hole:lh:"))).toBe(true);
+      for (const [, error] of errors) {
+        expect(typeof error === "string" ? error : error.message).toBe(GENERIC);
       }
       expectNoSecrets(JSON.stringify(frameFragment.value));
     });
@@ -253,9 +261,9 @@ describe("the development artifacts", () => {
     expect(byCode(findings, "SSR_RENDER_ERROR_CONTAINED")).toHaveLength(1);
   });
 
-  test("a rejected async source's reason and a frame's error chunks are the originals", () => {
+  test("a rejected async source's reason and a frame's error records are the originals", () => {
     const results = run(["development"]);
     expect(results.channel.value).toContain("hunter2");
-    expect(results.frameRoot.value[1].error).toContain("hunter2");
+    expect(results.frameRoot.value[1].r[":error"]).toContain("hunter2");
   });
 });

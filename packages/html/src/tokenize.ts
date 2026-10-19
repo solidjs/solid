@@ -207,7 +207,9 @@ export const tokenize = (
             const start = cursor;
             while (cursor < len && isIdentifierChar(str.charCodeAt(cursor))) cursor++;
             const value = str.slice(start, cursor);
-            if (lastTagName === "") {
+            // Only a tag name directly after "<" can open a raw text element, not an
+            // attribute name on a dynamic tag such as <${Comp} title="...">.
+            if (tokens[tokens.length - 1]?.type === OPEN_TAG_TOKEN) {
               lastTagName = value;
             }
             tokens.push({ type: IDENTIFIER_TOKEN, value });

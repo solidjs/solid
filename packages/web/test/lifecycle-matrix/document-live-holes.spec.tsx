@@ -25,6 +25,7 @@ import { installServerComponents } from "../../frames/src/client.js";
 import { prepareTier } from "../../frames/src/frame-client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, pump } from "./harness.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 // Live content applies through the live wire tier (frames/wire), which a
 // live page announces and preloads; this spec sends hole ops at once, so
@@ -116,7 +117,7 @@ describe("t=0/live-holes", () => {
     const p = morphEl.querySelector("p")!;
     expect(p.textContent).toBe("v1");
 
-    liveCtl.enqueue({ type: "hole", key: "lh:0", html: "<b>v2</b>" });
+    liveCtl.enqueue({ r: { "hole:lh:0": { kind: "html", value: "<b>v2</b>" } } });
     await pump();
 
     // Morphed in place: same <p> (the range's parent), new bold text.
@@ -124,7 +125,9 @@ describe("t=0/live-holes", () => {
     expect(p.textContent).toBe("v2");
 
     const attrEl = document.querySelector('[data-lha="1"]')! as HTMLElement;
-    liveCtl.enqueue({ type: "attr", key: "1", attrs: ' class="b"', removed: ["disabled"] });
+    liveCtl.enqueue({
+      r: { "attr:1": { kind: "attrs", value: ' class="b"', removed: ["disabled"] } }
+    });
     await pump();
     expect(attrEl.getAttribute("class")).toBe("b");
     expect(attrEl.hasAttribute("disabled")).toBe(false);
@@ -142,7 +145,7 @@ describe("t=0/live-holes", () => {
 
     // The pump is already running (started by the earlier adoptions) and no
     // frame owns lh:2 yet — the op logs, broadcast finds no target.
-    liveCtl.enqueue({ type: "hole", key: "lh:2", html: "warm" });
+    liveCtl.enqueue({ r: { "hole:lh:2": { kind: "html", value: "warm" } } });
     await pump();
     const lateEl = document.querySelector('[data-fid="matrix/lh/late"]')! as HTMLElement;
     expect(lateEl.textContent).toBe("cold");
@@ -196,10 +199,8 @@ describe("t=0/live-holes", () => {
     const li = document.querySelector('[data-fid="matrix/lh/args"]')!.querySelector(".arg-fill")!;
 
     liveCtl.enqueue({
-      type: "slot",
       fid: "matrix/lh/args",
-      key: "status#s1",
-      args: { text: "t2" }
+      r: { "slot:status#s1": { kind: "slot", args: { text: "t2" } } }
     });
     await pump();
 
@@ -227,17 +228,19 @@ describe("t=0/live-holes", () => {
     expect(el.textContent).toBe("doc");
 
     // A navigation-shaped stream rebinds the boundary at version 1.
-    host.apply({
-      type: "html",
-      id: "matrix/lh/stale",
-      version: 1,
-      html: "<article><p>stream</p></article>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "matrix/lh/stale",
+        version: 1,
+        html: "<article><p>stream</p></article>"
+      })
+    );
     await pump(1);
     expect(el.textContent).toBe("stream");
 
     // A stale document op (version 0) must not touch the superseded content.
-    liveCtl.enqueue({ type: "hole", key: "lh:3", html: "stale-doc" });
+    liveCtl.enqueue({ r: { "hole:lh:3": { kind: "html", value: "stale-doc" } } });
     await pump();
     expect(el.textContent).toBe("stream");
 

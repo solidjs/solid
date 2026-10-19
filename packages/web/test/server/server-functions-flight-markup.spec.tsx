@@ -26,6 +26,7 @@ import {
   frameTransformFlightResult,
   frameTransformResult
 } from "@solidjs/web/frames/server";
+import { has, record, writes } from "./wire.js";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 
@@ -42,8 +43,8 @@ afterAll(() => {
   delete (globalThis as any)._$SC;
 });
 
-// The frame-stream body: length-prefixed JSON chunks (the server-function
-// wire framing), read back into chunk objects.
+// The frame-stream body: length-prefixed JSON messages (the server-function
+// wire framing) — record batches beside `start` / `outcome` — read back.
 async function readFrameStream(response: Response) {
   const reader = new ChunkReader(response.body!);
   const chunks: any[] = [];
@@ -103,9 +104,9 @@ describe("frameTransformFlightResult reads consumer-keyed flight data", () => {
     expect(response!.headers.get("X-Frame-Stream")).toBe("");
     const chunks = await readFrameStream(response!);
     // the component's content rides once, as a region addressed by the CALL
-    const html = chunks.filter(chunk => chunk.type === "html");
+    const html = chunks.filter(chunk => has(chunk, ""));
     expect(html).toHaveLength(1);
-    expect(html[0].html).toBe("fresh markup");
+    expect(html[0].r[""].value).toBe("fresh markup");
     expect(html[0].id).toBe((brandedView() as any)[Symbol.for("solid.server-component-address")]);
     // the envelope keeps the fold's shape — every source key intact, the
     // component entry a reference beside the plain data
@@ -137,13 +138,17 @@ describe("frameTransformFlightResult reads consumer-keyed flight data", () => {
       data: { true: { "view[]": View } }
     });
     const chunks = await readFrameStream(response!);
-    expect(chunks.filter(chunk => chunk.type === "html")).toEqual([
+    expect(chunks.filter(chunk => has(chunk, ""))).toEqual([
       {
-        type: "html",
         id: "view[]",
         version: 1,
-        html: "fresh markup",
-        digest: expect.stringMatching(/^[0-9a-f]{16}$/)
+        r: {
+          "": {
+            kind: "html",
+            value: "fresh markup",
+            digest: expect.stringMatching(/^[0-9a-f]{16}$/)
+          }
+        }
       }
     ]);
     expect(await decodeOutcome(chunks)).toEqual({
@@ -183,12 +188,12 @@ describe("single-flight mutations that revalidate a server component (built bund
     expect(response.headers.get("Content-Type")).toBe("application/x-frame-stream");
     expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("true");
     const chunks = await readFrameStream(response);
-    expect(chunks.map(chunk => chunk.type)).toEqual(
-      expect.arrayContaining(["start", "html", "complete", "outcome"])
+    expect(chunks.map(writes)).toEqual(
+      expect.arrayContaining(["start", "", ":complete", "outcome"])
     );
-    expect(chunks.find(chunk => chunk.type === "html")).toMatchObject({
+    expect(chunks.find(chunk => has(chunk, ""))).toMatchObject({
       id: "view[]",
-      html: "fresh markup"
+      r: { "": { value: "fresh markup" } }
     });
     expect(JSON.stringify(chunks)).not.toContain("could not be encoded");
     expect(await decodeOutcome(chunks)).toEqual({
@@ -214,7 +219,7 @@ describe("single-flight mutations that revalidate a server component (built bund
     // and dropped the named source the client routes by
     expect(response.headers.get(SINGLE_FLIGHT_HEADER)).toBe("true,sq");
     const chunks = await readFrameStream(response);
-    expect(chunks.filter(chunk => chunk.type === "html")).toHaveLength(1);
+    expect(chunks.filter(chunk => has(chunk, ""))).toHaveLength(1);
     expect(await decodeOutcome(chunks)).toEqual({
       data: {
         true: { "view[7]": { component: "view" } },
@@ -237,7 +242,7 @@ describe("single-flight mutations that revalidate a server component (built bund
 
     expect(response.headers.get("Content-Type")).toBe("application/x-frame-stream");
     const chunks = await readFrameStream(response);
-    expect(chunks.find(chunk => chunk.type === "html")).toMatchObject({ html: "fresh markup" });
+    expect(record(chunks, "")).toMatchObject({ value: "fresh markup" });
     // the rejection rides as a rejected entry, sanitized like any other
     // failure in flight data (the production artifact's default)
     const text = JSON.stringify(chunks);
