@@ -2047,6 +2047,7 @@ export function setWriteHook(hook: ((node?: object) => void) | null): void {
  * @internal
  */
 export function isSame(el: Signal<any>, a: unknown, b: unknown): unknown {
+  if (el._equals === isEqual) return a === b;
   try {
     return el._equals && el._equals(a, b);
   } catch (e) {
