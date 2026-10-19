@@ -573,7 +573,7 @@ test("nested deferred claims retain one button through two sequential client mod
   const markers = Array.from(container.querySelectorAll("[data-module-id]"));
   const ids = markers.map(marker => marker.getAttribute("data-module-id"));
   const buttonId = button.id;
-  expect(button.textContent).toBe("dynamic nested0");
+  expect(button.textContent).toBe("dynamic nested: 0");
   const [ready, setReady] = createSignal(false);
   const [nestedReady, setNestedReady] = createSignal(false);
   let resolveOuter!: () => void;
@@ -608,7 +608,7 @@ test("nested deferred claims retain one button through two sequential client mod
   await settle();
   expect(entered).toEqual(["outer"]);
   expect(container.querySelector("button")).toBe(button);
-  expect(button.textContent).toBe("dynamic nested0");
+  expect(button.textContent).toBe("dynamic nested: 0");
   expect(ended).toBe(0);
 
   resolveOuter();
@@ -616,7 +616,7 @@ test("nested deferred claims retain one button through two sequential client mod
   await settle();
   expect(entered).toEqual(["outer", "inner"]);
   expect(container.querySelector("button")).toBe(button);
-  expect(button.textContent).toBe("dynamic nested0");
+  expect(button.textContent).toBe("dynamic nested: 0");
   expect(ended).toBe(0);
 
   resolveInner();
@@ -624,7 +624,7 @@ test("nested deferred claims retain one button through two sequential client mod
   await settle();
   expect(container.querySelectorAll("button")).toHaveLength(1);
   expect(container.querySelector("button")).toBe(button);
-  expect(button.textContent).toBe("dynamic nested0");
+  expect(button.textContent).toBe("dynamic nested: 0");
   expect(button.id).toBe(buttonId);
   expect(button.getAttribute("data-context")).toBe("preserved context");
   expect(Array.from(container.querySelectorAll("[data-module-id]"))).toEqual(markers);
@@ -635,10 +635,118 @@ test("nested deferred claims retain one button through two sequential client mod
   button.click();
   await settle();
   expect(clicks).toBe(1);
-  expect(button.textContent).toBe("dynamic nested1");
+  expect(button.textContent).toBe("dynamic nested: 1");
   expect(container.querySelector("button")).toBe(button);
   expect(ended).toBe(1);
 });
+
+test.each([
+  [true, false],
+  [false, false],
+  [false, true]
+])(
+  "a nested intent after its outer claim settles retains descendant bindings and replays once (initial outer readiness: %s; pending inner module: %s)",
+  async (initiallyReady, pendingInner) => {
+    applyChunk(container, artifact.sequentialModule.shell);
+    const parent = container.querySelector("main")!;
+    const button = container.querySelector("button")!;
+    const count = button.querySelector("[data-module-count]")!;
+    const sibling = container.querySelector("aside")!;
+    const markers = Array.from(container.querySelectorAll("[data-module-id]"));
+    const [ready, setReady] = createSignal(initiallyReady);
+    const [nestedReady, setNestedReady] = createSignal(false);
+    let resolveOuter!: () => void;
+    const outerModule = initiallyReady
+      ? undefined
+      : new Promise<void>(resolve => {
+          resolveOuter = resolve;
+        });
+    let resolveInner!: () => void;
+    const innerModule = pendingInner
+      ? new Promise<void>(resolve => {
+          resolveInner = resolve;
+        })
+      : undefined;
+    const settled: string[] = [];
+    let clicks = 0;
+    let ended = 0;
+    const App = sequentialDeferredModuleApp({
+      ready,
+      nestedReady,
+      outerModule,
+      innerModule,
+      settled: name => settled.push(name),
+      clicked: () => clicks++
+    });
+    dispose = hydrate(() => <App />, container);
+    onHydrationEnd(() => ended++);
+    await settle();
+    if (!initiallyReady) {
+      expect(settled).toEqual([]);
+      setReady(true);
+      await settle();
+      expect(settled).toEqual([]);
+      expect(container.querySelector("button")).toBe(button);
+      expect(button.textContent).toBe("dynamic nested: 0");
+      resolveOuter();
+    }
+    await settle();
+    await settle();
+    expect(settled).toEqual(["outer"]);
+    expect(container.querySelector("main")).toBe(parent);
+    expect(container.querySelector("button")).toBe(button);
+    expect(button.querySelector("[data-module-count]")).toBe(count);
+    expect(button.textContent).toBe("dynamic nested: 0");
+    expect(button.getAttribute("data-hydrated")).toBe("false");
+    expect(container.querySelector("aside")).toBe(sibling);
+    expect(ended).toBe(0);
+
+    button.addEventListener(
+      "click",
+      event => (globalThis as any)._$HY.events.push([button.closest("[_hk]"), event]),
+      { capture: true, once: true }
+    );
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(clicks).toBe(0);
+    setNestedReady(true);
+    await settle();
+    await settle();
+    if (pendingInner) {
+      expect(settled).toEqual(["outer"]);
+      expect(container.querySelector("main")).toBe(parent);
+      expect(container.querySelector("button")).toBe(button);
+      expect(button.querySelector("[data-module-count]")).toBe(count);
+      expect(Array.from(container.querySelectorAll("[data-module-id]"))).toEqual(markers);
+      expect(container.querySelector("aside")).toBe(sibling);
+      expect(button.getAttribute("data-hydrated")).toBe("false");
+      expect(button.textContent).toBe("dynamic nested: 0");
+      expect(clicks).toBe(0);
+      expect(ended).toBe(0);
+      resolveInner();
+      await settle();
+      await settle();
+    }
+    expect(container.querySelector("main")).toBe(parent);
+    expect(container.querySelectorAll("button")).toHaveLength(1);
+    expect(container.querySelector("button")).toBe(button);
+    expect(button.querySelector("[data-module-count]")).toBe(count);
+    expect(Array.from(container.querySelectorAll("[data-module-id]"))).toEqual(markers);
+    expect(container.querySelector("aside")).toBe(sibling);
+    expect(settled).toEqual(["outer", "inner"]);
+    expect(button.getAttribute("data-hydrated")).toBe("true");
+    expect(clicks).toBe(1);
+    expect(count.textContent).toBe("1");
+    expect(button.textContent).toBe("dynamic nested: 1");
+    expect(ended).toBe(1);
+    button.click();
+    await settle();
+    expect(clicks).toBe(2);
+    expect(count.textContent).toBe("2");
+    expect(button.textContent).toBe("dynamic nested: 2");
+    expect(container.querySelector("button")).toBe(button);
+    expect(button.querySelector("[data-module-count]")).toBe(count);
+  }
+);
 
 test("ownerless render effects remain usable while a deferred claim is pending", async () => {
   mount();

@@ -140,8 +140,10 @@ export const NoHydrateContext: Context<boolean> = {
 
 // Only a retained DeferredHydration subtree may keep its SSR content while
 // client-owned pending work has no corresponding serialized Loading record.
+type DeferredClaimRunner = <T>(compute: () => T) => T;
 type DeferredClaim = {
-  run?: <T>(compute: () => T) => T;
+  run?: DeferredClaimRunner;
+  capture?: () => DeferredClaimRunner | undefined;
   hold?: () => () => void;
 };
 const DeferredClaimContext: Context<DeferredClaim | null> = {
@@ -1362,19 +1364,31 @@ function hydratedCreateRoot(init: Function, options?: { id?: string; transparent
 function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?: any) {
   const claim =
     coreFn === coreRenderEffect && sharedConfig.hydrating && !noHydrationId()
-      ? getContext(DeferredClaimContext)?.run
+      ? getContext(DeferredClaimContext)
       : undefined;
-  if (claim) {
+  if (claim?.run) {
     const read = compute;
     const render = effectFn;
+    const run = claim.run;
+    let publish: DeferredClaimRunner | undefined;
+    let published = false;
     let owner = getOwner();
     compute = (prev: any) => {
       owner = getOwner();
-      return claim(() => read(prev));
+      publish = published ? undefined : claim.capture?.();
+      return run(() => read(prev));
     };
-    // Publication may run after the tracked claim read has returned. It
-    // must still claim retained DOM while a nested module remains pending.
-    effectFn = (next: any, prev: any) => runWithOwner(owner, () => claim(() => render(next, prev)));
+    // A claim can retire between this read and its queued DOM publication.
+    // Preserve the first publication's claim. Later writes are live, even
+    // when their read precedes the enclosing Loading's claim retirement.
+    effectFn = (next: any, prev: any) => {
+      const publication = publish;
+      publish = undefined;
+      published = true;
+      return runWithOwner(owner, () =>
+        publication ? publication(() => render(next, prev)) : render(next, prev)
+      );
+    };
   }
   if (!sharedConfig.hydrating || options?.transparent || noHydrationId())
     return coreFn(compute, effectFn, options);
@@ -3049,11 +3063,15 @@ function hydratedCreateLoadingBoundary<T, U>(
           }
         };
       };
-      const claim = <V>(compute: () => V): V =>
-        claiming ? hydrateWindow(id, compute, scope, o) : compute();
+      const runClaim: DeferredClaimRunner = compute => hydrateWindow(id, compute, scope, o);
+      const claim: DeferredClaimRunner = compute => (claiming ? runClaim(compute) : compute());
       const content = coreLoadingBoundary(
         () => {
-          setContext(DeferredClaimContext, { run: claim, hold });
+          setContext(DeferredClaimContext, {
+            run: claim,
+            capture: () => (claiming ? runClaim : undefined),
+            hold
+          });
           const children = claim(fn);
           // Keep the children computation alive while Loading's existing
           // flatten node retries it. Recreating fn on every pending read would

@@ -191,6 +191,7 @@ export function deferredModuleApp(options: {
 export function sequentialDeferredModuleApp(options: {
   ready: Accessor<boolean>;
   nestedReady: Accessor<boolean>;
+  label?: string;
   outerModule?: Promise<void>;
   innerModule?: Promise<void>;
   entered?: (name: string) => void;
@@ -226,16 +227,21 @@ export function sequentialDeferredModuleApp(options: {
     const label = useContext(Label);
     const id = createUniqueId();
     const [count, setCount] = createSignal(0);
+    const [hydrated, setHydrated] = createSignal(false);
+    onSettled(() => {
+      setHydrated(true);
+    });
     return (
       <button
         id={id}
         data-context={label}
+        data-hydrated={hydrated() ? "true" : "false"}
         onClick={() => {
           setCount(value => value + 1);
           options.clicked?.();
         }}
       >
-        dynamic nested{count()}
+        {options.label ?? "dynamic nested"}: <span data-module-count>{count()}</span>
       </button>
     );
   }
