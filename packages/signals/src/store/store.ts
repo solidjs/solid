@@ -309,13 +309,6 @@ function sameLogicalSlot(target: StoreTarget, a: any, b: any): boolean {
  * released at the commit that resolves it (`drainFolds`). */
 const deferredReleases = new Set<Signal<any>>();
 
-/** Is the container of slot node `node` (other than the container itself)
- * held by a transaction? */
-function heldHost(node: any): boolean {
-  const k = (node._host as StoreTarget).k;
-  return k !== null && k !== node && (k._config & CONFIG_HELD) !== 0;
-}
-
 function releaseSlot(node: any): void {
   const t: StoreTarget = node._host;
   const key: PropertyKey = node._key;
@@ -354,7 +347,11 @@ setSlotUnobserved((node: any): void => {
   // node holds: defer the release to the commit that resolves it. So is a
   // leaf of a held container (#4146): a mainline write it carried is in the
   // held staging too, where it would read as the hold's until the landing.
-  if (node._pendingValue !== NOT_PENDING || node._config & CONFIG_OVERRIDE || heldHost(node))
+  if (
+    node._pendingValue !== NOT_PENDING ||
+    node._config & CONFIG_OVERRIDE ||
+    node._host.k?._config & CONFIG_HELD
+  )
     deferredReleases.add(node);
   else releaseSlot(node);
 });
@@ -911,7 +908,7 @@ function drainFolds(): void {
         node._pendingValue === NOT_PENDING &&
         !(node._config & CONFIG_OVERRIDE) &&
         node._subs === null &&
-        !heldHost(node)
+        !((node as any)._host.k?._config & CONFIG_HELD)
       ) {
         deferredReleases.delete(node);
         releaseSlot(node);
@@ -2189,7 +2186,22 @@ const traps: ProxyHandler<StoreTarget> = {
     if (key === "__proto__") return true; // pollution guard (core R30)
     const uv = target.s ? value : unwrapValue(value);
     const pb = ensurePB(target);
-    if (draft && target.n?.[key as any] === undefined) heldKeyLeaf(target, pb, key);
+    // #4146 (R1: node existence is unobservable; #3706: the hold's unit is
+    // the key): a user setter writing a key a HELD container's staging left
+    // unchanged would write it into the held staging — read as the hold's
+    // until its landing, while the same key with a leaf (a live reader)
+    // publishes at the flush. The key gets its leaf first, born from the two
+    // frames (equal: unstaged, held by no one), and the write stages on it
+    // (A28; a write by the holder joins it, A34). A key the hold changed and
+    // an added key stay the container's (A34 (1)). Kept while the container
+    // is held (`deferredReleases`).
+    if (
+      userWrite &&
+      (target.k as any)?._config & CONFIG_HELD &&
+      key in pb &&
+      !heldKeyChanged(target, key)
+    )
+      deferredReleases.add(getNode(target, key));
     if (Array.isArray(pb)) {
       touch(target, key);
       if (key === "length") target.wk = WK_ALL;
@@ -2263,33 +2275,6 @@ const traps: ProxyHandler<StoreTarget> = {
     return true;
   }
 };
-
-/** #4146 (R1: node existence is unobservable; #3706: the hold's unit is the
- * key): a setter not of the holding transaction writing a key that a HELD
- * container's staging left unchanged would otherwise write it into the held
- * staging — the key would read as the hold's and wait for its landing, while
- * the same key with a leaf (a live reader) publishes at this flush. The key
- * gets its leaf first, born from the two frames before the write (equal:
- * unstaged, held by no one), so the write stages on it like any signal's
- * (A28: visible at the flush; A34: a later write by the holder joins it). A
- * key the hold changed, an added key, and a structural write stay the
- * container's (A34 (1): they join the hold). */
-function heldKeyLeaf(target: StoreTarget, pb: Record<PropertyKey, any>, key: PropertyKey): void {
-  const k = target.k;
-  if (
-    k === null ||
-    k._pendingValue !== pb ||
-    (k._config & (CONFIG_HELD | CONFIG_OVERRIDE)) !== CONFIG_HELD ||
-    !userWrite ||
-    txOf(k) === flushTransaction ||
-    Array.isArray(pb) ||
-    !hasOwn.call(asBacking(k._value), key) ||
-    heldKeyChanged(target, key)
-  )
-    return;
-  // Released at the drain that finds it unsubscribed and the hold landed.
-  deferredReleases.add(getNode(target, key));
-}
 
 /** Is `obs` subscribed to the container BY THIS PASS (its enumerator holds
  * it)? A link left from a previous pass is stale — the reader must subscribe
