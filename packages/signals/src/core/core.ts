@@ -66,7 +66,7 @@ import {
   STATUS_UNINITIALIZED,
   type Refreshable
 } from "./constants.js";
-import { isSame, NotReadyError } from "./error.js";
+import { NotReadyError } from "./error.js";
 import { clearDeps, dormantNodes, link, trimStaleDeps } from "./graph.js";
 import {
   deleteFromHeap,
@@ -369,7 +369,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (__DEV__) clearSignals(el);
   }
 
-  const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
+  const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
   // Capture both error and pending status before the compute clears them.
   // A conditional can drop its pending source and recover to an unchanged
   // value, leaving blocked dependents outside that source’s settle walk.
@@ -585,22 +585,26 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
           ? el._x!._lane
           : el._value;
-    let valueChanged = false;
+    let valueChanged: unknown;
     try {
       valueChanged =
-        (!isEffect && wasUninitialized) || !!el._x?._shownError || !isSame(el, compareValue, value);
+        (!isEffect && wasUninitialized) ||
+        el._x?._shownError ||
+        !el._equals ||
+        !el._equals(compareValue, value);
     } catch (e) {
       // A throwing user comparator is an error of this node's computation.
       // Route it through the same status path as a compute-phase throw so
       // error boundaries contain it; otherwise it unwinds the scheduler
-      // flush, bypassing every boundary and wedging the queue (#2837).
-      notifyStatus(el, STATUS_ERROR, e);
+      // flush, bypassing every boundary and wedging the queue (#2837). A
+      // NotReady comparator read is a change instead (`notifyStatus`, #4111).
+      valueChanged = notifyStatus(el, STATUS_ERROR, e);
     }
 
     // A committed derived change becomes a cause for this node's subscribers,
     // chaining their attribution through this node to the root write.
     if (__OBSERVE__ && attrHooks !== null) {
-      devChanged = valueChanged && !el._x?._error;
+      devChanged = !!valueChanged && !el._x?._error;
       if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
     }
 
@@ -1601,7 +1605,9 @@ export function readerSeesCommitted(
   el: Signal<any> | Computed<any>,
   c: Computed<any> | null
 ): boolean {
-  return !!(!c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN);
+  return (!c ||
+    el._pendingValue === NOT_PENDING ||
+    c._config & CONFIG_CHILDREN_FORBIDDEN) as boolean;
 }
 
 /** A28 — set when a node is staged (queuePendingNode) OUTSIDE a flush;
@@ -2040,7 +2046,11 @@ export function setWriteHook(hook: ((node?: object) => void) | null): void {
   writeHook = hook;
 }
 
-export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
+export function setSignal<T>(
+  el: Signal<T> | Computed<T>,
+  v: T | ((prev: T) => T),
+  changed?: unknown
+): T {
   if (writeHook !== null) writeHook(el);
   if (
     __DEV__ &&
@@ -2079,9 +2089,11 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // D-41: a write over a shown error is a change whatever the last good
   // value was — the error leaves at its commit (`commitPendingNode`).
   const valueChanged =
+    changed ||
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
     !!el._x?._shownError ||
-    !isSame(el, currentValue, v);
+    !el._equals ||
+    !el._equals(currentValue, v);
   if (!valueChanged) return v;
 
   // Attribution hook: this committed write is where a re-run chain begins.

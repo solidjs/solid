@@ -336,7 +336,7 @@ Compute-phase errors in _user_ effects without a handler are logged and the run 
 
 **Status:** **ruled** — #2837
 **Pinned by:** `tests/equals-comparator-errors.test.ts`
-**Mechanism (L2, 2026-10-04):** unchanged — `setSignal` / `asyncWrite` / `recompute` route a throwing `_equals` through `notifyStatus(STATUS_ERROR)` (#2837); the error reaches dependents by `propagateStatus`. A comparator that throws `NotReadyError` (it read an unresolved async source) has not shown the values equal: the value is a change, not an error (`isSame`, #4111) — its readers dereference it in their own tracked context and suspend there. Pinned: `tests/equals-pending-read-4111.test.ts`.
+**Mechanism (L2, 2026-10-04):** unchanged — `setSignal` / `asyncWrite` / `recompute` route a throwing `_equals` through `notifyStatus(STATUS_ERROR)` (#2837); the error reaches dependents by `propagateStatus`. A comparator that throws `NotReadyError` (it read an unresolved async source) has not shown the values equal: the value is a change, not an error (`notifyStatus` answers `true` instead of erroring; `recompute` and the async landing take it as a change; the seam's net-to-committed check runs the comparator last, #4111) — its readers dereference it in their own tracked context and suspend there. Pinned: `tests/equals-pending-read-4111.test.ts`.
 
 Errors thrown by a user `equals` comparator behave exactly like compute-phase errors (boundary-containable; loud halt without a boundary).
 

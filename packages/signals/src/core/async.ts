@@ -492,7 +492,7 @@ export function handleAsync<T>(
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & REACTIVE_DIRTY) return;
-    const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
+    const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
     landStatus(el);
     // Attribution hook: lets the engine snapshot state before the landing
     // branches, so it can tell whether the plain path's setSignal committed a
@@ -529,7 +529,8 @@ export function handleAsync<T>(
       } catch (e) {
         // Same containment as above: setSignal's comparator throw is the only
         // pre-commit failure here, and there is no user callsite to throw to.
-        notifyStatus(el, STATUS_ERROR, e);
+        // A NotReady comparator read is a change (`notifyStatus`, #4111).
+        if (notifyStatus(el, STATUS_ERROR, e)) setSignal(el, () => value, e);
       }
       // Attribution hook: this path landed through setSignal, whose write
       // hook already saw any committed change — direct=false lets the engine
@@ -847,14 +848,18 @@ export function notifyStatus(
   status: number,
   error: any,
   blockStatus?: boolean
-): void {
+): boolean | void {
   // Wrap regular errors to track source node
-  if (
-    status === STATUS_ERROR &&
-    !(error instanceof StatusError) &&
-    !(error instanceof NotReadyError)
-  )
+  if (status === STATUS_ERROR && !(error instanceof StatusError)) {
+    // STATUS_ERROR with a NotReadyError comes only from a comparator catch:
+    // the comparator read an unresolved async source and has not shown the
+    // values equal (#4111). Answer `true` (nothing notified) and its caller
+    // takes the value as a change, whose readers suspend in their own
+    // tracked context; as an error it held a NotReadyError no source ever
+    // retried. Other comparator throws are errors (A3).
+    if (error instanceof NotReadyError) return true;
     error = new StatusError(el, error);
+  }
 
   const pendingSource =
     status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
