@@ -1384,8 +1384,9 @@ module.exports = [
     // #4129's `laneRead`/`verdictValue`/`stageError`, which passed alone under
     // the brotli cap, and 4 B from each of the other two). Cap at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
-    limit: "9.98 KB",
-    capMinified: 28064,
+    // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 2aa9e86a): 9.98 -> 10.03 KB, measured in CI at 10,019 B brotli / 28,197 B minified (+124 B minified over this PR's base): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "10.03 KB",
+    capMinified: 28197,
     alias
   },
   {
@@ -2594,8 +2595,9 @@ module.exports = [
     // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 01270641): 30.09 -> 30.14 KB, measured locally at 30,125 B brotli / 94,611 B minified (+32 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
     // store delete key-count fix (#4132, 2026-10-17): 30.09 -> 30.14 KB, measured at 30,129 B brotli / 94,616 B minified (+39 B brotli over the cap, +37 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
     // Merged over next @ 7093b074b after #4129 raised this same cap 30.09 -> 30.14 KB for its own bytes (2026-10-17): the two together measured locally at 30,116 B brotli / 94,644 B minified, under the cap, so the cap stays at 30.14 KB; recorded minified 94,611 -> 94,644.
-    limit: "30.14 KB",
-    capMinified: 94644,
+    // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 2aa9e86a): 30.14 -> 30.20 KB, measured in CI at 30,185 B brotli / 94,763 B minified (+116 B minified over this PR's base): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "30.20 KB",
+    capMinified: 94763,
     alias
   },
   {
@@ -5303,6 +5305,7 @@ module.exports = [
     // Re-measured after merging next @ ed51af36 (#4139 landed first): 38.34 KB -> 38.57 KB (floor-caps.json), measured locally (linux) at 38,560 B brotli / 119,182 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 38.57 KB -> 38.32 KB (floor-caps.json), measured locally (linux) at 38,309 B brotli / 118,069 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 38.32 KB -> 37.54 KB (floor-caps.json), measured locally (linux) at 37,523 B brotli / 115,287 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 2aa9e86a): 37.54 KB -> 37.58 KB (floor-caps.json, Size-Exception in the PR), measured in CI at 37,562 B brotli / 115,412 B minified (+116 B minified over this PR's base): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5576,8 +5579,9 @@ module.exports = [
     // Re-measured after merging next @ ed51af36 (#4139 landed first): 42.18 KB -> 42.39 KB, measured locally (linux) at 42,375 B brotli / 127,178 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 42.39 KB -> 42.13 KB, measured locally (linux) at 42,112 B brotli / 126,066 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 42.13 KB -> 41.38 KB, measured locally (linux) at 41,365 B brotli / 123,281 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "41.38 KB",
-    capMinified: 123281,
+    // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 2aa9e86a): 41.38 -> 41.41 KB, measured in CI at 41,394 B brotli / 123,406 B minified (+116 B minified over this PR's base): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "41.41 KB",
+    capMinified: 123406,
     alias: pageAlias
   },
   {
@@ -5936,8 +5940,9 @@ module.exports = [
     // Re-measured after merging next @ ed51af36 (#4139 landed first): 47.74 KB -> 47.97 KB, measured locally (linux) at 47,954 B brotli / 144,465 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 47.97 KB -> 47.69 KB, measured locally (linux) at 47,675 B brotli / 143,353 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 47.69 KB -> 46.92 KB, measured locally (linux) at 46,908 B brotli / 140,570 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "46.92 KB",
-    capMinified: 140570,
+    // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 2aa9e86a): 46.92 -> 46.94 KB, measured in CI at 46,926 B brotli / 140,695 B minified (+116 B minified over this PR's base): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "46.94 KB",
+    capMinified: 140695,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
