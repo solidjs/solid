@@ -182,13 +182,15 @@ export function releaseSettledDependents(el: Computed<any>): void {
  * as before. Returns whether the error was staged. */
 export function stageError(el: Computed<any>, error: any, inPass?: boolean): boolean {
   // Held, or — for a pass's own throw — derived from a staging of a flush
-  // that has joined a hold (REACTIVE_STAGED_READ is this pass's; a landing
-  // after the pass cannot read it, the flush it read a staging of has
-  // committed or parked since). A plain flush publishes now (S-38).
+  // (REACTIVE_STAGED_READ is this pass's; a landing after the pass cannot
+  // read it, the flush it read a staging of has committed or parked since).
+  // Staged whether or not the flush has joined a hold yet: a pass that runs
+  // before its async sibling joins is the seam's to decide, like a value
+  // (#4109). A flush that parks nothing publishes it at its commit (S-38).
   if (
     !(
       el._config & CONFIG_HELD ||
-      (inPass && el._flags & REACTIVE_STAGED_READ && flushTransaction)
+      (inPass && el._flags & REACTIVE_STAGED_READ && (flushTransaction || globalQueue._running))
     ) ||
     passLane
   )
