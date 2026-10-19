@@ -239,7 +239,13 @@ export function sequentialDeferredModuleApp(options: {
     );
   }
   function InnerModule() {
-    return readModule("inner", options.innerModule, () => <Content />);
+    return (
+      <>
+        {readModule("inner", options.innerModule, () => (
+          <Content />
+        ))}
+      </>
+    );
   }
   function Inner() {
     const id = createUniqueId();
@@ -256,7 +262,13 @@ export function sequentialDeferredModuleApp(options: {
     );
   }
   function OuterModule() {
-    return readModule("outer", options.outerModule, () => <Inner />);
+    return (
+      <>
+        {readModule("outer", options.outerModule, () => (
+          <Inner />
+        ))}
+      </>
+    );
   }
   return function App() {
     const id = createUniqueId();

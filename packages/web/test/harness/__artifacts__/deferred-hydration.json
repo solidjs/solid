@@ -30,7 +30,7 @@
     "rest": ""
   },
   "sequentialModule": {
-    "shell": "<main _hk=100><!--$--><div _hk=1030 data-module-id=\"0\"><div _hk=103100040 data-module-id=\"10310001\"><button _hk=1031000410002 id=\"1031000410001\" data-context=\"preserved context\">dynamic nested<!--$-->0<!--/--></button></div></div><!--/--><aside>following sibling</aside></main>",
+    "shell": "<main _hk=100><!--$--><div _hk=1030 data-module-id=\"0\"><div _hk=1031000130 data-module-id=\"103100010\"><button _hk=103100013100011 id=\"103100013100010\" data-context=\"preserved context\">dynamic nested<!--$-->0<!--/--></button></div></div><!--/--><aside>following sibling</aside></main>",
     "chunks": [],
     "rest": ""
   }
