@@ -177,6 +177,67 @@ describe("#4146 live reader must not change sibling-write hold membership", () =
     expect(state.card).toEqual({ version: 1, text: "a" });
   });
 
+  it("an added key on a held container reads the same with or without a reader (R1)", async () => {
+    // #4146, R1 (node existence is unobservable): a key the setter adds beside
+    // the held sibling gets a leaf born unstaged, as a reader's would be, so
+    // whether something reads the key cannot decide whether its value waits
+    // for the hold. Same for an index appended to a held array.
+    async function added(reader: boolean) {
+      const gate = deferred();
+      const [state, setState] = createStore<{
+        card: { version: number; text: string; extra?: string };
+        list: number[];
+      }>({ card: { version: 0, text: "" }, list: [1, 2] });
+      const stop = createRoot(dispose => {
+        if (reader)
+          createRenderEffect(
+            () => [state.card.extra, state.list[2]],
+            () => {}
+          );
+        return dispose;
+      });
+      flush();
+      const save = action(function* () {
+        setState(s => {
+          s.card.version = 1;
+          s.list[1] = 20;
+        });
+        yield gate.promise;
+      });
+      const p = save();
+      flush();
+      setState(s => {
+        s.card.extra = "x";
+        s.list[2] = 30;
+      });
+      flush();
+      const pending = {
+        extra: state.card.extra,
+        has: "extra" in state.card,
+        keys: Object.keys(state.card),
+        version: state.card.version,
+        appended: state.list[2],
+        length: state.list.length
+      };
+      gate.resolve();
+      await p;
+      flush();
+      const final = { card: { ...state.card }, list: [...state.list] };
+      stop();
+      return { pending, final };
+    }
+    const none = await added(false);
+    const read = await added(true);
+    expect(read).toEqual(none);
+    expect(none.pending.extra).toBe("x");
+    expect(none.pending.appended).toBe(30);
+    expect(none.pending.version).toBe(0);
+    expect(none.final).toEqual({
+      card: { version: 1, text: "", extra: "x" },
+      list: [1, 20, 30]
+    });
+  });
+
   it("contrast: a mainline write to the key the hold changed stays held (A34)", async () => {
     const gate = deferred();
     const [state, setState] = createStore({ card: { version: 0, text: "" } });

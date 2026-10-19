@@ -141,7 +141,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 
 | id | status | defined | cited in src | cited in tests | statement (at definition) |
 |---|---|---|---|---|---|
-| CS-R1 | live | `docs/rules-mining/core-store.md:9` | store.ts×2 | flatten-async-iterable.test.ts×5 syncThenable.test.ts×14 visibility-oracle-store.states.ts×1 | Wrappable values are wrapped: reading a plain object/array child never returns the raw source (`state.data !== data`).** |
+| CS-R1 | live | `docs/rules-mining/core-store.md:9` | store.ts×2 | continuation-sibling-reader-4146.test.ts×2 flatten-async-iterable.test.ts×5 syncThenable.test.ts×14 visibility-oracle-store.states.ts×1 | Wrappable values are wrapped: reading a plain object/array child never returns the raw source (`state.data !== data`).** |
 | CS-R2 | live | `docs/rules-mining/core-store.md:13` | — | syncThenable.test.ts×12 visibility-oracle.states.ts×1 | Raw→proxy resolution is global and deduplicating: wrapping the same raw through two different stores yields the same proxy (`outer.list === inner`).** |
 | CS-R2a | live | `docs/INTERNALS-STORE-STATE.md:107` | — | — | Corollary R2a (Ryan, 2026-08-17): **take no responsibility for mutation |
 | CS-R3 | live | `docs/rules-mining/core-store.md:18` | — | — | A store proxy ingested into another store (deep or shallow) is re-wrapped in the ingesting store's own proxy family — never identity-passed, never raw-marked.** |
