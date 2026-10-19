@@ -30,7 +30,6 @@ import { cleanup } from "./owner.js";
 import {
   clock,
   flush,
-  flushTransaction,
   globalQueue,
   joinFuture,
   MAINLINE_QUESTION,
@@ -190,7 +189,7 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
   if (
     !(
       el._config & CONFIG_HELD ||
-      (inPass && el._flags & REACTIVE_STAGED_READ && (flushTransaction || globalQueue._running))
+      (inPass && el._flags & REACTIVE_STAGED_READ && globalQueue._running)
     ) ||
     passLane
   )
