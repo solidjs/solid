@@ -24,6 +24,7 @@
 import { describe, expect, test } from "vitest";
 import { createFrameElement, createFrameHost } from "../../frames/src/frame-client.js";
 import { permutations } from "./support.js";
+import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
 
 // The response: a root with placeholder `a` (its fallback inline, as the
 // document shape carries it), segment `a` carrying a nested placeholder `b`
@@ -81,7 +82,7 @@ describe("C7 — the store is the truth", () => {
       const chunks = responseChunks(id);
       const label = order.join(" → ");
       for (const name of order) {
-        host.apply(chunks[name]);
+        host.apply(encodeFrameChunk(chunks[name]));
         checkNoCoexistence(element, label);
       }
       // All six records resident → the materialization must be complete.
@@ -96,17 +97,17 @@ describe("C7 — the store is the truth", () => {
     const id = "c7b";
     const { host, element, dispose } = freshFrame(id);
     const chunks = responseChunks(id);
-    host.apply(chunks.root);
-    host.apply(chunks.fragA);
-    host.apply(chunks.revealA);
+    host.apply(encodeFrameChunk(chunks.root));
+    host.apply(encodeFrameChunk(chunks.fragA));
+    host.apply(encodeFrameChunk(chunks.revealA));
     expect(element.textContent).toBe("A");
-    host.apply(chunks.fallbackB);
+    host.apply(encodeFrameChunk(chunks.fallbackB));
     // The fallback is MATERIALIZED (visible text), the placeholder kept.
     expect(element.textContent).toBe("Afb-b");
     expect(element.querySelector("template#pl-b")).not.toBeNull();
-    host.apply(chunks.fragB);
+    host.apply(encodeFrameChunk(chunks.fragB));
     expect(element.textContent).toBe("Afb-b");
-    host.apply(chunks.revealB);
+    host.apply(encodeFrameChunk(chunks.revealB));
     expect(element.innerHTML).toBe(ORACLE);
     dispose();
   });
@@ -134,19 +135,19 @@ describe("C7 — the store is the truth", () => {
   test("(c) a v2 root byte-identical to v1's resets the segment: v1's revealed content gives way to v2's placeholder, then v2's segment", () => {
     const id = "c7c";
     const { host, element, dispose } = freshFrame(id);
-    host.apply({ type: "html", id, version: 1, html: ROOT });
-    host.apply({ type: "fragment", id, version: 1, key: "a", html: SEG_A1 });
-    host.apply({ type: "reveal", id, version: 1, keys: ["a"] });
+    host.apply(encodeFrameChunk({ type: "html", id, version: 1, html: ROOT }));
+    host.apply(encodeFrameChunk({ type: "fragment", id, version: 1, key: "a", html: SEG_A1 }));
+    host.apply(encodeFrameChunk({ type: "reveal", id, version: 1, keys: ["a"] }));
     expect(element.innerHTML).toBe(`<div><p>A1</p></div>`);
-    host.apply({ type: "html", id, version: 2, html: ROOT });
+    host.apply(encodeFrameChunk({ type: "html", id, version: 2, html: ROOT }));
     // v2's shell: the placeholder is back with its inline fallback; v1's
     // `seg:a` was reset and does not reveal into it.
     expect(element.querySelector("p")).toBeNull();
     expect(element.querySelector("template#pl-a")).not.toBeNull();
     expect(element.textContent).toBe("fb-a");
-    host.apply({ type: "fragment", id, version: 2, key: "a", html: SEG_A2 });
-    host.apply({ type: "reveal", id, version: 2, keys: ["a"] });
-    host.apply({ type: "complete", id, version: 2 });
+    host.apply(encodeFrameChunk({ type: "fragment", id, version: 2, key: "a", html: SEG_A2 }));
+    host.apply(encodeFrameChunk({ type: "reveal", id, version: 2, keys: ["a"] }));
+    host.apply(encodeFrameChunk({ type: "complete", id, version: 2 }));
     expect(element.innerHTML).toBe(`<div><p>A2</p></div>`);
     dispose();
   });
@@ -176,18 +177,18 @@ describe("C7 — the store is the truth", () => {
           fragA2: { type: "fragment", id, version: 2, key: "a", html: SEG_A2 },
           revealA2: { type: "reveal", id, version: 2, keys: ["a"] }
         } as Record<string, any>;
-        host.apply(v1.root);
-        host.apply(v1.fragA);
-        host.apply(v1.revealA);
+        host.apply(encodeFrameChunk(v1.root));
+        host.apply(encodeFrameChunk(v1.fragA));
+        host.apply(encodeFrameChunk(v1.revealA));
         expect(element.innerHTML).toBe(`<div><p>A1</p></div>`);
         const label = `v2: ${order.join(" → ")}, late v1 after #${lateAt}`;
         order.forEach((name, i) => {
-          host.apply(v2[name]);
+          host.apply(encodeFrameChunk(v2[name]));
           if (i === lateAt) {
             // A straggler from v1: its fragment AND reveal re-sent after
             // v2 began. Older version → dropped by the store guard.
-            host.apply(v1.fragA);
-            host.apply(v1.revealA);
+            host.apply(encodeFrameChunk(v1.fragA));
+            host.apply(encodeFrameChunk(v1.revealA));
           }
           // Once v2 began, v1's segment is never visible again: the root
           // shows v2's shell (placeholder + fallback) or v2's segment only.

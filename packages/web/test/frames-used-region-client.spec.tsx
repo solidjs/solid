@@ -19,6 +19,7 @@ import { installServerComponents, createFrameHost } from "../frames/src/client.j
 import { prepareTier } from "../frames/src/frame-client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
+import { encodeFrameChunk } from "../frames/src/frame-wire.js";
 
 const settle = () => new Promise(r => setTimeout(r));
 
@@ -94,13 +95,15 @@ describe("adopted boundary stream re-calls (#547)", () => {
     expect(renders).toEqual(["c1"]);
 
     // A re-sent record with IDENTICAL args: no re-call.
-    host.apply({
-      type: "slot",
-      id: "occ/used",
-      version: 1,
-      key: "comment#c1",
-      args: { cid: "c1" }
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "occ/used",
+        version: 1,
+        key: "comment#c1",
+        args: { cid: "c1" }
+      })
+    );
     flush();
     await settle();
     expect(renders).toEqual(["c1"]);
@@ -109,13 +112,15 @@ describe("adopted boundary stream re-calls (#547)", () => {
     // invocation's reactive props pick up the new cid, and the added
     // {$frame} arg resolves to a live region element its own `{p.children}`
     // insert places.
-    host.apply({
-      type: "slot",
-      id: "occ/used",
-      version: 2,
-      key: "comment#c1",
-      args: { cid: "c2", children: { $frame: "occ/used.comment#c1.children" } }
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "occ/used",
+        version: 2,
+        key: "comment#c1",
+        args: { cid: "c2", children: { $frame: "occ/used.comment#c1.children" } }
+      })
+    );
     flush();
     await settle();
     flush();
@@ -123,20 +128,24 @@ describe("adopted boundary stream re-calls (#547)", () => {
     expect(appEl.querySelector(".comment.fresh")).toBeTruthy();
 
     // The region streams content into the live wrapper and morphs.
-    host.apply({
-      type: "html",
-      id: "occ/used.comment#c1.children",
-      version: 1,
-      html: "<em>streamed-body</em>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "occ/used.comment#c1.children",
+        version: 1,
+        html: "<em>streamed-body</em>"
+      })
+    );
     flush();
     expect(appEl.querySelector("em")!.textContent).toBe("streamed-body");
-    host.apply({
-      type: "html",
-      id: "occ/used.comment#c1.children",
-      version: 2,
-      html: "<em>streamed-body-2</em>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "occ/used.comment#c1.children",
+        version: 2,
+        html: "<em>streamed-body-2</em>"
+      })
+    );
     flush();
     expect(appEl.querySelector("em")!.textContent).toBe("streamed-body-2");
 

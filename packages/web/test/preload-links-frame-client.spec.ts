@@ -6,6 +6,7 @@ import {
   prepareTier,
   tierLoaders
 } from "../frames/src/frame-client.js";
+import { encodeFrameChunk } from "../frames/src/frame-wire.js";
 
 beforeAll(async () => {
   // Preloads apply through the ASSETS TIER (`@solidjs/web/frames/assets`,
@@ -192,27 +193,33 @@ describe("frame preload links", () => {
 
   it("retains every late root asset record until a frame registers", () => {
     const host = createFrameHost();
-    host.apply({
-      type: "assets",
-      id: "warm-assets",
-      version: 1,
-      key: "",
-      modules: ["/warm-module-a.js"]
-    });
-    host.apply({
-      type: "assets",
-      id: "warm-assets",
-      version: 1,
-      key: "",
-      modules: ["/warm-module-b.js"]
-    });
-    host.apply({
-      type: "assets",
-      id: "warm-assets",
-      version: 1,
-      key: "",
-      preloads: [{ href: "/warm-font.woff2", attrs: { as: "font", crossorigin: "" } }]
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "assets",
+        id: "warm-assets",
+        version: 1,
+        key: "",
+        modules: ["/warm-module-a.js"]
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "assets",
+        id: "warm-assets",
+        version: 1,
+        key: "",
+        modules: ["/warm-module-b.js"]
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "assets",
+        id: "warm-assets",
+        version: 1,
+        key: "",
+        preloads: [{ href: "/warm-font.woff2", attrs: { as: "font", crossorigin: "" } }]
+      })
+    );
 
     expect(document.head.querySelector("link")).toBeNull();
     const boundary = document.createElement("div");

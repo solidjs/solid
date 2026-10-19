@@ -988,8 +988,8 @@ const claimedBoundaries = new Set<string>();
 // ---- the document live-hole channel (Stage 4) --------------------------
 //
 // The document face ships live-hole re-emissions as ONE `sc:live` record
-// whose value is a ReadableStream of ops ({ type: "hole" | "attr" |
-// "error", key, ... } — chunk-shaped minus addressing). A stream has one
+// whose value is a ReadableStream of record batches ({ r, fid? } — the
+// stream's own batches minus addressing, frame-wire.ts). A stream has one
 // reader, so the pump runs once at module level and BROADCASTS: every
 // adopted boundary applies every op into its own store at its own address,
 // and page geometry routes — hole ids are document-unique and each frame's
@@ -1014,11 +1014,11 @@ function pumpLiveChannel() {
     reader.read().then((r: { done: boolean; value: any }) => {
       if (r.done) return;
       const op = r.value;
-      // A sweep's `ops` unit is applied whole (one write per boundary) but
-      // logged by its members: the log is last-value-wins per target, and
-      // a member's target is the key, not the unit it rode in.
-      for (const m of op.type === "ops" ? op.ops : [op])
-        liveOps.set(`${m.type}:${m.fid || ""}:${m.key || ""}`, m);
+      // A sweep's batch is applied whole (one write per boundary) but
+      // logged by its records: the log is last-value-wins per target, and
+      // a record's target is its key, not the batch it rode in.
+      for (const key in op.r)
+        liveOps.set(`${op.fid || ""}:${key}`, { fid: op.fid, r: { [key]: op.r[key] } });
       for (const apply of liveAppliers) apply(op);
       return pump();
     });
@@ -1365,11 +1365,9 @@ function adoptBoundary(
         // the wire keys them by function id, the document's producer name.
         const apply = (args: unknown) =>
           host.apply({
-            type: "slot",
             id: address,
             version: 0,
-            key: key.slice(slotPrefix.length),
-            args
+            r: { [`slot:${key.slice(slotPrefix.length)}`]: { kind: "slot", args } }
           });
         const value = hy.r[key];
         // A declared record: settled reads its stamp synchronously (a
@@ -1392,7 +1390,8 @@ function adoptBoundary(
           // id either way, so a late apply still lands before the region
           // binds on expand.
           const val = hy.r[key];
-          const apply = (html: any) => host.apply({ type: "html", id: childId, version: 0, html });
+          const apply = (html: any) =>
+            host.apply({ id: childId, version: 0, r: { "": { kind: "html", value: html } } });
           val && typeof val.then === "function" ? val.then(apply) : apply(val);
         }
       }
@@ -1443,17 +1442,16 @@ function adoptBoundary(
   // Live-hole ops broadcast into this boundary's store at its bound
   // address (version 0, the adopted stream — a refetch's higher version
   // supersedes, so document ops go quiet the moment the boundary moves to
-  // a call-driven stream). Hole and attr ops route themselves by DOM
-  // geometry (document-unique keys, range-scoped search), but SLOT ops are
-  // store-keyed — two boundaries can share an occurrence name — so they
-  // carry the producing frame's id and only the owning boundary applies
-  // (the stray `fid` field rides into the apply; records are built from
-  // key/args, so it is ignored). So does a frame-addressed ERROR op — a
-  // failure that escaped the server component (its `:error`, the outward
-  // face; frames-rulings 3.3); hole-keyed errors stay geometry-routed.
+  // a call-driven stream). Hole and attr records route themselves by DOM
+  // geometry (document-unique keys, range-scoped search), but SLOT records
+  // are store-keyed — two boundaries can share an occurrence name — so
+  // their batch carries the producing frame's id and only the owning
+  // boundary applies it. So does the frame's own `:error` — a failure that
+  // escaped the server component (the outward face; frames-rulings 3.3);
+  // hole-keyed errors stay geometry-routed.
   const applyLiveOp = (op: any) => {
     if (op.fid && op.fid !== siteId) return;
-    host.apply({ ...op, id: address, version: 0 });
+    host.apply({ id: address, version: 0, r: op.r });
   };
   liveAppliers.add(applyLiveOp);
   onCleanup(() => {

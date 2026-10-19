@@ -15,6 +15,7 @@ import { dynamic } from "../../src/index.js";
 import { installServerComponents, createFrameElement } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, frameResponse, pump } from "./harness.js";
+import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
 
 const getDirect = createServerReference("matrix/slot/direct");
 const getStatic = createServerReference("matrix/slot/static");
@@ -148,13 +149,15 @@ describe("call-driven/slot/args-change-live-props", () => {
     expect(li.textContent).toBe("v1-text:1");
 
     // The next response re-sends the occurrence's record with a changed arg.
-    host.apply({
-      type: "slot",
-      id: "matrix/slot/live",
-      version: 2,
-      key: "comment#0",
-      args: { text: "v2-text" }
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "matrix/slot/live",
+        version: 2,
+        key: "comment#0",
+        args: { text: "v2-text" }
+      })
+    );
     await pump(1);
 
     expect(mounts).toBe(1); // not re-called
@@ -194,13 +197,15 @@ describe("call-driven/slot/re-sent-identical-record", () => {
     expect(li.textContent).toBe("same:1");
 
     // Streams re-send their slot chunks: identical args, newer version.
-    host.apply({
-      type: "slot",
-      id: "matrix/slot/dedupe",
-      version: 2,
-      key: "comment#0",
-      args: { text: "same" }
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "matrix/slot/dedupe",
+        version: 2,
+        key: "comment#0",
+        args: { text: "same" }
+      })
+    );
     await pump(1);
 
     expect(mounts).toBe(1);
@@ -256,9 +261,13 @@ describe("call-driven/slot/keyed-reorder", () => {
     // The refetch reorders the keyed occurrences: b first, a second. The
     // records re-send identically (dedupe), and the ranges RELOCATE.
     const addr = "matrix/slot/keyed";
-    host.apply({ type: "slot", id: addr, version: 2, key: "item#a", args: { id: "a" } });
-    host.apply({ type: "slot", id: addr, version: 2, key: "item#b", args: { id: "b" } });
-    host.apply({ type: "html", id: addr, version: 2, html: htmlFor(["b", "a"]) });
+    host.apply(
+      encodeFrameChunk({ type: "slot", id: addr, version: 2, key: "item#a", args: { id: "a" } })
+    );
+    host.apply(
+      encodeFrameChunk({ type: "slot", id: addr, version: 2, key: "item#b", args: { id: "b" } })
+    );
+    host.apply(encodeFrameChunk({ type: "html", id: addr, version: 2, html: htmlFor(["b", "a"]) }));
     await pump(1);
 
     expect(mounts).toBe(2); // nothing re-called
@@ -295,12 +304,14 @@ describe("call-driven/slot/occurrence-removed", () => {
     expect(m.div.querySelector("ul li")!.textContent).toBe("doomed");
 
     // The next response's content no longer places comment#0.
-    host.apply({
-      type: "html",
-      id: "matrix/slot/removed",
-      version: 2,
-      html: "<article><ul></ul><footer><!--slot:children:start--><!--slot:children:end--></footer></article>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "matrix/slot/removed",
+        version: 2,
+        html: "<article><ul></ul><footer><!--slot:children:start--><!--slot:children:end--></footer></article>"
+      })
+    );
     await pump(1);
 
     expect(m.div.querySelector("ul li")).toBe(null); // unmounted
@@ -337,26 +348,38 @@ describe("call-driven/slot/occurrence-removed", () => {
 
     const addr = "matrix/slot/gauntlet";
     // v2 drops the occurrence entirely.
-    host.apply({
-      type: "html",
-      id: addr,
-      version: 2,
-      html: "<article><ul></ul><footer><!--slot:children:start--><!--slot:children:end--></footer></article>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: addr,
+        version: 2,
+        html: "<article><ul></ul><footer><!--slot:children:start--><!--slot:children:end--></footer></article>"
+      })
+    );
     await pump(1);
     expect(m.div.querySelector("ul li")).toBe(null);
 
     // v3 re-introduces it (same occurrence name, fresh record): the fill is
     // re-invoked — occurrence unmount RESET its state.
-    host.apply({ type: "slot", id: addr, version: 3, key: "comment#0", args: { text: "two" } });
-    host.apply({
-      type: "html",
-      id: addr,
-      version: 3,
-      html:
-        "<article><ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul>" +
-        "<footer><!--slot:children:start--><!--slot:children:end--></footer></article>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: addr,
+        version: 3,
+        key: "comment#0",
+        args: { text: "two" }
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: addr,
+        version: 3,
+        html:
+          "<article><ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul>" +
+          "<footer><!--slot:children:start--><!--slot:children:end--></footer></article>"
+      })
+    );
     await pump(1);
     expect(mounts).toBe(2);
     expect(m.div.querySelector("ul li")!.textContent).toBe("two:0");
@@ -416,19 +439,23 @@ describe("call-driven/cleanup-disposal", () => {
 
     // Late chunks for the disposed boundary: they warm the resident store
     // (that's the retention model) but touch no DOM and throw nothing.
-    host.apply({
-      type: "html",
-      id: "matrix/slot/late",
-      version: 2,
-      html: "<article><h1>Zombie</h1></article>"
-    });
-    host.apply({
-      type: "slot",
-      id: "matrix/slot/late",
-      version: 2,
-      key: "comment#0",
-      args: { text: "zombie" }
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "matrix/slot/late",
+        version: 2,
+        html: "<article><h1>Zombie</h1></article>"
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "matrix/slot/late",
+        version: 2,
+        key: "comment#0",
+        args: { text: "zombie" }
+      })
+    );
     await pump(1);
     expect(document.body.textContent).not.toContain("Zombie");
 
@@ -466,32 +493,38 @@ describe("raw-frame/re-call-path", () => {
     });
     document.body.appendChild(element);
 
-    host.apply({
-      type: "slot",
-      id: "raw/recall",
-      version: 1,
-      key: "comment#0",
-      args: { text: "first" }
-    });
-    host.apply({
-      type: "html",
-      id: "raw/recall",
-      version: 1,
-      html: "<ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "raw/recall",
+        version: 1,
+        key: "comment#0",
+        args: { text: "first" }
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "raw/recall",
+        version: 1,
+        html: "<ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul>"
+      })
+    );
     const li1 = element.querySelector("li")!;
     expect(calls).toEqual(["first"]);
     expect(li1.textContent).toBe("first");
     (li1 as HTMLElement).dataset.old = "yes";
 
     // Changed args, no updater registered: the frame re-calls.
-    host.apply({
-      type: "slot",
-      id: "raw/recall",
-      version: 2,
-      key: "comment#0",
-      args: { text: "second" }
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "raw/recall",
+        version: 2,
+        key: "comment#0",
+        args: { text: "second" }
+      })
+    );
     const li2 = element.querySelector("li")!;
     expect(calls).toEqual(["first", "second"]);
     expect(li2.textContent).toBe("second");
@@ -519,24 +552,30 @@ describe("raw-frame/re-call-path", () => {
     });
     document.body.appendChild(element);
 
-    host.apply({
-      type: "slot",
-      id: "raw/cleanup",
-      version: 1,
-      key: "comment#0",
-      args: { text: "c0" }
-    });
-    host.apply({
-      type: "html",
-      id: "raw/cleanup",
-      version: 1,
-      html: "<ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "raw/cleanup",
+        version: 1,
+        key: "comment#0",
+        args: { text: "c0" }
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "raw/cleanup",
+        version: 1,
+        html: "<ul><!--slot:comment#0:start--><!--slot:comment#0:end--></ul>"
+      })
+    );
     expect(element.querySelector("li")!.textContent).toBe("c0");
     expect(cleaned).toEqual([]);
 
     // The occurrence disappears from the next version's content: unmount.
-    host.apply({ type: "html", id: "raw/cleanup", version: 2, html: "<ul></ul>" });
+    host.apply(
+      encodeFrameChunk({ type: "html", id: "raw/cleanup", version: 2, html: "<ul></ul>" })
+    );
     expect(element.querySelector("li")).toBe(null);
     expect(cleaned).toEqual(["c0"]);
 

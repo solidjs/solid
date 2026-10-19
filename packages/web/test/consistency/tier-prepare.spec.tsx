@@ -36,6 +36,7 @@ import { applyFrameResponse, installServerComponents } from "../../frames/src/cl
 import { createServerReference } from "../../server-functions/src/client.js";
 import { createChunk } from "../../server-functions/src/shared.js";
 import { bootPage, frameHtml, freshFid, makeHost, pump, quiesce, type Page } from "./support.js";
+import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
 
 /** A loader the test settles: the import's promise, and the module — the
  *  test's `install` hook over the appliers of `module` (a real tier's, when
@@ -58,7 +59,7 @@ function heldResponse(id: string, headers: Record<string, string> = {}) {
   });
   return {
     response: new Response(body, { headers: { "X-Frame-Stream": id, ...headers } }),
-    send: (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk))),
+    send: (chunk: any) => controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk)))),
     close: () => controller.close()
   };
 }

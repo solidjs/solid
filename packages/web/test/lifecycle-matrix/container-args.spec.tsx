@@ -38,6 +38,7 @@ import {
   setContainerTraceResolver
 } from "../../frames/src/frame-container-plugin.js";
 import { makeHost, frameResponse, createDataSource, pump, settle } from "./harness.js";
+import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
 
 const getStream = createServerReference("matrix/containers/stream");
 const getShared = createServerReference("matrix/containers/shared");
@@ -175,7 +176,7 @@ describe("call-driven/args/containers", () => {
 
     const flushData = async () => {
       await settle();
-      for (const c of late.splice(0)) host.apply(c);
+      for (const c of late.splice(0)) host.apply(encodeFrameChunk(c));
       await pump();
     };
 
@@ -287,7 +288,7 @@ describe("call-driven/args/containers", () => {
 
     producer.push({ name: "Ada" });
     await settle();
-    for (const c of late.splice(0)) host.apply(c);
+    for (const c of late.splice(0)) host.apply(encodeFrameChunk(c));
     await pump();
     expect(m.div.querySelector("li")!.textContent).toBe("Ada");
 

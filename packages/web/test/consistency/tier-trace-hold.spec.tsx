@@ -53,6 +53,7 @@ import {
   traceMarker,
   type Page
 } from "./support.js";
+import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
 
 /** The traces tier's load, gated by the test; `release()` installs the real module. */
 function gatedTrace() {
@@ -132,13 +133,15 @@ describe("the traces tier — document face", () => {
     // screen was rendered from the FIRST record.
     const t1 = traceMarker();
     t1.snapshot({ n: 7 });
-    page.host.apply({
-      type: "slot",
-      id: fid,
-      version: 1,
-      key: "item#0",
-      args: { label: "second", data: t1.marker }
-    });
+    page.host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: fid,
+        version: 1,
+        key: "item#0",
+        args: { label: "second", data: t1.marker }
+      })
+    );
     await quiesce();
     expect(mounted).toEqual([]);
 
@@ -287,7 +290,8 @@ describe("the traces tier — codec face", () => {
       }),
       { headers: { "X-Frame-Stream": WIRE } }
     );
-    const send = (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk)));
+    const send = (chunk: any) =>
+      controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
     const done = applyFrameResponse(response, host, { as: WIRE, version: 1 });
     send({ type: "start", id: WIRE, version: 1 });
     // The chunk the sink stamps `trace` on: the one whose node is the

@@ -11,6 +11,7 @@ import { createJSONDataTable } from "../../serialization/src/serializer.js";
 import { createChunk, createEventChunk } from "../../server-functions/src/shared.js";
 import { createJSONSerializer } from "../../serialization/src/serializer.js";
 import { vi } from "vitest";
+import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
 
 export const settle = () => new Promise(r => setTimeout(r));
 
@@ -37,7 +38,8 @@ export function makeHost(hostOptions: Record<string, any> = {}) {
 export function frameResponse(id: string, chunks: any[]) {
   const body = new ReadableStream({
     start(controller) {
-      for (const chunk of chunks) controller.enqueue(createChunk(JSON.stringify(chunk)));
+      for (const chunk of chunks)
+        controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
       controller.close();
     }
   });
@@ -60,7 +62,7 @@ export function openFrameResponse(id: string) {
   return {
     response: new Response(body, { headers: { "X-Frame-Stream": id } }),
     send(chunk: any) {
-      controller.enqueue(createChunk(JSON.stringify(chunk)));
+      controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
     },
     close() {
       controller.close();
@@ -95,7 +97,7 @@ export function openLiveFrameResponse(id: string) {
     }),
     state,
     send(chunk: any) {
-      controller.enqueue(createEventChunk(JSON.stringify(chunk)));
+      controller.enqueue(createEventChunk(JSON.stringify(encodeFrameChunk(chunk))));
     },
     heartbeat() {
       controller.enqueue(new TextEncoder().encode(":\n\n"));

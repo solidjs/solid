@@ -27,11 +27,13 @@ import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { createChunk } from "../server-functions/src/shared.js";
 import { createJSONSerializer } from "../serialization/src/serializer.js";
+import { encodeFrameChunk } from "../frames/src/frame-wire.js";
 
 function frameResponse(id: string, chunks: any[]) {
   const body = new ReadableStream({
     start(controller) {
-      for (const chunk of chunks) controller.enqueue(createChunk(JSON.stringify(chunk)));
+      for (const chunk of chunks)
+        controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
       controller.close();
     }
   });
@@ -385,7 +387,8 @@ describe("server components through dynamic", () => {
 
     let controller!: ReadableStreamDefaultController;
     const body = new ReadableStream({ start: c => (controller = c) });
-    const send = (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk)));
+    const send = (chunk: any) =>
+      controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
     vi.stubGlobal("fetch", async () => {
       // Real producer order: slot + data records emit during render (the
       // serialize happens as args classify), html at flush.
@@ -472,7 +475,8 @@ describe("server components through dynamic", () => {
 
     let controller!: ReadableStreamDefaultController;
     const body = new ReadableStream({ start: c => (controller = c) });
-    const send = (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk)));
+    const send = (chunk: any) =>
+      controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
     const drain = () => {
       for (const r of dataRecords.splice(0)) send({ type: "data", id: "srv", version: 1, ...r });
     };

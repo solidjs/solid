@@ -56,6 +56,7 @@ import {
   watchFrames,
   type Page
 } from "./support.js";
+import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
 
 /** The assets tier's load, gated by the test; `release()` installs the real module. */
 function gatedAssets() {
@@ -80,7 +81,7 @@ function heldResponse(id: string, headers: Record<string, string> = {}) {
   });
   return {
     response: new Response(body, { headers: { "X-Frame-Stream": id, ...headers } }),
-    send: (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk))),
+    send: (chunk: any) => controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk)))),
     close: () => controller.close()
   };
 }

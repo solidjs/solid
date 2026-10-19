@@ -217,7 +217,7 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
       expect(fr.s).toBe(2);
       // Handled by the server's own <Errored>: no frame error on the channel.
       const ops = await readChannel(r["sc:live"]);
-      expect(ops.filter(op => op.type === "error" && !op.key)).toEqual([]);
+      expect(ops.filter(op => ":error" in op.r)).toEqual([]);
     });
 
     it("without a server <Errored>: the template keeps the boundary's fallback and the channel carries the frame's error, addressed to it", async () => {
@@ -240,8 +240,8 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
       // live hole inside the boundary met the same rejection on its sweep —
       // the existing per-hole diagnostic, geometry-routed).
       const ops = await readChannel(r["sc:live"]);
-      expect(ops.filter(op => op.type === "error" && !op.key)).toEqual([
-        { type: "error", fid: "eo/doc-escape", error: "doc-escape" }
+      expect(ops.filter(op => ":error" in op.r)).toEqual([
+        { fid: "eo/doc-escape", r: { ":error": "doc-escape" } }
       ]);
     });
 

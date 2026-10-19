@@ -26,6 +26,7 @@ import {
 } from "../../frames/src/frame-sink.js";
 import { FRAME_TIERS_HEADER } from "../../frames/src/frame-transport.js";
 import { ChunkReader } from "../../server-functions/src/shared.js";
+import { has, record, records } from "./wire.js";
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 const collect = (stream: any): Promise<any[]> => stream;
@@ -81,14 +82,14 @@ describe("tier announcement — stream face", () => {
     expect(response.headers.has(FRAME_TIERS_HEADER)).toBe(false);
     const chunks = await bodyChunks(response);
     expect(chunks.some(c => "tiers" in c)).toBe(false);
-    expect(chunks.find(c => c.type === "html").html).toContain("<h1>Story</h1>");
+    expect(record(chunks, "").value).toContain("<h1>Story</h1>");
   });
 
   it("`regions`: a nested region is announced, once, and rides the head", async () => {
     const response = serverComponentResponse(Regioned, { frame: { id: "ta-reg" } });
     expect(response.headers.get(FRAME_TIERS_HEADER)).toBe("regions");
     const chunks = await bodyChunks(response);
-    expect(chunks.find(c => c.type === "slot").args.body).toEqual({
+    expect(records(chunks, "slot:")[0][1].args.body).toEqual({
       $frame: "ta-reg.panel#0.body"
     });
   });
@@ -159,17 +160,21 @@ describe("tier announcement — stream face", () => {
     expect(announced.length).toBeGreaterThan(0);
     const names = announced.flatMap(c => c.tiers).sort();
     expect(names).toEqual(["assets", "regions"]);
-    // The announcement precedes (or is) the chunk that needs it: the
-    // `assets` chunk carries `assets`; the fragment with the region's slot
-    // does not precede the chunk naming `regions`.
-    const assets = chunks.find(c => c.type === "assets");
+    // The announcement precedes (or is) the message that needs it: the
+    // `seg:<k>:assets` batch carries `assets`; the fragment with the
+    // region's slot does not precede the message naming `regions`.
+    const [[assetsKey]] = records(chunks, "seg:").filter(([key]) => key.endsWith(":assets"));
+    const assets = chunks.find(c => has(c, assetsKey));
     expect(assets.tiers).toContain("assets");
     const regionsAt = chunks.findIndex(c => c.tiers && c.tiers.includes("regions"));
-    const fragmentAt = chunks.findIndex(c => c.type === "fragment");
+    const segment = assetsKey.slice(0, -":assets".length);
+    const fragmentAt = chunks.findIndex(c => has(c, segment));
     expect(regionsAt).toBeLessThanOrEqual(fragmentAt);
-    expect(chunks[fragmentAt].html).toContain("slot:panel#0:start");
-    // Reveal is style-gated, as before.
-    expect(chunks.find(c => c.type === "reveal").waitForStyles).toBe(true);
+    expect(chunks[fragmentAt].r[segment].value).toContain("slot:panel#0:start");
+    // Reveal is style-gated, as before: the client's gate is the segment's
+    // assets record, which names the stylesheet ahead of the reveal.
+    expect(assets.r[assetsKey].styles).toEqual(["/late.css"]);
+    expect(chunks.indexOf(assets)).toBeLessThan(chunks.findIndex(c => has(c, `${segment}:reveal`)));
   });
 
   it("a stream consumed without a Response (renderServerComponent) announces in-band only", async () => {

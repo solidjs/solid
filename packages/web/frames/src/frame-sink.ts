@@ -49,6 +49,7 @@ import {
 // shapes and the wire format may change between prereleases (RFC 11).
 // Every export in this module is @experimental.
 import { FrameChunk } from "./frame-client.js";
+import { encodeFrameChunk, encodeLiveOp } from "./frame-wire.js";
 
 /**
  * Addresses a frame stream: the boundary id and this response's version.
@@ -2155,8 +2156,9 @@ function armDocumentLiveHoles(ctx) {
       }
     })
   );
+  // The channel carries the stream's own record batches (frame-wire.ts).
   const push = op => {
-    if (!closed) channel.enqueue(op);
+    if (!closed) channel.enqueue(encodeLiveOp(op));
   };
   ctx.liveHoles = live.holes = createLiveHoles(
     {
@@ -2952,7 +2954,7 @@ export function serverComponentResponse(component, options = {}, init = {}) {
           if (chunk.type === "error" && !chunk.key) failed = true;
           if (closed) return;
           try {
-            controller.enqueue(frame(JSON.stringify(chunk)));
+            controller.enqueue(frame(JSON.stringify(encodeFrameChunk(chunk))));
           } catch (_) {
             closed = true;
           }
@@ -3233,7 +3235,7 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec, sig
       const write = chunk => {
         if (closed) return;
         try {
-          controller.enqueue(createChunk(JSON.stringify(chunk)));
+          controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
         } catch (_) {
           closed = true;
         }

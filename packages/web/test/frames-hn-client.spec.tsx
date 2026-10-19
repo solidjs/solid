@@ -19,6 +19,7 @@ import { prepareTier } from "../frames/src/frame-client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { createChunk } from "../server-functions/src/shared.js";
+import { encodeFrameChunk } from "../frames/src/frame-wire.js";
 
 const settle = () => new Promise(r => setTimeout(r));
 
@@ -34,7 +35,7 @@ beforeAll(() => prepareTier("regions"));
 function frameResponse(chunks: any[]) {
   const body = new ReadableStream({
     start(c) {
-      for (const chunk of chunks) c.enqueue(createChunk(JSON.stringify(chunk)));
+      for (const chunk of chunks) c.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
       c.close();
     }
   });

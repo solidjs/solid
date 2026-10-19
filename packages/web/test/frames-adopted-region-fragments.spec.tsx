@@ -34,6 +34,7 @@ import { createRoot, enableHydration, flush, Loading } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
+import { encodeFrameChunk } from "../frames/src/frame-wire.js";
 
 const settle = () => new Promise(r => setTimeout(r));
 
@@ -362,19 +363,23 @@ describe("deferred fragments inside an adopted region (#2978)", () => {
     // The refetch: a navigation-shaped stream lands on the adopted boundary
     // (the document wire id IS the argless call's address). Its record
     // changes the occurrence's args; its html morphs around the slot range.
-    host.apply({
-      type: "slot",
-      id: "deadlock/refetch",
-      version: 1,
-      key: "row#0",
-      args: { label: "refetched" }
-    });
-    host.apply({
-      type: "html",
-      id: "deadlock/refetch",
-      version: 1,
-      html: "<h1>Page2</h1><section><!--slot:row#0:start--><!--slot:row#0:end--></section>"
-    });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: "deadlock/refetch",
+        version: 1,
+        key: "row#0",
+        args: { label: "refetched" }
+      })
+    );
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "deadlock/refetch",
+        version: 1,
+        html: "<h1>Page2</h1><section><!--slot:row#0:start--><!--slot:row#0:end--></section>"
+      })
+    );
     flush();
     await settle();
     flush();

@@ -43,6 +43,7 @@ import {
   snapshotNodes,
   type Streams
 } from "./container-trace-hold-helpers.jsx";
+import { encodeFrameChunk } from "../../frames/src/frame-wire.js";
 
 describe("container-trace hold: interruptions", () => {
   afterEach(cleanupHold);
@@ -94,7 +95,7 @@ describe("container-trace hold: interruptions", () => {
       { key: "note#1", args: { text: "n2" } }
     ];
     for (const r of refetch)
-      s.gated.host.apply({ type: "slot", id: s.fid, version: 1, ...r } as any);
+      s.gated.host.apply(encodeFrameChunk({ type: "slot", id: s.fid, version: 1, ...r } as any));
     flush();
     expect(mounts.comment).toEqual([]);
 
@@ -128,7 +129,7 @@ describe("container-trace hold: interruptions", () => {
       { key: "note#1", args: { text: "n2" } }
     ];
     for (const r of seed)
-      s.gated.host.apply({ type: "slot", id: address, version: 0, ...r } as any);
+      s.gated.host.apply(encodeFrameChunk({ type: "slot", id: address, version: 0, ...r } as any));
     const frame = s.gated.host.get(s.fid)!;
     expect(frame).toBeTruthy();
     frame.rebind(address);

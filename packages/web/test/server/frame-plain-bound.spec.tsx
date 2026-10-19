@@ -337,12 +337,13 @@ describe("the plain-response streaming bound", () => {
       await tick();
       ch.push("v0");
       await tick(10);
-      expect(chunks.some(c => c.type === "fragment")).toBe(true);
+      // The wire's record batches: a fragment is a `seg:` record.
+      expect(chunks.some(c => c.r && Object.keys(c.r).some(k => /^seg:[^:]*$/.test(k)))).toBe(true);
       controller.abort();
       await ended;
-      const end = complete(chunks);
+      const end = chunks.find(c => c.r && ":complete" in c.r);
       expect(end).toBeDefined();
-      expect(end.bound).toBe("time");
+      expect(end.r[":bound"]).toBe("time");
       expect(chunks[chunks.length - 1]).toBe(end);
       expect(ch.state.closed).toBe(true);
     });
@@ -386,10 +387,10 @@ describe("the plain-response streaming bound", () => {
       await tick();
       ch.push("v0");
       await tick(10);
-      expect(out).toContain('"fragment"');
+      expect(out).toContain('"seg:');
       controller.abort();
       await reading;
-      expect(out).not.toContain('"complete"');
+      expect(out).not.toContain('":complete"');
     });
 
     it("the body's own cancel (the reader left) is a death, never a bound", async () => {

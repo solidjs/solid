@@ -536,6 +536,27 @@ _Old consumer:_ reads `complete` as before (the extra field is ignored by
 its `chunkToRecords`); it sees a completed frame and never learns it was a
 cut-off. Degrades to today's behaviour minus the (new) distinction.
 
+### Addendum (2026-10-19 — the wire is the store)
+
+The translation point moved to the producer. A frame stream on the wire is a
+sequence of versioned batches of keyed records, `{ id, version, r }`: the
+`FrameWrite` the host applies as it arrives, with no client-side mapping
+(`chunkToRecords` left the client; frame-wire.ts's `encodeFrameChunk` turns
+each producer event into its message at the response's serialization seam).
+The record keys are the ones above: `""`, `seg:<k>`, `seg:<k>:reveal` /
+`:fallback` / `:assets` / `:error`, `slot:<k>`, `hole:<k>` (and
+`hole:<k>:error`), `attr:<k>`, `:complete` (with `:bound`), `:error`. An
+`ops` sweep and a multi-key `reveal` are one batch each.
+
+Three messages are not records and keep a `type`: `start` (a version opens
+on the address — it writes nothing), `data` (a node of the response's data
+table, never frame state) and `outcome` (a single-flight envelope node,
+addressed to no frame). `tiers` rides beside `r` on any message. The
+document face's `sc:live` channel carries the same batches, unaddressed,
+with `fid` on the ones only the producing frame's boundary applies.
+`renderServerComponent` still pipes the producer's typed events
+(`FrameChunk`).
+
 ### Two identity schemes
 
 The format uses two deliberately distinct identity schemes:

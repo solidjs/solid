@@ -15,11 +15,13 @@ import { installServerComponents, createFrameHost } from "../frames/src/client.j
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { createChunk } from "../server-functions/src/shared.js";
+import { encodeFrameChunk } from "../frames/src/frame-wire.js";
 
 function frameResponse(id: string, chunks: any[]) {
   const body = new ReadableStream({
     start(controller) {
-      for (const chunk of chunks) controller.enqueue(createChunk(JSON.stringify(chunk)));
+      for (const chunk of chunks)
+        controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
       controller.close();
     }
   });

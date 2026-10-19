@@ -56,6 +56,7 @@ import {
   serializeStream
 } from "../server-functions/src/shared.js";
 import { applyFrameResponse } from "../frames/src/frame-transport.js";
+import { encodeFrameChunk } from "../frames/src/frame-wire.js";
 
 const unsubscribes: Array<() => void> = [];
 afterEach(() => {
@@ -1182,7 +1183,9 @@ function frameResponse(id: string, chunks: any[]) {
     start(controller) {
       for (const chunk of chunks) {
         controller.enqueue(
-          typeof chunk === "string" ? createChunk(chunk) : createChunk(JSON.stringify(chunk))
+          typeof chunk === "string"
+            ? createChunk(chunk)
+            : createChunk(JSON.stringify(encodeFrameChunk(chunk)))
         );
       }
       controller.close();

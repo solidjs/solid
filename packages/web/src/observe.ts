@@ -585,6 +585,40 @@ export function isDeferredBody(value: unknown): boolean {
  */
 export function frameCensus(event: FrameEventBase, type: string, own: boolean): void {
   event.chunks++;
+  countEvent(event, type, own);
+}
+
+/**
+ * The client half's census of one wire message (frame-wire.ts): a batch
+ * counts once, and each record by the producer event that writes it — the
+ * root's content (`""`) the shell or a region, `seg:<k>` content a
+ * fragment, `slot:<k>` a slot, any `:error` record an error — so both
+ * halves add up to the same numbers.
+ */
+export function frameRecordCensus(
+  event: FrameEventBase,
+  message: { type?: string; r?: Record<string, any> },
+  own: boolean
+): void {
+  event.chunks++;
+  const r = message.r;
+  for (const key in r)
+    countEvent(
+      event,
+      key === ""
+        ? "html"
+        : key.endsWith(":error")
+          ? "error"
+          : key.startsWith("slot:")
+            ? "slot"
+            : key.startsWith("seg:") && r[key] && r[key].kind === "html"
+              ? "fragment"
+              : key,
+      own
+    );
+}
+
+function countEvent(event: FrameEventBase, type: string, own: boolean): void {
   switch (type) {
     case "html":
       if (!own) event.regions++;
@@ -808,10 +842,13 @@ function cancelBody(response: Response): void {
 /** What the client's stream reader hands a frame observation. */
 export interface FrameApplyObservation {
   /**
-   * Every chunk read, after the consumer's remapping (`as`, `version`) —
-   * `wireId` is the id the chunk carried before it.
+   * Every message read, after the consumer's remapping (`as`, `version`) —
+   * `wireId` is the id the message carried before it.
    */
-  chunk(chunk: { type: string; id: string; version: number }, wireId: string): void;
+  chunk(
+    chunk: { type?: string; id: string; version: number; r?: Record<string, unknown> },
+    wireId: string
+  ): void;
   /**
    * The apply ended — cleanly, or with the failure it threw (a read that
    * failed, a chunk that would not parse, a host that rejected a chunk).
@@ -868,11 +905,11 @@ export function observeFrameApply(response: Response): FrameApplyObservation | u
         return;
       }
       if (current === undefined) return;
-      if (chunk.type === "complete") {
+      if (chunk.r && ":complete" in chunk.r) {
         if (chunk.id === current.applied) close("complete");
         return;
       }
-      frameCensus(current.event, chunk.type, chunk.id === current.applied);
+      frameRecordCensus(current.event, chunk, chunk.id === current.applied);
     },
     end(error) {
       if (current !== undefined) close(error !== undefined ? "error" : "truncated", error);

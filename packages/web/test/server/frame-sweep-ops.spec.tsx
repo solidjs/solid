@@ -130,7 +130,7 @@ describe("C13 server half — the sink emits one sweep as one unit", () => {
     expect(chunks[chunks.length - 1].type).toBe("complete");
   }, 8000);
 
-  it("document face: a sweep that changes two holes pushes ONE `ops` op on `sc:live`", async () => {
+  it("document face: a sweep that changes two holes pushes ONE two-record batch on `sc:live`", async () => {
     const ServerComp = twoHoleComponent(async function* () {
       yield ["a0", "b0"] as [string, string];
       await tick();
@@ -165,11 +165,12 @@ describe("C13 server half — the sink emits one sweep as one unit", () => {
       if (r.done) break;
       ops.push(r.value);
     }
-    expect(ops.map(op => op.type)).toEqual(["ops", "hole"]);
-    expect(ops[0].ops.map((m: any) => [m.type, m.html])).toEqual([
-      ["hole", "a1"],
-      ["hole", "b1"]
+    // Two batches: the two-hole sweep as ONE, then the one-hole sweep.
+    expect(ops.map(op => Object.keys(op.r).length)).toEqual([2, 1]);
+    expect(Object.values(ops[0].r).map((m: any) => [m.kind, m.value])).toEqual([
+      ["html", "a1"],
+      ["html", "b1"]
     ]);
-    expect(ops[1].html).toBe("a2");
+    expect((Object.values(ops[1].r)[0] as any).value).toBe("a2");
   });
 });
