@@ -54,10 +54,12 @@ import { createServerReference, live } from "../../server-functions/src/client.j
 import { LAST_EVENT_ID_HEADER, frameAddress } from "../../server-functions/src/shared.js";
 import {
   freshFid,
+  holeHtml,
   makeHost,
   openFrameResponse,
   openLiveFrameResponse,
   pump,
+  stubHeldFetch,
   stubLiveFetch,
   until
 } from "./support.js";
@@ -112,6 +114,39 @@ function mountUnderLoading(Comp: any) {
 }
 
 const cleanups: (() => void)[] = [];
+
+describe("the live wire tier — live content applies through it", () => {
+  test("a hole record that lands before the tier is resident stays pending (the DOM keeps the previous value) and starts the load; the install's flush morphs it", async () => {
+    const gate = gatedWire();
+    const fid = freshFid("tier-wire-hole");
+    const { host } = makeHost();
+    installServerComponents(host, { tiers: gate.tiers });
+    const { held } = stubHeldFetch([fid]);
+    const getX = createServerReference(fid);
+    const Site = dynamic(() => getX() as any);
+    const site = mountUnderLoading(Site);
+    cleanups.push(site.cleanup);
+    await pump();
+    held[0].send({ type: "start", id: fid, version: 1 });
+    held[0].send({ type: "html", id: fid, version: 1, html: `<p>${holeHtml(0, "h0")}</p>` });
+    await pump();
+    const p = site.div.querySelector("p")!;
+    expect(p.textContent).toBe("h0");
+    // A plain response never loads the tier.
+    expect(gate.loader).not.toHaveBeenCalled();
+    held[0].send({ type: "hole", id: fid, version: 1, key: "lh:0", html: "h1" });
+    await pump();
+    expect(gate.loader).toHaveBeenCalledTimes(1);
+    expect(resident()).toBe(false);
+    expect(p.textContent).toBe("h0");
+    await gate.release();
+    await until(() => p.textContent === "h1");
+    // The morph kept the element: the hole's range changed in place.
+    expect(site.div.querySelector("p")).toBe(p);
+    held[0].send({ type: "complete", id: fid, version: 1 });
+    held[0].close();
+  });
+});
 afterEach(() => {
   for (const c of cleanups.splice(0)) c();
   vi.unstubAllGlobals();
