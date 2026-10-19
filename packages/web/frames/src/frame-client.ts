@@ -1259,6 +1259,9 @@ class FrameImpl {
   // keeps (kept here too, as the ledger is absent while the tier loads) —
   // the base a row-op record must name to be applied (#4064).
   #shows = {};
+  // What the live wire tier's appliers (`hole`, `attrs`) reach of this
+  // mount, made at its first live apply (see `#live`).
+  #liveMount;
   // The have-list (RFC 11 §9.5) — what this mount currently shows, by the
   // server's own digests — is the live wire tier's ledger (wire-tier.ts,
   // `have` / `haveOf`): this frame hands it every applied content record
@@ -1587,10 +1590,11 @@ class FrameImpl {
     // `frame:applied` must never read the DOM with one of its holes moved
     // and a sibling still showing the previous value).
     let morphed = false;
-    // The pass's displaced-range index (see #applyHole), made at its first
+    // The pass's displaced-range index (see wire-tier.ts `hole`), made at its first
     // hole morph: `r`, the frame's slot ranges by occurrence; `g`, the
     // subtrees the morphs inserted whole.
     const index: { r?: Map<string, any>; g?: Node[] } = {};
+    let wire;
     for (const key of this.#content) {
       const record = this.#store[key];
       if (!record || this.#appliedHoles.get(key) === record) continue;
@@ -1599,17 +1603,23 @@ class FrameImpl {
           this.#appliedHoles.set(key, record);
           if ("_SOLID_DEV_")
             console.error(`Live hole ${key.slice(5, -6)} failed on the server; latched:`, record);
-        } else if (this.#applyHole(key.slice(5), record, index)) {
-          this.#appliedHoles.set(key, record);
-          this.#recordHave(key.slice(5), record);
-          morphed = true;
+          continue;
         }
-      } else if (key.startsWith("attr:")) {
-        if (this.#applyAttrs(key.slice(5), record.value, record.removed)) {
-          this.#appliedHoles.set(key, record);
-          this.#recordHave("lha:" + key.slice(5), record);
-          morphed = true;
-        }
+      } else if (!key.startsWith("attr:")) continue;
+      // Live content applies through the live wire tier (wire-tier.ts,
+      // `hole` / `attrs`): while it loads the record stays pending, and the
+      // install's flush applies it. Live pages announce the tier, and
+      // `live()` starts its load at the call.
+      if (!this.#hasContent || !(wire ??= tierReady("wire"))) continue;
+      const name = key.slice(5);
+      const attr = key[0] === "a";
+      if (!attr) this.#found = undefined;
+      if (
+        attr ? wire.attrs(this.#live, name, record) : wire.hole(this.#live, name, record, index)
+      ) {
+        this.#appliedHoles.set(key, record);
+        this.#recordHave(attr ? "lha:" + name : name, record);
+        morphed = true;
       }
     }
     // A range the pass displaced lands where its occurrence now is — in a
@@ -2271,6 +2281,32 @@ class FrameImpl {
     if (host) host.register(id, this);
   }
 
+  /** The mount as the live wire tier's appliers (`hole`, `attrs`) reach it:
+   *  its element, the target cache, the claim, the slot index, the range
+   *  morph, the shows ledger, and the give-up for a row-op record. */
+  get #live() {
+    return (this.#liveMount ??= {
+      e: this.#element,
+      t: this.#liveTargets,
+      c: this.#claimTree,
+      k: found => this.#collectSlots(found),
+      m: reconcileChildren,
+      s: () => this.#shows,
+      x: (key, record) => (
+        this.#appliedHoles.set(key, record),
+        tierLoads.wire.r.cancel(this.#options.host, this.#options.id)
+      ),
+      w:
+        "_SOLID_DEV_" &&
+        ((marker, open) =>
+          console.error(
+            `Live hole "${marker}" is missing its closing comment; update dropped. ` +
+              `Likely an HTML-rewriting layer stripped it.`,
+            open
+          ))
+    });
+  }
+
   /**
    * Ledger upkeep for an applied content record — the live wire tier's
    * (`have`: `""` is the root and resets the ledger; any other key takes
@@ -2342,130 +2378,6 @@ class FrameImpl {
       reconcileChildren(parent, fragment, null, null, claim, ranges, grafts);
       if (ranges.size) for (const root of grafts) flushGrafts(root, ranges);
     }
-  }
-
-  /**
-   * Morph a live hole's marked range (`<!--lh:N-->…<!--lh:/N-->`, marker =
-   * `lh:N`) to its re-emitted html — the client half of the Stage 3 hole
-   * ledger. The same range-anchored reconcile as the root morph, so
-   * interior element identity (focus, media, third-party widget state)
-   * survives value ticks. A hole's content may hold slot ranges: the morph
-   * then resolves them against the frame's displaced-range index, as the
-   * root's does, so an occurrence the new content still has keeps its
-   * range — interior and mounted state — wherever it moved; the sync after
-   * the pass mounts the new ones and unmounts the ones gone. Returns
-   * whether the markers were found and the morph ran.
-   */
-  #applyHole(marker, record, index) {
-    if (!this.#hasContent) return false;
-    this.#found = undefined;
-    const open = this.#liveTarget(
-      "hole:" + marker,
-      n => n.nodeType === COMMENT_NODE && n.data === marker
-    );
-    if (!open) return false;
-    const close = rangeClose(open, "lh:/" + marker.slice(3));
-    if (!close) {
-      if ("_SOLID_DEV_") {
-        console.error(
-          `Live hole "${marker}" is missing its closing comment; update dropped. ` +
-            `Likely an HTML-rewriting layer stripped it.`,
-          open
-        );
-      }
-      return false;
-    }
-    const claim = this.#claimTree;
-    if (record.rows) {
-      // Row ops (#4064): only the rows that changed, applied by the wire
-      // tier (pending while it loads) where the range shows the emission
-      // they were taken against. Anywhere else (a fresh mount replaying
-      // the store, a record that landed on one that never applied) the
-      // live connection resumes, its have-list naming what the range
-      // shows, and the hole comes back whole.
-      const wire = tierReady("wire");
-      if (!wire) return false;
-      if (
-        this.#shows[marker] !== record.base ||
-        !wire.rows(open, close, record.rows, parseFragment, (start, end, fragment) =>
-          reconcileChildren(start.parentNode, fragment, start, end, claim)
-        )
-      ) {
-        // Once: the record is spent, the resume re-sends the hole whole.
-        this.#appliedHoles.set("hole:" + marker, record);
-        wire.cancel(this.#options.host, this.#options.id);
-        return false;
-      }
-    } else {
-      // One index for the pass: a range one hole drops may be the one
-      // another hole now places. A frame with no slot range needs none.
-      if (!index.r) (this.#collectSlots((index.r = new Map())), (index.g = []));
-      reconcileChildren(
-        open.parentNode,
-        parseFragment(record.value),
-        open,
-        close,
-        claim,
-        index.r.size ? index.r : null,
-        index.g
-      );
-    }
-    return true;
-  }
-
-  /** A live-hole target: the cached node while it is still this frame's and
-   *  still matches, else a fresh search (cached when found). */
-  #liveTarget(key, test) {
-    const parent = this.#element;
-    let n = this.#liveTargets.get(key);
-    if (n && test(n) && parent.contains(n)) return n;
-    n = findLiveTarget(parent.firstChild, null, test);
-    n && this.#liveTargets.set(key, n);
-    return n;
-  }
-
-  /**
-   * Apply a live attr-hole re-emission: find the element addressed
-   * `data-lha="addr"` in this frame's range, parse the rebuilt attribute
-   * text through a scratch element (native entity decoding), and patch the
-   * element to match it the way the root morph matches server output
-   * (`morphAttributes`): set what's present, remove what is not — the text
-   * is the tag's WHOLE attribute area, so a name absent from it has
-   * vanished on the server, whether or not the emission names it in
-   * `removed` (a resume's re-emission cannot: the server holds the client's
-   * previous text only as a digest). The address itself and a
-   * `<details>`/`<dialog>` `open` are the morph's exceptions here too.
-   * Returns false when the element isn't in the DOM yet (pending; later
-   * flushes retry).
-   */
-  #applyAttrs(addr, text, removed) {
-    if (!this.#hasContent) return false;
-    const el = this.#liveTarget(
-      "attr:" + addr,
-      n => n.nodeType === ELEMENT_NODE && n.getAttribute("data-lha") === addr
-    );
-    if (!el) return false;
-    const parsed = parseFragment(`<i${text}></i>`).firstChild;
-    const keepOpen = preservesOpen(el);
-    const current = el.attributes;
-    for (let i = current.length - 1; i >= 0; i--) {
-      const name = current[i].name;
-      if (name === "data-lha" || (keepOpen && name === "open")) continue;
-      if (!parsed || !parsed.hasAttribute(name)) el.removeAttribute(name);
-    }
-    if (parsed) {
-      for (let i = 0; i < parsed.attributes.length; i++) {
-        const { name, value } = parsed.attributes[i];
-        if (keepOpen && name === "open") continue;
-        if (el.getAttribute(name) !== value) el.setAttribute(name, value);
-      }
-    }
-    if (removed)
-      for (const name of removed) {
-        if (keepOpen && name === "open") continue;
-        el.removeAttribute(name);
-      }
-    return true;
   }
 
   /** Sweep-claim the frame's existing content (the adoption path). */
@@ -2774,7 +2686,7 @@ function removeUntil(parent, n, stop) {
 }
 
 /** Parse an HTML string into a document fragment, preserving comments. */
-function parseFragment(html) {
+export function parseFragment(html) {
   const template = document.createElement("template");
   template.innerHTML = html;
   return template.content;
@@ -2786,33 +2698,10 @@ function isPlaceholderStart(node, id) {
 }
 
 /** The `<!--pl-KEY-->` comment closing a placeholder range, or null. */
-function rangeClose(start, id) {
+export function rangeClose(start, id) {
   let n = start.nextSibling;
   while (n) {
     if (n.nodeType === COMMENT_NODE && n.data === id) return n;
-    n = n.nextSibling;
-  }
-  return null;
-}
-
-/**
- * Depth-first search among the siblings `[n, end)` for a live-hole target —
- * an open comment (`<!--lh:N-->`) or an addressed element (`data-lha`),
- * matched by `test`. Descends through elements — including region elements,
- * whose holes belong to the stream that produced them (one id counter per
- * response) — but never into nested boundary frames (bare ids): those are
- * separate streams with their own hole/address namespaces.
- */
-function findLiveTarget(n, end, test) {
-  while (n && n !== end) {
-    if (n.nodeType === ELEMENT_NODE) {
-      const fid = isFrameElement(n) ? n.getAttribute(FRAME_ID_ATTR) : null;
-      if (fid === null || fid.includes(".")) {
-        if (test(n)) return n;
-        const found = findLiveTarget(n.firstChild, null, test);
-        if (found) return found;
-      }
-    } else if (test(n)) return n;
     n = n.nextSibling;
   }
   return null;
@@ -2955,7 +2844,7 @@ function compatible(a, b) {
 // that must force it can rebuild the boundary (a genuine teardown), not a
 // morph. Popover/dialog "showing" is not an attribute (JS API), so nothing
 // to guard there.
-function preservesOpen(el) {
+export function preservesOpen(el) {
   const t = el.tagName;
   return t === "DETAILS" || t === "DIALOG";
 }

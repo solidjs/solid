@@ -7,13 +7,19 @@
 // sync find what a full walk would: an occurrence that lives only in a hole
 // mounting with the write that brings it and unmounting with the one that
 // drops it, and the occurrences outside the hole untouched.
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { flush, Loading, onCleanup } from "solid-js";
 import { dynamic, render } from "@solidjs/web";
 import { installServerComponents, createFrameHost } from "../frames/src/client.js";
+import { prepareTier } from "../frames/src/frame-client.js";
 import { createJSONDataTable } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { openFrameResponse } from "./lifecycle-matrix/harness.js";
+
+// Live content applies through the live wire tier (frames/wire), which a
+// live page announces and preloads; this spec sends hole ops at once, so
+// it loads the tier up front.
+beforeAll(() => prepareTier("wire"));
 
 const ID = "thread/scoped";
 

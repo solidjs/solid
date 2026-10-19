@@ -21,11 +21,18 @@
  * `cancel` / `done`, the open-frame count the end is judged by, the sweep
  * the loop may run), the have-list ledger per mount (`have` keeps it off
  * the frame's applied content records, `haveOf` reads it) and the resume
- * request (`resume` + `encodeHaveList`). The eager client keeps the
- * dispatch alone: `handle`'s `LIVE_WIRE` arm awaits the load and hands
+ * request (`resume` + `encodeHaveList`), and the live content appliers:
+ * `hole` morphs a live hole's marked range (row ops included) and `attrs`
+ * patches an addressed element, both found through the mount's target
+ * cache. A hole or attr record that lands while this chunk loads stays
+ * pending in the frame's store, and the install's flush applies it; the
+ * server announces the tier wherever it opens a live hole binding. The
+ * eager client keeps the dispatch alone: `handle`'s `LIVE_WIRE` arm awaits the load and hands
  * over, `bump` asks the resident module to cancel, the frame's
- * `#recordHave` hands each applied record to `have`, and `resume` answers
- * through the resident module or not at all.
+ * `#recordHave` hands each applied record to `have`, the frame's flush
+ * hands each hole / attr record to `hole` / `attrs` with its mount
+ * (`#live`), and `resume` answers through the resident module or not at
+ * all.
  *
  * Preload-at-call (plan §1, the wire row): `live()`'s decorator fires the
  * handler's `onLive` hook at the call — before its first fetch — and the
@@ -64,7 +71,47 @@ import {
   isEventStream
 } from "../../server-functions/src/shared.js";
 
+// Pure DOM helpers, bundled into this chunk as their own copy (no module
+// state; the range morph itself is the eager client's, handed in on the
+// mount, as the root morph shares it).
+import {
+  isFrameElement,
+  parseFragment,
+  preservesOpen,
+  rangeClose,
+  FRAME_ID_ATTR
+} from "./frame-client.js";
+
 import type { FrameHost, FrameHostOptions } from "./frame-client.js";
+
+/**
+ * A frame's mount as the live appliers reach it (the frame's `#live`):
+ * `e` its element, `t` its live-target cache, `c` its claim, `k` its slot
+ * index builder, `m` the range morph (`reconcileChildren`), `s` what each
+ * hole's range shows, `x` the give-up for a row-op record (mark it spent,
+ * cancel the connection so the resume re-sends the hole whole); `w`, in
+ * dev builds only, the diagnostic for a hole whose closing comment is gone
+ * (this chunk is built once for every condition, so the gate is the eager
+ * client's).
+ */
+interface LiveMount {
+  e: Element;
+  t: Map<string, Node>;
+  c: unknown;
+  k(found: Map<string, any>): void;
+  m(
+    parent: Node,
+    fragment: DocumentFragment,
+    start: Node | null,
+    end: Node | null,
+    claim: unknown,
+    ranges?: Map<string, any> | null,
+    grafts?: Node[]
+  ): void;
+  s(): Record<string, string>;
+  x(key: string, record: unknown): void;
+  w?: false | ((marker: string, open: Node) => void);
+}
 
 /**
  * The host the handler hands over: the frame host, carrying the lazily
@@ -351,7 +398,7 @@ export function connect(
  * can address — the caller then morphs the whole range.
  * @internal
  */
-export function rows(
+function rows(
   open: Node,
   close: Node,
   ops: { n: number; r: [number, string][] },
@@ -397,4 +444,142 @@ export function rows(
     }
   });
   return true;
+}
+
+/**
+ * Morph a live hole's marked range (`<!--lh:N-->…<!--lh:/N-->`, marker =
+ * `lh:N`) to its re-emitted html — the client half of the Stage 3 hole
+ * ledger. The same range-anchored reconcile as the root morph, so
+ * interior element identity (focus, media, third-party widget state)
+ * survives value ticks. A hole's content may hold slot ranges: the morph
+ * then resolves them against the frame's displaced-range index (`index`,
+ * one per flush pass: `r` the slot ranges by occurrence, `g` the subtrees
+ * the morphs inserted whole), as the root's does, so an occurrence the new
+ * content still has keeps its range — interior and mounted state —
+ * wherever it moved; the sync after the pass mounts the new ones and
+ * unmounts the ones gone. Returns whether the markers were found and the
+ * morph ran.
+ * @internal
+ */
+export function hole(
+  f: LiveMount,
+  marker: string,
+  record: any,
+  index: { r?: Map<string, any>; g?: Node[] }
+): boolean {
+  const open = target(f, "hole:" + marker, n => n.nodeType === 8 && (n as Comment).data === marker);
+  if (!open) return false;
+  const close = rangeClose(open, "lh:/" + marker.slice(3));
+  if (!close) {
+    f.w && f.w(marker, open);
+    return false;
+  }
+  if (record.rows) {
+    // Row ops (#4064): only the rows that changed, applied where the range
+    // shows the emission they were taken against. Anywhere else (a fresh
+    // mount replaying the store, a record that landed on one that never
+    // applied) the live connection resumes, its have-list naming what the
+    // range shows, and the hole comes back whole.
+    if (
+      f.s()[marker] !== record.base ||
+      !rows(open, close, record.rows, parseFragment, (start, end, fragment) =>
+        f.m(start.parentNode!, fragment, start, end, f.c)
+      )
+    ) {
+      // Once: the record is spent, the resume re-sends the hole whole.
+      f.x("hole:" + marker, record);
+      return false;
+    }
+  } else {
+    // One index for the pass: a range one hole drops may be the one
+    // another hole now places. A frame with no slot range needs none.
+    if (!index.r) (f.k((index.r = new Map())), (index.g = []));
+    f.m(
+      open.parentNode!,
+      parseFragment(record.value),
+      open,
+      close,
+      f.c,
+      index.r.size ? index.r : null,
+      index.g
+    );
+  }
+  return true;
+}
+
+/**
+ * Apply a live attr-hole re-emission: find the element addressed
+ * `data-lha="addr"` in the frame's range, parse the rebuilt attribute
+ * text through a scratch element (native entity decoding), and patch the
+ * element to match it the way the root morph matches server output
+ * (`morphAttributes`): set what's present, remove what is not — the text
+ * is the tag's WHOLE attribute area, so a name absent from it has
+ * vanished on the server, whether or not the emission names it in
+ * `removed` (a resume's re-emission cannot: the server holds the client's
+ * previous text only as a digest). The address itself and a
+ * `<details>`/`<dialog>` `open` are the morph's exceptions here too.
+ * Returns false when the element isn't in the DOM yet (pending; later
+ * flushes retry).
+ * @internal
+ */
+export function attrs(f: LiveMount, addr: string, record: any): boolean {
+  const el = target(
+    f,
+    "attr:" + addr,
+    n => n.nodeType === 1 && (n as Element).getAttribute("data-lha") === addr
+  ) as Element | null;
+  if (!el) return false;
+  const parsed = parseFragment(`<i${record.value}></i>`).firstChild as Element | null;
+  const keepOpen = preservesOpen(el);
+  const current = el.attributes;
+  for (let i = current.length - 1; i >= 0; i--) {
+    const name = current[i].name;
+    if (name === "data-lha" || (keepOpen && name === "open")) continue;
+    if (!parsed || !parsed.hasAttribute(name)) el.removeAttribute(name);
+  }
+  if (parsed) {
+    for (let i = 0; i < parsed.attributes.length; i++) {
+      const { name, value } = parsed.attributes[i];
+      if (keepOpen && name === "open") continue;
+      if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+    }
+  }
+  if (record.removed)
+    for (const name of record.removed) {
+      if (keepOpen && name === "open") continue;
+      el.removeAttribute(name);
+    }
+  return true;
+}
+
+/** A live target: the cached node while it is still this frame's and
+ *  still matches, else a fresh search (cached when found). */
+function target(f: LiveMount, key: string, test: (n: Node) => boolean): Node | null {
+  let n: Node | null | undefined = f.t.get(key);
+  if (n && test(n) && f.e.contains(n)) return n;
+  n = findTarget(f.e.firstChild, test);
+  n && f.t.set(key, n);
+  return n;
+}
+
+/**
+ * Depth-first search among `n` and its next siblings for a live-hole
+ * target — an open comment (`<!--lh:N-->`) or an addressed element
+ * (`data-lha`), matched by `test`. Descends through elements — including
+ * region elements, whose holes belong to the stream that produced them (one
+ * id counter per response) — but never into nested boundary frames (bare
+ * ids): those are separate streams with their own hole/address namespaces.
+ */
+function findTarget(n: Node | null, test: (n: Node) => boolean): Node | null {
+  for (; n; n = n.nextSibling) {
+    if (n.nodeType === 1) {
+      const fid = isFrameElement(n) ? (n as Element).getAttribute(FRAME_ID_ATTR) : null;
+      if (fid === null || fid.includes(".")) {
+        if (test(n)) return n;
+        const found = findTarget(n.firstChild, test);
+        if (found) return found;
+      }
+    } else if (test(n)) return n;
+  }
+  return null;
 }
