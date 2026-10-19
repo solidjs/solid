@@ -1081,8 +1081,9 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // store delete key-count fix (#4132, 2026-10-17): 14.79 -> 14.82 KB, measured at 14,802 B brotli / 44,865 B minified (+12 B brotli over the cap, +33 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
-    limit: "14.82 KB",
-    capMinified: 44865,
+    // Unread key beside a held sibling publishes at flush (#4146, 2026-10-19, over next @ 2aa9e86a): 14.82 -> 14.84 KB, measured in CI at 14,826 B brotli / 44,962 B minified (+80 B minified over this PR's base): a mainline write to a key the hold never changed creates that key's leaf instead of writing into the held staging, so whether the write is held no longer depends on a live reader (R1). Correctness; only runs when the container is held. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "14.84 KB",
+    capMinified: 44962,
     alias
   },
   {
@@ -2594,8 +2595,9 @@ module.exports = [
     // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 01270641): 30.09 -> 30.14 KB, measured locally at 30,125 B brotli / 94,611 B minified (+32 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
     // store delete key-count fix (#4132, 2026-10-17): 30.09 -> 30.14 KB, measured at 30,129 B brotli / 94,616 B minified (+39 B brotli over the cap, +37 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
     // Merged over next @ 7093b074b after #4129 raised this same cap 30.09 -> 30.14 KB for its own bytes (2026-10-17): the two together measured locally at 30,116 B brotli / 94,644 B minified, under the cap, so the cap stays at 30.14 KB; recorded minified 94,611 -> 94,644.
-    limit: "30.14 KB",
-    capMinified: 94644,
+    // Unread key beside a held sibling publishes at flush (#4146, 2026-10-19, over next @ 2aa9e86a): 30.14 -> 30.20 KB, measured in CI at 30,189 B brotli / 94,727 B minified (+80 B minified over this PR's base): a mainline write to a key the hold never changed creates that key's leaf instead of writing into the held staging, so whether the write is held no longer depends on a live reader (R1). Correctness; only runs when the container is held. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "30.20 KB",
+    capMinified: 94727,
     alias
   },
   {
