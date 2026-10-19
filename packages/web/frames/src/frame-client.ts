@@ -1179,6 +1179,15 @@ export function prepareTier(name) {
  * wired — the client entry does; a spec driving this module directly wires
  * and warms it (see frames-assets-client.spec).
  */
+/**
+ * A call is about to go to the wire on a page that shows frames: its answer
+ * will most likely land over content (a navigation, a refetch), and that
+ * morph rides the wire tier — start its load now, so it races the request
+ * instead of following the response's header.
+ * @internal
+ */
+export const prepareMorph = () => liveFrames.size && prepareTier("wire");
+
 const tierReady = name => !tierLoaders[name] || prepareTier(name).r;
 
 // The regions tier's reason to wait (frames savings pass §1, "regions"; §3
