@@ -3,9 +3,13 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createSignal, flush, onHydrationEnd } from "solid-js";
+import { createRenderEffect, createSignal, flush, onHydrationEnd, runWithOwner } from "solid-js";
 import { hydrate, render } from "@solidjs/web";
-import { deferredApp, deferredModuleApp } from "../harness/deferred-hydration.jsx";
+import {
+  deferredApp,
+  deferredModuleApp,
+  sequentialDeferredModuleApp
+} from "../harness/deferred-hydration.jsx";
 
 const artifact = JSON.parse(
   readFileSync(
@@ -22,6 +26,7 @@ const artifact = JSON.parse(
   module: { shell: string };
   handledModule: { shell: string };
   nestedModule: { shell: string };
+  sequentialModule: { shell: string };
 };
 let container: HTMLDivElement;
 let dispose: (() => void) | undefined;
@@ -557,4 +562,110 @@ test("an outer error retires a hidden pending claim inside an inner Errored", as
   expect(container.querySelector("aside")).toBe(sibling);
   sibling.click();
   expect(clicks).toBe(1);
+});
+
+test("nested deferred claims retain one button through two sequential client module loads", async () => {
+  applyChunk(container, artifact.sequentialModule.shell);
+  const button = container.querySelector("button")!;
+  const sibling = container.querySelector("aside")!;
+  const markers = Array.from(container.querySelectorAll("[data-module-id]"));
+  const ids = markers.map(marker => marker.getAttribute("data-module-id"));
+  const buttonId = button.id;
+  expect(button.textContent).toBe("dynamic nested0");
+  const [ready, setReady] = createSignal(false);
+  const [nestedReady, setNestedReady] = createSignal(false);
+  let resolveOuter!: () => void;
+  let resolveInner!: () => void;
+  const outerModule = new Promise<void>(resolve => {
+    resolveOuter = resolve;
+  });
+  const innerModule = new Promise<void>(resolve => {
+    resolveInner = resolve;
+  });
+  const entered: string[] = [];
+  const settled: string[] = [];
+  let clicks = 0;
+  let ended = 0;
+  const App = sequentialDeferredModuleApp({
+    ready,
+    nestedReady,
+    outerModule,
+    innerModule,
+    entered: name => entered.push(name),
+    settled: name => settled.push(name),
+    clicked: () => clicks++
+  });
+  dispose = hydrate(() => <App />, container);
+  onHydrationEnd(() => ended++);
+  await settle();
+  expect(entered).toEqual([]);
+
+  // One interaction can resolve both intents before either browser module loads.
+  setReady(true);
+  setNestedReady(true);
+  await settle();
+  expect(entered).toEqual(["outer"]);
+  expect(container.querySelector("button")).toBe(button);
+  expect(button.textContent).toBe("dynamic nested0");
+  expect(ended).toBe(0);
+
+  resolveOuter();
+  await settle();
+  await settle();
+  expect(entered).toEqual(["outer", "inner"]);
+  expect(container.querySelector("button")).toBe(button);
+  expect(button.textContent).toBe("dynamic nested0");
+  expect(ended).toBe(0);
+
+  resolveInner();
+  await settle();
+  await settle();
+  expect(container.querySelectorAll("button")).toHaveLength(1);
+  expect(container.querySelector("button")).toBe(button);
+  expect(button.textContent).toBe("dynamic nested0");
+  expect(button.id).toBe(buttonId);
+  expect(button.getAttribute("data-context")).toBe("preserved context");
+  expect(Array.from(container.querySelectorAll("[data-module-id]"))).toEqual(markers);
+  expect(markers.map(marker => marker.getAttribute("data-module-id"))).toEqual(ids);
+  expect(container.querySelector("aside")).toBe(sibling);
+  expect(settled).toEqual(["outer", "inner"]);
+  expect(ended).toBe(1);
+  button.click();
+  await settle();
+  expect(clicks).toBe(1);
+  expect(button.textContent).toBe("dynamic nested1");
+  expect(container.querySelector("button")).toBe(button);
+  expect(ended).toBe(1);
+});
+
+test("ownerless render effects remain usable while a deferred claim is pending", async () => {
+  mount();
+  const button = container.querySelector("button")!;
+  const [ready, setReady] = createSignal(false);
+  const App = deferredApp({ ready });
+  let ended = 0;
+  dispose = hydrate(() => <App />, container);
+  onHydrationEnd(() => ended++);
+  await settle();
+  expect(ended).toBe(0);
+
+  const outside = document.createElement("p");
+  // A constant ownerless effect has no subscriptions or cleanup to retain.
+  // It must use the ordinary render path while another tree claims SSR DOM.
+  runWithOwner(null, () => {
+    createRenderEffect(
+      () => "outside the deferred tree",
+      value => {
+        outside.textContent = value;
+      }
+    );
+  });
+  expect(outside.textContent).toBe("outside the deferred tree");
+  expect(container.querySelector("button")).toBe(button);
+  expect(ended).toBe(0);
+
+  setReady(true);
+  await settle();
+  expect(container.querySelector("button")).toBe(button);
+  expect(ended).toBe(1);
 });

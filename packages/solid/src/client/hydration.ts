@@ -1360,6 +1360,22 @@ function hydratedCreateRoot(init: Function, options?: { id?: string; transparent
 // --- Hydration-aware effect implementations ---
 
 function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?: any) {
+  const claim =
+    coreFn === coreRenderEffect && sharedConfig.hydrating && !noHydrationId()
+      ? getContext(DeferredClaimContext)?.run
+      : undefined;
+  if (claim) {
+    const read = compute;
+    const render = effectFn;
+    let owner = getOwner();
+    compute = (prev: any) => {
+      owner = getOwner();
+      return claim(() => read(prev));
+    };
+    // Publication may run after the tracked claim read has returned. It
+    // must still claim retained DOM while a nested module remains pending.
+    effectFn = (next: any, prev: any) => runWithOwner(owner, () => claim(() => render(next, prev)));
+  }
   if (!sharedConfig.hydrating || options?.transparent || noHydrationId())
     return coreFn(compute, effectFn, options);
 
@@ -3021,6 +3037,7 @@ function hydratedCreateLoadingBoundary<T, U>(
         // Signal writes are batched, but a child may acquire its hold while
         // its parent is already flattening. Keep that first read synchronous.
         pendingChildren++;
+        setSettled(false);
         setClaimRevision(version => version + 1);
         let held = true;
         return () => {
@@ -3135,23 +3152,37 @@ export function DeferredHydration(props: {
     return coreMemo(() => (ready() ? props.children : props.fallback)) as unknown as SolidElement;
   }
   let resume: (() => void) | undefined;
+  let releasePending: (() => boolean) | undefined;
   let queued = false;
-  const content = coreMemo(() => {
-    setContext(DeferredClaimContext, {});
+  const parentClaim = getContext(DeferredClaimContext);
+  const compute = () => {
+    // A nested gate is still part of the enclosing claim. Its Loading
+    // boundary must hold that claim until its own client module is ready.
+    setContext(DeferredClaimContext, parentClaim || {});
     if (activated) return props.children;
     if (untrack(() => props.when)) {
       activated = true;
+      // A retry can see readiness before the watcher runs. Retire any
+      // registration from its earlier pending read without flushing here.
+      if (releasePending?.()) queueMicrotask(checkHydrationComplete);
       return props.children;
     }
-    const owner = getOwner()!;
-    const [, claim] = initBoundaryResume(owner, owner.id!);
-    resume = () => {
-      activated = true;
-      claim();
-    };
+    if (!resume) {
+      const owner = getOwner()!;
+      const [, claim, release] = initBoundaryResume(owner, owner.id!);
+      releasePending = release;
+      resume = () => {
+        activated = true;
+        claim();
+      };
+    }
     // `undefined`, as for a pending streamed boundary, retains the server DOM.
     return undefined;
-  });
+  };
+  // An already-ready nested gate may first be read by a later DOM binding,
+  // after the enclosing module's synchronous claim window has returned.
+  const run = parentClaim?.run;
+  const content = coreMemo(run ? () => run(compute) : compute);
   // This watcher has no server counterpart and must consume no hydration id.
   coreEffect(
     () => props.when,

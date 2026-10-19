@@ -28,5 +28,10 @@
     "shell": "<main _hk=0><!--$--><button _hk=1000010000000>module content</button><span _hk=10000120>outer content</span><!--/--><aside>module sibling</aside></main>",
     "chunks": [],
     "rest": ""
+  },
+  "sequentialModule": {
+    "shell": "<main _hk=100><!--$--><div _hk=1030 data-module-id=\"0\"><div _hk=103100040 data-module-id=\"10310001\"><button _hk=1031000410002 id=\"1031000410001\" data-context=\"preserved context\">dynamic nested<!--$-->0<!--/--></button></div></div><!--/--><aside>following sibling</aside></main>",
+    "chunks": [],
+    "rest": ""
   }
 }

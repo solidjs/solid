@@ -3,13 +3,15 @@ import {
   createContext,
   createMemo,
   createRoot,
+  createSignal,
+  createUniqueId,
   onCleanup,
   onSettled,
   runWithOwner,
   useContext,
   type Accessor
 } from "solid-js";
-import { DeferredHydration, Errored, Loading } from "@solidjs/web";
+import { DeferredHydration, Dynamic, Errored, Loading, type JSX } from "@solidjs/web";
 
 const Label = createContext("missing context");
 
@@ -179,6 +181,100 @@ export function deferredModuleApp(options: {
         </Errored>
         <aside onClick={() => options.followingClicked?.()}>module sibling</aside>
       </main>
+    );
+  };
+}
+
+// Two independently loaded browser modules may be claimed one after the other,
+// even though both hydration intents arrived before the first module loaded.
+export function sequentialDeferredModuleApp(options: {
+  ready: Accessor<boolean>;
+  nestedReady: Accessor<boolean>;
+  outerModule?: Promise<void>;
+  innerModule?: Promise<void>;
+  entered?: (name: string) => void;
+  settled?: (name: string) => void;
+  clicked?: () => void;
+}) {
+  function readModule(name: string, module: Promise<void> | undefined, render: () => JSX.Element) {
+    options.entered?.(name);
+    if (!module) return render();
+    let stop!: () => void;
+    const loaded = runWithOwner(null, () =>
+      createRoot(dispose => {
+        stop = dispose;
+        return createMemo(() => module.then(() => true));
+      })
+    );
+    onCleanup(() => stop());
+    return createMemo(
+      () => {
+        loaded();
+        return render();
+      },
+      { transparent: true, sync: true }
+    );
+  }
+  function Settled(props: { name: string; children: JSX.Element }) {
+    onSettled(() => {
+      options.settled?.(props.name);
+    });
+    return props.children;
+  }
+  function Content() {
+    const label = useContext(Label);
+    const id = createUniqueId();
+    const [count, setCount] = createSignal(0);
+    return (
+      <button
+        id={id}
+        data-context={label}
+        onClick={() => {
+          setCount(value => value + 1);
+          options.clicked?.();
+        }}
+      >
+        dynamic nested{count()}
+      </button>
+    );
+  }
+  function InnerModule() {
+    return readModule("inner", options.innerModule, () => <Content />);
+  }
+  function Inner() {
+    const id = createUniqueId();
+    return (
+      <Dynamic component="div" data-module-id={id}>
+        <DeferredHydration when={options.nestedReady()}>
+          <Loading>
+            <Settled name="inner">
+              <InnerModule />
+            </Settled>
+          </Loading>
+        </DeferredHydration>
+      </Dynamic>
+    );
+  }
+  function OuterModule() {
+    return readModule("outer", options.outerModule, () => <Inner />);
+  }
+  return function App() {
+    const id = createUniqueId();
+    return (
+      <Label value="preserved context">
+        <main>
+          <Dynamic component="div" data-module-id={id}>
+            <DeferredHydration when={options.ready()}>
+              <Loading>
+                <Settled name="outer">
+                  <OuterModule />
+                </Settled>
+              </Loading>
+            </DeferredHydration>
+          </Dynamic>
+          <aside>following sibling</aside>
+        </main>
+      </Label>
     );
   };
 }

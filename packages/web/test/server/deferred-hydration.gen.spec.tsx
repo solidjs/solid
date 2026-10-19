@@ -1,6 +1,10 @@
 /** @jsxImportSource @solidjs/web */
 import { expect, test } from "vitest";
-import { deferredApp, deferredModuleApp } from "../harness/deferred-hydration.jsx";
+import {
+  deferredApp,
+  deferredModuleApp,
+  sequentialDeferredModuleApp
+} from "../harness/deferred-hydration.jsx";
 import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
 test("DeferredHydration renders children even when both client gates are closed", async () => {
@@ -40,12 +44,21 @@ test("DeferredHydration renders children even when both client gates are closed"
   expect(nestedModule.shell).toContain("outer content");
   expect(nestedModule.shell).not.toContain("inner pending");
   expect(nestedModule.chunks).toEqual([]);
+  const SequentialModuleApp = sequentialDeferredModuleApp({
+    ready: () => false,
+    nestedReady: () => false
+  });
+  const sequentialModule = await recordStream(() => <SequentialModuleApp />);
+  expect(sequentialModule.shell).toContain("dynamic nested");
+  expect(sequentialModule.shell).toContain('data-context="preserved context"');
+  expect(sequentialModule.chunks).toEqual([]);
   writeArtifact("deferred-hydration", {
     ...result,
     other,
     streamed,
     module,
     handledModule,
-    nestedModule
+    nestedModule,
+    sequentialModule
   });
 });
