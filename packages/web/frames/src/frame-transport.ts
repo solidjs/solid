@@ -624,6 +624,8 @@ export function createServerComponentHandler<C>(options: ServerComponentHandlerO
       args: unknown[];
       context: unknown;
       retry?(): Promise<unknown>;
+      /** Observe tier: when the request went out (`performance.now()`). */
+      startedAt?: number;
     }
   ): unknown;
   /**
@@ -911,7 +913,13 @@ export function createServerComponentHandler({ host, component, intercept }) {
       // not content a transaction could hold, and the re-ask that asked
       // for this response awaits its landing through the host, not a token.
       const entry = showing(address) ? stage(address, binding, version) : undefined;
-      if (!entry) begin(address, version);
+      // Observe tier: the `start` carries when the request went out (the
+      // server-function client's `ctx.startedAt`), the origin the address's
+      // landing promise is stamped with (see `FrameHost.landing`, #4140).
+      if (!entry)
+        IS_OBSERVE
+          ? host.apply({ type: "start", id: address, version, startedAt: ctx.startedAt })
+          : begin(address, version);
       const target = entry || host;
       // The root shares this call's version (`begin` already opened its
       // store on it). A nested region is its own frame: the element
