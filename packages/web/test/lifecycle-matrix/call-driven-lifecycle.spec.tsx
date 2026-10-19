@@ -14,6 +14,7 @@ import { dynamic } from "../../src/index.js";
 import { installServerComponents } from "../../frames/src/client.js";
 import { createServerReference } from "../../server-functions/src/client.js";
 import { makeHost, frameResponse, openFrameResponse, dataChunks, pump } from "./harness.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 // One reference per matrix row; ids are namespaced so nothing collides with
 // other suites' claimed-boundary bookkeeping.
@@ -159,7 +160,14 @@ describe("call-driven/second-response-same-version", () => {
     li.dataset.keep = "yes";
 
     // Same version (the transport stamped version 1), new root html.
-    host.apply({ type: "html", id: "matrix/lc/morph", version: 1, html: articleHtml("Two") });
+    host.apply(
+      encodeFrameChunk({
+        type: "html",
+        id: "matrix/lc/morph",
+        version: 1,
+        html: articleHtml("Two")
+      })
+    );
     await pump(1);
 
     expect(m.div.querySelector("h1")).toBe(h1);
@@ -206,7 +214,14 @@ describe("call-driven/second-response-newer-version", () => {
     // (frames-rulings 3.3): an error after its landing errors it, and the
     // enclosing <Errored> shows the record while the mount stays alive
     // behind the fallback; the version bump below must clear the record.
-    host.apply({ type: "error", id: "matrix/lc/refetch", version: 1, error: { message: "old" } });
+    host.apply(
+      encodeFrameChunk({
+        type: "error",
+        id: "matrix/lc/refetch",
+        version: 1,
+        error: { message: "old" }
+      })
+    );
     await pump(1);
     expect((host.get("matrix/lc/refetch") as any).error).toEqual({ message: "old" });
     expect(m.error()).toBe("old");

@@ -1609,8 +1609,13 @@ export function insert(parent, accessor, marker, initial, options) {
     initial = [placeholder];
   }
   let current = initial;
+  // Whether a compute of this insert has produced a value before. Not read
+  // off `prev`: a single-child hole's normalized value is `undefined` when it
+  // rendered nothing, which looked like a first run, so content arriving
+  // there later ran its inner effect inline — mid-compute, ahead of a hold.
+  let ran = false;
   effect(
-    prev => {
+    () => {
       if (hydrationRt !== null) current = hydrationRt.reclaimRegion(current, parent, marker);
       // Dev: bracket an unscoped accessor's evaluation while hydrating — a
       // scoped one owns its ids; this effect is transparent, so anything an
@@ -1621,15 +1626,17 @@ export function insert(parent, accessor, marker, initial, options) {
       const devNext = "_SOLID_DEV_" ? unscopedHoleSnapshot(accessor, parent) : undefined;
       const value = normalize(accessor(), current, multi, true);
       if ("_SOLID_DEV_") checkUnscopedHole(devNext, accessor, parent);
+      const again = ran;
+      ran = true;
       if (typeof value !== "function") return value;
       // The child-resolution pass must track every row's resolved child, so
       // its width is the list's, not a coarse read: dev marks it `_wide`
       // (exempt from WIDE_SCOPE_DEPS, never from HUGE_FAN_IN). Dev only, like
       // `_plumbing`: signals' observe artifact mangles `_` option names.
+      // After the first compute, the inner effect's first run is scheduled
+      // into the effect phase, where a held frame's runs wait for its commit.
       const innerOptions =
-        prev !== undefined && !(options && options.schedule)
-          ? { ...options, schedule: true }
-          : options;
+        again && !(options && options.schedule) ? { ...options, schedule: true } : options;
       effect(
         () => (
           hydrationRt !== null && (current = hydrationRt.reclaimRegion(current, parent, marker)),

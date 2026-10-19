@@ -940,6 +940,32 @@ describe("dynamic component tags", () => {
       { type: CLOSE_TAG_TOKEN }
     ]);
   });
+
+  it("should not treat an attribute named like a raw text element as the tag name", () => {
+    const Comp = "Comp";
+    const tokens = tokenizeTemplate`<${Comp} title="Home"><b>Hi</b></${Comp}>`;
+
+    expect(tokens).toEqual([
+      { type: OPEN_TAG_TOKEN },
+      { type: EXPRESSION_TOKEN, value: 0 },
+      { type: IDENTIFIER_TOKEN, value: "title" },
+      { type: EQUALS_TOKEN },
+      { type: STRING_TOKEN, value: "Home", quote: '"' },
+      { type: CLOSE_TAG_TOKEN },
+      { type: OPEN_TAG_TOKEN },
+      { type: IDENTIFIER_TOKEN, value: "b" },
+      { type: CLOSE_TAG_TOKEN },
+      { type: TEXT_TOKEN, value: "Hi" },
+      { type: OPEN_TAG_TOKEN },
+      { type: SLASH_TOKEN },
+      { type: IDENTIFIER_TOKEN, value: "b" },
+      { type: CLOSE_TAG_TOKEN },
+      { type: OPEN_TAG_TOKEN },
+      { type: SLASH_TOKEN },
+      { type: EXPRESSION_TOKEN, value: 1 },
+      { type: CLOSE_TAG_TOKEN }
+    ]);
+  });
 });
 
 describe("comments handling", () => {

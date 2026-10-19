@@ -52,6 +52,7 @@ import {
   slotRange,
   type Page
 } from "./support.js";
+import { encodeFrameChunk } from "../wire-fixture.js";
 
 /** The regions tier's load, gated by the test; `release()` installs the real module. */
 function gatedRegions() {
@@ -163,7 +164,9 @@ describe("the regions tier — document face", () => {
 
     // The region is a live frame now: a later chunk addressed to its wire
     // id morphs its interior in place.
-    page.host.apply({ type: "html", id: childId, version: 1, html: "<em>streamed body</em>" });
+    page.host.apply(
+      encodeFrameChunk({ type: "html", id: childId, version: 1, html: "<em>streamed body</em>" })
+    );
     await quiesce();
     expect(page.container.querySelector(`solid-frame[data-fid="${childId}"]`)).toBe(regionEl);
     expect(regionEl.textContent).toBe("streamed body");
@@ -336,14 +339,18 @@ describe("the regions tier — stream face, a mounted occurrence", () => {
     // live binding shows the first record's label, the region's html warms
     // its store, and the check started the load.
     const childId = `${fid}.panel#0.body`;
-    host.apply({
-      type: "slot",
-      id: fid,
-      version: 2,
-      key: "panel#0",
-      args: { label: "with region", body: { $frame: childId } }
-    });
-    host.apply({ type: "html", id: childId, version: 1, html: "<em>region body</em>" });
+    host.apply(
+      encodeFrameChunk({
+        type: "slot",
+        id: fid,
+        version: 2,
+        key: "panel#0",
+        args: { label: "with region", body: { $frame: childId } }
+      })
+    );
+    host.apply(
+      encodeFrameChunk({ type: "html", id: childId, version: 1, html: "<em>region body</em>" })
+    );
     await pump();
     expect(gate.loader).toHaveBeenCalledTimes(1);
     expect(resident()).toBe(false);

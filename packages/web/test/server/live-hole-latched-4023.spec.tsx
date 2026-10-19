@@ -17,6 +17,7 @@ import { describe, expect, test, vi } from "vitest";
 import { createMemo, For, OBSERVE } from "solid-js";
 import { Loading } from "@solidjs/web";
 import { renderServerComponent } from "../../frames/src/frame-sink.js";
+import { content, values } from "./wire.js";
 
 const tick = (ms = 5) => new Promise(r => setTimeout(r, ms));
 
@@ -126,7 +127,7 @@ describe("live holes whose re-evaluation creates reactive scopes (#4023)", () =>
     const capture = OBSERVE!.diagnostics.capture();
     try {
       const chunks = await run(rows.property);
-      expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+      expect(values(chunks, "hole:")).toEqual([
         "<li><!--$-->2<!--/--> <!--$--><!--/--></li>",
         "<li><!--$-->3<!--/--> <!--$--><b>done</b><!--/--></li>"
       ]);
@@ -140,7 +141,7 @@ describe("live holes whose re-evaluation creates reactive scopes (#4023)", () =>
     const capture = OBSERVE!.diagnostics.capture();
     try {
       const chunks = await run(rows.hoisted);
-      expect(chunks.filter(c => c.type === "hole").map(c => c.html)).toEqual([
+      expect(values(chunks, "hole:")).toEqual([
         "<li><!--$-->2<!--/--> <!--$--><!--/--></li>",
         "<li><!--$-->3<!--/--> <!--$--><b>done</b><!--/--></li>"
       ]);
@@ -153,7 +154,7 @@ describe("live holes whose re-evaluation creates reactive scopes (#4023)", () =>
   test("a nested <For> in a row stays live", async () => {
     const capture = OBSERVE!.diagnostics.capture();
     try {
-      const holes = (await run(rows.nestedFor)).filter(c => c.type === "hole").map(c => c.html);
+      const holes = values(await run(rows.nestedFor), "hole:");
       expect(holes).toHaveLength(2);
       expect(holes[0]).toContain("<i>p</i>");
       expect(holes[1]).toContain("<i>p</i><i>q</i>");
@@ -168,8 +169,8 @@ describe("live holes whose re-evaluation creates reactive scopes (#4023)", () =>
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const chunks = await run(rows.asyncInside);
-      expect(chunks.find(c => c.type === "fragment").html).toMatch(/<!--lh:\d+-->/);
-      expect(chunks.filter(c => c.type === "hole")).toHaveLength(0);
+      expect(content(chunks, ["seg"])[0]).toMatch(/<!--lh:\d+-->/);
+      expect(values(chunks, "hole:")).toHaveLength(0);
       const events = latchedEvents(capture);
       expect(events).toHaveLength(1);
       expect(events[0].kind).toBe("ssr");
