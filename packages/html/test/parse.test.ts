@@ -631,6 +631,29 @@ describe("Dynamic Component Tags", () => {
       ]
     });
   });
+
+  it("parses children of a dynamic component whose first attribute is named like a raw text element", () => {
+    const Comp = "Comp";
+    const ast = jsx`<${Comp} style=${{}}><span>content</span></${Comp}>`;
+    expect(ast).toEqual({
+      type: ROOT_NODE,
+      children: [
+        {
+          type: COMPONENT_NODE,
+          name: 0,
+          props: [{ name: "style", type: EXPRESSION_PROP, value: 1 }],
+          children: [
+            {
+              type: ELEMENT_NODE,
+              name: "span",
+              props: [],
+              children: [{ type: TEXT_NODE, value: "content" }]
+            }
+          ]
+        }
+      ]
+    });
+  });
 });
 
 describe("Edge Cases", () => {
