@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+A write to a store key that nothing reads no longer waits for an unrelated action that is holding a sibling key on the same record (#4146). Before this fix, if a transaction held the record's container (an action wrote `card.version` and was still pending), a later setter outside that action writing `card.text` put the new value into the held staging. Plain reads of `card.text` then showed the old value until the action finished. With a live render effect reading `card.text`, the same write showed up at the next flush, because the effect's leaf node gave the key its own staging. Node existence is now unobservable here too (R1, #3706: a hold covers individual keys). The setter creates the key's leaf before writing, from the committed and staged values, so the leaf starts out unstaged and held by no transaction. The write then stages on that leaf and becomes visible at the flush (A28). A leaf on a held container is kept alive until the hold lands, so disposing a reader cannot pull the key back into the hold. Keys the hold itself changed, added keys and array writes keep their current behaviour and join the hold (A34).
