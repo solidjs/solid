@@ -366,6 +366,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // and own nothing to park.
     if (isEffect === EFFECT_TRACKED || el._config & CONFIG_STAGED) disposeChildren(el);
     else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
+    // An error a pass staged (D-41) is replaced by this pass's answer: a
+    // value, a flight, or an error of its own (#4109, #4145).
+    if (el._config & CONFIG_STAGED_ERROR) {
+      el._pendingValue = NOT_PENDING;
+      el._config ^= CONFIG_STAGED_ERROR;
+    }
     if (__DEV__) clearSignals(el);
   }
 
