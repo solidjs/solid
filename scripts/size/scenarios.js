@@ -593,6 +593,7 @@ module.exports = [
     // 19,773 B; measured locally (linux) at 7,238 B (19,773 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 7.25 KB -> 7.27 KB, measured in CI at 7,257 B brotli / 19,827 B minified (+37 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
@@ -1416,8 +1417,9 @@ module.exports = [
     // 21,584 B; measured locally (linux) at 7,850 B (21,584 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "7.86 KB",
-    capMinified: 21584
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 7.86 KB -> 7.88 KB, measured in CI at 7,863 B brotli / 21,639 B minified (+38 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "7.88 KB",
+    capMinified: 21639
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -1665,6 +1667,7 @@ module.exports = [
     // 26,664 B; measured locally (linux) at 9,549 B (26,664 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 9.56 KB -> 9.59 KB, measured in CI at 9,576 B brotli / 26,715 B minified (+38 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -2052,6 +2055,7 @@ module.exports = [
     // 52,593 B; measured locally (linux) at 17,855 B (52,593 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 18.19 KB -> 18.24 KB, measured in CI at 18,226 B brotli / 53,291 B minified (+42 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -2596,8 +2600,9 @@ module.exports = [
     // store delete key-count fix (#4132, 2026-10-17): 30.09 -> 30.14 KB, measured at 30,129 B brotli / 94,616 B minified (+39 B brotli over the cap, +37 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
     // Merged over next @ 7093b074b after #4129 raised this same cap 30.09 -> 30.14 KB for its own bytes (2026-10-17): the two together measured locally at 30,116 B brotli / 94,644 B minified, under the cap, so the cap stays at 30.14 KB; recorded minified 94,611 -> 94,644.
     // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 2aa9e86a): 30.14 -> 30.20 KB, measured in CI at 30,185 B brotli / 94,763 B minified (+116 B minified over this PR's base): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "30.20 KB",
-    capMinified: 94763,
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 30.20 KB -> 30.23 KB, measured in CI at 30,217 B brotli / 94,834 B minified (+45 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "30.23 KB",
+    capMinified: 94834,
     alias
   },
   {
@@ -2881,8 +2886,9 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 12.87 -> 13.14 KB, measured at 13,122 B brotli / 36,900 B minified (+252 B brotli over the cap, +644 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "13.14 KB",
-    capMinified: 36900,
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 13.14 KB -> 13.19 KB, measured in CI at 13,173 B brotli / 36,948 B minified (+35 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "13.19 KB",
+    capMinified: 36948,
     alias
   },
   {
@@ -3219,8 +3225,9 @@ module.exports = [
     // import and the read wrapper. Prod unchanged. Cap at measured + 10 B
     // rounded up to 0.01 KB.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 14.60 -> 14.91 KB, measured at 14,892 B brotli / 41,859 B minified (+292 B brotli over the cap, +647 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "14.91 KB",
-    capMinified: 41859,
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 14.91 KB -> 14.95 KB, measured in CI at 14,939 B brotli / 41,908 B minified (+36 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "14.95 KB",
+    capMinified: 41908,
     alias: observeAlias
   },
   {
@@ -3794,8 +3801,9 @@ module.exports = [
     // 27,194 B; measured locally (linux) at 9,752 B (27,194 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "9.77 KB",
-    capMinified: 27194,
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 9.77 KB -> 9.79 KB, measured in CI at 9,775 B brotli / 27,247 B minified (+38 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "9.79 KB",
+    capMinified: 27247,
     alias
   },
   {
@@ -5464,8 +5472,9 @@ module.exports = [
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 36.05 KB -> 35.29 KB, measured locally (linux) at 35,271 B brotli / 108,230 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 35.29 KB -> 35.14 KB, measured locally (linux) at 35,125 B brotli / 107,510 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Re-recorded on next @ 7ad2342c (2026-10-19, accepted by the maintainer): recorded minified 107,510 -> 107,544 B, measured locally (linux) at 35,081 B brotli. #4154 recorded its sizes one commit before its final head, so next sat 34 B or more over the recorded minified and brotli noise failed unrelated PRs. Cap unchanged.
-    limit: "35.14 KB",
-    capMinified: 107544,
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 35.14 KB -> 35.16 KB, measured in CI at 35,148 B brotli / 107,588 B minified (+38 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "35.16 KB",
+    capMinified: 107588,
     alias: pageAlias
   },
   {
@@ -5588,8 +5597,9 @@ module.exports = [
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 42.13 KB -> 41.38 KB, measured locally (linux) at 41,365 B brotli / 123,281 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 41.38 KB -> 41.11 KB, measured locally (linux) at 41,098 B brotli / 122,561 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 32652bba): 41.11 KB -> 41.17 KB, measured in CI at 41,159 B brotli / 122,731 B minified (+136 B minified over next): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work (a lane-derived node, or an effect listed in the lane) instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "41.17 KB",
-    capMinified: 122731,
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 41.17 KB -> 41.23 KB, measured in CI at 41,215 B brotli / 122,766 B minified (+29 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "41.23 KB",
+    capMinified: 122766,
     alias: pageAlias
   },
   {
@@ -5952,8 +5962,9 @@ module.exports = [
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 47.69 KB -> 46.92 KB, measured locally (linux) at 46,908 B brotli / 140,570 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 46.92 KB -> 46.72 KB, measured locally (linux) at 46,701 B brotli / 139,850 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 32652bba): 46.72 KB -> 46.76 KB, measured in CI at 46,748 B brotli / 140,020 B minified (+136 B minified over next): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work (a lane-derived node, or an effect listed in the lane) instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "46.76 KB",
-    capMinified: 140020,
+    // Stale staged error cleared on re-run (#4109, 2026-10-19, over next @ fda29a4c): 46.76 KB -> 46.79 KB, measured in CI at 46,776 B brotli / 140,055 B minified (+29 B minified over next): a re-run pass drops an earlier pass's staged error before it computes, so a recompute that no longer throws does not publish the old one. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "46.79 KB",
+    capMinified: 140055,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
