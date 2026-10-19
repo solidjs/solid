@@ -10,6 +10,7 @@ import { expect, test } from "vitest";
 import { createMemo, For } from "solid-js";
 import { Loading } from "@solidjs/web";
 import { renderServerComponent } from "../../frames/src/frame-sink.js";
+import { content, records } from "./wire.js";
 
 const tick = (ms = 5) => new Promise(r => setTimeout(r, ms));
 
@@ -55,8 +56,7 @@ function channel<T>() {
 }
 
 type Row = { id: string; text: string };
-const holes = (chunks: any[]) =>
-  chunks.flatMap(c => (c.type === "ops" ? c.ops : c.type === "hole" ? [c] : []));
+const holes = (chunks: any[]) => records(chunks, "hole:").map(([, r]) => r);
 
 async function run(pushes: Row[][], live = true) {
   const ch = channel<Row[]>();
@@ -85,20 +85,17 @@ const rows = (...t: string[]) => t.map((text, i) => ({ id: String(i), text }));
 
 test("first render marks each row of a live For", async () => {
   const chunks = await run([rows("a", "b")]);
-  const html = chunks
-    .filter(c => c.type === "fragment" || c.type === "html")
-    .map(c => c.html)
-    .join("");
+  const html = content(chunks, ["", "seg"]).join("");
   expect(html).toContain("<ul><!--lh:0--><!--lr--><li>a</li><!--lr--><li>b</li><!--lh:/0--></ul>");
 });
 
 test("a sweep that changed one row sends that row by index", async () => {
   const chunks = await run([rows("a", "b", "c"), rows("a", "B", "c")]);
   const [op] = holes(chunks);
-  expect(op.html).toBeUndefined();
+  expect(op.value).toBeUndefined();
   expect(op.rows).toEqual({ n: 3, r: [[1, "<li>B</li>"]] });
   // The base is the digest the client's ledger took from the first render.
-  const first = chunks.find(c => c.holes && c.holes["lh:0"]);
+  const [, first] = records(chunks, "").find(([, r]) => r && r.holes && r.holes["lh:0"])!;
   expect(op.base).toBe(first.holes["lh:0"]);
 });
 
@@ -106,7 +103,12 @@ test("off a live response the hole goes whole", async () => {
   const chunks = await run([rows("a", "b", "c"), rows("a", "B", "c")], false);
   const [op] = holes(chunks);
   expect(op.rows).toBeUndefined();
-  expect(op.html).toBe("<!--lr--><li>a</li><!--lr--><li>B</li><!--lr--><li>c</li>");
+  expect(op.value).toBe("<!--lr--><li>a</li><!--lr--><li>B</li><!--lr--><li>c</li>");
+  // The client applies hole ops through its live wire tier, so the response
+  // announces it, no later than the first op.
+  const at = chunks.findIndex(c => c.tiers?.includes("wire"));
+  expect(at).toBeGreaterThanOrEqual(0);
+  expect(at).toBeLessThanOrEqual(chunks.findIndex(c => holes([c]).length));
 });
 
 test("appends and truncation ride the row count; the next op names its base", async () => {
@@ -121,5 +123,5 @@ test("a sweep that changed every row sends the whole hole", async () => {
   const chunks = await run([rows("a", "b"), rows("x", "y")]);
   const [op] = holes(chunks);
   expect(op.rows).toBeUndefined();
-  expect(op.html).toBe("<!--lr--><li>x</li><!--lr--><li>y</li>");
+  expect(op.value).toBe("<!--lr--><li>x</li><!--lr--><li>y</li>");
 });

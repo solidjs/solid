@@ -26,7 +26,8 @@ import {
   sourceOwners,
   ssrScope as scope,
   ssrSanitizeError,
-  reportServerError
+  reportServerError,
+  beginEdgesRender
 } from "solid-js/internal";
 import type { Owner } from "solid-js";
 import type { ServerErrorSite } from "solid-js/internal";
@@ -2309,6 +2310,31 @@ export function renderToStream(code, options = {}) {
   const canBatchStubs = !options.serializer && !options.sink;
   let stubBatch = null;
   const STUB_BATCH_KEY = "$B";
+  // Async mode (the thenable: the whole document resolves at once) has no
+  // reader before completion, so nothing is gained by handing seroval a
+  // value as it arrives — and handing it over in arrival order makes the
+  // bytes follow settle order: reference ids and resolution chunks are
+  // assigned as seroval meets values, so identical data with different
+  // latency produced different documents and a body-digest ETag missed
+  // revalidations (#4028). From the moment the thenable is taken (after the
+  // synchronous first pass, whose writes are already in render order), the
+  // document's writes park here and the stub batch stays parked too; both
+  // are handed over once, at the serializer flush, sorted by hydration key,
+  // by which point the drained registry has settled what they hold —
+  // seroval then meets every value, and every fulfillment, in key order.
+  let stableOrder = false;
+  let parkedWrites = null;
+  const byKey = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const write = (id, value) => {
+    if (stableOrder && !dead) (parkedWrites ||= []).push([id, value]);
+    else serializer.write(id, value);
+  };
+  const flushParkedWrites = () => {
+    if (!parkedWrites) return;
+    const writes = parkedWrites.sort(byKey);
+    parkedWrites = null;
+    for (let i = 0; i < writes.length; i++) serializer.write(writes[i][0], writes[i][1]);
+  };
   const flushStubBatch = () => {
     if (!stubBatch) return;
     const batch = stubBatch;
@@ -2319,7 +2345,9 @@ export function renderToStream(code, options = {}) {
       return;
     }
     const obj = {};
-    for (const [id, p] of batch) obj[id] = p;
+    const entries = [...batch];
+    if (stableOrder) entries.sort(byKey);
+    for (const [id, p] of entries) obj[id] = p;
     serializer.write(STUB_BATCH_KEY, obj);
     pushTask(
       `(b=>{for(var k in b)_$HY.r[k]=b[k];delete _$HY.r["${STUB_BATCH_KEY}"]})(_$HY.r["${STUB_BATCH_KEY}"])`
@@ -2527,6 +2555,7 @@ export function renderToStream(code, options = {}) {
           // so the stub batch must land first. The task output still rides
           // the shell snapshot — `tasks` accumulates until doShell reads it.
           flushStubBatch();
+          flushParkedWrites();
           serializer.flush();
         })
       ); // double queue because of elsewhere
@@ -2769,6 +2798,11 @@ export function renderToStream(code, options = {}) {
     // frame stream (`options.sink`). Read by the server runtime's dev check
     // on undeclared unbounded sources, which only a document render pays for.
     document: !options.sink,
+    // Dependency edges (deferred hydration): a render configured with the
+    // server-components codec names its plain signals and records which ones
+    // each slot fill reads (solid's server edges.ts). Every other render
+    // takes the plain paths.
+    edges: !!options.plugins && options.plugins.some(p => p.tag === "solid/server-component"),
     // The document face's live-hole carrier (Stage 4). Components render
     // under per-component context CLONES (spread copies), so a mutation on
     // the clone a server component armed under never reaches this root
@@ -2868,7 +2902,7 @@ export function renderToStream(code, options = {}) {
       if (p && typeof p === "object" && typeof p.then === "function") {
         if (!firstFlushed && deferStream) {
           blockingPromises.add(p);
-          p.then(d => serializer.write(id, d)).catch(e => serializer.write(id, e));
+          p.then(d => write(id, d)).catch(e => write(id, e));
           return;
         }
         // Every pending promise handed to seroval joins the abandonment
@@ -2885,7 +2919,7 @@ export function renderToStream(code, options = {}) {
           return;
         }
       }
-      serializer.write(id, p);
+      write(id, p);
     },
     escape: escape,
     resolve: resolveSSRNode,
@@ -2941,7 +2975,7 @@ export function renderToStream(code, options = {}) {
         });
         if (canBatchStubs && !shellCompleted && !dead)
           (stubBatch ||= new Map()).set(key + "_fr", p);
-        else serializer.write(key + "_fr", p);
+        else write(key + "_fr", p);
       }
       return (value, error, escaped) => {
         if (registry.has(key)) {
@@ -3080,44 +3114,55 @@ export function renderToStream(code, options = {}) {
   const onAbort = signal
     ? () => abandon("signal", !!(signal.reason && signal.reason.quiet === true))
     : undefined;
-  let html = root(
-    d => {
-      dispose = () => {
-        // The render is over: no later read finds its trace (see above).
-        context.trace = undefined;
-        if (onAbort) signal.removeEventListener("abort", onAbort);
-        d();
-      };
-      rootOwner = claimRenderRoot(context);
-      if (requestEvent) claimEventRender(requestEvent, context);
-      let res;
-      try {
-        res = resolveSSRNode(escape(code()));
-      } catch (err) {
-        // The first pass throws out of `renderToStream` to the caller: the
-        // hook hears it first, as for `renderToString`.
-        reportServerError(
-          err,
-          { kind: "render", handling: "failed" },
-          null,
-          options.onError,
-          errorScope
-        );
-        throw err;
-      }
-      if (!res.h.length) return res.t[0];
-      rootHoles = [];
-      let out = res.t[0];
-      for (let i = 0; i < res.h.length; i++) {
-        const id = nextHoleId++;
-        rootHoles.push({ id, fn: res.h[i] });
-        out += `<!--rh${id}-->` + res.t[i + 1];
-      }
-      for (const p of res.p) blockingPromises.add(p);
-      return out;
-    },
-    { id: renderId }
-  );
+  // Dependency edges: the server's signal-naming hooks are installed while
+  // an edges render is in flight; this one releases them at its final
+  // dispose, or here if the root pass throws.
+  const endEdges = context.edges ? beginEdgesRender() : undefined;
+  let html;
+  try {
+    html = root(
+      d => {
+        dispose = () => {
+          // The render is over: no later read finds its trace (see above).
+          context.trace = undefined;
+          if (onAbort) signal.removeEventListener("abort", onAbort);
+          if (endEdges) endEdges();
+          d();
+        };
+        rootOwner = claimRenderRoot(context);
+        if (requestEvent) claimEventRender(requestEvent, context);
+        let res;
+        try {
+          res = resolveSSRNode(escape(code()));
+        } catch (err) {
+          // The first pass throws out of `renderToStream` to the caller: the
+          // hook hears it first, as for `renderToString`.
+          reportServerError(
+            err,
+            { kind: "render", handling: "failed" },
+            null,
+            options.onError,
+            errorScope
+          );
+          throw err;
+        }
+        if (!res.h.length) return res.t[0];
+        rootHoles = [];
+        let out = res.t[0];
+        for (let i = 0; i < res.h.length; i++) {
+          const id = nextHoleId++;
+          rootHoles.push({ id, fn: res.h[i] });
+          out += `<!--rh${id}-->` + res.t[i + 1];
+        }
+        for (const p of res.p) blockingPromises.add(p);
+        return out;
+      },
+      { id: renderId }
+    );
+  } catch (err) {
+    if (endEdges) endEdges();
+    throw err;
+  }
   if (onAbort) {
     // A request already gone when the render starts has nobody to render
     // for: tear down now, after the root pass so the finding counts what it
@@ -3260,6 +3305,14 @@ export function renderToStream(code, options = {}) {
   let lastBlockingSize = -1;
   let lastRegistrySize = -1;
   let drainTurn = 0;
+  // One task of grace once the microtask drain settles, while fragments are
+  // pending: a read whose retry chain outruns the drain turns (a server
+  // function over an in-memory catalog, a cache answering on `setImmediate`,
+  // I/O that already completed) still renders inline instead of shipping its
+  // fallback, a template and a reveal that shifts the page. 1.x waited a task
+  // before every shell flush. A render with nothing pending pays nothing;
+  // genuinely pending I/O pays one task of TTFB.
+  let graced = false;
   const scheduleFlush = (fn, awaited) => {
     const attempt = () => {
       // Flush batched stubs at the TOP of the drain, not at doShell: a
@@ -3269,11 +3322,18 @@ export function renderToStream(code, options = {}) {
       // drain-turn runway they had when writes happened at registration
       // time, so a settled-before-shell record is visibly settled IN the
       // shell (client boundaries branch on `.s === 1` at hydrate time).
-      flushStubBatch();
+      if (!stableOrder) flushStubBatch();
       if (registry.size !== lastRegistrySize || drainTurn++ < MIN_DRAIN_TURNS) {
         if (registry.size !== lastRegistrySize) drainTurn = 0;
         lastRegistrySize = registry.size;
         queue(attempt);
+        return;
+      }
+      if (!graced && registry.size) {
+        graced = true;
+        lastRegistrySize = -1;
+        drainTurn = 0;
+        deferFlush(attempt);
         return;
       }
       fn();
@@ -3282,6 +3342,7 @@ export function renderToStream(code, options = {}) {
     lastBlockingSize = awaited;
     lastRegistrySize = -1;
     drainTurn = 0;
+    graced = false;
     progressed ? queue(attempt) : setTimeout(attempt);
   };
   let cachedReadable;
@@ -3403,6 +3464,9 @@ export function renderToStream(code, options = {}) {
     // still open then. Consumers see an already-committed stub, which
     // `createSSRResponse`/`commitEventResponse` pass through idempotently.
     then(onFulfilled, onRejected) {
+      // Document mode only: a custom serializer/sink addresses records by
+      // key and keeps its own delivery order.
+      if (canBatchStubs) stableOrder = true;
       const freezeHead = () => {
         if (requestEvent && requestEvent.response)
           commitResponseStub(requestEvent.response, { event: requestEvent });

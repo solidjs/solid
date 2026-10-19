@@ -90,7 +90,7 @@ const [todos, { addTodo }] = useContext(TodosContext);
 
 The default form `createContext<T>(defaultValue)` is unchanged: `useContext` falls back to `defaultValue` outside any Provider. Reserved for primitive fallbacks (theme, locale, frozen config). For any context carrying reactive state, prefer the default-less form.
 
-> If you want truly app-wide state, **don't use Context** — a module-scope signal/store _is_ a global. Context is for scoping state to a subtree, which is why a Provider is mandatory in the default-less form.
+> Context is for state that belongs to a subtree, which includes app-wide state in an app that renders on the server: a value created inside a component is created once per request, and the Provider owns and disposes it. **Module scope is shared by every request in the same process, so reserve it for constants** (and the `createContext` call itself). That's why a Provider is mandatory in the default-less form.
 
 **Migration:** drop `useX`-with-throw wrappers and call `useContext` directly. If you actively relied on `useContext(ctx)` returning `undefined` for a default-less context, either pass an explicit default to `createContext` or wrap the call in a try/catch.
 

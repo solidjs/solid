@@ -14,6 +14,7 @@ import { createMemo } from "solid-js";
 import { Loading } from "@solidjs/web";
 import { asyncArg } from "../../frames/src/server.js";
 import { renderServerComponent } from "../../frames/src/frame-sink.js";
+import { content, has, records } from "./wire.js";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -108,18 +109,15 @@ describe("the chat demo shape (multi-part live holes + value-tier slot args)", (
     // Every paragraph's final markdown shipped — via its fragment splice or
     // a hole re-emission — and the response completed (the iterable holds
     // released at end of generation).
-    const all = chunks
-      .filter(c => c.type === "html" || c.type === "fragment" || c.type === "hole")
-      .map(c => c.html)
-      .join("\n");
+    const all = content(chunks).join("\n");
     expect(all).toContain("alpha beta gamma");
     expect(all).toContain("delta epsilon");
     expect(all).toContain("zeta eta theta");
-    expect(chunks[chunks.length - 1].type).toBe("complete");
+    expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
 
     // Growth stayed bounded: intermediate yields re-emit over the SAME hole
     // keys (morphs), not as ever-new bindings or fragments.
-    const holeKeys = new Set(chunks.filter(c => c.type === "hole").map(c => c.key));
+    const holeKeys = new Set(records(chunks, "hole:").map(([key]) => key));
     expect(holeKeys.size).toBeLessThanOrEqual(3);
 
     // The value-tier progress iterable rode the data channel to completion.

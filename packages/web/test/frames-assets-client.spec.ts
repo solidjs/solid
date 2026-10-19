@@ -30,6 +30,7 @@ import {
   prepareTier,
   tierLoaders
 } from "../frames/src/frame-client.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 beforeAll(async () => {
   // The frames client entry (client.ts) wires this loader in production;
@@ -237,7 +238,7 @@ describe("the stylesheet gate (ensureStylesheet)", () => {
     const { boundary } = mount();
     const frame = createFrame(boundary, { id: "wfs", host });
     const chunk = (c: Record<string, unknown>) =>
-      host.apply({ id: "wfs", version: 1, ...c } as any);
+      host.apply(encodeFrameChunk({ id: "wfs", version: 1, ...c } as any));
     chunk({ type: "html", html: shell("a") + shell("b") });
     chunk({ type: "assets", key: "a", styles: ["/a.css"] });
     chunk({ type: "fragment", key: "a", html: "<p>a</p>" });

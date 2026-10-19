@@ -16,6 +16,7 @@ import { installServerComponents, createFrameHost } from "../frames/src/client.j
 import { createJSONDataTable, createJSONSerializer } from "../serialization/src/serializer.js";
 import { createServerReference } from "../server-functions/src/client.js";
 import { createChunk } from "../server-functions/src/shared.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 const settle = () => new Promise(r => setTimeout(r));
 const getReply = createServerReference("reply/get");
@@ -64,7 +65,8 @@ async function streamReply(fill: (p: any) => any) {
 
   let controller!: ReadableStreamDefaultController;
   const body = new ReadableStream({ start: c => (controller = c) });
-  const send = (chunk: any) => controller.enqueue(createChunk(JSON.stringify(chunk)));
+  const send = (chunk: any) =>
+    controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
   const record = (progress: string) => ({
     type: "slot",
     id: "srv",
