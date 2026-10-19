@@ -349,9 +349,15 @@ at the top of the callback freezes at the initial value (dev warns
 
 ## Context, components, lazy
 
-Context is for state scoped to a subtree of the component tree. **If you
-want truly app-wide state, don't use Context — a module-scope signal/store
-_is_ a global.** That's why the default-less form requires a Provider.
+Context is for state that belongs to a subtree, which includes app-wide
+state in an app that renders on the server: a value created inside a
+component is created once per request, and the Provider owns and disposes
+it. **Module scope is shared by every request in the same process, so
+reserve it for constants** (and the `createContext` call itself). A
+client-only app can get away with a module-scope store, but it becomes
+shared server state the day SSR is turned on, so creating state in a
+Provider is the portable choice. That's why the default-less form requires
+a Provider.
 
 ```tsx
 // Default-less — the canonical form. No Provider → ContextNotFoundError.
