@@ -308,6 +308,54 @@ describe("promise-of-AsyncIterable flattening (deferred posture)", () => {
 });
 
 describe("promise-of-AsyncIterable flattening (live posture: sync thenable)", () => {
+  it.each([false, true])(
+    "settles undefined for a synchronously empty stream (loadingValue: %s)",
+    loadingValue => {
+      const iterable: AsyncIterable<number> = {
+        [Symbol.asyncIterator]: () => ({
+          next: () =>
+            syncThenable({ done: true as const, value: 99 }) as Promise<IteratorResult<number>>
+        })
+      };
+      createRoot(dispose => {
+        const memo = createMemo(
+          () => syncThenable(iterable) as unknown as number | undefined,
+          loadingValue ? { loadingValue: 42 } : {}
+        );
+        try {
+          expect(memo()).toBeUndefined();
+          expect(isPending(memo)).toBe(false);
+        } finally {
+          dispose();
+        }
+      });
+    }
+  );
+
+  it("keeps the last synchronous yield when the flattened stream completes", () => {
+    const iterable: AsyncIterable<number> = {
+      [Symbol.asyncIterator]: () => {
+        const steps: IteratorResult<number>[] = [
+          { done: false, value: 1 },
+          { done: false, value: 7 },
+          { done: true, value: 99 }
+        ];
+        return {
+          next: () => syncThenable(steps.shift()!) as Promise<IteratorResult<number>>
+        };
+      }
+    };
+    createRoot(dispose => {
+      const memo = createMemo(() => syncThenable(iterable) as unknown as number);
+      try {
+        expect(memo()).toBe(7);
+        expect(isPending(memo)).toBe(false);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
   it("a sync-resolved thenable holding a sync-yielding iterable serves the read synchronously", () => {
     const iterable: AsyncIterable<number> = {
       [Symbol.asyncIterator]: () => {
