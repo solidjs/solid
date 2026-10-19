@@ -21,7 +21,8 @@
  * `cancel` / `done`, the open-frame count the end is judged by, the sweep
  * the loop may run), the have-list ledger per mount (`have` keeps it off
  * the frame's applied content records, `haveOf` reads it) and the resume
- * request (`resume` + `encodeHaveList`), and the live content appliers:
+ * request (`resume` + `encodeHaveList`), the range morph (`morph` for a
+ * frame's new root over its content, `graft`), and the live content appliers:
  * `hole` morphs a live hole's marked range (row ops included) and `attrs`
  * patches an addressed element, both found through the mount's target
  * cache. A hole or attr record that lands while this chunk loads stays
@@ -71,9 +72,8 @@ import {
   isEventStream
 } from "../../server-functions/src/shared.js";
 
-// Pure DOM helpers, bundled into this chunk as their own copy (no module
-// state; the range morph itself is the eager client's, handed in on the
-// mount, as the root morph shares it).
+// Pure DOM helpers and marker constants, bundled into this chunk as their
+// own copy (no module state).
 import {
   isFrameElement,
   parseFragment,
@@ -81,14 +81,15 @@ import {
   rangeClose,
   FRAME_ID_ATTR
 } from "./frame-client.js";
+// The range morph (frame-morph.ts), bundled into this chunk.
+import { reconcileChildren } from "./frame-morph.js";
 
 import type { FrameHost, FrameHostOptions } from "./frame-client.js";
 
 /**
  * A frame's mount as the live appliers reach it (the frame's `#live`):
  * `e` its element, `t` its live-target cache, `c` its claim, `k` its slot
- * index builder, `m` the range morph (`reconcileChildren`), `s` what each
- * hole's range shows, `x` the give-up for a row-op record (mark it spent,
+ * index builder, `s` what each hole's range shows, `x` the give-up for a row-op record (mark it spent,
  * cancel the connection so the resume re-sends the hole whole); `w`, in
  * dev builds only, the diagnostic for a hole whose closing comment is gone
  * (this chunk is built once for every condition, so the gate is the eager
@@ -99,15 +100,6 @@ interface LiveMount {
   t: Map<string, Node>;
   c: unknown;
   k(found: Map<string, any>): void;
-  m(
-    parent: Node,
-    fragment: DocumentFragment,
-    start: Node | null,
-    end: Node | null,
-    claim: unknown,
-    ranges?: Map<string, any> | null,
-    grafts?: Node[]
-  ): void;
   s(): Record<string, string>;
   x(key: string, record: unknown): void;
   w?: false | ((marker: string, open: Node) => void);
@@ -483,7 +475,7 @@ export function hole(
     if (
       f.s()[marker] !== record.base ||
       !rows(open, close, record.rows, parseFragment, (start, end, fragment) =>
-        f.m(start.parentNode!, fragment, start, end, f.c)
+        reconcileChildren(start.parentNode!, fragment, start, end, f.c)
       )
     ) {
       // Once: the record is spent, the resume re-sends the hole whole.
@@ -494,7 +486,7 @@ export function hole(
     // One index for the pass: a range one hole drops may be the one
     // another hole now places. A frame with no slot range needs none.
     if (!index.r) (f.k((index.r = new Map())), (index.g = []));
-    f.m(
+    reconcileChildren(
       open.parentNode!,
       parseFragment(record.value),
       open,
@@ -583,3 +575,5 @@ function findTarget(n: Node | null, test: (n: Node) => boolean): Node | null {
   }
   return null;
 }
+
+export { graft, morph } from "./frame-morph.js";

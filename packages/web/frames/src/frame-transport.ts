@@ -32,7 +32,7 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 // experimental preview, excluded from the 2.0 stability guarantee: API
 // shapes and the wire format may change between prereleases (RFC 11).
 // Every export in this module is @experimental.
-import { FrameChunk, FrameHost, prepareTier, tierLoads } from "./frame-client.js";
+import { FrameChunk, FrameHost, prepareMorph, prepareTier, tierLoads } from "./frame-client.js";
 
 import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
 
@@ -827,7 +827,9 @@ export function createServerComponentHandler({ host, component, intercept }) {
         // A DEFERRED answer (the boundary is still arriving) resolves the
         // binding when it lands, or `undefined` — a miss after all — when
         // the page has nothing left to deliver it; the caller fetches then.
-        if (hit === undefined) return undefined;
+        // A miss goes to the wire: start the morph's tier with the request
+        // (see `prepareMorph`).
+        if (hit === undefined) return void prepareMorph();
         const address = frameAddress(info.id, info.args);
         // The document's answer is a call too (see `calls`): a later
         // `reset` of the adopted frame re-asks it over the wire.

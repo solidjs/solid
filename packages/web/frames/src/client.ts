@@ -124,7 +124,10 @@ tierLoaders.assets = () => import("@solidjs/web/frames/assets");
 // the body is read, so a live connection without the tier cannot happen.
 // The server announces `wire` too (`X-Frame-Tiers` on a live response,
 // `sc:tiers` on a document carrying a live source). The module's exports
-// are the dispatch (`connect`, `cancel`, `resume`, `have`); no install.
+// are the dispatch (`connect`, `cancel`, `resume`, `have`, the live
+// appliers and the range morph); no install. The morph makes the tier load
+// on the first refetch or navigation too: a frame starts it at the new
+// version's header and its root waits for it.
 tierLoaders.wire = () => import("@solidjs/web/frames/wire");
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
