@@ -21,6 +21,7 @@ import {
   setServerFunctionsDev
 } from "../../server-functions/src/server.js";
 import { ChunkReader, EventStreamReader } from "../../server-functions/src/shared.js";
+import { writes } from "./wire.js";
 
 const tick = (ms = 0) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -113,8 +114,8 @@ describe("a frame stream at the live address (Stage 8 B2)", () => {
     expect(liveText).toMatch(/^data: \{/);
     expect(liveText).not.toMatch(/;0x[0-9a-f]{8};/);
     const liveChunks = await chunksOf(live);
-    expect(liveChunks.map(c => c.type)).toEqual(["start", "html", "complete"]);
-    expect(liveChunks[1].html).toContain("hello");
+    expect(liveChunks.map(writes)).toEqual(["start", "", ":complete"]);
+    expect(liveChunks[1].r[""].value).toContain("hello");
 
     const data = await handle(post("data", "live-frame-0"));
     expect(data.headers.get("X-Frame-Stream")).toBe("live-frame-0");
@@ -126,8 +127,8 @@ describe("a frame stream at the live address (Stage 8 B2)", () => {
     expect(dataText).not.toContain("data: ");
     // Same records either way.
     const dataChunks = await chunksOf(data);
-    expect(dataChunks.map(c => c.type)).toEqual(liveChunks.map(c => c.type));
-    expect(dataChunks[1].html).toBe(liveChunks[1].html);
+    expect(dataChunks.map(writes)).toEqual(liveChunks.map(writes));
+    expect(dataChunks[1].r[""].value).toBe(liveChunks[1].r[""].value);
   });
 
   it("a standing component's response stays open without a complete, and writes the heartbeat while idle", async () => {
@@ -186,8 +187,8 @@ describe("a frame stream at the live address (Stage 8 B2)", () => {
       return () => <h1>{title()}</h1>;
     });
     const first = await chunksOf(await handle(post("live", "live-frame-resume")));
-    expect(first.map(c => c.type)).toEqual(["start", "html", "complete"]);
-    const root = first[1];
+    expect(first.map(writes)).toEqual(["start", "", ":complete"]);
+    const root = first[1].r[""];
     expect(root.digest).toMatch(/^[0-9a-f]{16}$/);
     expect(root.holes).toEqual({ "lh:0": expect.stringMatching(/^[0-9a-f]{16}$/) });
     // The client's ledger after that stream, as the loop sends it back.
@@ -205,7 +206,7 @@ describe("a frame stream at the live address (Stage 8 B2)", () => {
         })
       )
     );
-    expect(resumed.map(c => c.type)).toEqual(["start", "complete"]);
+    expect(resumed.map(writes)).toEqual(["start", ":complete"]);
     // The header is a live-address contract: a plain read renders whole.
     const data = await chunksOf(
       await handle(
@@ -219,7 +220,7 @@ describe("a frame stream at the live address (Stage 8 B2)", () => {
         })
       )
     );
-    expect(data.map(c => c.type)).toEqual(["start", "html", "complete"]);
+    expect(data.map(writes)).toEqual(["start", "", ":complete"]);
   });
 
   it("the knob is inert outside the dev build", async () => {
@@ -227,6 +228,6 @@ describe("a frame stream at the live address (Stage 8 B2)", () => {
     registerServerFunction("live-frame-no-chaos", async () => () => <p>steady</p>);
     const response = await handle(post("live", "live-frame-no-chaos"));
     const chunks = await chunksOf(response);
-    expect(chunks.map(c => c.type)).toEqual(["start", "html", "complete"]);
+    expect(chunks.map(writes)).toEqual(["start", "", ":complete"]);
   });
 });

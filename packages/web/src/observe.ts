@@ -579,12 +579,41 @@ export function isDeferredBody(value: unknown): boolean {
 }
 
 /**
- * The census one frame stream's chunks add up to, kept by either half: one
- * chunk of `type`, addressed to the stream's own frame (`own`) or to a
- * nested region's.
+ * The census of one wire message (frame-sink.ts), kept by either half so
+ * both add up to the same numbers: a message counts once, and each record
+ * by what it writes — the root's content (`""`) a shell (or, addressed to
+ * a nested region, a region), `seg:<k>` content a fragment, `slot:<k>` a
+ * slot, any `:error` record an error. The end of the response (`:complete`,
+ * `:bound`) is not counted: a message writing only that is none.
  */
-export function frameCensus(event: FrameEventBase, type: string, own: boolean): void {
-  event.chunks++;
+export function frameRecordCensus(
+  event: FrameEventBase,
+  message: { type?: string; r?: Record<string, any> },
+  own: boolean
+): void {
+  const r = message.r;
+  let counted = !r;
+  for (const key in r) {
+    if (key === ":complete" || key === ":bound") continue;
+    counted = true;
+    countEvent(
+      event,
+      key === ""
+        ? "html"
+        : key.endsWith(":error")
+          ? "error"
+          : key.startsWith("slot:")
+            ? "slot"
+            : key.startsWith("seg:") && r[key] && r[key].kind === "html"
+              ? "fragment"
+              : key,
+      own
+    );
+  }
+  if (counted) event.chunks++;
+}
+
+function countEvent(event: FrameEventBase, type: string, own: boolean): void {
   switch (type) {
     case "html":
       if (!own) event.regions++;
@@ -808,10 +837,13 @@ function cancelBody(response: Response): void {
 /** What the client's stream reader hands a frame observation. */
 export interface FrameApplyObservation {
   /**
-   * Every chunk read, after the consumer's remapping (`as`, `version`) —
-   * `wireId` is the id the chunk carried before it.
+   * Every message read, after the consumer's remapping (`as`, `version`) —
+   * `wireId` is the id the message carried before it.
    */
-  chunk(chunk: { type: string; id: string; version: number }, wireId: string): void;
+  chunk(
+    chunk: { type?: string; id: string; version: number; r?: Record<string, unknown> },
+    wireId: string
+  ): void;
   /**
    * The apply ended — cleanly, or with the failure it threw (a read that
    * failed, a chunk that would not parse, a host that rejected a chunk).
@@ -868,11 +900,8 @@ export function observeFrameApply(response: Response): FrameApplyObservation | u
         return;
       }
       if (current === undefined) return;
-      if (chunk.type === "complete") {
-        if (chunk.id === current.applied) close("complete");
-        return;
-      }
-      frameCensus(current.event, chunk.type, chunk.id === current.applied);
+      frameRecordCensus(current.event, chunk, chunk.id === current.applied);
+      if (chunk.r && ":complete" in chunk.r && chunk.id === current.applied) close("complete");
     },
     end(error) {
       if (current !== undefined) close(error !== undefined ? "error" : "truncated", error);

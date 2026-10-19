@@ -52,6 +52,7 @@ import {
   openFrameResponse,
   pump
 } from "./lifecycle-matrix/harness.js";
+import { encodeFrameChunk } from "./wire-fixture.js";
 
 const TODOS = "hold/todos";
 const listHtml = "<ul><!--slot:row#0:start--><!--slot:row#0:end--></ul>";
@@ -84,7 +85,7 @@ function openFlightResponse() {
       }
     }),
     send(chunk: any) {
-      controller.enqueue(createChunk(JSON.stringify(chunk)));
+      controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
     },
     async outcome(envelope: unknown) {
       const reader = new ChunkReader(serializeStream(envelope, flightCodec(undefined)));

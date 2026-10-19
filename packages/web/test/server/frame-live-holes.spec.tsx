@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { createMemo } from "solid-js";
 import { Loading } from "@solidjs/web";
 import { renderServerComponent } from "../../frames/src/frame-sink.js";
+import { content, has, values, writesSegment } from "./wire.js";
 
 const tick = (ms = 5) => new Promise(r => setTimeout(r, ms));
 
@@ -92,22 +93,21 @@ describe("live markup holes over async-iterable memos (the chat shape)", () => {
     ch.push("<b>one</b>");
     // The first yield settles the boundary: wait for the fragment so the
     // second push is genuinely mid-response.
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     ch.push("<b>one two</b>");
-    await until(c => c.type === "hole" && c.html === "<b>one two</b>");
+    await until(c => values([c], "hole:").includes("<b>one two</b>"));
     ch.end();
     await done;
 
     // The reply revealed with the first yield's markup, marker-wrapped...
-    const fragment = chunks.find(c => c.type === "fragment");
-    expect(fragment.html).toMatch(/<!--lh:(\d+)--><b>one<\/b><!--lh:\/\1-->/);
+    const [fragment] = content(chunks, ["seg"]);
+    expect(fragment).toMatch(/<!--lh:(\d+)--><b>one<\/b><!--lh:\/\1-->/);
     // ...the second yield re-emitted the hole (exactly once — the first
     // yield's value shipped in the fragment splice, so the baseline gate
     // suppressed its redundant re-emission)...
-    const holes = chunks.filter(c => c.type === "hole");
-    expect(holes.map(h => h.html)).toEqual(["<b>one two</b>"]);
+    expect(values(chunks, "hole:")).toEqual(["<b>one two</b>"]);
     // ...and the response stayed open for the trace and completed when the
     // iterable ended (the ctx.hold release).
-    expect(chunks[chunks.length - 1].type).toBe("complete");
+    expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
   }, 8000);
 });
