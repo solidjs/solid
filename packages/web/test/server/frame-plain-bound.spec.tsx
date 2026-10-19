@@ -275,7 +275,9 @@ describe("the plain-response streaming bound", () => {
         }
       )
     );
-    await vi.advanceTimersByTimeAsync(1);
+    // Past the shell, so the first value streams as a fragment (a value
+    // ready inside the shell's grace task would render inline).
+    await until(c => c.type === "html");
     ch.push("v0");
     await until(c => c.type === "fragment");
     for (let i = 1; i <= 5; i++) {
