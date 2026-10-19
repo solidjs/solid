@@ -593,6 +593,7 @@ module.exports = [
     // 19,773 B; measured locally (linux) at 7,238 B (19,773 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
+    // Every comparator call guarded, default comparators on a fast path (#4111, 2026-10-19, over next @ fda29a4c): 7.25 KB -> 7.28 KB, measured in CI at 7,261 B brotli / 19,818 B minified (+28 B minified over next): `isSame` is the one guarded comparator call (a NotReady read is a change, any other throw goes to the node's boundary, A3), with `isEqual` comparing on a fast path so the propagation benches keep next's speed. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     capMinified: floorMinified["signals: core floor (createSignal/Memo/Effect/Root/flush)"],
     alias
@@ -1081,8 +1082,9 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // store delete key-count fix (#4132, 2026-10-17): 14.79 -> 14.82 KB, measured at 14,802 B brotli / 44,865 B minified (+12 B brotli over the cap, +33 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
-    limit: "14.82 KB",
-    capMinified: 44865,
+    // Every comparator call guarded, default comparators on a fast path (#4111, 2026-10-19, over next @ fda29a4c): 14.82 KB -> 14.84 KB, measured in CI at 14,828 B brotli / 44,908 B minified (+26 B minified over next): `isSame` is the one guarded comparator call (a NotReady read is a change, any other throw goes to the node's boundary, A3), with `isEqual` comparing on a fast path so the propagation benches keep next's speed. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "14.84 KB",
+    capMinified: 44908,
     alias
   },
   {
@@ -1416,8 +1418,9 @@ module.exports = [
     // 21,584 B; measured locally (linux) at 7,850 B (21,584 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "7.86 KB",
-    capMinified: 21584
+    // Every comparator call guarded, default comparators on a fast path (#4111, 2026-10-19, over next @ fda29a4c): 7.86 KB -> 7.88 KB, measured in CI at 7,869 B brotli / 21,629 B minified (+28 B minified over next): `isSame` is the one guarded comparator call (a NotReady read is a change, any other throw goes to the node's boundary, A3), with `isEqual` comparing on a fast path so the propagation benches keep next's speed. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "7.88 KB",
+    capMinified: 21629
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -1665,6 +1668,7 @@ module.exports = [
     // 26,664 B; measured locally (linux) at 9,549 B (26,664 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
+    // Every comparator call guarded, default comparators on a fast path (#4111, 2026-10-19, over next @ fda29a4c): 9.56 KB -> 9.60 KB, measured in CI at 9,584 B brotli / 26,705 B minified (+28 B minified over next): `isSame` is the one guarded comparator call (a NotReady read is a change, any other throw goes to the node's boundary, A3), with `isEqual` comparing on a fast path so the propagation benches keep next's speed. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -2881,8 +2885,9 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 12.87 -> 13.14 KB, measured at 13,122 B brotli / 36,900 B minified (+252 B brotli over the cap, +644 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "13.14 KB",
-    capMinified: 36900,
+    // Every comparator call guarded, default comparators on a fast path (#4111, 2026-10-19, over next @ fda29a4c): 13.14 KB -> 13.16 KB, measured in CI at 13,143 B brotli / 36,941 B minified (+28 B minified over next): `isSame` is the one guarded comparator call (a NotReady read is a change, any other throw goes to the node's boundary, A3), with `isEqual` comparing on a fast path so the propagation benches keep next's speed. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "13.16 KB",
+    capMinified: 36941,
     alias
   },
   {
@@ -3219,8 +3224,9 @@ module.exports = [
     // import and the read wrapper. Prod unchanged. Cap at measured + 10 B
     // rounded up to 0.01 KB.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 14.60 -> 14.91 KB, measured at 14,892 B brotli / 41,859 B minified (+292 B brotli over the cap, +647 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "14.91 KB",
-    capMinified: 41859,
+    // Every comparator call guarded, default comparators on a fast path (#4111, 2026-10-19, over next @ fda29a4c): 14.91 KB -> 14.94 KB, measured in CI at 14,923 B brotli / 41,899 B minified (+27 B minified over next): `isSame` is the one guarded comparator call (a NotReady read is a change, any other throw goes to the node's boundary, A3), with `isEqual` comparing on a fast path so the propagation benches keep next's speed. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "14.94 KB",
+    capMinified: 41899,
     alias: observeAlias
   },
   {
@@ -5588,8 +5594,9 @@ module.exports = [
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 42.13 KB -> 41.38 KB, measured locally (linux) at 41,365 B brotli / 123,281 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 41.38 KB -> 41.11 KB, measured locally (linux) at 41,098 B brotli / 122,561 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 32652bba): 41.11 KB -> 41.17 KB, measured in CI at 41,159 B brotli / 122,731 B minified (+136 B minified over next): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work (a lane-derived node, or an effect listed in the lane) instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "41.17 KB",
-    capMinified: 122731,
+    // Every comparator call guarded, default comparators on a fast path (#4111, 2026-10-19, over next @ fda29a4c): 41.17 KB -> 41.22 KB, measured in CI at 41,201 B brotli / 122,758 B minified (+21 B minified over next): `isSame` is the one guarded comparator call (a NotReady read is a change, any other throw goes to the node's boundary, A3), with `isEqual` comparing on a fast path so the propagation benches keep next's speed. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "41.22 KB",
+    capMinified: 122758,
     alias: pageAlias
   },
   {
@@ -5952,8 +5959,9 @@ module.exports = [
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 47.69 KB -> 46.92 KB, measured locally (linux) at 46,908 B brotli / 140,570 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 46.92 KB -> 46.72 KB, measured locally (linux) at 46,701 B brotli / 139,850 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 32652bba): 46.72 KB -> 46.76 KB, measured in CI at 46,748 B brotli / 140,020 B minified (+136 B minified over next): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work (a lane-derived node, or an effect listed in the lane) instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "46.76 KB",
-    capMinified: 140020,
+    // Every comparator call guarded, default comparators on a fast path (#4111, 2026-10-19, over next @ fda29a4c): 46.76 KB -> 46.86 KB, measured in CI at 46,846 B brotli / 140,053 B minified (+27 B minified over next): `isSame` is the one guarded comparator call (a NotReady read is a change, any other throw goes to the node's boundary, A3), with `isEqual` comparing on a fast path so the propagation benches keep next's speed. Correctness; Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "46.86 KB",
+    capMinified: 140053,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
