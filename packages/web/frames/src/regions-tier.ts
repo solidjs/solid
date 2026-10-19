@@ -61,10 +61,17 @@
 // `createFrame` is how the tier binds a frame over a region element: the
 // runtime's own class, registered with the parent's host.
 import { createFrame } from "./client.js";
+import { getOwner, onCleanup, runWithOwner } from "solid-js";
 // Pure DOM helpers, bundled into this chunk as their own copy (no module
 // state, no instance to keep in agreement — frame-client is importless by
 // design).
-import { eachInRange, isFrameElement, makeFrameElement, FRAME_ID_ATTR } from "./frame-client.js";
+import {
+  eachInRange,
+  isFrameElement,
+  makeFrameElement,
+  FRAME_ID_ATTR,
+  FRAME_TAG
+} from "./frame-client.js";
 
 /** One region of an occurrence: its wire id, its element, the frame bound
  *  over it once `bind` ran, and whether the element was adopted from the
@@ -174,6 +181,7 @@ export function resolve(
     if (!entry)
       cache.set(key, (entry = { childId, element: makeFrameElement(childId), frame: undefined }));
     else if (entry.childId !== childId) rename(entry, childId);
+    placements.has(entry.element) || placements.set(entry.element, { o: null, m: new Map() });
     props[key] = entry.element;
   }
 }
@@ -215,6 +223,63 @@ export function bind(frame: any, occurrence: string): void {
       } as any);
     }
   }
+}
+
+// Placement — what makes a fill nested in a region the child of the fill
+// that places it, as client children are of the component that places them
+// (the Solid binding's half; the frames above never see an owner). Per
+// region element: the owner that placed it (null until placed, and again
+// once that placement is disposed), and its nested fills by occurrence,
+// each with the owner it mounted under (null while it waits).
+const placements = new WeakMap<Element, { o: any; m: Map<string, { o: any; run(): void }> }>();
+
+/**
+ * A fill read a region element: the reader's owner places it, as reading
+ * `props.children` places client children. The region's nested fills mount
+ * under it — those waiting for a placement, and those the last placement's
+ * disposal took down with it.
+ */
+export function place(el: Element): void {
+  const o = getOwner();
+  const p = placements.get(el);
+  if (!o || !p || p.o === o) return;
+  p.o = o;
+  onCleanup(() => {
+    if (p.o === o) p.o = null;
+    for (const entry of p.m.values()) if (entry.o === o) entry.o = null;
+  });
+  for (const entry of p.m.values()) entry.o || entry.run();
+}
+
+/**
+ * Invoke a fill (`mount`, the binding's) for an occurrence: one in a region
+ * mounts under the owner that placed the region — so it reads the context
+ * the enclosing fill provides there — and lives as long as that placement.
+ * While the region is unplaced (occluded, or its placement disposed) it
+ * waits; the next placement mounts it afresh over what the range holds.
+ */
+export function nest(mount: (props: any, ctx: any) => void, props: any, ctx: any): void {
+  const start = ctx && ctx.range && ctx.range.start;
+  const p = start && placements.get(start.parentNode.closest?.(FRAME_TAG));
+  if (!p) return mount(props, ctx);
+  const key = ctx.key;
+  let at = ctx;
+  const entry = {
+    o: null as any,
+    run() {
+      // A remount renders fresh over what the last mount left.
+      if (!at) {
+        at = { ...ctx, adopted: false, existing: [] };
+        for (let n = start.nextSibling; n && n !== ctx.range.end; n = n.nextSibling)
+          at.existing.push(n);
+      }
+      runWithOwner((entry.o = p.o), () => mount(props, at));
+      at = null;
+    }
+  };
+  p.m.set(key, entry);
+  ctx.onCleanup(() => p.m.get(key) === entry && p.m.delete(key));
+  if (p.o) entry.run();
 }
 
 /**

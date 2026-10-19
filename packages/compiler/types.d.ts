@@ -69,6 +69,7 @@ export interface TransformOptions {
   validate?: boolean;
   omitNestedClosingTags?: boolean;
   omitLastClosingTag?: boolean;
+  /** @deprecated Ignored. Binding slots, the only thing it compiled for, are removed. */
   serverComponents?: boolean;
   /** SSR-only, default `true`: component props literals with getters compile to module-level constructors with shared getters (#3511). */
   hoistProps?: boolean;

@@ -1688,6 +1688,7 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
 }
 
 export function read<T>(el: Signal<T> | Computed<T>): T {
+  if (__DEV__) DEV.hooks.onRead?.(el);
   if (__DEV__ && asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
     checkPostAwaitRead(
       el,
@@ -2028,7 +2029,22 @@ export function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T)
   snapshotSources!.add(el);
 }
 
+/**
+ * A callback run before every signal or store write lands, while set, with
+ * the written signal or the store proxy whose setter runs. The
+ * server-components client sets it while slot occurrences are left
+ * unmounted after hydration (deferred hydration): a write may be one an
+ * unmounted component would have observed, so the client mounts what is
+ * left before the write applies, and clears the hook. `null` otherwise.
+ */
+export let writeHook: ((node?: object) => void) | null = null;
+/** @internal */
+export function setWriteHook(hook: ((node?: object) => void) | null): void {
+  writeHook = hook;
+}
+
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
+  if (writeHook !== null) writeHook(el);
   if (
     __DEV__ &&
     !(el._config & CONFIG_OWNED_WRITE) &&

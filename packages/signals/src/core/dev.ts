@@ -30,6 +30,8 @@ export interface DevHooks {
   onGraph?: (value: any, owner: Owner | null) => void;
   onUpdate?: () => void;
   onStoreNodeUpdate?: (state: any, property: PropertyKey, value: any, prev: any) => void;
+  /** @internal Every node read (the frames client's identity-drift check; `setReadWatch`). */
+  onRead?: (node: object) => void;
 }
 
 /**
@@ -106,7 +108,6 @@ export type DiagnosticCode =
   | "UNRECOGNIZED_INSERT_VALUE"
   | "UNSCOPED_HOLE_ALLOCATED_IDS"
   | "LOWERCASE_EVENT_ATTRIBUTE"
-  | "BINDING_SLOT_POSITION"
   | "FRAME_MARKER_CORRUPTED"
   | "DYNAMIC_ASYNC_COMPONENT";
 

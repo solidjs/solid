@@ -10,14 +10,16 @@
  *
  * The contract under test:
  *
- *  - ONE call per error object, at first sight, with where it was met
- *    (`kind`/`handling`, the boundary's id, the function's id, the owner
- *    path, the request event);
+ *  - ONE call per error object PER KIND PER REQUEST (per render outside
+ *    any request scope; never once per process — #4125), at first sight,
+ *    with where it was met (`kind`/`handling`, the boundary's id, the function's id, the
+ *    owner path, the request event);
  *  - the return is the wire value — rendered into the fallback, serialized
  *    for hydration, sent as the RPC error — `undefined` for the default;
- *  - a direct server-function call's plain failure during SSR is reported once
- *    as the FUNCTION's failure; the boundary that contains it reuses the
- *    verdict and does not report again;
+ *  - a direct server-function call's plain failure during SSR is reported
+ *    first as the FUNCTION's failure; the boundary that contains it is heard
+ *    again as the render's (`kind: "render"`, #4125), and reuses the
+ *    function's answer as its wire;
  *  - a thrown Response or envelope bypasses the direct call's report, as in
  *    HTTP dispatch; a response caught by a boundary is reported by the render;
  *  - two tiers: ambient (`configureServerErrors`) and per request
@@ -112,11 +114,10 @@ function stream(
   });
 }
 
-const underRequest = <T,>(fn: () => T): T =>
-  ((globalThis as any)[RequestContext] as AsyncLocalStorage<unknown>).run(
-    { request: new Request("https://app.example/page"), locals: {} },
-    fn
-  );
+const underRequest = <T,>(
+  fn: () => T,
+  event: unknown = { request: new Request("https://app.example/page"), locals: {} }
+): T => ((globalThis as any)[RequestContext] as AsyncLocalStorage<unknown>).run(event, fn);
 
 const Fallback = (err: () => any) => <p class="fallback">{String(err().message)}</p>;
 const bare = (html: string) => html.replace(/<!--[^>]*-->/g, "").replace(/ _hk=\S+/g, "");
@@ -518,7 +519,7 @@ describe("server functions", () => {
     expect(calls[0].context).toMatchObject({ kind: "render", handling: "fallback" });
   });
 
-  test("a direct call that throws during SSR is reported ONCE, as the function's failure; the boundary reuses the verdict", () => {
+  test("a direct call that throws during SSR is heard as the function's failure, then as the render's; the boundary reuses the function's answer", () => {
     const boom = new Error("connect ECONNREFUSED");
     configureServerErrors({ onError: hook(() => new Error("Data unavailable")) });
     const load = createServerReference(
@@ -536,7 +537,7 @@ describe("server functions", () => {
         </Errored>
       ))
     );
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
     expect(calls[0].error).toBe(boom);
     expect(calls[0].context).toMatchObject({
       kind: "server-function",
@@ -544,10 +545,172 @@ describe("server functions", () => {
       functionId: "hook/direct",
       direct: true
     });
-    // The <Errored> rendered the hook's answer without asking again.
+    // The render falling back is its own report (#4125): `kind: "render"`
+    // alone answers whether this render failed.
+    expect(calls[1].error).toBe(boom);
+    expect(calls[1].context).toMatchObject({ kind: "render", handling: "fallback" });
+    // The <Errored> rendered the function's answer.
     expect(bare(html)).toContain('<p class="fallback">Data unavailable</p>');
     expect(html).toContain('new Error("Data unavailable")');
     expect(html).not.toContain("ECONNREFUSED");
+  });
+});
+
+describe("once per request, never once per process (#4125)", () => {
+  const event = (path: string) => createRequestEvent(new Request(`https://app.example/${path}`));
+  const urlOf = (context: ServerErrorContext) => (context.event as any)?.request.url;
+  /** A <Loading> whose async source rejects with `error` after the shell. */
+  function Late(props: { error: unknown }) {
+    const data = createMemo(async () => {
+      await delay(5);
+      throw props.error;
+    });
+    return <div>{data()}</div>;
+  }
+  const page = (error: unknown) => () => (
+    <Loading fallback={<i>loading</i>}>
+      <Late error={error} />
+    </Loading>
+  );
+
+  test("one Error object reused by two requests: each request's hook hears it, and each client gets its own request's answer", async () => {
+    const shared = new Error("PRIVATE_shared");
+    configureServerErrors({ onError: hook((_, context) => new Error(`public ${urlOf(context)}`)) });
+    const first = event("first");
+    const second = event("second");
+    const a = await underRequest(() => stream(page(shared)), first);
+    const b = await underRequest(() => stream(page(shared)), second);
+    expect(calls.map(c => [c.error, c.context.kind, c.context.handling, c.context.event])).toEqual([
+      [shared, "render", "client", first],
+      [shared, "render", "client", second]
+    ]);
+    // The `_fr` rejection is the answer decided for THIS request, never the
+    // first request's verdict replayed.
+    expect(a).toContain('new Error("public https://app.example/first")');
+    expect(b).toContain('new Error("public https://app.example/second")');
+    expect(b).not.toContain("https://app.example/first");
+  });
+
+  test("one Error object thrown by different components in two requests: each report names its own request's thrower", () => {
+    const shared = new Error("PRIVATE_shared");
+    configureServerErrors({ onError: hook() });
+    function First(): JSX.Element {
+      throw shared;
+    }
+    function Second(): JSX.Element {
+      throw shared;
+    }
+    // Labels are the JSX tag names the compiler emits, so each page names its own.
+    const first = () => (
+      <Errored fallback={Fallback}>
+        <First />
+      </Errored>
+    );
+    const second = () => (
+      <Errored fallback={Fallback}>
+        <Second />
+      </Errored>
+    );
+    underRequest(() => renderToString(first), event("first"));
+    underRequest(() => renderToString(second), event("second"));
+    // Outside any request too: the render is the scope the thrower is kept in.
+    renderToString(first);
+    renderToString(second);
+    expect(calls.map(c => c.context.ownerPath)).toEqual([
+      ["<Errored>", "<First>"],
+      ["<Errored>", "<Second>"],
+      ["<Errored>", "<First>"],
+      ["<Errored>", "<Second>"]
+    ]);
+  });
+
+  test("two concurrent renders meeting one Error each hear it — outside any request, the render is the scope", async () => {
+    const shared = new Error("PRIVATE_shared");
+    const heard: Record<string, string[]> = { A: [], B: [] };
+    const render = (name: string) =>
+      stream(page(shared), {
+        onError: (error: unknown, context: ServerErrorContext) => {
+          expect(error).toBe(shared);
+          heard[name].push(context.handling);
+          return new Error(`for ${name}`);
+        }
+      });
+    const [a, b] = await Promise.all([render("A"), render("B")]);
+    expect(heard).toEqual({ A: ["client"], B: ["client"] });
+    expect(a).toContain('new Error("for A")');
+    expect(a).not.toContain("for B");
+    expect(b).toContain('new Error("for B")');
+    expect(b).not.toContain("for A");
+  });
+
+  test("within one request, a direct server-function failure that escapes into a <Loading> is heard once per kind, and every road carries the first answer", async () => {
+    let n = 0;
+    const boom = new Error("connect ECONNREFUSED");
+    // A second answer, if one were taken, would show on the wire.
+    configureServerErrors({
+      onError: hook(() => new Error(n++ ? "Second answer" : "Data unavailable"))
+    });
+    const load = createServerReference(
+      registerServerReference("hook/escapes-into-loading", async () => {
+        await delay(5);
+        throw boom;
+      })
+    );
+    function Data() {
+      const data = createMemo(() => (load as any)());
+      return <p>{data()}</p>;
+    }
+    const html = await underRequest(
+      () =>
+        stream(() => (
+          <Loading fallback={<i>loading</i>}>
+            <Data />
+          </Loading>
+        )),
+      event("page")
+    );
+    // The #4125 repro: the function failed, and so did this render.
+    expect(calls.map(c => [c.error, c.context.kind, c.context.handling])).toEqual([
+      [boom, "server-function", "thrown"],
+      [boom, "render", "client"]
+    ]);
+    expect(calls[0].context).toMatchObject({
+      functionId: "hook/escapes-into-loading",
+      direct: true
+    });
+    // The source's serialized rejection and the fragment's `_fr` rejection
+    // carry the function's mapping — the one object, so the serializer
+    // writes it once and both reference it. This tier's default is
+    // fidelity: a road that missed the verdict would carry the original.
+    expect(html.match(/new Error\("([^"]*)"\)/g)).toEqual(['new Error("Data unavailable")']);
+    expect(html).toContain('"0_fr"');
+    expect(html).not.toContain("ECONNREFUSED");
+  });
+
+  test("outside any request, one render meeting an Error twice hears it once; the next render hears it again", () => {
+    const shared = new Error("PRIVATE_shared");
+    configureServerErrors({ onError: hook(() => new Error("Public failure")) });
+    function Bad(): JSX.Element {
+      throw shared;
+    }
+    const App = () => (
+      <>
+        <Errored fallback={Fallback}>
+          <Bad />
+        </Errored>
+        <Errored fallback={Fallback}>
+          <Bad />
+        </Errored>
+      </>
+    );
+    const html = renderToString(() => <App />);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].context.event).toBeUndefined();
+    // Both boundaries render, and serialize, the one answer.
+    expect(bare(html).match(/<p class="fallback">Public failure<\/p>/g)).toHaveLength(2);
+    expect(html).not.toContain("PRIVATE_shared");
+    renderToString(() => <App />);
+    expect(calls).toHaveLength(2);
   });
 });
 
@@ -566,12 +729,23 @@ describe("a request that fails before any render (reportRequestFailure)", () => 
     expect(reported).toHaveLength(0);
   });
 
-  test("once per error object: the same failure reported again is not heard again", () => {
+  test("once per error object per request: the same failure reported again for the same request is not heard again", () => {
     const failure = new Error("middleware broke");
     configureServerErrors({ onError: hook() });
-    reportRequestFailure(failure, event());
-    reportRequestFailure(failure, event());
+    const request = event();
+    reportRequestFailure(failure, request);
+    reportRequestFailure(failure, request);
     expect(calls).toHaveLength(1);
+  });
+
+  test("the same error object failing another request is that request's failure, heard again (#4125)", () => {
+    const failure = new Error("middleware broke");
+    configureServerErrors({ onError: hook() });
+    const first = event();
+    const second = event();
+    reportRequestFailure(failure, first);
+    reportRequestFailure(failure, second);
+    expect(calls.map(c => c.context.event)).toEqual([first, second]);
   });
 
   test("a direct server-function failure that escapes to the request handler is heard once, as the function's", () => {
@@ -583,15 +757,16 @@ describe("a request that fails before any render (reportRequestFailure)", () => 
       })
     );
     let escaped: unknown;
+    const request = event();
     underRequest(() => {
       try {
         (load as any)();
       } catch (error) {
         escaped = error;
       }
-    });
+    }, request);
     expect(escaped).toBe(boom);
-    reportRequestFailure(escaped, event());
+    reportRequestFailure(escaped, request);
     expect(calls).toHaveLength(1);
     expect(calls[0].context).toMatchObject({
       kind: "server-function",
@@ -647,15 +822,16 @@ describe("a render that throws synchronously to its caller", () => {
   /** What a framework's request handler does: catch the rethrow, report it. */
   function handle(render: () => unknown) {
     let caught: unknown;
+    const request = event();
     underRequest(() => {
       try {
         render();
       } catch (error) {
         caught = error;
       }
-    });
+    }, request);
     expect(caught).toBe(boom);
-    reportRequestFailure(caught, event());
+    reportRequestFailure(caught, request);
   }
 
   test("renderToString: the hook hears one `render`/`failed` before the rethrow; reportRequestFailure adds nothing", () => {
@@ -677,10 +853,10 @@ describe("a render that throws synchronously to its caller", () => {
     expect(reported).toHaveLength(0);
   });
 
-  test("renderToFrameStream: the error chunk it sends was heard first as `render`/`failed`", async () => {
+  test("renderToFrameStream: the error record it sends was heard first as `render`/`failed`", async () => {
     configureServerErrors({ onError: hook() });
     const chunks: any[] = await (renderToFrameStream(() => <Bad />) as any);
-    expect(chunks.some(c => c.type === "error")).toBe(true);
+    expect(chunks.some(c => c.r && ":error" in c.r)).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0].error).toBe(boom);
     expect(calls[0].context).toMatchObject({ kind: "render", handling: "failed" });

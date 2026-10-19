@@ -5,7 +5,7 @@
  *
  * The wire convention is shared with the server-function transport — each
  * chunk is length-prefixed (`;0x` + 32-bit hex byte length + `;`) UTF-8 of
- * `JSON.stringify(FrameChunk)` — so both transports read and write through
+ * `JSON.stringify(FrameMessage)` (frame-sink.ts) — so both transports read and write through
  * the one framing implementation in server-functions/shared.js. The server
  * half (`serverComponentResponse` / `frameTransformResult`) lives in
  * frame-sink.js; this module stays importable from client bundles.
@@ -32,7 +32,7 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 // experimental preview, excluded from the 2.0 stability guarantee: API
 // shapes and the wire format may change between prereleases (RFC 11).
 // Every export in this module is @experimental.
-import { FrameChunk, FrameHost, prepareTier, tierLoads } from "./frame-client.js";
+import { FrameHost, prepareMorph, prepareTier, tierLoads } from "./frame-client.js";
 
 import { JSONCodecOptions } from "../../serialization/src/serializer-decode.js";
 
@@ -119,7 +119,7 @@ export const FRAME_STREAM_HEADER = "X-Frame-Stream";
  * — `bind,regions,assets,trace,wire` — so the client starts their loads
  * before it reads the body. Omitted when nothing was minted. A tier first
  * needed after the head rides in-band instead: `tiers` on the next chunk
- * (`FrameChunk.tiers`). Additive wire: an old client ignores both; a new
+ * (`FrameMessage.tiers`). Additive wire: an old client ignores both; a new
  * client without them falls back to detection at the readiness check and
  * holds (frames-rulings 3.1) — the same DOM, later.
  * @experimental
@@ -243,6 +243,22 @@ async function observedApplyFrameResponse(response, host, options = {}) {
  * the response-scoped single-flight envelope, which is the caller's result
  * rather than anything the host renders.
  */
+/**
+ * Whether a message ends its frame's response: a batch writing `:complete`
+ * (the server declared the frame done) or `:error` (the failing kind of it).
+ * @internal (the live wire tier's too)
+ */
+export const ends = msg => !!msg.r && (":complete" in msg.r || ":error" in msg.r);
+
+/** Whether a batch writes a slot record with a `{$ref}` arg — one that
+ * reads the response's data table. */
+const readsData = msg => {
+  for (const key in msg.r)
+    if (key.startsWith("slot:"))
+      for (const v of Object.values(msg.r[key].args)) if (v && v.$ref) return true;
+  return false;
+};
+
 function applyFrames(response, host, options = {}, observation) {
   const rootId = response.headers.get(FRAME_STREAM_HEADER) ?? "";
   // The announced tiers (see FRAME_TIERS_HEADER): their loads start here,
@@ -269,10 +285,9 @@ function applyFrames(response, host, options = {}, observation) {
   // written for one lands in its store.
   const open = new Map();
   const errorRecord = (id, error) => ({
-    type: "error",
     id,
     version: open.get(id),
-    error: { message: String(error && error.message) }
+    r: { ":error": { message: String(error && error.message) } }
   });
   const drain = async () => {
     let result = await reader.next();
@@ -289,8 +304,7 @@ function applyFrames(response, host, options = {}, observation) {
           chunk.version = v;
         } else if (version !== undefined) chunk.version = version;
         if (chunk.type === "start") open.set(chunk.id, chunk.version);
-        else if (chunk.type === "complete" || (chunk.type === "error" && !chunk.key))
-          open.delete(chunk.id);
+        else if (ends(chunk)) open.delete(chunk.id);
         // The observe tier's chunk census (see `observedApplyFrameResponse`);
         // folds with the literal.
         if (IS_OBSERVE && observation) observation.chunk(chunk, wireId);
@@ -314,10 +328,7 @@ function applyFrames(response, host, options = {}, observation) {
         // names it, so on its wire this await is already answered. Chunk
         // ORDER is the only contract downstream (network jitter already
         // stretches time between chunks), so nothing else observes the wait.
-        if (
-          chunk.type === "data" ||
-          (chunk.type === "slot" && Object.values(chunk.args).some(v => v && v.$ref))
-        )
+        if (chunk.type === "data" || readsData(chunk))
           await Promise.all([host.prepareData?.(), ...needs]);
         host.apply(chunk);
       }
@@ -827,7 +838,9 @@ export function createServerComponentHandler({ host, component, intercept }) {
         // A DEFERRED answer (the boundary is still arriving) resolves the
         // binding when it lands, or `undefined` — a miss after all — when
         // the page has nothing left to deliver it; the caller fetches then.
-        if (hit === undefined) return undefined;
+        // A miss goes to the wire: start the morph's tier with the request
+        // (see `prepareMorph`).
+        if (hit === undefined) return void prepareMorph();
         const address = frameAddress(info.id, info.args);
         // The document's answer is a call too (see `calls`): a later
         // `reset` of the adopted frame re-asks it over the wire.
@@ -913,10 +926,9 @@ export function createServerComponentHandler({ host, component, intercept }) {
         version: frameId => (frameId === address ? version : bump(frameId))
       }).catch(err =>
         target.apply({
-          type: "error",
           id: address,
           version,
-          error: { message: String(err && err.message) }
+          r: { ":error": { message: String(err && err.message) } }
         })
       );
       return entry ? applied.then(() => settled(address, binding)) : binding;

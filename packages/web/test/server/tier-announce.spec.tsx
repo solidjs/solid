@@ -4,17 +4,17 @@
 // The server-announced tier mechanism, server half (frames savings pass
 // §2, Phase B): both faces announce the frames-client tiers the render
 // MINTED — the stream face on the response head (`X-Frame-Tiers`, the tiers
-// the sync render pass produced) and in-band (`chunk.tiers` on the next
-// chunk out, for a tier first needed after the head left); the document
+// the sync render pass produced) and in-band (`tiers` on the next
+// message out, for a tier first needed after the head left); the document
 // face as the `_$HY.r["sc:tiers"]` hydration record (re-written cumulative
 // at each new mint) plus a `modulepreload` per tier whose chunk URL the
 // integration gave (`frameTransformDirectResult`'s `tierUrls`). Nothing is
 // announced when nothing is minted: a response or page with no tiered
 // feature carries no header, no `tiers` member, no record, no link.
 //
-// The mint sites: a binding-slot position read (`bind`), a nested
-// server-content region (`regions`), an assets chunk (`assets`), a traced
-// container in a slot arg (`trace`), a `live` response (`wire`).
+// The mint sites: a nested server-content region (`regions`), an assets
+// chunk (`assets`), a traced container in a slot arg (`trace`), a `live`
+// response or a live hole (`wire`).
 import { describe, expect, it } from "vitest";
 import { Loading, renderToStream, renderToString, useHead } from "@solidjs/web";
 import { createMemo, createProjection } from "solid-js";
@@ -26,6 +26,7 @@ import {
 } from "../../frames/src/frame-sink.js";
 import { FRAME_TIERS_HEADER } from "../../frames/src/frame-transport.js";
 import { ChunkReader } from "../../server-functions/src/shared.js";
+import { has, record, records } from "./wire.js";
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 const collect = (stream: any): Promise<any[]> => stream;
@@ -63,11 +64,6 @@ const Plain = (props: any) => (
     {props.children}
   </section>
 );
-// A binding slot: one property read off the call's return is a position.
-const Bound = (props: any) => {
-  const row = props.row({ id: 1 });
-  return <li class={row.cls}>item</li>;
-};
 // A region: server JSX passed as a slot arg.
 const Regioned = (props: any) => <div>{props.panel({ body: <p>server body</p> })}</div>;
 // A trace: a live projection (one over an async source — a settled sync
@@ -86,23 +82,14 @@ describe("tier announcement — stream face", () => {
     expect(response.headers.has(FRAME_TIERS_HEADER)).toBe(false);
     const chunks = await bodyChunks(response);
     expect(chunks.some(c => "tiers" in c)).toBe(false);
-    expect(chunks.find(c => c.type === "html").html).toContain("<h1>Story</h1>");
-  });
-
-  it("`bind`: a binding-slot position read in the sync pass is on the response head", async () => {
-    const response = serverComponentResponse(Bound, { frame: { id: "ta-bind" } });
-    expect(response.headers.get(FRAME_TIERS_HEADER)).toBe("bind");
-    const chunks = await bodyChunks(response);
-    // The head carried it; nothing is owed in-band.
-    expect(chunks.some(c => "tiers" in c)).toBe(false);
-    expect(chunks.find(c => c.type === "html").html).toContain('_s:class="row#0:cls"');
+    expect(record(chunks, "").value).toContain("<h1>Story</h1>");
   });
 
   it("`regions`: a nested region is announced, once, and rides the head", async () => {
     const response = serverComponentResponse(Regioned, { frame: { id: "ta-reg" } });
     expect(response.headers.get(FRAME_TIERS_HEADER)).toBe("regions");
     const chunks = await bodyChunks(response);
-    expect(chunks.find(c => c.type === "slot").args.body).toEqual({
+    expect(records(chunks, "slot:")[0][1].args.body).toEqual({
       $frame: "ta-reg.panel#0.body"
     });
   });
@@ -138,28 +125,21 @@ describe("tier announcement — stream face", () => {
   });
 
   it("several tiers: comma-separated, in mint order", async () => {
-    const Both = (props: any) => {
-      const row = props.row({ id: 1 });
-      return (
-        <ul>
-          <li class={row.cls}>{props.panel({ body: <p>x</p> })}</li>
-        </ul>
-      );
-    };
-    const response = serverComponentResponse(Both, { frame: { id: "ta-both" } });
+    const response = serverComponentResponse(Regioned, { frame: { id: "ta-both" }, live: true });
     expect(response.headers.get(FRAME_TIERS_HEADER)!.split(",").sort()).toEqual([
-      "bind",
-      "regions"
+      "regions",
+      "wire"
     ]);
-    await bodyChunks(response);
+    // Not read: a live body stays open for its heartbeat; cancel it.
+    await response.body!.cancel();
   });
 
-  it("a tier first minted after the head left rides in-band on the next chunk (`assets`, `bind` inside a late segment)", async () => {
+  it("a tier first minted after the head left rides in-band on the next chunk (`assets`, `regions` inside a late segment)", async () => {
     // The style-gated fragment: a stylesheet registered inside a boundary
     // that resolves after the shell flush. Its assets chunk is the first
     // the sink emits after the mint, so the chunk carries the name. The
-    // binding-slot read inside the same late content is minted after the
-    // head too; both ride the next chunk out.
+    // region inside the same late content is minted after the head too;
+    // both ride the next chunk out.
     const Late = (props: any) => {
       const data = createMemo(() => wait(10).then(() => "late"));
       return (
@@ -167,8 +147,7 @@ describe("tier announcement — stream face", () => {
           {(() => {
             const v = data() as any;
             useHead({ tag: "link", props: { rel: "stylesheet", href: "/late.css" } });
-            const row = props.row({ id: v });
-            return <b class={row.cls}>{v}</b>;
+            return <b>{props.panel({ body: <i>{v}</i> })}</b>;
           })()}
         </Loading>
       );
@@ -180,71 +159,76 @@ describe("tier announcement — stream face", () => {
     const announced = chunks.filter(c => c.tiers);
     expect(announced.length).toBeGreaterThan(0);
     const names = announced.flatMap(c => c.tiers).sort();
-    expect(names).toEqual(["assets", "bind"]);
-    // The announcement precedes (or is) the chunk that needs it: the
-    // `assets` chunk carries `assets`; the fragment with the `_s:` marker
-    // does not precede the chunk naming `bind`.
-    const assets = chunks.find(c => c.type === "assets");
-    expect(assets.tiers).toContain("assets");
-    const bindAt = chunks.findIndex(c => c.tiers && c.tiers.includes("bind"));
-    const fragmentAt = chunks.findIndex(c => c.type === "fragment");
-    expect(bindAt).toBeLessThanOrEqual(fragmentAt);
-    expect(chunks[fragmentAt].html).toContain("_s:class=");
-    // Reveal is style-gated, as before.
-    expect(chunks.find(c => c.type === "reveal").waitForStyles).toBe(true);
+    expect(names).toEqual(["assets", "regions"]);
+    // The announcement precedes (or is) the message that needs it: the
+    // `seg:<k>:assets` record does not precede the message naming
+    // `assets` (the first message of its flush, which may be the region's
+    // batch ahead of it); the fragment with the region's slot does not
+    // precede the message naming `regions`.
+    const [[assetsKey]] = records(chunks, "seg:").filter(([key]) => key.endsWith(":assets"));
+    const assets = chunks.find(c => has(c, assetsKey));
+    const assetsAt = chunks.findIndex(c => c.tiers && c.tiers.includes("assets"));
+    expect(assetsAt).toBeLessThanOrEqual(chunks.indexOf(assets));
+    const regionsAt = chunks.findIndex(c => c.tiers && c.tiers.includes("regions"));
+    const segment = assetsKey.slice(0, -":assets".length);
+    const fragmentAt = chunks.findIndex(c => has(c, segment));
+    expect(regionsAt).toBeLessThanOrEqual(fragmentAt);
+    expect(chunks[fragmentAt].r[segment].value).toContain("slot:panel#0:start");
+    // Reveal is style-gated, as before: the client's gate is the segment's
+    // assets record, which names the stylesheet ahead of the reveal.
+    expect(assets.r[assetsKey].styles).toEqual(["/late.css"]);
+    expect(chunks.indexOf(assets)).toBeLessThanOrEqual(
+      chunks.findIndex(c => has(c, `${segment}:reveal`))
+    );
   });
 
   it("a stream consumed without a Response (renderServerComponent) announces in-band only", async () => {
-    const chunks = await collect(renderServerComponent(Bound, { frame: { id: "ta-direct" } }));
+    const chunks = await collect(renderServerComponent(Regioned, { frame: { id: "ta-direct" } }));
     const announced = chunks.filter(c => c.tiers);
     expect(announced.length).toBe(1);
-    expect(announced[0].tiers).toEqual(["bind"]);
-    // On the first emission after the read: the slot chunk left at the
-    // call, the property read came after it, so the shell's html — the
-    // chunk that carries the `_s:` marker — is what announces it.
-    expect(announced[0].type).toBe("html");
-    expect(announced[0].html).toContain('_s:class="row#0:cls"');
+    expect(announced[0].tiers).toEqual(["regions"]);
+    // On the first message after the mint, ahead of the root records (the
+    // region's own, then the shell's that places the region).
+    expect(chunks.indexOf(announced[0])).toBeLessThanOrEqual(chunks.findIndex(c => has(c, "")));
   });
 });
 
 describe("tier announcement — document face", () => {
-  it("announces an empty list when nothing is minted: an empty record, no link", async () => {
-    // The empty record tells the client the page minted no tier, so its slot
-    // walk skips the per-element marker scan the un-announced fallback runs.
+  it("announces nothing when nothing is minted: no record, no link", async () => {
     const Inline = frameTransformDirectResult(Plain, {
       id: "td-none",
-      tierUrls: { bind: "/tier-bind.js" }
+      tierUrls: { regions: "/tier-regions.js" }
     }) as any;
     const html = await document(() => Inline({ children: () => <i>client</i> }));
     expect(html).toContain("<h1>Story</h1>");
-    expect(tiersRecord(html)).toEqual([]);
+    expect(tiersRecord(html)).toBeUndefined();
     expect(html).not.toContain("modulepreload");
   });
 
-  it("`bind`: the record names it; a `modulepreload` for the given URL joins the head", async () => {
-    const Inline = frameTransformDirectResult(Bound, {
-      id: "td-bind",
-      tierUrls: { bind: "/assets/tier-bind.js" }
+  it("`regions`: the record names it; a `modulepreload` for the given URL joins the head", async () => {
+    const Inline = frameTransformDirectResult(Regioned, {
+      id: "td-regions",
+      tierUrls: { regions: "/assets/tier-regions.js" }
     }) as any;
     const html = await document(() => (
       <html>
         <head>
           <title>t</title>
         </head>
-        <body>{Inline({ row: () => ({ cls: "x" }) })}</body>
+        <body>{Inline({ panel: (p: any) => <div>{p.body}</div> })}</body>
       </html>
     ));
-    expect(tiersRecord(html)).toEqual(["bind"]);
-    expect(html).toContain('<link rel="modulepreload" href="/assets/tier-bind.js">');
+    expect(tiersRecord(html)).toEqual(["regions"]);
+    expect(html).toContain('<link rel="modulepreload" href="/assets/tier-regions.js">');
     // In the head, with the shell.
     expect(html.indexOf("modulepreload")).toBeLessThan(html.indexOf("</head>"));
-    expect(html).toContain('_s:class="row#0:cls"');
+    expect(html).toContain("server body");
   });
 
   it("without `tierUrls` the record alone announces the name — no link", async () => {
-    const Inline = frameTransformDirectResult(Bound, { id: "td-nourl" }) as any;
-    const html = await document(() => Inline({ row: () => ({ cls: "x" }) }));
-    expect(tiersRecord(html)).toEqual(["bind"]);
+    const Inline = frameTransformDirectResult(Regioned, { id: "td-nourl" }) as any;
+    const html = await document(() => Inline({ panel: (p: any) => <div>{p.body}</div> }));
+    expect(tiersRecord(html)).toEqual(["regions"]);
     expect(html).not.toContain("modulepreload");
   });
 
@@ -269,12 +253,31 @@ describe("tier announcement — document face", () => {
     expect(tiersRecord(html)).toEqual(["wire"]);
   });
 
+  it("`wire`: a hole that changes after the shell announces the wire tier (the client applies its ops there)", async () => {
+    const Changing = () => {
+      const text = createMemo(async function* () {
+        yield "one";
+        await wait(5);
+        yield "one two";
+      });
+      return (
+        <Loading fallback={<span>FB</span>}>
+          <section>{text()}</section>
+        </Loading>
+      );
+    };
+    const Inline = frameTransformDirectResult(Changing, { id: "td-hole" }) as any;
+    const html = await document(() => Inline({}));
+    expect(html).toContain("one two");
+    expect(tiersRecord(html)).toEqual(["wire"]);
+  });
+
   it("a sync render (renderToString) announces nothing — the client detects", () => {
-    const Inline = frameTransformDirectResult(Bound, { id: "td-sync" }) as any;
-    const html = renderToString(() => Inline({ row: () => ({ cls: "x" }) }), {
+    const Inline = frameTransformDirectResult(Regioned, { id: "td-sync" }) as any;
+    const html = renderToString(() => Inline({ panel: (p: any) => <div>{p.body}</div> }), {
       plugins: [ServerComponentPlugin]
     } as any);
-    expect(html).toContain('_s:class="row#0:cls"');
+    expect(html).toContain("server body");
     expect(tiersRecord(html)).toBeUndefined();
   });
 });

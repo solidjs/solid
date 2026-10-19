@@ -38,6 +38,11 @@ export {
  * outside dev builds.
  */
 export { setConsoleFooter } from "./core/index.js";
+/** @internal The pre-write hook (`setWriteHook` in core/core.ts); the server-components client's deferred hydration. */
+/** @internal Plain-signal identities and the dev read watch (dependency edges; the server-components client). */
+export { setWriteHook, setSignalIdentities, setReadWatch, signalName } from "./core/index.js";
+/** @internal Store dependency edges: the name a store proxy's writes go by (the server-components client). */
+export { storeName } from "./store/edges.js";
 import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "./core/index.js";
 /**
  * Observe tier (diagnostics channel, attribution hook slot + interaction

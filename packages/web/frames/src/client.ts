@@ -32,8 +32,7 @@ import type { Element as SolidElement } from "solid-js";
 // already uses — importing it from the runtime source instead bundles a second
 // copy of `insert` and the reconcile/render machinery it drags in (~4kb the app
 // already has). Kept external in rollup.config.js for the same reason the
-// server-functions/client import below is. (`assign` — a binding slot's
-// position writer — is the bind tier's import, not this entry's.)
+// server-functions/client import below is.
 // `installServerComponentHydration` is the server-component half of
 // hydration — solid's hold, claim window, fragment ownership and ledger
 // answer, and the DOM runtime's declared claim roots and frame exclusion of
@@ -44,10 +43,14 @@ import {
   createFrame,
   createFrameElement,
   createFrameHost,
+  deferredFrames,
   FRAME_ID_ATTR,
   isAsyncValue,
+  liveFrameAt,
   prepareTier,
-  slotShapeFinding,
+  releaseDeferHolds,
+  setDeferDriver,
+  setDeferMountWatch,
   tierLoaders,
   tierLoads,
   type TierModule
@@ -60,7 +63,15 @@ import {
   stagedContent,
   type ServerComponentHandlerOptions
 } from "./frame-transport.js";
-import { createLoadingBoundary, sharedConfig } from "solid-js/internal";
+import {
+  createLoadingBoundary,
+  setReadWatch,
+  setSignalIdentities,
+  setWriteHook,
+  signalName,
+  sharedConfig,
+  storeName
+} from "solid-js/internal";
 
 // The container tier (DR-2 case 3): server projections cross the border as
 // TRACES (snapshot + patch batches) and materialize back into live local
@@ -102,17 +113,6 @@ tierLoaders.regions = () => import("@solidjs/web/frames/regions");
 // fallback stays on screen, no segment reveals unstyled. The module's
 // exports are the dispatch (`gate`, `apply`); no install.
 tierLoaders.assets = () => import("@solidjs/web/frames/assets");
-// The bind tier (frames savings pass §3 row C6): binding-slot positions
-// (principles §9.2.3) — the `_s:*` marker parsers, consumer discovery, the
-// morph's owned-position arms, the per-frame consumer set and the fill's
-// binding (`assign` over every consuming element) — as the chunk
-// `@solidjs/web/frames/bind` (bind-tier.ts). The server announces `bind`
-// wherever a slot is read as data (the slot proxy's `needs("bind")`); a
-// marker met in a frame's content while the tier is absent is noted by
-// the sync's walk and the frame holds on the note, its load started by
-// the readiness check (frame-client.ts, `#syncSlots`). The module's
-// exports are the dispatch; no install.
-tierLoaders.bind = () => import("@solidjs/web/frames/bind");
 // The live wire tier (frames savings pass §3 row C2): what a `live()`
 // loop's connection needs of the frames transport — the per-address
 // connection (join / open / supersede), the SSE reader selection and the
@@ -124,7 +124,10 @@ tierLoaders.bind = () => import("@solidjs/web/frames/bind");
 // the body is read, so a live connection without the tier cannot happen.
 // The server announces `wire` too (`X-Frame-Tiers` on a live response,
 // `sc:tiers` on a document carrying a live source). The module's exports
-// are the dispatch (`connect`, `cancel`, `resume`, `have`); no install.
+// are the dispatch (`connect`, `cancel`, `resume`, `have`, the live
+// appliers and the range morph); no install. The morph makes the tier load
+// on the first refetch or navigation too: a frame starts it at the new
+// version's header and its root waits for it.
 tierLoaders.wire = () => import("@solidjs/web/frames/wire");
 
 // Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
@@ -158,11 +161,6 @@ export {
 } from "./frame-client.js";
 // The shape a tier loader resolves (`InstallOptions.tiers`); type-only.
 export type { TierModule } from "./frame-client.js";
-// The bind tier's import of this entry (bind-tier.ts): one copy of the
-// async-value probe, and the edge that keeps the chunk attached to the
-// entry's graph in an app's bundler.
-/** @internal */
-export { isAsyncValue } from "./frame-client.js";
 // `FRAME_HAVE_HEADER` / `FRAME_HAVE_BUDGET` are the SERVER entry's
 // (`@solidjs/web/frames/server`): the client sends the have-list itself
 // (`resume`, through the handler) and no consumer of this entry reads the
@@ -180,7 +178,7 @@ export {
 // Server components are authored in universal code, so the slot type has to
 // resolve under the browser condition too. Type-only, so nothing crosses into
 // the client bundle.
-export type { Slot, BindingSlot, SlotOutput, SlotError } from "./server.js";
+export type { Slot } from "./server.js";
 
 /**
  * Client-condition twin of the server face's `asyncArg` (DR-2 value tier):
@@ -524,9 +522,13 @@ function claimScope(el: Element): ClaimScope & { index(root: ParentNode): void }
  * evaluated. It claims under the same prefix but gathers nothing: the
  * first window's gather is still in the registry, and gathering again
  * would put the keys the evaluation already claimed back as unclaimed.
+ * Both windows run under the fill's ONE claim `owner` (id `prefix`): the
+ * window claims that subtree only, and what the first evaluated lazily — a
+ * context provider's children — creates under it when the second reads it.
  */
 function claimRender(
   prefix: string,
+  owner: any,
   existing: Node[],
   render: () => any,
   scope?: ClaimScope,
@@ -535,14 +537,11 @@ function claimRender(
   const sc: any = sharedConfig;
   // No window, or no registry gathered yet (no `hydrate()` pass has run):
   // nothing to claim against — render fresh over the markup.
-  if (!sc.hydrateWindow || !sc.registry) return render();
+  if (!sc.hydrateWindow || !sc.registry) return runWithOwner(owner, render);
   const prevRoots = sc.claimRoots;
   sc.claimRoots = existing;
   try {
-    // The claim owner too: the window claims this fill's subtree only.
-    return runWithOwner(createOwner({ id: prefix }), () =>
-      sc.hydrateWindow(bound ? undefined : prefix, render, scope)
-    );
+    return runWithOwner(owner, () => sc.hydrateWindow(bound ? undefined : prefix, render, scope));
   } finally {
     sc.claimRoots = prevRoots;
   }
@@ -684,6 +683,8 @@ function slotArgsProxy(args: () => Record<string, any>) {
           reads.set(key, read);
         }
         const v = read();
+        // A region read is its placement (the regions tier's `place`).
+        if (v instanceof Element) tierLoads.regions.r.place(v);
         return v instanceof Boxed ? v.c : v;
       },
       has: (_, key) => key in args(),
@@ -715,7 +716,7 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
     {
       get(_, prop) {
         if (typeof prop !== "string" || !(prop in props)) return undefined;
-        return (slotProps: any, ctx: any) => {
+        const mount = (slotProps: any, ctx: any) => {
           const key = ctx && ctx.key;
           // A re-call replaces the invocation wholesale (the frame only
           // runs slot cleanups at unmount, not between re-calls): the
@@ -726,46 +727,6 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           if (prevFill) {
             fillScopes.delete(key);
             prevFill.dispose();
-          }
-          // Binding slot (§9.2.3): the occurrence's node is the set of server
-          // elements reading its properties at bound positions. Always under
-          // a per-occurrence owner: the binding must die with the occurrence
-          // (a later response dropping it, or every consumer replaced by
-          // the morph). The binding itself is the BIND TIER's
-          // (`bind`, bind-tier.ts) — resident by construction: positions
-          // exist only once the tier parsed the markers.
-          if (ctx && ctx.positions) {
-            const fill = props[prop];
-            if (typeof fill !== "function") {
-              if (IS_DEV) {
-                slotShapeFinding(
-                  { reason: "fill-shape", occurrence: key, shape: typeof fill },
-                  `[BINDING_SLOT_POSITION] Server markup reads slot \`${prop}\` as data (\`${key}\`), ` +
-                    `but the client prop is ${typeof fill === "object" ? "an object" : `a ${typeof fill}`}, ` +
-                    `not a function. The fill is a function of the occurrence's args returning the object ` +
-                    `the markup reads: \`${prop}={args => ({ … })}\`. Nothing binds until it is.`
-                );
-              }
-              return undefined;
-            }
-            const owner = createOwner();
-            fillScopes.set(key, owner);
-            ctx.onCleanup(() => {
-              if (fillScopes.get(key) === owner) fillScopes.delete(key);
-              owner.dispose();
-            });
-            runWithOwner(owner, () => {
-              const args = ctx.onUpdate
-                ? liveSlotProps(slotProps, ctx)
-                : slotArgsProxy(() => slotProps);
-              tierLoads.bind.r.bind(
-                fill,
-                args,
-                ctx,
-                IS_DEV ? `the \`${prop}\` binding-slot fill` : undefined
-              );
-            });
-            return undefined;
           }
           // A range occurrence without its end marker has no anchor to bind
           // before (the document is corrupted — `FRAME_MARKER_CORRUPTED`,
@@ -787,15 +748,20 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // pending fill's nodes are legitimately detached while its
           // covering boundary shows the fallback; the boundary, not a frame
           // cleanup, decides when that render is done with). Their range
-          // binding gets an owner of its own below.
+          // binding gets an owner of its own.
+          //
+          // The binding's owner: the fill's own (a stream-mounted fill), else
+          // one minted here — TRANSPARENT, so a fill mounting inside the
+          // hydrate pass consumes no id from the adopting component's counter
+          // (a keyed sibling after the frame keys the same whether a fill
+          // mounted at t=0 or after a hold; the claim window has its own id).
           const fillOwner = streamInvoke ? createOwner() : null;
-          if (fillOwner && key !== undefined && ctx) {
-            fillScopes.set(key, fillOwner);
-            ctx.onCleanup(() => {
-              if (fillScopes.get(key) === fillOwner) fillScopes.delete(key);
-              fillOwner.dispose();
-            });
-          }
+          const owner = fillOwner || createOwner({ transparent: true });
+          fillScopes.set(key, owner);
+          ctx.onCleanup(() => {
+            if (fillScopes.get(key) === owner) fillScopes.delete(key);
+            owner.dispose();
+          });
           // The prop is read INSIDE the claim scope: compiled component props
           // are getters, so JSX evaluates lazily at access — deferring the
           // access into the scoped owner is what makes plain JSX (no thunks)
@@ -848,12 +814,11 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // re-call with existing nodes must render for real — claiming would
           // no-op its inserts and silently drop whatever the re-call
           // displaced, e.g. moved-out {$frame} region ranges (#547).
-          const value = fillOwner
-            ? runWithOwner(fillOwner, () =>
-                adopted ? claimRender(prefix, ctx.existing, evaluate, scope) : evaluate()
-              )
-            : adopted
-              ? claimRender(prefix, ctx.existing, evaluate, scope)
+          const claim = adopted && runWithOwner(owner, () => createOwner({ id: prefix }));
+          const value = adopted
+            ? claimRender(prefix, claim, ctx.existing, evaluate, scope)
+            : fillOwner
+              ? runWithOwner(fillOwner, evaluate)
               : evaluate();
           // Every fill is one `insert` before the range's end marker — the
           // primitive compiled JSX uses for `{expr}` positions — so the
@@ -885,28 +850,18 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // inert: the boundary's own resume still claimed the swapped-in
           // server markup, so the region looked right, but nothing
           // downstream (a route change out of it) ever re-rendered it again.
-          //
-          // The binding's owner: the fill's own (a stream-mounted fill,
-          // already in `fillScopes` with its cleanup), else one minted here
-          // and registered the same way — TRANSPARENT, so a fill mounting
-          // inside the hydrate pass consumes no id from the adopting
-          // component's counter (a keyed sibling after the frame keys the
-          // same whether a fill mounted at t=0 or after a hold; the claim
-          // window below has its own id).
-          const owner = fillOwner || createOwner({ transparent: true });
-          if (!fillOwner) {
-            fillScopes.set(key, owner);
-            ctx.onCleanup(() => {
-              if (fillScopes.get(key) === owner) fillScopes.delete(key);
-              owner.dispose();
-            });
-          }
           const end = range.end;
           const bind = () => insert(end.parentNode as any, value, end, [...ctx.existing]);
-          runWithOwner(owner, () =>
-            adopted ? claimRender(prefix, ctx.existing, bind, scope, true) : bind()
-          );
+          adopted
+            ? claimRender(prefix, claim, ctx.existing, bind, scope, true)
+            : runWithOwner(owner, bind);
           return undefined;
+        };
+        // A fill nested in a region mounts where the region is placed (the
+        // regions tier's `nest`; no region exists without the tier).
+        return (slotProps: any, ctx: any) => {
+          const R = tierLoads.regions?.r;
+          R ? R.nest(mount, slotProps, ctx) : mount(slotProps, ctx);
         };
       }
     }
@@ -1033,8 +988,8 @@ const claimedBoundaries = new Set<string>();
 // ---- the document live-hole channel (Stage 4) --------------------------
 //
 // The document face ships live-hole re-emissions as ONE `sc:live` record
-// whose value is a ReadableStream of ops ({ type: "hole" | "attr" |
-// "error", key, ... } — chunk-shaped minus addressing). A stream has one
+// whose value is a ReadableStream of record batches ({ r, fid? } — the
+// stream's own batches minus addressing, frame-sink.ts). A stream has one
 // reader, so the pump runs once at module level and BROADCASTS: every
 // adopted boundary applies every op into its own store at its own address,
 // and page geometry routes — hole ids are document-unique and each frame's
@@ -1059,11 +1014,11 @@ function pumpLiveChannel() {
     reader.read().then((r: { done: boolean; value: any }) => {
       if (r.done) return;
       const op = r.value;
-      // A sweep's `ops` unit is applied whole (one write per boundary) but
-      // logged by its members: the log is last-value-wins per target, and
-      // a member's target is the key, not the unit it rode in.
-      for (const m of op.type === "ops" ? op.ops : [op])
-        liveOps.set(`${m.type}:${m.fid || ""}:${m.key || ""}`, m);
+      // A sweep's batch is applied whole (one write per boundary) but
+      // logged by its records: the log is last-value-wins per target, and
+      // a record's target is its key, not the batch it rode in.
+      for (const key in op.r)
+        liveOps.set(`${op.fid || ""}:${key}`, { fid: op.fid, r: { [key]: op.r[key] } });
       for (const apply of liveAppliers) apply(op);
       return pump();
     });
@@ -1329,6 +1284,7 @@ function adoptBoundary(
   // `data-fid` is the site scope: the function id on the first mount, `<id>~n` later.
   const siteId = el.getAttribute(FRAME_ID_ATTR)!;
   claimedBoundaries.add(siteId);
+  edgeRoots.set(siteId, el);
   // Content is keyed by the CALL's address (the identity split): the frame
   // binds the address's resident store, while the site scope (`data-fid`) is
   // the key records and region ids on the page are written under. The address
@@ -1409,11 +1365,9 @@ function adoptBoundary(
         // the wire keys them by function id, the document's producer name.
         const apply = (args: unknown) =>
           host.apply({
-            type: "slot",
             id: address,
             version: 0,
-            key: key.slice(slotPrefix.length),
-            args
+            r: { [`slot:${key.slice(slotPrefix.length)}`]: { kind: "slot", args } }
           });
         const value = hy.r[key];
         // A declared record: settled reads its stamp synchronously (a
@@ -1436,7 +1390,8 @@ function adoptBoundary(
           // id either way, so a late apply still lands before the region
           // binds on expand.
           const val = hy.r[key];
-          const apply = (html: any) => host.apply({ type: "html", id: childId, version: 0, html });
+          const apply = (html: any) =>
+            host.apply({ id: childId, version: 0, r: { "": { kind: "html", value: html } } });
           val && typeof val.then === "function" ? val.then(apply) : apply(val);
         }
       }
@@ -1487,17 +1442,16 @@ function adoptBoundary(
   // Live-hole ops broadcast into this boundary's store at its bound
   // address (version 0, the adopted stream — a refetch's higher version
   // supersedes, so document ops go quiet the moment the boundary moves to
-  // a call-driven stream). Hole and attr ops route themselves by DOM
-  // geometry (document-unique keys, range-scoped search), but SLOT ops are
-  // store-keyed — two boundaries can share an occurrence name — so they
-  // carry the producing frame's id and only the owning boundary applies
-  // (the stray `fid` field rides into the apply; records are built from
-  // key/args, so it is ignored). So does a frame-addressed ERROR op — a
-  // failure that escaped the server component (its `:error`, the outward
-  // face; frames-rulings 3.3); hole-keyed errors stay geometry-routed.
+  // a call-driven stream). Hole and attr records route themselves by DOM
+  // geometry (document-unique keys, range-scoped search), but SLOT records
+  // are store-keyed — two boundaries can share an occurrence name — so
+  // their batch carries the producing frame's id and only the owning
+  // boundary applies it. So does the frame's own `:error` — a failure that
+  // escaped the server component (the outward face; frames-rulings 3.3);
+  // hole-keyed errors stay geometry-routed.
   const applyLiveOp = (op: any) => {
     if (op.fid && op.fid !== siteId) return;
-    host.apply({ ...op, id: address, version: 0 });
+    host.apply({ id: address, version: 0, r: op.r });
   };
   liveAppliers.add(applyLiveOp);
   onCleanup(() => {
@@ -1522,6 +1476,8 @@ function adoptBoundary(
   const [failed, onApply] = failing();
   frame = createFrame(el, {
     adopt: true,
+    // Deferred hydration (see `deferFrame`): occurrences mount on demand.
+    defer: true,
     host,
     id: address,
     slots: slotsFor(props, scope),
@@ -1595,6 +1551,295 @@ function adoptBoundary(
   // The boundary IS the element — hand hydration the single SSR'd node so it
   // claims it in place rather than re-rendering.
   return el as unknown as SolidElement;
+}
+
+// Deferred hydration. An adopted server component mounts none of its slot
+// occurrences at hydration (frame-client.ts `deferDriver`): each is a root
+// of its own — its props are the record's plain values, nothing above it is
+// a component on the client — so it can mount alone, out of order, with
+// the server's markup around it untouched. An occurrence mounts:
+// - when an event lands in it: in the capture phase, outermost enclosing
+//   occurrence first (its regions become frames, deferred in turn), so the
+//   delegated handler is bound by the time the event bubbles;
+// - before a write lands, while any is still unmounted: every signal or
+//   store write runs the hook first, which mounts everything left, since an
+//   unmounted component may read what is written (context, a shared
+//   signal) and must exist to observe it;
+// - otherwise in idle slices after first paint, until none is left.
+// The page's hydration stays in progress until the last one mounts.
+const DEFER_EVENTS = ["click", "input", "change", "keydown", "pointerdown", "submit", "focusin"];
+const DEFER_BUDGET = 8;
+let mounting = false;
+
+const idleTick = () =>
+  new Promise<void>(r =>
+    typeof requestIdleCallback === "function"
+      ? requestIdleCallback(() => r(), { timeout: 100 })
+      : setTimeout(r, 0)
+  );
+
+function wakeAt(e: Event) {
+  const target = e.target as Node | null;
+  if (!target || mounting) return;
+  mounting = true;
+  try {
+    for (let f; (f = liveFrameAt(target)) && f.mountEnclosing(target); );
+  } finally {
+    mounting = false;
+  }
+  deferDone();
+}
+
+function mountAllDeferred() {
+  // A write inside a hydration pass is the framework re-running what it
+  // hydrates (a boundary's resume trigger): the state is still the server's.
+  if (mounting || (sharedConfig as any).hydrating) return;
+  mounting = true;
+  try {
+    for (let frames; (frames = deferredFrames()).length; )
+      for (const f of frames) f.mountDeferred();
+  } finally {
+    mounting = false;
+  }
+  deferDone();
+}
+
+// Dependency edges. The server ships, per document frame, which occurrences
+// read which plain signals and plain stores they did not create
+// (`sc:deps:<site>:<n>` batches, `sid -> "card#0-399 cart#0"`; `*`: wide
+// names, whose readers it could not track; `!`: occurrences with reads it
+// could not see). A store goes by its root's name: any read of it is a read
+// of that name, any setter call on it a write. A write to a name mounts only
+// the unmounted occurrences that read it — each with the occurrences
+// enclosing it first, as an event would — before the write applies; a name
+// no record lists mounts nothing (no unmounted occurrence read it).
+// Everything the records cannot vouch for mounts everything left: a write
+// with no name (a projection or optimistic store, a store named twice, a
+// derived or optimistic signal, a signal or store of an owner without an
+// id), a wide name, a write while the document still streams (records may
+// not have arrived), or a deferred frame under a root that shipped no
+// records.
+const edgeRoots = new Map<string, Element>();
+type EdgeIndex = {
+  readers: Map<string, [site: string, occurrence: string][]>;
+  wide: Set<string>;
+  untracked: [site: string, occurrence: string][];
+  sites: Set<string>;
+  starts: Map<string, Map<string, Comment>>;
+};
+let edgeIndex: EdgeIndex | undefined;
+const DEPS = "sc:deps:";
+function buildEdgeIndex(): EdgeIndex | undefined {
+  const r = (globalThis as any)._$HY?.r;
+  if (!r) return undefined;
+  const idx: EdgeIndex = {
+    readers: new Map(),
+    wide: new Set(),
+    untracked: [],
+    sites: new Set(),
+    starts: new Map()
+  };
+  for (const site of edgeRoots.keys())
+    for (let n = 0, batch; (batch = r[DEPS + site + ":" + n]); n++) {
+      if (typeof batch !== "object") return undefined;
+      idx.sites.add(site);
+      for (const sid in batch) {
+        const occs = unpackOccurrences(batch[sid]);
+        if (sid === "*") occs.forEach(w => idx.wide.add(w));
+        else if (sid === "!") occs.forEach(o => idx.untracked.push([site, o]));
+        else {
+          let list = idx.readers.get(sid);
+          if (!list) idx.readers.set(sid, (list = []));
+          for (const o of occs) list.push([site, o]);
+        }
+      }
+    }
+  return idx;
+}
+/** `card#0-2 cart#0` -> `card#0 card#1 card#2 cart#0` (the sink's `packOccurrences`). */
+function unpackOccurrences(packed: string): string[] {
+  const out: string[] = [];
+  for (const part of packed.split(" ")) {
+    const m = /^(.*)#(\d+)-(\d+)$/.exec(part);
+    if (!m) part && out.push(part);
+    else for (let i = +m[2]; i <= +m[3]; i++) out.push(m[1] + "#" + i);
+  }
+  return out;
+}
+/** An occurrence's start marker under its root (a nested one, found in the document). */
+function startOf(idx: EdgeIndex, site: string, occ: string): Comment | undefined {
+  let m = idx.starts.get(site);
+  if (!m) {
+    idx.starts.set(site, (m = new Map()));
+    const root = edgeRoots.get(site);
+    if (root) {
+      const w = document.createTreeWalker(root, 128 /* SHOW_COMMENT */);
+      for (let c = w.nextNode() as Comment | null; c; c = w.nextNode() as Comment | null) {
+        const d = c.data;
+        if (d.startsWith("slot:") && d.endsWith(":start")) m.set(d.slice(5, -6), c);
+      }
+    }
+  }
+  return m.get(occ);
+}
+/** Every deferred frame sits under a root whose records arrived. */
+function edgesCover(idx: EdgeIndex): boolean {
+  outer: for (const f of deferredFrames()) {
+    for (const [site, root] of edgeRoots)
+      if (idx.sites.has(site) && root.contains(f.el)) continue outer;
+    return false;
+  }
+  return true;
+}
+function mountForWrite(node?: object) {
+  if (mounting || (sharedConfig as any).hydrating) return;
+  // A plain signal by its own name; a store setter by its store's.
+  const sid = signalName(node) ?? storeName(node);
+  if (sid === undefined || document.readyState === "loading") return mountAllDeferred();
+  const idx = (edgeIndex ||= buildEdgeIndex());
+  if (!idx || idx.wide.has(sid) || !edgesCover(idx)) return mountAllDeferred();
+  const readers = idx.readers.get(sid);
+  if (!readers && !idx.untracked.length) return;
+  mounting = true;
+  try {
+    for (const list of [readers || [], idx.untracked])
+      for (const [site, occ] of list) {
+        // The occurrence's own deferred frame mounts it from its walk; one
+        // inside an occurrence not mounted yet (a region's fill) is found in
+        // the document and mounted with its enclosing ones first.
+        const root = edgeRoots.get(site);
+        if (root && deferredFrames().some(f => root.contains(f.el) && f.mountOccurrence(occ)))
+          continue;
+        const start = startOf(idx, site, occ);
+        const target = start && (start.nextSibling || start);
+        if (target) for (let f; (f = liveFrameAt(target)) && f.mountEnclosing(target); );
+      }
+  } finally {
+    mounting = false;
+  }
+  deferDone();
+}
+
+/**
+ * Dev: identity drift. A deferred occurrence mounting reads a named signal
+ * it did not create that its record does not list: the client named that
+ * signal differently from the server (a plain signal created on one side
+ * only, under the same owner, ahead of it), so a write to it would mount
+ * the wrong occurrences. Warned once per signal.
+ */
+let driftReads: Map<string, Set<string>> | undefined;
+const driftWarned = new Set<string>();
+function watchDeferredMount(site: string, occ: string, mount: () => void) {
+  const reads = new Set<string>();
+  setReadWatch(node => {
+    const sid = signalName(node);
+    if (sid !== undefined) reads.add(sid);
+  });
+  try {
+    mount();
+  } finally {
+    setReadWatch(null);
+  }
+  const idx = (edgeIndex ||= buildEdgeIndex());
+  if (!idx || !idx.sites.has(site) || idx.untracked.some(([s, o]) => s === site && o === occ))
+    return;
+  if (!driftReads) {
+    driftReads = new Map();
+    for (const [sid, list] of idx.readers)
+      for (const [s, o] of list) {
+        const key = s + " " + o;
+        let set = driftReads.get(key);
+        if (!set) driftReads.set(key, (set = new Set()));
+        set.add(sid);
+      }
+  }
+  const own = `sc-${site}-${occ}-`;
+  const listed = driftReads.get(site + " " + occ);
+  for (const sid of reads) {
+    if (sid.startsWith(own) || listed?.has(sid) || driftWarned.has(sid)) continue;
+    driftWarned.add(sid);
+    console.warn(
+      `[deferred hydration] The slot occurrence "${occ}" read the signal "${sid}" while mounting, ` +
+        `but the server did not record that read. The client and the server name this signal ` +
+        `differently: a plain signal is created on only one side, under the same component or ` +
+        `owner, before it (code that branches on isServer, or a client-only helper). A write to ` +
+        `it would mount the wrong occurrences. Create such signals after the shared ones, or ` +
+        `under their own owner.`
+    );
+  }
+}
+
+let idlePass: Promise<void> | undefined;
+function mountIdle() {
+  return (idlePass ||= (async () => {
+    // After the document has finished streaming (every segment it reveals is
+    // in place, so one pass sees all of it; the first paint is behind us) and
+    // after the tiers it announced — a mount needing one would only wait for
+    // it, leaving its occurrence to the install's full sync. (The record is
+    // read again: it may have streamed in after the install.)
+    if (document.readyState !== "complete")
+      await new Promise(r => addEventListener("load", r, { once: true }));
+    (globalThis as any)._$HY?.r?.["sc:tiers"]?.forEach(prepareTier);
+    await Promise.all(Object.values(tierLoads)).catch(() => {});
+    for (let frames; (frames = deferredFrames()).length; ) {
+      await idleTick();
+      const deadline = performance.now() + DEFER_BUDGET;
+      mounting = true;
+      try {
+        for (const f of frames)
+          if (!f.mountDeferred(deadline) || performance.now() > deadline) break;
+      } finally {
+        mounting = false;
+      }
+    }
+    idlePass = undefined;
+    deferDone();
+  })());
+}
+
+/** Nothing left to mount: drop the triggers and let hydration complete. */
+function deferDone() {
+  if (deferredFrames().length) return;
+  if (deferring) {
+    deferring = false;
+    edgeIndex = driftReads = undefined;
+    setWriteHook(null);
+    DEFER_EVENTS.forEach(t => document.removeEventListener(t, wakeAt, true));
+  }
+  releaseDeferHolds();
+}
+
+let deferHydration = true;
+/**
+ * Turn deferred hydration off (or back on) for the frames this client
+ * adopts from now on: off, an adopted occurrence mounts in the adoption
+ * pass. A test seam for the specs that pin adoption-time ordering.
+ * @internal
+ */
+export function setDeferredHydration(on: boolean): void {
+  deferHydration = on;
+  setDeferDriver(on && typeof document !== "undefined" ? deferFrame : null);
+  setSignalIdentities(on && typeof document !== "undefined");
+  if (IS_DEV) setDeferMountWatch(on ? watchDeferredMount : null);
+}
+
+let deferring = false;
+function deferFrame(frame: any) {
+  if (!deferring) {
+    deferring = true;
+    setWriteHook(mountForWrite);
+    DEFER_EVENTS.forEach(t => document.addEventListener(t, wakeAt, true));
+  }
+  // An event that landed before the frame existed waits in hydration's
+  // queue for its element to hydrate: mount its occurrence now, as the
+  // adoption-time sync would have, so the replay finds the handler.
+  const queued: [Element, Event][] | undefined = (sharedConfig as any).events;
+  if (queued && queued.length)
+    for (const [el, e] of queued)
+      if (frame.el.contains(el)) wakeAt({ target: e.target ?? el } as any);
+  // A frame deferring during the pass (a region of an occurrence it just
+  // mounted) is the pass's to reach; otherwise start one.
+  mountIdle();
 }
 
 /**
@@ -1686,6 +1931,13 @@ export function installServerComponents(host: any = getFrameHost(), options?: In
   // early as the page's `_$HY` allows (when this call precedes the page's
   // bootstrap, the first documentBoundary re-attempts).
   installRevealHook();
+  if (typeof document !== "undefined" && deferHydration) {
+    setDeferDriver(deferFrame);
+    // Deferred hydration names plain signals, so a write reports which one
+    // (dependency edges); before hydration creates any.
+    setSignalIdentities(true);
+    if (IS_DEV) setDeferMountWatch(watchDeferredMount);
+  }
   const handler = createServerComponentHandler({
     host,
     // ONE mount component per function, and it IS the document placeholder:

@@ -14,7 +14,8 @@ import {
   throwerOf,
   ownerId,
   onCleanup,
-  inServerComponentScope
+  inServerComponentScope,
+  edgeHooks
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
@@ -316,7 +317,7 @@ function ssrLoadingBoundary(
       },
       // Located where it was THROWN (the owner it escaped), the boundary that
       // met it in `data` — the same two facts the server error hook carries.
-      throwerOf(err) ?? o
+      throwerOf(err, ctx._errorScope) ?? o
     );
   };
   let serializeBuffer: [string, any, boolean?][] = [];
@@ -396,7 +397,8 @@ function ssrLoadingBoundary(
         err,
         { kind: "render", handling: "client", boundary: id },
         o,
-        ctx.errorPolicy
+        ctx.errorPolicy,
+        ctx._errorScope
       );
     }
     return done!(outcome && outcome.value, err, outcome && outcome.escaped);
@@ -481,7 +483,8 @@ function ssrLoadingBoundary(
         err,
         { kind: "render", handling: "failed", boundary: id },
         o,
-        ctx.errorPolicy
+        ctx.errorPolicy,
+        ctx._errorScope
       );
       ctx.failRender ? ctx.failRender(err) : console.error(err);
       return;
@@ -495,7 +498,8 @@ function ssrLoadingBoundary(
           caught,
           { kind: "render", handling: "failed", boundary: id },
           o,
-          ctx.errorPolicy
+          ctx.errorPolicy,
+          ctx._errorScope
         );
         ctx.failRender ? ctx.failRender(caught) : console.error(caught);
       }
@@ -517,10 +521,13 @@ function ssrLoadingBoundary(
     const prevCount = (o as any)._childCount;
     (o as any).id = flattenId;
     (o as any)._childCount = resolveCount;
+    // Dependency edges: the scope's plain-signal count continues too.
+    const prevSig = edgeHooks !== null ? edgeHooks.enter(resolveIn, o, true) : 0;
     try {
       return run();
     } finally {
       resolveCount = (o as any)._childCount;
+      if (edgeHooks !== null) edgeHooks.leave(resolveIn, o, prevSig, 2);
       (o as any).id = contentId;
       (o as any)._childCount = prevCount;
     }

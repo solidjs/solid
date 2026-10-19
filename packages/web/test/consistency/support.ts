@@ -36,6 +36,7 @@ import { installServerComponents, createFrameHost, getFrameHost } from "../../fr
 import { reviveContainerTraces } from "../../frames/src/frame-container-plugin.js";
 import { createJSONDataTable } from "../../serialization/src/serializer.js";
 import { createChunk } from "../../server-functions/src/shared.js";
+import { encodeFrameChunk, encodeLiveOp } from "../wire-fixture.js";
 
 export {
   frameResponse,
@@ -317,7 +318,8 @@ export interface Page {
   revealFragment(key: string, html: string, settleFr?: boolean): number;
   /** The fallback-reveal task (`$dfl`): materialize `pl-K`'s template content. */
   revealFallback(key: string): number;
-  /** The `sc:live` channel: push an op (`{ type, key, fid?, html?, attrs? }`). */
+  /** The `sc:live` channel: push an op (`{ type, key, fid?, html?, attrs? }`) — as the
+   *  sink does, encoded to its record batch. */
   live: { push(op: any): void; close(): void };
   /** Announce the shell to the frames client's boundary index (see module doc). */
   announceShell(): void;
@@ -371,7 +373,7 @@ export function bootPage(
   // tables, the lazy codec, the container-trace hooks — on S1 also the lazy
   // materializer's `prepareData`/`prepareArgs` seams). A document page never
   // begins a stream, so the shared tables stay empty and `page.table` is a
-  // scratch table for tests that drive `host.apply({type:"data"})` through
+  // scratch table for tests that drive `host.apply(encodeFrameChunk({type:"data"}))` through
   // a CUSTOM host (`hostOptions`), which is the only time it is wired.
   const table = createJSONDataTable();
   let host: any;
@@ -456,7 +458,7 @@ export function bootPage(
       return (globalThis as any).$dfl(key);
     },
     live: {
-      push: (op: any) => live.next(op),
+      push: (op: any) => live.next(encodeLiveOp(op)),
       close: () => live.return(undefined)
     },
     announceShell() {
@@ -540,7 +542,7 @@ export function heldStream(id: string) {
   return {
     response: new Response(body, { headers: { "X-Frame-Stream": id } }),
     send(chunk: any) {
-      controller.enqueue(createChunk(JSON.stringify(chunk)));
+      controller.enqueue(createChunk(JSON.stringify(encodeFrameChunk(chunk))));
     },
     close() {
       controller.close();

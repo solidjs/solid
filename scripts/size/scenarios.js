@@ -78,13 +78,12 @@ const floorMinified = Object.fromEntries(
 // 2026-10-06: nested server-content regions) is the third, `regions.js`,
 // and its ASSETS TIER (`@solidjs/web/frames/assets` — plan step C5,
 // 2026-10-06: the stylesheet gate, module / typed preloads, inline styles)
-// the fourth, `assets.js`, and its BIND TIER (`@solidjs/web/frames/bind` —
-// plan step C6, 2026-10-06: binding-slot positions, `assign` with them)
-// the fifth, `bind.js`, and its LIVE WIRE TIER (`@solidjs/web/frames/wire`
+// the fourth, `assets.js`, and its LIVE WIRE TIER (`@solidjs/web/frames/wire`
 // — plan step C2, 2026-10-06: a `live()` loop's connection — join / open /
 // supersede, the SSE reader, the lifetime told to the loop, the have-list
-// ledger and the resume request) the sixth, `wire.js` — each lazy, not
-// counted. The "frames: eager client consumer" scenario measures the
+// ledger and the resume request) the fifth, `wire.js` — each lazy, not
+// counted. (A bind tier, `bind.js`, was the fifth until binding slots were
+// removed, 2026-10-16.) The "frames: eager client consumer" scenario measures the
 // package; these measure the page.
 // Subpath aliases first (see above) — the tier specifiers before
 // `@solidjs/web/frames` and `solid-js/internal`, which would otherwise
@@ -93,7 +92,6 @@ const pageAlias = {
   "@solidjs/web/frames/trace": "../../packages/web/frames/dist/trace.js",
   "@solidjs/web/frames/regions": "../../packages/web/frames/dist/regions.js",
   "@solidjs/web/frames/assets": "../../packages/web/frames/dist/assets.js",
-  "@solidjs/web/frames/bind": "../../packages/web/frames/dist/bind.js",
   "@solidjs/web/frames/wire": "../../packages/web/frames/dist/wire.js",
   "solid-js/internal/container-trace": "../../packages/solid/dist/container-trace.js",
   "@solidjs/web/server-functions/client": "../../packages/web/server-functions/dist/client.js",
@@ -154,13 +152,12 @@ const framesExternal = [
   // The traces tier: lazily imported by the frames client (plan step C3,
   // 2026-10-06) — external like the codec, so this scenario keeps measuring
   // the eager graph alone; its own `solid-js` entry rides with it. The
-  // regions tier (C4), the assets tier (C5), the bind tier (C6) and the live
-  // wire tier (C2) likewise.
+  // regions tier (C4), the assets tier (C5) and the live wire tier (C2)
+  // likewise.
   "solid-js/internal/container-trace",
   "@solidjs/web/frames/trace",
   "@solidjs/web/frames/regions",
   "@solidjs/web/frames/assets",
-  "@solidjs/web/frames/bind",
   "@solidjs/web/frames/wire",
   "@solidjs/web",
   "@solidjs/web/serialization",
@@ -1083,8 +1080,9 @@ module.exports = [
     // 44,832 B; measured locally (linux) at 14,774 B (44,832 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "14.79 KB",
-    capMinified: 44832,
+    // store delete key-count fix (#4132, 2026-10-17): 14.79 -> 14.82 KB, measured at 14,802 B brotli / 44,865 B minified (+12 B brotli over the cap, +33 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
+    limit: "14.82 KB",
+    capMinified: 44865,
     alias
   },
   {
@@ -1379,8 +1377,15 @@ module.exports = [
     // 28,005 B; measured locally (linux) at 9,943 B (28,005 B minified). Lower
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
-    limit: "9.96 KB",
-    capMinified: 28005,
+    // A held error reaches a derivation of `latest` (#4129, #4106) plus the
+    // store delete key count (#4132) and root owners' flags slot (#4136),
+    // 2026-10-18, measured on next @ 5c8ec966: 9.96 -> 9.98 KB, measured
+    // locally at 9,963 B brotli / 28,064 B minified (+59 B minified: 51 B from
+    // #4129's `laneRead`/`verdictValue`/`stageError`, which passed alone under
+    // the brotli cap, and 4 B from each of the other two). Cap at measured +
+    // 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    limit: "9.98 KB",
+    capMinified: 28064,
     alias
   },
   {
@@ -1411,8 +1416,7 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     limit: "7.86 KB",
-    capMinified: 21584,
-    capMinified: 22716
+    capMinified: 21584
   },
   {
     name: "app: render + one signal (the simple-app floor)",
@@ -2587,8 +2591,11 @@ module.exports = [
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 29.91 -> 30.09 KB, measured at 30,075 B brotli / 94,579 B minified (+165 B brotli over the cap, +646 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "30.09 KB",
-    capMinified: 94579,
+    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17, merged over next @ 01270641): 30.09 -> 30.14 KB, measured locally at 30,125 B brotli / 94,611 B minified (+32 B minified over the recorded size): `laneRead` and `verdictValue` hand a held error to an override/derived read the way they hand a value, and `stageError` schedules the verdict wake. Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // store delete key-count fix (#4132, 2026-10-17): 30.09 -> 30.14 KB, measured at 30,129 B brotli / 94,616 B minified (+39 B brotli over the cap, +37 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
+    // Merged over next @ 7093b074b after #4129 raised this same cap 30.09 -> 30.14 KB for its own bytes (2026-10-17): the two together measured locally at 30,116 B brotli / 94,644 B minified, under the cap, so the cap stays at 30.14 KB; recorded minified 94,611 -> 94,644.
+    limit: "30.14 KB",
+    capMinified: 94644,
     alias
   },
   {
@@ -3900,8 +3907,9 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 25.66 -> 25.95 KB, measured at 25,940 B brotli / 80,846 B minified (+280 B brotli over the cap, +640 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "25.95 KB",
-    capMinified: 80846,
+    // store delete key-count fix (#4132, 2026-10-17): 25.95 -> 26.03 KB, measured at 26,011 B brotli / 80,879 B minified (+61 B brotli over the cap, +33 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
+    limit: "26.03 KB",
+    capMinified: 80879,
     alias
   },
   {
@@ -4048,8 +4056,9 @@ module.exports = [
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 31.72 -> 31.96 KB, measured at 31,950 B brotli / 101,408 B minified (+230 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "31.96 KB",
-    capMinified: 101408,
+    // store delete key-count fix (#4132, 2026-10-17): 31.96 -> 31.98 KB, measured at 31,962 B brotli / 101,441 B minified (+2 B brotli over the cap, +33 B minified over the recorded size; CI and local agree): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness.
+    limit: "31.98 KB",
+    capMinified: 101441,
     alias
   },
   {
@@ -4528,8 +4537,54 @@ module.exports = [
     // busy 340-429 -> 214-339 ms/s at 100 rows / 10%; 400 rows no longer
     // saturates. Measured at
     // 11,873 B brotli / 35,494 B minified; cap set to that measurement. Accepted by the maintainer (2026-10-15).
-    limit: "11.873 KB",
-    capMinified: 35494,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 11.873 -> 12.80 KB, measured at 12,790 B brotli / 38,500 B minified
+    // (recorded 35,494). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Binding slots removed (2026-10-16): 12.80 KB -> 12.16 KB, measured
+    // locally (linux) at 12,149 B brotli / 36,598 B minified
+    // (-641 B brotli / -1,902 B minified against the
+    // #4120 head's 12,790 / 38,500).
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
+    // 2026-10-17): 12.16 -> 12.23 KB, measured at 12,216 B brotli / 36,842 B
+    // minified against this branch's 12,149 / 36,598 (+67 B; +244 B minified). A
+    // re-run live hole's markup is morphed against the displaced-range index, so
+    // slot occurrences that survive stay mounted, new ones mount and dropped
+    // ones dispose; deferred, an occurrence not mounted yet keeps the record its
+    // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (nested slot fills see the enclosing fill's context,
+    // 2026-10-17, over next @ 7010268d): 12.23 -> 12.25 KB, measured at
+    // 12,235 B brotli / 36,845 B minified (+19 B brotli, +3 B minified). A fill
+    // in a region mounts under the owner that placed it (the regions tier's
+    // placement), and a fill's two claim windows share one claim owner. Cap at
+    // measured + 10 B rounded up to 0.01 KB.
+    // record-only writes mount from the last slot walk (#4139, 2026-10-18): 12.25 -> 12.37 KB, measured locally at 12,359 B brotli / 37,310 B minified (+465 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 12.37 KB -> 12.46 KB, measured locally at 12,445 B brotli / 37,516 B minified (+206 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 12.25 -> 12.80 KB, measured locally (linux) at 12,784 B
+    // brotli / 38,793 B minified against next's 12,235 / 36,845 (+549 B; +1948
+    // B minified). Deferred hydration mounts only the slot occurrences the
+    // server recorded as readers of the written signal or store (an index built
+    // from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 12.80 KB -> 12.99 KB, measured locally (linux) at 12,980 B brotli / 39,466 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 12.99 KB -> 12.72 KB, measured locally (linux) at 12,704 B brotli / 38,357 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 12.72 KB -> 11.96 KB, measured locally (linux) at 11,943 B brotli / 35,581 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Records on the wire (2026-10-19, over next @ 2aa9e86a): 11.96 KB -> 11.76 KB, measured locally (linux) at 11,745 B brotli / 34,852 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "11.76 KB",
+    capMinified: 34852,
     alias: framesAlias,
     external: framesExternal
   },
@@ -4862,6 +4917,61 @@ module.exports = [
     // 106,175 B; measured locally (linux) at 34,601 B (106,175 B minified).
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 34.620 -> 35.43 KB, measured at 35,418 B brotli / 109,143 B minified
+    // (recorded 106,175). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Binding slots removed (2026-10-16): 35.43 KB -> 33.04 KB, measured
+    // locally (linux) at 33,027 B brotli / 101,716 B minified
+    // (-2,391 B brotli / -7,427 B minified against the
+    // #4120 head's 35,418 / 109,143). The lazy `bind.js` (6,859 B minified / 2,544 B brotli) is gone too.
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
+    // 2026-10-17): 33.04 -> 33.08 KB, measured at 33,070 B brotli / 101,960 B
+    // minified against this branch's 33,027 / 101,716 (+43 B; +244 B minified).
+    // A re-run live hole's markup is morphed against the displaced-range index,
+    // so slot occurrences that survive stay mounted, new ones mount and dropped
+    // ones dispose; deferred, an occurrence not mounted yet keeps the record its
+    // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 35.85 KB -> 33.44 KB, recorded minified 110,156 -> 102,617 B;
+    // measured locally (linux) at 33,421 B (102,617 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    // Size-Exception (nested slot fills see the enclosing fill's context,
+    // 2026-10-17, over next @ 7010268d): 33.44 -> 33.46 KB, measured at
+    // 33,441 B brotli / 102,629 B minified (+20 B brotli, +12 B minified). A fill
+    // in a region mounts under the owner that placed it (the regions tier's
+    // placement), and a fill's two claim windows share one claim owner. Cap
+    // (floor-caps.json) at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (record-only writes mount from the last slot walk,
+    // #4139, 2026-10-18): 33.46 -> 33.57 KB, measured locally at 33,555 B
+    // brotli / 103,102 B minified (+465 B minified): a write carrying only
+    // slot records mounts the occurrences it names from the frame's cached
+    // walk instead of walking the frame again. Accepted by the maintainer.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 33.57 KB -> 33.62 KB (floor-caps.json), measured locally at 33,608 B brotli / 103,298 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 33.46 -> 34.08 KB, measured locally (linux) at 34,065 B
+    // brotli / 105,105 B minified against next's 33,441 / 102,629 (+624 B;
+    // +2476 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 34.08 KB -> 34.28 KB (floor-caps.json), measured locally (linux) at 34,270 B brotli / 105,776 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 34.28 KB -> 34.00 KB (floor-caps.json), measured locally (linux) at 33,985 B brotli / 104,663 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 34.00 KB -> 33.31 KB (floor-caps.json), measured locally (linux) at 33,294 B brotli / 101,886 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Records on the wire (2026-10-19, over next @ 2aa9e86a): 33.31 KB -> 33.12 KB (floor-caps.json), measured locally (linux) at 33,107 B brotli / 101,166 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5135,6 +5245,67 @@ module.exports = [
     // display through its retry, `latest` throws a staged error. Cap set at
     // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
     // 2026-10-15 (golf first, then raise by what is left).
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-16):
+    // 38.700 -> 39.64 KB, measured at 39,623 B brotli / 122,512 B minified
+    // (recorded 119,540). The adoption pass mounts no slot occurrence; an event,
+    // a write or idle slices after load mount them. HN story page, 4x CPU: script
+    // blocking at load 178 -> 22 ms (binding slots 78, SPA 301). Cap at measured
+    // + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Binding slots removed (2026-10-16): 39.64 KB -> 37.23 KB, measured
+    // locally (linux) at 37,220 B brotli / 115,083 B minified
+    // (-2,403 B brotli / -7,429 B minified against the
+    // #4120 head's 39,623 / 122,512). The lazy `bind.js` (6,859 B minified / 2,543 B brotli) is gone too.
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
+    // 2026-10-17): 37.23 -> 37.28 KB, measured at 37,269 B brotli / 115,335 B
+    // minified against this branch's 37,220 / 115,083 (+49 B; +252 B minified).
+    // A re-run live hole's markup is morphed against the displaced-range index,
+    // so slot occurrences that survive stay mounted, new ones mount and dropped
+    // ones dispose; deferred, an occurrence not mounted yet keeps the record its
+    // markup was rendered from. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 40.00 KB -> 37.52 KB, recorded minified 123,516 -> 115,976 B;
+    // measured locally (linux) at 37,510 B (115,976 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    // Size-Exception (nested slot fills see the enclosing fill's context,
+    // 2026-10-17, over next @ 7010268d): 37.52 -> 37.58 KB, measured at
+    // 37,565 B brotli / 115,982 B minified (+55 B brotli, +6 B minified). A fill
+    // in a region mounts under the owner that placed it (the regions tier's
+    // placement), and a fill's two claim windows share one claim owner. Cap
+    // (floor-caps.json) at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (a held error reaches a derivation of `latest`, #4113,
+    // #4106, 2026-10-17, merged over next @ fb498491): 37.58 -> 37.65 KB,
+    // measured locally at 37,634 B brotli / 116,033 B minified (+51 B
+    // minified): `laneRead` and `verdictValue` hand a held error to an
+    // override/derived read the way they hand a value, and `stageError`
+    // schedules the verdict wake. Cap at measured + 10 B rounded up to
+    // 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Size-Exception (record-only writes mount from the last slot walk,
+    // #4139, 2026-10-18): 37.65 -> 37.67 KB, measured locally at 37,658 B
+    // brotli / 116,502 B minified (+465 B minified). Accepted by the
+    // maintainer.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 37.67 KB -> 37.78 KB (floor-caps.json), measured locally at 37,768 B brotli / 116,698 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 37.58 -> 38.34 KB, measured locally (linux) at 38,322 B
+    // brotli / 118,464 B minified against next's 37,565 / 115,982 (+757 B;
+    // +2482 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 38.34 KB -> 38.57 KB (floor-caps.json), measured locally (linux) at 38,560 B brotli / 119,182 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 38.57 KB -> 38.32 KB (floor-caps.json), measured locally (linux) at 38,309 B brotli / 118,069 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 38.32 KB -> 37.54 KB (floor-caps.json), measured locally (linux) at 37,523 B brotli / 115,287 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Records on the wire (2026-10-19, over next @ 2aa9e86a): 37.54 KB -> 37.37 KB (floor-caps.json), measured locally (linux) at 37,354 B brotli / 114,567 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5246,8 +5417,49 @@ module.exports = [
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 35.37 -> 35.78 KB, measured at 35,768 B brotli / 109,754 B minified (+398 B brotli over the cap, +654 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "35.78 KB",
-    capMinified: 109754,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 35.78 -> 36.63 KB, measured at 36,618 B brotli / 112,720 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 36.63 -> 36.76 KB, measured at 36,745 B brotli / 113,081 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 36.76 KB -> 35.30 KB, recorded minified 113,081 -> 108,961 B;
+    // measured locally (linux) at 35,290 B (108,961 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    // Size-Exception (nested slot fills see the enclosing fill's context,
+    // 2026-10-17, over next @ 7010268d): 35.30 -> 35.42 KB, measured at
+    // 35,408 B brotli / 108,973 B minified (+118 B brotli, +12 B minified). A fill
+    // in a region mounts under the owner that placed it (the regions tier's
+    // placement), and a fill's two claim windows share one claim owner. Cap at
+    // measured + 10 B rounded up to 0.01 KB.
+    // record-only writes mount from the last slot walk (#4139, 2026-10-18): 35.42 -> 35.53 KB, measured locally at 35,517 B brotli / 109,446 B minified (+473 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 35.53 KB -> 35.58 KB, measured locally at 35,569 B brotli / 109,642 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 35.42 -> 36.10 KB, measured locally (linux) at 36,087 B
+    // brotli / 111,454 B minified against next's 35,408 / 108,973 (+679 B;
+    // +2481 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 36.10 KB -> 36.42 KB, measured locally (linux) at 36,407 B brotli / 112,125 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 36.42 KB -> 36.05 KB, measured locally (linux) at 36,035 B brotli / 111,012 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 36.05 KB -> 35.29 KB, measured locally (linux) at 35,271 B brotli / 108,230 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Records on the wire (2026-10-19, over next @ 2aa9e86a): 35.29 KB -> 35.14 KB, measured locally (linux) at 35,125 B brotli / 107,510 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "35.14 KB",
+    capMinified: 107510,
     alias: pageAlias
   },
   {
@@ -5327,8 +5539,50 @@ module.exports = [
     // minified). Lower only: cap at measured + 10 B rounded up to 0.01 KB;
     // recorded minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 41.21 -> 41.77 KB, measured at 41,758 B brotli / 124,658 B minified (+544 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
-    limit: "41.77 KB",
-    capMinified: 124658,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 41.77 -> 42.68 KB, measured at 42,667 B brotli / 127,635 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 42.68 -> 42.78 KB, measured at 42,765 B brotli / 127,996 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 42.78 KB -> 41.48 KB, recorded minified 127,996 -> 123,926 B;
+    // measured locally (linux) at 41,463 B (123,926 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    // A held error reaches a derivation of `latest` (#4129, #4106) plus the
+    // store delete key count (#4132) and root owners' flags slot (#4136),
+    // 2026-10-18, measured on next @ 5c8ec966: 41.48 -> 41.52 KB, measured
+    // locally at 41,503 B brotli / 123,984 B minified (+58 B minified: 51 B from
+    // #4129, which passed alone under the brotli cap, and the rest from the
+    // other two). Cap at measured + 10 B rounded up to 0.01 KB. Accepted by
+    // the maintainer (2026-10-17).
+    // record-only writes mount from the last slot walk (#4139, 2026-10-18): 41.48 -> 41.64 KB, measured locally at 41,628 B brotli / 124,449 B minified (+523 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 41.64 KB -> 41.66 KB, measured locally at 41,649 B brotli / 124,645 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 41.48 -> 42.18 KB, measured locally (linux) at 42,169 B
+    // brotli / 126,460 B minified against next's 41,439 / 123,929 (+730 B;
+    // +2531 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 42.18 KB -> 42.39 KB, measured locally (linux) at 42,375 B brotli / 127,178 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 42.39 KB -> 42.13 KB, measured locally (linux) at 42,112 B brotli / 126,066 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 42.13 KB -> 41.38 KB, measured locally (linux) at 41,365 B brotli / 123,281 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Records on the wire (2026-10-19, over next @ 2aa9e86a): 41.38 KB -> 41.11 KB, measured locally (linux) at 41,098 B brotli / 122,561 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "41.11 KB",
+    capMinified: 122561,
     alias: pageAlias
   },
   {
@@ -5485,8 +5739,43 @@ module.exports = [
     // Lower only: cap at measured + 10 B rounded up to 0.01 KB; recorded
     // minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, from CI run 38867513870 — a local bundle of this scenario resolves the router differently and measures ~7 KB smaller, so CI's bytes set this cap): 41.96 -> 42.25 KB, measured at 42,233 B brotli / 130,720 B minified (+295 B brotli over base, +273 B over the cap, +654 B minified over the recorded size): the same window-staged commit as the other list scenarios.
-    limit: "42.25 KB",
-    capMinified: 130720,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 42.25 -> 43.09 KB, measured at 43,074 B brotli / 133,686 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 43.09 -> 43.26 KB, measured at 43,247 B brotli / 134,047 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 43.26 KB -> 40.90 KB, recorded minified 134,047 -> 126,460 B;
+    // measured locally (linux) at 40,884 B (126,460 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    // record-only writes mount from the last slot walk (#4139, 2026-10-18): 40.90 -> 40.95 KB, measured locally at 40,937 B brotli / 126,936 B minified (+476 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 40.95 KB -> 41.04 KB, measured locally at 41,022 B brotli / 127,132 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 40.90 -> 41.66 KB, measured locally (linux) at 41,647 B
+    // brotli / 128,940 B minified against next's 40,817 / 126,463 (+830 B;
+    // +2477 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 41.66 KB -> 41.81 KB, measured locally (linux) at 41,799 B brotli / 129,611 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 41.81 KB -> 41.58 KB, measured locally (linux) at 41,564 B brotli / 128,499 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 41.58 KB -> 40.81 KB, measured locally (linux) at 40,798 B brotli / 125,717 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Records on the wire (2026-10-19, over next @ 2aa9e86a): 40.81 KB -> 40.56 KB, measured locally (linux) at 40,543 B brotli / 125,001 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "40.56 KB",
+    capMinified: 125001,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5612,8 +5901,50 @@ module.exports = [
     // Re-based on the measurement: cap at measured + 10 B rounded up to
     // 0.01 KB, recorded minified 144,773.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, from CI run 38867513870 — a local bundle of this scenario resolves the router differently and measures ~7 KB smaller, so CI's bytes set this cap): 48.16 -> 48.46 KB, measured at 48,444 B brotli / 145,422 B minified (+294 B brotli over base, +284 B over the cap, +649 B minified over the recorded size): the same window-staged commit as the other list scenarios.
-    limit: "48.46 KB",
-    capMinified: 145422,
+    // Size-Exception (deferred hydration of slot occurrences, #4120, 2026-10-17, merged over next @ f3973eae):
+    // 48.46 -> 49.37 KB, measured at 49,352 B brotli / 148,410 B minified. The adoption pass
+    // mounts no slot occurrence; an event, a write or idle slices after load mount them.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-16).
+    // Size-Exception (slots in live holes, #4127, 2026-10-17, merged over next @ 7ea9e8f1):
+    // 49.37 -> 49.47 KB, measured at 49,458 B brotli / 148,771 B minified. A re-run live
+    // hole keeps its slot occurrences mounted, mounts new ones and disposes dropped ones.
+    // Cap at measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 49.47 KB -> 47.02 KB, recorded minified 148,771 -> 141,204 B;
+    // measured locally (linux) at 47,001 B (141,204 B minified). Lower only:
+    // cap at measured + 10 B rounded up to 0.01 KB; recorded minified never
+    // raised.
+    // A held error reaches a derivation of `latest` (#4113, #4106, 2026-10-17,
+    // merged over next @ 7010268d): 47.02 -> 47.05 KB, measured locally at
+    // 47,040 B brotli / 141,255 B minified (+51 B minified): `laneRead` and
+    // `verdictValue` hand a held error to an override/derived read the way
+    // they hand a value, and `stageError` schedules the verdict wake. Cap at
+    // measured + 10 B rounded up to 0.01 KB. Accepted by the maintainer
+    // (2026-10-17).
+    // record-only writes mount from the last slot walk (#4139, 2026-10-18): 47.05 -> 47.19 KB, measured locally at 47,173 B brotli / 141,725 B minified (+470 B minified over the recorded size): a write carrying only slot records mounts the occurrences it names from the frame's cached walk instead of walking the frame again (eager hydration of a 400-slot page walked it 401 times). Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Flush content passes walk only non-slot keys (#4139, 2026-10-18): 47.19 KB -> 47.23 KB, measured locally at 47,220 B brotli / 141,921 B minified (+196 B minified over the recorded size): a document's slot record writes no longer each enumerate the whole record store; shop page JS at 4x, eager 564 -> 361 ms, deferred 516 -> 375. Accepted by the maintainer (2026-10-18). Cap at measured + 10 B rounded up to 0.01 KB.
+    // Size-Exception (dependency edges for deferred hydration, 2026-10-17, over
+    // next @ fb498491): 47.02 -> 47.74 KB, measured locally (linux) at 47,722 B
+    // brotli / 143,747 B minified against next's 47,006 / 141,205 (+716 B;
+    // +2542 B minified). Deferred hydration mounts only the slot occurrences
+    // the server recorded as readers of the written signal or store (an index
+    // built from the per-frame `sc:deps` records), falling back to mounting
+    // everything on an unnamed, wide or unrecorded write; a dev-only check
+    // warns when a mount reads a signal its record lacks. The plain-signal
+    // namer (`<owner id>~<n>`, restarted on each owner pass) ships with the
+    // frames client, which installs it into a null-checked slot in
+    // createSignal; a plain store goes by its root's name on the same count
+    // (createStore calls the same slot, and the write hook resolves a store
+    // proxy or property node to it); signals and app scenarios keep their
+    // minified size, except the compiled hydrating app (+3 B: a store setter
+    // hands its proxy to the write hook). Cap at measured + 10 B rounded up to
+    // 0.01 KB; recorded minified = measured.
+    // Re-measured after merging next @ ed51af36 (#4139 landed first): 47.74 KB -> 47.97 KB, measured locally (linux) at 47,954 B brotli / 144,465 B minified; the edges growth over that next is unchanged in kind. Accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Live holes into the lazy `wire` tier (2026-10-19, over next @ a9f7e2d7): 47.97 KB -> 47.69 KB, measured locally (linux) at 47,675 B brotli / 143,353 B minified. The hole and attr-hole appliers move out of the eager frames client into `wire`, which loads only when a response or document has a live hole. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 47.69 KB -> 46.92 KB, measured locally (linux) at 46,908 B brotli / 140,570 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Records on the wire (2026-10-19, over next @ 2aa9e86a): 46.92 KB -> 46.72 KB, measured locally (linux) at 46,701 B brotli / 139,850 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "46.72 KB",
+    capMinified: 139850,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -5719,6 +6050,21 @@ module.exports = [
     // unchanged at 20.42 KB, recorded minified 71,813 B (first record);
     // CI-measured at 20,412 B (71,813 B minified). Lower only: cap at measured
     // + 10 B rounded up to 0.01 KB; recorded minified never raised.
+    // Binding slots removed (2026-10-16): 20.58 KB -> 20.51 KB, measured
+    // locally (linux) at 20,492 B brotli / 72,065 B minified
+    // (-80 B brotli / -316 B minified against the
+    // #4120 head's 20,572 / 72,381).
+    // Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Size-Exception (slots in live holes, merged onto the binding-slot removal,
+    // 2026-10-17): 20.51 -> 20.55 KB, measured at 20,538 B brotli / 72,150 B
+    // minified against this branch's 20,492 / 72,065 (+46 B; +85 B minified).
+    // Slot occurrences in a live hole are scoped to the hole (render-id table,
+    // per-scope counters), and a re-run sends a record only for a new occurrence
+    // or changed args. Cap at measured + 10 B rounded up to 0.01 KB.
+    // Ratchet (2026-10-17, binding slots removed, #4124, merged over next @
+    // 01270641): 20.65 KB -> 20.59 KB, recorded minified 72,466 -> 72,154 B;
+    // measured locally (linux) at 20,573 B (72,154 B minified). Lower only: cap
+    // at measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     limit: floorCaps["server: renderToString (the server-render floor)"],
     capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,

@@ -192,7 +192,8 @@ let currentOwner: SSROwner | null = null;
 const OWNER_POOL_MAX = 4096;
 const ownerPool: SSROwner[] = [];
 
-function formatChildId(prefix: string, id: number): string {
+/** @internal */
+export function formatChildId(prefix: string, id: number): string {
   const num = id.toString(36);
   const len = num.length - 1;
   return prefix + (len ? String.fromCharCode(64 + len) : "") + num;
@@ -207,7 +208,8 @@ function formatChildId(prefix: string, id: number): string {
  * never pays for the string. Idempotent; the string is byte-identical
  * whenever it is built.
  */
-function materializeId(owner: SSROwner): string | undefined {
+/** @internal */
+export function materializeId(owner: SSROwner): string | undefined {
   if (owner._scopeSlot >= 0) {
     owner.id = formatChildId(owner.id!, owner._scopeSlot);
     owner._scopeSlot = -1;
@@ -392,14 +394,21 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   const prev = currentOwner;
   currentOwner = owner as unknown as SSROwner | null;
+  // One handler frame, not two. V8 runs a `finally` as a catch-and-rethrow,
+  // and a `NotReadyError` unwinds through every owner scope between the
+  // suspended read and the boundary that catches it — each re-raise costs
+  // about what the throw did. So the normal path restores inline and the
+  // catch restores before it stamps and re-raises.
+  let result: T;
   try {
-    return fn();
+    result = fn();
   } catch (error) {
+    currentOwner = prev;
     stampThrower(error, owner);
     throw error;
-  } finally {
-    currentOwner = prev;
   }
+  currentOwner = prev;
+  return result;
 }
 
 /**
@@ -408,16 +417,23 @@ export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
  * it crosses (component bodies and effects run through `runWithOwner`, a
  * memo's pull through its inlined twin), kept as it propagates to the
  * boundary that meets it. Object errors only; a `NotReadyError` is the
- * engine's own signal, not a failure.
+ * engine's own signal, not a failure. Kept on the error's verdict in the
+ * scope it was thrown in (the request in scope, else the render running —
+ * see `verdictOf`), never process-wide: a reused error object (a
+ * module-level constant) must neither name the first request's owners to a
+ * later request nor keep that request's owner tree alive past its scope.
  */
-const throwers = new WeakMap<object, Owner>();
 function stampThrower(error: unknown, owner: Owner | null): void {
-  if (owner === null || !isObject(error) || error instanceof NotReadyError) return;
-  if (!throwers.has(error)) throwers.set(error, owner);
+  if (owner === null || error instanceof NotReadyError) return;
+  const verdict = verdictOf(error, currentRequestEvent() || sharedConfig.context?._errorScope);
+  if (!verdict.thrower) verdict.thrower = owner;
 }
-/** @internal The owner `error` was stamped as thrown under, if it crossed one. */
-export function throwerOf(error: unknown): Owner | undefined {
-  return isObject(error) ? throwers.get(error) : undefined;
+/**
+ * @internal The owner `error` was stamped as thrown under in `scope` (a
+ * render's `_errorScope`; the request in scope without one), if it crossed one.
+ */
+export function throwerOf(error: unknown, scope?: object): Owner | undefined {
+  return verdictOf(error, scope || currentRequestEvent()).thrower;
 }
 
 export function getOwner(): Owner | null {
@@ -649,32 +665,43 @@ export function ssrScope<T>(fn: () => T): () => unknown {
     parent.id = prefix;
     parent._scopeSlot = slot;
     parent._childCount = resume ? resumeCount : 0;
+    const prevSig = edgeHooks !== null ? edgeHooks.enter(fn, parent, resume !== undefined) : 0;
+    // The unwrap step in flight, so the one catch below can record the
+    // resume point: a single handler frame on the NotReady unwind (see
+    // `runWithOwner`) instead of an inner catch and an outer finally.
+    let next: (() => unknown) | undefined;
+    let count = 0;
+    let v: unknown;
     try {
-      let v: unknown = resume || fn();
+      v = resume || fn();
       resume = undefined;
       // Unwrap accessor chains in-scope: reading a memo / component thunk can
       // create owners and allocate ids, which must land under the hole scope
       // just like the client's inner unwrapping effect (transparent, so it
       // shares the outer insert effect's scope).
       while (typeof v === "function") {
-        const next = v as () => unknown;
-        const count = parent._childCount;
-        try {
-          v = next();
-        } catch (err) {
-          if (err instanceof NotReadyError) {
-            resume = next;
-            resumeCount = count;
-          }
-          throw err;
-        }
+        next = v as () => unknown;
+        count = parent._childCount;
+        if (edgeHooks !== null) edgeHooks.mark(fn, parent);
+        v = next();
       }
-      return v;
-    } finally {
+    } catch (err) {
       parent.id = prevId;
       parent._scopeSlot = prevSlot;
       parent._childCount = prevCount;
+      const kept = next !== undefined && err instanceof NotReadyError;
+      if (edgeHooks !== null) edgeHooks.leave(fn, parent, prevSig, kept ? 1 : 0);
+      if (kept) {
+        resume = next;
+        resumeCount = count;
+      }
+      throw err;
     }
+    parent.id = prevId;
+    parent._scopeSlot = prevSlot;
+    parent._childCount = prevCount;
+    if (edgeHooks !== null) edgeHooks.leave(fn, parent, prevSig, 0);
+    return v;
   };
 }
 
@@ -1204,6 +1231,50 @@ function warnServerWrite(category: "signal" | "store" | "optimistic"): void {
 // projections, and of any memo whose last compute read one of those.
 let asyncReads = 0;
 
+// ---------------------------------------------------------------------------
+// Deferred hydration, dependency edges: plain-signal identities and read
+// tracking live in edges.ts, which only the frames server loads. These
+// paths hold one null-checked slot, so a render without server components
+// carries none of it.
+/** @internal The dependency-edge hooks (edges.ts). */
+export interface EdgeHooks {
+  /** The current render asked for edges. */
+  on(): boolean;
+  /** A plain signal created under the current owner: its named read. */
+  signal<T>(read: () => T): () => T;
+  /** A plain store root created under the current owner: a view whose every read reports its name. */
+  store<T extends object>(state: T): T;
+  /** Run a memo's compute (keyed by its owner), keeping what it read. Only when `on()`. */
+  run<T>(owner: object, fn: () => T): T;
+  /** A memo was read: report what its last compute read. */
+  report(owner: object): void;
+  /** A projection's compute, its reads reported as wide. */
+  projection<F extends Function>(ctx: object, fn: F): F;
+  /** The current slot fill ran a computation whose reads the server cannot see. */
+  untracked(): void;
+  /**
+   * An id scope (`key`) swaps in over `owner`: its plain-signal count starts
+   * at 0, or where the scope's last kept pass left it (`resumed`). Returns
+   * the count to restore.
+   */
+  enter(key: object, owner: object, resumed: boolean): number;
+  /** The scope's resume point: `owner`'s count now. */
+  mark(key: object, owner: object): void;
+  /** The scope swaps out: keep its mark (1) or its count (2) for a resumed pass; restore `prev`. */
+  leave(key: object, owner: object, prev: number, keep: 0 | 1 | 2): void;
+  /**
+   * A reused row owner starts a pass: its plain-signal count restarts (and
+   * restarts again whenever its id moves on to the next row).
+   */
+  reset(owner: object): void;
+}
+/** @internal */
+export let edgeHooks: EdgeHooks | null = null;
+/** @internal */
+export function setEdgeHooks(hooks: EdgeHooks | null): void {
+  edgeHooks = hooks;
+}
+
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 // Commit #0 (loadingValue) removes the uninitialized window: never undefined
@@ -1240,9 +1311,10 @@ export function createSignal<T>(
       }) as Setter<T | undefined>
     ];
   }
-  // Plain value form — no ID allocation (IDs are only for owners/computations)
+  // Plain value form — no ID allocation (IDs are only for owners/computations).
+  const read = () => first as T;
   return [
-    () => first as T,
+    edgeHooks !== null ? edgeHooks.signal(read) : read,
     v => {
       warnServerWrite("signal");
       return ((first as any) = typeof v === "function" ? (v as (prev: T) => T)(first as T) : v);
@@ -1352,7 +1424,13 @@ export function createMemo<T>(
     sharedConfig.context = ctx;
     const reads = asyncReads;
     try {
-      return runWithOwner(owner, () => runWithObserver(comp, () => comp.compute(comp.value)));
+      return runWithOwner(owner, () =>
+        runWithObserver(comp, () =>
+          edgeHooks !== null && edgeHooks.on()
+            ? edgeHooks.run(owner, () => comp.compute(comp.value))
+            : comp.compute(comp.value)
+        )
+      );
     } finally {
       sharedConfig.context = prev;
       if (asyncReads !== reads) comp.moving = true;
@@ -1414,6 +1492,7 @@ export function createMemo<T>(
   const ssrSource = options?.ssrSource;
   if (ssrSource === "client") {
     // Skip computation. Owner created for ID parity.
+    if (edgeHooks !== null) edgeHooks.untracked();
     comp.computed = true;
     if (loadingState) {
       // Client-source with commit #0: markup flushes the loading value; the
@@ -1443,6 +1522,8 @@ export function createMemo<T>(
       update();
     }
     if (comp.moving) asyncReads++;
+    // Dependency edges: a read re-reports what the last compute read.
+    if (edgeHooks !== null) edgeHooks.report(owner);
     if (comp.errored) {
       // A client hole read outside a Loading discovery pass must fail loudly
       // rather than wedge the stream (see clientHoleRead). Identity check on
@@ -1505,7 +1586,6 @@ function createSyncMemo<T>(
   let epoch: number | undefined;
   // See ServerComputation.moving.
   let moving = false;
-
   function pull(): T | undefined {
     // Inlined `runWithOwner` — avoids the per-pull `() => compute(value)`
     // closure alloc that `runWithOwner(owner, fn)` would force. Hot for the
@@ -1521,26 +1601,44 @@ function createSyncMemo<T>(
     // (#2801, generalized to all retry paths in #2900).
     resetOwnerForRerun(owner);
     const reads = asyncReads;
+    // One handler frame (see `runWithOwner`): the normal path restores
+    // inline, the catch restores and re-raises.
+    let result: T;
     try {
-      value = compute(value) as T;
-      error = undefined;
-      errored = false;
-      cached = true;
-      epoch = ctx?.commitEpoch?.();
-      return value;
+      result = (
+        edgeHooks !== null && edgeHooks.on()
+          ? edgeHooks.run(owner, () => compute(value))
+          : compute(value)
+      ) as T;
     } catch (err) {
-      if (err instanceof NotReadyError) throw err; // don't latch — engine re-pulls
+      currentOwner = prev;
+      if (asyncReads !== reads) moving = true;
+      if (err instanceof NotReadyError) {
+        // Don't latch a value — the engine re-pulls — but keep the signal
+        // for a read in this same synchronous turn (see `latchNotReady`).
+        pending = latchNotReady(pending, err);
+        throw err;
+      }
       stampThrower(err, owner);
       error = err;
       errored = true;
       cached = true;
       epoch = ctx?.commitEpoch?.();
       throw err;
-    } finally {
-      currentOwner = prev;
-      if (asyncReads !== reads) moving = true;
     }
+    currentOwner = prev;
+    if (asyncReads !== reads) moving = true;
+    value = result;
+    error = undefined;
+    errored = false;
+    cached = true;
+    epoch = ctx?.commitEpoch?.();
+    return value;
   }
+
+  // A NotReady the eager pull met, held for the rest of this synchronous
+  // turn (cleared by `latchNotReady`'s microtask).
+  let pending: NotReadyLatch | undefined;
 
   if (!options?.lazy) {
     try {
@@ -1553,14 +1651,49 @@ function createSyncMemo<T>(
   return (() => {
     if (moving) asyncReads++;
     if (cached && (!ctx?.commitEpoch || ctx.commitEpoch() === epoch)) {
+      // Dependency edges: a read re-reports what the last compute read.
+      if (edgeHooks !== null) edgeHooks.report(owner);
       if (errored) throw error;
       return value;
     }
+    // The eager pull suspended in this same turn: nothing can have settled
+    // the source since (promises settle on microtasks, server renders are
+    // pure), so a second pull could only re-run the compute to meet the
+    // same NotReady — re-raise it instead.
+    if (pending !== undefined && pending.e !== undefined) throw pending.e;
     // Stale epoch (a commit happened since this computed — frame renders
     // only) or never computed: (re)pull. Purity is the memo contract, so an
     // epoch recompute is the client's source-driven re-run, pull-paced.
-    return pull();
+    if (edgeHooks === null) return pull();
+    const v = pull();
+    edgeHooks.report(owner);
+    return v;
   }) as SourceAccessor<T | undefined>;
+}
+
+// A suspended sync memo is read right after it is created: the compiler's
+// hole memos are made as `ssr()`'s arguments and read by it in the same
+// expression, and the eager pull already ran the compute once. The latch
+// holds that NotReady for the rest of the synchronous turn; one microtask,
+// shared by every latch armed in the turn, clears them, so the next turn —
+// the boundary's retry, after the source may have settled — pulls again.
+type NotReadyLatch = { e: NotReadyError | undefined };
+const notReadyLatches: NotReadyLatch[] = [];
+let notReadyClearQueued = false;
+function clearNotReadyLatches(): void {
+  notReadyClearQueued = false;
+  const latches = notReadyLatches.splice(0);
+  for (let i = 0; i < latches.length; i++) latches[i].e = undefined;
+}
+function latchNotReady(latch: NotReadyLatch | undefined, err: NotReadyError): NotReadyLatch {
+  if (latch === undefined) latch = { e: err };
+  else latch.e = err;
+  notReadyLatches.push(latch);
+  if (!notReadyClearQueued) {
+    notReadyClearQueued = true;
+    queueMicrotask(clearNotReadyLatches);
+  }
+  return latch;
 }
 
 // === Deep Proxy for Patch Tracking (projections with async iterables) ===
@@ -2255,6 +2388,7 @@ function serverEffect<T>(
 ): void {
   const ssrSource = options?.ssrSource;
   if (ssrSource === "client") {
+    if (edgeHooks !== null) edgeHooks.untracked();
     createOwner();
     return;
   }
@@ -2374,7 +2508,9 @@ export function createTrackedEffect(
   compute: () => void | (() => void),
   options?: { name?: string }
 ): void {
-  // No-op on server, but allocate computation ID
+  // No-op on server, but allocate computation ID. Its reads are the
+  // client's only, so a slot fill running one has edges the server misses.
+  if (edgeHooks !== null) edgeHooks.untracked();
   const o = getOwner();
   if (o?.id != null) getNextChildId(o);
 }
@@ -2417,7 +2553,10 @@ export function createOptimistic<T>(
   // The updater is not invoked at all — nothing could observe its result.
   // (Broader direction, recorded: server writes may eventually throw under
   // a dev-mode server build; that waits on having one.)
-  const [read] = (createSignal as Function)(first, second) as Signal<T | undefined>;
+  const [read] =
+    typeof first === "function"
+      ? ((createSignal as Function)(first, second) as Signal<T | undefined>)
+      : ([() => first as T] as unknown as Signal<T | undefined>);
   return [
     read,
     (() => {
@@ -2466,7 +2605,7 @@ export function createStore<T extends object = {}>(
     return [store as Store<T>, storeSetter(store as T)];
   }
   const state = first as T;
-  return [state as Store<T>, storeSetter(state)];
+  return [(edgeHooks !== null ? edgeHooks.store(state) : state) as Store<T>, storeSetter(state)];
 }
 
 /**
@@ -2509,7 +2648,12 @@ export function createOptimisticStore<T extends object = {}>(
   // masks that revert at settle, and server output is settled state. The
   // setter never invokes its function — a draft mutation here would be a
   // literal (permanent) mutation, the opposite of optimistic.
-  const [store] = (createStore as Function)(first, second, third) as [Store<T>, StoreSetter<T>];
+  // An object seed is served as is: not named for dependency edges (the
+  // client names no optimistic store; a write to one mounts everything).
+  const store =
+    typeof first === "function"
+      ? ((createStore as Function)(first, second, third) as [Store<T>, StoreSetter<T>])[0]
+      : (first as Store<T>);
   return [store, (() => warnServerWrite("optimistic")) as StoreSetter<T>];
 }
 
@@ -2675,6 +2819,9 @@ export function createProjection<T extends object = {}>(
   options?: ServerProjectionOptions
 ): Store<T> {
   const ctx = sharedConfig.context;
+  // Dependency edges: a projection's readers are not tracked (store
+  // reads report nothing), so the signals its compute reads are WIDE.
+  if (ctx && edgeHooks !== null) fn = edgeHooks.projection(ctx, fn);
   const owner = createOwner();
   // The projection's own owner, read at creation — never a swapped hole scope.
   const id = ownerId(owner);
@@ -2704,7 +2851,9 @@ export function createProjection<T extends object = {}>(
     return proxy;
   };
   // Seedless: the root starts as an empty record (the client's base too).
-  const [state] = createStore((seed || {}) as NoFn<T>);
+  // The seed itself, not a `createStore` over it: a projection's state is
+  // not a plain store (no dependency-edge name; the client names none).
+  const state = (seed || {}) as T;
 
   if (options?.ssrSource === "client") {
     // seedLoadingValue = declared commit #0: the seed renders. Bare = the
@@ -3250,6 +3399,9 @@ export function mapArray<T, U>(
       // Reset per pass so retries re-synthesize row/fallback ids from 0,
       // like the client's fresh row owners on its first successful pass.
       rowOwner._childCount = 0;
+      // Edges: the rows' plain-signal counts restart with each pass (a row's
+      // id moving on restarts its own; nothing in the row loop itself).
+      if (edgeHooks !== null) edgeHooks.reset(rowOwner);
       if (items && items.length) {
         runWithOwner(rowOwner as unknown as Owner, () => {
           // Own owner, not a swapped hole scope: a row's holes swap it only
@@ -3356,6 +3508,7 @@ export function repeat<T>(
       const len = count();
       const offset = options.from?.() || 0;
       rowOwner._childCount = 0;
+      if (edgeHooks !== null) edgeHooks.reset(rowOwner);
       if (!len) {
         if (!options.fallback) return [];
         const fo = runWithOwner(rowOwner as unknown as Owner, () => createOwner());
@@ -3473,13 +3626,19 @@ export function runWithBoundaryErrorContext<T>(
       context._loadingPhase = true;
     }
   }
+  // The owner swap `runWithOwner` would do, inlined: one handler frame for
+  // the owner, the context and the boundary slot together (see
+  // `runWithOwner` on why a `finally` is one raise too many on the NotReady
+  // unwind), and no closure for the render.
+  const prevOwner = currentOwner;
+  currentOwner = owner as unknown as SSROwner;
+  const parentHandler = getContext(ErrorContext);
+  setContext(ErrorContext, (err, outcome) => onError(err, parentHandler, outcome));
+  let result: T;
   try {
-    return runWithOwner(owner, () => {
-      const parentHandler = getContext(ErrorContext);
-      setContext(ErrorContext, (err, outcome) => onError(err, parentHandler, outcome));
-      return render();
-    }) as T;
-  } finally {
+    result = render();
+  } catch (error) {
+    currentOwner = prevOwner;
     if (context) {
       if (boundaryId !== undefined) {
         context._currentBoundaryId = prevBoundary;
@@ -3487,7 +3646,18 @@ export function runWithBoundaryErrorContext<T>(
       }
       sharedConfig.context = prevCtx;
     }
+    stampThrower(error, owner);
+    throw error;
   }
+  currentOwner = prevOwner;
+  if (context) {
+    if (boundaryId !== undefined) {
+      context._currentBoundaryId = prevBoundary;
+      context._loadingPhase = prevLoadingPhase;
+    }
+    sharedConfig.context = prevCtx;
+  }
+  return result;
 }
 
 export { NoHydrateContext };
@@ -3519,9 +3689,17 @@ export { NoHydrateContext };
 //  - A value branded with `markSafeError` (`Symbol.for("solid.SafeError")`,
 //    registered so this needs nothing from `@solidjs/web`) is intentional
 //    client-facing content and passes through.
-//  - One verdict per original: the same error reaches this through several
-//    roads (the boundary's catch, the channel it rejected, a Loading re-pull
-//    recurring the throw), and every road hands the client the same value.
+//  - One verdict per original PER SCOPE: the same error reaches this through
+//    several roads (the boundary's catch, the channel it rejected, a Loading
+//    re-pull recurring the throw), and every road hands the client the same
+//    value. The scope is the request (#4125): an error object outlives the
+//    request it was first met in (a module-level constant, a cached
+//    rejection), and another request meeting it is another failure to hear
+//    and another wire to decide — never the first request's answer. Within
+//    the verdict the hook hears each `kind` once: a direct server-function
+//    call's throw that a boundary then contains is the function failing AND
+//    the render falling back, two things a monitor counts, while the wire
+//    stays the first answer given.
 //
 // THE SERVER ERROR HOOK (sentry-integration-plan C6, #3468 part 3). The
 // prod tier has no `OBSERVE`, so everything the runtime HANDLES — a
@@ -3529,7 +3707,8 @@ export { NoHydrateContext };
 // server-function throw sanitized — was invisible to a production error
 // monitor; only the failure that fails the request reached `onError`. The
 // hook is the prod-tier seam for both reporting and mapping: called ONCE
-// per error object, at first sight, with where the failure was met; its
+// per error object per kind per request (per render outside any request —
+// see `verdictOf`), at first sight, with where the failure was met; its
 // return, when not `undefined`, is the wire value — the author's intent,
 // like a `wrapInvocation` mapping, not second-guessed. Two tiers, as
 // `wrapInvocation` has: ambient (`configureServerErrors` in `@solidjs/web`,
@@ -3567,86 +3746,111 @@ export interface ServerErrorSite {
 }
 export type ServerErrorHook = (error: unknown, context: ServerErrorSite) => unknown | void;
 
-/** The verdict on one error object: whether the hook has heard of it, and the wire value once decided. */
+/**
+ * The verdict on one error object in one scope: the kinds the hook has heard
+ * it as, the wire value once decided, and the owner it was thrown under.
+ */
 interface Verdict {
-  reported: boolean;
-  decided: boolean;
+  heard?: { [kind: string]: true };
+  decided?: boolean;
+  /** The wire is a hook's answer (not the default policy's), which a later kind keeps. */
+  mapped?: boolean;
   wire?: unknown;
-  recorded: boolean;
+  recorded?: boolean;
+  thrower?: Owner;
 }
-const verdicts = new WeakMap<object, Verdict>();
+/** Scope → error object → verdict. */
+const verdicts = new WeakMap<object, WeakMap<object, Verdict>>();
 const isObject = (value: unknown): value is object =>
   value !== null && (typeof value === "object" || typeof value === "function");
-const verdictOf = (value: unknown): Verdict | undefined => {
-  if (!isObject(value)) return undefined;
-  let verdict = verdicts.get(value);
-  if (verdict === undefined)
-    verdicts.set(value, (verdict = { reported: false, decided: false, recorded: false }));
+/**
+ * The verdict on `value` within `scope`, the scope the failure belongs to —
+ * never process-wide, which would silence every later request that meets
+ * the same object. The callers pass the render's `_errorScope` when they
+ * have it in hand (the request event the render started under, else an
+ * object of its own), else the request event the site names or the request
+ * scope holds, else nothing: no request, no render — nothing to dedupe
+ * within, so every sight is heard (a fresh verdict, kept by nobody; so is a
+ * non-object's). An event counts by its `request`, which the derived event
+ * a direct SSR-time server-function call runs under shares with the render
+ * that made it.
+ */
+const verdictOf = (value: unknown, scope: any): Verdict => {
+  if (!isObject(value) || !scope) return {};
+  let inScope = verdicts.get((scope = scope.request || scope));
+  if (!inScope) verdicts.set(scope, (inScope = new WeakMap()));
+  let verdict = inScope.get(value);
+  if (!verdict) inScope.set(value, (verdict = {}));
   return verdict;
 };
 
 /** The ambient hook (`configureServerErrors`), read off the registered slot. */
 function ambientServerErrorHook(): ServerErrorHook | undefined {
-  const slot = (globalThis as { [SERVER_ERRORS]?: { hook?: ServerErrorHook } })[SERVER_ERRORS];
-  return slot === undefined ? undefined : slot.hook;
+  return (globalThis as { [SERVER_ERRORS]?: { hook?: ServerErrorHook } })[SERVER_ERRORS]?.hook;
 }
 /** The request in scope, read the way `getRequestEvent()` reads it — the registered request store. */
 function currentRequestEvent(): unknown {
-  const store = (globalThis as { [REQUEST_CONTEXT]?: { getStore?(): unknown } })[REQUEST_CONTEXT];
-  return store !== undefined && typeof store.getStore === "function" ? store.getStore() : undefined;
+  return (globalThis as { [REQUEST_CONTEXT]?: { getStore?(): unknown } })[
+    REQUEST_CONTEXT
+  ]?.getStore?.();
 }
 
 /**
- * Tells the server error hook about `value` — once per error object, at
- * first sight — and returns `{ mapped: true, value }` when the hook (now or
- * on an earlier sight) gave a wire value, `{ mapped: false }` otherwise.
+ * Tells the server error hook about `value` — once per error object per
+ * `site.kind` per scope (`verdictOf`), at first sight — and returns
+ * `{ mapped: true, value }` when the hook (now or on an earlier sight in
+ * that scope) gave a wire value, `{ mapped: false }` otherwise. The first
+ * value given stays the wire: a later kind is heard, not re-decided. A
+ * `kind: "request"` failure is the catch-all, heard only when no other kind
+ * was (`reportRequestFailure` on a render's own throw adds nothing).
  * `hook` is the hook of the render or request the failure belongs to (a
  * render's `onError`, the server-function handler's), `undefined` when it
  * has none or the failure belongs to none — the ambient registration then
  * answers alone. A throwing hook is reported on the console and treated as
  * having said nothing. `ownerPath` is filled from `subject` when the site
- * did not name it.
+ * did not name it. `scope` is the render's (`_errorScope`), when the caller
+ * has one.
  * @internal
  */
 export function reportServerError(
   value: unknown,
   site: ServerErrorSite,
   subject?: DiagnosticSubject | null,
-  hook?: ServerErrorHook
+  hook?: ServerErrorHook,
+  scope?: object
 ): { mapped: boolean; value?: unknown } {
-  const verdict = verdictOf(value);
-  if (verdict !== undefined && verdict.reported) {
+  const event = site.event || currentRequestEvent();
+  const verdict = verdictOf(value, scope || event);
+  const heard = verdict.heard || (verdict.heard = {});
+  if (site.kind === "request" ? Object.keys(heard).length : heard[site.kind]) {
     return verdict.decided ? { mapped: true, value: verdict.wire } : { mapped: false };
   }
-  if (verdict !== undefined) verdict.reported = true;
+  heard[site.kind] = true;
+  // A new kind's sight: the wire is a hook's earlier answer, when it gave one.
+  const answer = () => (verdict.mapped ? { mapped: true, value: verdict.wire } : { mapped: false });
   const target = hook ?? ambientServerErrorHook();
-  if (target === undefined) return { mapped: false };
+  if (target === undefined) return answer();
   const context: ServerErrorSite = { ...site };
   const boundary = subject ? ownerLabels(subject) : undefined;
   if (context.ownerPath === undefined) {
-    const thrower = throwerOf(value);
+    const thrower = verdict.thrower;
     const path = (thrower !== undefined ? ownerLabels(thrower) : undefined) ?? boundary;
     if (path !== undefined) context.ownerPath = path;
   }
   if (context.boundaryPath === undefined && boundary !== undefined) context.boundaryPath = boundary;
-  if (context.event === undefined) {
-    const event = currentRequestEvent();
-    if (event !== undefined) context.event = event;
-  }
+  if (event) context.event = event;
   let mapped: unknown;
   try {
     mapped = target(value, context);
   } catch (hookError) {
     console.error(hookError);
-    return { mapped: false };
+    return answer();
   }
   // A request that fails has no wire: the hook's return is ignored there,
   // and does not bind the roads a later sight of the same error may take.
-  if (mapped === undefined || site.handling === "failed") return { mapped: false };
-  if (verdict !== undefined) {
-    verdict.decided = true;
-    verdict.wire = mapped;
-  }
+  if (mapped === undefined || site.handling === "failed" || verdict.mapped) return answer();
+  verdict.decided = verdict.mapped = true;
+  verdict.wire = mapped;
   return { mapped: true, value: mapped };
 }
 
@@ -3675,36 +3879,35 @@ function ownerLabels(subject: DiagnosticSubject): string[] | undefined {
  * and for the roads that carry the value without meeting it (a channel's
  * rejection, a live hole's message) — the default: `value` itself in the dev
  * build or when branded safe, else one generic `Error` per original. The
- * verdict is cached on the object, so every road hands the client the same
- * value. Outside dev a replacement is recorded once as
- * `SERVER_ERROR_SANITIZED` (observe/dev) with `data.source: "ssr"`, the
+ * verdict is cached per original per scope (`verdictOf`), so every road
+ * hands the client the same value. Outside dev a replacement is recorded
+ * once as `SERVER_ERROR_SANITIZED` (observe/dev) with `data.source: "ssr"`, the
  * original in `data.error` — advisory (`info`): the failure itself is the
  * `SSR_RENDER_ERROR_CONTAINED` finding's, and this is the record of what
  * the wire carried instead.
  * `subject` locates it (the boundary's owner; `null` from a funnel); `hook`
- * is the owning render's, as `reportServerError` takes it.
+ * and `scope` are the owning render's, as `reportServerError` takes them.
  * @internal
  */
 export function ssrSanitizeError(
   value: unknown,
   subject?: DiagnosticSubject | null,
   site?: ServerErrorSite,
-  hook?: ServerErrorHook
+  hook?: ServerErrorHook,
+  scope?: object
 ): unknown {
-  const verdict = verdictOf(value);
+  const verdict = verdictOf(value, scope || (site && site.event) || currentRequestEvent());
   if (site !== undefined) {
-    const report = reportServerError(value, site, subject, hook);
+    const report = reportServerError(value, site, subject, hook, scope);
     if (report.mapped) return record(value, report.value, verdict, subject);
   }
-  if (verdict !== undefined && verdict.decided) return verdict.wire;
+  if (verdict.decided) return verdict.wire;
   const wire =
     IS_DEV || (isObject(value) && (value as any)[SAFE_ERROR])
       ? value
       : new Error(GENERIC_SERVER_ERROR_MESSAGE);
-  if (verdict !== undefined) {
-    verdict.decided = true;
-    verdict.wire = wire;
-  }
+  verdict.decided = true;
+  verdict.wire = wire;
   return record(value, wire, verdict, subject);
 }
 
@@ -3712,11 +3915,11 @@ export function ssrSanitizeError(
 function record(
   value: unknown,
   wire: unknown,
-  verdict: Verdict | undefined,
+  verdict: Verdict,
   subject: DiagnosticSubject | null | undefined
 ): unknown {
-  if (wire === value || (verdict !== undefined && verdict.recorded)) return wire;
-  if (verdict !== undefined) verdict.recorded = true;
+  if (wire === value || verdict.recorded) return wire;
+  verdict.recorded = true;
   if (IS_OBSERVE)
     emitFinding(
       {
@@ -3865,7 +4068,7 @@ export function createErrorBoundary<T, U>(
         }
       },
       // Located where it was THROWN, the boundary that met it in `data`.
-      throwerOf(err) ?? owner
+      throwerOf(err, ctx && ctx._errorScope) ?? owner
     );
   };
   // The finding first, with the original; then the one value the client may
@@ -3880,7 +4083,8 @@ export function createErrorBoundary<T, U>(
       err,
       owner,
       { kind: "render", handling: "fallback", boundary: boundaryId },
-      ctx && ctx.errorPolicy
+      ctx && ctx.errorPolicy,
+      ctx && ctx._errorScope
     );
     serializeError(wire);
     fallbackResult = renderFallback(wire);

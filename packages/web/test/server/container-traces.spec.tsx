@@ -25,6 +25,7 @@ import {
   frameTransformDirectResult,
   ServerComponentPlugin
 } from "../../frames/src/frame-sink.js";
+import { has, records } from "./wire.js";
 
 const TRACE_TAG = "solid/container-trace";
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -51,6 +52,11 @@ function collectDocument(code: () => any) {
   });
 }
 
+/** Every error record's key (`:error`, `seg:<k>:error`, `hole:<k>:error`). */
+const errorKeys = (chunks: any[]) =>
+  records(chunks, "")
+    .map(([key]) => key)
+    .filter(k => k.endsWith(":error"));
 const dataWire = (chunks: any[], key: string) =>
   JSON.stringify(chunks.filter(c => c.type === "data" && c.key === key).map(c => c.node));
 
@@ -61,8 +67,9 @@ describe("container tier — stream face", () => {
       return <div>{props.row({ data: state })}</div>;
     };
     const chunks = await collectStream(ServerComp);
-    const slot = chunks.find(c => c.type === "slot");
-    expect(slot.args.data.$ref).toBe("arg:row#0:data");
+    const slot = chunks.find(c => records([c], "slot:").length);
+    const [[, row]] = records([slot], "slot:");
+    expect(row.args.data.$ref).toBe("arg:row#0:data");
     const wire = dataWire(chunks, "arg:row#0:data");
     expect(wire).toContain("Ada");
     expect(wire).not.toContain(TRACE_TAG);
@@ -79,15 +86,16 @@ describe("container tier — stream face", () => {
     const chunks = await collectStream(ServerComp);
     // No stream error — the pre-Stage-5 failure mode was a seroval crash on
     // the pending proxy's property walk.
-    expect(chunks.find(c => c.type === "error")).toBeUndefined();
-    const slot = chunks.find(c => c.type === "slot");
-    expect(slot.args.data.$ref).toBe("arg:row#0:data");
+    expect(errorKeys(chunks)).toEqual([]);
+    const slot = chunks.find(c => records([c], "slot:").length);
+    const [[, row]] = records([slot], "slot:");
+    expect(row.args.data.$ref).toBe("arg:row#0:data");
     // The record shipped BEFORE the projection settled (index order), and
     // the trace's snapshot carries the settled state.
     const wire = dataWire(chunks, "arg:row#0:data");
     expect(wire).toContain(TRACE_TAG);
     expect(wire).toContain("Ada");
-    expect(chunks.findIndex(c => c.type === "complete")).toBeGreaterThan(chunks.indexOf(slot));
+    expect(chunks.findIndex(c => has(c, ":complete"))).toBeGreaterThan(chunks.indexOf(slot));
   });
 
   test("a generator projection's trace carries snapshot then patch batches", async () => {
@@ -102,9 +110,9 @@ describe("container tier — stream face", () => {
       return <div>{props.row({ data: proj })}</div>;
     };
     const chunks = await collectStream(ServerComp);
-    expect(chunks.find(c => c.type === "error")).toBeUndefined();
-    const records = chunks.filter(c => c.type === "data" && c.key === "arg:row#0:data");
-    const wire = JSON.stringify(records.map(c => c.node));
+    expect(errorKeys(chunks)).toEqual([]);
+    const nodes = chunks.filter(c => c.type === "data" && c.key === "arg:row#0:data");
+    const wire = JSON.stringify(nodes.map(c => c.node));
     expect(wire).toContain(TRACE_TAG);
     // Snapshot at V1 (step: 1) and a later batch writing step -> 2.
     const stepValues = [...wire.matchAll(/"step"/g)];
@@ -137,7 +145,7 @@ describe("container tier — stream face", () => {
       );
     };
     const chunks = await collectStream(ServerComp);
-    expect(chunks.find(c => c.type === "error")).toBeUndefined();
+    expect(errorKeys(chunks)).toEqual([]);
     // One ref for the arg (repeated data chunks under it are the trace's own
     // streaming continuations) — a ledger re-emission would mint versioned
     // `@n` refs, one fresh trace per commit.
@@ -146,7 +154,7 @@ describe("container tier — stream face", () => {
       .map(c => c.key);
     expect(dataKeys.length).toBeGreaterThan(0);
     expect(dataKeys.filter(k => String(k).includes("@"))).toEqual([]);
-    expect(chunks[chunks.length - 1].type).toBe("complete");
+    expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
   });
 
   test("a projection nested inside a plain object arg envelopes at depth", async () => {
@@ -158,7 +166,7 @@ describe("container tier — stream face", () => {
       return <div>{props.row({ filters: { by: proj, page: 1 } })}</div>;
     };
     const chunks = await collectStream(ServerComp);
-    expect(chunks.find(c => c.type === "error")).toBeUndefined();
+    expect(errorKeys(chunks)).toEqual([]);
     const wire = dataWire(chunks, "arg:row#0:filters");
     expect(wire).toContain(TRACE_TAG);
     expect(wire).toContain("Ada");

@@ -1,14 +1,33 @@
 // @ts-nocheck
 /**
- * FrameSink — the frame-chunk side of the renderToStream emission seam.
+ * FrameSink — the frame-wire side of the renderToStream emission seam.
  *
  * `renderToStream` (server.js) routes all emission through semantic sink
  * methods — data / fragment / reveal / asset / shell — with the document sink
  * (inline <script>/<template>/<link> output) as the default. This module is
- * the other side of that seam: a sink emitting the transport-agnostic
- * FrameChunk stream, plus `renderToFrameStream`, the producer entry that
- * wires it up with a frame envelope (start/complete chunks) in place of the
+ * the other side of that seam: a sink writing the transport-agnostic frame
+ * wire — versioned batches of keyed records, the client store's own write —
+ * plus `renderToFrameStream`, the producer entry that wires it up with a
+ * frame envelope (`start` up front, `:complete` at the end) in place of the
  * document writable. Same render core, different assembly.
+ *
+ * A stream is a sequence of `{ id, version, r: { key: record, ... } }`
+ * batches: exactly the write the client's resident store takes
+ * (`FrameWrite`, `host.apply`), so the client applies what arrives without
+ * translating it. Three messages are not records and keep a `type`:
+ *
+ *   - `start` — a response's version opens on the address (`store.open`):
+ *     the flight the address is in until a write lands it. It writes no
+ *     record; a record-less batch would be indistinguishable from the
+ *     reveal-time empty re-sync.
+ *   - `data` — a node of the response-scoped data table the records' `$ref`
+ *     args resolve through. Not frame state (it never enters the store) and
+ *     ordered ahead of the records that read it.
+ *   - `outcome` — a single-flight response's envelope node (not addressed
+ *     to any frame; `frameFlightResponse`).
+ *
+ * Any message may also carry `tiers` (the in-band tier announcement): it is
+ * about the response, not the frame, so it rides beside `r`, never in it.
  *
  * What stays in the shared render core, unchanged:
  *   - the render context API and resolveSSRNode
@@ -17,16 +36,17 @@
  *     propagateBoundaryStyles
  *   - asset tracking (createAssetTracking)
  *
- * Call-site map (server.js core -> sink method -> frame chunks):
+ * Call-site map (server.js core -> sink method -> records written):
  *
- *   serializer onData                 -> data(payload)             -> data
- *   doShell                           -> shell(html, meta)         -> [assets,] html
+ *   serializer onData                 -> data(payload)             -> a `data` message
+ *   doShell                           -> shell(html, meta)         -> [seg::assets,] ""
  *   registerFragment resolve (post-flush)
- *                                     -> fragment(key, html, meta) -> [assets,] fragment [, reveal when eager]
- *   revealFragments / revealFallbacks -> reveal(keys, meta)        -> reveal
- *   registerAsset (post-flush)        -> asset(type, value)        -> assets
- *   envelope completion               -> end()                     -> complete
- *   error paths (not yet routed)      -> error(id, err)            -> error
+ *                                     -> fragment(key, html, meta) -> [seg:k:assets,] seg:k [, seg:k:error] [, seg:k:reveal when eager]
+ *   revealFragments / revealFallbacks -> reveal(keys, meta)        -> seg:k:reveal | seg:k:fallback
+ *   registerAsset (post-flush)        -> asset(type, value)        -> seg::assets
+ *   envelope completion               -> end()                     -> :complete [, :bound]
+ *   error paths                       -> error(id, err)            -> :error | seg:k:error | hole:k:error
+ *   slot props / regions / live holes -> slot / region / hole / attr -> slot:k | "" (child id) | hole:k | attr:k
  *
  * Deliberately does NOT flush `<script>` tags, wrap data in the document
  * `$HY` bootstrap, or do string injection: control flow is passive records,
@@ -40,14 +60,15 @@ import {
   ssrHandleError,
   ssrSanitizeError,
   creationStamp,
-  shareAsyncIterable
+  shareAsyncIterable,
+  trackFillReads
 } from "solid-js/internal";
 
 // EXPERIMENTAL — the frames/server-components surface ships as an
 // experimental preview, excluded from the 2.0 stability guarantee: API
 // shapes and the wire format may change between prereleases (RFC 11).
 // Every export in this module is @experimental.
-import { FrameChunk } from "./frame-client.js";
+import type { FrameMessage } from "./frame-client.js";
 
 /**
  * Addresses a frame stream: the boundary id and this response's version.
@@ -88,15 +109,15 @@ export interface FrameStreamOptions {
    * its response open and ships each later commit as holes; with no
    * declaration of liveness anywhere, that response ends here: after this
    * many emitting sweeps past the first flush the producer emits
-   * `{ type: "complete", bound: "yields" }` and closes. `live()` is the
+   * `:complete` with `:bound: "yields"` and closes. `live()` is the
    * declared way past the bound; a `live` response is never bounded.
    * Default 64. `0` / `Infinity` disables the count bound.
    */
   maxYields?: number;
   /**
    * The plain response's streaming bound, in wall-clock milliseconds after
-   * the first flush (the same decision): `{ type: "complete", bound:
-   * "time" }` then the body closes. The request's `signal` aborting after
+   * the first flush (the same decision): `:complete` with `:bound:
+   * "time"`, then the body closes. The request's `signal` aborting after
    * the first flush ends a plain response the same way — a platform's
    * deadline is a time bound the client can tell from a death. Default
    * 30 000. `0` / `Infinity` disables the timer (the `signal` still ends
@@ -120,11 +141,12 @@ export interface FrameStreamOptions {
 }
 
 /**
- * A produced frame stream: pipe chunks, or await the collected array.
+ * A produced frame stream: pipe its wire messages, or await the collected
+ * array.
  * @experimental
  */
-export interface FrameStream extends PromiseLike<FrameChunk[]> {
-  pipe(writable: { write(chunk: FrameChunk): void; end?(): void }): void;
+export interface FrameStream extends PromiseLike<FrameMessage[]> {
+  pipe(writable: { write(message: FrameMessage): void; end?(): void }): void;
 }
 
 const runWithHydrationScope = (id, fn) => runWithOwner(createOwner({ id }), fn);
@@ -185,18 +207,7 @@ function serverComponentScope(render, live = false) {
 // `brandLive`). The document face reads it at scope entry — see
 // `frameTransformDirectResult`.
 const LIVE_SOURCE = Symbol.for("solid.LiveSource");
-import {
-  renderToStream,
-  createLiveHoles,
-  CLAIMS_STREAM,
-  CLAIMS_DOCUMENT,
-  slotValue,
-  isSlotValue,
-  SLOT_VALUE,
-  SLOT_FACE_STREAM,
-  SLOT_FACE_DATA,
-  SLOT_FACE_MARKUP
-} from "../../src/server.js";
+import { renderToStream, createLiveHoles } from "../../src/server.js";
 import { devCheck } from "../../src/diagnostics.js";
 import { createJSONSerializer } from "../../serialization/src/serializer.js";
 import { isContainerTraced, toBorderForm } from "./frame-container-plugin.js";
@@ -298,15 +309,16 @@ setServerComponentBootstrap(ctx => {
 export const SERVER_COMPONENT_BOOTSTRAP = SERVER_COMPONENT_BOOTSTRAP_EXPR + ";"; /**
  * The emission surface `renderToStream` routes through when producing a
  * frame stream instead of a document (see the `sink` render option). Each
- * method emits transport-agnostic chunks; `emit` is the envelope boundary.
+ * method writes records; `write` is the envelope boundary.
  * @internal Compiler/renderer wiring — use `renderToFrameStream` or
  * `renderServerComponent` instead.
  * @experimental
  */
 export function createFrameSink(
-  emit: (chunk: FrameChunk) => void,
+  write: (message: FrameMessage) => void,
   frame: FrameAddress,
-  have?: Record<string, string>
+  have?: Record<string, string>,
+  hooks?: { live?: boolean; onYield?: () => void }
 ): Record<string, (...args: any[]) => void>;
 
 // ---- hole digests (Stage 8 B4) ----
@@ -371,47 +383,89 @@ function withHoles(chunk, holes) {
 }
 
 /**
- * A sink emitting the transport-agnostic FrameChunk stream. `emit(chunk)` is
- * the envelope boundary (array push in tests, an encoded write over a real
- * transport). `id`/`version` address the frame. `have` is a resume's
- * have-list (see `FrameStreamOptions.resume`): present, the sink emits
- * conditionally against it.
+ * A sink writing the frame wire: versioned batches of keyed records,
+ * `{ id, version, r }` — the client store's own write (`FrameWrite`) — and
+ * the `data` messages their `$ref`s read. `write(message)` is the envelope
+ * boundary (array push in tests, a serialized line over a real transport).
+ * `id`/`version` address the frame. `have` is a resume's have-list (see
+ * `FrameStreamOptions.resume`): present, the sink emits conditionally
+ * against it.
+ *
+ * A batch is a flush: the records the render produces in one synchronous
+ * run leave as ONE message per frame (see `put`).
  *
  * `hooks.onYield` is called after every sweep that emitted something — the
  * visible effect of one commit (a source yielding, a promise settling): the
  * producer's bound on a plain response counts these (see `frameStream`).
  *
- * @param {(chunk: object) => void} emit
+ * @param {(message: object) => void} write
  * @param {{ id: string, version: number }} frame
  * @param {Record<string, string>} [have]
- * @param {{ onYield?: () => void }} [hooks]
+ * @param {{ live?: boolean, onYield?: () => void }} [hooks] — `live`: the
+ *   response is a `live` connection's (row ops need its resume).
  */
 export function createFrameSink(write, frame, have, hooks) {
   const { id, version } = frame;
   // The tiers this render has minted (frames savings pass §2, the
   // server-announced tier mechanism): the frames-client capabilities the
   // response needs, learned where the sink mints each feature — a nested
-  // region (`regions`), an assets chunk (`assets`), a binding-slot position
-  // read (`bind`), a container trace in an arg (`trace`), a `live` response
-  // (`wire`). `announce()` hands the set to the response head
-  // (`X-Frame-Tiers`); a name minted since the last chunk left rides
-  // IN-BAND on the next one (`chunk.tiers`) — so a tier the head could not
-  // know (a later segment's) is still announced ahead of, or with, the
-  // chunk that needs it. Both are warm starts for the client's loads; its
+  // region (`regions`), an assets chunk (`assets`), a container trace in an
+  // arg (`trace`), a `live` response or a live hole (`wire`). `announce()` hands the set to the response head
+  // (`X-Frame-Tiers`); a name minted since the last message left rides
+  // IN-BAND on the next one (`message.tiers`) — so a tier the head could
+  // not know (a later segment's) is still announced ahead of, or with, the
+  // records that need it. Both are warm starts for the client's loads; its
   // readiness checks detect and hold regardless.
   const tiers = new Set();
   let staged = [];
-  // Every emission passes here, so a sweep knows whether it produced one,
-  // and a staged tier announcement leaves with the next chunk.
-  const emit = chunk => {
-    if (swept) swept.emitted = true;
-    showing(chunk);
+  const send = message => {
     if (staged.length) {
-      chunk.tiers = staged;
+      message.tiers = staged;
       staged = [];
     }
-    write(chunk);
+    write(message);
   };
+  // The batch is the flush (the wire's unit, as the store's write is the
+  // client's): records the render produces in one synchronous run — a
+  // shell's assets and root, a fragment with its assets, error and reveal,
+  // a reveal group, a sweep's members — queue here and leave together at
+  // the run's end (a microtask, never a timer), merged into ONE message
+  // per frame while they address the same frame back to back. A record
+  // whose key the open batch already writes starts the next one (a second
+  // root assets record, a row op against the emission before it: both
+  // writes must land, in order), and so does anything else that leaves —
+  // a `data` node goes out behind the records queued before it and ahead
+  // of those after, which may read it. The end of the response, a sweep
+  // (its unit is the yield the bound counts) and the end of the sync pass
+  // (what the response head describes) flush at once.
+  let queue = [];
+  let open = null;
+  let scheduled = false;
+  const flush = () => {
+    scheduled = false;
+    open = null;
+    const out = queue;
+    queue = [];
+    for (const message of out) send(message);
+  };
+  const put = (fid, r) => {
+    if (swept) swept.emitted = true;
+    showing(r);
+    let merge = open && open.id === fid;
+    if (merge) for (const key in r) if (key in open.r) merge = false;
+    if (merge) Object.assign(open.r, r);
+    else queue.push((open = { id: fid, version, r }));
+    if (!scheduled) {
+      scheduled = true;
+      queueMicrotask(flush);
+    }
+  };
+  // Keyed errors scope to what the key names: a hole key (`lh:N`, `lha:N`)
+  // is a failed live-hole sweep, terminal for the hole; other keys are
+  // segment-scoped (an errored fragment). Unkeyed errors are the frame's
+  // own — `frame.error` reads that record.
+  const putError = (fid, key, error) =>
+    put(fid, { [key ? `${/^lha?:/.test(key) ? "hole" : "seg"}:${key}:error` : ":error"]: error });
   const needs = name => {
     if (!tiers.has(name)) {
       tiers.add(name);
@@ -438,38 +492,42 @@ export function createFrameSink(write, frame, have, hooks) {
   // by a root, extended by every emission that carries hole digests.
   const holeDigest = new Map();
   if (have) for (const key in have) key.startsWith("lh:") && holeDigest.set(key, have[key]);
-  function showing(chunk) {
-    if (chunk.type === "html") holeDigest.clear();
-    else if (chunk.type === "hole") holeDigest.set(chunk.key, chunk.digest);
-    for (const key in chunk.holes) key.startsWith("lh:") && holeDigest.set(key, chunk.holes[key]);
+  function showing(r) {
+    if ("" in r) holeDigest.clear();
+    for (const k in r) {
+      const record = r[k];
+      if (k.startsWith("hole:lh:") && !k.endsWith(":error"))
+        holeDigest.set(k.slice(5), record.digest);
+      if (record)
+        for (const key in record.holes)
+          key.startsWith("lh:") && holeDigest.set(key, record.holes[key]);
+    }
   }
+  // Content records carry the server's digests through (see the ledger on
+  // FrameImpl): their own, and the map of live holes inside them.
+  const html = (value, digest, holes) => withHoles({ kind: "html", value, digest }, holes);
   // Emit what differs inside `html` against the have-list: each top-level
   // hole whose digest moved (its nested holes ride inside it, markers kept,
   // so they stay individually live), each addressed attr whose text moved.
   // An equal top-level hole covers its interior — the digest is over the
   // whole range — so nothing below it needs a look.
-  const emitDiffering = html => {
-    for (const m of html.matchAll(HOLE_RANGE)) {
+  const emitDiffering = source => {
+    for (const m of source.matchAll(HOLE_RANGE)) {
       const key = "lh:" + m[1];
       const digest = textDigest(stripHoleMarkers(m[2]));
       if (have[key] === digest) continue;
-      emit(
-        withHoles({ type: "hole", id, version, key, html: m[2], digest }, holeDigests(m[2], null))
-      );
+      put(id, { ["hole:" + key]: html(m[2], digest, holeDigests(m[2], null)) });
     }
-    // (Attr chunks are keyed by the bare address, as the engine emits them;
-    // the ledger keys them `lha:N`.)
-    for (const m of html.matchAll(ATTR_ADDRESS)) {
+    // (Attr records are keyed by the bare address, as the engine emits
+    // them; the ledger keys them `lha:N`.)
+    for (const m of source.matchAll(ATTR_ADDRESS)) {
       const text = attrText.get("lha:" + m[1]);
       if (text === undefined) continue;
       const digest = textDigest(text);
       if (have["lha:" + m[1]] === digest) continue;
-      emit({ type: "attr", id, version, key: m[1], attrs: text, digest });
+      put(id, { ["attr:" + m[1]]: { kind: "attrs", value: text, digest } });
     }
   };
-  // Fragments that streamed styles ahead of a grouped reveal; the group's
-  // reveal chunk must tell the consumer to wait on them.
-  const styledKeys = new Set();
   // The binding ledger (DR-2 case 1): open bindings for re-runnable slot
   // args — compiled getters, thunks, memos passed whole — re-evaluated at
   // every commit the response observes. A commit is any settlement the sink
@@ -500,18 +558,20 @@ export function createFrameSink(write, frame, have, hooks) {
   let epoch = 0;
   // The sweep is one unit on the wire (C13, frames-rulings §"the server
   // half": one sweep, one frame). The hole / attr re-emissions a pass
-  // produces are collected here and leave as ONE chunk — `{ type: "ops",
-  // ops: [...] }` when the pass changed more than one binding, the member
-  // itself when it changed one — so the client, whose unit of application
-  // is the chunk, lands the server's flush as one flush of its own. The
-  // chunk's edge is the delimiter: no sweep-end marker, no buffering on
+  // produces are collected here and written as ONE put — never split
+  // across batches — so the client, whose unit of application is the
+  // message, lands the server's flush as one flush of its own. The
+  // message's edge is the delimiter: no sweep-end marker, no buffering on
   // the client, nothing to time out if a connection dies mid-sweep.
   let swept = null;
   const sweep = () => {
     epoch++;
-    const pass = (swept = { ops: [], emitted: false });
+    const pass = (swept = { r: {}, emitted: false });
     try {
-      for (const b of [...bindings.values()]) {
+      for (const [key, b] of [...bindings]) {
+        // Closed or replaced by an earlier binding of this pass (a hole's
+        // re-run re-opens its occurrences' watched args).
+        if (bindings.get(key) !== b) continue;
         try {
           b.sweep();
         } catch (_) {
@@ -520,7 +580,11 @@ export function createFrameSink(write, frame, have, hooks) {
           // value stands.
         }
       }
-      emitOps(pass.ops);
+      for (const _ in pass.r) {
+        put(id, pass.r);
+        break;
+      }
+      flush();
       // A pass that emitted is one visible commit — one "yield" to the
       // plain-response bound (`frameStream`). After the pass's unit left,
       // so a cut taken here follows it on the wire; still inside the pass,
@@ -529,12 +593,6 @@ export function createFrameSink(write, frame, have, hooks) {
     } finally {
       swept = null;
     }
-  };
-  // Members ride unaddressed (the envelope addresses them); a lone member
-  // is addressed and emitted as the plain chunk it always was.
-  const emitOps = ops => {
-    if (ops.length === 1) emit(Object.assign({ type: ops[0].type, id, version }, ops[0]));
-    else if (ops.length) emit({ type: "ops", id, version, ops });
   };
   const scheduleSweep = () => {
     if (closed || sweepScheduled || !bindings.size) return;
@@ -555,56 +613,56 @@ export function createFrameSink(write, frame, have, hooks) {
   const frameOf = key => regionKeys.get(key) || id;
   return {
     // Tag a fragment key to the region resolving around its registration, so
-    // its later fragment/reveal chunks address the region frame.
+    // its later segment records address the region frame.
     tagRegion(key, childId) {
       if (!regionKeys.has(key)) regionKeys.set(key, childId);
     },
-    shell(html, meta = {}) {
-      const digest = textDigest(frameSkeleton(html));
+    shell(source, meta = {}) {
+      const digest = textDigest(frameSkeleton(source));
       // A resume whose structure the client already shows: no root, no
       // assets it loaded with it — only the holes that moved.
       if (have && have[""] === digest) {
         conditional = true;
-        emitDiffering(html);
+        emitDiffering(source);
         return;
       }
       // Pre-flush assets (entry modules, hoisted boundary styles) are head
-      // splices in the document sink; a frame carries them as an assets chunk
-      // ahead of the shell html.
+      // splices in the document sink; a frame carries them as the root's
+      // assets record (`seg::assets`, the head-affecting members only)
+      // ahead of the shell html, in the same batch.
       if ((meta.preloads && meta.preloads.size) || meta.preloadLinks) {
-        const chunk = { type: "assets", id, version, key: "" };
+        const record: any = {};
         if (meta.preloads && meta.preloads.size) {
           const styles = [];
           const modules = [];
           for (const url of meta.preloads) {
             (url.endsWith(".css") ? styles : modules).push(url);
           }
-          if (styles.length) chunk.styles = styles;
-          if (modules.length) chunk.modules = modules;
+          if (styles.length) record.styles = styles;
+          if (modules.length) record.modules = modules;
         }
         if (meta.preloadLinks) {
-          chunk.preloads = [];
+          record.preloads = [];
           for (const entry of meta.preloadLinks) {
-            chunk.preloads.push(wirePreload(entry));
+            record.preloads.push(wirePreload(entry));
           }
         }
         needs("assets");
-        emit(chunk);
+        put(id, { "seg::assets": record });
       }
-      emit(withHoles({ type: "html", id, version, html, digest }, holeDigests(html, attrText)));
+      put(id, { "": html(source, digest, holeDigests(source, attrText)) });
     },
     data(record) {
       // Keyed codec record ({ key, node, initial }) from createJSONSerializer
       // — the frame wire format: eval-free SerovalNode data the consumer
       // applies to its record table (createJSONDataTable). A plain string
       // (hydration script from createHydrationSerializer) still passes
-      // through as a `payload` chunk for eval-style consumers.
+      // through as a `payload` message for eval-style consumers.
       //
       // The DOCUMENT hydration protocol's bookkeeping — fragment-resume
       // promises (`<id>_fr`) and ssrSource memo auto-serializations (bare
       // hydration-id keys, pure digits under a frame render) — has no
-      // frame-side reader: the stream's own fragment/reveal chunks supersede
-      // it. Dropped (measured at 26% of a navigation payload). Deliberate
+      // frame-side reader: the stream's own segment records supersede it. Dropped (measured at 26% of a navigation payload). Deliberate
       // serializations (codec `arg:` records, user keys) pass through.
       if (
         record &&
@@ -613,11 +671,15 @@ export function createFrameSink(write, frame, have, hooks) {
       ) {
         return;
       }
+      // Not a record: it leaves behind the batch queued before it (see
+      // `put`).
+      if (swept) swept.emitted = true;
+      flush();
       if (typeof record === "string") {
-        emit({ type: "data", id, version, payload: record });
+        send({ type: "data", id, version, payload: record });
         scheduleSweep();
       } else {
-        emit({
+        send({
           type: "data",
           id,
           version,
@@ -644,67 +706,56 @@ export function createFrameSink(write, frame, have, hooks) {
         // An errored re-render stands behind the content the client keeps;
         // the failure still surfaces as the keyed diagnostic it always was.
         if (meta.error) {
-          emit({
-            type: "error",
-            id: fid,
-            version,
-            key,
-            error: { message: String((meta.error && meta.error.message) || meta.error) }
+          putError(fid, key, {
+            message: String((meta.error && meta.error.message) || meta.error)
           });
         } else emitDiffering(value);
         return;
       }
       const links = (meta.styles && meta.styles.links) || [];
       const inline = (meta.styles && meta.styles.inline) || [];
+      // The segment's records, one batch: assets, content, an error, the
+      // eager reveal. The client's reveal gate reads the assets record's
+      // stylesheets (they gate; inline styles apply on insertion).
+      const r = {};
       if (links.length || inline.length) {
-        if (links.length) styledKeys.add(key);
-        const chunk = { type: "assets", id: fid, version, key };
+        const record: any = {};
         // Link entries are urls or attributed gate entries; the wire form
         // drops the document-sink markup (`attrHtml`) and keeps the
         // setAttribute record.
         if (links.length) {
-          chunk.styles = links.map(e =>
+          record.styles = links.map(e =>
             typeof e === "string" ? e : e.attrs ? { href: e.href, attrs: e.attrs } : e.href
           );
         }
         if (inline.length) {
-          chunk.inlineStyles = inline.map(e => ({ id: e.id, content: e.content, attrs: e.attrs }));
+          record.inlineStyles = inline.map(e => ({ id: e.id, content: e.content, attrs: e.attrs }));
         }
         needs("assets");
-        emit(chunk);
+        r[`seg:${key}:assets`] = record;
       }
-      emit(
-        withHoles(
-          { type: "fragment", id: fid, version, key, html: value, digest: textDigest(value) },
-          holeDigests(value, attrText)
-        )
-      );
+      r[`seg:${key}`] = html(value, textDigest(value), holeDigests(value, attrText));
       // A fragment resolving is a settlement: values its async work produced
       // are now visible to watched args.
       scheduleSweep();
       // A fragment that ERRORED still reveals (its html is the fallback /
-      // error template), but the failure is surfaced as a keyed error chunk
+      // error template), but the failure is surfaced as a keyed error record
       // — the frame protocol has no `<key>_fr` rejection to ride.
-      if (meta.error) {
-        emit({
-          type: "error",
-          id: fid,
-          version,
-          key,
-          error: { message: String((meta.error && meta.error.message) || meta.error) }
-        });
-      }
+      if (meta.error)
+        r[`seg:${key}:error`] = {
+          message: String((meta.error && meta.error.message) || meta.error)
+        };
       // An eagerly-revealed fragment (no reveal group) carries its own
       // reveal; grouped fragments wait for an explicit reveal() call.
-      if (!meta.revealGroup) {
-        emit({ type: "reveal", id: fid, version, keys: [key], waitForStyles: !!links.length });
-      }
+      if (!meta.revealGroup) r[`seg:${key}:reveal`] = true;
+      put(fid, r);
     },
     reveal(keys, meta = {}) {
       // Keys in one reveal group can belong to different frames (a region's
       // fragment shares a group with the root's). Split by frame so each
-      // reveal chunk addresses the frame that owns those placeholders, keeping
-      // registration order within each frame.
+      // frame's gates are written at the frame that owns those placeholders,
+      // keeping registration order within each frame. A fallback reveal sets
+      // fallback gates.
       const byFrame = new Map();
       for (const key of keys) {
         // A resume never reveals over content the client shows — neither
@@ -716,32 +767,34 @@ export function createFrameSink(write, frame, have, hooks) {
         if (!group) byFrame.set(fid, (group = []));
         group.push(key);
       }
+      const gate = meta.fallback ? "fallback" : "reveal";
       for (const [fid, groupKeys] of byFrame) {
-        let waitForStyles = false;
-        for (const key of groupKeys) if (styledKeys.has(key)) waitForStyles = true;
-        const chunk = { type: "reveal", id: fid, version, keys: groupKeys, waitForStyles };
-        if (meta.fallback) chunk.fallback = true;
-        emit(chunk);
+        const r = {};
+        for (const key of groupKeys) r[`seg:${key}:${gate}`] = true;
+        put(fid, r);
       }
     },
     asset(type, value) {
-      // Post-flush styles ride their fragment's assets chunk (fragment() gets
-      // them via meta.styles) — same as the document sink, which only writes
-      // style links on the fragment path. Emitting them here too would
-      // duplicate, mis-keyed to the root.
+      // Post-flush styles ride their fragment's assets record (fragment()
+      // gets them via meta.styles) — same as the document sink, which only
+      // writes style links on the fragment path. Emitting them here too
+      // would duplicate, mis-keyed to the root. Late root assets accumulate
+      // on the client under the one `seg::assets` key.
       if (type === "module") {
         needs("assets");
-        emit({ type: "assets", id, version, key: "", modules: [value] });
+        put(id, { "seg::assets": { modules: [value] } });
       } else if (type === "preload") {
         needs("assets");
-        emit({ type: "assets", id, version, key: "", preloads: [wirePreload(value)] });
+        put(id, { "seg::assets": { preloads: [wirePreload(value)] } });
       }
     },
     /**
-     * End the response: `complete`, with `bound` when the producer cut a
-     * plain response at its streaming bound (`"yields"` | `"time"`; see
-     * `frameStream`) rather than its sources settling. Idempotent — a cut
-     * and the render's own end may both reach here.
+     * End the response: `:complete`, with `:bound` beside it when the
+     * producer cut a plain response at its streaming bound (`"yields"` |
+     * `"time"`; see `frameStream`) rather than its sources settling — a
+     * consumer can tell a cut-off from a settled value; the frame landed
+     * either way. Idempotent — a cut and the render's own end may both
+     * reach here. Flushes: nothing stays queued past the end.
      */
     end(bound) {
       if (closed) return;
@@ -752,55 +805,62 @@ export function createFrameSink(write, frame, have, hooks) {
       // yield hook has just swept; nothing is owed.
       if (bindings.size && !swept) sweep();
       closed = true;
-      const chunk = { type: "complete", id, version };
-      if (bound) chunk.bound = bound;
-      emit(chunk);
+      put(id, bound ? { ":complete": true, ":bound": bound } : { ":complete": true });
+      flush();
     },
     error(errorId, error) {
-      emit({ type: "error", id, version, key: errorId, error });
+      putError(id, errorId, error);
     },
+    /** Send what is queued now (a flush boundary the producer knows of). */
+    flush,
     // A named slot invocation from the slot props proxy: the client's
     // render callback for the occurrence's prop is called with these args.
-    // No document-sink counterpart — slots only exist in frame streams.
+    // Data args are `{$ref}`s into the response's data table; server-content
+    // args are `{$frame}` nested regions. No document-sink counterpart —
+    // slots only exist in frame streams.
     slot(key, args) {
-      emit({ type: "slot", id, version, key, args });
+      put(id, { [`slot:${key}`]: { kind: "slot", args } });
     },
-    // A nested server-content region (a `{$frame}` slot arg): its html is a
-    // chunk addressed to the CHILD frame id — the consumer binds a nested
+    // A nested server-content region (a `{$frame}` slot arg): its html is
+    // the root record of the CHILD frame id — the consumer binds a nested
     // frame to the arg's marker range and the host routes/buffers by id.
     // The first region minted is the `regions` tier announced.
-    region(childId, html) {
+    region(childId, value) {
       needs("regions");
-      emit({ type: "html", id: childId, version, html });
+      put(childId, { "": { kind: "html", value } });
     },
     // A live-hole re-emission (Stage 3): the hole's re-resolved HTML, keyed
     // by its marker id — the consumer morphs the marked range in place.
     // Produced by a sweep, so it joins the sweep's unit (see `sweep`).
-    hole(key, html, rows) {
-      const op: any = { type: "hole", key, digest: textDigest(html) };
-      // Row ops (#4064): on a live response (the wire tier's), only the
-      // rows of a `For` hole that changed since what the range shows,
-      // named by its digest `base`. A client whose range shows something
-      // else resyncs through the live connection's resume, whose have-list
-      // names what it shows. Anywhere else, the whole hole.
+    hole(key, source, rows) {
+      // Response-scoped like segments — hole ids restart per render — so
+      // these clear on version bumps.
+      const record: any = { kind: "html", digest: textDigest(source) };
+      // Row ops (#4064): on a live response, only the rows of a `For` hole
+      // that changed since what the range shows, named by its digest
+      // `base`. A client whose range shows something else resyncs through
+      // the live connection's resume, whose have-list names what it shows.
+      // Anywhere else, the whole hole.
       const base = holeDigest.get(key);
-      if (rows && base && tiers.has("wire")) {
-        op.rows = rows;
-        op.base = base;
-      } else op.html = html;
+      if (rows && base && hooks && hooks.live) {
+        record.rows = rows;
+        record.base = base;
+      } else record.value = source;
       // Holes inside what changed now show it.
-      withHoles(op, holeDigests(op.rows ? rows.r.map(r => r[1]).join("") : html, null));
-      showing(op);
-      swept ? swept.ops.push(op) : emitOps([op]);
+      withHoles(record, holeDigests(record.rows ? rows.r.map(r => r[1]).join("") : source, null));
+      const r = { ["hole:" + key]: record };
+      showing(r);
+      swept ? Object.assign(swept.r, r) : put(id, r);
     },
     // A live attr-hole re-emission: the addressed element's rebuilt
     // attribute text, plus the names that vanished since the last emission
     // (the server holds the previous text — the client never tracks name
     // history).
     attr(key, attrs, removed) {
-      const op = { type: "attr", key, attrs, digest: textDigest(attrs) };
-      if (removed && removed.length) op.removed = removed;
-      swept ? swept.ops.push(op) : emitOps([op]);
+      const record: any = { kind: "attrs", value: attrs, digest: textDigest(attrs) };
+      if (removed && removed.length) record.removed = removed;
+      const r = { ["attr:" + key]: record };
+      swept ? Object.assign(swept.r, r) : put(id, r);
     },
     // An attr hole's first-render text, keyed by its address — the digest
     // source for root/fragment `holes` maps and the resume compare.
@@ -814,6 +874,10 @@ export function createFrameSink(write, frame, have, hooks) {
      * position supersedes it.
      */
     openBinding(key, b) {
+      // A live hole (`lh:N`) or attr hole (`lha:N`) re-emits through the
+      // client's live wire tier, which applies it: announced at the
+      // binding, ahead of the first op (arg bindings are records).
+      if (/^lha?:/.test(key)) needs("wire");
       bindings.set(key, b);
     },
     /** A real error is terminal for its binding — same as the retry loop. */
@@ -844,7 +908,7 @@ export function createFrameSink(write, frame, have, hooks) {
     // ---- tiers (see `tiers` above) ----
     /**
      * This render needs the named frames-client tier: announced on the
-     * response head if it has not left, in-band on the next chunk if it
+     * response head if it has not left, in-band on the next message if it
      * has. Called where the sink mints the tier's feature; idempotent.
      */
     needs,
@@ -852,7 +916,7 @@ export function createFrameSink(write, frame, have, hooks) {
      * The tiers minted so far, for the response head — every one the sync
      * render pass produced, the stream face's `X-Frame-Tiers`. Names it
      * returns need no in-band announcement; what is minted later rides the
-     * next chunk.
+     * next message.
      */
     announce() {
       staged = [];
@@ -860,7 +924,7 @@ export function createFrameSink(write, frame, have, hooks) {
     }
   };
 } /**
- * Render to a FrameChunk stream: the same render core as `renderToStream`
+ * Render to a frame stream: the same render core as `renderToStream`
  * with emission swapped to the frame sink and the document writable replaced
  * by a chunk envelope (`start` up front, `complete` at stream end). Data
  * records default to the keyed JSON codec (decode with
@@ -870,7 +934,7 @@ export function createFrameSink(write, frame, have, hooks) {
 export function renderToFrameStream(code: () => unknown, options?: FrameStreamOptions): FrameStream;
 
 /**
- * Render to a FrameChunk stream: the same render core as `renderToStream`,
+ * Render to a frame stream: the same render core as `renderToStream`,
  * with emission swapped to `createFrameSink` and the document writable
  * replaced by a chunk envelope. The envelope emits `start` up front and
  * `complete` at stream end; no document text is ever written.
@@ -890,7 +954,7 @@ export function renderToFrameStream(code, options = {}) {
   return frameStream(() => code, options);
 } /**
  * Render a **server component** — a `props => JSX` function, typically
- * returned from a server function — to a FrameChunk stream. `props` is a
+ * returned from a server function — to a frame stream. `props` is a
  * slot-props proxy, not data:
  *
  * - reading a prop as a child emits a marker range the client fills;
@@ -914,7 +978,7 @@ export function renderServerComponent(
 
 /**
  * Render a **server component** — a `props => JSX` function, typically
- * returned from a server function — to a FrameChunk stream. `props` is a
+ * returned from a server function — to a frame stream. `props` is a
  * slot-props proxy, not data: reading a prop as a child emits a slot
  * marker range the client fills with its own content; calling a prop as a
  * render function additionally emits a `slot` chunk carrying the call's
@@ -962,10 +1026,7 @@ export function renderServerComponent(component, options = {}) {
         // between renders ships alone.
         let unsettled = !!options.live;
         if (!unsettled) ctx.unsettled = () => void (unsettled = true);
-        ctx.liveHoles = createLiveHoles(sink, false, () => !unsettled);
-        // Handler positions: arm the compiled `ssrClaim` guard for the whole
-        // response — everything here is the component's own render.
-        ctx.claims = CLAIMS_STREAM;
+        ctx.liveHoles = createLiveHoles(sink, false, () => !unsettled, ctx._errorScope);
       }
       return serverComponentScope(() => component(props));
     };
@@ -1020,6 +1081,8 @@ function frameStream(makeCode, options) {
     function finish() {
       if (ended) return;
       ended = true;
+      // What the render produced before its end leaves ahead of it.
+      sink.flush();
       if (timer) clearTimeout(timer);
       if (upstream) upstream.removeEventListener("abort", onSignal);
       w.end && w.end();
@@ -1050,28 +1113,24 @@ function frameStream(makeCode, options) {
       finish();
       render.abort(upstream.reason);
     }
-    const emit = chunk => {
-      if (observation) observation.chunk(chunk);
-      w.write(chunk);
+    const emit = message => {
+      if (observation) observation.chunk(message);
+      w.write(message);
       // First flush: the root's html. From here the bound counts.
-      if (bounded && !flushed && chunk.type === "html" && chunk.id === id) {
+      if (bounded && !flushed && message.id === id && message.r && "" in message.r) {
         flushed = true;
         if (maxDurationMs > 0 && maxDurationMs !== Infinity)
           timer = setTimeout(() => cut("time"), maxDurationMs);
       }
     };
-    const sink = createFrameSink(
-      emit,
-      frame,
-      options.resume && options.resume.have,
-      bounded
-        ? {
-            onYield() {
-              if (flushed && maxYields > 0 && ++yields >= maxYields) cut("yields");
-            }
+    const sink = createFrameSink(emit, frame, options.resume && options.resume.have, {
+      live: options.live,
+      onYield: bounded
+        ? () => {
+            if (flushed && maxYields > 0 && ++yields >= maxYields) cut("yields");
           }
         : undefined
-    );
+    });
     // A `live` response is the wire tier's: the standing connection the
     // client holds after this answer is that tier's code.
     if (options.live) sink.needs("wire");
@@ -1110,6 +1169,9 @@ function frameStream(makeCode, options) {
       // stream. (Async fragment errors already ride their rejected `_fr`
       // promise through the data codec.) What the chunk carries is the wire
       // policy's (#3468); the record beside it keeps the original.
+      // No render scope to pass (the render that threw is gone), and none
+      // needed: it heard this as `failed`, which decides no wire, so the
+      // default policy is the answer in any scope.
       const wire = ssrSanitizeError(err, null);
       sink.error("", wire instanceof Error ? wire.message : String(wire));
       sink.end();
@@ -1118,8 +1180,11 @@ function frameStream(makeCode, options) {
     }
     // The sync render pass is over: the tiers it minted are what the
     // response head can carry (the shell's own flush, and everything after
-    // it, is asynchronous — those mints ride in-band).
+    // it, is asynchronous — those mints ride in-band). The pass is a flush
+    // too: its records leave now, behind the head that announced their
+    // tiers.
     if (w[ANNOUNCE]) w[ANNOUNCE](sink.announce());
+    sink.flush();
   }
   return {
     pipe: stream,
@@ -1139,194 +1204,44 @@ function frameStream(makeCode, options) {
 /** The slot marker range for an occurrence, as a pre-rendered SSR value.
  * `$slot` opts the range out of live-hole marking: a slot is a client-owned
  * position — the server can never re-render it, so a live binding over one
- * would be permanently inert and its markers pure tax.
- *
- * `$occurrence` names the occurrence for `ssrElement`, which meets the range
- * when a slot's return is SPREAD onto an element — the retired shape it
- * rejects by name (principles §9.2.3). */
+ * would be permanently inert and its markers pure tax. */
 function slotRange(occurrence) {
   return {
     t: `<!--slot:${occurrence}:start--><!--slot:${occurrence}:end-->`,
-    $slot: true,
-    $occurrence: occurrence
+    $slot: true
   };
 }
 
-// A slot call's return serves BOTH things a slot can render (principles
-// §9.2.3): placed as a child it is the marker range (markup slot); read as
-// an object it is the fill's data (binding slot) — `const row = props.row(a);
-// <li class={row.rowClass}>`. One proxy over the range: the keys the engine
-// reads off a range pass through — an EXPLICIT set, the same on both faces
-// (the document face's range is an array, the stream face's a plain
-// object, and `key in target` would let `filter`/`at`/`sort`/`map` fall
-// through to Array.prototype on one face only, writing function source
-// into the markup); any other string key is a property READ, answered
-// with a `SLOT_VALUE` stand-in naming the occurrence and the key, carrying
-// the t=0 value when the fill ran. The attribute helpers (`@solidjs/web`
-// server) bind the position where the stand-in lands. Reserved for the
-// fill's output, therefore, and nothing else: `$`-prefixed keys, symbols,
-// `length`, numeric indices and `slice` (the resolver's array reads — the
-// copy `escape` takes of a placed range), the node keys `t`/`h`/`p`, `then`
-// (thenable probes), and the four Object.prototype names an engine coerces
-// through (`constructor`, `toString`, `valueOf`, `toJSON`) — the document
-// face checks the output and says so.
-const RANGE_KEYS = new Set([
-  "t",
-  "h",
-  "p",
-  "then",
-  "length",
-  "slice",
-  "constructor",
-  "toString",
-  "valueOf",
-  "toJSON"
-]);
-const NODE_KEYS = new Set(["t", "h", "p"]);
-/** Whether a string key read off a slot proxy is the range's own (passes
- *  through) rather than a property read of the fill's output. */
-function isRangeKey(key) {
-  const c = key.charCodeAt(0);
-  return c === 36 /* $ */ || (c >= 48 && c <= 57) /* index */ || RANGE_KEYS.has(key);
-}
-// `needs(tier)` is the face's tier announcement (createFrameSink's `needs`
-// on a stream, `documentNeeds` on a document): a property read is a
-// binding-slot position minted, and the `bind` tier announced with it.
-function slotProxy(range, occurrence, face, content, onData, needs) {
-  return new Proxy(range, {
-    get(target, key, receiver) {
-      if (typeof key !== "string" || isRangeKey(key)) return Reflect.get(target, key, receiver);
-      // The first property read fixes the proxy's face as DATA (see
-      // repeatKey): a placed range never gets here.
-      if (onData) onData = void onData();
-      // A read off markup binds nothing (a dev finding at the position).
-      if (face !== SLOT_FACE_MARKUP) needs("bind");
-      return slotValue(occurrence, key, content ? content[key] : undefined, face);
-    }
-  });
+/**
+ * A slot arg's form at the serialization border: `toBorderForm`, after a
+ * walk for the container traces it carries (at any depth): each is a trace
+ * the serializer will stamp, so the `trace` tier is announced with it
+ * (`needs`, the face's).
+ */
+function argBorderForm(value, needs) {
+  return toBorderForm(noteTraces(value, needs), true);
 }
 
 /**
- * A slot arg's form at the serialization border: `toBorderForm`, after one
- * check the border alone can make — the arg is, or carries, another slot's
- * stand-in (`props.child({ parentId: parent.id })`, `parent` a slot;
- * `{ nested: { x: row.done } }`, `[row.done]`). The server has no value
- * there (it is the client's), so the record ships `undefined` at that
- * position and dev says why; serializing the stand-in would hand the
- * client an object where it expects the value (`{ k, v, f }` — and on the
- * document face `v` is the t=0 value, which hydration then contradicts).
+ * Walk a slot arg for container traces, announcing the `trace` tier
+ * (`needs`) at the first: a container first (a WeakMap probe — a pending
+ * projection proxy's property reads throw not-ready), plain arrays and
+ * objects by their leaves (see rewriteTree); anything exotic is the app's
+ * and is not read. Nothing is rewritten, so the value comes back as it went
+ * in.
  */
-function argBorderForm(value, key, occurrence, needs) {
-  return toBorderForm(withoutStandIns(value, key, occurrence, needs), true);
-}
-
-/**
- * A slot arg with every stand-in in it replaced by `undefined` — the same
- * rewrite as `toBorderForm` (copy-on-write, plain arrays and objects by
- * their leaves, a cycle rewritten as a cycle; see rewriteTree): a
- * container first (a WeakMap probe — a pending projection proxy's
- * property reads throw not-ready), then the stand-in test on plain
- * objects alone; anything exotic is the app's and is not read. Both faces
- * take the same arg: the document face's t=0 fill reads what hydration
- * will (see createDocumentSlotProps), the records carry it.
- *
- * A container met here (at any depth) is a trace the serializer will
- * stamp: the `trace` tier announced (`needs`, the face's).
- */
-function withoutStandIns(value, key, occurrence, needs) {
+function noteTraces(value, needs) {
   return rewriteTree(
     value,
-    (v, path) => {
+    v => {
       if (isContainerTraced(v)) {
         needs("trace");
         return v;
-      }
-      if (Object.getPrototypeOf(v) === Object.prototype && isSlotValue(v)) {
-        if ("_SOLID_DEV_") standInArgFinding(v, key, occurrence, path);
-        return undefined;
       }
       return DESCEND;
     },
     true
   );
-}
-
-function standInArgFinding(sv, key, occurrence, path) {
-  if ("_SOLID_DEV_") {
-    // Once per (occurrence, arg, path) per render — and a stand-in shared
-    // between two paths is met once, at its first (`rewriteTree` answers
-    // the second from its record): the document face scrubs the fill's arg
-    // and the record's separately, and a live re-evaluation of the same
-    // getter is the same misuse.
-    const ctx = sharedConfig.context;
-    if (ctx) {
-      const id = `${occurrence}\u0000${key}${path}\u0000arg`;
-      const seen = ctx.slotFindings || (ctx.slotFindings = new Set());
-      if (seen.has(id)) return;
-      seen.add(id);
-    }
-    const where = path === "" ? `Arg \`${key}\`` : `Arg \`${key}${path}\``;
-    devCheck({
-      code: "BINDING_SLOT_POSITION",
-      kind: "ssr",
-      severity: "warn",
-      message:
-        `[BINDING_SLOT_POSITION] ${where} of \`${occurrence}\` is another slot's value ` +
-        `(\`${sv.k}\` of \`${sv[SLOT_VALUE]}\`). The server does not have it — the client owns ` +
-        `it — so it cannot be passed as data; the arg carries \`undefined\` there on both faces. ` +
-        `Pass the server's own value, or have the client fill read it from its own state.`,
-      data: {
-        reason: "arg",
-        occurrence,
-        key,
-        path: path === "" ? undefined : path,
-        from: sv[SLOT_VALUE],
-        fromKey: sv.k
-      }
-    });
-  }
-}
-
-/** Classify a document-face fill's return for property reads: a plain
- *  object is data (its properties are the t=0 values); content — an SSR
- *  node, a node list, a string, a function — is markup, and a read off it
- *  is a dev finding at the position that binds it. Nothing (`null`/
- *  `undefined`) reads as data with no values. */
-function slotFace(range, content) {
-  if (content == null) return SLOT_FACE_DATA;
-  if (typeof content !== "object" || Array.isArray(content)) return SLOT_FACE_MARKUP;
-  if (isServerContent(content)) {
-    // An SSR node is `{ t }` (plus `h`/`p`) and nothing else. An object
-    // with further keys is the fill's DATA that happened to use a node key
-    // — classified as data in every build (a `t` value is unreadable, the
-    // rest binds), and named below in dev.
-    let data = false;
-    for (const key in content) {
-      if (!NODE_KEYS.has(key)) {
-        data = true;
-        break;
-      }
-    }
-    if (!data) return SLOT_FACE_MARKUP;
-  }
-  if ("_SOLID_DEV_") {
-    for (const key of Object.keys(content)) {
-      if (isRangeKey(key)) {
-        devCheck({
-          code: "BINDING_SLOT_POSITION",
-          kind: "ssr",
-          severity: "warn",
-          message:
-            `[BINDING_SLOT_POSITION] The fill for \`${range.$occurrence}\` returned a key named \`${key}\`, ` +
-            `which is reserved (keys beginning with \`$\` or a digit, \`length\`, \`slice\`, the node keys \`t\`/\`h\`/\`p\`, ` +
-            `\`then\`, \`constructor\`, \`toString\`, \`valueOf\`, \`toJSON\`): the server reads it as the ` +
-            `slot's range, not as a value. Rename it.`,
-          data: { reason: "reserved-key", occurrence: range.$occurrence, key }
-        });
-      }
-    }
-  }
-  return SLOT_FACE_DATA;
 }
 
 // Occurrence ids embed user data (`$key`), and they land in contexts with
@@ -1371,14 +1286,9 @@ function keyedId(prop, raw) {
 }
 
 /**
- * Structural identity of a call's args, for collapsing repeated un-keyed
- * DATA calls (see repeatKey): a canonical string over plain values
- * — primitives, and arrays / plain objects of them, keys sorted — or
- * `undefined` when the args hold anything identity can't be read off by
- * value: a function (a thunk, a handler), a promise or async iterable (the
- * value tier), a class instance, a getter (compiled props — evaluating it
- * here would double the read the record path owns), a cycle (no finite
- * by-value form). `$key` is excluded: a keyed call is named, not compared.
+ * A plain value's structure as a string (`undefined` when it has none to
+ * read: a class instance, a cycle, an accessor), the `$key` of the top
+ * object left out.
  */
 function structuralArgsKey(raw) {
   let out = "";
@@ -1427,45 +1337,38 @@ function structuralArgsKey(raw) {
 }
 
 /**
- * One call is one occurrence however many times the render evaluates it.
- * The natural binding-slot shape puts the call in a component prop —
- * `<TodoRow row={props.row({ id: t.id, completed: t.completed })} />` — and
- * compiled props are getters: every position the shared component binds
- * re-evaluates the expression. Without this, each read would mint an
- * occurrence, run the fill and emit a record (the double-data disease, once
- * per position). Two names collapse a repeat onto the first call's proxy:
- *
- * - `$key`: the occurrence is named, so any repeat is the same occurrence
- *   whatever its face — the author said so.
- * - structural args, for a call already known to be DATA: identical args
- *   give an identical fill output, so binding both sites' positions to one
- *   occurrence changes nothing on screen. Known-data only, because a placed
- *   range is not collapsible — two `<props.badge kind="new" />` are two
- *   ranges — and on the stream face a proxy's face is fixed by its first
- *   use (property read → data; `t` read → placed). The getter shape reads
- *   at the call, so the second evaluation finds the first registered; a
- *   call that is neither read nor placed before an identical call stays a
- *   separate occurrence (duplicate record, correct output). The document
- *   face classifies the fill's return at the call and registers there.
- *
- * `$key` therefore names an ENTITY — client state inside the fill's scope
- * follows it across responses — and is optional; without it identity is
- * positional per prop across responses and structural within one.
- *
- * Both names share one per-render map (`repeats`): a keyed call's key is
- * its occurrence id (`prop#<$key>`), an un-keyed call's is `prop\0<args>`,
- * a zero-arg call's (document face, where the fill runs) is `prop\0`
- * — disjoint alphabets. The caller registers a keyed proxy at the call and
- * an un-keyed one when its face is known (first wins), and looks up before
- * minting. `undefined`: this call can never be recognized as a repeat.
+ * A slot arg's value as a re-run compares it: plain values by their
+ * structure (a fresh object with the same contents is the same arg), and
+ * anything structure can't be read off (a class instance, a promise, a
+ * container — a pending projection's reads throw) by reference.
  */
-function repeatKey(prop, raw) {
-  const keyed = keyedId(prop, raw);
-  if (keyed !== undefined) return keyed;
-  const structural = structuralArgsKey(raw);
-  return structural === undefined ? undefined : prop + "\0" + structural;
+function argDigest(value) {
+  // A primitive is its own digest (NaN, which equals nothing, takes the
+  // structural path).
+  const t = typeof value;
+  if (value == null || (t !== "object" && t !== "function" && value === value)) return value;
+  if (isContainerTraced(value)) return value;
+  try {
+    const key = structuralArgsKey([value]);
+    return key === undefined ? value : key;
+  } catch (_) {
+    return value;
+  }
 }
+/** A pending arg's digest: still pending is unchanged. */
+const PENDING_ARG = {};
+// Kept where no re-run can compare: NaN equals nothing, so a compare finds
+// the arg changed.
+const noDigest = () => NaN;
 
+/**
+ * One keyed call is one occurrence however many times the render evaluates
+ * it. Compiled props are getters, so a call in a component prop is
+ * re-evaluated at every read; a call that names its occurrence (`$key`)
+ * collapses onto the first call's range instead of emitting its record
+ * again. `repeats` is that per-render map, keyed by the occurrence id
+ * (`prop#<$key>`); an un-keyed call is positional and never a repeat.
+ */
 /** An async value in the DR-2 value-tier sense: passed whole, rides the data
  *  channel, and the consumer's READ settles. */
 function isAsyncValue(v) {
@@ -1521,6 +1424,44 @@ function tapFirstYield(iterable) {
  * the range. Fill liveness is the RECORD's story: arg re-emissions update
  * the adopted occurrence's props.
  */
+/**
+ * Dependency edges: a reader list on the wire — one string, runs of
+ * `prop#n` occurrences folded to `prop#a-b` (`card#0-399 cartSummary#0`).
+ */
+function packOccurrences(occs: string[]): string {
+  const out: string[] = [];
+  let prop = "",
+    a = -1,
+    b = -1;
+  const flush = () => a >= 0 && out.push(prop + "#" + (a === b ? a : a + "-" + b));
+  for (const o of occs) {
+    const m = /^(.*)#(\d+)$/.exec(o);
+    if (m && m[1] === prop && +m[2] === b + 1 && a >= 0) {
+      b++;
+      continue;
+    }
+    flush();
+    a = b = -1;
+    if (m) {
+      prop = m[1];
+      a = b = +m[2];
+    } else out.push(o);
+  }
+  flush();
+  return out.join(" ");
+}
+
+/** Dependency edges: whether rendered SSR output still holds an async hole. */
+function hasAsyncHoles(node, depth = 0): boolean {
+  if (!node || typeof node !== "object" || depth > 64) return false;
+  if (Array.isArray(node)) {
+    for (const n of node) if (hasAsyncHoles(n, depth + 1)) return true;
+    return false;
+  }
+  if (node.h && node.h.length) return true;
+  return false;
+}
+
 function suppressedFill(render) {
   const live = sharedConfig.context && sharedConfig.context.liveHoles;
   if (!live) return render();
@@ -1531,6 +1472,53 @@ function suppressedFill(render) {
     live.suppressed--;
   }
 } // === Document SSR (t = 0) ===
+
+// Nested fills. A fill called while an enclosing occurrence's args evaluate
+// sits in server content that enclosing fill places (a region), so it is
+// that fill's child, as in any client tree: it renders where the region is
+// placed, under the placing owner — the context the enclosing fill provides
+// there — as the adopting client mounts it (`placements`, frames client).
+// Until then it is PARKED: a token in the region's markup, swapped for its
+// range at placement, or at the record of a region left occluded.
+let parked: Map<number, any> | null = null;
+let parkedIds = 0;
+const PARKED = /<!--sc-n:(\d+)-->/;
+function park(render) {
+  if (!parked) return render();
+  const id = ++parkedIds;
+  parked.set(id, { render, out: undefined });
+  return { t: `<!--sc-n:${id}-->` };
+}
+const runParked = (entry, owner?) => entry.out || (entry.out = entry.render(owner));
+// Swap a region's tokens for their ranges (rendered under `owner`), then
+// render any token the content dropped — its record is declared.
+function placeParked(node, nested, owner?) {
+  const out = expandParked(node, nested, owner);
+  for (const entry of nested.values()) runParked(entry, owner);
+  return out;
+}
+function expandParked(node, nested, owner) {
+  if (Array.isArray(node)) {
+    const out: any = node.map(n => expandParked(n, nested, owner));
+    out.$slot = node.$slot;
+    return out;
+  }
+  if (!node || node.t === undefined) return node;
+  if (!node.h) return splitParked(node.t, nested, owner) || node;
+  // Async holes stay between their segments, one hole per node.
+  const out: any[] = [];
+  node.t.forEach((t, i) => {
+    out.push(splitParked(t, nested, owner) || { t });
+    if (i < node.h.length) out.push({ t: ["", ""], h: [node.h[i]], p: [node.p[i]] });
+  });
+  return out;
+}
+function splitParked(t, nested, owner) {
+  const parts = typeof t === "string" ? t.split(PARKED) : [t];
+  return parts.length > 1
+    ? parts.map((part, i) => (i & 1 ? runParked(nested.get(+part), owner) : { t: part }))
+    : undefined;
+}
 
 /**
  * Document-mode slot props — the t = 0 counterpart of
@@ -1548,8 +1536,47 @@ export function createDocumentSlotProps(
 
 export function createDocumentSlotProps(clientProps, frameId) {
   const counts = Object.create(null);
+  // Deferred hydration, dependency edges: which occurrences read which
+  // plain signals they did not create, aggregated per frame as
+  // `sid -> "card#0-399 cart#0"` and shipped in batches
+  // (`sc:deps:<frame>:<n>`, one per synchronous span of fills; the first
+  // always, empty or not, so the client knows the frame's records exist).
+  // `*` lists signals whose readers are not tracked (wide: a write mounts
+  // everything); `!` lists occurrences with reads the server could not see
+  // (async holes left by the fill, client-source or tracked effects): a
+  // write to any named signal mounts them.
+  let depsBatch: Record<string, string[]> | null = null;
+  let depsN = 0;
+  let wideSent = 0;
+  const depsContext = sharedConfig.context;
+  const noteDeps = (occurrence: string, reads: Set<string> | null, untracked: boolean) => {
+    // Records only from a render that names its signals (`edges`, set at
+    // render start when the server-components codec is configured): without
+    // them the client mounts everything on a write, as before.
+    if (!depsContext || !depsContext.serialize || !(depsContext as any).edges) return;
+    const own = `sc-${frameId}-${occurrence}-`;
+    const batch = () => {
+      if (depsBatch) return depsBatch;
+      queueMicrotask(() => {
+        const b: Record<string, string> = {};
+        for (const sid in depsBatch!) b[sid] = packOccurrences(depsBatch![sid]);
+        depsBatch = null;
+        const wide: Set<string> | null = (depsContext as any).edgeWide?.s || null;
+        if (wide && wide.size > wideSent) {
+          b["*"] = [...wide].slice(wideSent).join(" ");
+          wideSent = wide.size;
+        }
+        if (depsN === 0 || Object.keys(b).length)
+          depsContext.serialize(`sc:deps:${frameId}:${depsN++}`, b);
+      });
+      return (depsBatch = Object.create(null) as Record<string, string[]>);
+    };
+    const b = batch();
+    if (reads) for (const sid of reads) if (!sid.startsWith(own)) (b[sid] ||= []).push(occurrence);
+    if (untracked) (b["!"] ||= []).push(occurrence);
+  };
   const getters = new Map();
-  // Repeated calls are one occurrence within a render (see repeatKey).
+  // Repeated keyed calls are one occurrence within a render (see keyedId).
   const repeats = new Map();
   // `$slot`-tagged like the stream face's slotRange: the engine resolves a
   // slot-tagged value MINT-SUPPRESSED, so fill content — client-owned DOM
@@ -1559,29 +1586,15 @@ export function createDocumentSlotProps(clientProps, frameId) {
   // story: arg re-emissions update the adopted occurrence's props. One
   // known coarsening: a region (server JSX arg) placed by the fill resolves
   // inside this suppressed span, so its interior holes keep the t=0 latch.
-  //
-  // The return is the slot PROXY over this range (see slotProxy): placed,
-  // it is the range; read, its properties are the fill's t=0 values — this
-  // being the document face, where the fill ran. A fill that returned
-  // content classifies as markup and reads off it are dev findings.
-  const range = (occurrence, content) => {
-    const r = [
+  const range = (occurrence, content, tail?) => {
+    const r: any = [
       { t: `<!--slot:${occurrence}:start-->` },
       content,
+      tail,
       { t: `<!--slot:${occurrence}:end-->` }
     ];
     r.$slot = true;
-    r.$occurrence = occurrence;
-    const face = slotFace(r, content);
-    r.$face = face;
-    return slotProxy(
-      r,
-      occurrence,
-      face,
-      face === SLOT_FACE_DATA ? content : undefined,
-      undefined,
-      documentNeeds
-    );
+    return r;
   };
   // Client content renders under a per-occurrence hydration-key OWNER
   // scope, so the adopting client re-renders each slot under the SAME
@@ -1600,8 +1613,10 @@ export function createDocumentSlotProps(clientProps, frameId) {
   // see "no NoHydration zone" and pass through, leaking ambient-chain keys
   // onto the wrapper instead of its sc- occurrence namespace.
   const zoneOwner = getOwner ? getOwner() : null;
-  const scoped = (occurrence, render) => {
+  const scoped = (occurrence, render, owner?) => {
     const id = `sc-${frameId}-${occurrence}-`;
+    // A placed nested fill: inside the enclosing fill, outside any zone.
+    if (owner) return runWithOwner(owner, () => runWithHydrationScope(id, render));
     const run = () =>
       Hydration
         ? Hydration({
@@ -1626,32 +1641,27 @@ export function createDocumentSlotProps(clientProps, frameId) {
           // Direct-insert position: the client's content renders inline,
           // wrapped in the range the adopting frame will claim.
           if (callArgs.length === 0 || callArgs[0] === undefined) {
-            // A zero-arg call is the occurrence named by the prop, so a
-            // repeat of one known to be DATA collapses onto the first proxy
-            // like the args path below (see repeatKey — `<Block
-            // block={props.codeBlock()} />` re-evaluates the getter at every
-            // position the component binds, and each evaluation ran the
-            // fill). A placed range is one range per placement.
-            const rk = prop + "\0";
-            const repeat = repeats.get(rk);
-            if (repeat) return repeat;
             // Direct-insert positions are key-scoped like render props —
             // there is no natural id parity across the boundary, so BOTH
             // sides evaluate inside the occurrence scope. The prop is read
             // INSIDE scoped(): compiled component props are getters, so the
             // client's JSX evaluates lazily at access under the same keys —
             // plain JSX, no thunk convention.
-            const out = suppressedFill(() =>
-              scoped(prop, () => {
-                const value = clientProps[prop];
-                return range(prop, typeof value === "function" ? value() : value);
-              })
+            return park(owner =>
+              suppressedFill(() =>
+                scoped(
+                  prop,
+                  () => {
+                    const value = clientProps[prop];
+                    return range(prop, typeof value === "function" ? value() : value);
+                  },
+                  owner
+                )
+              )
             );
-            if (out.$face === SLOT_FACE_DATA) repeats.set(rk, out);
-            return out;
           }
           const raw = callArgs[0];
-          const rk = repeatKey(prop, raw);
+          const rk = keyedId(prop, raw);
           const repeat = rk !== undefined && repeats.get(rk);
           if (repeat) return repeat;
           const occurrence = occurrenceId(prop, raw, counts);
@@ -1670,12 +1680,16 @@ export function createDocumentSlotProps(clientProps, frameId) {
           // SYNC render (`renderToString`) has no later script to settle a
           // declaration in and no serializer for one: its record is the
           // value, written after the fill.
+          // A parked fill declares at its placement — the marker's time.
           const context = sharedConfig.context;
           const recordKey = `sc:slot:${frameId}:${occurrence}`;
+          const deferred = !!parked;
           let settleRecord;
-          if (context && context.async) {
+          const declare = () =>
+            context &&
+            context.async &&
             context.serialize(recordKey, new Promise(resolve => (settleRecord = resolve)));
-          }
+          deferred || declare();
           try {
             const resolved = {};
             // Usage tracking (dispatch case 3, document face): regions ride as
@@ -1717,6 +1731,8 @@ export function createDocumentSlotProps(clientProps, frameId) {
             // Keys whose evaluation minted reactive scopes (scopeStamp moved):
             // not re-runnable, so no watched binding opens for them below.
             const minted = {};
+            // Per arg, the fills its evaluation parked (see `park`).
+            const nestedOf = {};
             for (const key of Object.keys(raw)) {
               if (key === "$key") continue;
               const desc = Object.getOwnPropertyDescriptor(raw, key);
@@ -1735,10 +1751,17 @@ export function createDocumentSlotProps(clientProps, frameId) {
               if (evaluate) {
                 evals[key] = evaluate;
                 const stampBefore = scopeStamp();
+                const outer = parked;
+                const nested = (nestedOf[key] = parked = new Map());
                 try {
                   value = evaluate();
                   states[key] = { settled: true, last: value };
                 } catch (err) {
+                  // The attempt's markup is gone; its parked fills' records
+                  // are declared all the same.
+                  parked = outer;
+                  for (const entry of nested.values()) runParked(entry);
+                  nested.clear();
                   const blocked = ssrHandleError && ssrHandleError(err);
                   if (!blocked) throw err;
                   const state = (states[key] = { settled: false, last: undefined });
@@ -1751,6 +1774,7 @@ export function createDocumentSlotProps(clientProps, frameId) {
                     if (liveArgs) liveArgs.commit();
                   });
                 }
+                parked = outer;
                 if (scopeStamp() !== stampBefore) minted[key] = true;
               }
               vals[key] = value;
@@ -1773,7 +1797,14 @@ export function createDocumentSlotProps(clientProps, frameId) {
                 resolved[key] = value;
               } else if (isServerContent(value)) {
                 const childId = `${frameId}.${occurrence}.${key}`;
-                const region = { key, childId, value, used: false, locked: false };
+                const region = {
+                  key,
+                  childId,
+                  value,
+                  nested: nestedOf[key],
+                  used: false,
+                  locked: false
+                };
                 regions.push(region);
                 // Used or occluded, the record names it `{$frame}`: the
                 // `regions` tier, announced.
@@ -1793,7 +1824,14 @@ export function createDocumentSlotProps(clientProps, frameId) {
                   region.used = true;
                   // A region is a frame ELEMENT the client wrapper adopts —
                   // the same DOM contract as the boundary, one level down.
-                  return [{ t: frameElementOpen(childId) }, value, { t: FRAME_ELEMENT_CLOSE }];
+                  // Its parked fills render here, under the placing owner.
+                  return [
+                    { t: frameElementOpen(childId) },
+                    region.nested && region.nested.size
+                      ? placeParked(value, region.nested, getOwner())
+                      : value,
+                    { t: FRAME_ELEMENT_CLOSE }
+                  ];
                 };
               } else if (ssrAsyncValue && isAsyncValue(value)) {
                 // DR-2 value tier, document face: the inline fill's read of an
@@ -1827,52 +1865,23 @@ export function createDocumentSlotProps(clientProps, frameId) {
                   configurable: true
                 });
               } else {
-                // What hydration will read: a stand-in anywhere in the arg is
-                // `undefined` in the record (argBorderForm), so the t=0 fill
-                // takes the same value — the one-record shape holds for the
-                // args the fill saw, not only the ones it shipped.
-                resolved[key] = vals[key] = withoutStandIns(value, key, occurrence, documentNeeds);
+                resolved[key] = vals[key] = noteTraces(value, documentNeeds);
               }
             }
-            const out = suppressedFill(() =>
-              scoped(occurrence, () => range(occurrence, slot(resolved)))
-            );
-            const unused = regions.filter(r => !r.used);
-            if (context) {
-              // One record shape (A5, server-components-principles.md): the
-              // t=0 document emits the record a stream would — every invoked
-              // occurrence gets one, and EVERY region arg rides as its
-              // `{$frame}` address ref, used or not. The ref is addressing,
-              // not content: a used region's content ships once as page
-              // markup (the adopting client resolves the ref to the element
-              // already in the interior), an occluded one ships once as its
-              // `sc:region:` record. Primitive args always ship — a scalar
-              // the client needs AS DATA to re-invoke the wrapper is not a
-              // single-copy concern (value-from-page recovery is a
-              // template-mode question, never a substring guess: the old
-              // heuristic dropped correct args on any markup coincidence).
-              const args = {};
-              for (const key of Object.keys(vals)) {
-                const value = vals[key];
-                const region = regions.find(r => r.key === key);
-                if (region) {
-                  args[key] = { $frame: region.childId };
-                  continue;
-                }
-                // Container check first for exactness: a store whose STATE has
-                // a `t` key would satisfy isServerContent's shape probe.
-                if (!isContainerTraced(value) && isServerContent(value)) continue;
-                // Containers (at any depth) ride the record as trace envelopes;
-                // everything else passes through by reference.
-                args[key] = argBorderForm(value, key, occurrence, documentNeeds);
-              }
-              // A CLONE settles the declaration (or IS the record, on a sync
-              // render); `args` stays canonical for the ledger below —
-              // re-emissions mutate it and clone again, so the initial
-              // record can never change under a consumer.
-              settleRecord ? settleRecord({ ...args }) : context.serialize(recordKey, { ...args });
-              for (const region of unused) {
-                // Lock BEFORE returning: the content is now committed to the data
+            // Parked fills of args that are not regions have no placement.
+            for (const key in nestedOf)
+              if (!regions.some(r => r.key === key))
+                for (const entry of nestedOf[key].values()) runParked(entry);
+            // The usage flip: a region the fill did not place while its
+            // output resolved — a provider's children included, which
+            // resolve in the walk, not at the fill's return — is occluded.
+            // The range's tail runs it, once, after the content resolved.
+            const flip: any = () => {
+              if (flip.done || !context) return;
+              flip.done = true;
+              for (const region of regions) {
+                if (region.used) continue;
+                // Lock at once: the content is now committed to the data
                 // channel, so any later async placement of this region must
                 // suppress its markup (see the thunk above) — that is what makes
                 // "serialize once at flush" a guarantee rather than a race.
@@ -1885,40 +1894,97 @@ export function createDocumentSlotProps(clientProps, frameId) {
                 // land, the resolveRootHoles shape).
                 context.serialize(
                   `sc:region:${region.childId}`,
-                  resolveRegionHtml(context, region.value)
+                  resolveRegionHtml(
+                    context,
+                    region.nested && region.nested.size
+                      ? placeParked(region.value, region.nested)
+                      : region.value
+                  )
                 );
               }
-              // The document arg ledger (DR-2 case 1 at t=0): every
-              // re-runnable arg that classified as DATA opens a watched
-              // binding AFTER its record emitted, mirroring the stream face —
-              // the same authored getter shape stays live on both faces. Only
-              // on an armed document (live.args): the hostless fallback
-              // latches, like everything else at t=0.
-              if (liveArgs) {
-                for (const key of Object.keys(evals)) {
-                  if (regions.some(r => r.key === key)) continue;
-                  if (minted[key]) continue; // scope-minting eval: latched
-                  const ledgerKey = `${frameId}:${occurrence}:${key}`;
-                  openArgBinding(
-                    liveArgs,
-                    ledgerKey,
-                    occurrence,
-                    key,
-                    evals[key],
-                    states[key],
-                    value => {
-                      args[key] = argBorderForm(value, key, occurrence, documentNeeds);
-                      liveArgs.slot(frameId, occurrence, { ...args });
+            };
+            flip.$lhSkip = true;
+            const finish = owner => {
+              if (deferred) declare();
+              try {
+                const tracked = trackFillReads(() =>
+                  suppressedFill(() =>
+                    scoped(occurrence, () => range(occurrence, slot(resolved), flip), owner)
+                  )
+                );
+                const out = tracked.result;
+                noteDeps(occurrence, tracked.reads, tracked.untracked || hasAsyncHoles(out));
+                if (context) {
+                  // One record shape (A5, server-components-principles.md): the
+                  // t=0 document emits the record a stream would — every invoked
+                  // occurrence gets one, and EVERY region arg rides as its
+                  // `{$frame}` address ref, used or not. The ref is addressing,
+                  // not content: a used region's content ships once as page
+                  // markup (the adopting client resolves the ref to the element
+                  // already in the interior), an occluded one ships once as its
+                  // `sc:region:` record. Primitive args always ship — a scalar
+                  // the client needs AS DATA to re-invoke the wrapper is not a
+                  // single-copy concern (value-from-page recovery is a
+                  // template-mode question, never a substring guess: the old
+                  // heuristic dropped correct args on any markup coincidence).
+                  const args = {};
+                  for (const key of Object.keys(vals)) {
+                    const value = vals[key];
+                    const region = regions.find(r => r.key === key);
+                    if (region) {
+                      args[key] = { $frame: region.childId };
+                      continue;
                     }
-                  );
+                    // Container check first for exactness: a store whose STATE has
+                    // a `t` key would satisfy isServerContent's shape probe.
+                    if (!isContainerTraced(value) && isServerContent(value)) continue;
+                    // Containers (at any depth) ride the record as trace envelopes;
+                    // everything else passes through by reference.
+                    args[key] = argBorderForm(value, documentNeeds);
+                  }
+                  // A CLONE settles the declaration (or IS the record, on a sync
+                  // render); `args` stays canonical for the ledger below —
+                  // re-emissions mutate it and clone again, so the initial
+                  // record can never change under a consumer.
+                  settleRecord
+                    ? settleRecord({ ...args })
+                    : context.serialize(recordKey, { ...args });
+                  // The document arg ledger (DR-2 case 1 at t=0): every
+                  // re-runnable arg that classified as DATA opens a watched
+                  // binding AFTER its record emitted, mirroring the stream face —
+                  // the same authored getter shape stays live on both faces. Only
+                  // on an armed document (live.args): the hostless fallback
+                  // latches, like everything else at t=0.
+                  if (liveArgs) {
+                    for (const key of Object.keys(evals)) {
+                      if (regions.some(r => r.key === key)) continue;
+                      if (minted[key]) continue; // scope-minting eval: latched
+                      const ledgerKey = `${frameId}:${occurrence}:${key}`;
+                      openArgBinding(
+                        liveArgs,
+                        ledgerKey,
+                        occurrence,
+                        key,
+                        evals[key],
+                        states[key],
+                        value => {
+                          args[key] = argBorderForm(value, documentNeeds);
+                          liveArgs.slot(frameId, occurrence, { ...args });
+                        }
+                      );
+                    }
+                  }
                 }
+                return out;
+              } catch (error) {
+                settleRecord && settleRecord(undefined);
+                throw error;
               }
-            }
-            // The fill ran and its return is classified: a keyed call
-            // registers for repeats whatever its face, an un-keyed one only
-            // as data (two identical placements are two ranges).
-            if (rk !== undefined && (rk === occurrence || out.$face === SLOT_FACE_DATA))
-              repeats.has(rk) || repeats.set(rk, out);
+            };
+            const out = park(finish);
+            // A keyed call registers for repeats (an un-keyed one is
+            // positional: two placements are two ranges).
+            if (rk !== undefined && rk === occurrence) repeats.has(rk) || repeats.set(rk, out);
             return out;
           } catch (error) {
             // The fill (or an arg's evaluation) threw: the record has no args to
@@ -1980,7 +2046,7 @@ function contextSites(ctx) {
   if (ctx[DOCUMENT_SITES]) return ctx[DOCUMENT_SITES];
   const proto = Object.getPrototypeOf(ctx);
   if (proto && proto[DOCUMENT_SITES]) return (ctx[DOCUMENT_SITES] = proto[DOCUMENT_SITES]);
-  // A Loading boundary's context (and this wrapper's own claims context) is
+  // A Loading boundary's context (and this wrapper's own derived context) is
   // `Object.create(page)`. The bag belongs to the page, shared by every
   // derived context that renders a frame into the same document.
   if (proto && typeof proto.escape === "function")
@@ -2032,7 +2098,7 @@ const FRAME_ELEMENT_CLOSE = `</${FRAME_TAG}>`;
  * CONTEXT GEOMETRY: the ctx a server component arms under is not always
  * the root object the renderer's flush loop reads — it may be a DERIVED
  * context (`Object.create(root)`: a Loading boundary's buffered context,
- * or the claims-arming context `frameTransformDirectResult` renders a
+ * or the derived context `frameTransformDirectResult` renders a
  * server-owned frame under). Everything read DOWNWARD (`liveHoles`,
  * `commit` — consumed by the subtree under the arm point) is written on
  * that ctx and inherited by whatever derives from it below. Everything
@@ -2045,7 +2111,7 @@ const FRAME_ELEMENT_CLOSE = `</${FRAME_TAG}>`;
  * The document face's tier announcement (frames savings pass §2): the
  * `sc:tiers` hydration record — the names of the frames-client tiers the
  * document's server components have minted, `_$HY.r["sc:tiers"] =
- * ["bind", …]` — and, when the integration gave the tier's chunk URL
+ * ["regions", …]` — and, when the integration gave the tier's chunk URL
  * (`frameTransformDirectResult`'s `tierUrls`), a `modulepreload` for it in
  * the head. The client's `installServerComponents` reads the record and
  * starts each import; the preload made it warm.
@@ -2101,15 +2167,6 @@ function armDocumentLiveHoles(ctx) {
     if (live) live.holes = null;
     return;
   }
-  // Announce the (so far empty) tier list as soon as a server component
-  // renders on a streaming document, so a page that mints no tier says so.
-  // With no record at all the client can't tell "minted nothing" from "an
-  // older producer", and its slot walk falls back to checking every
-  // element's attributes for binding-slot markers.
-  if (!live.tiers) {
-    live.tiers = [];
-    ctx.serialize("sc:tiers", []);
-  }
   // Whether this document has served anything a later commit will replace
   // (the core calls `ctx.unsettled` before such a value can be read: a
   // pumped iterable, a loading value or seed ahead of its landing). Until
@@ -2121,14 +2178,13 @@ function armDocumentLiveHoles(ctx) {
   let epoch = 0;
   let sweepScheduled = false;
   let closed = false;
-  // The sweep is one op on the channel (C13 — see the stream sink's
-  // `sweep`): a pass that changed more than one hole / attr binding ships
-  // them as one `{ type: "ops", ops: [...] }` op, so an adopted boundary
-  // applies the server's flush as one flush.
+  // The sweep is one batch on the channel (C13 — see the stream sink's
+  // `sweep`): every hole / attr record a pass changed rides one `{ r }`,
+  // so an adopted boundary applies the server's flush as one flush.
   let swept = null;
   const sweep = () => {
     epoch++;
-    const ops = (swept = []);
+    const r = (swept = {});
     try {
       for (const b of [...bindings.values()]) {
         try {
@@ -2141,11 +2197,7 @@ function armDocumentLiveHoles(ctx) {
     } finally {
       swept = null;
     }
-    pushOps(ops);
-  };
-  const pushOps = ops => {
-    if (ops.length === 1) push(ops[0]);
-    else if (ops.length) push({ type: "ops", ops });
+    for (const _ in r) return push({ r });
   };
   const scheduleSweep = () => {
     if (closed || sweepScheduled || !bindings.size) return;
@@ -2169,12 +2221,20 @@ function armDocumentLiveHoles(ctx) {
       }
     })
   );
-  const push = op => {
-    if (!closed) channel.enqueue(op);
+  // The channel carries the stream's own record batches, unaddressed
+  // (every adopted boundary writes them at its own address), with the
+  // producing frame's id (`fid`) on the ones only its boundary applies —
+  // store-keyed slot records, the frame's own `:error`.
+  const push = batch => {
+    if (!closed) channel.enqueue(batch);
   };
+  const write = r => (swept ? Object.assign(swept, r) : push({ r }));
   ctx.liveHoles = live.holes = createLiveHoles(
     {
+      // A hole that can change re-emits through the client's live wire
+      // tier, which applies it: announced with the document.
       openBinding(key, b) {
+        documentNeeds("wire");
         bindings.set(key, b);
       },
       closeBinding(key) {
@@ -2183,17 +2243,18 @@ function armDocumentLiveHoles(ctx) {
       // Every emission carries its digest on every face (§9.5, Hole
       // hashes) — the document channel's ops included, so a ledger seeded
       // from the document can follow what the channel later re-emits.
-      hole(key, html) {
-        const op = { type: "hole", key, html, digest: textDigest(html) };
-        swept ? swept.push(op) : pushOps([op]);
+      hole(key, value) {
+        write({ ["hole:" + key]: { kind: "html", value, digest: textDigest(value) } });
       },
-      attr(key, attrs, removed) {
-        const op = { type: "attr", key, attrs, digest: textDigest(attrs) };
-        if (removed && removed.length) op.removed = removed;
-        swept ? swept.push(op) : pushOps([op]);
+      attr(key, value, removed) {
+        const record: any = { kind: "attrs", value, digest: textDigest(value) };
+        if (removed && removed.length) record.removed = removed;
+        write({ ["attr:" + key]: record });
       },
+      // A failed live-hole sweep, terminal for the hole (the engine's keys
+      // here are hole keys, `lh:N` / `lha:N`).
       error(key, error) {
-        push({ type: "error", key, error });
+        push({ r: { [`hole:${key}:error`]: error } });
       },
       commit: scheduleSweep,
       get epoch() {
@@ -2201,7 +2262,8 @@ function armDocumentLiveHoles(ctx) {
       }
     },
     /* scoped */ true,
-    /* settled */ () => !unsettled
+    /* settled */ () => !unsettled,
+    ctx._errorScope
   );
   ctx.commit = live.commit = scheduleSweep;
   ctx.commitEpoch = live.commitEpoch = () => epoch;
@@ -2226,7 +2288,7 @@ function armDocumentLiveHoles(ctx) {
       bindings.delete(key);
     },
     slot(fid, occurrence, args) {
-      push({ type: "slot", fid, key: occurrence, args });
+      push({ r: { [`slot:${occurrence}`]: { kind: "slot", args } }, fid });
     },
     commit: scheduleSweep
   };
@@ -2235,7 +2297,7 @@ function armDocumentLiveHoles(ctx) {
   // value errored — an unkeyed error op addressed to its frame, which only
   // the owning adopted boundary applies (`:error`).
   live.error = (fid, error) => {
-    push({ type: "error", fid, error });
+    push({ r: { ":error": error }, fid });
   };
   live.end = () => {
     if (closed) return;
@@ -2301,18 +2363,10 @@ export function frameTransformDirectResult(value, { id, args, tierUrls }) {
         // documentNeeds) — on the shared slot, so every component's mint
         // reads them.
         if (tierUrls && page && page.live && !page.live.tierUrls) page.live.tierUrls = tierUrls;
-        // Handler positions: arm the compiled `ssrClaim` guard — and the
-        // spread walk's slot probes — for this subtree, on a render context
-        // DERIVED from the page's (prototype: every shared field and method
-        // reads through, as a Loading boundary's buffered context does). The
-        // page's own context never carries `claims`, so the document's
-        // elements after the component keep the pre-slot walk; a late hole
-        // minted inside re-emits under its mint-time context — this one —
-        // and stays armed. Marking is additionally scope-gated inside
-        // ssrClaim, so client fill content — which re-enters the zone owner
-        // outside the component barrier — neither marks nor warns.
+        // This subtree renders on a context DERIVED from the page's
+        // (prototype: every shared field and method reads through, as a
+        // Loading boundary's buffered context does).
         const ctx = Object.create(page);
-        ctx.claims = CLAIMS_DOCUMENT;
         // The frame this scope renders: a failure escaping a boundary inside
         // it is addressed to this frame on the live channel (`live.error`).
         // The SITE scope, not the function id: two mounts of one factory must
@@ -2568,8 +2622,25 @@ export function createSlotProps(
 export function createSlotProps(sink, frame) {
   const counts = Object.create(null);
   const getters = new Map();
-  // Repeated calls are one occurrence within a render (see repeatKey).
+  // Repeated keyed calls are one occurrence within a render (see keyedId) —
+  // and within one sweep's re-evaluation, which has a map of its own.
   const repeats = new Map();
+  let pass = null;
+  let passRepeats = null;
+  // What each occurrence's record last carried (`args`, the wire form) and
+  // the values it was made from (`vals`, compared by `argDigest`): a live
+  // hole re-runs its slot calls on every sweep, and an occurrence whose
+  // args did not change sends nothing — a changed arg re-sends the record,
+  // with a fresh ref for a changed data arg (data refs are write-once).
+  const recs = new Map();
+  // An occurrence its hole no longer reaches is gone from the client: a
+  // later return is new, so it sends its record again (see `seen`).
+  const forget = occurrence => {
+    const rec = recs.get(occurrence);
+    if (!rec) return;
+    recs.delete(occurrence);
+    for (const key in rec.vals) sink.closeBinding(`${occurrence}:${key}`);
+  };
   // The tier announcement (createFrameSink's `needs`); a composed sink
   // without one announces nothing — the client detects and holds.
   const needs = sink.needs || (() => {});
@@ -2594,26 +2665,27 @@ export function createSlotProps(sink, frame) {
       if (!fn) {
         fn = (...callArgs) => {
           if (callArgs.length === 0 || callArgs[0] === undefined) {
-            return slotProxy(slotRange(prop), prop, SLOT_FACE_STREAM, undefined, undefined, needs);
+            return slotRange(prop);
           }
-          const rk = repeatKey(prop, callArgs[0]);
-          const repeat = rk !== undefined && repeats.get(rk);
-          if (repeat) return repeat;
-          // Slot records are emit-once: occurrence identity is positional
-          // (`counts`), so a live-hole re-evaluation reaching a called slot
-          // would mint new occurrences and re-serialize args — the double-
-          // data disease. First render stamps the engine so the enclosing
-          // hole latches instead of binding; a sweep that gets here anyway
-          // (the escalated-first-render case) flags the engine (`gateHit`)
-          // and hands back an inert placeholder — the engine discards that
-          // sweep's value and closes the binding.
           const live = sharedConfig.context && sharedConfig.context.liveHoles;
-          if (live) {
-            if (live.sweeping) {
-              live.gateHit = true;
-              return { t: "", $slot: true };
-            }
-            live.recordStamp++;
+          const sweeping = !!live && live.sweeping;
+          // A sweep re-runs a live hole's slot calls: the pass is the
+          // repeats map's span (the engine's `visit` set is one per pass).
+          let rmap = repeats;
+          if (sweeping) {
+            if (pass !== live.visit) passRepeats = new Map();
+            pass = live.visit;
+            rmap = passRepeats;
+          }
+          const rk = keyedId(prop, callArgs[0]);
+          const repeat = rk !== undefined && rmap.get(rk);
+          if (repeat) return repeat;
+          // A sweep with no occurrence scope is an attribute's: a slot places
+          // a client component in content, never in a tag, so the engine
+          // closes that binding (`gateHit`) and discards this inert value.
+          if (sweeping && !live.scope) {
+            live.gateHit = true;
+            return { t: "", $slot: true };
           }
           const raw = callArgs[0];
           // Occurrence identity (RFC open question 1): a primitive `$key` arg
@@ -2624,8 +2696,23 @@ export function createSlotProps(sink, frame) {
           // positional per prop — the right default for most flows: a state
           // reset across different lists is usually correct, and equivalent
           // re-sends dedupe anyway. `$key` matters when a live list reorders.
-          const occurrence = occurrenceId(prop, raw, counts);
+          // A live hole's re-run counts no render position: the engine
+          // finds the id the call's position in the hole had (`slotId`).
+          let occurrence = keyedId(prop, raw);
+          if (occurrence === undefined) {
+            const positional = sweeping ? undefined : occurrenceId(prop, raw, counts);
+            occurrence = live ? live.slotId(prop, positional) : positional;
+          }
+          // A re-run ahead of the hole's first value (its retry still in
+          // flight) ships nothing: the retry renders these calls.
+          if (sweeping && live.dry) return slotRange(occurrence);
+          const prev = recs.get(occurrence);
+          let changed = !prev;
+          // Only a call inside a hole can run again: elsewhere the values
+          // are not kept to compare (a later compare finds them changed).
+          const digest = live && live.scope ? argDigest : noDigest;
           const args = {};
+          const vals = {};
           // Watched-arg bindings to open AFTER the record emits (the ledger
           // must never re-emit a record ahead of its first emission).
           const opened = [];
@@ -2669,6 +2756,7 @@ export function createSlotProps(sink, frame) {
               // Shared with the retry loop's onSettle and the binding's
               // sweeps: whether the arg has a successful value, and which.
               let state = null;
+              let pending = false;
               const stampBefore = scopeStamp();
               try {
                 if (desc.get) {
@@ -2694,6 +2782,7 @@ export function createSlotProps(sink, frame) {
                 const blocked = ssrHandleError && ssrHandleError(err);
                 if (!blocked) throw err;
                 state = { settled: false, last: undefined };
+                pending = true;
                 const pendingState = state;
                 value = retryArgUntilSettled(evaluate, blocked, key, occurrence, v => {
                   pendingState.settled = true;
@@ -2711,6 +2800,7 @@ export function createSlotProps(sink, frame) {
               const t = typeof value;
               if (value == null || t === "string" || t === "number" || t === "boolean") {
                 args[key] = value;
+                vals[key] = digest(value);
                 if (evaluate) state = { settled: true, last: value };
               } else if (!isContainerTraced(value) && isServerContent(value)) {
                 // Containers fall through to the data path below (their
@@ -2737,19 +2827,33 @@ export function createSlotProps(sink, frame) {
                       "). Wrap the async read in a <Suspense>, or move it above the slot."
                   );
                 }
-                sink.region(childId, resolved.t[0]);
+                // The html is the region's value: a re-run re-sends it only
+                // when it changed (the client morphs the bound region).
+                vals[key] = "<" + resolved.t[0];
+                if (!prev || prev.vals[key] !== vals[key]) sink.region(childId, resolved.t[0]);
                 args[key] = { $frame: childId };
               } else {
-                const ref = `arg:${occurrence}:${key}`;
-                // Containers (at any depth) swap for their trace envelopes
-                // before the value meets seroval — see toBorderForm. A
-                // container announces the `trace` tier (`sink.needs`)
-                // before the serializer emits the record's data chunk, so
-                // the announcement rides that very chunk.
-                ctx.serialize(ref, argBorderForm(value, key, occurrence, needs));
-                args[key] = { $ref: ref };
+                // A pending arg compares as pending: its retry loop settles
+                // the ref already sent.
+                vals[key] = pending ? PENDING_ARG : digest(value);
+                if (prev && prev.vals[key] === vals[key]) args[key] = prev.args[key];
+                else {
+                  // A re-run's ref is versioned, as a watched arg's is.
+                  const ref = prev
+                    ? `arg:${occurrence}:${key}@${sink.nextArgRef(`${occurrence}:${key}`)}`
+                    : `arg:${occurrence}:${key}`;
+                  if (prev) sink.mintRef(ref);
+                  // Containers (at any depth) swap for their trace envelopes
+                  // before the value meets seroval — see toBorderForm. A
+                  // container announces the `trace` tier (`sink.needs`)
+                  // before the serializer emits the record's data chunk, so
+                  // the announcement rides that very chunk.
+                  ctx.serialize(ref, argBorderForm(value, needs));
+                  args[key] = { $ref: ref };
+                }
                 if (evaluate && !state) state = { settled: true, last: value };
               }
+              if (prev && prev.vals[key] !== vals[key]) changed = true;
               // A re-runnable arg that classified as DATA (settled or
               // pending) is a watched binding — case 1's within-response
               // liveness. Content args stay one-shot: a thunk producing JSX
@@ -2761,10 +2865,18 @@ export function createSlotProps(sink, frame) {
               ctx.registerFragment = origRegister;
             }
           }
+          if (prev) for (const key in prev.vals) if (!(key in vals)) changed = true;
           // Deliver a CLONE and keep the canonical object for the ledger:
           // re-emissions mutate `args` and clone again, so an in-process
-          // consumer's already-applied record never changes under it.
-          sink.slot(occurrence, { ...args });
+          // consumer's already-applied record never changes under it. An
+          // unchanged re-run sends nothing: the client has this record.
+          const rec = changed ? { args, vals } : prev;
+          if (changed) {
+            recs.set(occurrence, rec);
+            sink.slot(occurrence, { ...args });
+          }
+          if (live && live.visit)
+            live.seen(occurrence, () => recs.get(occurrence) === rec && forget(occurrence));
           const ctx = sharedConfig.context;
           for (const b of opened) {
             const key = b.key;
@@ -2772,29 +2884,21 @@ export function createSlotProps(sink, frame) {
             openArgBinding(sink, ledgerKey, occurrence, key, b.evaluate, b.state, value => {
               const t = typeof value;
               if (value == null || t === "string" || t === "number" || t === "boolean") {
-                args[key] = value;
+                rec.args[key] = value;
               } else {
                 const ref = `arg:${occurrence}:${key}@${sink.nextArgRef(ledgerKey)}`;
                 sink.mintRef(ref);
-                ctx.serialize(ref, argBorderForm(value, key, occurrence, needs));
-                args[key] = { $ref: ref };
+                ctx.serialize(ref, argBorderForm(value, needs));
+                rec.args[key] = { $ref: ref };
               }
-              sink.slot(occurrence, { ...args });
+              rec.vals[key] = digest(value);
+              sink.slot(occurrence, { ...rec.args });
             });
           }
-          // A keyed call registers for repeats at the call; an un-keyed one
-          // at its first property read — the moment its face is known to be
-          // data (the proxy calls `onData` once, then never again).
-          const keyed = rk === occurrence;
-          const out = slotProxy(
-            slotRange(occurrence),
-            occurrence,
-            SLOT_FACE_STREAM,
-            undefined,
-            rk === undefined || keyed ? undefined : () => repeats.has(rk) || repeats.set(rk, out),
-            needs
-          );
-          if (keyed) repeats.set(rk, out);
+          // A keyed call registers for repeats (an un-keyed one is
+          // positional: two placements are two ranges).
+          const out = slotRange(occurrence);
+          if (rk !== undefined && rk === occurrence) rmap.set(rk, out);
           return out;
         };
         // A slot getter placed directly as a child (`{props.children}`) is a
@@ -2916,11 +3020,11 @@ export function serverComponentResponse(component, options = {}, init = {}) {
           teardown.abort();
         });
       stream.pipe({
-        write(chunk) {
-          if (chunk.type === "error" && !chunk.key) failed = true;
+        write(message) {
+          if (message.r && ":error" in message.r) failed = true;
           if (closed) return;
           try {
-            controller.enqueue(frame(JSON.stringify(chunk)));
+            controller.enqueue(frame(JSON.stringify(message)));
           } catch (_) {
             closed = true;
           }
@@ -3198,10 +3302,10 @@ export function frameFlightResponse({ primary, regions = [], outcome, codec, sig
   let closed = false;
   const body = new ReadableStream({
     async start(controller) {
-      const write = chunk => {
+      const write = message => {
         if (closed) return;
         try {
-          controller.enqueue(createChunk(JSON.stringify(chunk)));
+          controller.enqueue(createChunk(JSON.stringify(message)));
         } catch (_) {
           closed = true;
         }

@@ -182,6 +182,22 @@ export function runInServerComponentScope<T>(fn: () => T, _options?: { live?: bo
 export function creationStamp(): number {
   return 0;
 }
+/** @internal A callback run before every signal or store write lands (deferred hydration). */
+export { setWriteHook } from "@solidjs/signals";
+/** @internal Dependency edges: name plain signals so a write reports which one; dev read watch. */
+export { setSignalIdentities, setReadWatch, signalName, storeName } from "@solidjs/signals";
+/** @internal Dependency edges: server-only (an edges render names plain signals). Client: no-op. */
+export function beginEdgesRender(): () => void {
+  return () => {};
+}
+/** @internal Dependency edges: server-only read tracking; the client runs `fn`. */
+export function trackFillReads<T>(fn: () => T): {
+  result: T;
+  reads: Set<string> | null;
+  untracked: boolean;
+} {
+  return { result: fn(), reads: null, untracked: false };
+}
 /** @internal */
 export function inServerComponentScope(): boolean {
   return false;

@@ -55,6 +55,7 @@ import {
   read as readNode,
   REACTIVE_WRITE_IN_OWNED_SCOPE_SIGNAL_MESSAGE,
   setSignal,
+  writeHook,
   slotSignal,
   snapshotCaptureActive,
   stagedRead,
@@ -72,6 +73,7 @@ import {
   registerGraph,
   warnStrictReadUntracked
 } from "../core/dev.js";
+import { signalHook } from "../core/identities.js";
 import { setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
 import { insertIntoHeap } from "../core/heap.js";
@@ -2231,8 +2233,21 @@ const traps: ProxyHandler<StoreTarget> = {
     if (!draft && !override) return true;
     const pb = ensurePB(target);
     touch(target, key);
-    delete pb[key as any];
-    if (target.ovl && hasOwn.call(target.v, key)) (target.del ??= new Set()).add(key);
+    // The key count (`kc`, the overlay gate and the rebuild cap) follows a
+    // delete the way it follows an add: an own key of the draft leaving — a
+    // clone's key, or an overlay's own add — is one fewer now. An overlay's
+    // override of a committed key is the exception: the committed key's
+    // deletion is recorded in `del` and counted at the rebuild, as before.
+    // Without the decrement the natural "delete the old key, set the new
+    // one" shape drifted the count up by one per write until a three-key
+    // object crossed the overlay threshold and paid a rebuild on every
+    // commit after.
+    const committed = target.ovl && hasOwn.call(target.v, key);
+    if (hasOwn.call(pb, key)) {
+      delete pb[key as any];
+      committed || target.kc--;
+    }
+    if (committed) (target.del ??= new Set()).add(key);
     if (override) notifyWrites(target);
     return true;
   }
@@ -2303,6 +2318,7 @@ function devGuardStoreSetterResult(result: unknown): void {
 }
 
 export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = true): void {
+  if (writeHook !== null) writeHook(proxy as object);
   if (__DEV__ && guard) devGuardStoreSetterWrite();
   const target: StoreTarget = (proxy as any)[$TARGET];
   const prevScopes = writeScopes;
@@ -2374,6 +2390,8 @@ export function createStore<T extends Record<PropertyKey, any>>(
       throw new Error("createStore({ shallow }): value is already a store proxy");
   }
   const proxy = wrap(initialValue);
+  // Dependency edges (store/edges.ts): the root is named like a plain signal.
+  if (signalHook !== null) signalHook((proxy as any)[$TARGET]);
   if (shallow) {
     ((proxy as any)[$TARGET] as StoreTarget).s = true;
     markRawIngest(initialValue);

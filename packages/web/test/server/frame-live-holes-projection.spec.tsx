@@ -18,6 +18,7 @@ import {
   renderServerComponent,
   ServerComponentPlugin
 } from "../../frames/src/frame-sink.js";
+import { content, has, values, writesSegment } from "./wire.js";
 
 const LIVE_SOURCE = Symbol.for("solid.LiveSource");
 const tick = (ms = 5) => new Promise(r => setTimeout(r, ms));
@@ -96,11 +97,9 @@ function collectDocument(code: () => any): Promise<string> {
   });
 }
 
-// A sweep that changes two holes ships them as one `ops` unit (C13); read
-// the members as the re-emissions they are.
-const holeChunks = (chunks: any[]) =>
-  chunks.flatMap(c => (c.type === "ops" ? c.ops : [c])).filter(c => c.type === "hole");
-const holeHtml = (chunks: any[]) => holeChunks(chunks).map(h => h.html);
+// A sweep that changes two holes ships them as one batch (C13); read its
+// hole records as the re-emissions they are.
+const holeHtml = (chunks: any[]) => values(chunks, "hole:");
 
 describe("projections pump in frame scope (B5)", () => {
   it("createProjection over a value-yielding iterable: per-yield hole re-emits, completes when the source ends — as the memo does", async () => {
@@ -118,18 +117,18 @@ describe("projections pump in frame scope (B5)", () => {
     );
     await tick();
     ch.push({ text: "<b>one</b>" });
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     ch.push({ text: "<b>one two</b>" });
-    await until(c => c.type === "hole" && c.html === "<b>one two</b>");
+    await until(c => holeHtml([c]).includes("<b>one two</b>"));
     ch.push({ text: "<b>one two three</b>" });
-    await until(c => c.type === "hole" && c.html === "<b>one two three</b>");
+    await until(c => holeHtml([c]).includes("<b>one two three</b>"));
     ch.end();
     await done;
 
-    const fragment = chunks.find(c => c.type === "fragment");
-    expect(fragment.html).toMatch(/<!--lh:(\d+)--><b>one<\/b><!--lh:\/\1-->/);
+    const [fragment] = content(chunks, ["seg"]);
+    expect(fragment).toMatch(/<!--lh:(\d+)--><b>one<\/b><!--lh:\/\1-->/);
     expect(holeHtml(chunks)).toEqual(["<b>one two</b>", "<b>one two three</b>"]);
-    expect(chunks[chunks.length - 1].type).toBe("complete");
+    expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
   }, 8000);
 
   it("createStore over a draft-mutating generator: the same per-yield story (patch stream as yields)", async () => {
@@ -157,20 +156,20 @@ describe("projections pump in frame scope (B5)", () => {
     );
     await tick();
     ch.push("<i>a</i>");
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     ch.push("<i>a b</i>");
-    await until(c => holeChunks([c]).some(h => h.html === "2"));
+    await until(c => holeHtml([c]).includes("2"));
     ch.end();
     await done;
 
-    const fragment = chunks.find(c => c.type === "fragment");
-    expect(fragment.html).toContain("<i>a</i>");
-    expect(fragment.html).toMatch(/<!--lh:(\d+)-->1<!--lh:\/\1-->/);
+    const [fragment] = content(chunks, ["seg"]);
+    expect(fragment).toContain("<i>a</i>");
+    expect(fragment).toMatch(/<!--lh:(\d+)-->1<!--lh:\/\1-->/);
     // Both holes read the store: the text hole and the counter re-emitted
-    // once each for the second yield — in ONE unit, the sweep's (C13).
+    // once each for the second yield — in ONE batch, the sweep's (C13).
     expect(holeHtml(chunks).sort()).toEqual(["2", "<i>a b</i>"]);
-    expect(chunks.filter(c => c.type === "ops")).toHaveLength(1);
-    expect(chunks[chunks.length - 1].type).toBe("complete");
+    expect(chunks.filter(c => holeHtml([c]).length)).toHaveLength(1);
+    expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
   }, 8000);
 
   it("memo and projection over the same source behave identically in frame scope", async () => {
@@ -195,7 +194,7 @@ describe("projections pump in frame scope (B5)", () => {
     await tick();
     ch.push({ text: "v1" });
     chMemo.push({ text: "v1" });
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     ch.push({ text: "v2" });
     chMemo.push({ text: "v2" });
     await until(c => holeHtml(chunks).filter(h => h === "v2").length === 2);
@@ -203,11 +202,11 @@ describe("projections pump in frame scope (B5)", () => {
     chMemo.end();
     await done;
 
-    const fragment = chunks.find(c => c.type === "fragment");
-    expect(fragment.html).toContain('<div class="p"><!--lh:');
-    expect(fragment.html).toContain('<div class="m"><!--lh:');
+    const [fragment] = content(chunks, ["seg"]);
+    expect(fragment).toContain('<div class="p"><!--lh:');
+    expect(fragment).toContain('<div class="m"><!--lh:');
     expect(holeHtml(chunks)).toEqual(["v2", "v2"]);
-    expect(chunks[chunks.length - 1].type).toBe("complete");
+    expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
   }, 8000);
 
   it("a thenable-resolved iterable (async derive returning a generator) pumps too", async () => {
@@ -234,14 +233,14 @@ describe("projections pump in frame scope (B5)", () => {
     );
     await tick();
     ch.push({ text: "one" });
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     ch.push({ text: "one two" });
-    await until(c => c.type === "hole" && c.html === "one two");
+    await until(c => holeHtml([c]).includes("one two"));
     ch.end();
     await done;
 
     expect(holeHtml(chunks)).toEqual(["one two"]);
-    expect(chunks[chunks.length - 1].type).toBe("complete");
+    expect(has(chunks[chunks.length - 1], ":complete")).toBe(true);
   }, 8000);
 
   it("a live-branded source in frame scope stays connected (the memo's exception), and disposal closes it from the disposal", async () => {
@@ -261,9 +260,9 @@ describe("projections pump in frame scope (B5)", () => {
     );
     await tick();
     ch.push({ text: "one" });
-    await until(c => c.type === "fragment");
+    await until(writesSegment);
     ch.push({ text: "two" });
-    await until(c => c.type === "hole" && c.html === "two");
+    await until(c => holeHtml([c]).includes("two"));
     expect(ch.state.closed).toBe(false);
     // The source is parked in `next()`; the render's teardown must close it
     // now, not at an event nobody would see.

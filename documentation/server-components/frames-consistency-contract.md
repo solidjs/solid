@@ -31,8 +31,7 @@ Companion inputs: `server-components-principles.md` (A1–A7/L1, DR-1…5),
 ## Vocabulary
 
 - **Occurrence** — one slot marker pair (`<!--slot:k:start-->…<!--slot:k:end-->`)
-  or one binding-slot consumer set in a frame's server content; `k` is
-  `prop` or `prop#n`.
+  in a frame's server content; `k` is `prop` or `prop#n`.
 - **Claim** — the hydration-attach invocation of an adopted occurrence: the
   fill renders under the producer's key chain (`sc-<fid>-<k>-`), its
   components take the server-rendered nodes by key, and the fill answers
