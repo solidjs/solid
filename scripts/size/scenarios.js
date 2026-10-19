@@ -1082,8 +1082,9 @@ module.exports = [
     // only: cap at measured + 10 B rounded up to 0.01 KB; recorded minified
     // never raised.
     // store delete key-count fix (#4132, 2026-10-17): 14.79 -> 14.82 KB, measured at 14,802 B brotli / 44,865 B minified (+12 B brotli over the cap, +33 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
+    // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 44,865 -> 44,924 B, measured locally (linux) at 14,798 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
     limit: "14.82 KB",
-    capMinified: 44865,
+    capMinified: 44924,
     alias
   },
   {
@@ -1386,8 +1387,9 @@ module.exports = [
     // the brotli cap, and 4 B from each of the other two). Cap at measured +
     // 10 B rounded up to 0.01 KB. Accepted by the maintainer (2026-10-17).
     // Lane frame member cancels its lane dirty (#4137, 2026-10-19, over next @ 2aa9e86a): 9.98 -> 10.03 KB, measured in CI at 10,019 B brotli / 28,197 B minified (+124 B minified over this PR's base): GlobalQueue._update drops a lane-dirty zombie whose parking owner is lane work instead of re-running it, so a <Show> branch its own lane withdrew no longer reads a stale condition. Correctness; gated on laneStageHook (core floor unchanged). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 28,197 -> 28,247 B, measured locally (linux) at 10,023 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
     limit: "10.03 KB",
-    capMinified: 28197,
+    capMinified: 28247,
     alias
   },
   {
@@ -3918,8 +3920,9 @@ module.exports = [
     // never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 25.66 -> 25.95 KB, measured at 25,940 B brotli / 80,846 B minified (+280 B brotli over the cap, +640 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     // store delete key-count fix (#4132, 2026-10-17): 25.95 -> 26.03 KB, measured at 26,011 B brotli / 80,879 B minified (+61 B brotli over the cap, +33 B minified over the recorded size): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness; local measurement, CI re-bases.
+    // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 80,879 -> 80,929 B, measured locally (linux) at 25,989 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
     limit: "26.03 KB",
-    capMinified: 80879,
+    capMinified: 80929,
     alias
   },
   {
@@ -4067,8 +4070,9 @@ module.exports = [
     // minified never raised.
     // mapArray window-staged commit (perf, #4114, 2026-10-16, merged over next @ dbc5d0005 after #4104's ratchet and #4108's observe raises): 31.72 -> 31.96 KB, measured at 31,950 B brotli / 101,408 B minified (+230 B brotli over the cap, +648 B minified over the recorded size): updateKeyedMap stages only the changed window, commits its bookkeeping arrays in place and takes a Map-free pure-removal path. Local measurement; CI's bytes re-base this cap.
     // store delete key-count fix (#4132, 2026-10-17): 31.96 -> 31.98 KB, measured at 31,962 B brotli / 101,441 B minified (+2 B brotli over the cap, +33 B minified over the recorded size; CI and local agree): deleteProperty decrements `kc` for a draft's own key, so a keyed store that deletes keys no longer drifts into overlay rebuilds. Correctness.
+    // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 101,441 -> 101,500 B, measured locally (linux) at 31,972 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
     limit: "31.98 KB",
-    capMinified: 101441,
+    capMinified: 101500,
     alias
   },
   {
@@ -4984,6 +4988,7 @@ module.exports = [
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 34.00 KB -> 33.31 KB (floor-caps.json), measured locally (linux) at 33,294 B brotli / 101,886 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 33.31 KB -> 33.12 KB (floor-caps.json), measured locally (linux) at 33,107 B brotli / 101,166 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Re-recorded on next @ 7ad2342c (2026-10-19, accepted by the maintainer): recorded minified 101,166 -> 101,200 B, measured locally (linux) at 33,059 B brotli. #4154 recorded its sizes one commit before its final head, so next sat 34 B or more over the recorded minified and brotli noise failed unrelated PRs. Cap unchanged.
+    // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 101,200 -> 101,246 B, measured locally (linux) at 33,107 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5319,6 +5324,7 @@ module.exports = [
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 38.32 KB -> 37.54 KB (floor-caps.json), measured locally (linux) at 37,523 B brotli / 115,287 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 37.54 KB -> 37.37 KB (floor-caps.json), measured locally (linux) at 37,354 B brotli / 114,567 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Re-recorded on next @ 7ad2342c (2026-10-19, accepted by the maintainer): recorded minified 114,567 -> 114,737 B, measured locally (linux) at 37,345 B brotli. #4154 recorded its sizes one commit before its final head, so next sat 34 B or more over the recorded minified and brotli noise failed unrelated PRs. Cap unchanged.
+    // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 114,737 -> 114,782 B, measured locally (linux) at 37,341 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5792,8 +5798,9 @@ module.exports = [
     // Morph into the lazy `wire` tier (2026-10-19, over the live-holes cut): 41.58 KB -> 40.81 KB, measured locally (linux) at 40,798 B brotli / 125,717 B minified. The range morph (`reconcileChildren`, grafts, keyed range moves) leaves the eager frames client; it runs only when content lands over content, and a frame call on a page that shows frames starts the tier load with its request. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Records on the wire (2026-10-19, over next @ 2aa9e86a): 40.81 KB -> 40.56 KB, measured locally (linux) at 40,543 B brotli / 125,001 B minified. The frames stream carries versioned record batches (`{ id, version, r }`) the host writes as they arrive; the client's chunk-to-record translation (`chunkToRecords`) moves to the server's encoder. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Re-measured on #4137's CI (2026-10-19, over next @ 32652bba): 40.56 -> 40.58 KB, 40,566 B brotli / 125,035 B minified. 0 B minified from #4137 itself (this scenario has no lane engine); next's own bytes since the records-on-the-wire cut had drifted 34 B past the recorded minified. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Re-recorded on next @ fb6006eb (2026-10-19, accepted by the maintainer): recorded minified 125,035 -> 125,074 B, measured locally (linux) at 40,538 B brotli. #4156 grew this scenario without re-recording it, so next sat past the 20 B minified allowance and brotli noise failed unrelated PRs. Cap unchanged.
     limit: "40.58 KB",
-    capMinified: 125035,
+    capMinified: 125074,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
