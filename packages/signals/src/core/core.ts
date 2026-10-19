@@ -705,6 +705,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         el._value = value;
       } else {
         el._pendingValue = value;
+        // The value replaces an error staged earlier in this hold (D-41,
+        // #4145): the staging is an answer again, not one to throw.
+        el._config &= ~CONFIG_STAGED_ERROR;
         // Born held: in the transaction from birth, so a read of it this
         // tick is a read of its world (the mount-during-a-hold case), not
         // only after the seam parks it.
