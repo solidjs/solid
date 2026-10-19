@@ -638,10 +638,7 @@ export function handleAsync<T>(
           if (isSync && initialRead) {
             syncResult = r;
             resolved = true;
-            if (r.done) {
-              completed = true;
-              if (!hadValue) syncValue = undefined as T;
-            }
+            if (r.done) completed = true;
           } else if (el._x?._inFlight !== result) {
             return;
           } else if (!r.done) {
@@ -710,6 +707,7 @@ export function handleAsync<T>(
       });
     }
     if (!innerIterator) return false;
+    syncValue = undefined as T;
     const landed = consumeIterator(value as AsyncIterable<T>, registerClose);
     if (!registerClose) liveLanded = landed;
     return true;
