@@ -638,7 +638,10 @@ export function handleAsync<T>(
           if (isSync && initialRead) {
             syncResult = r;
             resolved = true;
-            if (r.done) completed = true;
+            if (r.done) {
+              completed = true;
+              if (!hadValue) syncValue = undefined as T;
+            }
           } else if (el._x?._inFlight !== result) {
             return;
           } else if (!r.done) {
