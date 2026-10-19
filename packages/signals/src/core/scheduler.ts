@@ -30,7 +30,7 @@ import {
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { notifyStatus } from "./async.js";
-import { ext, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
+import { ext, isSame, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
@@ -883,8 +883,8 @@ export class GlobalQueue implements IQueue {
             n._x?._pendingDisposal == null &&
             // The comparator last: a pass that created children (an object
             // owning a fresh async memo, #4111) must not have it read them.
-            n._equals &&
-            n._equals(n._value, n._pendingValue)
+            // A NotReady read there is a change (`isSame`).
+            isSame(n, n._value, n._pendingValue)
           ) {
             n._pendingValue = NOT_PENDING;
             n._config &= ~CONFIG_STAGED;

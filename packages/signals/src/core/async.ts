@@ -523,15 +523,9 @@ export function handleAsync<T>(
       // CARVE 2: the override-covered landing (hold + A18 supersession) and the
       // lane-routed landing (derived override, lane effect queue) went with
       // the optimistic engine; every landing is the plain setSignal. A node
-      // already held stages its answer into that hold (`setSignal`).
-      try {
-        setSignal(el, () => value);
-      } catch (e) {
-        // Same containment as above: setSignal's comparator throw is the only
-        // pre-commit failure here, and there is no user callsite to throw to.
-        // A NotReady comparator read is a change (`notifyStatus`, #4111).
-        if (notifyStatus(el, STATUS_ERROR, e)) setSignal(el, () => value, e);
-      }
+      // already held stages its answer into that hold (`setSignal`). Its
+      // comparator throw is contained there (`isSame`, A3).
+      setSignal(el, () => value);
       // Attribution hook: this path landed through setSignal, whose write
       // hook already saw any committed change — direct=false lets the engine
       // reclassify that write as an async landing iff it actually committed.
@@ -848,18 +842,14 @@ export function notifyStatus(
   status: number,
   error: any,
   blockStatus?: boolean
-): boolean | void {
+): void {
   // Wrap regular errors to track source node
-  if (status === STATUS_ERROR && !(error instanceof StatusError)) {
-    // STATUS_ERROR with a NotReadyError comes only from a comparator catch:
-    // the comparator read an unresolved async source and has not shown the
-    // values equal (#4111). Answer `true` (nothing notified) and its caller
-    // takes the value as a change, whose readers suspend in their own
-    // tracked context; as an error it held a NotReadyError no source ever
-    // retried. Other comparator throws are errors (A3).
-    if (error instanceof NotReadyError) return true;
+  if (
+    status === STATUS_ERROR &&
+    !(error instanceof StatusError) &&
+    !(error instanceof NotReadyError)
+  )
     error = new StatusError(el, error);
-  }
 
   const pendingSource =
     status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
