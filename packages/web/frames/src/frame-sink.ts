@@ -779,20 +779,13 @@ export function createFrameSink(write, frame, have, hooks) {
       // gets them via meta.styles) — same as the document sink, which only
       // writes style links on the fragment path. Emitting them here too
       // would duplicate, mis-keyed to the root. Late root assets accumulate
-      // on the client under the one `seg::assets` key — merged into what
-      // the store holds, which makes such a record the whole write: it
-      // rides a batch of its own.
-      const alone = record => {
-        open = null;
-        put(id, { "seg::assets": record });
-        open = null;
-      };
+      // on the client under the one `seg::assets` key.
       if (type === "module") {
         needs("assets");
-        alone({ modules: [value] });
+        put(id, { "seg::assets": { modules: [value] } });
       } else if (type === "preload") {
         needs("assets");
-        alone({ preloads: [wirePreload(value)] });
+        put(id, { "seg::assets": { preloads: [wirePreload(value)] } });
       }
     },
     /**

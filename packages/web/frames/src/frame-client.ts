@@ -592,20 +592,19 @@ export function createFrameHost(options = {}) {
       store.records = {};
     }
     // Root assets reuse one key for the shell and late records. Accumulate
-    // their arrays so frames registered later receive the full snapshot. (A
-    // late root assets record rides a batch of its own — the producer's
-    // `asset` — so the merge is the whole write.)
+    // their arrays so frames registered later receive the full snapshot, as
+    // a new record: a mounted frame applies a record identity once.
     const assets = records["seg::assets"];
     const previous = assets && store.records["seg::assets"];
-    if (!previous || previous === assets) {
-      Object.assign(store.records, records);
-    } else {
+    Object.assign(store.records, records);
+    if (previous && previous !== assets) {
+      const merged = { ...previous };
       for (const name in assets) {
         const values = assets[name];
-        if (Array.isArray(values)) {
-          previous[name] ? previous[name].push(...values) : (previous[name] = values);
-        }
+        if (Array.isArray(values))
+          merged[name] = previous[name] ? previous[name].concat(values) : values;
       }
+      store.records["seg::assets"] = merged;
     }
     return true;
   };

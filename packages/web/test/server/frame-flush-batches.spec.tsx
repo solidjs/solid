@@ -64,13 +64,13 @@ describe("the sink's batch", () => {
     expect(out.map(writes)).toEqual(["slot:a#0 :complete"]);
   });
 
-  it("a late root assets record rides a batch of its own", async () => {
+  it("a late root assets record batches with its neighbours", async () => {
     const { out, sink: s } = sink();
     s.reveal(["01"]);
     s.asset("module", "/late.js");
     s.reveal(["02"]);
     await Promise.resolve();
-    expect(out.map(writes)).toEqual(["seg:01:reveal", "seg::assets", "seg:02:reveal"]);
+    expect(out.map(writes)).toEqual(["seg:01:reveal seg::assets seg:02:reveal"]);
   });
 });
 
