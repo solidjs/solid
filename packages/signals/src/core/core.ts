@@ -2207,8 +2207,11 @@ export function setMemo<T>(el: Computed<T>, v: T | ((prev: T) => T)): T {
     !(el._flags & REACTIVE_MANUAL_WRITE) &&
     txOf(el) !== flushTransaction;
   // The writer read the committed frame; its updater composes on it.
-  if (held && typeof v === "function") v = (v as (prev: T) => T)(el._value);
-  const result = setSignal(el, v);
+  if (held && typeof v === "function") {
+    const value = (v as (prev: T) => T)(el._value);
+    v = () => value;
+  }
+  v = setSignal(el, v);
   if (held) {
     // The one write that re-runs: the staging it replaced was derived from
     // inputs the writer never saw, so the hold re-derives over the write.
@@ -2216,7 +2219,7 @@ export function setMemo<T>(el: Computed<T>, v: T | ((prev: T) => T)): T {
     insertIntoHeap(el, dirtyQueue);
     schedule();
   } else if (el._pendingValue !== NOT_PENDING) el._flags |= REACTIVE_MANUAL_WRITE;
-  return result;
+  return v;
 }
 
 /**
