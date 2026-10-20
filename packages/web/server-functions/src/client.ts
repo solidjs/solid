@@ -150,6 +150,12 @@ export type PrepareRequestHook = (
   context: PrepareRequestContext
 ) => RequestInit | Promise<RequestInit>;
 
+/** How the transport sends a request: `fetch`'s shape, as the runtime calls it. */
+export type ServerFunctionsSend = (
+  address: string,
+  init: RequestInit
+) => Response | Promise<Response>;
+
 /** Options for `configureServerFunctionsClient`. */
 export interface ServerFunctionsClientConfig {
   /**
@@ -210,7 +216,7 @@ export interface ServerFunctionsClientConfig {
    * The wrapper replaces delivery for the requests the runtime chooses to
    * send; the call-to-request mapping itself is not contractual.
    */
-  fetch?: ((address: string, init: RequestInit) => Response | Promise<Response>) | null;
+  fetch?: ServerFunctionsSend | null;
   /**
    * Runs before every server-function fetch. Return (or mutate and return)
    * the RequestInit the transport will use; `context.meta` is the
@@ -434,6 +440,42 @@ function serializeArguments(args) {
   }
   return config.serializeArgs(args);
 } /**
+ * Layers a send over the transport for an INTEGRATION — something that
+ * reroutes some requests (a static artifact, a cache) and hands the rest on.
+ * `wrap` receives `next`, the send it wraps, and returns the send to use.
+ * Unlike `configureServerFunctionsClient({ fetch })`, which belongs to the
+ * app, layers never replace each other or the app's `fetch`: `next` reads
+ * the configured `fetch` (or the global) at call time, so the order of the
+ * app's configuration and an integration's setup does not matter. The
+ * latest layer is outermost. Layers are permanent: install one once, at
+ * startup.
+ *
+ * ```ts
+ * wrapServerFunctionsFetch(next => (address, init) =>
+ *   isMine(address) ? answerFromCache(address) : next(address, init)
+ * );
+ * ```
+ *
+ * The contract for the send is `fetch`'s (see
+ * `ServerFunctionsClientConfig.fetch`): forward `init`, hand back what the
+ * peer answered, unread. Hydration adopts a server-rendered read only if
+ * its send reaches the global `fetch` in the same tick, so a layer that
+ * answers a read itself should fetch synchronously too.
+ */
+export function wrapServerFunctionsFetch(
+  wrap: (next: ServerFunctionsSend) => ServerFunctionsSend
+): void;
+
+export function wrapServerFunctionsFetch(wrap) {
+  send = wrap(send);
+}
+
+// The app's send, read per call: `configureServerFunctionsClient({ fetch })`
+// may run before or after a layer is added, and hydration swaps the global
+// for one synchronous compute.
+let send = (address, init) => (config.fetch || fetch)(address, init);
+
+/**
  * Configures the client transport. Call once, before any server function is
  * invoked — typically in the client entry, next to `hydrate()`. Only needed
  * when deviating from the defaults (custom endpoint, codec plugins, or a
@@ -656,7 +698,6 @@ async function createRequest(base, id, options, meta) {
   // The send, as observed: the `"request"` record leaves from here — the
   // final address and init, immediately before `fetch` receives them.
   if (IS_OBSERVE && observation) observation.request(base, init);
-  const send = config.fetch || fetch;
   return send(base, init);
 }
 

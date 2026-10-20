@@ -30,7 +30,8 @@ import {
   createServerReference,
   getServerFunctionMetadata,
   isServerFunction,
-  withMeta
+  withMeta,
+  wrapServerFunctionsFetch
 } from "@solidjs/web/server-functions/client";
 import type { PrepareRequestHook } from "@solidjs/web/server-functions/client";
 
@@ -217,6 +218,40 @@ describe("server-function extension surface (built bundles)", () => {
     try {
       expect(await GET(createServerReference("ext-fetch-0"))("solid")).toBe("SOLID");
       expect(seen).toEqual(["/api/upper?args=%5B%22solid%22%5D"]);
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
+    }
+  });
+
+  it("layers an integration's send over the app's fetch, whichever is configured first", async () => {
+    registerServerFunction("ext-fetch-9", async (word: string) => word);
+    const order: string[] = [];
+    // layers are permanent: this one only answers its own address and
+    // passes everything else on, as an integration's must
+    wrapServerFunctionsFetch(next => (address, init) => {
+      if (!address.includes("ext-fetch-9") && !address.includes("ext-fetch-cached"))
+        return next(address, init);
+      order.push("layer");
+      return address.includes("cached")
+        ? new Response(JSON.stringify("from layer"), {
+            headers: { "X-Server-Function-Format": "8" }
+          })
+        : next(address, init);
+    });
+    // the app's fetch configured AFTER the layer: neither replaces the other
+    configureServerFunctionsClient({
+      fetch(address, init) {
+        order.push("app");
+        return deliver(address, init);
+      }
+    });
+    try {
+      expect(await createServerReference("ext-fetch-9")("live")).toBe("live");
+      expect(order).toEqual(["layer", "app"]);
+      order.length = 0;
+      // what the layer answers itself never reaches the app's send
+      expect(await createServerReference("ext-fetch-cached")()).toBe("from layer");
+      expect(order).toEqual(["layer"]);
     } finally {
       configureServerFunctionsClient({ fetch: null });
     }
