@@ -16,13 +16,13 @@
 // the regions that actually show. The live preview reuses the same
 // NotePreview the note's server component renders — the shared-module half of
 // the demo.
-import { action } from "@solidjs/router";
+import { formAction } from "@solidjs/router";
 import { createSignal, untrack } from "solid-js";
 import { redirect } from "@solidjs/web";
 import * as db from "~/server/db";
 import NotePreview from "./NotePreview";
 
-const saveNote = action(async (id: number | undefined, formData: FormData) => {
+const saveNote = formAction(async (id: number | undefined, formData: FormData) => {
   "use server";
   const saved = await db.saveNote(
     id,
@@ -32,7 +32,7 @@ const saveNote = action(async (id: number | undefined, formData: FormData) => {
   return redirect(`/notes/${saved}`);
 });
 
-const deleteNote = action(async (id: number) => {
+const deleteNote = formAction(async (id: number) => {
   "use server";
   await db.deleteNote(id);
   return redirect("/");

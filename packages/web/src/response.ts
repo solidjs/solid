@@ -153,9 +153,9 @@ export interface ResponseHelperInit extends ResponseInit {
    * The cache keys the mutation invalidated, sent as the `X-Revalidate`
    * header for the client's integrations to apply. Three declarations, three
    * scopes: omitted sends no header — the host's default (Solid Router
-   * revalidates everything after an action; a router without that
-   * convention reloads only what it owns); an empty list sends an empty
-   * header — nothing, explicitly; `REVALIDATE_ALL` (`"*"`) — every entry,
+   * revalidates everything after any mutation, form action or direct call;
+   * a router without that convention reloads only what it owns); an empty
+   * list (or `""`) sends an empty header — nothing, explicitly; `REVALIDATE_ALL` (`"*"`) — every entry,
    * whatever the host's default. How named keys are matched (prefixes,
    * namespaces) is each integration's business.
    */
