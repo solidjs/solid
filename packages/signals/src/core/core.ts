@@ -1521,6 +1521,16 @@ export function setStrictRead(v: string | false): string | false {
  * Use `untrack` inside a memo or effect when you need to read a signal once
  * without making the surrounding computation depend on its future changes.
  *
+ * `untrack` stops dependency tracking, not async settlement. Reading an
+ * uninitialized async source still suspends the owning computation; it runs
+ * again when that source first resolves. Afterward, the untracked read is a
+ * snapshot and does not subscribe the computation to later changes.
+ *
+ * If the first read must return immediately, give the async source a
+ * `loadingValue` before reading it with `untrack`. `isPending` and `latest`
+ * inspect updates to an existing value; neither supplies a missing initial
+ * value.
+ *
  * Pass a `strictReadLabel` string to enable a dev-mode warning: any reactive
  * read inside `fn` that isn't inside a nested tracking scope will log a
  * warning naming the label.
@@ -1534,6 +1544,9 @@ export function setStrictRead(v: string | false): string | false {
  *     log(snapshot);
  *   }
  * );
+ *
+ * const color = createMemo<string>(() => fetchColor(), { loadingValue: "gray" });
+ * const initialColor = untrack(color); // "gray" while the fetch is unresolved
  * ```
  */
 export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
