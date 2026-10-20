@@ -1,5 +1,13 @@
 # @solidjs/babel-plugin
 
+## 2.0.0-rc.16
+
+### Patch Changes
+
+- 4a99c84: `sourceNames` gains a `locations` kind (and the plugin a `root` option): component and binding labels carry a `file:line:col` for diagnostics. `createComponent(Home, props, "Home", "src/App.tsx:12:5")` points at the `<Home` opening element (DOM and SSR output); a binding's options gain `loc` after `name` — the attribute's start for an attribute effect (a merged effect points at the first attribute it lists), the hole's `{` for an insert — and a spread passes it after the tag (`spread(el, props, false, undefined, "div", "src/App.tsx:20:12")`). The path is relative to `root` (default: the working directory) with `/` separators; line and column are 1-based, so a dev server links the location straight to the source. Like the other kinds, `locations` follows `dev` when unset, `true` turns every kind on, and the object form picks; a location is only emitted beside its label, and never when Babel has no `filename` for the module.
+- 3f36f77: Server components: binding slots are removed. Client components in slots replace them: place a client component through a `Slot` (`<props.x />`) where the server's markup needs client behavior, or a form `action` for a mutation. Removed with them: the `BindingSlot`, `SlotOutput` and `SlotError` types, the lazy `@solidjs/web/frames/bind` entry and its `"bind"` tier, the `_s:*` position markers and the compiled `ssrClaim` hole, the effect of the `serverComponents` compiler option (`@solidjs/compiler` and `@solidjs/babel-plugin` still accept it, so existing build configs keep working, and ignore it), and the `BINDING_SLOT_POSITION` diagnostic code (`@solidjs/signals`' `DiagnosticCode`, `solid-js`'s `diagnostics.json`). Ordinary slots, their `slot:<id>` ranges and records, and `$key` are unchanged.
+- d0ba31c: SSR evaluates a `ref` expression beside a spread, as it already does without one, so a ref factory's owned setup (`ref={tooltip()}`) runs on the server too and the hydration ids after it line up. The ref itself is still never called on the server (#4081). Under `serverComponents` the same holds outside a server component's render, where a ref expression was never evaluated on either path; inside one the claim evaluates it, once.
+
 ## 2.0.0-rc.15
 
 ### Patch Changes
