@@ -15,7 +15,7 @@ import { createMemo, For, Loading, onCleanup } from "solid-js";
 import { dynamicComponent, getRequestEvent, redirect } from "@solidjs/web";
 import { GET, live } from "@solidjs/web/server-functions";
 import type { Slot } from "@solidjs/web/frames";
-import { action, liveQuery, type RouteSectionProps } from "@solidjs/router";
+import { formAction, liveQuery, type RouteSectionProps } from "@solidjs/router";
 import Composer from "~/components/composer";
 import CopyCode from "~/components/copy-code";
 import * as db from "~/server/db";
@@ -29,14 +29,14 @@ type CopySlot = Slot<{ code: string }>;
 
 // Stops the reply being written. A plain form posts it, so it works before
 // the page's JavaScript has loaded; the thread's own stream shows the result.
-const stopGeneration = action(async (replyId: string) => {
+const stopGeneration = formAction(async (replyId: string) => {
   "use server";
   generations.stop(replyId);
 }, "stopGeneration");
 
 // Writes the last reply again: Regenerate on a finished one, Retry on a
 // failed one. Like sending, it starts a job and returns.
-const regenerate = action(async (replyId: string) => {
+const regenerate = formAction(async (replyId: string) => {
   "use server";
   try {
     const { threadId } = await db.restart(replyId);
@@ -47,7 +47,7 @@ const regenerate = action(async (replyId: string) => {
   }
 }, "regenerate");
 
-const renameThread = action(async (id: string, form: FormData) => {
+const renameThread = formAction(async (id: string, form: FormData) => {
   "use server";
   try {
     await db.renameThread(id, String(form.get("title") ?? ""));
@@ -58,7 +58,7 @@ const renameThread = action(async (id: string, form: FormData) => {
 }, "renameThread");
 
 // Deleting leaves nothing to look at, so it answers with where to go.
-const deleteThread = action(async (id: string) => {
+const deleteThread = formAction(async (id: string) => {
   "use server";
   const writing = await db.deleteThread(id);
   if (writing) generations.stop(writing);

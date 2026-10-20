@@ -10,7 +10,7 @@
 // fresh markup in one round trip. A failed save answers `{ error }` rather
 // than throwing, so the failure is typed where the client reads it; the
 // server words it, because only the server knows the todo's title.
-import { action } from "@solidjs/router";
+import { formAction } from "@solidjs/router";
 import * as db from "~/server/db";
 
 /** The `completed` a toggle form submitted: the button's value. */
@@ -21,33 +21,33 @@ async function titleOf(id: string) {
   return todo ? `“${todo.title}”` : "a todo";
 }
 
-export const addTodo = action(async (form: FormData) => {
+export const addTodo = formAction(async (form: FormData) => {
   "use server";
   const title = String(form.get("title") ?? "").trim();
   if (!title) return { error: "A todo needs a title" };
   return db.addTodo(title);
 });
 
-export const toggleTodo = action(async (id: string, form: FormData) => {
+export const toggleTodo = formAction(async (id: string, form: FormData) => {
   "use server";
   const completed = completedOf(form);
   if (await db.toggleTodo(id, completed))
     return { error: `Couldn't ${completed ? "complete" : "reopen"} ${await titleOf(id)}` };
 });
 
-export const removeTodo = action(async (id: string) => {
+export const removeTodo = formAction(async (id: string) => {
   "use server";
   if (await db.removeTodo(id)) return { error: `Couldn't delete ${await titleOf(id)}` };
 });
 
-export const toggleAll = action(async (form: FormData) => {
+export const toggleAll = formAction(async (form: FormData) => {
   "use server";
   const completed = completedOf(form);
   if (await db.toggleAll(completed))
     return { error: `Couldn't mark everything ${completed ? "complete" : "active"}` };
 });
 
-export const clearCompleted = action(async () => {
+export const clearCompleted = formAction(async () => {
   "use server";
   if (await db.clearCompleted()) return { error: "Couldn't clear completed" };
 });

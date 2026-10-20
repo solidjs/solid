@@ -8,7 +8,7 @@
 // its id is among them — by derivation, in the same update that brings the
 // server's own row.
 import { createSignal, For, latest, Show } from "solid-js";
-import { action } from "@solidjs/router";
+import { formAction } from "@solidjs/router";
 import { redirect } from "@solidjs/web";
 import * as db from "~/server/db";
 import * as generations from "~/server/generations";
@@ -18,7 +18,7 @@ const mintId = () => Math.random().toString(36).slice(2, 12).padEnd(10, "0");
 // Stores the prompt, starts the reply as a job, and returns: the reply is
 // written by the job, not by this request. From the front page there is no
 // thread yet, so this makes one and goes to it.
-export const sendMessage = action(async (form: FormData) => {
+export const sendMessage = formAction(async (form: FormData) => {
   "use server";
   const threadId = String(form.get("threadId") ?? "") || null;
   try {
