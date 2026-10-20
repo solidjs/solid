@@ -222,6 +222,43 @@ describe("server-function extension surface (built bundles)", () => {
     }
   });
 
+  it("sends a reference's calls through its declared fetch, with the app's as next", async () => {
+    registerServerFunction("ext-fetch-9", async (word: string) => word);
+    const order: string[] = [];
+    // the reference's own send, declared before the app configures its fetch
+    const ref = withMeta(createServerReference("ext-fetch-9"), {
+      fetch: (address: string, init: RequestInit, next: (a: string, i: RequestInit) => any) => {
+        order.push("own");
+        return init.body === undefined || String(init.body).includes("cached")
+          ? new Response(JSON.stringify("from own send"), {
+              headers: { "X-Server-Function-Format": "8" }
+            })
+          : next(address, init);
+      }
+    });
+    configureServerFunctionsClient({
+      fetch(address, init) {
+        order.push("app");
+        return deliver(address, init);
+      }
+    });
+    try {
+      expect(await ref("live")).toBe("live");
+      expect(order).toEqual(["own", "app"]);
+      order.length = 0;
+      // what the reference's send answers never reaches the app's
+      expect(await ref("cached")).toBe("from own send");
+      expect(order).toEqual(["own"]);
+      order.length = 0;
+      // other references are untouched
+      registerServerFunction("ext-fetch-10", async () => "plain");
+      expect(await createServerReference("ext-fetch-10")()).toBe("plain");
+      expect(order).toEqual(["app"]);
+    } finally {
+      configureServerFunctionsClient({ fetch: null });
+    }
+  });
+
   it("hands the fetch the (address, init) shape", async () => {
     registerServerFunction("ext-fetch-1", async () => "ok");
     const shapes: string[] = [];

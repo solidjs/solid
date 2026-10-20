@@ -150,6 +150,12 @@ export type PrepareRequestHook = (
   context: PrepareRequestContext
 ) => RequestInit | Promise<RequestInit>;
 
+/** How the transport sends a request: `fetch`'s shape, as the runtime calls it. */
+export type ServerFunctionsSend = (
+  address: string,
+  init: RequestInit
+) => Response | Promise<Response>;
+
 /** Options for `configureServerFunctionsClient`. */
 export interface ServerFunctionsClientConfig {
   /**
@@ -184,9 +190,10 @@ export interface ServerFunctionsClientConfig {
   codec?: JSONCodecOptions;
   /**
    * Sends every server-function request — retries, telemetry, a test
-   * double, or an app's own route. Always called as `(address, init)`, the
+   * double, or an app's own route. Called as `(address, init)`, the
    * address relative to the document as the global one receives it, so
-   * `parseServerFunctionActionUrl` reads the id back out for telemetry. `null`
+   * `parseServerFunctionActionUrl` reads the id back out for telemetry (a
+   * trailing third argument is the transport's own; ignore it). `null`
    * restores the global.
    *
    * ```ts
@@ -210,7 +217,7 @@ export interface ServerFunctionsClientConfig {
    * The wrapper replaces delivery for the requests the runtime chooses to
    * send; the call-to-request mapping itself is not contractual.
    */
-  fetch?: ((address: string, init: RequestInit) => Response | Promise<Response>) | null;
+  fetch?: ServerFunctionsSend | null;
   /**
    * Runs before every server-function fetch. Return (or mutate and return)
    * the RequestInit the transport will use; `context.meta` is the
@@ -656,8 +663,12 @@ async function createRequest(base, id, options, meta) {
   // The send, as observed: the `"request"` record leaves from here — the
   // final address and init, immediately before `fetch` receives them.
   if (IS_OBSERVE && observation) observation.request(base, init);
+  // A reference may declare its own send (`withMeta(fn, { fetch })`): it
+  // receives the app's as `next`, so the app's transport policy still
+  // applies to whatever it passes on. (The app's send ignores the extra
+  // argument, as `fetch` does.)
   const send = config.fetch || fetch;
-  return send(base, init);
+  return (meta.fetch || send)(base, init, send);
 }
 
 async function initializeResponse(base, id, options, args, meta) {
