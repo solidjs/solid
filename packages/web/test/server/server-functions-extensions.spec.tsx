@@ -30,8 +30,7 @@ import {
   createServerReference,
   getServerFunctionMetadata,
   isServerFunction,
-  withMeta,
-  wrapServerFunctionsFetch
+  withMeta
 } from "@solidjs/web/server-functions/client";
 import type { PrepareRequestHook } from "@solidjs/web/server-functions/client";
 
@@ -223,22 +222,20 @@ describe("server-function extension surface (built bundles)", () => {
     }
   });
 
-  it("layers an integration's send over the app's fetch, whichever is configured first", async () => {
+  it("sends a reference's calls through its declared fetch, with the app's as next", async () => {
     registerServerFunction("ext-fetch-9", async (word: string) => word);
     const order: string[] = [];
-    // layers are permanent: this one only answers its own address and
-    // passes everything else on, as an integration's must
-    wrapServerFunctionsFetch(next => (address, init) => {
-      if (!address.includes("ext-fetch-9") && !address.includes("ext-fetch-cached"))
-        return next(address, init);
-      order.push("layer");
-      return address.includes("cached")
-        ? new Response(JSON.stringify("from layer"), {
-            headers: { "X-Server-Function-Format": "8" }
-          })
-        : next(address, init);
+    // the reference's own send, declared before the app configures its fetch
+    const ref = withMeta(createServerReference("ext-fetch-9"), {
+      fetch: (address: string, init: RequestInit, next: (a: string, i: RequestInit) => any) => {
+        order.push("own");
+        return init.body === undefined || String(init.body).includes("cached")
+          ? new Response(JSON.stringify("from own send"), {
+              headers: { "X-Server-Function-Format": "8" }
+            })
+          : next(address, init);
+      }
     });
-    // the app's fetch configured AFTER the layer: neither replaces the other
     configureServerFunctionsClient({
       fetch(address, init) {
         order.push("app");
@@ -246,12 +243,17 @@ describe("server-function extension surface (built bundles)", () => {
       }
     });
     try {
-      expect(await createServerReference("ext-fetch-9")("live")).toBe("live");
-      expect(order).toEqual(["layer", "app"]);
+      expect(await ref("live")).toBe("live");
+      expect(order).toEqual(["own", "app"]);
       order.length = 0;
-      // what the layer answers itself never reaches the app's send
-      expect(await createServerReference("ext-fetch-cached")()).toBe("from layer");
-      expect(order).toEqual(["layer"]);
+      // what the reference's send answers never reaches the app's
+      expect(await ref("cached")).toBe("from own send");
+      expect(order).toEqual(["own"]);
+      order.length = 0;
+      // other references are untouched
+      registerServerFunction("ext-fetch-10", async () => "plain");
+      expect(await createServerReference("ext-fetch-10")()).toBe("plain");
+      expect(order).toEqual(["app"]);
     } finally {
       configureServerFunctionsClient({ fetch: null });
     }

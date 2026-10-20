@@ -182,6 +182,29 @@ export interface ServerFunctionMetadata {
    * `withMeta` write wins.
    */
   readonly name?: string;
+  /**
+   * This function's own send, client side: the transport calls it instead
+   * of the configured `fetch` for every request the function makes, with
+   * the configured send (the app's `fetch`, or the global) as `next`. For
+   * an integration that answers a declared function's calls itself — a
+   * prerendered build's static artifacts, a cache — while the app's
+   * transport `fetch` stays the app's: pass on what you don't answer
+   * through `next`. The contract is `fetch`'s (see
+   * `ServerFunctionsClientConfig.fetch`); hydration adopts a
+   * server-rendered read only if the send reaches the global `fetch` in the
+   * same tick.
+   *
+   * ```ts
+   * withMeta(getPosts, {
+   *   fetch: (address, init, next) => cached(address) ?? next(address, init)
+   * });
+   * ```
+   */
+  readonly fetch?: (
+    address: string,
+    init: RequestInit,
+    next: (address: string, init: RequestInit) => Response | Promise<Response>
+  ) => Response | Promise<Response>;
   /** User-declared transport metadata attached with `withMeta`. */
   readonly [key: string]: unknown;
 }
