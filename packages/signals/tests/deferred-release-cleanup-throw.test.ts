@@ -1,0 +1,63 @@
+import { expect, it } from "vitest";
+import {
+  createMemo,
+  createRenderEffect,
+  createRoot,
+  createSignal,
+  flush,
+  onCleanup
+} from "../src/index.js";
+
+// #4164 defers last-reader releases while an unfinished pass's frame is
+// dismantled. A cleanup throw must not leave that collector installed for
+// later, unrelated disposal.
+it.each([false, true])(
+  "a cleanup throw does not suppress unrelated lazy cleanup (throws: %s)",
+  throws => {
+    const failure = new Error("cleanup failed");
+    const [version, setVersion] = createSignal(0);
+    const disposePending = createRoot(dispose => {
+      createMemo(() => {
+        version();
+        onCleanup(() => {
+          if (throws) throw failure;
+        });
+        return new Promise<number>(() => {});
+      });
+      return dispose;
+    });
+    let disposeOther: (() => void) | undefined;
+    try {
+      flush();
+      setVersion(1);
+      if (throws) expect(() => flush()).toThrow(failure);
+      else expect(() => flush()).not.toThrow();
+
+      let cleaned = 0;
+      let stop!: () => void;
+      disposeOther = createRoot(dispose => {
+        const value = createMemo(
+          () => {
+            onCleanup(() => cleaned++);
+            return 1;
+          },
+          { lazy: true }
+        );
+        stop = createRoot(dispose => {
+          createRenderEffect(value, () => {});
+          return dispose;
+        });
+        return dispose;
+      });
+      flush();
+      stop();
+      flush();
+      // Its owner is still alive: losing the last observer releases it.
+      expect(cleaned).toBe(1);
+    } finally {
+      disposeOther?.();
+      disposePending();
+      flush();
+    }
+  }
+);
