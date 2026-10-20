@@ -232,6 +232,10 @@ export let stale = false;
 export let context: Owner | null = null;
 
 export let snapshotCaptureActive = false;
+/** The lane at the root of the running chain of first passes: the lane whose
+ * pass created the chain's first node (a mount), inherited by every first
+ * pass nested under it, whose seats are mainline (`recompute`, #4166). */
+let laneRoot: Transaction | null | false | undefined;
 export let snapshotSources: Set<any> | null = null;
 
 function ownerInSnapshotScope(owner: Owner | null): boolean {
@@ -317,6 +321,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // Lanes exist only with the lane engine installed (`laneStageHook`): a
   // bundle without it seats every pass on mainline, and folds the seat away.
   const prevLane = passLane;
+  // The mount a first pass belongs to: its creator's lane, or the one its
+  // creator's own mount came from — a render effect a verdict lane's mount's
+  // content creates is that mount's too (#4166). Lanes only, like the seat.
+  const prevMount = laneRoot;
+  const mount = laneStageHook && (laneRoot = create && (prevLane || prevMount));
   setPassLane(
     !laneStageHook
       ? null
@@ -455,7 +464,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         : el._value;
   let oldHeight = el._height;
   let missedWake = false;
-  // L2: did this pass read the future (REACTIVE_JOINED, set by read)?
+  // L2: did this pass read the future (REACTIVE_JOINED, set by read) — or,
+  // a lane's mount, a staging of this flush (#3851, #4166)?
   let joined = false;
   let prevTracking = tracking;
   let prevStrictRead: string | false = false;
@@ -531,6 +541,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     }
   } finally {
     tracking = prevTracking;
+    if (laneStageHook) laneRoot = prevMount;
     if (__DEV__) strictRead = prevStrictRead;
     if (isStaleEffect) stale = prevStale;
     // Consume the missed-wake latch (#3037, set by insertSubs): a dep write
@@ -539,7 +550,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // (markNode(c) in read()) marks the running node as part of ordinary
     // bookkeeping, and those marks are correctly discarded here.
     missedWake = (el._flags & REACTIVE_MISSED_WAKE) !== 0;
-    joined = (el._flags & REACTIVE_JOINED) !== 0;
+    joined = !!(el._flags & (mount ? REACTIVE_JOINED | REACTIVE_STAGED_READ : REACTIVE_JOINED));
     // A verdict reader is one for as long as it probes, or reads a memo
     // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
     // bit) is an ordinary derivation again.
@@ -719,9 +730,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         create
           ? !(
               (flushTransaction !== null || passTx !== null) &&
-              (joined ||
-                (prevLane && el._flags & REACTIVE_STAGED_READ) ||
-                (creatorPass(oldcontext)?._flags as number) & REACTIVE_JOINED)
+              (joined || (creatorPass(oldcontext)?._flags as number) & REACTIVE_JOINED)
             )
           : isEffect && el._pendingValue === NOT_PENDING
       ) {
@@ -755,7 +764,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           // #3851): the mount is part of the hold, and the boundary appears
           // at its commit, its fallback never seen (D-13, U-3) — a `<Show>`
           // mounting it over a landing included.
-          freshHook?.(el, !prevLane && flushTransaction);
+          freshHook?.(el, !mount && flushTransaction);
         }
         if (__DEV__) devTrackHeldPending(el);
       }
@@ -799,12 +808,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // hold's commit (D-12) — but the hold does not wait for it: its only
   // readers are behind the fallback (`_hidden`; F-4, #3540). A boundary
   // re-armed by `on` owns what it collects outright (D-14): not held.
-  if (
-    create &&
-    lane === null &&
-    (joined || (prevLane && el._flags & REACTIVE_STAGED_READ)) &&
-    el._statusFlags & STATUS_PENDING
-  ) {
+  if (create && lane === null && joined && el._statusFlags & STATUS_PENDING) {
     const t = flushTransaction ?? passTx;
     if (t && !t._lane && freshHook?.(el) !== CAUGHT_REARMED) holdNode(el, t);
   }
