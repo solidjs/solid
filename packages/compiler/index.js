@@ -10,7 +10,7 @@ function transform(code, options) {
     throw new TypeError("@solidjs/compiler transform() expects source code as a string");
   }
 
-  const nativeOptions = validateOptions(code, options);
+  const nativeOptions = hostRoot(validateOptions(code, options));
   const result = native.transform(code, nativeOptions);
   const output = {
     code: result.code,
@@ -71,7 +71,7 @@ function transformDirectives(code, options) {
     throw new TypeError("@solidjs/compiler transformDirectives() expects source code as a string");
   }
 
-  const nativeOptions = validateDirectivesOptions(options);
+  const nativeOptions = hostRoot(validateDirectivesOptions(options));
   const result = native.transformDirectives(code, nativeOptions);
   return {
     code: result.code,
@@ -124,7 +124,7 @@ function transformSourceNames(code, options) {
     throw new TypeError("@solidjs/compiler transformSourceNames() expects source code as a string");
   }
 
-  const nativeOptions = validateSourceNamesOptions(options);
+  const nativeOptions = hostRoot(validateSourceNamesOptions(options));
   const result = native.transformSourceNames(code, nativeOptions);
   return {
     code: result.code,
@@ -443,6 +443,23 @@ function tryPackage(packageName) {
     if (isMissingPackage(error, packageName)) return { missing: true };
     return { error };
   }
+}
+
+// The binding makes `filename` relative to `root` (`loc` paths, directive
+// hashes), resolving both against its own working directory. A WASI binding
+// cannot see the host's (it starts at `/`), so hand it a `root` that needs
+// none: absolute beside an absolute filename (the working directory when
+// unset), relative beside a relative one. The result is unchanged on a native
+// binding.
+function hostRoot(nativeOptions) {
+  if (nativeOptions == null || typeof nativeOptions.filename !== "string") return nativeOptions;
+  const { filename, root } = nativeOptions;
+  if (path.isAbsolute(filename)) {
+    nativeOptions.root = path.resolve(root ?? ".");
+  } else if (root !== undefined && path.isAbsolute(root)) {
+    nativeOptions.root = path.relative(process.cwd(), root) || ".";
+  }
+  return nativeOptions;
 }
 
 function requireBinding() {
