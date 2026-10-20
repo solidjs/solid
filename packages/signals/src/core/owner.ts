@@ -163,7 +163,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     const effectCleanup = node._cleanup;
     node._cleanup = undefined;
     if (__DEV__) enterDisposal();
-    runWithOwner(null, effectCleanup);
+    effectCleanup();
     if (__DEV__) exitDisposal();
   }
 }
@@ -192,24 +192,18 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   // throw leaves the depth raised; dev.ts clears the stale count on the next
   // microtask, since teardown never spans one (core.ts).
   if (__DEV__) enterDisposal();
-  // A cleanup is teardown code, not part of whichever computation is
-  // disposing the owner (a list pass removing a row, a re-run): it runs with
-  // no owner and untracked, so its writes are imperative like an effect
-  // callback's and its reads subscribe nothing (#4165).
-  runWithOwner(null, () => {
-    if (Array.isArray(disposal)) {
-      // Unwind order (#3572, restores 1.x #1562): later registrations run
-      // before earlier ones. Children have already been disposed by the caller,
-      // so with LIFO a body that registers cleanup before creating its children
-      // tears down after them — the same order a per-component owner gives.
-      for (let i = disposal.length - 1; i >= 0; i--) {
-        const callable = disposal[i];
-        callable.call(callable);
-      }
-    } else {
-      disposal.call(disposal);
+  if (Array.isArray(disposal)) {
+    // Unwind order (#3572, restores 1.x #1562): later registrations run
+    // before earlier ones. Children have already been disposed by the caller,
+    // so with LIFO a body that registers cleanup before creating its children
+    // tears down after them — the same order a per-component owner gives.
+    for (let i = disposal.length - 1; i >= 0; i--) {
+      const callable = disposal[i];
+      callable.call(callable);
     }
-  });
+  } else {
+    disposal.call(disposal);
+  }
   if (__DEV__) exitDisposal();
 }
 

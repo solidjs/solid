@@ -49,6 +49,7 @@ import {
 import {
   captureWriteSnapshot,
   context,
+  disposalDepth,
   isEqual,
   notePromotedWrite,
   ownedScopeWriteMessage,
@@ -2293,7 +2294,7 @@ const ASYNC_STORE_SETTER_MESSAGE =
  * write violation — the user guard (`mapArray`'s pattern: the node-level
  * writes carry `ownedWrite`; the setter asks). */
 function devGuardStoreSetterWrite(): void {
-  if (context && !(context._config & CONFIG_CHILDREN_FORBIDDEN)) {
+  if (context && !(context._config & CONFIG_CHILDREN_FORBIDDEN) && !disposalDepth) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
       kind: "write",
