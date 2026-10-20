@@ -467,13 +467,14 @@ export function wrapServerFunctionsFetch(
 ): void;
 
 export function wrapServerFunctionsFetch(wrap) {
-  send = wrap(send);
+  send = wrap(send || ((address, init) => (config.fetch || fetch)(address, init)));
 }
 
-// The app's send, read per call: `configureServerFunctionsClient({ fetch })`
-// may run before or after a layer is added, and hydration swaps the global
-// for one synchronous compute.
-let send = (address, init) => (config.fetch || fetch)(address, init);
+// The layered send, once an integration adds one. Its base reads the app's
+// send per call: `configureServerFunctionsClient({ fetch })` may run before
+// or after a layer is added, and hydration swaps the global for one
+// synchronous compute. Unset (the common case) the transport sends directly.
+let send;
 
 /**
  * Configures the client transport. Call once, before any server function is
@@ -698,7 +699,7 @@ async function createRequest(base, id, options, meta) {
   // The send, as observed: the `"request"` record leaves from here — the
   // final address and init, immediately before `fetch` receives them.
   if (IS_OBSERVE && observation) observation.request(base, init);
-  return send(base, init);
+  return (send || config.fetch || fetch)(base, init);
 }
 
 async function initializeResponse(base, id, options, args, meta) {
