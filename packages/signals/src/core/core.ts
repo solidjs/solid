@@ -1493,7 +1493,11 @@ export function exitCallback(): void {
 }
 /**
  * Dev-only: > 0 while owner teardown runs cleanups (`_disposal` entries and
- * effect-returned cleanups — owner.ts), for the same reason. Kept apart from
+ * effect-returned cleanups — owner.ts), for the same reason. The owned-scope
+ * write guard (setSignal, markRefresh, the store setter) stands down here
+ * too: a cleanup is teardown, not part of whichever computation is disposing
+ * its owner (a list pass removing a row, a branch switching away), so its
+ * writes are imperative like an effect callback's (#4165). Kept apart from
  * `callbackDepth` because its sites cannot use try/finally (the frame would
  * survive into prod): a throwing cleanup leaves it raised, and dev.ts resets
  * it on the next microtask, which teardown — synchronous — never spans.
@@ -1521,6 +1525,16 @@ export function setStrictRead(v: string | false): string | false {
  * Use `untrack` inside a memo or effect when you need to read a signal once
  * without making the surrounding computation depend on its future changes.
  *
+ * `untrack` stops dependency tracking, not async settlement. Reading an
+ * uninitialized async source still suspends the owning computation; it runs
+ * again when that source first resolves. Afterward, the untracked read is a
+ * snapshot and does not subscribe the computation to later changes.
+ *
+ * If the first read must return immediately, give the async source a
+ * `loadingValue` before reading it with `untrack`. `isPending` and `latest`
+ * inspect updates to an existing value; neither supplies a missing initial
+ * value.
+ *
  * Pass a `strictReadLabel` string to enable a dev-mode warning: any reactive
  * read inside `fn` that isn't inside a nested tracking scope will log a
  * warning naming the label.
@@ -1534,6 +1548,9 @@ export function setStrictRead(v: string | false): string | false {
  *     log(snapshot);
  *   }
  * );
+ *
+ * const color = createMemo<string>(() => fetchColor(), { loadingValue: "gray" });
+ * const initialColor = untrack(color); // "gray" while the fetch is unresolved
  * ```
  */
 export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
@@ -2110,7 +2127,8 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     __DEV__ &&
     !(el._config & CONFIG_OWNED_WRITE) &&
     !(context && context._config & CONFIG_CHILDREN_FORBIDDEN) &&
-    context
+    context &&
+    !disposalDepth
   ) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
@@ -2308,7 +2326,8 @@ export function markRefresh(node: Computed<any>): void {
     __DEV__ &&
     context &&
     !((node._config ?? 0) & CONFIG_OWNED_WRITE) &&
-    !(context._config & CONFIG_CHILDREN_FORBIDDEN)
+    !(context._config & CONFIG_CHILDREN_FORBIDDEN) &&
+    !disposalDepth
   ) {
     emitDiagnostic({
       code: "REACTIVE_WRITE_IN_OWNED_SCOPE",
