@@ -30,7 +30,9 @@ export class NotReadyError extends Error {
    * construction.
    */
   declare _markVisual?: boolean;
-  source: any;
+  // `declare`: assigned in the constructor; a class field would only add
+  // bytes (an extra define before the assignment).
+  declare source: any;
   constructor(source: any) {
     // Control-flow throw: it happens on every read of a pending source, so in
     // production skip V8's eager stack capture (proportional to stack depth —
@@ -47,10 +49,8 @@ export class NotReadyError extends Error {
 }
 
 export class StatusError extends Error {
-  constructor(
-    public source: any,
-    original: any
-  ) {
+  declare source: any;
+  constructor(source: any, original: any) {
     // Best-effort message: formatting must never replace the original (#4112).
     try {
       var message: string | undefined = String(
@@ -58,6 +58,7 @@ export class StatusError extends Error {
       );
     } catch {}
     super(message, { cause: original });
+    this.source = source;
   }
 }
 

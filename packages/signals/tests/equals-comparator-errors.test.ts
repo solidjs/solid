@@ -71,6 +71,42 @@ describe("equals comparator errors (#2837, A3: comparator throws are compute-pha
     expect(log).toEqual(["beat=1"]);
   });
 
+  it("a setter's comparator throw is the signal's error: the boundary contains it", () => {
+    const log: string[] = [];
+    const [user, setUser] = createSignal<User | undefined>(
+      { id: 1 },
+      { equals: (prev, next) => prev!.id === next!.id }
+    );
+    const [beat, setBeat] = createSignal(0);
+
+    createRoot(() => {
+      createRenderEffect(beat, v => {
+        log.push(`beat=${v}`);
+      });
+      const boundary = createErrorBoundary(
+        () => `content:${user()?.id}`,
+        err => `fallback:${(err as () => unknown)()}`
+      );
+      createRenderEffect(boundary, v => {
+        log.push(v);
+      });
+    });
+    flush();
+    log.length = 0;
+
+    // Same path as recompute's comparator (`isSame`): not thrown at the caller.
+    expect(() => {
+      setUser(undefined);
+      flush();
+    }).not.toThrow();
+    expect(log).toEqual(["fallback:TypeError: Cannot read properties of undefined (reading 'id')"]);
+    log.length = 0;
+
+    setBeat(1);
+    flush();
+    expect(log).toEqual(["beat=1"]);
+  });
+
   it("A4: the first commit never invokes a custom equals with an undefined previous value", () => {
     const calls: [unknown, unknown][] = [];
     const [users, setUsers] = createSignal<User[]>([{ id: 1 }]);

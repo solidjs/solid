@@ -30,7 +30,7 @@ import {
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { notifyStatus } from "./async.js";
-import { ext, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
+import { ext, isSame, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
 import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
@@ -487,11 +487,9 @@ function onScreen(r: Computed<any>, t: Transaction): boolean {
 function removalStagedBy(r: Computed<any>, t: Transaction): boolean {
   let o: Owner | null = r;
   while ((o as any)?._flags & REACTIVE_ZOMBIE) o = o!._parent;
-  return (
-    !!((o?._config as number) & CONFIG_HELD) &&
+  return ((o?._config as number) & CONFIG_HELD &&
     (o as any)._x?._transaction != null &&
-    txOf(o as any) === resolveTx(t)
-  );
+    txOf(o as any) === resolveTx(t)) as boolean;
 }
 /** Unchanged passes this flush whose stale dependency tail awaits the
  * flush's verdict (A30, #3469): trimmed when the flush commits, kept when
@@ -881,10 +879,12 @@ export class GlobalQueue implements IQueue {
           if (
             n._pendingValue !== NOT_PENDING &&
             !((n as Computed<any>)._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) &&
-            n._equals &&
-            n._equals(n._value, n._pendingValue) &&
             n._x?._pendingFirstChild == null &&
-            n._x?._pendingDisposal == null
+            n._x?._pendingDisposal == null &&
+            // The comparator last: a pass that created children (an object
+            // owning a fresh async memo, #4111) must not have it read them.
+            // A NotReady read there is a change (`isSame`).
+            isSame(n, n._value, n._pendingValue)
           ) {
             n._pendingValue = NOT_PENDING;
             n._config &= ~CONFIG_STAGED;

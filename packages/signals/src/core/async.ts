@@ -493,7 +493,7 @@ export function handleAsync<T>(
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
     if (el._flags & REACTIVE_DIRTY) return;
-    const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
+    const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
     landStatus(el);
     // Attribution hook: lets the engine snapshot state before the landing
     // branches, so it can tell whether the plain path's setSignal committed a
@@ -524,14 +524,9 @@ export function handleAsync<T>(
       // CARVE 2: the override-covered landing (hold + A18 supersession) and the
       // lane-routed landing (derived override, lane effect queue) went with
       // the optimistic engine; every landing is the plain setSignal. A node
-      // already held stages its answer into that hold (`setSignal`).
-      try {
-        setSignal(el, () => value);
-      } catch (e) {
-        // Same containment as above: setSignal's comparator throw is the only
-        // pre-commit failure here, and there is no user callsite to throw to.
-        notifyStatus(el, STATUS_ERROR, e);
-      }
+      // already held stages its answer into that hold (`setSignal`). Its
+      // comparator throw is contained there (`isSame`, A3).
+      setSignal(el, () => value);
       // Attribution hook: this path landed through setSignal, whose write
       // hook already saw any committed change — direct=false lets the engine
       // reclassify that write as an async landing iff it actually committed.

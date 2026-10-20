@@ -628,20 +628,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
           ? el._x!._lane
           : el._value;
-    let valueChanged = false;
-    try {
-      valueChanged =
-        (!isEffect && wasUninitialized) ||
-        !!el._x?._shownError ||
-        !el._equals ||
-        !el._equals(compareValue, value);
-    } catch (e) {
-      // A throwing user comparator is an error of this node's computation.
-      // Route it through the same status path as a compute-phase throw so
-      // error boundaries contain it; otherwise it unwinds the scheduler
-      // flush, bypassing every boundary and wedging the queue (#2837).
-      notifyStatus(el, STATUS_ERROR, e);
-    }
+    // A throwing comparator is contained inside `isSame` (A3, #2837; #4111).
+    const valueChanged =
+      (!isEffect && wasUninitialized) || !!el._x?._shownError || !isSame(el, compareValue, value);
 
     // A committed derived change becomes a cause for this node's subscribers,
     // chaining their attribution through this node to the root write.
@@ -1647,7 +1636,9 @@ export function readerSeesCommitted(
   el: Signal<any> | Computed<any>,
   c: Computed<any> | null
 ): boolean {
-  return !!(!c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN);
+  return (!c ||
+    el._pendingValue === NOT_PENDING ||
+    c._config & CONFIG_CHILDREN_FORBIDDEN) as boolean;
 }
 
 /** A28 — set when a node is staged (queuePendingNode) OUTSIDE a flush;
@@ -2086,6 +2077,28 @@ export function setWriteHook(hook: ((node?: object) => void) | null): void {
   writeHook = hook;
 }
 
+/**
+ * `el`'s comparator verdict (`_equals`), the one guarded call for recompute,
+ * setSignal (user setters and async landings) and the seam's
+ * staged-equals-committed check.
+ * - A comparator that read an unresolved async source has not shown the
+ *   values equal (#4111): falsy, a change, whose readers suspend in their own
+ *   tracked context.
+ * - Any other throw is an error of `el`'s computation (A3, #2837): routed
+ *   through the status path so error boundaries contain it, instead of
+ *   unwinding a flush or a setter; answered "same" so nothing commits.
+ * @internal
+ */
+export function isSame(el: Signal<any>, a: unknown, b: unknown): unknown {
+  if (el._equals === isEqual) return a === b;
+  try {
+    return el._equals && el._equals(a, b);
+  } catch (e) {
+    if (!(e instanceof NotReadyError))
+      return (notifyStatus(el as Computed<any>, STATUS_ERROR, e), true);
+  }
+}
+
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   if (writeHook !== null) writeHook(el);
   if (
@@ -2127,8 +2140,7 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   const valueChanged =
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
     !!el._x?._shownError ||
-    !el._equals ||
-    !el._equals(currentValue, v);
+    !isSame(el, currentValue, v);
   if (!valueChanged) return v;
 
   // Attribution hook: this committed write is where a re-run chain begins.
