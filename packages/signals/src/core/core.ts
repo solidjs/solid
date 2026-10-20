@@ -2215,8 +2215,14 @@ export function setMemo<T>(el: Computed<T>, v: T | ((prev: T) => T)): T {
   // #4110: the write replaces a failed derivation's outcome. It lands without
   // re-running `_fn`, and nothing else clears STATUS_ERROR, so without this
   // every later read keeps throwing the error the derivation left behind.
+  // The error stays the display until the write commits (D-41).
+  if (el._statusFlags & STATUS_ERROR) {
+    el._x!._shownError = el._x!._error;
+    notifyStatus(el, STATUS_NONE, undefined);
+  }
   v = setSignal(el, v);
-  if (el._statusFlags & STATUS_ERROR) notifyStatus(el, STATUS_NONE, undefined);
+  // A write replaces an error a pass staged (D-41): it is a value again.
+  el._config &= ~CONFIG_STAGED_ERROR;
   if (held) {
     // The one write that re-runs: the staging it replaced was derived from
     // inputs the writer never saw, so the hold re-derives over the write.
