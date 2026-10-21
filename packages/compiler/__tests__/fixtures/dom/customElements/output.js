@@ -40,3 +40,7 @@ const template4 = (() => {
 var _el$5 = _tmpl$4();
 _el$5._$owner = _$getOwner();
 const template5 = _el$5;
+var _el$6 = _tmpl$();
+_el$6.active = true;
+_el$6._$owner = _$getOwner();
+const template6 = _el$6;

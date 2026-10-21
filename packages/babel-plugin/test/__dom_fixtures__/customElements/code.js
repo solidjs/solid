@@ -22,3 +22,5 @@ const template4 = (
 );
 
 const template5 = <a is="my-element" />;
+
+const template6 = <my-element prop:active />;

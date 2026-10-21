@@ -277,9 +277,9 @@ impl<'a> AstDomTransform<'a, '_> {
         match &plan.value {
             PlanValue::None => {
                 if reserved {
-                    // Babel wraps valueless namespaced attributes into empty
-                    // expression containers, which are then skipped.
-                    PlanDisposition::Skip
+                    // A valueless `prop:x` means `prop:x={true}`, like a bare
+                    // plain attribute (#4180).
+                    PlanDisposition::Runtime
                 } else {
                     PlanDisposition::Inline(None)
                 }
@@ -350,7 +350,8 @@ impl<'a> AstDomTransform<'a, '_> {
                 self.ast()
                     .expression_string_literal(span, self.ast().str(&value), None)
             }
-            PlanValue::None => return Ok(()),
+            // Only a valueless `prop:x` reaches here (see `classify_plan`).
+            PlanValue::None => self.ast().expression_boolean_literal(span, true),
         };
 
         // `children` is never a property write (see `classify_plan`).
