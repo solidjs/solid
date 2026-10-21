@@ -195,7 +195,8 @@ describe("live(): the loop from the consumer's side", () => {
     expect(await drain(iterable)).toEqual([1, 2]);
     expect(calls).toHaveLength(1);
     expect(calls[0].address).toBe("/_server/live/loop%2Fstream");
-    expect(calls[0].init.method).toBe("POST");
+    // live implies GET
+    expect(calls[0].init.method).toBe("GET");
     expect(states).toEqual(["connected", "closed"]);
   });
 

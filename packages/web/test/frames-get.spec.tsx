@@ -112,9 +112,10 @@ describe("GET server components end to end (Stage 8 B6)", () => {
     expect(serverFunctionUrl(getPanel as any, "ann")).toBe(
       "/_server/data/frames-get%2Fpanel?args=%5B%22ann%22%5D"
     );
-    // Undeclared under the live wrapper: still not a read, still no url.
-    expect(() => serverFunctionUrl(live(createServerReference(ID)) as any)).toThrow(
-      /not a declared read/
+    // live implies GET: a bare reference under the live wrapper is a read
+    // too, with the same live address.
+    expect(serverFunctionUrl(live(createServerReference(ID)) as any, "ann")).toBe(
+      "/_server/live/frames-get%2Fpanel?args=%5B%22ann%22%5D"
     );
   });
 });

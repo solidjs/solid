@@ -165,7 +165,7 @@ export const getUser = GET(async (id: string) => {
 });
 ```
 
-Calls go over HTTP GET with arguments codec-encoded in the query string of the call’s data address — cacheable by HTTP infrastructure (a read sends no header of its own, so caches and `<link rel="preload" as="fetch">` match it on the URL alone, and the data address serves the codec shape to every caller, so what a cache stores there is right for anyone who reads it). Arguments too long for a url dispatch over POST instead, which costs the cache entry rather than meeting whichever proxy in the chain draws the line at a 414. Cache headers flow through the handler’s existing header forwarding: `respond(data, { headers: { "cache-control": "max-age=60" } })`. Those headers belong to the call’s own data address: when a page calls the function in-process during SSR, the envelope is unwrapped and only `Set-Cookie` reaches the page’s response (#3910) — a read’s `Cache-Control` never becomes the page’s. A header written through `getRequestEvent().response.headers` is not unwrapped this way; the in-process call runs under a derived event marked `serverOnly`, which tells the two legs apart. `serverFunctionUrl(fn, ...args)` renders that url as a value — for `<link rel="preload" as="fetch" crossorigin href={serverFunctionUrl(getUser, id)} />`, a prefetch, a service-worker warm, or a fetch by hand (decode the answer with `decodeResponse`) — built the way the transport builds it, from the reference (the only thing that knows the call is a GET). It refuses, rather than answering with an address nothing would request, for a reference on the default transport (a POST is not described by its url; `invoke(fn, { priority: "low" }, ...args)` starts such a call early), for arguments that need the codec, and for a url past the POST-fallback length. For a `live(GET(fn))` reference it renders the live address (`<endpoint>/live/<id>?args=…`) — the url that reference's own call requests, a standing event stream to fetch by hand (`curl -N`), not to preload or prefetch (that would open a stream nothing reads; warm a live address by calling the reference, whose readers share one connection); the one-shot url is the inner `GET(fn)`'s. Server-side, the wrapper is identity-flavored — SSR calls stay in-process. Because function-level directives round-trip wrapper calls (above), this needs **no compiler involvement**.
+Calls go over HTTP GET with arguments codec-encoded in the query string of the call’s data address — cacheable by HTTP infrastructure (a read sends no header of its own, so caches and `<link rel="preload" as="fetch">` match it on the URL alone, and the data address serves the codec shape to every caller, so what a cache stores there is right for anyone who reads it). Arguments too long for a url dispatch over POST instead, which costs the cache entry rather than meeting whichever proxy in the chain draws the line at a 414. Cache headers flow through the handler’s existing header forwarding: `respond(data, { headers: { "cache-control": "max-age=60" } })`. Those headers belong to the call’s own data address: when a page calls the function in-process during SSR, the envelope is unwrapped and only `Set-Cookie` reaches the page’s response (#3910) — a read’s `Cache-Control` never becomes the page’s. A header written through `getRequestEvent().response.headers` is not unwrapped this way; the in-process call runs under a derived event marked `serverOnly`, which tells the two legs apart. `serverFunctionUrl(fn, ...args)` renders that url as a value — for `<link rel="preload" as="fetch" crossorigin href={serverFunctionUrl(getUser, id)} />`, a prefetch, a service-worker warm, or a fetch by hand (decode the answer with `decodeResponse`) — built the way the transport builds it, from the reference (the only thing that knows the call is a GET). It refuses, rather than answering with an address nothing would request, for a reference on the default transport (a POST is not described by its url; `invoke(fn, { priority: "low" }, ...args)` starts such a call early), for arguments that need the codec, and for a url past the POST-fallback length. For a `live(fn)` reference (live implies `GET`) it renders the live address (`<endpoint>/live/<id>?args=…`) — the url that reference's own call requests, a standing event stream to fetch by hand (`curl -N`), not to preload or prefetch (that would open a stream nothing reads; warm a live address by calling the reference, whose readers share one connection); the one-shot url is a plain `GET(fn)`'s. Server-side, the wrapper is identity-flavored — SSR calls stay in-process. Because function-level directives round-trip wrapper calls (above), this needs **no compiler involvement**.
 
 Conditional reads belong here too, and to the **browser**: set `ETag`/`Cache-Control` on a GET-declared read and the browser owns the conditional exchange — it sends `If-None-Match`, receives the 304, and replays its cached 200 without the caller ever seeing a 304. Answering a _scripted_ call with a hand-rolled `respond(undefined, { status: 304 })` answers a question the transport never asked — it sends no conditional headers — so the bodiless answer resolves the call to `undefined`, which reads as data loss. The dev build warns when a scripted call is answered with a 304 (#3101).
 
@@ -203,17 +203,15 @@ The reference contract shrinks accordingly (no compatibility shims):
 
 #### `live(fn)`: a standing answer, for the response's lifetime (shipped over the top-level iterable; extended 2026-09-22/23, extension built — Stage 8 Phase A, plan in `documentation/plans/stage8-connection-transport.md`)
 
-`live` declares that a server function's answer is a **standing answer**: the current state of one logical query, which the source re-yields on any invocation, and which the caller wants to keep receiving for as long as it is reading. It is a _client_ declaration — the server half is identity-flavored, in-process SSR calls have no wire — and it composes outermost, because its behavior wraps the call: `live(GET(fn))`.
+`live` declares that a server function's answer is a **standing answer**: the current state of one logical query, which the source re-yields on any invocation, and which the caller wants to keep receiving for as long as it is reading. It is a _client_ declaration — the server half is identity-flavored, in-process SSR calls have no wire — and it implies `GET`: a standing answer is a read by contract, so `live(fn)` connects over the GET transport and takes on `GET`'s safe-read obligations. An explicit `live(GET(fn))` is equivalent; live stays outermost, because its behavior wraps the call.
 
 ```ts
-import { live, GET } from "@solidjs/web/server-functions";
+import { live } from "@solidjs/web/server-functions";
 
-export const price = live(
-  GET(async function* (symbol: string) {
-    "use server";
-    for await (const tick of subscribe(symbol)) yield tick.price;
-  })
-);
+export const price = live(async function* (symbol: string) {
+  "use server";
+  for await (const tick of subscribe(symbol)) yield tick.price;
+});
 
 const src = price("ACME"); // the reconnecting iterable itself, synchronously
 src.onstatus = setStatus; // optional: "connected" | "reconnecting" | "closed"
@@ -236,13 +234,11 @@ const current = createMemo(() => src);
 **Server components.** A server component is a server function whose answer is a component ([RFC 11](11-server-components.md)); its render is a stream of markup over the same connection. That makes it a nested-async answer in the sense above, and `live` covers it with no further vocabulary:
 
 ```tsx
-export const feed = live(
-  GET(async (room: string) => {
-    "use server";
-    const messages = subscribeRoom(room); // raw async iterable; the component reads it
-    return (props: { compose: Slot }) => <Feed messages={messages} compose={props.compose} />;
-  })
-);
+export const feed = live(async (room: string) => {
+  "use server";
+  const messages = subscribeRoom(room); // raw async iterable; the component reads it
+  return (props: { compose: Slot }) => <Feed messages={messages} compose={props.compose} />;
+});
 
 // client
 import { dynamicComponent } from "solid-js";

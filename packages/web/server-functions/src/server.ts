@@ -1593,8 +1593,8 @@ function guardDeclaredMethod(metadata, id) {
  * iterable (registered symbol `solid.LiveSource`) so SSR faces meeting the
  * value in-process can apply live policy (document face: first value, then
  * client takeover). Dispatch is untouched — over-the-wire calls stream the
- * raw registered function's result. Declare live outermost:
- * `live(GET(fn))`.
+ * raw registered function's result. Implies `GET` (a live source is a
+ * read), so the same safe-read rules apply.
  */
 export function live<A extends readonly any[], R>(
   fn: (...args: A) => R
@@ -1617,9 +1617,10 @@ export function live<A extends readonly any[], R>(
  * behavior is the value brand: in-process calls (SSR) meet the result
  * after it has left the reference's hands, so the brand must travel on the
  * value. Dispatch is untouched — over-the-wire calls stream the raw
- * registered function's result exactly as before. Composes with `GET` but
- * does not imply it; declare live outermost (`live(GET(fn))`), matching
- * the client half where live's behavior wraps the call.
+ * registered function's result exactly as before. Implies `GET`: a live
+ * source is a read by contract, so the declaration grants GET dispatch
+ * (and its safe-read obligations, see `GET`) unless the reference already
+ * declared it — `live(GET(fn))` stays valid and is equivalent.
  *
  * ```ts
  * export const stockPrice = live(async function* (symbol: string) {
@@ -1632,6 +1633,9 @@ export function live(fn) {
   if (!isServerFunction(fn) || typeof fn.id !== "string") {
     throw new Error("live expects a server function reference");
   }
+  // live implies GET: a live source is a read by contract. An explicit
+  // GET(fn) inside passes through untouched.
+  if (getServerFunctionMetadata(fn)?.method !== "GET") fn = GET(fn);
   const metadata = { ...getServerFunctionMetadata(fn), live: true };
   const wrapped = async (...args) => brandLive(await fn(...args));
   wrapped[SERVER_FUNCTION_METADATA] = metadata;

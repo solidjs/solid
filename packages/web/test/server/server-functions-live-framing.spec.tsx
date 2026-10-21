@@ -19,7 +19,8 @@ import {
   createServerReference as createServerSideReference,
   handleServerFunctionRequest,
   registerServerFunction,
-  registerServerReference
+  registerServerReference,
+  live as liveServer
 } from "@solidjs/web/server-functions/server";
 import {
   EventStreamReader,
@@ -35,6 +36,12 @@ import {
 import { createServerReference as createServerReferenceDev, live as liveDev } from "../../server-functions/dist/client.dev.js";
 
 const RequestContext = Symbol.for("solid.RequestContext");
+
+// A live source as an app declares it: `live(fn)` runs in both builds, and
+// the server half's implied GET grants the dispatch the client's call needs.
+function registerLiveFunction(id: string, fn: (...args: any[]) => any) {
+  liveServer(createServerSideReference(registerServerReference(id, fn)) as any);
+}
 
 beforeAll(() => {
   (globalThis as any)[RequestContext] = new AsyncLocalStorage();
@@ -187,8 +194,8 @@ describe("the live address answers in event-stream framing", () => {
 });
 
 describe("the live loop calls the live address and reads the framing", () => {
-  it("POST-shaped source: the loop requests /live/<id> and receives the yields", async () => {
-    registerServerFunction("lf-loop-0", async function* () {
+  it("bare source: live implies GET — the loop requests /live/<id> and receives the yields", async () => {
+    registerLiveFunction("lf-loop-0", async function* () {
       yield { n: 1 };
       yield { n: 2 };
       yield { n: 3 };
@@ -199,7 +206,7 @@ describe("the live loop calls the live address and reads the framing", () => {
     expect(values).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
     expect(requests).toHaveLength(1);
     expect(new URL(requests[0].url).pathname).toBe("/_server/live/lf-loop-0");
-    expect(requests[0].method).toBe("POST");
+    expect(requests[0].method).toBe("GET");
   });
 
   it("GET-composed source: the query encoding rides at the live address", async () => {
@@ -222,7 +229,7 @@ describe("the live loop calls the live address and reads the framing", () => {
   });
 
   it("a one-value answer completes the iteration through the framing", async () => {
-    registerServerFunction("lf-one-0", async () => ({ once: true }));
+    registerLiveFunction("lf-one-0", async () => ({ once: true }));
     connectTransport();
     const source = live(createServerReference("lf-one-0"));
     const values: unknown[] = [];
@@ -237,7 +244,7 @@ describe("position: Last-Event-ID and the digest-equal first-emission skip", () 
     // state {v:1} (value sources re-yield on invocation) and then {v:2}.
     // The loop must see {v:1} once — the re-yield is elided by digest.
     let connections = 0;
-    registerServerFunction("lf-pos-0", async function* () {
+    registerLiveFunction("lf-pos-0", async function* () {
       connections++;
       if (connections === 1) {
         yield { v: 1 };
@@ -377,7 +384,7 @@ describe("dev: more than five live connections over HTTP/1.1 warns once (dev art
   function holdingSource(id: string) {
     let release!: () => void;
     const held = new Promise<void>(r => (release = r));
-    registerServerFunction(id, async function* () {
+    registerLiveFunction(id, async function* () {
       yield { id };
       await held;
     });
@@ -444,7 +451,7 @@ describe("dev: more than five live connections over HTTP/1.1 warns once (dev art
 describe("death at the live address rejects what it left open (today's behavior, pinned)", () => {
   it("a body cut mid-stream fails the pending pull; the loop reconnects", async () => {
     let connections = 0;
-    registerServerFunction("lf-death-0", async function* () {
+    registerLiveFunction("lf-death-0", async function* () {
       connections++;
       yield { n: connections };
       if (connections === 1) throw new Error("connection lost");

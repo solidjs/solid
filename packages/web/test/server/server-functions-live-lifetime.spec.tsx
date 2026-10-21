@@ -31,6 +31,12 @@ import {
 } from "@solidjs/web/server-functions/client";
 
 const RequestContext = Symbol.for("solid.RequestContext");
+
+// A live source as an app declares it: `live(fn)` runs in both builds, and
+// the server half's implied GET grants the dispatch the client's call needs.
+function registerLiveFunction(id: string, fn: (...args: any[]) => any) {
+  liveServer(createServerSideReference(registerServerReference(id, fn)) as any);
+}
 const LIVE_SOURCE = Symbol.for("solid.LiveSource");
 const LIVE_RESUME_FROM = Symbol.for("solid.LiveResumeFrom");
 
@@ -126,7 +132,7 @@ async function settled(promise: Promise<unknown>) {
 describe("a nested-async answer lives as long as its response", () => {
   it("yields the answer once and completes when every nested source has", async () => {
     let releaseProgress!: () => void;
-    registerServerFunction("ll-complete-0", async () => ({
+    registerLiveFunction("ll-complete-0", async () => ({
       meta: "job",
       progress: (async function* () {
         yield 1;
@@ -162,7 +168,7 @@ describe("a nested-async answer lives as long as its response", () => {
 
   it("a nested promise holds the response open too", async () => {
     let releaseTotal!: (n: number) => void;
-    registerServerFunction("ll-promise-0", async () => ({
+    registerLiveFunction("ll-promise-0", async () => ({
       total: new Promise<number>(r => (releaseTotal = r))
     }));
     connectTransport();
@@ -184,7 +190,7 @@ describe("a nested-async answer lives as long as its response", () => {
     // reaches it as an uncaught error and halts the page). A nested promise
     // still owed stays pending — nothing honest to settle it with; its
     // reader is superseded by the next answer.
-    registerServerFunction("ll-return-0", async () => ({
+    registerLiveFunction("ll-return-0", async () => ({
       total: new Promise<number>(() => {}),
       progress: (async function* () {
         yield 1;
@@ -218,7 +224,7 @@ describe("a nested-async answer lives as long as its response", () => {
   it("ending BY error still fails what is nested", async () => {
     // The caller's signal aborting is an error end (the call itself rejects
     // with it): a nested reader hears about it rather than hanging.
-    registerServerFunction("ll-return-1", async () => ({
+    registerLiveFunction("ll-return-1", async () => ({
       progress: (async function* () {
         yield 1;
         await new Promise(() => {});
@@ -242,7 +248,7 @@ describe("a nested-async answer lives as long as its response", () => {
 
   it("a body that ends on open nested sources is a death: reconnect re-yields the whole answer, fresh", async () => {
     let connections = 0;
-    registerServerFunction("ll-death-0", async () => {
+    registerLiveFunction("ll-death-0", async () => {
       const connection = ++connections;
       return {
         connection,
@@ -292,7 +298,7 @@ describe("a nested-async answer lives as long as its response", () => {
 
   it("a top-level stream cut mid-body is a death the loop reconnects from", async () => {
     let connections = 0;
-    registerServerFunction("ll-cut-0", async function* () {
+    registerLiveFunction("ll-cut-0", async function* () {
       const connection = ++connections;
       yield { connection, tag: "first" };
       if (connection === 1) await new Promise(() => {});
@@ -313,7 +319,7 @@ describe("a nested-async answer lives as long as its response", () => {
   });
 
   it("a plain value answer is still a one-value stream that completes", async () => {
-    registerServerFunction("ll-plain-0", async () => ({ once: true }));
+    registerLiveFunction("ll-plain-0", async () => ({ once: true }));
     connectTransport();
     const source = live(createServerReference("ll-plain-0"));
     const values: unknown[] = [];
@@ -323,7 +329,7 @@ describe("a nested-async answer lives as long as its response", () => {
 
   it("a caller-supplied signal ends the iteration for good, across reconnects", async () => {
     let connections = 0;
-    registerServerFunction("ll-signal-0", async () => {
+    registerLiveFunction("ll-signal-0", async () => {
       const connection = ++connections;
       return {
         connection,
@@ -362,7 +368,7 @@ describe("a nested-async answer lives as long as its response", () => {
   });
 
   it("live calls never request single-flight", async () => {
-    registerServerFunction("ll-flight-0", async () => ({ once: true }));
+    registerLiveFunction("ll-flight-0", async () => ({ once: true }));
     const requests = connectTransport();
     const source = live(createServerReference("ll-flight-0"));
     await take((source as any)(), 1);
@@ -393,7 +399,7 @@ describe("undeclared answers keep today's behavior", () => {
 describe("resuming from an adopted value", () => {
   it("an iterable stamped with where to resume from yields that value first, then names the position on its first connection", async () => {
     let connections = 0;
-    registerServerFunction("ll-resume-0", async function* () {
+    registerLiveFunction("ll-resume-0", async function* () {
       connections++;
       yield { v: 1 };
       yield { v: 2 };
@@ -417,7 +423,7 @@ describe("resuming from an adopted value", () => {
 
   it("the resumed value lands before any connection is made", async () => {
     let connections = 0;
-    registerServerFunction("ll-resume-1", async function* () {
+    registerLiveFunction("ll-resume-1", async function* () {
       connections++;
       yield { v: 1 };
     });
@@ -434,7 +440,7 @@ describe("resuming from an adopted value", () => {
 
   it("an iterable with nothing to resume from connects on its first pull", async () => {
     let connections = 0;
-    registerServerFunction("ll-resume-2", async function* () {
+    registerLiveFunction("ll-resume-2", async function* () {
       connections++;
       yield { v: 1 };
     });
@@ -487,7 +493,7 @@ describe("the dev chaos knob", () => {
       setServerFunctionsDev(false);
     });
     let connections = 0;
-    registerServerFunction("ll-chaos-0", async function* () {
+    registerLiveFunction("ll-chaos-0", async function* () {
       const connection = ++connections;
       yield { connection };
       await new Promise(() => {}); // a standing answer: only the wire ends it
@@ -509,7 +515,7 @@ describe("the dev chaos knob", () => {
     configureServerFunctionsServer({ chaosReconnectEvery: 10 });
     restores.push(() => configureServerFunctionsServer({ chaosReconnectEvery: 0 }));
     let connections = 0;
-    registerServerFunction("ll-chaos-1", async function* () {
+    registerLiveFunction("ll-chaos-1", async function* () {
       connections++;
       yield "a";
       await new Promise(r => setTimeout(r, 60));

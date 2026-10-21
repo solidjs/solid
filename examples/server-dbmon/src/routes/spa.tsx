@@ -3,15 +3,13 @@
 // the table with keyed `<For>`s.
 import { For, Loading, Show, createMemo, createSignal, onSettled } from "solid-js";
 import { getRequestEvent } from "@solidjs/web";
-import { GET, live } from "@solidjs/web/server-functions";
+import { live } from "@solidjs/web/server-functions";
 import { watchDatabases, type Database } from "~/server/databases";
 
-const getDatabaseData = live(
-  GET(async function* (): AsyncGenerator<Database[]> {
-    "use server";
-    yield* watchDatabases(getRequestEvent()?.request.signal);
-  })
-);
+const getDatabaseData = live(async function* (): AsyncGenerator<Database[]> {
+  "use server";
+  yield* watchDatabases(getRequestEvent()?.request.signal);
+});
 
 export default function Spa() {
   // A client-rendered app: the page arrives empty and the browser fetches

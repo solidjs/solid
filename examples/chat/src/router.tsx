@@ -5,7 +5,7 @@
 // it.
 import { createMemo, onCleanup } from "solid-js";
 import { getRequestEvent } from "@solidjs/web";
-import { GET, live } from "@solidjs/web/server-functions";
+import { live } from "@solidjs/web/server-functions";
 import { createRouter, defineRoute, liveQuery } from "@solidjs/router";
 import Home from "~/routes/home";
 import Thread from "~/routes/thread";
@@ -17,33 +17,31 @@ import * as db from "~/server/db";
 // reply finishes, a thread is renamed or deleted. The router marks the link
 // to the page you are on.
 export const getThreads = liveQuery(
-  live(
-    GET(async () => {
-      "use server";
-      return () => {
-        const gone = new AbortController();
-        onCleanup(() => gone.abort());
-        getRequestEvent()?.request.signal.addEventListener("abort", () => gone.abort(), {
-          once: true
-        });
-        const threads = createMemo(() => db.watchThreads(gone.signal));
-        return (
-          <ul class="threads">
-            {threads().map(thread => {
-              const writing = thread.generating ? "writing" : undefined;
-              return (
-                <li>
-                  <a href={`/t/${thread.id}`} class={writing}>
-                    {thread.title}
-                  </a>
-                </li>
-              );
-            })}
-          </ul>
-        );
-      };
-    })
-  ),
+  live(async () => {
+    "use server";
+    return () => {
+      const gone = new AbortController();
+      onCleanup(() => gone.abort());
+      getRequestEvent()?.request.signal.addEventListener("abort", () => gone.abort(), {
+        once: true
+      });
+      const threads = createMemo(() => db.watchThreads(gone.signal));
+      return (
+        <ul class="threads">
+          {threads().map(thread => {
+            const writing = thread.generating ? "writing" : undefined;
+            return (
+              <li>
+                <a href={`/t/${thread.id}`} class={writing}>
+                  {thread.title}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      );
+    };
+  }),
   "threads"
 );
 
