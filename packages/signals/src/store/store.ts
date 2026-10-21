@@ -72,6 +72,7 @@ import {
   DEV,
   emitDiagnostic,
   registerGraph,
+  reportDiagnostic,
   warnStrictReadUntracked
 } from "../core/dev.js";
 import { signalHook } from "../core/identities.js";
@@ -1930,6 +1931,55 @@ function touch(target: StoreTarget, key: PropertyKey): void {
   if (wk !== WK_ALL) (target.wk ??= new Set() as WrittenKeys).add(key);
 }
 
+/** Dev: targets (and their keys) already warned about for a write outside
+ * the setter — #4179's once-per-target+key memory. */
+let warnedOutsideWrites: WeakMap<StoreTarget, Set<PropertyKey>> | undefined;
+/** Dev: set while the runtime itself writes through a proxy it knows the
+ * trap ignores (`registerGraph`'s `_owner` stamp). */
+let internalOutsideWrite = false;
+
+/** Dev: a write, defineProperty or delete on a store proxy outside its
+ * setter's draft is ignored (the trap returns `true` so strict-mode code
+ * does not throw) — say so once per target+key instead of silently dropping
+ * it (#4179). */
+function warnWriteOutsideSetter(
+  target: StoreTarget,
+  key: PropertyKey,
+  operation: "set" | "defineProperty" | "deleteProperty"
+): void {
+  if (internalOutsideWrite) return;
+  warnedOutsideWrites ??= new WeakMap();
+  let keys = warnedOutsideWrites.get(target);
+  if (keys === undefined) warnedOutsideWrites.set(target, (keys = new Set()));
+  if (keys.has(key)) return;
+  keys.add(key);
+  const name = String(key);
+  const access =
+    typeof key === "string" && /^[A-Za-z_$][\w$]*$/.test(key)
+      ? `.${key}`
+      : typeof key === "string" && /^\d+$/.test(key)
+        ? `[${key}]`
+        : `[${typeof key === "string" ? JSON.stringify(key) : name}]`;
+  const hint =
+    operation === "deleteProperty"
+      ? `setStore(s => { delete s${access} })`
+      : `setStore(s => { s${access} = value })`;
+  reportDiagnostic(
+    emitDiagnostic({
+      code: "STORE_WRITE_OUTSIDE_SETTER",
+      kind: "write",
+      severity: "warn",
+      message:
+        `[STORE_WRITE_OUTSIDE_SETTER] ${
+          operation === "deleteProperty" ? "Deleting" : "Writing"
+        } store property "${name}" outside its setter was ignored. ` +
+        `Stores are read-only outside the setter's draft: use \`${hint}\`.`,
+      nodeName: name,
+      data: { operation, property: name }
+    })
+  );
+}
+
 const traps: ProxyHandler<StoreTarget> = {
   get(target, key, receiver) {
     // One typeof gates every brand-symbol compare off the hot string path.
@@ -2177,7 +2227,10 @@ const traps: ProxyHandler<StoreTarget> = {
   set(target, key, value) {
     const draft = inDraft(target);
     const override = !draft && writeOverride;
-    if (!draft && !override) return true;
+    if (!draft && !override) {
+      if (__DEV__) warnWriteOutsideSetter(target, key, "set");
+      return true;
+    }
     if (key === "__proto__") return true; // pollution guard (core R30)
     const uv = target.s ? value : unwrapValue(value);
     const pb = ensurePB(target);
@@ -2228,7 +2281,10 @@ const traps: ProxyHandler<StoreTarget> = {
   defineProperty(target, key, desc) {
     const draft = inDraft(target);
     const override = !draft && writeOverride;
-    if (!draft && !override) return true;
+    if (!draft && !override) {
+      if (__DEV__) warnWriteOutsideSetter(target, key, "defineProperty");
+      return true;
+    }
     if (key === "__proto__") return true;
     if (desc.get || desc.set) target.a = true;
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
@@ -2244,7 +2300,10 @@ const traps: ProxyHandler<StoreTarget> = {
   deleteProperty(target, key) {
     const draft = inDraft(target);
     const override = !draft && writeOverride;
-    if (!draft && !override) return true;
+    if (!draft && !override) {
+      if (__DEV__) warnWriteOutsideSetter(target, key, "deleteProperty");
+      return true;
+    }
     const pb = ensurePB(target);
     touch(target, key);
     // The key count (`kc`, the overlay gate and the rebuild cap) follows a
@@ -2413,8 +2472,11 @@ export function createStore<T extends Record<PropertyKey, any>>(
   if (__OBSERVE__) {
     const owner = getOwner();
     // Dev-tier graph registration (owner signal lists, onGraph); the
-    // `_owner` write itself never reaches the proxy, see storeOwners.
+    // `_owner` write itself never reaches the proxy, see storeOwners — an
+    // internal ignored write, not the user's (#4179's warning skips it).
+    if (__DEV__) internalOutsideWrite = true;
     registerGraph(proxy, owner);
+    if (__DEV__) internalOutsideWrite = false;
     // Only once the engine is installed, like the node stamping it feeds: a
     // WeakMap.set per fresh store is a growing ephemeron table and,
     // disabled, buys nothing.

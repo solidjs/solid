@@ -120,6 +120,17 @@ orchestration into an `action()` and call the setter synchronously from
 inside it (`yield` to re-enter the transaction after an `await`). Signals
 are not subject to this rule — a signal may hold a promise as its value.
 
+### STORE_WRITE_OUTSIDE_SETTER
+
+A store proxy was written, deleted from, or had a property defined on it
+outside its setter — `store.n = 5`, `store.items.push(x)`,
+`delete store.user` — and the write was ignored. Stores are read-only outside
+the setter's draft; nothing changed and nothing re-ran. Repair: make the
+write inside the setter, `setStore(s => { s.n = 5 })` (nested paths and
+array methods work on the draft: `s.items.push(x)`, `delete s.user`). Once
+per store object and key; `data.operation` is `set`, `defineProperty` or
+`deleteProperty`.
+
 ### ACTION_CALLED_IN_OWNED_SCOPE
 
 An action was invoked during a component body or computation. Actions are
