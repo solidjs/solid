@@ -31,8 +31,10 @@ import {
   argumentDecodeCodec,
   namesRefusedType,
   refusedArgument,
-  refusedArgumentError
+  refusedArgumentError,
+  withArgumentPlugins
 } from "./argument-codec.js";
+import { UPLOAD_ARGS_PART, createUploadDeserializer } from "./uploads.js";
 import {
   BODY_FORMAT_HEADER,
   BodyFormat,
@@ -2053,7 +2055,25 @@ async function parseArguments(request, url, scripted, codec, buffered) {
     if (bodyFormat === BodyFormat.Serialized) {
       let argumentCodec = argumentCodecFor(codec);
       if (argumentCodec instanceof Promise) argumentCodec = await argumentCodec;
-      decoded = await decodeArguments(wire => extractBody(body, argumentCodec, wire), buffered);
+      if ((request.headers.get("content-type") || "").startsWith("multipart/form-data")) {
+        // A codec argument list with its files as form parts (see uploads.js).
+        // The tag stays `Serialized` so the client runtime pays nothing for
+        // uploads; the multipart content type is what marks one. The upload
+        // plugin is made for this request only, so a file index means
+        // something here and nowhere else.
+        const form = await body.formData();
+        const encoded = form.get(UPLOAD_ARGS_PART);
+        if (typeof encoded !== "string") {
+          throw new TypeError("Malformed server function upload");
+        }
+        const uploadCodec = withArgumentPlugins(argumentCodec, [createUploadDeserializer(form)]);
+        decoded = await decodeArguments(
+          wire => deserializeStream(new Response(encoded), uploadCodec, wire),
+          encoded
+        );
+      } else {
+        decoded = await decodeArguments(wire => extractBody(body, argumentCodec, wire), buffered);
+      }
     } else {
       decoded = await extractBody(body, codec);
     }
