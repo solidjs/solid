@@ -248,7 +248,7 @@
     "severity": ["warn"],
     "category": "render",
     "trigger": "A function was set on a lowercase `on*` (or `on:`) attribute, which is not an event handler in 2.0; use `onXxx` (dev; client)",
-    "repair": "A function was set on an attribute whose name starts with `on` but is not an event handler (`data.name`): a lowercase `onclick`, or a leftover 1.x `on:click`.",
+    "repair": "A function was set on an attribute whose name starts with `on` but is not an event handler (`data.name`): a lowercase `onclick`, or a leftover 1.x `on:click` passed through a spread (on a native element it is a compile error).",
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/lowercase-event-attribute"
   },
   {

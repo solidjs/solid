@@ -306,7 +306,7 @@ const a = <Comp ref={r}>{x()}</Comp>;
   "bound event array": `
 const a = <button onClick={[handler, data()]}>go</button>;
 `,
-  "removed on: namespaces are attributes": `
+  "removed on: namespaces (web error, universal attribute)": `
 const a = <div on:custom-thing={handler} oncapture:click={capture} />;
 `,
   "lowercase on* attributes beside camel events": `
@@ -320,13 +320,16 @@ const c = <div onclick={code} {...rest} />;
   "class and style namespaces": `
 const a = <div class:active={isActive()} style:color={color()} />;
 `,
-  "prop attr bool namespaces": `
-const a = <div prop:value={v()} attr:data-x={d()} bool:hidden={h()} />;
+  "prop namespace": `
+const a = <div prop:value={v()} data-x={d()} hidden={h()} />;
 `,
-  "use directive": `
+  "removed attr bool namespaces (web error, universal attribute)": `
+const a = <div attr:data-x={d()} bool:hidden={h()} />;
+`,
+  "removed use directive (web error, universal attribute)": `
 const a = <div use:tooltip={[text(), placement]} use:other />;
 `,
-  "classList object": `
+  "removed classList (web error, universal attribute)": `
 const a = <div classList={{ active: active(), "is-big": big, static: true }} />;
 `,
   "style object mixed": `
@@ -337,7 +340,7 @@ const a = <div innerHTML={html()} />;
 const b = <span textContent={text()} />;
 `,
   "class merge with spread": `
-const a = <div class="base" {...props()} classList={{ hot: hot() }} />;
+const a = <div {...props()} class={["base", { hot: hot() }]} />;
 `,
   "controlled input": `
 const a = <input value={v()} onInput={onIn} checked={c()} />;
@@ -735,7 +738,7 @@ const a = <Comp ns:x={v()} plain={p} stat="s" ns:y="lit" />;
 const a = <Comp flag another={true}>{x()}</Comp>;
 `,
   "custom element props and events": `
-const a = <my-el prop:custom={c()} attr:plain={p()} onSomething={h} value={v()}>{x()}</my-el>;
+const a = <my-el prop:custom={c()} plain={p()} onSomething={h} value={v()}>{x()}</my-el>;
 `,
   "slot element": `
 const a = <slot name={n()}>{fallback()}</slot>;
@@ -1093,13 +1096,13 @@ describe("second", () => {
   const Component = () => <div style={{ color }}>a</div>;
 });
 `,
-  "classList stale const in closed sibling scope": `
+  "class object stale const in closed sibling scope": `
 describe("first", () => {
   const active = true;
 });
 describe("second", () => {
   let active;
-  const Component = () => <div classList={{ active }}>a</div>;
+  const Component = () => <div class={{ active }}>a</div>;
 });
 `,
   "component spread namespace shadowed by local": `

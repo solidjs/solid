@@ -63,6 +63,8 @@ Also:
 - `<For>`: default gives a raw item and an index accessor; `keyed={false}`
   gives an item accessor and a plain number. `<Repeat>`: `i` is a number.
 - `onClick={cond() ? a : b}` binds once; decide inside a stable handler.
+- `on:`, `oncapture:`, `attr:`, `bool:`, `use:` and `classList` on a native
+  element are compile errors; the message names the replacement above.
 
 ## Primitives to reach for
 
