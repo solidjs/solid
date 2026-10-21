@@ -4326,6 +4326,71 @@ a URL caches already hold for the second — #3094 — and reads carry
 no transport header — #3406); a server-side `live` declaration may
 cross-check in dev but cannot decide (topology); (f) is the plan's.
 
+#### 9.5.1 Amendment — `broadcast`: one render per live address (2026-10-21)
+
+`live()` renders once per connection. Measured on dbmon (400 rows,
+10% changing, 5 ticks/s, same batch): ~4 ms of server CPU per viewer
+per tick, one core saturated near 50 viewers. A profile at 25 viewers
+puts ~95% of it in the render (`textDigest` 27%, keyed `sameItem`
+21%, live-hole sweeps ~20%); brotli is under 1%. Replaying one
+captured tick to N readers with no render costs ~0.55 ms per
+viewer-tick, so the render, not the fan-out, is the cost to remove.
+
+**Ruling: sharing is declared, not detected.** `broadcast(fn)` (RFC
+10, "`broadcast(fn)`") is a live variant whose answer is the same for
+every caller with the same arguments. It implies `live` and `GET`.
+At the live address, callers with the same function id and
+arguments share one render and each connection is a tap; the outer
+body still runs per caller; the shared render runs under its own
+request event; the render ends with its last tap.
+
+Rejected, and why:
+
+- **Implicit sharing, demoted on a request read.** Detection decides
+  behavior from what the runtime happened to see; it misses reads it
+  can't see (a library's own `AsyncLocalStorage`, a cookie read
+  through another module, a cache keyed by user), and a miss leaks
+  one viewer's data to the others instead of degrading.
+- **Sharing by default, falling back to per-viewer.** The same
+  detection problem, now in every app's every `live()`. Sharing also
+  changes behavior when nothing reads the request: effects and
+  cleanups run once per key, not per viewer (presence counts,
+  per-connection logging, a `request.signal` listener). And an edit
+  that adds a helper call would move a page between the two cost
+  curves with nothing in the code saying so.
+- **`shared(fn)`.** The name reads as if it applied off the live
+  address (coalescing one-shot reads, which is a CDN's job).
+  `broadcast` says what happens and only exists where it can.
+- **`broadcastQuery`.** Not needed: a router's live query takes any
+  live reference, and client-side dedupe is the query's own.
+
+**Capture rule.** The returned component may read the function's
+parameters, its own locals and module scope; the compiler's
+directives pass rejects any outer-body local it, or a local function
+it reaches, reads. It is strict: outer-body data derived only from
+the arguments is rejected too, since `await load(id)` and
+`await getUser()` look alike, and outer-body data would be frozen
+at the first call in any case. Calls into imported code are out of
+static reach; the render's own event (request fields absent, dev
+warning, fresh router `query` cache) covers them at runtime.
+
+**Parity with per-viewer live.** A late tap gets the latest record
+per key with only the slot data those records reference, then the
+shared batches. A reconnect's have-list is honored: a matching
+skeleton gets only the holes and addressed attributes that moved.
+Superseded slot-data versions are pruned from the shared table.
+
+**Measured** (same batch, ms/s): 10 viewers 305-313 vs 77-81; 50
+viewers 1119-1129 (saturated) vs 172-188; 100 viewers 279-292 with
+`broadcast`. One viewer costs the same either way; client bytes are
+unchanged.
+
+**Open.** Sharing covers server-component answers only; a broadcast
+value-shaped source is served per connection. Not built: dropping
+queued batches for a slow tap, multiplexing several live keys over
+one connection (each key is its own connection, which matters only
+under HTTP/1.1), and an error for `prerendered` with `live`.
+
 ### 9.6 Stage 9 seed — mutations through a live connection (2026-09-28)
 
 Recorded from the fit conversation (§10); nothing here is built.
