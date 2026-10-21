@@ -62,6 +62,58 @@ it.each([false, true])(
   }
 );
 
+// An `unobserved` hook that throws while the frame is dismantled is collected
+// like a cleanup: the pass's release collector is still removed, so a later,
+// unrelated release happens.
+it("a throwing unobserved hook does not leave the release collector installed", () => {
+  const failure = new Error("hook failed");
+  const [version, setVersion] = createSignal(0);
+  const disposePending = createRoot(dispose => {
+    const hooked = createMemo(() => 1, {
+      lazy: true,
+      unobserved: () => {
+        throw failure;
+      }
+    });
+    createMemo(() => {
+      if (version() === 0) createMemo(() => hooked());
+      return new Promise<number>(() => {});
+    });
+    return dispose;
+  });
+  let disposeOther: (() => void) | undefined;
+  try {
+    flush();
+    setVersion(1);
+    expect(() => flush()).toThrow(failure);
+
+    let cleaned = 0;
+    let stop!: () => void;
+    disposeOther = createRoot(dispose => {
+      const value = createMemo(
+        () => {
+          onCleanup(() => cleaned++);
+          return 1;
+        },
+        { lazy: true }
+      );
+      stop = createRoot(dispose => {
+        createRenderEffect(value, () => {});
+        return dispose;
+      });
+      return dispose;
+    });
+    flush();
+    stop();
+    flush();
+    expect(cleaned).toBe(1);
+  } finally {
+    disposeOther?.();
+    disposePending();
+    flush();
+  }
+});
+
 // A lazy node the dismantled frame's children released before the throw is
 // still released: the throw no longer skips the drain at the end of the pass
 // (the teardown is nested in the pass, and the flush rethrows when it ends).

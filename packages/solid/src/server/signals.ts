@@ -582,13 +582,15 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
   node._disposal = null;
   // Unwind order, mirroring the client `runDisposal` (#3572): later
   // registrations run before earlier ones.
-  if (d)
-    for (const fn of ([] as (() => void)[]).concat(d).reverse())
+  if (d) {
+    const many = Array.isArray(d);
+    for (let i = many ? d.length - 1 : 0; i >= 0; i--)
       try {
-        fn();
+        (many ? d[i] : d)();
       } catch (e) {
         error ||= [e];
       }
+  }
   if (self) unlinkOwner(node);
   // Recycle the disposed owner. Skip the root case (`self=false`) and the
   // already-pooled case so we don't double-add. The next `createOwner` will

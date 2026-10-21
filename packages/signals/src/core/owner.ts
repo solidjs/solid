@@ -65,10 +65,12 @@ export function dispose(node: Computed<unknown>): void {
 // tree: every cleanup runs. The error is rethrown once the teardown is over:
 // by a root's dispose call outside a flush (`disposeRootSelf`), otherwise when
 // the flush ends (`flush`; `runCleanup` schedules one), so a flush is never
-// left half-applied.
+// left half-applied. A halt drops it: the error that halted is the one
+// reported, and a stale one must not surface from a later, unrelated dispose.
 let cleanupError: [unknown] | undefined;
 
-function runCleanup(fn: () => void): void {
+/** Runs a cleanup or `unobserved` hook; a throw is collected, not raised. @internal */
+export function runCleanup(fn: () => void): void {
   try {
     fn();
   } catch (e) {
@@ -77,11 +79,11 @@ function runCleanup(fn: () => void): void {
   }
 }
 
-/** Rethrows the error `runCleanup` collected, once. @internal */
-export function rethrowCleanupError(): void {
+/** Rethrows the error `runCleanup` collected, once; `drop` discards it. @internal */
+export function rethrowCleanupError(drop?: boolean): void {
   const error = cleanupError;
   cleanupError = undefined;
-  if (error) throw error[0];
+  if (error && !drop) throw error[0];
 }
 
 export function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {

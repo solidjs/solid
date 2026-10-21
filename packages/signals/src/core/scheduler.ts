@@ -703,6 +703,8 @@ export const ROOT_ERROR_HOOK: unique symbol = Symbol.for("solid-js/root-error-ho
 export function haltReactivity(cause?: unknown): void {
   if (halted) return;
   halted = true;
+  // A cleanup error collected before the halt is dropped (owner.ts).
+  rethrowCleanupError(true);
   let message = "[REACTIVITY_HALTED]";
   if (__DEV__) {
     message +=
@@ -1460,6 +1462,7 @@ export function flush<T>(fn?: () => T): T | void {
   if (__OBSERVE__ && attrHooks !== null && scheduled) attrHooks.flushStart();
   while (scheduled) {
     if (__DEV__ && ++count === 1e5) {
+      rethrowCleanupError(true);
       // Attribution beats a bare guard (#3140): say what kept the loop alive.
       throw new Error(
         `Potential Infinite Loop Detected. Kept alive by scheduled work${

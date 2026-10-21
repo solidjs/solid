@@ -406,9 +406,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // and own nothing to park.
     if (isEffect === EFFECT_TRACKED || el._config & CONFIG_STAGED) {
       // A lazy node only those children read is released when this pass
-      // ends, if the pass doesn't read it again (#4142). A cleanup that
-      // throws here neither stops the pass nor skips that drain: its error
-      // is rethrown when the flush ends (owner.ts).
+      // ends, if the pass doesn't read it again (#4142). A cleanup or
+      // `unobserved` hook that throws here neither stops the pass nor skips
+      // that drain: its error is rethrown when the flush ends (owner.ts).
       const prev = deferredReleases;
       deferReleases((released = []));
       disposeChildren(el);

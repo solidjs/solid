@@ -16,10 +16,14 @@ import {
   getOwner,
   isDisposed,
   onCleanup,
+  resetErrorHalt,
   type Owner
 } from "../src/index.js";
 
-afterEach(() => flush());
+afterEach(() => {
+  resetErrorHalt();
+  flush();
+});
 
 const boom = (message = "boom") => {
   throw new Error(message);
@@ -194,5 +198,95 @@ describe("inside a flush", () => {
     expect(() => flush()).toThrow("boom");
     expect(log).toEqual(["other first", "after dispose"]);
     dispose();
+  });
+
+  it("a lazy node released mid-walk does not rethrow before the walk is done", () => {
+    const log: string[] = [];
+    let lazy!: () => number;
+    const disposeSource = createRoot(dispose => {
+      lazy = createMemo(
+        () => {
+          onCleanup(() => log.push("lazy"));
+          return 1;
+        },
+        { lazy: true }
+      );
+      return dispose;
+    });
+    const dispose = createRoot(dispose => {
+      onCleanup(() => log.push("root"));
+      // Disposed after the effect below (children go newest first)...
+      createRoot(() => {
+        onCleanup(() => log.push("child"));
+      });
+      // ...and this one first, so its error is collected before the effect's
+      // teardown releases `lazy` through `unobserved`.
+      createRenderEffect(lazy, () => {});
+      createRoot(() => {
+        onCleanup(() => boom());
+      });
+      return dispose;
+    });
+    flush();
+
+    expect(dispose).toThrow("boom");
+    expect(log).toEqual(["lazy", "child", "root"]);
+    disposeSource();
+  });
+
+  it("a halt drops a collected cleanup error: a later dispose does not throw it", () => {
+    const [go, setGo] = createSignal(false);
+    const disposeOther = createRoot(dispose => {
+      onCleanup(() => boom("cleanup"));
+      return dispose;
+    });
+    const dispose = createRoot(dispose => {
+      createEffect(go, v => {
+        if (v) disposeOther();
+      });
+      createEffect(go, v => {
+        if (v) boom("effect");
+      });
+      return dispose;
+    });
+    flush();
+    setGo(true);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => flush()).toThrow("effect");
+    } finally {
+      error.mockRestore();
+    }
+    const unrelated = createRoot(dispose => dispose);
+    expect(unrelated).not.toThrow();
+    resetErrorHalt();
+    dispose();
+  });
+});
+
+describe("unobserved hooks", () => {
+  it("a throwing hook does not stop the teardown around it", () => {
+    const log: string[] = [];
+    let source!: () => number;
+    const disposeSource = createRoot(dispose => {
+      source = createMemo(() => 1, {
+        lazy: true,
+        unobserved: () => {
+          log.push("hook");
+          boom("hook");
+        }
+      });
+      return dispose;
+    });
+    const dispose = createRoot(dispose => {
+      createRenderEffect(source, () => {});
+      onCleanup(() => log.push("root"));
+      return dispose;
+    });
+    flush();
+
+    expect(dispose).toThrow("hook");
+    expect(log).toEqual(["hook", "root"]);
+    disposeSource();
   });
 });
