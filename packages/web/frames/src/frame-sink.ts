@@ -3140,9 +3140,9 @@ export function frameTransformResult(event, result, context) {
   // §9.5 Resume request): the render is conditional against it. Read only
   // at the live address — the header never rides a cacheable read.
   const have = live ? decodeHaveList(requestHeader(event, FRAME_HAVE_HEADER)) : undefined;
-  if (live && invocation.broadcast)
+  if (live && invocation.broadcast && invocation.shareKey !== undefined)
     return broadcastResponse(
-      invocation.id + "\0" + JSON.stringify((context && context.args) || []),
+      invocation.id + "\0" + invocation.shareKey,
       result,
       { frame: { id: invocation.id || "" }, live: true },
       requestSignal(event),

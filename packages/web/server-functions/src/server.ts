@@ -542,6 +542,12 @@ export interface ServerFunctionInvocation {
   live: boolean;
   /** A live call to a `broadcast` declaration: its answer is shared. */
   broadcast?: boolean;
+  /**
+   * For a broadcast call, the arguments as they arrived on the wire: callers
+   * whose encodings are equal share one render. Absent when the encoding
+   * wasn't kept (an unbuffered body), and then the call is not shared.
+   */
+  shareKey?: string;
 }
 
 /**
@@ -1667,6 +1673,24 @@ export function broadcast(fn) {
   ref[SERVER_FUNCTION_METADATA].broadcast = true;
   BROADCASTS.add(fn.id);
   return ref;
+}
+
+// A broadcast's share key: the arguments as encoded, never as decoded. A
+// decoded value's JSON loses what the codec kept (every Set and Map is `{}`,
+// a BigInt throws), so two callers with different arguments would share one
+// render. Encodings that differ for equal values only cost sharing. A POST
+// body is keyed with its content type; one this dispatch didn't buffer has no
+// key, and the call is served per connection.
+function encodedArguments(request, argsEncoding, argumentBytes) {
+  if (request.method !== "POST") return argsEncoding || "";
+  if (!argumentBytes) return undefined;
+  return (
+    (request.headers.get("content-type") || "") +
+    "\0" +
+    (argsEncoding || "") +
+    "\0" +
+    new TextDecoder("latin1").decode(argumentBytes)
+  );
 }
 
 // Ids declared `broadcast` — read by dispatch onto the invocation, since
@@ -4487,10 +4511,12 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // Identity is established BEFORE the wrapper runs, so
         // getServerFunctionInvocation() answers throughout the wrap — code
         // ahead of run() (auth, logging) included.
+        const shared = !!live && BROADCASTS.has(functionId);
         INVOCATIONS.set(event, {
           id: functionId,
           live: !!live,
-          broadcast: (!!live && BROADCASTS.has(functionId)) || undefined
+          broadcast: shared || undefined,
+          shareKey: shared ? encodedArguments(request, argsEncoding, argumentBytes) : undefined
         });
         const run = () => serverFunction(...parsed);
         // Same observation as the direct leg (see `observeInvocation`): the

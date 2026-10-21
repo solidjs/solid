@@ -113,6 +113,25 @@ describe("broadcast() capture rule", () => {
       ].join("\n");
       expect(() => compile(code)).toThrow(LEAK);
     });
+
+    it("checks a `broadcast` from the module the integration's runtime imports name", () => {
+      const code = [
+        'import { broadcast } from "@framework/server";',
+        "export const room = broadcast(async () => {",
+        '  "use server";',
+        "  const user = await load();",
+        "  return () => user;",
+        "});"
+      ].join("\n");
+      const runtime = { kind: "named", source: "@framework/server" };
+      expect(() =>
+        compile(code, {
+          register: { ...runtime, name: "registerServerReference" },
+          create: { ...runtime, name: "createServerReference" }
+        })
+      ).toThrow(LEAK);
+      expect(() => compile(code)).not.toThrow();
+    });
   });
 
   describe("allowed", () => {
@@ -153,6 +172,18 @@ describe("broadcast() capture rule", () => {
     it("leaves a `broadcast` that is not imported alone", () => {
       const code = [
         "const broadcast = fn => fn;",
+        "export const room = broadcast(async () => {",
+        '  "use server";',
+        "  const user = await load();",
+        "  return () => user;",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).not.toThrow();
+    });
+
+    it("leaves a `broadcast` imported from another module alone", () => {
+      const code = [
+        'import { broadcast } from "./events";',
         "export const room = broadcast(async () => {",
         '  "use server";',
         "  const user = await load();",

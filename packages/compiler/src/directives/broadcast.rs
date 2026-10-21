@@ -31,23 +31,30 @@ use super::validate::line_column;
 
 const BROADCAST: &str = "broadcast";
 
-/// Checks every function passed to an imported `broadcast`, returning a
+/// Checks every function passed to `broadcast` imported from one of the
+/// runtime `sources`, returning a
 /// human-readable error for the first outer-body read.
 pub(crate) fn validate_broadcast_captures(
     program: &Program<'_>,
     code: &str,
     filename: &str,
+    sources: &[&str],
 ) -> Result<(), String> {
     if !code.contains(BROADCAST) {
         return Ok(());
     }
-    // Imported under its own name, possibly renamed: `import { broadcast }`.
+    // Imported from the runtime under its own name, possibly renamed:
+    // `import { broadcast as shared } from "@solidjs/web/server-functions"`.
     let specifiers = || {
         program
             .body
             .iter()
             .filter_map(|statement| match statement {
-                Statement::ImportDeclaration(import) => import.specifiers.as_ref(),
+                Statement::ImportDeclaration(import)
+                    if sources.contains(&import.source.value.as_str()) =>
+                {
+                    import.specifiers.as_ref()
+                }
                 _ => None,
             })
             .flatten()

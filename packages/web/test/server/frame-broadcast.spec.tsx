@@ -20,6 +20,7 @@ import {
   handleServerFunctionRequest,
   registerServerReference
 } from "../../server-functions/src/server.js";
+import { getServerFunctionsCodec, serializeString } from "../../server-functions/src/shared.js";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 beforeAll(() => {
@@ -34,11 +35,16 @@ const tick = (ms = 10) => new Promise<void>(r => setTimeout(r, ms));
 const handle = (request: Request) =>
   handleServerFunctionRequest(request, { transformResult: frameTransformResult });
 
-const get = (id: string, args: unknown[], headers: HeadersInit = {}) =>
+const get = (id: string, args: unknown[] | string, headers: HeadersInit = {}) =>
   new Request(
-    `http://localhost/_server/live/${id}?args=${encodeURIComponent(JSON.stringify(args))}`,
+    `http://localhost/_server/live/${id}?args=${encodeURIComponent(
+      typeof args === "string" ? args : JSON.stringify(args)
+    )}`,
     { method: "GET", headers }
   );
+
+/** Arguments as the client's rich-args codec encodes them. */
+const rich = (args: unknown[]) => serializeString(args, getServerFunctionsCodec());
 
 /** The have-list a client holding `messages` would send: root skeleton + hole digests. */
 function haveOf(messages: any[]) {
@@ -177,6 +183,29 @@ describe("broadcast server components", () => {
     expect(renders.sort()).toEqual(["blue", "red"]);
     a.cancel();
     b.cancel();
+    await tick();
+  });
+
+  it("keys on the encoded arguments: values JSON can't tell apart render apart", async () => {
+    const seen: string[] = [];
+    broadcast(
+      createServerReference(
+        registerServerReference("bc-rich", async (key: unknown) => {
+          return () => {
+            seen.push(key instanceof Set ? "set:" + [...key].join() : String(key));
+            // A standing source keeps the render, and so its key, alive.
+            const value = createMemo(() => channel().source);
+            return <p>{value()}</p>;
+          };
+        })
+      )
+    );
+    const taps = [];
+    for (const args of [[new Set(["a"])], [new Set(["b"])], [1n], [2n], [new Set(["a"])]])
+      taps.push(tap(await handle(get("bc-rich", await rich(args)))));
+    await tick();
+    expect(seen.sort()).toEqual(["1", "2", "set:a", "set:b"]);
+    for (const t of taps) t.cancel();
     await tick();
   });
 
