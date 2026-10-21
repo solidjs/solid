@@ -59,7 +59,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { ext, stagedRead, tracking } from "./core.js";
+import { ext, joinPass, stagedRead, tracking } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
@@ -536,6 +536,34 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
   else l._queues[0].length = l._queues[1].length = 0;
 }
 
+/** A lane a correction folded under (D-34, `laneWrite`): a deriving pass
+ * outside the lane composes the hold's world — each guess's truth staged
+ * beneath it, else the value it covered — and joins the hold, tracked or
+ * not (`untrack` is about dependencies, not about which world a pass
+ * derives from). Lane passes and the screen keep the guesses: held truth is
+ * masked from lane passes only (#3164). NOT_PENDING: not such a read. */
+function foldedRead(c: Computed<any>, el: Signal<any> | Computed<any>): unknown {
+  if (
+    !(el._config & CONFIG_GUESS) ||
+    passLane !== null ||
+    (c as any)._type === EFFECT_RENDER ||
+    c._config & CONFIG_CHILDREN_FORBIDDEN
+  )
+    return NOT_PENDING;
+  const l = txOf(el);
+  // The store's own derive reconciles its landings against the arrangement
+  // the guesses made (store/optimistic.ts): it is the author, not a reader.
+  if (!l._folded || (el as any)._host?.fam?.node === c) return NOT_PENDING;
+  joinPass(c, el, resolveTx(l._parent ?? l));
+  return foldedValue(el);
+}
+
+/** A guess's value in the hold's world: the truth staged beneath it, else
+ * the value it covered. */
+export function foldedValue(el: Signal<any> | Computed<any>): unknown {
+  return el._pendingValue !== NOT_PENDING ? el._pendingValue : covered(el);
+}
+
 /** Lanes. A lane's node is read by its reader's kind: an authoritative
  * reader (`until`) sees the truth — staged beneath a guess, else committed
  * — and is no lane's; an untracked read sees the lane's latest value (A17:
@@ -553,6 +581,10 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
  * member throws like any. */
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
+  if (c !== null) {
+    const v = foldedRead(c, el);
+    if (v !== NOT_PENDING) return v;
+  }
   if (c !== null && c._config & CONFIG_AUTHORITATIVE) return GlobalQueue._truth!(el);
   const status = (el as Computed<any>)._statusFlags;
   // An errored member's lane value predates its error; the error is the answer (#4106).
@@ -733,10 +765,26 @@ function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
     // question is the one being asked (`question`: a slice's, a derive's
     // continuation's — the flight's); unstamped writes and mainline are
     // current.
-    if (stale(el, question)) {
+    const keyed = !stale(el, question) && GlobalQueue._keyedArrangement?.(el);
+    if (keyed || stale(el, question)) {
       el._pendingValue = v;
       el._config |= CONFIG_HELD;
-      GlobalQueue._laneRebase?.(el, v);
+      if (keyed) {
+        // A keyed arrangement guess is rows by key: a current truth folds
+        // into the hold beneath it instead of voiding it (D-34). The guess
+        // stays the lane's value and the screen's. A confirmation is silent
+        // (A17), only truth readers are told; a correction re-derives the
+        // graph outside the lane now (`foldedRead`), the screen at the
+        // commit, where rows match by key.
+        const l = txOf(el);
+        let changed = !el._equals || !el._equals(el._x!._lane as T, v);
+        if (changed && GlobalQueue._echoes?.(el._x!._lane, v)) changed = false;
+        if (changed) {
+          l._folded = true;
+          insertSubs(el);
+        } else GlobalQueue._confirmed?.(l);
+        joinFuture(resolveTx(l._parent ?? l));
+      } else GlobalQueue._laneRebase?.(el, v);
       schedule();
       return v;
     }

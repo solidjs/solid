@@ -381,6 +381,18 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown): void => {
   }
 };
 
+GlobalQueue._keyedArrangement = (el: Signal<any>): boolean => {
+  const t = (el as any)._host as StoreTarget | undefined;
+  if (t === undefined || (t.fam?.key ?? null) === null) return false;
+  const k = t.k;
+  return (
+    k !== null &&
+    (k._config & CONFIG_OVERRIDE) !== 0 &&
+    k._x!._lane instanceof LaneView &&
+    Array.isArray(k._x!._lane.rows)
+  );
+};
+
 function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {
   if (a === b) return true;
   if (!isWrappable(a) || !isWrappable(b)) return false;

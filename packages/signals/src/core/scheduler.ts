@@ -245,6 +245,10 @@ export interface Transaction {
    * leaf reading a held lane that has not shown is a stale reader of it
    * (#3460); one reading a lane the seam has not judged yet is its work. */
   _held: boolean;
+  /** Lane: a current truth that differs folded beneath one of its keyed
+   * guesses (lanes.ts `laneWrite`, D-34): a deriving pass outside the lane
+   * reads the hold's world from its guesses (`foldedRead`). */
+  _folded: boolean;
   /** `affects()` marks declared in it (affects.ts): released at the landing.
    * Not nodes — a mark holds nothing (`blocked` never sees one). */
   _marks: Signal<any>[] | null;
@@ -269,6 +273,7 @@ export function newTransaction(lane: boolean, parent: Transaction | null = null)
     _links: null,
     _shown: false,
     _held: false,
+    _folded: false,
     _marks: null
   };
   if (!lane) transactions.push(t);
@@ -320,6 +325,12 @@ export function joinPassTx(t: Transaction, own?: unknown): void {
   if (passTx === null) passTx = resolveTx(t);
   else merge(resolveTx(t), passTx);
   schedule();
+}
+/** The hold a lane's guess `n` folds a correction into (`_folded`, lanes.ts
+ * `laneWrite`), or null. */
+export function foldedHold(n: Signal<any>): Transaction | null {
+  const l = resolveTx(n._x!._transaction!);
+  return l._folded ? resolveTx(l._parent ?? l) : null;
 }
 /** The transaction holding a node (CONFIG_HELD set), resolved through
  * merges; the path is compressed. */
@@ -808,6 +819,10 @@ export class GlobalQueue implements IQueue {
    * `laneWrite`): the store re-bases an arrangement guess over it
    * (store/optimistic.ts). */
   declare static _laneRebase: ((el: Signal<any>, truth: unknown) => void) | undefined;
+  /** A landing on a node of a keyed array whose arrangement a lane guesses
+   * (store/optimistic.ts): the guess is rows by key, not positions, so a
+   * current truth folds beneath it instead of voiding it (D-34). */
+  declare static _keyedArrangement: ((el: Signal<any>) => boolean) | undefined;
   // Lanes (lanes.ts).
   declare static _verdictLane: ((t: Transaction) => Transaction) | undefined;
   // Observe tier (attribution.ts): the guesses of `t`'s lanes (lanes.ts).
