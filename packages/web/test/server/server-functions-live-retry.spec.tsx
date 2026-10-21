@@ -16,11 +16,19 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   handleServerFunctionRequest,
-  registerServerFunction
+  live as liveServer,
+  registerServerReference,
+  createServerReference as createServerSideReference
 } from "@solidjs/web/server-functions/server";
 import { createServerReference, live } from "@solidjs/web/server-functions/client";
 
 const RequestContext = Symbol.for("solid.RequestContext");
+
+// A live source as an app declares it: `live(fn)` runs in both builds, and
+// the server half's implied GET grants the dispatch the client's call needs.
+function registerLiveFunction(id: string, fn: (...args: any[]) => any) {
+  liveServer(createServerSideReference(registerServerReference(id, fn)) as any);
+}
 
 beforeAll(() => {
   (globalThis as any)[RequestContext] = new AsyncLocalStorage();
@@ -44,7 +52,7 @@ afterEach(() => {
  * completing the iteration.
  */
 function connectDyingSource(id: string, reconnect: () => Response, recoverAt = 3) {
-  registerServerFunction(id, async function* () {
+  registerLiveFunction(id, async function* () {
     yield { tick: 1 };
     throw new Error("connection lost");
   });

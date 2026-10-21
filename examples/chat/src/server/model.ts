@@ -44,10 +44,10 @@ This thread is one. It renders on the server, from the messages the server has s
 
 \`\`\`jsx
 const getThread = liveQuery(
-  live(GET(async (id) => {
+  live(async (id) => {
     "use server";
     return props => <Thread id={id} composer={props.composer} />;
-  })),
+  }),
   "thread"
 );
 \`\`\`

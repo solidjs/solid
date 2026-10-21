@@ -30,7 +30,7 @@ import {
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { getRequestEvent, isServer } from "@solidjs/web";
-import { GET, live } from "@solidjs/web/server-functions";
+import { live } from "@solidjs/web/server-functions";
 import { createDrag, type Over } from "~/drag";
 import { createFlip } from "~/flip";
 import { IdentityContext, mintId } from "~/identity";
@@ -45,29 +45,25 @@ import type { Board, Card, Identity, Member } from "~/types";
 
 // The document's render calls this with `null` (the server cannot know the
 // tab) and the browser calls it with the tab's id once it has one.
-const getBoard = live(
-  GET(async function* (client: string | null): AsyncGenerator<Board> {
-    "use server";
-    // The response's lifetime: aborted when its client goes away, which ends
-    // the watcher now rather than at the board's next change.
-    yield* db.watchBoard(client, getRequestEvent()?.request.signal);
-  })
-);
+const getBoard = live(async function* (client: string | null): AsyncGenerator<Board> {
+  "use server";
+  // The response's lifetime: aborted when its client goes away, which ends
+  // the watcher now rather than at the board's next change.
+  yield* db.watchBoard(client, getRequestEvent()?.request.signal);
+});
 
 // Who has the board open. Joining is the connection: a tab is present while
 // this response is open, and the generator's `finally` is what leaving
 // means. The document's render has no identity and only watches.
-const getPresence = live(
-  GET(async function* (me: Identity | null): AsyncGenerator<Member[]> {
-    "use server";
-    const leave = me ? presence.join(me) : () => {};
-    try {
-      yield* presence.watchMembers(getRequestEvent()?.request.signal);
-    } finally {
-      leave();
-    }
-  })
-);
+const getPresence = live(async function* (me: Identity | null): AsyncGenerator<Member[]> {
+  "use server";
+  const leave = me ? presence.join(me) : () => {};
+  try {
+    yield* presence.watchMembers(getRequestEvent()?.request.signal);
+  } finally {
+    leave();
+  }
+});
 
 // The writes answer nothing: what they did arrives on `getBoard`'s stream. A
 // create names its row with an id the browser minted; a write to a row that

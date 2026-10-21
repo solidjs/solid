@@ -367,7 +367,7 @@ const config = {
  * <link rel="preload" as="fetch" crossorigin href={serverFunctionUrl(getUser, id)} />
  * ```
  *
- * A `live(GET(fn))` reference's call connects at the live address, so that
+ * A `live(fn)` reference's call connects at the live address, so that
  * is the url returned for one (`<endpoint>/live/<id>[?args=...]`): a
  * standing event stream of the answer — fetch it by hand (`curl -N`) to
  * watch it; do not preload or prefetch it, which would open a stream
@@ -521,7 +521,6 @@ function siblingAddressFor(base, kind) {
   return `${path.slice(0, slash + 1)}${kind}/${path.slice(slash + 1)}${rest}`;
 }
 const dataAddressFor = base => siblingAddressFor(base, "data");
-const liveAddressFor = base => siblingAddressFor(base, "live");
 
 function serverFunctionFailure(response, value) {
   // The labelled unknown-id 404 (#3110): the deployment that answered does
@@ -1274,7 +1273,8 @@ export interface LiveServerFunction<A extends readonly any[] = any[], R = any> {
  * first-connect failures reject like a normal call, and `break` aborts the
  * in-flight request. Live calls are reads and never opt into single-flight
  * enveloping. Wire state, if wanted, rides the returned iterable's
- * `onstatus` hook. Compose with `GET` inside-out: `live(GET(fn))`.
+ * `onstatus` hook. Implies `GET` (a live source is a read); an explicit
+ * `live(GET(fn))` is equivalent.
  */
 export function live<A extends readonly any[], R>(
   fn: (...args: A) => R
@@ -1308,9 +1308,10 @@ export function live<A extends readonly any[], R>(
  * a mutation's effects arrive through the open stream) and hence no
  * single-flight participation (live calls are reads and never request
  * enveloping). All behavior lives inside this declaration — apps that
- * never import `live` carry none of it. Compose with `GET` inside-out
- * (`live(GET(fn))`): live must be the outermost declaration, since its
- * behavior wraps the call.
+ * never import `live` carry none of it. Implies `GET`: a live source is a
+ * read by contract, so the reference connects over the GET transport (and
+ * takes on its safe-read obligations); `live(GET(fn))` is equivalent. Live
+ * stays the outermost declaration, since its behavior wraps the call.
  *
  * Wire state, if a UI wants it, rides an optional `onstatus` hook on the
  * returned iterable — a side channel for the facts the retry loop
@@ -1366,6 +1367,9 @@ export function live(fn) {
   if (!isServerFunction(fn)) {
     throw new Error("live expects a server function reference");
   }
+  // live implies GET: a live source is a read by contract. An explicit
+  // GET(fn) inside passes through untouched.
+  if (getServerFunctionMetadata(fn)?.method !== "GET") fn = GET(fn);
   const id = fn.id;
   const metadata = { ...getServerFunctionMetadata(fn), live: true };
   const makeIterable = (args, invokeOptions) => {
@@ -1524,27 +1528,12 @@ export function live(fn) {
             wire.headers = from ? from.headers : undefined;
             if (from && from.position !== undefined) wire.position = from.position;
           }
-          // A GET-composed reference is already a flight-free read with its
-          // own query-string encoding — delegate through its invocation
-          // channel so the wire options (the combined signal and the wire
-          // slot, which moves it to the live address) reach its fetch.
-          // Otherwise call the transport directly, at the live address, with
-          // the POST marked a read: live responses are streams, which have
-          // no single-flight envelope story (and flight collection is
-          // mutation policy).
-          if (metadata.method === "GET") return fn[SERVER_FUNCTION_INVOKE](args, wireOptions);
-          if (handler && handler.intercept && !wire.adopted) {
-            const hit = handler.intercept({ id, meta: metadata, args });
-            if (hit !== undefined) return hit;
-          }
-          return fetchServerFunction(
-            liveAddressFor(fn.url),
-            id,
-            { ...wireOptions, read: true },
-            args,
-            metadata,
-            args
-          );
+          // The GET-declared reference (live implies it) is already a
+          // flight-free read with its own query-string encoding — delegate
+          // through its invocation channel so the wire options (the combined
+          // signal and the wire slot, which moves it to the live address)
+          // reach its fetch. Its channel also owns the local-answer seam.
+          return fn[SERVER_FUNCTION_INVOKE](args, wireOptions);
         };
         const pull = async () => {
           if (resume !== undefined) {

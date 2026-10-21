@@ -50,12 +50,10 @@ server function: an answer the tab keeps open. Each time the board changes it
 yields the whole board again.
 
 ```tsx
-const getBoard = live(
-  GET(async function* (client: string | null): AsyncGenerator<Board> {
-    "use server";
-    yield* db.watchBoard(client, getRequestEvent()?.request.signal);
-  })
-);
+const getBoard = live(async function* (client: string | null): AsyncGenerator<Board> {
+  "use server";
+  yield* db.watchBoard(client, getRequestEvent()?.request.signal);
+});
 
 const [board, setBoard] = createOptimisticStore<Board>(() => getBoard(me()?.id ?? null), …);
 ```

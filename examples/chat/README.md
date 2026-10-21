@@ -80,24 +80,22 @@ fact about the thread, not something left hanging.
 
 ```tsx
 const getThread = liveQuery(
-  live(
-    GET(async (id: string) => {
-      "use server";
-      return (props: { composer: ComposerSlot; copyCode: CopySlot }) => {
-        const view = createMemo(() => db.watchThread(id, gone.signal));
-        return (
-          <article class="thread">
-            …
-            <ol class="messages">
-              {view().messages.filter(m => m.status !== "generating").map(…)}
-              {view().messages.filter(m => m.status === "generating").map(…)}
-            </ol>
-            <props.composer $key={id} threadId={id} seen={…} busy={…} />
-          </article>
-        );
-      };
-    })
-  ),
+  live(async (id: string) => {
+    "use server";
+    return (props: { composer: ComposerSlot; copyCode: CopySlot }) => {
+      const view = createMemo(() => db.watchThread(id, gone.signal));
+      return (
+        <article class="thread">
+          …
+          <ol class="messages">
+            {view().messages.filter(m => m.status !== "generating").map(…)}
+            {view().messages.filter(m => m.status === "generating").map(…)}
+          </ol>
+          <props.composer $key={id} threadId={id} seen={…} busy={…} />
+        </article>
+      );
+    };
+  }),
   "thread"
 );
 ```

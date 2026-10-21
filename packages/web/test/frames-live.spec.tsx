@@ -403,8 +403,9 @@ describe("frames consume live: argument changes at a live site", () => {
     vi.stubGlobal("fetch", async (input: any, init: any) => {
       const url: string = typeof input === "string" ? input : input.url;
       urls.push(url);
-      // a single string argument rides as the raw body
-      const room = String((init && init.body) ?? "") === "b" ? "b" : "a";
+      // live implies GET: the argument rides in the query string
+      const args = new URL(url, "http://localhost").searchParams.get("args");
+      const room = args && JSON.parse(args)[0] === "b" ? "b" : "a";
       const list = heldByRoom.get(room) ?? [];
       const next = openLiveFrameResponse("srv");
       list.push(next);
