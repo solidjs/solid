@@ -71,7 +71,9 @@ Also:
 - `on:`, `oncapture:`, `attr:`, `bool:`, `use:` and `classList` on a native
   element are compile errors; the message names the replacement above.
 - Inputs aren't strictly controlled: `value={x()}` writes only when the
-  binding re-runs. Keep typing in a draft signal (`onInput`), commit on
+  binding re-runs — and a change to any other dynamic attribute in the same
+  template re-runs it (dev warns `UNCOMMITTED_INPUT_OVERWRITTEN` when that
+  erases typed text). Keep typing in a draft signal (`onInput`), commit on
   `onChange`/submit; when a handler rejects input, also set
   `e.currentTarget.value = next` (an unchanged signal won't revert the DOM).
 

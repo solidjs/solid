@@ -5,7 +5,7 @@ use oxc_ast::ast::{
 use oxc_span::Span;
 
 use crate::dom::element::AstDomTransform;
-use crate::shared::constants::{child_properties, dom_with_state, namespaces};
+use crate::shared::constants::{DomPropertyState, child_properties, dom_with_state, namespaces};
 
 /// Options mirroring Babel's `setAttr(path, elem, name, value, options)`.
 #[derive(Default)]
@@ -173,23 +173,46 @@ impl<'a> AstDomTransform<'a, '_> {
                     ],
                 );
             }
-            if (name == "value" || name == "defaultValue")
+            let value = if (name == "value" || name == "defaultValue")
                 && (options.tag_name == "input" || options.tag_name == "textarea")
                 && !matches!(
                     value,
                     Expression::StringLiteral(_) | Expression::NumericLiteral(_)
-                )
-            {
+                ) {
                 // prevents undefined on text input/textarea.value, fallback
                 // to "" (#2957)
-                let value = self.ast().expression_logical(
+                self.ast().expression_logical(
                     span,
                     value,
                     LogicalOperator::Coalesce,
                     self.ast()
                         .expression_string_literal(span, self.ast().str(""), None),
+                )
+            } else {
+                value
+            };
+            // Dev DOM output writes stateful properties (value/checked/
+            // selected/muted) through `setStatefulProperty`: the same
+            // `elem[name] = value`, preceded in the dev runtime by the
+            // UNCOMMITTED_INPUT_OVERWRITTEN check (#4186). Production output
+            // keeps the inline assignment, byte for byte.
+            if self.stateful_property_checks
+                && matches!(
+                    dom_with_state(&options.tag_name, &name),
+                    Some(DomPropertyState::Stateful)
+                )
+            {
+                self.template_state.uses_set_stateful_property = true;
+                return self.call_identifier(
+                    span,
+                    "_$setStatefulProperty",
+                    vec![
+                        elem,
+                        self.ast()
+                            .expression_string_literal(span, self.ast().str(&name), None),
+                        value,
+                    ],
                 );
-                return self.member_assignment_expression(span, elem, &name, value);
             }
             return self.member_assignment_expression(span, elem, &name, value);
         }

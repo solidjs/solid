@@ -39,6 +39,7 @@ pub(crate) struct DomTemplateState {
     pub(crate) uses_set_attribute_ns: bool,
     pub(crate) uses_claim_element: bool,
     pub(crate) uses_set_property: bool,
+    pub(crate) uses_set_stateful_property: bool,
     pub(crate) uses_add_event_listener: bool,
     pub(crate) uses_delegate_events: bool,
     pub(crate) uses_run_hydration_events: bool,
@@ -157,6 +158,7 @@ impl DomTemplateState {
             uses_set_attribute_ns: false,
             uses_claim_element: false,
             uses_set_property: false,
+            uses_set_stateful_property: false,
             uses_add_event_listener: false,
             uses_delegate_events: false,
             uses_run_hydration_events: false,
@@ -249,6 +251,11 @@ impl<'a> AstDomTransform<'a, '_> {
             // Babel registers `setProperty` without a renderer config, so it
             // resolves against the top-level module like the wrappers.
             statements.push(self.import_wrapper_helper("setProperty", "_$setProperty"));
+        }
+        if self.template_state.uses_set_stateful_property {
+            // Registered like `setProperty`: against the top-level module.
+            statements
+                .push(self.import_wrapper_helper("setStatefulProperty", "_$setStatefulProperty"));
         }
         if self.template_state.uses_add_event_listener {
             statements.push(self.import_named("addEvent", "_$addEvent"));

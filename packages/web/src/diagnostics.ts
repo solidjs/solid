@@ -18,6 +18,7 @@
 // reached through `solid-js` — `OBSERVE.diagnostics.emit` and `DEV.report`,
 // the host-runtime seams the core exposes for exactly this.
 import { DEV, OBSERVE, getOwner, type DiagnosticEvent } from "solid-js";
+import { DOMWithState } from "./constants.js";
 
 const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
 const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
@@ -138,6 +139,79 @@ export function lowercaseEventAttribute(name: string, node: Element): void {
       `Use \`${handler}\` for event handlers.`,
     data: { name, handler, tag: node.localName }
   });
+}
+
+// Per element, per stateful property: the value Solid last wrote (`v`), what
+// the element read back right after that write (`d`, so the browser's own
+// coercion and sanitization never look like a user edit), and whether the
+// warning already fired for it (`w`). Dev only: every reader and writer is
+// behind a `"_SOLID_DEV_"` gate, so the prod and observe artifacts drop it.
+const statefulWrites = /*#__PURE__*/ new WeakMap<
+  Element,
+  Record<string, { v: unknown; d: unknown; w?: 1 }>
+>();
+
+/** The DOM property's state, or undefined when the write is not checked. */
+function statefulRecord(node: Element, prop: string) {
+  // `<select value>` is excluded: its write is deferred until matching
+  // options exist and a multiple select takes an array, so the value read
+  // back after a write is not what the user last left there.
+  if (DOMWithState[node.nodeName]?.[prop] !== 1 || node.nodeName === "SELECT") return;
+  let records = statefulWrites.get(node);
+  if (!records) statefulWrites.set(node, (records = {}));
+  return records;
+}
+
+/**
+ * Dev CHECK, before every compiled or spread write of a stateful DOM
+ * property (`input.value`, `input.checked`, `option.selected`,
+ * `video.muted`, ...): Solid is about to write the same value it wrote last
+ * time, but the element no longer holds what that write left there. Nothing
+ * Solid wrote changed it, so the user did — typed, clicked, toggled — and
+ * that edit never reached the bound signal; the write is about to erase it.
+ * The write re-applies an unchanged value because the binding re-ran
+ * without its value changing: another binding in the same template effect
+ * changed, a spread re-ran, or the source fired with an equal value
+ * (`equals: false`). Warns once per element and property; the write itself
+ * goes ahead unchanged. Pair with `recordStatefulWrite` after the write.
+ */
+export function checkStatefulWrite(node: Element, prop: string, value: unknown): void {
+  const record = statefulRecord(node, prop)?.[prop];
+  if (!record || record.w || value !== record.v || (node as any)[prop] === record.d) return;
+  record.w = 1;
+  const tag = node.localName;
+  const type = tag === "input" ? (node as HTMLInputElement).type : undefined;
+  const name = node.getAttribute("name") || undefined,
+    id = node.id || undefined;
+  let element = `<${tag}`;
+  if (type) element += ` type="${type}"`;
+  if (name) element += ` name="${name}"`;
+  else if (id) element += ` id="${id}"`;
+  element += `>.${prop}`;
+  const handler = prop === "muted" ? "onVolumeChange" : prop === "value" ? "onInput" : "onChange";
+  const defaultProp = "default" + prop.charAt(0).toUpperCase() + prop.slice(1);
+  devCheck({
+    code: "UNCOMMITTED_INPUT_OVERWRITTEN",
+    kind: "render",
+    severity: "warn",
+    message:
+      `[UNCOMMITTED_INPUT_OVERWRITTEN] ${element} was changed by the user, but the change was ` +
+      `never committed to the signal bound to \`${prop}\`, and Solid is writing the bound value ` +
+      `back over it: the user's input is lost. A compiled \`${prop}\` binding re-applies the ` +
+      `bound value whenever its effect runs — here with the value unchanged, because another ` +
+      `binding in the same template changed, a spread re-ran, or the source fired with an equal ` +
+      `value — and the signal is the source of truth. Write the signal on every edit ` +
+      `(\`${handler}={e => setValue(e.currentTarget.${prop})}\`, a draft signal you commit ` +
+      `later), use \`${defaultProp}\` for an uncontrolled element, or write a rejected edit back ` +
+      `explicitly (\`e.currentTarget.${prop} = next\`).`,
+    data: { tag, prop, type, name, id }
+  });
+}
+
+/** Dev: remembers what a stateful write left on the element (see `checkStatefulWrite`). */
+export function recordStatefulWrite(node: Element, prop: string, value: unknown): void {
+  const records = statefulRecord(node, prop);
+  if (records) records[prop] = { v: value, d: (node as any)[prop], w: records[prop]?.w };
 }
 
 /** `Name: message` for an Error, `String(value)` otherwise. */

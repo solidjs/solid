@@ -471,6 +471,7 @@ fn dom_transform_config(options: &CompileOptions, built_ins: Vec<String>) -> Dom
     DomTransformConfig {
         hydratable: options.hydratable,
         dev: options.dev,
+        stateful_property_checks: options.dev,
         component_names: options.source_names.components,
         binding_names: options.source_names.bindings,
         location_base: location_base(options),

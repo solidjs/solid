@@ -514,13 +514,12 @@ const [draft, setDraft] = createSignal(props.name);
     setDigits(next);
   }}
 />;
-// …or createSignal("", { equals: false }) so every set re-runs the binding
 
 // Uncontrolled: no reactive value; initial state + read on submit
 <input name="title" defaultValue={initialTitle} />;
 ```
 
-Don't bind `value` to a committed value while the typed text lives only in the DOM. A `value` inside a spread is rewritten whenever the spread re-evaluates any prop.
+Don't bind `value` to a committed value while the typed text lives only in the DOM: a change to any other dynamic attribute in the same template re-runs the binding (stateful props share the template's grouped effect), and so does a spread re-evaluating any prop. Dev warns `UNCOMMITTED_INPUT_OVERWRITTEN` when that write erases uncommitted input.
 
 ### Conditional classes — always use the array/object form
 

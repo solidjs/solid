@@ -195,6 +195,8 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             DomTransformConfig {
                 hydratable: dom.hydratable,
                 dev: dom.dev,
+                // Babel's dev `setStatefulProperty` writes are `generate: "dom"` only.
+                stateful_property_checks: false,
                 // Babel gates `sourceNames` on `generate === "dom"`, so the
                 // dynamic renderer's DOM subtree never emits labels.
                 component_names: false,

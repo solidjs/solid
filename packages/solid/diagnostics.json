@@ -522,6 +522,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/sync-node-received-async"
   },
   {
+    "code": "UNCOMMITTED_INPUT_OVERWRITTEN",
+    "kind": ["render"],
+    "severity": ["warn"],
+    "category": "render",
+    "trigger": "A stateful property binding (`value`/`checked`/…) re-wrote an unchanged value over an edit the user never committed to the signal (dev; client)",
+    "repair": "A stateful property binding (`value`/`checked` on an input, `value` on a textarea, `selected` on an option, `muted` on media) re-wrote the value it wrote last time over an edit the user made and never committed to the bound signal — the typed text (or toggled box) is lost.",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/uncommitted-input-overwritten"
+  },
+  {
     "code": "UNRECOGNIZED_INSERT_VALUE",
     "kind": ["render"],
     "severity": ["warn"],

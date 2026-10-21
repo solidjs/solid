@@ -19,6 +19,8 @@ pub(crate) struct AstDomTransform<'a, 'source> {
     pub(crate) module_name: &'source str,
     pub(crate) hydratable: bool,
     pub(crate) dev: bool,
+    /// See `DomTransformConfig::stateful_property_checks`.
+    pub(crate) stateful_property_checks: bool,
     pub(crate) component_names: bool,
     /// Babel's `sourceNames.bindings` on DOM output: compiled binding
     /// effects carry the target they write as a trailing options argument.
@@ -102,6 +104,11 @@ pub(crate) struct AstDomTransform<'a, 'source> {
 pub(crate) struct DomTransformConfig {
     pub(crate) hydratable: bool,
     pub(crate) dev: bool,
+    /// Dev DOM output (`dev` with `generate: "dom"`): stateful property
+    /// writes go through `setStatefulProperty` instead of an inline
+    /// assignment (Babel's `config.dev && config.generate === "dom"` in
+    /// `setAttr`). Off for the dynamic renderer's DOM subtrees.
+    pub(crate) stateful_property_checks: bool,
     pub(crate) component_names: bool,
     pub(crate) binding_names: bool,
     pub(crate) location_base: Option<String>,
@@ -155,6 +162,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             module_name,
             hydratable: config.hydratable,
             dev: config.dev,
+            stateful_property_checks: config.stateful_property_checks,
             component_names: config.component_names,
             binding_names: config.binding_names,
             location_base: config.location_base,

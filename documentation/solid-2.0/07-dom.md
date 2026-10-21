@@ -140,7 +140,7 @@ const on = (type, handler, options) => el => el.addEventListener(type, handler, 
 `value` and `checked` (and the other stateful properties listed above) are written as DOM properties. A binding such as `value={draft()}` writes `el.value` each time its expression re-runs, without comparing against what the DOM currently holds. Two consequences follow:
 
 - **Solid inputs are not strictly controlled.** Typing changes the DOM directly. The binding only puts its value back when the signal it reads changes. Setting a signal to the value it already has does not notify anything, so the DOM is not re-asserted ([#4185](https://github.com/solidjs/solid/issues/4185)).
-- **Any re-run of the binding overwrites what the user typed.** If the bound value is not the text in the box, a refresh of that value, or of a spread that carries it, replaces the uncommitted text.
+- **Any re-run of the binding overwrites what the user typed.** If the bound value is not the text in the box, a refresh of that value, or of a spread that carries it, replaces the uncommitted text. So does a change to **any other dynamic attribute in the same template**: stateful properties share the template's grouped effect (one effect per template keeps rows cheap), so when `class={cls()}` on the same element — or on any element in that template — changes, the effect re-runs and writes `value` again with the bound value. In development, a write that puts an unchanged value back over text the user typed but never committed warns with [`UNCOMMITTED_INPUT_OVERWRITTEN`](08-dev-diagnostics.md#uncommitted_input_overwritten).
 
 The patterns below hold regardless of how the compiler groups the writes.
 
@@ -181,13 +181,7 @@ const [digits, setDigits] = createSignal("");
 />;
 ```
 
-Alternatively, give the signal `equals: false` so every set notifies and the binding re-runs and rewrites the DOM:
-
-```jsx
-const [digits, setDigits] = createSignal("", { equals: false });
-
-<input value={digits()} onInput={e => setDigits(e.currentTarget.value.replace(/\D/g, ""))} />;
-```
+Write the element yourself rather than giving the signal `equals: false` so it re-asserts the equal value: the re-run would rewrite the box, but a binding writing an unchanged value over typed text is exactly what [`UNCOMMITTED_INPUT_OVERWRITTEN`](08-dev-diagnostics.md#uncommitted_input_overwritten) reports in development, because it cannot be told apart from a binding erasing uncommitted input.
 
 The same applies to `checked`: if a handler refuses a toggle without changing the signal, set `e.currentTarget.checked` back in the handler.
 
