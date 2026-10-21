@@ -84,7 +84,6 @@ import {
   flushTransaction,
   GlobalQueue,
   globalQueue,
-  foldedHold,
   holdNode,
   insertSubs,
   joinFuture,
@@ -371,14 +370,12 @@ function bornStaged(target: StoreTarget, node: Signal<any>, staged: any, key: Pr
   if (k === null) return; // a node-less staging holds nothing (`stageOn`)
   // Held by the container's transaction only for a key the HELD staging
   // changed — a mainline layer's change above it stages mainline. (A
-  // container carrying a guess is a lane's: the flush's park decides.)
-  if ((k._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD && heldKeyChanged(target, key))
-    holdNode(node, txOf(k));
-  // A guess a correction folded under (D-34): the truth beneath it is the
-  // hold's, and so is a key it changed.
-  else if (k._config & CONFIG_OVERRIDE && k._config & CONFIG_HELD && heldKeyChanged(target, key)) {
-    const t = foldedHold(k);
-    if (t !== null) holdNode(node, t);
+  // container carrying a guess is a lane's: the flush's park decides —
+  // unless a correction folded under the guess, D-34: the key is that
+  // correction's hold's.)
+  if (k._config & CONFIG_HELD && heldKeyChanged(target, key)) {
+    const t = k._config & CONFIG_OVERRIDE ? GlobalQueue.foldedHold?.(k) : txOf(k);
+    if (t) holdNode(node, t);
   }
   // A28 (4): a batch written inside a creation-time pass is promoted — its
   // late-materialized leaf with it.

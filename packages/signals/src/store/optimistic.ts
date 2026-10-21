@@ -25,19 +25,26 @@
  */
 import {
   CONFIG_AUTO_DISPOSE,
+  CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_GUESS,
   CONFIG_OVERRIDE,
+  CONFIG_SLOT_NODE,
+  EFFECT_RENDER,
   NOT_PENDING,
   STATUS_PENDING
 } from "../core/constants.js";
-import { computed, ext, isEqual, read as readNode, untrack } from "../core/core.js";
+import { computed, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
 import { laneValueOf, optimisticWrite, pendingGuessOf } from "../core/lanes.js";
 import { getOwner } from "../core/owner.js";
 import {
   GlobalQueue,
   insertSubs,
+  joinFuture,
   laneDirty,
   list,
   notifyEpoch,
+  passLane,
+  resolveTx,
   schedule,
   txOf
 } from "../core/scheduler.js";
@@ -381,16 +388,62 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown): void => {
   }
 };
 
-GlobalQueue._keyedArrangement = (el: Signal<any>): boolean => {
+/** D-34 for a keyed arrangement guess: rows by key, not positions. A
+ * current truth that differs folds into the hold beneath it instead of
+ * voiding the lane: the guess stays the lane's value and the screen's until
+ * the hold commits, where rows match by key, and the graph outside the lane
+ * re-derives from the truth now (`foldedRead`). A confirmation is silent
+ * (A17): only truth readers are told. True: the lane stages the truth
+ * beneath (`laneWrite`). */
+GlobalQueue.fold = (el: Signal<any>, truth: unknown): boolean => {
   const t = (el as any)._host as StoreTarget | undefined;
-  if (t === undefined || (t.fam?.key ?? null) === null) return false;
-  const k = t.k;
-  return (
-    k !== null &&
-    (k._config & CONFIG_OVERRIDE) !== 0 &&
-    k._x!._lane instanceof LaneView &&
-    Array.isArray(k._x!._lane.rows)
-  );
+  const k = t?.k;
+  if (
+    k == null ||
+    t!.fam?.key == null ||
+    !(k._config & CONFIG_OVERRIDE) ||
+    !(k._x!._lane instanceof LaneView) ||
+    !Array.isArray(k._x!._lane.rows)
+  )
+    return false;
+  const l = txOf(el);
+  const guess = el._x!._lane;
+  if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth)) {
+    l.folded = true;
+    insertSubs(el);
+  } else GlobalQueue._confirmed?.(l);
+  joinFuture(resolveTx(l._parent ?? l));
+  return true;
+};
+
+/** A folded lane's guess read by a deriving pass outside the lane, tracked
+ * or not (`untrack` is about dependencies, not about which world a pass
+ * derives from), or by `latest()` (`c` null): the hold's world — the truth
+ * staged beneath the guess, else the value it covered — and the pass joins
+ * the hold. Lane passes and the screen keep the guess: held truth is masked
+ * from lane passes only (#3164). The store's own derive reconciles its
+ * landings against the arrangement the guesses made: it is the author, not
+ * a reader. */
+GlobalQueue.foldedRead = (c, el) => {
+  if (c !== null) {
+    if (
+      !(el._config & CONFIG_GUESS) ||
+      passLane !== null ||
+      (c as any)._type === EFFECT_RENDER ||
+      c._config & CONFIG_CHILDREN_FORBIDDEN ||
+      (el as any)._host?.fam?.node === c
+    )
+      return NOT_PENDING;
+    const l = txOf(el);
+    joinPassAt(c, resolveTx(l._parent ?? l));
+  }
+  if (el._pendingValue !== NOT_PENDING) return el._pendingValue;
+  return el._config & CONFIG_SLOT_NODE ? GlobalQueue._slotCovered!(el) : el._value;
+};
+
+GlobalQueue.foldedHold = k => {
+  const l = txOf(k);
+  return l.folded ? resolveTx(l._parent ?? l) : null;
 };
 
 function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {

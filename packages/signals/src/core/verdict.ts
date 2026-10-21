@@ -46,7 +46,7 @@ import {
 import { warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { display, foldedValue, laneValueOf, verdictLane } from "./lanes.js";
+import { display, laneValueOf, verdictLane } from "./lanes.js";
 import { enqueueSub } from "./heap.js";
 import {
   flushTransaction,
@@ -396,7 +396,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         probeFound = true;
       // A lane a correction folded under (D-34): `latest()` shows the hold's
       // world whole — the truth beneath each guess, else what it covered.
-      if (latestActive && l._folded) return foldedValue(el);
+      if (latestActive && l.folded) return GlobalQueue.foldedRead!(null, el);
       return el._x!._lane;
     }
     if (probing && flying) probeFound = true;

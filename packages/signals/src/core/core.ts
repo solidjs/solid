@@ -1082,11 +1082,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * something not ready under a loading boundary that has not shown content:
  * the boundary collects it and shows its fallback, and the pass is the
  * boundary's, not the tick's (A29's boundary exemption, #3540). */
-export function joinPass(
-  c: Computed<any>,
-  el: Signal<any> | Computed<any>,
-  t: Transaction = txOf(el)
-): void {
+export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
   c._flags |= REACTIVE_JOINED;
   // A new memo's first pass is the hold's work (born held) but not the
   // tick's: a render effect that reads it decides — under a boundary that
@@ -1097,7 +1093,17 @@ export function joinPass(
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ||
     (c as any)._type !== EFFECT_RENDER
   )
-    joinPassTx(t, (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || freshHook?.(c));
+    joinPassTx(
+      txOf(el),
+      (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || freshHook?.(c)
+    );
+}
+
+/** `joinPass` into the hold `t` (a folded guess's: store/optimistic.ts
+ * `foldedRead`, D-34) — a reader is never a render effect there. */
+export function joinPassAt(c: Computed<any>, t: Transaction): void {
+  c._flags |= REACTIVE_JOINED;
+  joinPassTx(t, (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || freshHook?.(c));
 }
 
 /** A15's stale reader (shared-hole and reveal corollaries): a render effect
