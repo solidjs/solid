@@ -454,7 +454,7 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
         this._rows && (this._rows = []);
         this._indexes && (this._indexes = []);
       }
-      if (this._fallback && !this._mappings[0]) {
+      if (this._fallback && !this._mappings.length) {
         // an aborted fallback attempt leaves an owner without a mapping;
         // dispose it before re-creating
         this._nodes[0]?.dispose();
@@ -767,7 +767,7 @@ function updateRepeat<MappedItem>(this: RepeatData<MappedItem>): any[] {
         // Reset offset to match the cleared data (#2767, repro 2).
         this._offset = 0;
       }
-      if (this._fallback && !this._mappings[0]) {
+      if (this._fallback && !this._mappings.length) {
         // an aborted fallback attempt leaves an owner without a mapping;
         // dispose it before re-creating
         this._nodes[0]?.dispose();
