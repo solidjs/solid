@@ -10,6 +10,7 @@
 //! name is the function's dotted binding path, so ids are keyed on identity
 //! rather than position (solidjs/solid#3109).
 
+mod broadcast;
 mod dce;
 mod transform;
 mod validate;
@@ -144,6 +145,10 @@ pub fn transform_directives(
         validate::validate_captures(&program, &code, filename, &directive)
             .map_err(Error::from_reason)?;
     }
+    // A broadcast render is shared by every caller, so it must not read the
+    // per-caller outer body; this holds for module-level directives too.
+    broadcast::validate_broadcast_captures(&program, &code, filename)
+        .map_err(Error::from_reason)?;
 
     let mut pass = DirectivesTransform::new(
         &allocator,
