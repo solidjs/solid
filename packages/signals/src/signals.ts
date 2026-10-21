@@ -742,7 +742,12 @@ export function createReaction(
     }
     runWithOwner(owner!, () => {
       effect(
-        () => (tracking(), (arm = getOwner()!)),
+        () => {
+          const node = getOwner()!;
+          arm = node;
+          tracking();
+          return node;
+        },
         node => {
           arm = undefined;
           cl?.();

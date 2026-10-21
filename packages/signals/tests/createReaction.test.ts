@@ -1,4 +1,11 @@
-import { createReaction, createRoot, createSignal, flush, resetErrorHalt } from "../src/index.js";
+import {
+  createMemo,
+  createReaction,
+  createRoot,
+  createSignal,
+  flush,
+  resetErrorHalt
+} from "../src/index.js";
 
 describe("createReaction", () => {
   test("Create and trigger a Reaction", () => {
@@ -119,5 +126,74 @@ describe("createReaction", () => {
       "Reaction callback returned an invalid cleanup value. Return a cleanup function or undefined."
     );
     resetErrorHalt();
+  });
+});
+
+describe("replacing an arm whose tracking read did not finish", () => {
+  test.each([false, true])("pending arm is replaced (loading seed: %s)", async seeded => {
+    let finish!: (value: number) => void;
+    let dispose!: () => void;
+    let calls = 0;
+    const { setCurrent } = createRoot(d => {
+      dispose = d;
+      const oldResult = createMemo(
+        () => new Promise<number>(resolve => (finish = resolve)),
+        seeded ? { loadingValue: 0 } : undefined
+      );
+      const [current, setCurrent] = createSignal(0);
+      const track = createReaction(() => {
+        calls++;
+      });
+      track(oldResult);
+      track(current);
+      return { setCurrent };
+    });
+    try {
+      flush();
+      finish(1);
+      await Promise.resolve();
+      flush();
+      expect(calls).toBe(0);
+      setCurrent(1);
+      flush();
+      expect(calls).toBe(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  test("a superseded tracking error does not retain a live arm", () => {
+    let dispose!: () => void;
+    const error = new Error("old tracking failed");
+    const onError = vi.fn();
+    let calls = 0;
+    const { setFailed, setCurrent } = createRoot(d => {
+      dispose = d;
+      const [failed, setFailed] = createSignal(true);
+      const [current, setCurrent] = createSignal(0);
+      const track = createReaction({
+        effect: () => {
+          calls++;
+        },
+        error: onError
+      });
+      track(() => {
+        if (failed()) throw error;
+      });
+      track(current);
+      return { setFailed, setCurrent };
+    });
+    try {
+      flush();
+      expect(onError).not.toHaveBeenCalled();
+      setFailed(false);
+      flush();
+      expect(calls).toBe(0);
+      setCurrent(1);
+      flush();
+      expect(calls).toBe(1);
+    } finally {
+      dispose();
+    }
   });
 });
