@@ -43,6 +43,7 @@ import {
 import { sweepDormant, trimStaleDeps } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
 import { devCheckQuiescent } from "./invariants.js";
+import { rethrowCleanupError } from "./owner.js";
 import type { Computed, Owner, Signal } from "./types.js";
 
 // Optional-module hooks: module bindings, not `GlobalQueue` statics, so a
@@ -782,7 +783,12 @@ export class GlobalQueue implements IQueue {
   _queues: [QueueCallback[], QueueCallback[]] = [[], []];
   _running: boolean = false;
   declare static _update: (el: Computed<unknown>) => void;
-  declare static _dispose: (el: Computed<unknown>, self: boolean, zombie?: boolean) => void;
+  declare static _dispose: (
+    el: Computed<unknown>,
+    self: boolean,
+    nested?: boolean,
+    zombie?: boolean
+  ) => void;
   declare static _runEffect: (el: Computed<unknown>) => void;
   /** A slot node's truth is in flight (its family's derive — store/store.ts). */
   declare static _slotFlight: ((n: Signal<any>) => boolean) | undefined;
@@ -1350,7 +1356,7 @@ export function commitPendingNode(n: Signal<any>): void {
     c._x != null &&
     (c._x._pendingFirstChild !== null || c._x._pendingDisposal !== null)
   )
-    GlobalQueue._dispose(c as Computed<unknown>, false, true);
+    GlobalQueue._dispose(c as Computed<unknown>, false, false, true);
 }
 
 function commitPendingNodes() {
@@ -1474,6 +1480,9 @@ export function flush<T>(fn?: () => T): T | void {
   // so this is the "committed and effects ran" instant for everything the
   // loop processed.
   if (__OBSERVE__ && drained && attrHooks !== null) attrHooks.flushEnd();
+  // A cleanup that threw during the drain, now that the drain is complete
+  // (owner.ts).
+  rethrowCleanupError();
 }
 
 function runQueue(queue: QueueCallback[], type: number): void {

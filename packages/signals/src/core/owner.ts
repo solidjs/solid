@@ -29,7 +29,7 @@ import {
 } from "./dev.js";
 import { clearDeps, unobserved } from "./graph.js";
 import { deleteFromHeap } from "./heap.js";
-import { dirtyQueue, schedule } from "./scheduler.js";
+import { dirtyQueue, globalQueue, schedule } from "./scheduler.js";
 import type { Computed, Disposable, Owner, Root } from "./types.js";
 
 // L2 (step 2): the parked frame. A pass parks the previous frame's children
@@ -60,7 +60,43 @@ export function dispose(node: Computed<unknown>): void {
   unobserved(node);
 }
 
-export function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
+// The first error a cleanup threw, boxed so a thrown `undefined` still
+// counts. A throwing cleanup stops neither its siblings nor the rest of the
+// tree: every cleanup runs. The error is rethrown once the teardown is over —
+// when the walk that began it ends, or, for a teardown inside a flush (a
+// commit retiring a frame, a pass replacing one, an effect disposing a root),
+// when the flush ends (`flush`), so the flush is never left half-applied.
+let cleanupError: [unknown] | undefined;
+
+function runCleanup(fn: () => void): void {
+  try {
+    fn();
+  } catch (e) {
+    cleanupError ||= [e];
+    // A teardown outside a flush that does not rethrow (a pass pulled by a
+    // read): the flush this schedules does.
+    schedule();
+  }
+}
+
+/** Rethrows the error `runCleanup` collected, once. @internal */
+export function rethrowCleanupError(): void {
+  const error = cleanupError;
+  cleanupError = undefined;
+  if (error) throw error[0];
+}
+
+/**
+ * Tears down `node`'s children (and `node` itself when `self`), or with
+ * `zombie` the frame parked on it. `nested`: part of an enclosing teardown or
+ * pass, which rethrows a cleanup's error instead (see `cleanupError`).
+ */
+export function disposeChildren(
+  node: Owner,
+  self: boolean = false,
+  nested?: boolean,
+  zombie?: boolean
+): void {
   const flags = (node as any)._flags;
   if (flags & REACTIVE_DISPOSED) return;
   // A parked frame dies with its owner (#3024): the commit that would retire
@@ -74,7 +110,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     node._x !== null &&
     (node._x._pendingFirstChild !== null || node._x._pendingDisposal !== null)
   )
-    disposeChildren(node, false, true);
+    disposeChildren(node, false, true, true);
   if (self) {
     (node as any)._flags = flags | REACTIVE_DISPOSED;
     if (__OBSERVE__ && node._parent === null && (node as Root)._root) unregisterRoot(node);
@@ -120,7 +156,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     // itself routes its later splice onto the detached chain, never the head,
     // and keeps the dev owner-chain-head invariant honest for those children.
     child._prevSibling = child;
-    disposeChildren(child, true);
+    disposeChildren(child, true, true);
     // Read after, not before: a sibling this disposal made dormant spliced
     // itself out of the detached chain, and a cleanup may then have linked
     // it at the fresh head, which rewrote the `_nextSibling` a pre-read
@@ -163,9 +199,10 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     const effectCleanup = node._cleanup;
     node._cleanup = undefined;
     if (__DEV__) enterDisposal();
-    effectCleanup();
+    runCleanup(effectCleanup);
     if (__DEV__) exitDisposal();
   }
+  if (!nested && !globalQueue._running) rethrowCleanupError();
 }
 
 export function linkChild(parent: Owner, node: Owner): void {
@@ -188,9 +225,7 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   if (zombie) node._x!._pendingDisposal = null;
   else node._disposal = null;
 
-  // No try/finally: it would survive into prod (rollup keeps the frame). A
-  // throw leaves the depth raised; dev.ts clears the stale count on the next
-  // microtask, since teardown never spans one (core.ts).
+  // Each cleanup is guarded (`runCleanup`), so the depth is always lowered.
   if (__DEV__) enterDisposal();
   if (Array.isArray(disposal)) {
     // Unwind order (#3572, restores 1.x #1562): later registrations run
@@ -198,11 +233,10 @@ function runDisposal(node: Owner, zombie?: boolean): void {
     // so with LIFO a body that registers cleanup before creating its children
     // tears down after them — the same order a per-component owner gives.
     for (let i = disposal.length - 1; i >= 0; i--) {
-      const callable = disposal[i];
-      callable.call(callable);
+      runCleanup(disposal[i]);
     }
   } else {
-    disposal.call(disposal);
+    runCleanup(disposal);
   }
   if (__DEV__) exitDisposal();
 }

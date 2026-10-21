@@ -406,14 +406,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // and own nothing to park.
     if (isEffect === EFFECT_TRACKED || el._config & CONFIG_STAGED) {
       // A lazy node only those children read is released when this pass
-      // ends, if the pass doesn't read it again (#4142).
+      // ends, if the pass doesn't read it again (#4142). Nested: a cleanup
+      // that throws here neither stops the pass nor skips that drain — its
+      // error is rethrown when the flush ends (owner.ts).
       const prev = deferredReleases;
       deferReleases((released = []));
-      try {
-        disposeChildren(el);
-      } finally {
-        deferReleases(prev);
-      }
+      disposeChildren(el, false, true);
+      deferReleases(prev);
     } else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
     // An error a pass staged (D-41) is replaced by this pass's answer: a
     // value, a flight, or an error of its own (#4109, #4145).
@@ -1510,8 +1509,9 @@ export function exitCallback(): void {
  * its owner (a list pass removing a row, a branch switching away), so its
  * writes are imperative like an effect callback's (#4165). Kept apart from
  * `callbackDepth` because its sites cannot use try/finally (the frame would
- * survive into prod): a throwing cleanup leaves it raised, and dev.ts resets
- * it on the next microtask, which teardown — synchronous — never spans.
+ * survive into prod). A throwing cleanup is caught (owner.ts `runCleanup`);
+ * anything else escaping a teardown leaves it raised, and dev.ts resets it on
+ * the next microtask, which teardown — synchronous — never spans.
  */
 export let disposalDepth = 0;
 export function enterDisposal(): void {
