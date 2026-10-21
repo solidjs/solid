@@ -119,6 +119,21 @@ createEffect(
 );
 ```
 
+Effects never compare values. Whenever the compute half re-runs, the effect half runs too (after the previous cleanup), even when compute returned a value equal to the last one. With `() => status() === "active"`, every change to `status` re-runs the effect and its cleanup, including changes that leave the result `true`, so a timer or subscription started in the effect is torn down and restarted. To skip work when the value is unchanged, put a `createMemo` in front and read it in the compute. The memo compares with `equals` (`===` by default, or your own function), and when it reports equal the effect is not re-run at all:
+
+```js
+const active = createMemo(() => status() === "active");
+
+createEffect(
+  () => active(),          // re-runs only when `active` actually changes
+  isActive => {
+    if (!isActive) return;
+    const id = setInterval(poll, 1000);
+    return () => clearInterval(id);
+  }
+);
+```
+
 The 1.x `initialValue` parameter is removed. The compute function receives `prev` as its argument (`undefined` on first run); use a default parameter if you need an initial value:
 
 ```js
