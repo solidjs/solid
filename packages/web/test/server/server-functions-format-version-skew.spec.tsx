@@ -40,7 +40,7 @@ import * as devServer from "../../server-functions/dist/server.dev.js";
 const RequestContext = Symbol.for("solid.RequestContext");
 const BODY_FORMAT_HEADER = "X-Server-Function-Format";
 /** The next tag the runtime ships — this build has no case for it. */
-const FUTURE_FORMAT = "11";
+const FUTURE_FORMAT = "10";
 
 beforeAll(() => {
   (globalThis as any)[RequestContext] = new AsyncLocalStorage();

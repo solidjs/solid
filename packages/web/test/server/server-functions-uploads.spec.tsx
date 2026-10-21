@@ -21,7 +21,6 @@ import { enableRichArguments } from "../../server-functions/dist/rich-args.js";
 const RequestContext = Symbol.for("solid.RequestContext");
 const BODY_FORMAT_HEADER = "X-Server-Function-Format";
 const SERIALIZED_FORMAT = "0";
-const UPLOAD_FORMAT = "10";
 
 beforeAll(() => {
   (globalThis as any)[RequestContext] = new AsyncLocalStorage();
@@ -54,7 +53,7 @@ function connectTransport() {
 }
 
 /** A request to the same address as `captured`, with `form` as its body. */
-function resend(captured: Request, form: FormData | string, format = UPLOAD_FORMAT) {
+function resend(captured: Request, form: FormData | string, format = SERIALIZED_FORMAT) {
   const headers: Record<string, string> = {
     [BODY_FORMAT_HEADER]: format,
     "Sec-Fetch-Site": "same-origin"
@@ -84,7 +83,7 @@ describe("files in codec arguments", () => {
       });
       expect(result).toEqual({ file: "a.txt", type: "text/plain", text: "hello", tags: ["x"] });
       const [request] = transport.requests;
-      expect(request.headers.get(BODY_FORMAT_HEADER)).toBe(UPLOAD_FORMAT);
+      expect(request.headers.get(BODY_FORMAT_HEADER)).toBe(SERIALIZED_FORMAT);
       expect(request.headers.get("content-type")).toMatch(/^multipart\/form-data/);
       const form = await request.formData();
       expect(typeof form.get("args")).toBe("string");
@@ -208,7 +207,7 @@ describe("files in codec arguments", () => {
         slice: (...args: any[]) => real.slice(...args)
       };
       expect(await call({ blob: foreign })).toEqual({ type: "text/x-far", text: "far" });
-      expect(transport.requests[0].headers.get(BODY_FORMAT_HEADER)).toBe(UPLOAD_FORMAT);
+      expect(transport.requests[0].headers.get(BODY_FORMAT_HEADER)).toBe(SERIALIZED_FORMAT);
     } finally {
       transport.restore();
     }

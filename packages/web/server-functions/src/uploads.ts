@@ -5,8 +5,8 @@
 // - the codec output in the `UPLOAD_ARGS_PART` field;
 // - each file in its own `UPLOAD_FILE_PART<index>` part, as it is, without
 //   base64.
-// The codec output holds only each file's index. `BodyFormat.SerializedFormData`
-// marks the request.
+// The codec output holds only each file's index. The request keeps the
+// `Serialized` tag; its multipart content type is what marks an upload.
 //
 // A seroval plugin made for the call finds the files wherever the codec
 // meets one: arguments, arrays, objects, maps, sets, and `FormData` entries.

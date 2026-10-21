@@ -763,19 +763,18 @@ async function initializeResponse(base, id, options, args, meta) {
   }
   // Everything else needs the codec, which is opt-in (enableRichArguments).
   // The encoder answers `FormData` when the arguments hold files (see
-  // uploads.js). The browser sets that body's multipart content type.
-  const body = await serializeArguments(args);
-  const upload = body instanceof FormData;
+  // uploads.js). No content type is set here: fetch gives a string body
+  // `text/plain` and a form its multipart boundary, which is how the handler
+  // tells the two apart.
   return createRequest(
     base,
     id,
     {
       ...options,
-      body,
+      body: await serializeArguments(args),
       headers: {
         ...options.headers,
-        ...(!upload && { "Content-Type": "text/plain" }),
-        [BODY_FORMAT_HEADER]: upload ? BodyFormat.SerializedFormData : BodyFormat.Serialized
+        [BODY_FORMAT_HEADER]: BodyFormat.Serialized
       }
     },
     meta

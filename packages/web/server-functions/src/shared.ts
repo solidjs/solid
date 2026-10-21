@@ -972,13 +972,7 @@ export const BodyFormat = {
    * on it from a refusal answered by something else. Decoding falls through
    * to `undefined`, which is what a peer predating the tag reads too.
    */
-  Void: "9",
-  /**
-   * Multipart form data for a codec argument list that holds files: the codec
-   * output in one field and each file in its own part (see uploads.js).
-   * Request leg only.
-   */
-  SerializedFormData: "10"
+  Void: "9"
 };
 
 // Nesting deeper than this is not JSON-safe. The guard itself walks an
