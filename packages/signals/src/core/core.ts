@@ -550,7 +550,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // (markNode(c) in read()) marks the running node as part of ordinary
     // bookkeeping, and those marks are correctly discarded here.
     missedWake = (el._flags & REACTIVE_MISSED_WAKE) !== 0;
-    joined = !!(el._flags & (mount ? REACTIVE_JOINED | REACTIVE_STAGED_READ : REACTIVE_JOINED));
+    // A mount's staged read joins it — except a nested derivation left
+    // pending: no render effect reaches it yet, so it holds nothing and
+    // reaches no boundary (Reader, #4203). A reader that does is caught.
+    joined = !!(
+      el._flags &
+      (mount && (prevLane || isEffect || !(el._statusFlags & STATUS_PENDING))
+        ? REACTIVE_JOINED | REACTIVE_STAGED_READ
+        : REACTIVE_JOINED)
+    );
     // A verdict reader is one for as long as it probes, or reads a memo
     // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
     // bit) is an ordinary derivation again.
