@@ -818,8 +818,18 @@ export function createFrameSink(write, frame, have, hooks) {
     // Data args are `{$ref}`s into the response's data table; server-content
     // args are `{$frame}` nested regions. No document-sink counterpart —
     // slots only exist in frame streams.
+    //
+    // A sweep's re-emission joins the sweep's unit (C13), as a hole's does:
+    // each arg binding of an occurrence re-sends the whole record as it
+    // sweeps, so the first carries the others' previous values. Sent as it
+    // came, that record would reach the client alone, ahead of the holes the
+    // same commit moved — a client fill reading it shows a state no commit
+    // had (an outbox dropping a message before the hole shows its row). In
+    // the unit the last re-emission of the pass stands, and it leaves with
+    // the holes.
     slot(key, args) {
-      put(id, { [`slot:${key}`]: { kind: "slot", args } });
+      const r = { [`slot:${key}`]: { kind: "slot", args } };
+      swept ? Object.assign(swept.r, r) : put(id, r);
     },
     // A nested server-content region (a `{$frame}` slot arg): its html is
     // the root record of the CHILD frame id — the consumer binds a nested

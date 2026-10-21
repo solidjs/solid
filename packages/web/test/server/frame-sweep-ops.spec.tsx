@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from "vitest";
 import vm from "node:vm";
-import { createMemo } from "solid-js";
+import { createMemo, For } from "solid-js";
 import { Loading, renderToStream } from "@solidjs/web";
 import {
   frameTransformDirectResult,
@@ -176,4 +176,38 @@ describe("C13 server half — the sink emits one sweep as one unit", () => {
     ]);
     expect((Object.values(ops[1].r)[0] as any).value).toBe("a2");
   });
+
+  it("stream face: a slot occurrence whose args the sweep moved leaves in the same batch as the hole, once, with every arg current", async () => {
+    // The chat's composer: a slot outside the list hole reading the same
+    // source. Each arg binding re-sends the occurrence as it sweeps; sent as
+    // they came, the first went out alone with `busy` still the previous
+    // commit's, ahead of the hole that shows the new row.
+    const ch = channel<string[]>();
+    const Comp = (props: any) => {
+      const rows = createMemo(() => ch.iterable);
+      return (
+        <div>
+          <ol>
+            <For each={rows()}>{row => <li>{row}</li>}</For>
+          </ol>
+          <props.composer seen={rows()} busy={rows().length > 1} />
+        </div>
+      );
+    };
+    const { chunks, until, done } = consume(
+      renderServerComponent(Comp, { frame: { id: "f" }, live: true })
+    );
+    ch.push(["a"]);
+    await until(c => has(c, ""));
+    const seen = chunks.length;
+    ch.push(["a", "b"]);
+    await until(c => records([c], "hole:").length > 0);
+    ch.end();
+    await done;
+
+    const batches = chunks.slice(seen).filter(c => c.r && !has(c, ":complete"));
+    expect(batches).toHaveLength(1);
+    expect(Object.keys(batches[0].r).map(key => key.split(":")[0])).toEqual(["slot", "hole"]);
+    expect(batches[0].r["slot:composer#0"].args.busy).toBe(true);
+  }, 8000);
 });
