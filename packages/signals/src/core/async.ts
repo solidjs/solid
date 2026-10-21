@@ -13,6 +13,7 @@ import {
   NOT_PENDING,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
+  REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
@@ -366,6 +367,32 @@ export function releaseFlightTeardown(el: Computed<any>): void {
     el._x!._flightTeardown = null;
     teardown();
   }
+}
+
+/**
+ * Internal (not a package export): run `fn` when the current pass's flight
+ * is superseded, at the same instant as the iterator close above, instead of
+ * when the replacing pass commits (owner cleanups wait for that). Chains onto
+ * the node's teardown slot; fires once with it. A no-op unless the ambient
+ * owner is a computed in its own pass. `consumeIterator` fills the slot
+ * before its first pull, so a source opened in an async generator's body
+ * (`for await`) composes after the generator's close.
+ */
+export function onSupersede(fn: () => void): void {
+  const el = context as Computed<any> | null;
+  if (el === null || el._fn === undefined || !(el._flags & REACTIVE_RECOMPUTING_DEPS)) return;
+  const x = ext(el);
+  const prev = x._flightTeardown;
+  x._flightTeardown =
+    prev === null
+      ? fn
+      : () => {
+          try {
+            prev();
+          } finally {
+            fn();
+          }
+        };
 }
 
 export function handleAsync<T>(
