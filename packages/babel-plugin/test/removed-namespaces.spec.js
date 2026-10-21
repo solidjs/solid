@@ -16,6 +16,8 @@ const compile = (src, options = {}) =>
     plugins: [[plugin, { generate: "dom", ...options }]],
     configFile: false,
     babelrc: false,
+    // Plain code frames: CI forces color, which puts escape codes in the frame.
+    highlightCode: false,
     filename: "removed.jsx"
   });
 

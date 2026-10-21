@@ -52,8 +52,10 @@ function attempt(compile) {
 }
 
 function babelDiagnostic(error) {
-  const [first] = error.message.split("\n");
-  const frame = error.message.match(/^>\s*(\d+) \|/m);
+  // CI forces color, so Babel's code frame carries ANSI escapes.
+  const text = error.message.replace(/\u001b\[[0-9;]*m/g, "");
+  const [first] = text.split("\n");
+  const frame = text.match(/^>\s*(\d+) \|/m);
   return { message: first.replace(/^[^:]*\.jsx: /, ""), line: frame && Number(frame[1]) };
 }
 
