@@ -497,12 +497,13 @@ export function configureServerFunctionsClient({
 // `decodeResponse` and the codec behind them into every such bundle. Hung
 // off the reference constructors, the whole transport (seroval included)
 // tree-shakes away unless a reference actually exists — and when one does,
-// the seam is filled before any integration code can hold it.
-let rpcProvided = false;
+// the seam is filled before any integration code can hold it. `live` reads
+// this module's own copy (the global slot may hold another half's surface
+// where both entries load in one process).
+let rpc;
 function provideRPC() {
-  if (rpcProvided) return;
-  rpcProvided = true;
-  provideServerFunctionRPC({ GET, decodeResponse });
+  if (rpc) return;
+  provideServerFunctionRPC((rpc = { GET, decodeResponse }));
 }
 
 // A reconstructed callable's base is a rendered PLAIN-HTTP address
@@ -1368,8 +1369,10 @@ export function live(fn) {
     throw new Error("live expects a server function reference");
   }
   // live implies GET: a live source is a read by contract. An explicit
-  // GET(fn) inside passes through untouched.
-  if (getServerFunctionMetadata(fn)?.method !== "GET") fn = GET(fn);
+  // GET(fn) inside passes through untouched. Reached through the RPC seam
+  // (filled by any real reference, which `fn` is) so importing `live` alone —
+  // a router's liveQuery over a plain producer — carries no transport.
+  if (getServerFunctionMetadata(fn)?.method !== "GET") fn = rpc.GET(fn);
   const id = fn.id;
   const metadata = { ...getServerFunctionMetadata(fn), live: true };
   const makeIterable = (args, invokeOptions) => {
