@@ -409,8 +409,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // ends, if the pass doesn't read it again (#4142).
       const prev = deferredReleases;
       deferReleases((released = []));
-      disposeChildren(el);
-      deferReleases(prev);
+      try {
+        disposeChildren(el);
+      } finally {
+        deferReleases(prev);
+      }
     } else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
     // An error a pass staged (D-41) is replaced by this pass's answer: a
     // value, a flight, or an error of its own (#4109, #4145).
