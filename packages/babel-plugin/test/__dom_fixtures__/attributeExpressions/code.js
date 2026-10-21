@@ -439,3 +439,10 @@ const template105 = <input type="Checkbox" value={value} />;
 const template106 = <input type="checkbox" value={value()} defaultValue={other()} />;
 
 const template107 = <input type="email" value={value()} defaultValue={other()} />;
+
+// #4186: a stateful property gets its own effect, splitting the element's
+// grouped bindings in source order — `type` before `value` (#2532), then
+// `min`/`max`, so a min/max change never re-writes the typed value.
+const template108 = <input type={t()} value={v()} min={a()} max={b()} />;
+
+const template109 = <input type="checkbox" class={c()} checked={done()} title={label()} />;

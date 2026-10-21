@@ -12,7 +12,7 @@ use crate::shared::utils::get_numbered_id;
 
 /// One deferred dynamic attribute binding, mirroring Babel's
 /// `results.dynamics` entries. Collected across a whole template root and
-/// wrapped into a single effect by `wrap_dynamics_statement`.
+/// wrapped into effects by `wrap_dynamics_statements`.
 pub(crate) struct DynamicSlot<'a> {
     pub(crate) span: Span,
     /// The start of the attribute as written (see `AttrPlan::source_offset`).
@@ -27,7 +27,7 @@ pub(crate) struct DynamicSlot<'a> {
 }
 
 /// What one template root folds into its single binding effect
-/// (`wrap_dynamics_statement`): the deferred attribute bindings (Babel's
+/// effects (`wrap_dynamics_statements`): the deferred attribute bindings (Babel's
 /// `results.dynamics`) and the claim targets whose mount claim trails them
 /// at the effect's tail (Babel's `results.claims`) — `a[href]` /
 /// `form[action]` elements with a binding in `slots`, in document order.
@@ -76,23 +76,68 @@ impl<'a> AstDomTransform<'a, '_> {
         self.call_identifier(span, "_$readShallow", vec![value])
     }
 
-    /// Port of Babel's `wrapDynamics` (dom/template.ts): one dynamic binding
-    /// gets its own effect; multiple bindings share a single keyed effect
-    /// with a previous-values object. The batch's claim targets are claimed
-    /// at the tail of the effect body — the first run claims after it
-    /// applied the initial attributes (`claimElement` is once-per-element, so
-    /// reruns cost one check) — under `owner`, the owner the template root
-    /// captured at creation (the callback runs ownerless when a held mount
-    /// lands).
-    pub(crate) fn wrap_dynamics_statement(
+    /// Port of Babel's `wrapDynamics` (dom/template.ts): the template root's
+    /// bindings normally share one grouped effect, but a stateful DOM
+    /// property (`value`, `checked`, `selected`, `muted`) must be written
+    /// exactly when its own expression re-runs, unguarded (#2016) — grouped,
+    /// any sibling binding's change would re-write it and wipe what the user
+    /// typed (#4186). So the bindings are split around each stateful one, in
+    /// source order (#2532: `type` before `value`): a grouped effect for the
+    /// bindings before it, the stateful binding in its own single-binding
+    /// effect, then the bindings after it. The batch's claim targets trail
+    /// the last effect (`wrap_dynamics_segment`).
+    pub(crate) fn wrap_dynamics_statements(
         &mut self,
         batch: DynamicsBatch<'a>,
         owner: Option<&str>,
+    ) -> std::vec::Vec<Statement<'a>> {
+        let DynamicsBatch { slots, claims } = batch;
+        let mut segments: std::vec::Vec<std::vec::Vec<DynamicSlot<'a>>> = std::vec::Vec::new();
+        let mut current = std::vec::Vec::new();
+        for slot in slots {
+            let stateful = dom_with_state(&slot.tag_name, slot.key.trim_start_matches("prop:"))
+                == Some(DomPropertyState::Stateful);
+            if stateful {
+                if !current.is_empty() {
+                    segments.push(std::mem::take(&mut current));
+                }
+                segments.push(vec![slot]);
+            } else {
+                current.push(slot);
+            }
+        }
+        if !current.is_empty() {
+            segments.push(current);
+        }
+        let last = segments.len().saturating_sub(1);
+        let mut claims = Some(claims);
+        let mut statements = std::vec::Vec::with_capacity(segments.len());
+        for (index, segment) in segments.into_iter().enumerate() {
+            let segment_claims = if index == last {
+                claims.take().unwrap_or_default()
+            } else {
+                std::vec::Vec::new()
+            };
+            if let Some(statement) = self.wrap_dynamics_segment(segment, &segment_claims, owner) {
+                statements.push(statement);
+            }
+        }
+        statements
+    }
+
+    /// One effect for one segment of a template root's bindings: a single
+    /// binding gets the single-binding form; multiple bindings share a keyed
+    /// effect with a previous-values object. `claims` are claimed at the tail
+    /// of the effect body — the first run claims after it applied the
+    /// initial attributes (`claimElement` is once-per-element, so reruns cost
+    /// one check) — under `owner`, the owner the template root captured at
+    /// creation (the callback runs ownerless when a held mount lands).
+    fn wrap_dynamics_segment(
+        &mut self,
+        mut dynamics: std::vec::Vec<DynamicSlot<'a>>,
+        claims: &[String],
+        owner: Option<&str>,
     ) -> Option<Statement<'a>> {
-        let DynamicsBatch {
-            slots: mut dynamics,
-            claims,
-        } = batch;
         if dynamics.is_empty() {
             return None;
         }
@@ -203,10 +248,7 @@ impl<'a> AstDomTransform<'a, '_> {
 
             let elem = self.identifier_expression(slot_span, &slot.elem);
             let prop_ident = self.identifier_expression(slot_span, &prop_name);
-            let stateful = dom_with_state(&slot.tag_name, slot.key.trim_start_matches("prop:"))
-                == Some(DomPropertyState::Stateful);
-
-            if slot.key == "class" || slot.key == "style" || stateful {
+            if slot.key == "class" || slot.key == "style" {
                 let prev_member = self.optional_prev_member(slot_span, &prop_name);
                 let set_attr = self.set_attr_expression(
                     slot_span,

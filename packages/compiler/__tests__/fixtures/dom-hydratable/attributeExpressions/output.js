@@ -69,6 +69,7 @@ var _tmpl$48 = /* @__PURE__ */ _$template(`<div style=duplicate2>`);
 var _tmpl$49 = /* @__PURE__ */ _$template(`<div class=todo>`);
 var _tmpl$50 = /* @__PURE__ */ _$template(`<div class="todo item">`);
 var _tmpl$51 = /* @__PURE__ */ _$template(`<svg>`);
+var _tmpl$52 = /* @__PURE__ */ _$template(`<input>`);
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
 function refFn() {}
@@ -225,22 +226,29 @@ var _el$27 = _el$26.nextSibling;
 _$addEvent(_el$26, "input", doSomething, true);
 _$addEvent(_el$27, "input", doSomethingElse, true);
 _$setAttribute(_el$27, "readonly", value);
+_$effect(() => s(), (_v$) => {
+	_$setProperty(_el$26, "value", _v$);
+});
 _$effect(() => {
 	return {
-		e: s(),
-		t: min(),
-		a: max(),
-		o: s2(),
-		i: min(),
-		n: max()
+		e: min(),
+		t: max()
 	};
-}, ({ e, t, a, o, i, n }, _p$) => {
-	_$setProperty(_el$26, "value", e);
-	t !== _p$?.t && _$setAttribute(_el$26, "min", t);
-	a !== _p$?.a && _$setAttribute(_el$26, "max", a);
-	_$setProperty(_el$27, "checked", o);
-	i !== _p$?.i && _$setAttribute(_el$27, "min", i);
-	n !== _p$?.n && _$setAttribute(_el$27, "max", n);
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$26, "min", e);
+	t !== _p$?.t && _$setAttribute(_el$26, "max", t);
+});
+_$effect(() => s2(), (_v$) => {
+	_$setProperty(_el$27, "checked", _v$);
+});
+_$effect(() => {
+	return {
+		e: min(),
+		t: max()
+	};
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$27, "min", e);
+	t !== _p$?.t && _$setAttribute(_el$27, "max", t);
 });
 _$runHydrationEvents();
 const template20 = _el$25;
@@ -378,16 +386,14 @@ const template40 = _el$60;
 var _el$61 = _$getNextElement(_tmpl$23);
 var _el$62 = _el$61.firstChild;
 var _el$63 = _el$62.nextSibling;
-_$effect(() => {
-	return {
-		e: state.color,
-		t: Color.Red,
-		a: Color.Blue
-	};
-}, ({ e, t, a }, _p$) => {
-	_$setProperty(_el$61, "value", e);
-	_$setProperty(_el$62, "value", t);
-	_$setProperty(_el$63, "value", a);
+_$effect(() => state.color, (_v$) => {
+	_$setProperty(_el$61, "value", _v$);
+});
+_$effect(() => Color.Red, (_v$) => {
+	_$setProperty(_el$62, "value", _v$);
+});
+_$effect(() => Color.Blue, (_v$) => {
+	_$setProperty(_el$63, "value", _v$);
 });
 const template41 = _el$61;
 const template42 = _$getNextElement(_tmpl$24);
@@ -665,4 +671,35 @@ _$runHydrationEvents();
 // expression — a client-only condition memo would allocate a hydration id
 // the ssr generate never does, drifting every id after it.
 const template96 = _el$119;
+var _el$120 = _$getNextElement(_tmpl$52);
+_$effect(() => t(), (_v$) => {
+	_$setAttribute(_el$120, "type", _v$);
+});
+_$effect(() => v(), (_v$) => {
+	_$setProperty(_el$120, "value", _v$);
+});
+_$effect(() => {
+	return {
+		e: a(),
+		t: b()
+	};
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$120, "min", e);
+	t !== _p$?.t && _$setAttribute(_el$120, "max", t);
+});
+// #4186: a stateful property gets its own effect, splitting the element's
+// grouped bindings in source order — `type` before `value` (#2532), then
+// `min`/`max`, so a min/max change never re-writes the typed value.
+const template97 = _el$120;
+var _el$121 = _$getNextElement(_tmpl$9);
+_$effect(() => _$readShallow(c()), (_v$, _$p) => {
+	_$className(_el$121, _v$, _$p);
+});
+_$effect(() => done(), (_v$) => {
+	_$setProperty(_el$121, "checked", _v$);
+});
+_$effect(() => label(), (_v$) => {
+	_$setAttribute(_el$121, "title", _v$);
+});
+const template98 = _el$121;
 _$delegateEvents(["click", "input"]);

@@ -439,7 +439,7 @@ impl<'a> AstDomTransform<'a, '_> {
 
     /// `var _o$ = _$getOwner();` — a template root's creation-time owner
     /// capture, declared after its positional walks, for the claims at the
-    /// tail of its binding effect (`wrap_dynamics_statement`).
+    /// tail of its binding effect (`wrap_dynamics_statements`).
     pub(crate) fn owner_capture_statement(&mut self, owner_id: &str) -> Statement<'a> {
         self.template_state.uses_get_owner = true;
         let span = oxc_span::SPAN;

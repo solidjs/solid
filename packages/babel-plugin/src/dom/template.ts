@@ -48,13 +48,8 @@ export function createTemplate(
     ) {
       return decl.declarations[0].init as t.Expression;
     } else {
-      const dynamicsStmt = wrapDynamics(path, result.dynamics, result.claims, ownerId);
-      const stmts = [
-        decl,
-        ...result.exprs,
-        ...(dynamicsStmt ? [dynamicsStmt] : []),
-        ...(result.postExprs || [])
-      ];
+      const dynamicsStmts = wrapDynamics(path, result.dynamics, result.claims, ownerId);
+      const stmts = [decl, ...result.exprs, ...dynamicsStmts, ...(result.postExprs || [])];
 
       // In statement position (`return <jsx/>;`, `const x = <jsx/>;`),
       // emit flat statements before the parent instead of wrapping in an
@@ -190,13 +185,44 @@ function wrapReadShallow(path: NodePath, key: string, value: t.Expression): t.Ex
   );
 }
 
+/** Wraps a template root's dynamic bindings into effects. Bindings normally
+ * share one grouped effect, but a stateful DOM property (`value`, `checked`,
+ * `selected`, `muted`) must be written exactly when its own expression
+ * re-runs, unguarded (#2016) — grouped, any sibling binding's change would
+ * re-write it and wipe what the user typed (#4186). So the list is split
+ * around each stateful binding, in source order (#2532: `type` before
+ * `value`): one grouped effect for the bindings before it, the stateful
+ * binding in its own single-binding effect, then the bindings after it.
+ * The claim statements trail the last effect, so the first run claims after
+ * every initial attribute is applied. */
 function wrapDynamics(
   path: NodePath,
   dynamics: DynamicBinding[],
   claims: t.Identifier[] = [],
   ownerId?: t.Identifier
-) {
-  if (!dynamics.length) return;
+): t.ExpressionStatement[] {
+  if (!dynamics.length) return [];
+  const segments: DynamicBinding[][] = [];
+  let current: DynamicBinding[] = [];
+  for (const binding of dynamics) {
+    if (isStatefulDOMProperty(binding.tagName, binding.key)) {
+      if (current.length) segments.push(current);
+      segments.push([binding]);
+      current = [];
+    } else current.push(binding);
+  }
+  if (current.length) segments.push(current);
+  return segments.map((segment, index) =>
+    wrapDynamicsSegment(path, segment, index === segments.length - 1 ? claims : [], ownerId)
+  );
+}
+
+function wrapDynamicsSegment(
+  path: NodePath,
+  dynamics: DynamicBinding[],
+  claims: t.Identifier[],
+  ownerId?: t.Identifier
+): t.ExpressionStatement {
   const config = getConfig(path);
 
   // dynamics are only queued when effectWrapper is configured (element.ts
@@ -292,7 +318,7 @@ function wrapDynamics(
     properties.push(propIdent);
     values.push(t.objectProperty(propIdent, wrapReadShallow(path, key, value)));
 
-    if (key === "class" || key === "style" || isStatefulDOMProperty(tagName, key)) {
+    if (key === "class" || key === "style") {
       statements.push(
         t.expressionStatement(
           setAttr(path, elem, key, propIdent, {

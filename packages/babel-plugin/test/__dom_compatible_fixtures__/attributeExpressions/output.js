@@ -265,21 +265,35 @@ _$addEvent(_el$24, "input", doSomething, true);
 _$addEvent(_el$25, "input", doSomethingElse, true);
 _$setAttribute(_el$25, "readonly", value);
 _$effect(
+  () => s(),
+  _v$ => {
+    _el$24.value = _v$ ?? "";
+  }
+);
+_$effect(
   () => ({
-    e: s(),
-    t: min(),
-    a: max(),
-    o: s2(),
-    i: min(),
-    n: max()
+    e: min(),
+    t: max()
   }),
-  ({ e, t, a, o, i, n }, _p$) => {
-    _el$24.value = e ?? "";
-    t !== _p$?.t && _$setAttribute(_el$24, "min", t);
-    a !== _p$?.a && _$setAttribute(_el$24, "max", a);
-    _el$25.checked = o;
-    i !== _p$?.i && _$setAttribute(_el$25, "min", i);
-    n !== _p$?.n && _$setAttribute(_el$25, "max", n);
+  ({ e, t }, _p$) => {
+    e !== _p$?.e && _$setAttribute(_el$24, "min", e);
+    t !== _p$?.t && _$setAttribute(_el$24, "max", t);
+  }
+);
+_$effect(
+  () => s2(),
+  _v$ => {
+    _el$25.checked = _v$;
+  }
+);
+_$effect(
+  () => ({
+    e: min(),
+    t: max()
+  }),
+  ({ e, t }, _p$) => {
+    e !== _p$?.e && _$setAttribute(_el$25, "min", e);
+    t !== _p$?.t && _$setAttribute(_el$25, "max", t);
   }
 );
 const template20 = _el$23;
@@ -456,15 +470,21 @@ var _el$53 = _tmpl$21(),
   _el$54 = _el$53.firstChild,
   _el$55 = _el$54.nextSibling;
 _$effect(
-  () => ({
-    e: state.color,
-    t: Color.Red,
-    a: Color.Blue
-  }),
-  ({ e, t, a }, _p$) => {
-    _$setProperty(_el$53, "value", e);
-    _el$54.value = t;
-    _el$55.value = a;
+  () => state.color,
+  _v$ => {
+    _$setProperty(_el$53, "value", _v$);
+  }
+);
+_$effect(
+  () => Color.Red,
+  _v$ => {
+    _el$54.value = _v$;
+  }
+);
+_$effect(
+  () => Color.Blue,
+  _v$ => {
+    _el$55.value = _v$;
   }
 );
 const template41 = _el$53;
@@ -765,27 +785,57 @@ var _el$111 = _tmpl$49(),
   _el$124 = _el$123.nextSibling;
 _el$113.value = "static property";
 _$effect(
-  () => ({
-    e: dynamicProperty(),
-    t: dynamicAttribute(),
-    a: dynamicProperty(),
-    o: dynamicAttribute(),
-    i: dynamicProperty(),
-    n: dynamicProperty(),
-    s: dynamicProperty(),
-    h: dynamicAttribute(),
-    r: dynamicProperty()
-  }),
-  ({ e, t, a, o, i, n, s, h, r }, _p$) => {
-    _el$112.value = e ?? "";
-    t !== _p$?.t && (_el$113.defaultValue = t ?? "");
-    _el$116.value = a ?? "";
-    o !== _p$?.o && (_el$117.defaultValue = o ?? "");
-    _el$117.value = i ?? "";
-    _el$122.muted = n;
-    _el$123.muted = s;
-    h !== _p$?.h && (_el$124.defaultMuted = h);
-    _el$124.muted = r;
+  () => dynamicProperty(),
+  _v$ => {
+    _el$112.value = _v$ ?? "";
+  }
+);
+_$effect(
+  () => dynamicAttribute(),
+  _v$ => {
+    _el$113.defaultValue = _v$ ?? "";
+  }
+);
+_$effect(
+  () => dynamicProperty(),
+  _v$ => {
+    _el$116.value = _v$ ?? "";
+  }
+);
+_$effect(
+  () => dynamicAttribute(),
+  _v$ => {
+    _el$117.defaultValue = _v$ ?? "";
+  }
+);
+_$effect(
+  () => dynamicProperty(),
+  _v$ => {
+    _el$117.value = _v$ ?? "";
+  }
+);
+_$effect(
+  () => dynamicProperty(),
+  _v$ => {
+    _el$122.muted = _v$;
+  }
+);
+_$effect(
+  () => dynamicProperty(),
+  _v$ => {
+    _el$123.muted = _v$;
+  }
+);
+_$effect(
+  () => dynamicAttribute(),
+  _v$ => {
+    _el$124.defaultMuted = _v$;
+  }
+);
+_$effect(
+  () => dynamicProperty(),
+  _v$ => {
+    _el$124.muted = _v$;
   }
 );
 const template93 = _el$111;
@@ -798,19 +848,33 @@ var _el$125 = _tmpl$50(),
 _$insert(_el$127, dynamicContent);
 _$insert(_el$130, dynamicContent);
 _$effect(
-  () => ({
-    e: dynamicProperty(),
-    t: dynamicProperty(),
-    a: dynamicContent(),
-    o: dynamicProperty(),
-    i: dynamicProperty()
-  }),
-  ({ e, t, a, o, i }, _p$) => {
-    _el$126.value = e ?? "";
-    _el$127.value = t ?? "";
-    a !== _p$?.a && (_el$128.defaultValue = a ?? "");
-    _el$128.value = o ?? "";
-    _el$129.value = i ?? "";
+  () => dynamicProperty(),
+  _v$ => {
+    _el$126.value = _v$ ?? "";
+  }
+);
+_$effect(
+  () => dynamicProperty(),
+  _v$ => {
+    _el$127.value = _v$ ?? "";
+  }
+);
+_$effect(
+  () => dynamicContent(),
+  _v$ => {
+    _el$128.defaultValue = _v$ ?? "";
+  }
+);
+_$effect(
+  () => dynamicProperty(),
+  _v$ => {
+    _el$128.value = _v$ ?? "";
+  }
+);
+_$effect(
+  () => dynamicProperty(),
+  _v$ => {
+    _el$129.value = _v$ ?? "";
   }
 );
 const template94 = _el$125;

@@ -150,7 +150,7 @@ impl<'a> AstDomTransform<'a, '_> {
         // will manage. A fully static element (attributes in the template,
         // writes at creation) is claimed at creation, after those writes and
         // its refs; an element with dynamic bindings at the tail of the
-        // template root's binding effect (`wrap_dynamics_statement`), whose
+        // template root's binding effect (`wrap_dynamics_statements`), whose
         // first run applies them; a spread element by the spread runtime
         // after the spread's first application — no compiled claim. Mirrors
         // Babel's `transformElement`.

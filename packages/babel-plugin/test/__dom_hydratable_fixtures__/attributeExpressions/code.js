@@ -375,3 +375,10 @@ const template95 = <div class={["todo", "item", { todo: false, active: isActive(
 // expression — a client-only condition memo would allocate a hydration id
 // the ssr generate never does, drifting every id after it.
 const template96 = <svg {...spread} stroke-width={cond() ? width() : 2} fill={cond() && color()} />;
+
+// #4186: a stateful property gets its own effect, splitting the element's
+// grouped bindings in source order — `type` before `value` (#2532), then
+// `min`/`max`, so a min/max change never re-writes the typed value.
+const template97 = <input type={t()} value={v()} min={a()} max={b()} />;
+
+const template98 = <input type="checkbox" class={c()} checked={done()} title={label()} />;

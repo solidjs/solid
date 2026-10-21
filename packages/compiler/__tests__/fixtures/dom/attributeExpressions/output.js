@@ -223,22 +223,29 @@ var _el$27 = _el$26.nextSibling;
 _$addEvent(_el$26, "input", doSomething, true);
 _$addEvent(_el$27, "input", doSomethingElse, true);
 _$setAttribute(_el$27, "readonly", value);
+_$effect(() => s(), (_v$) => {
+	_el$26.value = _v$ ?? "";
+});
 _$effect(() => {
 	return {
-		e: s(),
-		t: min(),
-		a: max(),
-		o: s2(),
-		i: min(),
-		n: max()
+		e: min(),
+		t: max()
 	};
-}, ({ e, t, a, o, i, n }, _p$) => {
-	_el$26.value = e ?? "";
-	t !== _p$?.t && _$setAttribute(_el$26, "min", t);
-	a !== _p$?.a && _$setAttribute(_el$26, "max", a);
-	_el$27.checked = o;
-	i !== _p$?.i && _$setAttribute(_el$27, "min", i);
-	n !== _p$?.n && _$setAttribute(_el$27, "max", n);
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$26, "min", e);
+	t !== _p$?.t && _$setAttribute(_el$26, "max", t);
+});
+_$effect(() => s2(), (_v$) => {
+	_el$27.checked = _v$;
+});
+_$effect(() => {
+	return {
+		e: min(),
+		t: max()
+	};
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$27, "min", e);
+	t !== _p$?.t && _$setAttribute(_el$27, "max", t);
 });
 const template20 = _el$25;
 var _el$28 = _tmpl$14();
@@ -366,16 +373,14 @@ const template40 = _el$54;
 var _el$55 = _tmpl$23();
 var _el$56 = _el$55.firstChild;
 var _el$57 = _el$56.nextSibling;
-_$effect(() => {
-	return {
-		e: state.color,
-		t: Color.Red,
-		a: Color.Blue
-	};
-}, ({ e, t, a }, _p$) => {
-	_$setProperty(_el$55, "value", e);
-	_el$56.value = t;
-	_el$57.value = a;
+_$effect(() => state.color, (_v$) => {
+	_$setProperty(_el$55, "value", _v$);
+});
+_$effect(() => Color.Red, (_v$) => {
+	_el$56.value = _v$;
+});
+_$effect(() => Color.Blue, (_v$) => {
+	_el$57.value = _v$;
 });
 const template41 = _el$55;
 const template42 = _tmpl$24();
@@ -625,18 +630,17 @@ var _el$115 = _el$114.nextSibling;
 var _el$116 = _el$115.nextSibling;
 var _el$117 = _el$116.nextSibling;
 var _el$118 = _el$117.nextSibling;
-_$effect(() => {
-	return {
-		e: dynamicProperty(),
-		t: dynamicProperty(),
-		a: dynamicAttribute(),
-		o: dynamicProperty()
-	};
-}, ({ e, t, a, o }, _p$) => {
-	_el$116.muted = e;
-	_el$117.muted = t;
-	a !== _p$?.a && (_el$118.defaultMuted = a);
-	_el$118.muted = o;
+_$effect(() => dynamicProperty(), (_v$) => {
+	_el$116.muted = _v$;
+});
+_$effect(() => dynamicProperty(), (_v$) => {
+	_el$117.muted = _v$;
+});
+_$effect(() => dynamicAttribute(), (_v$) => {
+	_el$118.defaultMuted = _v$;
+});
+_$effect(() => dynamicProperty(), (_v$) => {
+	_el$118.muted = _v$;
 });
 const template93 = _el$113;
 function MyVideo() {
@@ -709,39 +713,61 @@ _$effect(() => value(), (_v$) => {
 });
 const template103 = _el$129;
 var _el$130 = _tmpl$58();
-_$effect(() => {
-	return {
-		e: kind(),
-		t: value()
-	};
-}, ({ e, t }, _p$) => {
-	e !== _p$?.e && _$setAttribute(_el$130, "type", e);
-	_$setProperty(_el$130, "value", t);
+_$effect(() => kind(), (_v$) => {
+	_$setAttribute(_el$130, "type", _v$);
+});
+_$effect(() => value(), (_v$) => {
+	_$setProperty(_el$130, "value", _v$);
 });
 const template104 = _el$130;
 var _el$131 = _tmpl$59();
 _$setProperty(_el$131, "value", value);
 const template105 = _el$131;
 var _el$132 = _tmpl$9();
-_$effect(() => {
-	return {
-		e: value(),
-		t: other()
-	};
-}, ({ e, t }, _p$) => {
-	_$setProperty(_el$132, "value", e);
-	t !== _p$?.t && _$setProperty(_el$132, "defaultValue", t);
+_$effect(() => value(), (_v$) => {
+	_$setProperty(_el$132, "value", _v$);
+});
+_$effect(() => other(), (_v$) => {
+	_$setProperty(_el$132, "defaultValue", _v$);
 });
 const template106 = _el$132;
 var _el$133 = _tmpl$60();
-_$effect(() => {
-	return {
-		e: value(),
-		t: other()
-	};
-}, ({ e, t }, _p$) => {
-	_el$133.value = e ?? "";
-	t !== _p$?.t && (_el$133.defaultValue = t ?? "");
+_$effect(() => value(), (_v$) => {
+	_el$133.value = _v$ ?? "";
+});
+_$effect(() => other(), (_v$) => {
+	_el$133.defaultValue = _v$ ?? "";
 });
 const template107 = _el$133;
+var _el$134 = _tmpl$58();
+_$effect(() => t(), (_v$) => {
+	_$setAttribute(_el$134, "type", _v$);
+});
+_$effect(() => v(), (_v$) => {
+	_$setProperty(_el$134, "value", _v$);
+});
+_$effect(() => {
+	return {
+		e: a(),
+		t: b()
+	};
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$134, "min", e);
+	t !== _p$?.t && _$setAttribute(_el$134, "max", t);
+});
+// #4186: a stateful property gets its own effect, splitting the element's
+// grouped bindings in source order — `type` before `value` (#2532), then
+// `min`/`max`, so a min/max change never re-writes the typed value.
+const template108 = _el$134;
+var _el$135 = _tmpl$9();
+_$effect(() => _$readShallow(c()), (_v$, _$p) => {
+	_$className(_el$135, _v$, _$p);
+});
+_$effect(() => done(), (_v$) => {
+	_el$135.checked = _v$;
+});
+_$effect(() => label(), (_v$) => {
+	_$setAttribute(_el$135, "title", _v$);
+});
+const template109 = _el$135;
 _$delegateEvents(["click", "input"]);

@@ -209,22 +209,29 @@ var _el$27 = _el$26.nextSibling;
 _$addEvent(_el$26, "input", doSomething, true);
 _$addEvent(_el$27, "input", doSomethingElse, true);
 _$setAttribute(_el$27, "readonly", value);
+_$effect(() => s(), (_v$) => {
+	_el$26.value = _v$ ?? "";
+});
 _$effect(() => {
 	return {
-		e: s(),
-		t: min(),
-		a: max(),
-		o: s2(),
-		i: min(),
-		n: max()
+		e: min(),
+		t: max()
 	};
-}, ({ e, t, a, o, i, n }, _p$) => {
-	_el$26.value = e ?? "";
-	t !== _p$?.t && _$setAttribute(_el$26, "min", t);
-	a !== _p$?.a && _$setAttribute(_el$26, "max", a);
-	_el$27.checked = o;
-	i !== _p$?.i && _$setAttribute(_el$27, "min", i);
-	n !== _p$?.n && _$setAttribute(_el$27, "max", n);
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$26, "min", e);
+	t !== _p$?.t && _$setAttribute(_el$26, "max", t);
+});
+_$effect(() => s2(), (_v$) => {
+	_el$27.checked = _v$;
+});
+_$effect(() => {
+	return {
+		e: min(),
+		t: max()
+	};
+}, ({ e, t }, _p$) => {
+	e !== _p$?.e && _$setAttribute(_el$27, "min", e);
+	t !== _p$?.t && _$setAttribute(_el$27, "max", t);
 });
 const template20 = _el$25;
 var _el$28 = _tmpl$14();
@@ -352,16 +359,14 @@ const template40 = _el$54;
 var _el$55 = _tmpl$23();
 var _el$56 = _el$55.firstChild;
 var _el$57 = _el$56.nextSibling;
-_$effect(() => {
-	return {
-		e: state.color,
-		t: Color.Red,
-		a: Color.Blue
-	};
-}, ({ e, t, a }, _p$) => {
-	_$setProperty(_el$55, "value", e);
-	_el$56.value = t;
-	_el$57.value = a;
+_$effect(() => state.color, (_v$) => {
+	_$setProperty(_el$55, "value", _v$);
+});
+_$effect(() => Color.Red, (_v$) => {
+	_el$56.value = _v$;
+});
+_$effect(() => Color.Blue, (_v$) => {
+	_el$57.value = _v$;
 });
 const template41 = _el$55;
 const template42 = _tmpl$24();
