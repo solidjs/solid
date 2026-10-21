@@ -111,6 +111,17 @@ createEffect(() => fetchData(id()), {
   error: (err, cleanup) => console.error(err)
 });
 
+// Effects never compare: apply (and the previous cleanup) runs every time
+// compute re-runs, even if it returned an equal value. To skip unchanged
+// values, read a memo in compute; its `equals` (default ===) stops the re-run.
+const active = createMemo(() => status() === "active");
+createEffect(
+  () => active(),
+  isActive => {
+    /* runs only when `active` flips */
+  }
+);
+
 // Run on next change only (skip initial)
 createEffect(
   () => count(),
