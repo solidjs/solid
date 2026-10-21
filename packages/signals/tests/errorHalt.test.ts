@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createEffect,
+  createMemo,
   createErrorBoundary,
   createLoadingBoundary,
   createRenderEffect,
@@ -8,6 +9,8 @@ import {
   createSignal,
   createTrackedEffect,
   flush,
+  getOwner,
+  OBSERVE,
   resetErrorHalt
 } from "../src/index.js";
 
@@ -268,5 +271,125 @@ describe("uncaught effect errors halt the reactive system (A5)", () => {
     flush();
     expect(cleanupRuns.filter(v => v === 0)).toHaveLength(1);
     expect(bodyRuns).toContain(2);
+  });
+});
+
+// #4178: the halt freezes the whole app, so its message has to say WHERE the
+// uncaught error escaped — the owner path of the computation that threw, the
+// same `in <App> › …` line every other diagnostic prints — on the halt itself
+// and on the "Update ignored" notice a later write logs.
+describe("REACTIVITY_HALTED names where it happened (#4178)", () => {
+  afterEach(() => {
+    resetErrorHalt();
+    vi.restoreAllMocks();
+  });
+
+  const nameOwner = (name: string) => ((getOwner() as any)._name = name);
+  const haltLines = (error: { mock: { calls: unknown[][] } }) =>
+    error.mock.calls.map(args => String(args[0])).filter(m => /REACTIVITY_HALTED/.test(m));
+
+  it("locates an effect-callback throw at the effect's owner path", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const [a, setA] = createSignal(0);
+    const [b, setB] = createSignal(0);
+    createRoot(() => {
+      nameOwner("<App>");
+      createRoot(() => {
+        nameOwner("<Composer>");
+        createEffect(
+          a,
+          v => {
+            if (v === 1) throw new Error("boom");
+          },
+          { name: "syncDraft" }
+        );
+      });
+      createEffect(b, () => {});
+    });
+    flush();
+
+    expect(() => {
+      setA(1);
+      flush();
+    }).toThrow("boom");
+    setB(1);
+    flush();
+
+    const [halt, ignored] = haltLines(error);
+    expect(halt).toContain("Handle errors with <Errored> or treat this as a crash.");
+    expect(halt).toContain("\n  in <App> › <Composer> › syncDraft");
+    expect(ignored).toBe(
+      "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error." +
+        "\n  in <App> › <Composer> › syncDraft"
+    );
+  });
+
+  it("locates a computed's throw at the computed, not the effect reading it", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const [a, setA] = createSignal(0);
+    createRoot(() => {
+      nameOwner("<App>");
+      const derived = createMemo(
+        () => {
+          if (a() === 1) throw new Error("bad derive");
+          return a();
+        },
+        { name: "derived" }
+      );
+      createRenderEffect(derived, () => {}, { name: "view" });
+    });
+    flush();
+
+    expect(() => {
+      setA(1);
+      flush();
+    }).toThrow("bad derive");
+    const [halt] = haltLines(error);
+    expect(halt).toContain("\n  in <App> › derived");
+    expect(halt).not.toContain("view");
+  });
+
+  it("carries the path on the structured event too", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const events: any[] = [];
+    const unsubscribe = OBSERVE!.diagnostics.subscribe(event => events.push(event));
+    try {
+      const [a, setA] = createSignal(0);
+      createRoot(() => {
+        nameOwner("<Widget>");
+        createEffect(a, v => {
+          if (v === 1) throw new Error("boom");
+        });
+      });
+      flush();
+      expect(() => {
+        setA(1);
+        flush();
+      }).toThrow("boom");
+    } finally {
+      unsubscribe();
+    }
+    const halt = events.find(e => e.code === "REACTIVITY_HALTED");
+    expect(halt.ownerPath).toEqual(["<Widget>", "effect"]);
+  });
+
+  it("names an unlabelled effect by its default name", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const [a, setA] = createSignal(0);
+    createRoot(() => {
+      createEffect(a, v => {
+        if (v === 1) throw new Error("boom");
+      });
+    });
+    flush();
+    expect(() => {
+      setA(1);
+      flush();
+    }).toThrow("boom");
+    const [halt] = haltLines(error);
+    expect(halt).toBe(
+      "[REACTIVITY_HALTED] An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash." +
+        "\n  in effect"
+    );
   });
 });

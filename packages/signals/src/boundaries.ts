@@ -68,6 +68,7 @@ import {
   GlobalQueue,
   globalQueue,
   haltReactivity,
+  haltReactivityAt,
   heldUnder,
   joinFuture,
   passLane,
@@ -573,7 +574,8 @@ function createBoundary<T>(
         } catch (e) {
           if (!(e instanceof NotReadyError)) {
             if (!globalQueue.notify(getOwner() as Computed<any>, STATUS_ERROR, STATUS_ERROR, e)) {
-              haltReactivity(e);
+              if (__DEV__) haltReactivityAt(e, getOwner()!);
+              else haltReactivity(e);
               throw e;
             }
             return;
