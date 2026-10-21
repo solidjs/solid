@@ -906,6 +906,20 @@ function locationLine(loc: string): string {
 }
 
 /**
+ * The locating lines of a console report: `\n  in <App> › <TodoRow> › effect`
+ * (the owner path) and `\n  at src/App.tsx:18:3` (see `locationLine`), each
+ * when the entry carries it; `""` when it carries neither. Shared by
+ * `reportDiagnostic` and the sites that print their own console entry (the
+ * halt, which logs its cause beside the message).
+ */
+export function locationLines(entry: DiagnosticEvent): string {
+  let text = "";
+  if (entry.ownerPath) text += `\n  in ${entry.ownerPath.join(" › ")}`;
+  if (entry.loc) text += `\n  at ${locationLine(entry.loc)}`;
+  return text;
+}
+
+/**
  * The console face of a diagnostic — ONE entry per finding: the message, the
  * owner path (`in <App> › <TodoRow> › effect`) so a human can locate it, the
  * source location (`at src/App.tsx:18:3` — see `locationLine`) when a node on
@@ -921,9 +935,7 @@ function locationLine(loc: string): string {
  */
 export function reportDiagnostic(entry: DiagnosticEvent): void {
   if (!__DEV__ || suppressedEvents.has(entry)) return;
-  let text = entry.message;
-  if (entry.ownerPath) text += `\n  in ${entry.ownerPath.join(" › ")}`;
-  if (entry.loc) text += `\n  at ${locationLine(entry.loc)}`;
+  let text = entry.message + locationLines(entry);
   const footer = takeFooter(entry);
   if (footer) text += `\n${footer}`;
   const element = (eventSubjects.get(entry) as { _devElement?: object } | undefined)?._devElement;

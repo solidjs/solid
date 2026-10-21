@@ -252,7 +252,9 @@ If the fallback should appear immediately beside the held frame, use a
 An earlier uncaught error halted the reactive system; subsequent updates are
 ignored. Do not treat this code as the bug — find the original error above
 it (or add an error boundary with `<Errored>`) and fix
-that.
+that. The `in <App> › …` line under the message (repeated on the "Update
+ignored" notice) is the owner path of the computation the error escaped from:
+start there.
 
 ### SETTLE_WALK_UNINITIALIZED_SOURCE
 
