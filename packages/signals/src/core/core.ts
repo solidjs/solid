@@ -489,12 +489,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // A projection's body self-registers its flight through handleAsync
       // (with the commit as setter): its undefined return is not a sync
       // answer, and the outer handleAsync must not clobber the registration.
-      // `?? null`: a body that only allocates the extension (an internal
-      // `onSupersede` registration on a first run) has not registered a flight.
-      const prevInFlight = el._x?._inFlight ?? null;
+      const prevInFlight = el._x?._inFlight;
       const fnResult = el._fn(value);
       const isAsyncResult = typeof fnResult === "object" && fnResult !== null;
-      const selfRegistered = (el._x?._inFlight ?? null) !== prevInFlight;
+      const selfRegistered = el._x?._inFlight !== prevInFlight;
       value = selfRegistered || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
       if (!selfRegistered && !isAsyncResult) {
         if (el._x !== null) el._x._inFlight = null;

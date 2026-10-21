@@ -586,7 +586,7 @@ describe("from: AsyncIterable sources", () => {
 });
 
 describe("from: several sources in one run", () => {
-  it("a from() the compute opens but doesn't return closes at supersede too", async () => {
+  it("a from() the compute opens but doesn't return closes when the replacement commits (owner cleanup)", async () => {
     const log: string[] = [];
     const sources = {
       a: { side: source("side a", log, { value: 0 }), main: source("main a", log, { value: "a" }) },
@@ -609,18 +609,27 @@ describe("from: several sources in one run", () => {
 
     setX("b");
     flush();
+    // The returned source closes at supersede, before the new run opens
+    // anything; the unreturned one is held with the run's other cleanups until
+    // the replacement commits (here within the same flush, since `main b`
+    // emits on subscribe).
     expect(log).toEqual([
       "open side a",
       "open main a",
-      "close side a",
       "close main a",
       "open side b",
-      "open main b"
+      "open main b",
+      "close side a"
     ]);
     await microtasks();
     expect(m()).toBe("b");
     dispose();
-    expect(log.slice(6).sort()).toEqual(["close main b", "close side b"]);
+    expect(log.filter(l => l.startsWith("close")).sort()).toEqual([
+      "close main a",
+      "close main b",
+      "close side a",
+      "close side b"
+    ]);
   });
 
   it("deferred posture: a promise resolving to from(...) closes at supersede", async () => {
