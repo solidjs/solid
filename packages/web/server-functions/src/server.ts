@@ -540,6 +540,8 @@ export interface ServerFunctionInvocation {
    * `false` for the data and bare addresses, and for in-process calls.
    */
   live: boolean;
+  /** A live call to a `broadcast` declaration: its answer is shared. */
+  broadcast?: boolean;
 }
 
 /**
@@ -1647,6 +1649,29 @@ export function live(fn) {
   });
   return wrapped;
 }
+
+/**
+ * Declares a live server function whose answer is the same for every
+ * viewer: implies `live` and `GET`, and at the live address every caller
+ * with the same arguments shares ONE render (frames server half). The
+ * outer body still runs per call — a gate (auth, redirects) — but what it
+ * returns is the shared answer's to render.
+ * @experimental
+ */
+export function broadcast<A extends readonly any[], R>(
+  fn: (...args: A) => R
+): ServerFunction<A, LiveSource<Awaited<R>>>;
+
+export function broadcast(fn) {
+  const ref = live(fn);
+  ref[SERVER_FUNCTION_METADATA].broadcast = true;
+  BROADCASTS.add(fn.id);
+  return ref;
+}
+
+// Ids declared `broadcast` — read by dispatch onto the invocation, since
+// the wire never sees a reference's metadata.
+const BROADCASTS = new Set();
 
 /**
  * Brands a live declaration's answer, in process: the async iterable it IS
@@ -4462,7 +4487,11 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // Identity is established BEFORE the wrapper runs, so
         // getServerFunctionInvocation() answers throughout the wrap — code
         // ahead of run() (auth, logging) included.
-        INVOCATIONS.set(event, { id: functionId, live: !!live });
+        INVOCATIONS.set(event, {
+          id: functionId,
+          live: !!live,
+          broadcast: (!!live && BROADCASTS.has(functionId)) || undefined
+        });
         const run = () => serverFunction(...parsed);
         // Same observation as the direct leg (see `observeInvocation`): the
         // wrapped execution as a whole, the error as thrown — before the
