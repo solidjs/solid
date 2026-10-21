@@ -326,7 +326,8 @@ function reconcileDraft(draft: any, incoming: any, keyFn: KeyFn | null): void {
  * committed length differs, and as the `LaneView`'s base for structural
  * reads. Unkeyed families compose
  * positionally — the guess stands as written (the documented residue). */
-GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown): void => {
+GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
+  if (!older) return fold(el, truth);
   const t = (el as any)._host as StoreTarget | undefined;
   if (t === undefined || (el as any)._key !== $TRACK) return;
   const view = el._x!._lane;
@@ -395,26 +396,27 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown): void => {
  * re-derives from the truth now (`foldedRead`). A confirmation is silent
  * (A17): only truth readers are told. True: the lane stages the truth
  * beneath (`laneWrite`). */
-GlobalQueue.fold = (el: Signal<any>, truth: unknown): boolean => {
+function fold(el: Signal<any>, truth: unknown): boolean {
   const t = (el as any)._host as StoreTarget | undefined;
   const k = t?.k;
+  const l = txOf(el);
+  // A guess the screen never showed is void at the correction (D-34).
   if (
-    k == null ||
+    !l._shown ||
+    !(k?._config! & CONFIG_OVERRIDE) ||
     t!.fam?.key == null ||
-    !(k._config & CONFIG_OVERRIDE) ||
-    !(k._x!._lane instanceof LaneView) ||
-    !Array.isArray(k._x!._lane.rows)
+    !(k!._x!._lane instanceof LaneView) ||
+    !Array.isArray(k!._x!._lane.rows)
   )
     return false;
-  const l = txOf(el);
   const guess = el._x!._lane;
   if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth)) {
-    l.folded = true;
+    l.folded = foldedRead;
     insertSubs(el);
   } else GlobalQueue._confirmed?.(l);
   joinFuture(resolveTx(l._parent ?? l));
   return true;
-};
+}
 
 /** A folded lane's guess read by a deriving pass outside the lane, tracked
  * or not (`untrack` is about dependencies, not about which world a pass
@@ -424,7 +426,7 @@ GlobalQueue.fold = (el: Signal<any>, truth: unknown): boolean => {
  * from lane passes only (#3164). The store's own derive reconciles its
  * landings against the arrangement the guesses made: it is the author, not
  * a reader. */
-GlobalQueue.foldedRead = (c, el) => {
+function foldedRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   if (c !== null) {
     if (
       !(el._config & CONFIG_GUESS) ||
@@ -439,12 +441,7 @@ GlobalQueue.foldedRead = (c, el) => {
   }
   if (el._pendingValue !== NOT_PENDING) return el._pendingValue;
   return el._config & CONFIG_SLOT_NODE ? GlobalQueue._slotCovered!(el) : el._value;
-};
-
-GlobalQueue.foldedHold = k => {
-  const l = txOf(k);
-  return l.folded ? resolveTx(l._parent ?? l) : null;
-};
+}
 
 function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {
   if (a === b) return true;

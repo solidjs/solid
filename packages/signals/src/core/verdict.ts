@@ -396,7 +396,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         probeFound = true;
       // A lane a correction folded under (D-34): `latest()` shows the hold's
       // world whole — the truth beneath each guess, else what it covered.
-      if (latestActive && l.folded) return GlobalQueue.foldedRead!(null, el);
+      if (latestActive && l.folded) return l.folded(null, el);
       return el._x!._lane;
     }
     if (probing && flying) probeFound = true;

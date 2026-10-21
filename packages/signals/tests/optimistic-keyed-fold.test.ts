@@ -17,11 +17,14 @@ import {
   createOptimisticStore,
   createRenderEffect,
   createRoot,
+  createMemo,
   createSignal,
   flush,
   mapArray,
   onCleanup,
+  resolve,
   TimeoutError,
+  untrack,
   until
 } from "../src/index.js";
 
@@ -185,6 +188,87 @@ describe("keyed arrangement guess: a correction folds beneath it (D-34)", () => 
     await sleep(5);
     expect(h.snap()).toBe("a#1,b#2");
     expect(h.counts()).toEqual({ mounts: 3, unmounts: 1 });
+  });
+
+  it("a mainline `until` over a folded lane keeps its posture: it reads the truth, joins the hold and delivers at its commit (D-31)", async () => {
+    const h = setup([row("a")]);
+    const p1 = push(h, "b");
+    flush();
+    await sleep(2);
+    const p2 = push(h, "c");
+    flush();
+    await sleep(10);
+    h.setSource([row("a"), row("b")]);
+    flush();
+    const log: string[] = [];
+    // The truth confirms `b`; a mainline wait over the hold delivers at its
+    // commit, never in the window (the truth read alone would).
+    void until(() => h.rows.some(r => r.id === "b")).then(() => log.push("b"));
+    // `c` is a guess the truth has not confirmed: invisible to `until`.
+    void until(() => h.rows.some(r => r.id === "c")).then(() => log.push("c"));
+    void resolve(() => h.rows.length).then(n => log.push(`resolve ${n}`));
+    await p1;
+    await sleep(5);
+    expect(log).toEqual([]);
+    h.setSource([row("a"), row("b"), row("c")]);
+    flush();
+    await p2;
+    flush();
+    await sleep(5);
+    expect(log.sort()).toEqual(["b", "c", "resolve 3"]);
+  });
+
+  it("a keyed guess the screen never showed is void at a correction, as any guess's (D-34)", async () => {
+    const [source, setSource] = createSignal<Row[]>([row("a")]);
+    let s!: Row[];
+    let set!: (fn: (d: Row[]) => void) => void;
+    const frames: string[] = [];
+    createRoot(() => {
+      [s, set] = createOptimisticStore<Row[]>(() => source(), []);
+      // The lane's reveal waits on its own downstream flight.
+      const n = createMemo(async () => {
+        const v = s.length;
+        await sleep(20);
+        return v;
+      });
+      const rows = mapArray(
+        () => s,
+        (r: Row) => r
+      );
+      createRenderEffect(
+        () =>
+          rows()
+            .map(r => r.id)
+            .join(",") +
+          "|" +
+          n(),
+        v => void frames.push(v)
+      );
+    });
+    flush();
+    await sleep(30);
+    flush();
+    const p = action(function* () {
+      set(d => void d.push(row("b")));
+      yield sleep(5);
+      yield until(() => s.some(r => r.id === "b"));
+    })();
+    flush();
+    await sleep(5);
+    {
+      setSource([row("a"), row("z")]);
+      flush();
+      // Never shown, the guess is void: untracked reads see the committed
+      // value, as the screen does.
+      expect(untrack(() => s.map(r => r.id).join(","))).toBe("a");
+    }
+    await sleep(5);
+    setSource([row("a"), row("z"), row("b")]);
+    flush();
+    await p;
+    await sleep(40);
+    flush();
+    expect(frames).toEqual(["a|1", "a,z,b|3"]);
   });
 
   for (const where of ["in the action", "on mainline"]) {

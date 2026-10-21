@@ -91,6 +91,7 @@ import {
   passLane,
   queuePendingNode,
   schedule,
+  resolveTx,
   txOf,
   type Transaction,
   installStoreHooks
@@ -374,8 +375,8 @@ function bornStaged(target: StoreTarget, node: Signal<any>, staged: any, key: Pr
   // unless a correction folded under the guess, D-34: the key is that
   // correction's hold's.)
   if (k._config & CONFIG_HELD && heldKeyChanged(target, key)) {
-    const t = k._config & CONFIG_OVERRIDE ? GlobalQueue.foldedHold?.(k) : txOf(k);
-    if (t) holdNode(node, t);
+    const l = txOf(k);
+    if (!(k._config & CONFIG_OVERRIDE) || l.folded) holdNode(node, resolveTx(l._parent ?? l));
   }
   // A28 (4): a batch written inside a creation-time pass is promoted — its
   // late-materialized leaf with it.

@@ -1817,9 +1817,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (!c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN)
       return el._value as T;
     // (A plain signal is never uninitialized — the carve-out is `serve`'s.)
-    // Lane work, once the frame has a transaction, reads the screen too.
+    // Lane work over a folded lane (D-34), once the frame has a
+    // transaction, reads the screen too.
     if (
-      ((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane !== null)) &&
+      ((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
       stagedScreen(c as Computed<any>)
     )
       return el._value as T;
@@ -2039,10 +2040,10 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
 
 /** A pass read a staging of this flush: it derives from what the flush may
  * yet hold (REACTIVE_STAGED_READ — the seam decides). Lane work too (plan sec. 28, a
- * lane sees the screen plus its own guesses), before the frame has a
- * transaction (after, it reads the screen like a verdict reader,
- * `stagedScreen` — a list pass never pairs a held length with the guess's
- * rows, D-34): the staging is the screen if
+ * lane sees the screen plus its own guesses) — a folded lane's only before
+ * the frame has a transaction (after, it reads the screen like a verdict
+ * reader, `stagedScreen` — a list pass never pairs a held length with the
+ * guess's rows, D-34): the staging is the screen if
  * the frame commits — one pass, the common case — and a held write if it
  * parks, which the seam repairs (`stagedReaders`): the pass re-derives on
  * the committed world and its lane's runs wait that round, so the held
