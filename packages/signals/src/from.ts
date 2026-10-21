@@ -3,12 +3,12 @@
 //
 //   const value = createMemo(() => from(source));
 //
-// Latest-value semantics: values that arrive between pulls coalesce. The
-// subscription opens when the iterable is iterated and closes on return(),
-// on supersede (the owning computation re-runs) and on owner disposal,
-// whichever comes first.
+// A subscription keeps the latest value: values that arrive between pulls
+// coalesce. An AsyncIterable streams through unchanged. Either way the source
+// opens when the result is iterated and closes on return(), on supersede (the
+// owning computation re-runs) and on owner disposal, whichever comes first.
 
-import { onSupersede } from "./core/async.js";
+import { isThenable, onSupersede } from "./core/async.js";
 import { CONFIG_CHILDREN_FORBIDDEN } from "./core/constants.js";
 import { cleanup, getOwner } from "./core/owner.js";
 
@@ -51,6 +51,72 @@ function toSubscribe<T>(source: FromSource<T>): SubscribeFn<T> | null {
   return null;
 }
 
+const DONE: IteratorResult<any> = { value: undefined, done: true };
+
+/**
+ * Ties an iterator's `finish` to the computation iterating it. Solid reaches
+ * an iterator's return() only when the compute returns the iterable directly.
+ * Inside an async generator the generator's own return() is queued behind its
+ * pending `await`, and owner cleanups wait for the replacing pass to commit,
+ * so close on supersede, with owner disposal as the backstop. No owner: no
+ * registration (no diagnostic either). Scopes that forbid cleanups rely on
+ * supersede and return().
+ */
+function bindToOwner(finish: () => void): void {
+  const owner = getOwner();
+  if (!owner) return;
+  onSupersede(finish);
+  if (!(owner._config & CONFIG_CHILDREN_FORBIDDEN)) cleanup(finish);
+}
+
+/**
+ * An AsyncIterable as a stream bound to the iterating computation: every
+ * value passes through (no coalescing). `finish` calls the inner return()
+ * once and settles pending pulls as done, so a `for await` over it exits as
+ * soon as the computation re-runs — even when the inner iterator is an async
+ * generator whose own return() the language queues behind its pending
+ * `await`.
+ */
+function wrapIterable<T>(source: AsyncIterable<T>): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<T> {
+      const it = source[Symbol.asyncIterator]();
+      let closed = false;
+      const pending = new Set<(r: IteratorResult<T>) => void>();
+      const finish = (): IteratorResult<T> => {
+        if (closed) return DONE;
+        closed = true;
+        for (const resolve of pending) resolve(DONE);
+        pending.clear();
+        try {
+          const returned = it.return?.();
+          if (isThenable(returned)) returned.then(undefined, () => {});
+        } catch {}
+        return DONE;
+      };
+      bindToOwner(finish);
+      return {
+        next(...args: [] | [any]): Promise<IteratorResult<T>> {
+          if (closed) return Promise.resolve(DONE);
+          const step = it.next(...args);
+          // A bare result (the producer's buffered fast path) passes through.
+          if (!isThenable(step)) return step as any;
+          return new Promise((resolve, reject) => {
+            pending.add(resolve);
+            step.then(
+              r => pending.delete(resolve) && resolve(r),
+              e => pending.delete(resolve) && reject(e)
+            );
+          });
+        },
+        return(): Promise<IteratorResult<T>> {
+          return Promise.resolve(finish());
+        }
+      };
+    }
+  };
+}
+
 const toCleanup = (t: Teardown): (() => void) =>
   typeof t === "function"
     ? t
@@ -60,8 +126,9 @@ const toCleanup = (t: Teardown): (() => void) =>
 
 /**
  * Converts a callback subscription, an Observable or an AsyncIterable into an
- * AsyncIterable for a Solid computation. Keeps only the latest value; a value
- * the source emits during `subscribe` is served without a loading frame.
+ * AsyncIterable for a Solid computation. A subscription keeps only the latest
+ * value, and a value the source emits during `subscribe` is served without a
+ * loading frame; an AsyncIterable streams every value through.
  *
  * The source closes on supersede — the owning computation re-running — even
  * when `from` is iterated with `for await` inside an async generator memo, and
@@ -83,7 +150,7 @@ export function from<T>(source: FromSource<T>): AsyncIterable<T> {
   const subscribe = toSubscribe(source);
   if (!subscribe) {
     if (source && typeof (source as any)[Symbol.asyncIterator] === "function")
-      return source as AsyncIterable<T>;
+      return wrapIterable(source as AsyncIterable<T>);
     throw new TypeError("from(): expected a subscribe function, an Observable or an AsyncIterable");
   }
   return {
@@ -162,21 +229,12 @@ export function from<T>(source: FromSource<T>): AsyncIterable<T> {
         if (waiting) {
           const w = waiting;
           waiting = null;
-          w.resolve({ value: undefined, done: true });
+          w.resolve(DONE);
         }
-        return { value: undefined, done: true };
+        return DONE;
       };
 
-      // Solid reaches return() only when the compute returns this iterable
-      // directly. Inside an async generator the generator's own return() is
-      // queued behind its pending `await`, and owner cleanups wait for the
-      // replacing pass to commit — so close on supersede, with owner disposal
-      // as the backstop. Scopes that forbid cleanups rely on return() alone.
-      const owner = getOwner();
-      if (owner) {
-        onSupersede(finish);
-        if (!(owner._config & CONFIG_CHILDREN_FORBIDDEN)) cleanup(finish);
-      }
+      bindToOwner(finish);
 
       return {
         next(): Promise<IteratorResult<T>> {

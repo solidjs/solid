@@ -208,9 +208,19 @@ describe("from: basics", () => {
     }
   });
 
-  it("passes an AsyncIterable through", () => {
-    const it = { [Symbol.asyncIterator]: () => ({}) as AsyncIterator<number> };
-    expect(from(it)).toBe(it);
+  it("wraps an AsyncIterable (a new iterable, opened lazily) and rejects other values", () => {
+    let opened = 0;
+    const it = {
+      [Symbol.asyncIterator]: () => {
+        opened++;
+        return { next: () => new Promise<IteratorResult<number>>(() => {}) };
+      }
+    };
+    const wrapped = from(it);
+    expect(wrapped).not.toBe(it);
+    expect(opened).toBe(0);
+    wrapped[Symbol.asyncIterator]();
+    expect(opened).toBe(1);
     expect(() => from(42 as any)).toThrow(TypeError);
   });
 
@@ -415,5 +425,162 @@ describe("from: supersede closes the old source with no tick", () => {
     expect(log).toEqual(["open a", "close a", "open ab"]);
     dispose();
     expect(log).toEqual(["open a", "close a", "open ab", "close ab"]);
+  });
+});
+
+describe("from: AsyncIterable sources", () => {
+  /** A hand-written iterator: next() waits for land(); return() logs synchronously. */
+  function handIterable(label: string, log: string[]) {
+    const lands: Array<(r: IteratorResult<string>) => void> = [];
+    let n = 0;
+    return {
+      land: () => lands.shift()?.({ value: `${label}${++n}`, done: false }),
+      [Symbol.asyncIterator](): AsyncIterator<string> {
+        log.push(`open ${label}`);
+        return {
+          next: () => new Promise(resolve => lands.push(resolve)),
+          return: () => {
+            log.push(`return ${label}`);
+            return Promise.resolve({ value: undefined, done: true });
+          }
+        };
+      }
+    };
+  }
+
+  /** An async generator: yields `${label}1`, then parks on an await until release(). */
+  function genIterable(label: string, log: string[]) {
+    let release!: () => void;
+    async function* gen() {
+      log.push(`open ${label}`);
+      try {
+        yield `${label}1`;
+        await new Promise<void>(r => (release = r));
+        yield `${label}2`;
+      } finally {
+        log.push(`finally ${label}`);
+      }
+    }
+    return {
+      release: () => release(),
+      [Symbol.asyncIterator]() {
+        const g = gen();
+        const ret = g.return.bind(g);
+        g.return = (v?: any) => {
+          log.push(`return ${label}`);
+          return ret(v);
+        };
+        return g;
+      }
+    };
+  }
+
+  it("streams every value (no coalescing)", async () => {
+    async function* gen() {
+      yield 1;
+      yield 2;
+      yield 3;
+    }
+    const seen: number[] = [];
+    for await (const v of from(gen())) seen.push(v);
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it("for await, hand-written source: the old iterator's return() runs at supersede", async () => {
+    const log: string[] = [];
+    const sources = { a: handIterable("a", log), b: handIterable("b", log) };
+    let setX!: (v: "a" | "b") => void;
+    let m!: () => string;
+    const { seen, dispose } = mount(() => {
+      const [x, set] = createSignal<"a" | "b">("a");
+      setX = set;
+      return (m = createMemo(async function* () {
+        for await (const v of from(sources[x()])) yield v;
+      }));
+    });
+    sources.a.land();
+    await microtasks();
+    expect(m()).toBe("a1");
+
+    setX("b");
+    flush();
+    expect(log).toEqual(["open a", "return a", "open b"]);
+
+    sources.a.land();
+    sources.b.land();
+    await microtasks();
+    expect(m()).toBe("b1");
+    expect(seen).not.toContain("a2");
+    dispose();
+    expect(log).toEqual(["open a", "return a", "open b", "return b"]);
+  });
+
+  it("for await, async-generator source: return() is called at supersede, the generator finishes when its await settles", async () => {
+    const log: string[] = [];
+    const sources = { a: genIterable("a", log), b: genIterable("b", log) };
+    let setX!: (v: "a" | "b") => void;
+    let m!: () => string;
+    const { seen, dispose } = mount(() => {
+      const [x, set] = createSignal<"a" | "b">("a");
+      setX = set;
+      return (m = createMemo(async function* () {
+        for await (const v of from(sources[x()])) yield v;
+      }));
+    });
+    await microtasks();
+    expect(m()).toBe("a1");
+
+    setX("b");
+    flush();
+    // return() is called now; the language queues it behind the generator's
+    // pending await, so its finally has not run yet.
+    expect(log).toEqual(["open a", "return a", "open b"]);
+    await microtasks();
+    expect(m()).toBe("b1");
+    expect(log).toEqual(["open a", "return a", "open b"]);
+
+    // The await settles: the queued return() runs (finally), and the value
+    // the generator yields on the way out goes nowhere.
+    sources.a.release();
+    await microtasks();
+    expect(log).toEqual(["open a", "return a", "open b", "finally a"]);
+    expect(seen).not.toContain("a2");
+    expect(m()).toBe("b1");
+    dispose();
+    expect(log).toEqual(["open a", "return a", "open b", "finally a", "return b"]);
+  });
+
+  it("direct return: the old iterator closes at supersede", async () => {
+    const log: string[] = [];
+    const sources = { a: handIterable("a", log), b: handIterable("b", log) };
+    let setX!: (v: "a" | "b") => void;
+    const { dispose } = mount(() => {
+      const [x, set] = createSignal<"a" | "b">("a");
+      setX = set;
+      return createMemo(() => from(sources[x()]));
+    });
+    sources.a.land();
+    await microtasks();
+    setX("b");
+    flush();
+    expect(log).toEqual(["open a", "return a", "open b"]);
+    dispose();
+    expect(log).toEqual(["open a", "return a", "open b", "return b"]);
+  });
+
+  it("dispose closes the iterator once, and a pending pull settles as done", async () => {
+    const log: string[] = [];
+    const src = handIterable("a", log);
+    const { dispose } = mount(() =>
+      createMemo(async function* () {
+        for await (const v of from(src)) yield v;
+        log.push("loop exited");
+      })
+    );
+    expect(log).toEqual(["open a"]);
+    dispose();
+    expect(log).toEqual(["open a", "return a"]);
+    await microtasks();
+    expect(log).toEqual(["open a", "return a", "loop exited"]);
   });
 });
