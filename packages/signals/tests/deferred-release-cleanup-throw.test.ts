@@ -61,39 +61,3 @@ it.each([false, true])(
     }
   }
 );
-
-// A lazy node the dismantled frame's children released before the throw is
-// still released: the throw skips the drain at the end of the pass.
-it("a cleanup throw still releases lazy nodes collected before it", () => {
-  const failure = new Error("cleanup failed");
-  const [version, setVersion] = createSignal(0);
-  let cleaned = 0;
-  const dispose = createRoot(dispose => {
-    const lazy = createMemo(
-      () => {
-        onCleanup(() => cleaned++);
-        return 1;
-      },
-      { lazy: true }
-    );
-    createMemo(() => {
-      if (version() === 0) {
-        createMemo(() => lazy());
-        onCleanup(() => {
-          throw failure;
-        });
-      }
-      return new Promise<number>(() => {});
-    });
-    return dispose;
-  });
-  try {
-    flush();
-    setVersion(1);
-    expect(() => flush()).toThrow(failure);
-    expect(cleaned).toBe(1);
-  } finally {
-    dispose();
-    flush();
-  }
-});

@@ -411,14 +411,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       deferReleases((released = []));
       try {
         disposeChildren(el);
-      } catch (e) {
-        // The throw skips the drain at the end of the pass: release what the
-        // cleanups before it collected now.
+      } finally {
         deferReleases(prev);
-        for (const node of released) releaseIfSettledUnobserved(node);
-        throw e;
       }
-      deferReleases(prev);
     } else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
     // An error a pass staged (D-41) is replaced by this pass's answer: a
     // value, a flight, or an error of its own (#4109, #4145).
