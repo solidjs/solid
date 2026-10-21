@@ -2031,6 +2031,13 @@ export function renderToStream(code, options = {}) {
   // The server error hook's ledger scope (`reportServerError`): the request
   // this render serves, else the render itself — never the process.
   const errorScope = requestEvent || {};
+  // The render's one report for a failure nothing is on the stack to catch:
+  // through its hook, else the ambient one, else `console.error` — never
+  // silent.
+  const reportFailure = (err, handling) => {
+    reportServerError(err, { kind: "render", handling }, null, options.onError, errorScope);
+    if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
+  };
   let dispose;
   let dead = false;
   // The render's `"render"` record (`timeDocument`, once the context is up):
@@ -2128,27 +2135,11 @@ export function renderToStream(code, options = {}) {
     const sink = writable;
     buffer = { write() {} };
     writable = { end() {} };
-    // Contained (#4029): an `onCleanup` that throws here must not escape the
-    // teardown. On the `signal` path this runs inside an `abort` listener,
-    // where a throw becomes an uncaught exception that takes the process down;
-    // on the `failRender` path it would cut the wind-down short. It is the
-    // render's failure, so it goes to the hook as one (`handling: "failed"`),
-    // and with no hook anywhere it is never silent.
+    // The dispose contains a throwing `onCleanup` itself (#4029, #4193).
     if (dispose) {
       const d = dispose;
       dispose = () => {};
-      try {
-        d();
-      } catch (err) {
-        reportServerError(
-          err,
-          { kind: "render", handling: "failed" },
-          null,
-          options.onError,
-          errorScope
-        );
-        if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
-      }
+      d();
     }
     // Close the serializer AFTER `dead` is set: seroval's `close()` runs
     // each pending write's cleanup — a serialized async iterator gets its
@@ -2207,14 +2198,7 @@ export function renderToStream(code, options = {}) {
     // boundary that already reported this error with its location leaves
     // this a no-op (once per error). With no hook anywhere the failure is
     // never silent.
-    reportServerError(
-      err,
-      { kind: "render", handling: "failed" },
-      null,
-      options.onError,
-      errorScope
-    );
-    if (!options.onError && ambientServerErrorHook() === undefined) console.error(err);
+    reportFailure(err, "failed");
     abandon();
   };
   // The same containment reached from the renderer's OWN retry passes (root
@@ -2511,7 +2495,12 @@ export function renderToStream(code, options = {}) {
     plugins: options.plugins,
     onData: payload => sink.data(payload),
     onDone,
-    onError: serializerErrorHook(options.onError)
+    // Always wired (#4193), unlike `renderToString`'s: a stream has no caller
+    // to throw a late value's failure to, and without an `onError` seroval
+    // throws from its promise callback and never reaches `onDone` — the
+    // render would stay pending. Heard as `handling: "serialize"` by the
+    // render's hook, else the ambient one, else `console.error`.
+    onError: err => reportFailure(err, "serialize")
   });
   let rootAssetsSerialized = false;
   const serializeRootAssets = () => {
@@ -3127,7 +3116,16 @@ export function renderToStream(code, options = {}) {
           context.trace = undefined;
           if (onAbort) signal.removeEventListener("abort", onAbort);
           if (endEdges) endEdges();
-          d();
+          // Contained (#4029, #4193): an `onCleanup` that throws must not
+          // escape the teardown — inside the `signal`'s `abort` listener it is
+          // an uncaught exception, on the completion paths an unhandled
+          // rejection, and on `failRender`'s it cuts the wind-down short. It
+          // is the render's failure (`handling: "failed"`).
+          try {
+            d();
+          } catch (err) {
+            reportFailure(err, "failed");
+          }
         };
         rootOwner = claimRenderRoot(context);
         if (requestEvent) claimEventRender(requestEvent, context);
