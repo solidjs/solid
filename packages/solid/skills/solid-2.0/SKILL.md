@@ -55,6 +55,11 @@ Also:
 
 - Reads lag writes: `setX(1); x()` still returns the old value until the
   microtask or `flush()`. In tests, `flush()` before asserting.
+- Effects never compare: when the compute re-runs, apply and the previous
+  cleanup run again even if compute returned an equal value. To skip work on
+  an unchanged value, read a memo in the compute:
+  `const active = createMemo(() => status() === "active"); createEffect(() => active(), v => ...)`.
+  The memo's `equals` (default `===`) stops the re-run.
 - No writes inside a memo, effect compute, or component body (dev throws).
   Write from event handlers, `onSettled`, or actions.
 - No reactive reads at the top of a component body; read in JSX, a memo, or
@@ -63,6 +68,8 @@ Also:
 - `<For>`: default gives a raw item and an index accessor; `keyed={false}`
   gives an item accessor and a plain number. `<Repeat>`: `i` is a number.
 - `onClick={cond() ? a : b}` binds once; decide inside a stable handler.
+- `on:`, `oncapture:`, `attr:`, `bool:`, `use:` and `classList` on a native
+  element are compile errors; the message names the replacement above.
 - Inputs aren't strictly controlled: `value={x()}` writes only when the
   binding re-runs. Keep typing in a draft signal (`onInput`), commit on
   `onChange`/submit; when a handler rejects input, also set

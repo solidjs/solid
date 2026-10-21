@@ -30,6 +30,7 @@ import {
   GlobalQueue,
   globalQueue,
   haltReactivity,
+  haltReactivityAt,
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
@@ -118,7 +119,14 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
       return;
     }
     if (!globalQueue.notify(this, STATUS_ERROR, STATUS_ERROR)) {
-      haltReactivity(unwrapStatusError(actualError));
+      // Dev locates the halt at the node that threw: the StatusError's
+      // source, upstream of this effect when a computed failed.
+      __DEV__
+        ? haltReactivityAt(
+            unwrapStatusError(actualError),
+            actualError instanceof StatusError ? actualError.source : this
+          )
+        : haltReactivity(unwrapStatusError(actualError));
       throw actualError;
     }
   } else if (this._type === EFFECT_RENDER) {
@@ -185,7 +193,7 @@ function runEffect(node: Effect<any>, type: number): void {
         : console.error(err);
     } catch (error) {
       if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
-        haltReactivity(error);
+        __DEV__ ? haltReactivityAt(error, node) : haltReactivity(error);
         throw error;
       }
     }
@@ -221,7 +229,7 @@ function runEffect(node: Effect<any>, type: number): void {
     ext(node)._error = new StatusError(node, error);
     node._statusFlags |= STATUS_ERROR;
     if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
-      haltReactivity(error);
+      __DEV__ ? haltReactivityAt(error, node) : haltReactivity(error);
       throw error;
     }
   } finally {

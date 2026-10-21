@@ -111,6 +111,17 @@ createEffect(() => fetchData(id()), {
   error: (err, cleanup) => console.error(err)
 });
 
+// Effects never compare: apply (and the previous cleanup) runs every time
+// compute re-runs, even if it returned an equal value. To skip unchanged
+// values, read a memo in compute; its `equals` (default ===) stops the re-run.
+const active = createMemo(() => status() === "active");
+createEffect(
+  () => active(),
+  isActive => {
+    /* runs only when `active` flips */
+  }
+);
+
 // Run on next change only (skip initial)
 createEffect(
   () => count(),
@@ -391,6 +402,11 @@ function Page() {
 }
 ```
 
+`undefined` means "not provided": `createContext<T | undefined>(undefined)`
+is still default-less, and `<Ctx value={undefined}>` counts as no Provider —
+both throw `ContextNotFoundError`. For an optional context use `null`:
+`createContext<T | null>(null)` (and a Provider may pass `null`).
+
 Don't write a `useTodos`-style wrapper that re-throws on missing Provider —
 the default-less form already throws, and `useContext` is typed `T` (no
 `| undefined`). The wrapper is React-flavored boilerplate that no longer
@@ -466,7 +482,7 @@ function titleDirective(source) {
 <some-element enabled="true" />     // when platform requires the string
 ```
 
-Lowercase HTML attribute names. No `attr:` / `bool:` / `on:` / `oncapture:` namespaces. Event handlers stay camelCase (`onClick`).
+Lowercase HTML attribute names. No `attr:` / `bool:` / `on:` / `oncapture:` namespaces (or `use:` / `classList`): on native elements they are compile errors. Event handlers stay camelCase (`onClick`).
 
 For native listener options, use a ref callback:
 

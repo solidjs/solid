@@ -248,7 +248,7 @@
     "severity": ["warn"],
     "category": "render",
     "trigger": "A function was set on a lowercase `on*` (or `on:`) attribute, which is not an event handler in 2.0; use `onXxx` (dev; client)",
-    "repair": "A function was set on an attribute whose name starts with `on` but is not an event handler (`data.name`): a lowercase `onclick`, or a leftover 1.x `on:click`.",
+    "repair": "A function was set on an attribute whose name starts with `on` but is not an event handler (`data.name`): a lowercase `onclick`, or a leftover 1.x `on:click` passed through a spread (on a native element it is a compile error).",
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/lowercase-event-attribute"
   },
   {
@@ -493,6 +493,15 @@
     "trigger": "3+ interactions were waiting in one hold when it committed — repeats piled behind the same source (attribution enabled)",
     "repair": "`data.interactions` interactions were waiting in the same hold when it committed: the person clicked or typed again while the first answer was in the air, and the runtime folded every repeat into one wait on the same source (`data.blockers`).",
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/stacked-holds"
+  },
+  {
+    "code": "STORE_WRITE_OUTSIDE_SETTER",
+    "kind": ["write"],
+    "severity": ["warn"],
+    "category": "write",
+    "trigger": "Store proxy written, deleted from, or defined on outside its setter; the write is ignored (once per store object and key)",
+    "repair": "A store proxy was written, deleted from, or had a property defined on it outside its setter — `store.n = 5`, `store.items.push(x)`, `delete store.user` — and the write was ignored.",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/store-write-outside-setter"
   },
   {
     "code": "STRICT_READ_UNTRACKED",

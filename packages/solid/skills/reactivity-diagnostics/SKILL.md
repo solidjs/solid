@@ -120,6 +120,17 @@ orchestration into an `action()` and call the setter synchronously from
 inside it (`yield` to re-enter the transaction after an `await`). Signals
 are not subject to this rule — a signal may hold a promise as its value.
 
+### STORE_WRITE_OUTSIDE_SETTER
+
+A store proxy was written, deleted from, or had a property defined on it
+outside its setter — `store.n = 5`, `store.items.push(x)`,
+`delete store.user` — and the write was ignored. Stores are read-only outside
+the setter's draft; nothing changed and nothing re-ran. Repair: make the
+write inside the setter, `setStore(s => { s.n = 5 })` (nested paths and
+array methods work on the draft: `s.items.push(x)`, `delete s.user`). Once
+per store object and key; `data.operation` is `set`, `defineProperty` or
+`deleteProperty`.
+
 ### ACTION_CALLED_IN_OWNED_SCOPE
 
 An action was invoked during a component body or computation. Actions are
@@ -252,7 +263,9 @@ If the fallback should appear immediately beside the held frame, use a
 An earlier uncaught error halted the reactive system; subsequent updates are
 ignored. Do not treat this code as the bug — find the original error above
 it (or add an error boundary with `<Errored>`) and fix
-that.
+that. The `in <App> › …` line under the message (repeated on the "Update
+ignored" notice) is the owner path of the computation the error escaped from:
+start there.
 
 ### SETTLE_WALK_UNINITIALIZED_SOURCE
 
@@ -976,7 +989,8 @@ value first and insert that.
 
 A function was set on an attribute whose name starts with `on` but is not an
 event handler (`data.name`): a lowercase `onclick`, or a leftover 1.x
-`on:click`. In 2.0 only `on` + an uppercase letter binds an event; anything
+`on:click` passed through a spread (on a native element it is a compile
+error). In 2.0 only `on` + an uppercase letter binds an event; anything
 else is a plain attribute, so the function was stringified into it and never
 runs. Once per attribute name. Fix: use the camelCase handler
 (`data.handler` — `onclick={save}` → `onClick={save}`); keep a lowercase name

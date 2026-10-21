@@ -78,6 +78,19 @@ const bump = action(async function* () {
 });
 ```
 
+#### `STORE_WRITE_OUTSIDE_SETTER`
+
+**Message:** "Writing store property \"n\" outside its setter was ignored. Stores are read-only outside the setter's draft: use `setStore(s => { s.n = value })`."
+
+A store proxy is read-only outside its setter's draft: a direct assignment, `delete`, or `Object.defineProperty` on it (including array mutators such as `store.items.push(x)`) changes nothing and notifies nobody. The trap still returns `true` so strict-mode code does not throw — production behavior is unchanged — but dev warns, once per store object and key, naming the key and the setter form of the write. `data` carries `{ operation, property }`, where `operation` is `set`, `defineProperty` or `deleteProperty`.
+
+```js
+store.n = 5; // ignored; warns in dev
+setStore(s => {
+  s.n = 5; // the write, in the setter's draft
+});
+```
+
 #### `PENDING_ASYNC_UNTRACKED_READ`
 
 **Message:** "Reading a pending async value directly in [context]. Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function)."
@@ -289,7 +302,7 @@ Internal consistency check on the async settle walk (see `packages/signals/docs/
 
 **Message:** "An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash."
 
-A user error escaped every boundary and the scheduler stopped for good: app state is undefined at that point, so nothing limps on with a half-applied update. Emitted once, on the structured channel and to `console.error`; where the platform has `reportError`, the cause is handed to it as well, so `window.onerror` / error monitoring sees a halt that would otherwise leave a page that looks alive (a throw during the hydration render, #3338). The first write after a halt logs "Update ignored: the reactive system was halted" (once) and does nothing. Production halts the same way — the bare `[REACTIVITY_HALTED]` to `console.error`, the cause to `reportError` — without the structured event. An observability adapter should treat this code as a crash signal. (A failure a boundary _contained_ is the client error hook's — [RFC 03](03-control-flow.md#reporting-what-a-boundary-caught-the-client-error-hook); the halt itself is `reportError`'s.)
+A user error escaped every boundary and the scheduler stopped for good: app state is undefined at that point, so nothing limps on with a half-applied update. Emitted once, on the structured channel and to `console.error`; where the platform has `reportError`, the cause is handed to it as well, so `window.onerror` / error monitoring sees a halt that would otherwise leave a page that looks alive (a throw during the hydration render, #3338). In dev the message ends with the owner path of the computation the error escaped from (`in <App> › <Composer> › effect`, plus the `at` source line when compiled with one; the event carries it as `ownerPath`), so the halt names where it happened (#4178). The first write after a halt logs "Update ignored: the reactive system was halted" (once), with the same location lines, and does nothing. Production halts the same way — the bare `[REACTIVITY_HALTED]` to `console.error`, the cause to `reportError` — without the structured event. An observability adapter should treat this code as a crash signal. (A failure a boundary _contained_ is the client error hook's — [RFC 03](03-control-flow.md#reporting-what-a-boundary-caught-the-client-error-hook); the halt itself is `reportError`'s.)
 
 #### `INVARIANT_VIOLATION`
 
@@ -712,7 +725,7 @@ Unscoped allocation alone is not the finding: a function hole with nothing scope
 
 **Message:** "[LOWERCASE_EVENT_ATTRIBUTE] `onclick` received a function, but `onclick` is an attribute in Solid 2.0, not an event handler: the function was set as the attribute's text. Use `onClick` for event handlers."
 
-Check (`warn`, dev only; kind `render`; client, once per attribute name). A function reached an attribute whose name starts with `on` but is not an event handler. Only `on` followed by an uppercase letter (`onClick`) binds an event in 2.0; a lowercase `onclick` — or a leftover 1.x `on:click` — is a plain attribute, so the function is stringified into it and never runs as a handler. Raised from the runtime's attribute write, so it covers compiled attributes, `spread`/`assign`, and hydration alike. `data.name` is the attribute, `data.handler` the camelCase name to use, `data.tag` the element. The JSX types do not declare lowercase `on*` names, so this is reached from JavaScript, through a cast, or from untyped props. Fix: rename to the camelCase handler (`onclick={save}` → `onClick={save}`); keep the lowercase name only for a string inline-handler attribute.
+Check (`warn`, dev only; kind `render`; client, once per attribute name). A function reached an attribute whose name starts with `on` but is not an event handler. Only `on` followed by an uppercase letter (`onClick`) binds an event in 2.0; a lowercase `onclick` — or a leftover 1.x `on:click` that arrives through a spread (written directly on a native element, `on:` is a compile error) — is a plain attribute, so the function is stringified into it and never runs as a handler. Raised from the runtime's attribute write, so it covers compiled attributes, `spread`/`assign`, and hydration alike. `data.name` is the attribute, `data.handler` the camelCase name to use, `data.tag` the element. The JSX types do not declare lowercase `on*` names, so this is reached from JavaScript, through a cast, or from untyped props. Fix: rename to the camelCase handler (`onclick={save}` → `onClick={save}`); keep the lowercase name only for a string inline-handler attribute.
 
 ## Programmatic diagnostics API
 
@@ -916,6 +929,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | ---------------------------------- | ---------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`    | error      | write          | Reactive write/invalidation inside component/computation                                                                                                          |
 | `ASYNC_STORE_SETTER`               | error      | write          | Store setter callback returned a Promise (setters are synchronous transactions)                                                                                   |
+| `STORE_WRITE_OUTSIDE_SETTER`       | warn       | write          | Store proxy written, deleted from, or defined on outside its setter; the write is ignored (once per store object and key)                                         |
 | `PENDING_ASYNC_UNTRACKED_READ`     | error      | async          | Reading pending async outside tracking scope                                                                                                                      |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`   | warn       | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                                                                  |
 | `CLEANUP_IN_FORBIDDEN_SCOPE`       | error      | lifecycle      | `onCleanup` inside trackedEffect/onSettled                                                                                                                        |

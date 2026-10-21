@@ -31,7 +31,15 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { notifyStatus } from "./async.js";
 import { ext, isSame, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
-import { DEV, emitDiagnostic, GRAPH_SIZE_WARN_AT, noteFanOut, reportDiagnostic } from "./dev.js";
+import {
+  DEV,
+  emitDiagnostic,
+  GRAPH_SIZE_WARN_AT,
+  locationLines,
+  noteFanOut,
+  reportDiagnostic,
+  type DiagnosticSubject
+} from "./dev.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
 import { devCheckQuiescent } from "./invariants.js";
@@ -584,6 +592,12 @@ export let clock = 0;
 let scheduled = false;
 let halted = false;
 let haltNotified = false;
+// Dev: where the halt happened (the owner path and source lines of its
+// diagnostic), repeated on the "Update ignored" notice so a frozen interaction
+// points back at the computation that threw (#4178).
+let haltedAt = "";
+// Dev: the computation the halt in progress is located at (haltReactivityAt).
+let haltSubject: DiagnosticSubject | undefined;
 let syncDepth = 0;
 let inTrackedQueueCallback = false;
 
@@ -692,12 +706,21 @@ export function haltReactivity(cause?: unknown): void {
   if (__DEV__) {
     message +=
       " An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.";
-    emitDiagnostic({
-      code: "REACTIVITY_HALTED",
-      kind: "error",
-      severity: "error",
-      message
-    });
+    // Located at the computation the error escaped from when the call site
+    // named it (haltReactivityAt), so the console says where it happened
+    // (`in <App> › <Composer>`), not only that it did (#4178). Otherwise the
+    // ambient owner, as every other diagnostic.
+    const entry = emitDiagnostic(
+      {
+        code: "REACTIVITY_HALTED",
+        kind: "error",
+        severity: "error",
+        message
+      },
+      haltSubject
+    );
+    haltedAt = locationLines(entry);
+    message += haltedAt;
   }
   // Surface the cause here too: callers rethrow it, but a creation-time throw
   // unwinds through ancestor recomputes that convert it to status instead of
@@ -713,13 +736,26 @@ export function haltReactivity(cause?: unknown): void {
   report && report(cause);
 }
 
+/**
+ * Dev: `haltReactivity`, located at `subject` — the computation the uncaught
+ * error escaped from — for the REACTIVITY_HALTED message's owner path. Call
+ * sites pick it in dev builds only (`haltReactivity(e)` in production), so
+ * production keeps the one-argument halt and its bytes unchanged.
+ */
+export function haltReactivityAt(cause: unknown, subject: DiagnosticSubject): void {
+  haltSubject = subject;
+  haltReactivity(cause);
+  haltSubject = undefined;
+}
+
 // Logs on the first write after a halt so a frozen interaction is traceable.
 function notifyHalted(): void {
   if (haltNotified) return;
   haltNotified = true;
   console.error(
     __DEV__
-      ? "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error."
+      ? "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error." +
+          haltedAt
       : "[REACTIVITY_HALTED]"
   );
 }
@@ -728,6 +764,7 @@ function notifyHalted(): void {
 export function resetErrorHalt(): void {
   halted = false;
   haltNotified = false;
+  if (__DEV__) haltedAt = "";
 }
 
 // CARVE 4: the queue tree (boundary CollectionQueues as children of the

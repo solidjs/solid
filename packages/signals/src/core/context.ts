@@ -18,6 +18,10 @@ export type ContextRecord = Record<string | symbol, unknown>;
  * via a `setContext` call.
  */
 export function createContext<T>(defaultValue?: T, description?: string): Context<T> {
+  // Dev: an explicit `undefined` default is still no default (`undefined`
+  // means "not provided"); remembered so a failed read can say so (#4181).
+  if (__DEV__ && arguments.length && defaultValue === undefined)
+    return { id: Symbol(description), defaultValue, _undefinedDefault: true } as Context<T>;
   return { id: Symbol(description), defaultValue };
 }
 
@@ -41,7 +45,11 @@ export function getContext<T>(context: Context<T>, owner: Owner | null = getOwne
   if (value === undefined) value = context.defaultValue;
 
   if (value === undefined) {
-    throw new ContextNotFoundError();
+    // Dev names the context and why it has no value: no provider, or a
+    // provider that passed `undefined` (the key is set, to `undefined`).
+    throw __DEV__
+      ? new ContextNotFoundError(context, context.id in owner._context)
+      : new ContextNotFoundError();
   }
 
   return value;

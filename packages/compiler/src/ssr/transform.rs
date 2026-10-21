@@ -1529,8 +1529,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         element: &JSXElement<'a>,
         top_level: bool,
     ) -> Result<Expression<'a>> {
-        self.uses_ssr_element = true;
         let tag_name = element_name(&element.opening_element.name)?;
+        crate::shared::removed::check_removed_attributes(self.source, element, &tag_name)?;
+        self.uses_ssr_element = true;
         if tag_name == "select" {
             // A spread on a select can carry `value` — arm conservatively.
             self.uses_ssr_select_values = true;
@@ -2019,6 +2020,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         top_level: bool,
     ) -> Result<SsrTemplate<'a>> {
         let tag_name = element_name(&element.opening_element.name)?;
+        crate::shared::removed::check_removed_attributes(self.source, element, &tag_name)?;
         // A `<select value=…>` opts this module into the runtime's SSR
         // select-value resolution pass (see prepend_helpers).
         if tag_name == "select"

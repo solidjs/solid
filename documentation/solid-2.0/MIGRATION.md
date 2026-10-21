@@ -579,6 +579,8 @@ Solid 2.0 aims to be more “what you write is what the platform sees”:
 - boolean attributes are presence/absence (`muted={true}` adds it, `muted={false}` removes it)
 - `attr:`, `bool:`, and `on:` namespaces are removed (you typically don’t need them)
 
+The compiler rejects the removed forms. Written on a native element, `on:`, `oncapture:`, `attr:`, `bool:`, `use:` and `classList` are compile errors, and the message names the 2.0 replacement. On components they are still ordinary prop names. `prop:` and the XML namespaces (`xlink:`, `xml:`, `xmlns:`) compile as before.
+
 ```jsx
 <video muted={true} />
 <video muted={false} />
@@ -598,7 +600,7 @@ Event handlers are camelCase only: `on` followed by an uppercase letter (`onClic
 
 A string value is now exactly the HTML inline-handler attribute (`<link rel="preload" onload="this.rel='stylesheet'">`). In development a function passed to a lowercase `on*` attribute warns with `LOWERCASE_EVENT_ATTRIBUTE`.
 
-`on:` and `oncapture:` are removed. Keep using camelCase event handlers like `onClick` for Solid-managed events. A leftover `on:click={fn}` is now a plain (namespaced) attribute and warns in development like a lowercase `on*` name. For native listener options, use a ref callback:
+`on:` and `oncapture:` are removed. Keep using camelCase event handlers like `onClick` for Solid-managed events. A leftover `on:click={fn}` on a native element is a compile error. Through a spread the compiler can't see it, so it becomes a plain (namespaced) attribute and warns in development like a lowercase `on*` name. For native listener options, use a ref callback:
 
 ```jsx
 const on = (type, handler, options) => el => el.addEventListener(type, handler, options);
@@ -742,6 +744,8 @@ const [todos, { addTodo }] = useContext(TodosContext);
 The default form `createContext<T>(defaultValue)` is unchanged — `useContext` falls back to `defaultValue` outside any Provider. Reserved for primitive fallbacks (theme, locale, frozen config); use the default-less form for any context carrying reactive state.
 
 If you genuinely relied on `useContext(ctx)` returning `undefined` for a default-less context, either pass an explicit default to `createContext` or wrap the call in a try/catch. Most existing wrapper hooks were already throwing on `undefined`, so for them the change is a removal, not a migration.
+
+`undefined` is never a context value: it means "not provided". `createContext<T | undefined>(undefined)` is still a default-less context, and a Provider passing `value={undefined}` counts as no Provider, so both throw `ContextNotFoundError` (in dev the message names the context and which case it hit). For an optional context, use `null` as the explicit empty value: `createContext<T | null>(null)` returns `null` outside a Provider, and a Provider can pass `null` too.
 
 ## New in 2.0
 
