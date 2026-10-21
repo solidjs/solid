@@ -70,6 +70,10 @@ Also:
 - `onClick={cond() ? a : b}` binds once; decide inside a stable handler.
 - `on:`, `oncapture:`, `attr:`, `bool:`, `use:` and `classList` on a native
   element are compile errors; the message names the replacement above.
+- Inputs aren't strictly controlled: `value={x()}` writes only when the
+  binding re-runs. Keep typing in a draft signal (`onInput`), commit on
+  `onChange`/submit; when a handler rejects input, also set
+  `e.currentTarget.value = next` (an unchanged signal won't revert the DOM).
 
 ## Primitives to reach for
 

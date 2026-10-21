@@ -135,6 +135,90 @@ const on = (type, handler, options) => el => el.addEventListener(type, handler, 
 <button ref={[on("click", logCapture, { capture: true }), on("click", logBubble)]} />
 ```
 
+### Form inputs
+
+`value` and `checked` (and the other stateful properties listed above) are written as DOM properties. A binding such as `value={draft()}` writes `el.value` each time its expression re-runs, without comparing against what the DOM currently holds. Two consequences follow:
+
+- **Solid inputs are not strictly controlled.** Typing changes the DOM directly. The binding only puts its value back when the signal it reads changes. Setting a signal to the value it already has does not notify anything, so the DOM is not re-asserted ([#4185](https://github.com/solidjs/solid/issues/4185)).
+- **Any re-run of the binding overwrites what the user typed.** If the bound value is not the text in the box, a refresh of that value, or of a spread that carries it, replaces the uncommitted text.
+
+The patterns below hold regardless of how the compiler groups the writes.
+
+#### Draft signal for editable fields
+
+Keep the in-progress text in a signal set from `onInput`, and commit it to the owner (a store, a parent, a server action) on `onChange` or submit. The binding then always reflects what is in the box, so re-running it is harmless.
+
+```jsx
+function NameField(props) {
+  const [draft, setDraft] = createSignal(props.name);
+  return (
+    <input
+      value={draft()}
+      onInput={e => setDraft(e.currentTarget.value)}
+      onChange={() => props.onCommit(draft())}
+    />
+  );
+}
+```
+
+Avoid binding `value` to the committed value while the uncommitted text lives only in the DOM (`value={props.name} onChange={...}` with no draft): a parent refresh, a re-run spread, or any other reason the binding re-evaluates will replace what the user typed.
+
+#### Rejecting or transforming input
+
+When the handler filters, truncates or masks the input, the result can equal the current value (a rejected keystroke). The signal does not change, the binding does not re-run, and the rejected character stays in the box. Write the result back to the element yourself:
+
+```jsx
+const [digits, setDigits] = createSignal("");
+
+<input
+  inputmode="numeric"
+  value={digits()}
+  onInput={e => {
+    const next = e.currentTarget.value.replace(/\D/g, "");
+    e.currentTarget.value = next; // revert rejected characters
+    setDigits(next);
+  }}
+/>;
+```
+
+Alternatively, give the signal `equals: false` so every set notifies and the binding re-runs and rewrites the DOM:
+
+```jsx
+const [digits, setDigits] = createSignal("", { equals: false });
+
+<input value={digits()} onInput={e => setDigits(e.currentTarget.value.replace(/\D/g, ""))} />;
+```
+
+The same applies to `checked`: if a handler refuses a toggle without changing the signal, set `e.currentTarget.checked` back in the handler.
+
+#### Uncontrolled inputs
+
+If the value does not need to be reactive, don't bind `value` to a signal. Give the initial state with `defaultValue` / `defaultChecked` (or a static `value="..."`) and read the element on submit:
+
+```jsx
+<form
+  onSubmit={e => {
+    e.preventDefault();
+    save(new FormData(e.currentTarget).get("title"));
+  }}
+>
+  <input name="title" defaultValue={initialTitle} />
+</form>
+```
+
+To reset an uncontrolled form, call `form.reset()`, or remount it by keying it on a value that changes:
+
+```jsx
+// formKey: a counter starting at 1; increment it to reset the form
+<Show when={formKey()} keyed>
+  {key => <EditForm initial={initial()} />}
+</Show>
+```
+
+#### Spreads
+
+A `value` (or `checked`) passed through a spread is written whenever the spread re-evaluates, which includes changes to any other prop in the spread object. Forward a draft value through spreads, or keep `value` out of the spread and bind it directly.
+
 ## Migration / replacement
 
 - **classList:** Use `class` with an object or array instead.
