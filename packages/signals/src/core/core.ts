@@ -406,12 +406,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // and own nothing to park.
     if (isEffect === EFFECT_TRACKED || el._config & CONFIG_STAGED) {
       // A lazy node only those children read is released when this pass
-      // ends, if the pass doesn't read it again (#4142). Nested: a cleanup
-      // that throws here neither stops the pass nor skips that drain — its
-      // error is rethrown when the flush ends (owner.ts).
+      // ends, if the pass doesn't read it again (#4142). A cleanup that
+      // throws here neither stops the pass nor skips that drain: its error
+      // is rethrown when the flush ends (owner.ts).
       const prev = deferredReleases;
       deferReleases((released = []));
-      disposeChildren(el, false, true);
+      disposeChildren(el);
       deferReleases(prev);
     } else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
     // An error a pass staged (D-41) is replaced by this pass's answer: a

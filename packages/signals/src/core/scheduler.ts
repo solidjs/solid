@@ -783,12 +783,7 @@ export class GlobalQueue implements IQueue {
   _queues: [QueueCallback[], QueueCallback[]] = [[], []];
   _running: boolean = false;
   declare static _update: (el: Computed<unknown>) => void;
-  declare static _dispose: (
-    el: Computed<unknown>,
-    self: boolean,
-    nested?: boolean,
-    zombie?: boolean
-  ) => void;
+  declare static _dispose: (el: Computed<unknown>, self: boolean, zombie?: boolean) => void;
   declare static _runEffect: (el: Computed<unknown>) => void;
   /** A slot node's truth is in flight (its family's derive — store/store.ts). */
   declare static _slotFlight: ((n: Signal<any>) => boolean) | undefined;
@@ -1356,7 +1351,7 @@ export function commitPendingNode(n: Signal<any>): void {
     c._x != null &&
     (c._x._pendingFirstChild !== null || c._x._pendingDisposal !== null)
   )
-    GlobalQueue._dispose(c as Computed<unknown>, false, false, true);
+    GlobalQueue._dispose(c as Computed<unknown>, false, true);
 }
 
 function commitPendingNodes() {

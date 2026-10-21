@@ -62,10 +62,10 @@ export function dispose(node: Computed<unknown>): void {
 
 // The first error a cleanup threw, boxed so a thrown `undefined` still
 // counts. A throwing cleanup stops neither its siblings nor the rest of the
-// tree: every cleanup runs. The error is rethrown once the teardown is over —
-// when the walk that began it ends, or, for a teardown inside a flush (a
-// commit retiring a frame, a pass replacing one, an effect disposing a root),
-// when the flush ends (`flush`), so the flush is never left half-applied.
+// tree: every cleanup runs. The error is rethrown once the teardown is over:
+// by a root's dispose call outside a flush (`disposeRootSelf`), otherwise when
+// the flush ends (`flush`; `runCleanup` schedules one), so a flush is never
+// left half-applied.
 let cleanupError: [unknown] | undefined;
 
 function runCleanup(fn: () => void): void {
@@ -73,8 +73,6 @@ function runCleanup(fn: () => void): void {
     fn();
   } catch (e) {
     cleanupError ||= [e];
-    // A teardown outside a flush that does not rethrow (a pass pulled by a
-    // read): the flush this schedules does.
     schedule();
   }
 }
@@ -86,17 +84,7 @@ export function rethrowCleanupError(): void {
   if (error) throw error[0];
 }
 
-/**
- * Tears down `node`'s children (and `node` itself when `self`), or with
- * `zombie` the frame parked on it. `nested`: part of an enclosing teardown or
- * pass, which rethrows a cleanup's error instead (see `cleanupError`).
- */
-export function disposeChildren(
-  node: Owner,
-  self: boolean = false,
-  nested?: boolean,
-  zombie?: boolean
-): void {
+export function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
   const flags = (node as any)._flags;
   if (flags & REACTIVE_DISPOSED) return;
   // A parked frame dies with its owner (#3024): the commit that would retire
@@ -110,7 +98,7 @@ export function disposeChildren(
     node._x !== null &&
     (node._x._pendingFirstChild !== null || node._x._pendingDisposal !== null)
   )
-    disposeChildren(node, false, true, true);
+    disposeChildren(node, false, true);
   if (self) {
     (node as any)._flags = flags | REACTIVE_DISPOSED;
     if (__OBSERVE__ && node._parent === null && (node as Root)._root) unregisterRoot(node);
@@ -156,7 +144,7 @@ export function disposeChildren(
     // itself routes its later splice onto the detached chain, never the head,
     // and keeps the dev owner-chain-head invariant honest for those children.
     child._prevSibling = child;
-    disposeChildren(child, true, true);
+    disposeChildren(child, true);
     // Read after, not before: a sibling this disposal made dormant spliced
     // itself out of the detached chain, and a cleanup may then have linked
     // it at the fresh head, which rewrote the `_nextSibling` a pre-read
@@ -202,7 +190,6 @@ export function disposeChildren(
     runCleanup(effectCleanup);
     if (__DEV__) exitDisposal();
   }
-  if (!nested && !globalQueue._running) rethrowCleanupError();
 }
 
 export function linkChild(parent: Owner, node: Owner): void {
@@ -369,6 +356,9 @@ export function isDisposed(node: Owner): boolean {
 
 function disposeRootSelf(this: Root, self: boolean = true): void {
   disposeChildren(this, self);
+  // Outside a flush the dispose call rethrows; inside one, the flush does.
+  // Kept out of `disposeChildren`, whose hot path it slows.
+  if (cleanupError && !globalQueue._running) rethrowCleanupError();
 }
 
 /**

@@ -516,7 +516,7 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
         if (!effect) n._config |= CONFIG_INPUTS_PUBLISHED;
       } else {
         if (x._pendingFirstChild !== null || x._pendingDisposal !== null)
-          GlobalQueue._dispose(n as Computed<any>, false, false, true);
+          GlobalQueue._dispose(n as Computed<any>, false, true);
         n._config &= ~(CONFIG_STAGED | CONFIG_HELD | CONFIG_HELD_FRAME);
       }
     }
@@ -684,7 +684,7 @@ function laneSeam(l: Transaction, leaked: boolean): void {
     // The frame this pass built is the screen's now; the one it replaced
     // goes (as `commitPendingNode` retires a committed pass's).
     if (x._pendingFirstChild !== null || x._pendingDisposal !== null)
-      GlobalQueue._dispose(n, false, false, true);
+      GlobalQueue._dispose(n, false, true);
     n._config &= ~CONFIG_STAGED;
   }
   releaseQueues(l);
