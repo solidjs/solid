@@ -1006,7 +1006,32 @@ const signal = from(observable$);
 const value = createMemo(() => observable$);
 ```
 
-Avoid wrapping the source in an `async function*` with `for await`. While the generator waits at an `await`, its `return()` is queued, so the upstream subscription stays open after disposal until the source produces another value. A source that isn't an async iterable (a callback subscription, an Observable) needs an adapter whose `return()` unsubscribes synchronously (see #4182).
+Solid calls the returned iterator's `return()` when the owner is disposed and when a re-run replaces the stream. When the memo needs logic around the source (mapping, filtering, picking the source from a signal), an `async function*` is the natural fit, but don't hand it to Solid as-is. While the generator waits at an `await`, its `return()` is queued, so the source stays subscribed until it produces another value. Close the source yourself in `return()`:
+
+```js
+const value = createMemo(() => {
+  // Read signals here, before any await, so they are tracked.
+  const source = feedFor(id())[Symbol.asyncIterator]();
+  const scale = factor();
+  const gen = (async function* () {
+    for (let r; !(r = await source.next()).done; ) {
+      if (r.value.visible) yield r.value.amount * scale;
+    }
+  })();
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () => gen.next(),
+      // Close the source at once; the generator's own return() waits for its await.
+      return: () => {
+        source.return?.();
+        return gen.return();
+      }
+    })
+  };
+});
+```
+
+A source that isn't an async iterable (a callback subscription, an Observable) needs an adapter whose `return()` unsubscribes synchronously (see #4182).
 
 **Solid → External (`observable`):** There's no drop-in replacement. `observable()` produced a standard Observable that external libraries could subscribe to. In 2.0, use `createEffect` to push signal changes to an external subscriber:
 
