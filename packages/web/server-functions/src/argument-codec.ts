@@ -118,12 +118,24 @@ function encodeRefusal(name) {
 
 let encodeRefusals;
 
-/** The configured codec options with encode-side refusals ahead of every plugin. */
-export function argumentEncodeCodec(codec) {
+/**
+ * The configured codec options with encode-side refusals ahead of every
+ * plugin. `extra` holds plugins for one call (the upload serializer), which
+ * go first.
+ */
+export function argumentEncodeCodec(codec, extra = []) {
   if (!encodeRefusals) encodeRefusals = [encodeRefusal("Response"), encodeRefusal("Request")];
-  const refusals = encodeRefusals;
+  const refusals = extra.length ? [...extra, ...encodeRefusals] : encodeRefusals;
   return {
     ...codec,
     plugins: codec && codec.plugins ? [...refusals, ...codec.plugins] : refusals
   };
+}
+
+/**
+ * Decode options from `argumentDecodeCodec` with plugins for one request
+ * (the upload deserializer) ahead of the resolved list.
+ */
+export function withArgumentPlugins(argumentCodec, extra) {
+  return { ...argumentCodec, [RESOLVED_PLUGINS]: [...extra, ...argumentCodec[RESOLVED_PLUGINS]] };
 }

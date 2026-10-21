@@ -31,8 +31,10 @@ import {
   argumentDecodeCodec,
   namesRefusedType,
   refusedArgument,
-  refusedArgumentError
+  refusedArgumentError,
+  withArgumentPlugins
 } from "./argument-codec.js";
+import { UPLOAD_ARGS_PART, createUploadDeserializer } from "./uploads.js";
 import {
   BODY_FORMAT_HEADER,
   BodyFormat,
@@ -1942,7 +1944,9 @@ async function parseArguments(request, url, scripted, codec, buffered) {
   // the body and never put arguments in the url.
   const bodyFormat = request.method === "POST" ? request.headers.get(BODY_FORMAT_HEADER) : null;
   const args = url.searchParams.get("args");
-  if (args && (!scripted || request.method === "GET" || bodyFormat !== BodyFormat.Serialized)) {
+  const codecBody =
+    bodyFormat === BodyFormat.Serialized || bodyFormat === BodyFormat.SerializedFormData;
+  if (args && (!scripted || request.method === "GET" || !codecBody)) {
     // framed codec output (from the client runtime) or plain JSON (from
     // integrations building urls by hand). Anything that is not an argument
     // array is a malformed request, which dispatch answers as one: the query
@@ -2005,6 +2009,22 @@ async function parseArguments(request, url, scripted, codec, buffered) {
       let argumentCodec = argumentCodecFor(codec);
       if (argumentCodec instanceof Promise) argumentCodec = await argumentCodec;
       decoded = await decodeArguments(wire => extractBody(body, argumentCodec, wire), buffered);
+    } else if (bodyFormat === BodyFormat.SerializedFormData) {
+      // A codec argument list with its files as form parts (see uploads.js).
+      // The upload plugin is made for this request only, so a file index
+      // means something here and nowhere else.
+      const form = await body.formData();
+      const encoded = form.get(UPLOAD_ARGS_PART);
+      if (typeof encoded !== "string") {
+        throw new TypeError("Malformed server function upload");
+      }
+      let argumentCodec = argumentCodecFor(codec);
+      if (argumentCodec instanceof Promise) argumentCodec = await argumentCodec;
+      const uploadCodec = withArgumentPlugins(argumentCodec, [createUploadDeserializer(form)]);
+      decoded = await decodeArguments(
+        wire => deserializeStream(new Response(encoded), uploadCodec, wire),
+        encoded
+      );
     } else {
       decoded = await extractBody(body, codec);
     }
@@ -2013,7 +2033,7 @@ async function parseArguments(request, url, scripted, codec, buffered) {
     // must not be the uncapped alternative (#3119). Either way the payload
     // is spread into the call, so anything but an array is malformed — a
     // 400, not a range error out of the function.
-    if (bodyFormat === BodyFormat.Serialized || bodyFormat === BodyFormat.Json) {
+    if (codecBody || bodyFormat === BodyFormat.Json) {
       if (bodyFormat === BodyFormat.Json) assertDecodeDepth(decoded);
       if (!Array.isArray(decoded)) {
         throw new TypeError("Server function arguments must encode an array");
