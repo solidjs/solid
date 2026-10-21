@@ -476,6 +476,36 @@ const on = (type, handler, options) => el => el.addEventListener(type, handler, 
 <button ref={on("click", handleClick, { capture: true })} />;
 ```
 
+### Form inputs
+
+`value={x()}` / `checked={x()}` write the DOM property each time the binding re-runs, not by comparing with the DOM. Typing is not reverted when the signal doesn't change, and a re-run overwrites uncommitted text.
+
+```jsx
+// Editable field: draft signal from onInput, commit on change/submit
+const [draft, setDraft] = createSignal(props.name);
+<input
+  value={draft()}
+  onInput={e => setDraft(e.currentTarget.value)}
+  onChange={() => props.onCommit(draft())}
+/>;
+
+// Rejecting/transforming input: write the result back yourself
+<input
+  value={digits()}
+  onInput={e => {
+    const next = e.currentTarget.value.replace(/\D/g, "");
+    e.currentTarget.value = next; // setDigits(next) alone won't revert an equal value
+    setDigits(next);
+  }}
+/>;
+// …or createSignal("", { equals: false }) so every set re-runs the binding
+
+// Uncontrolled: no reactive value; initial state + read on submit
+<input name="title" defaultValue={initialTitle} />;
+```
+
+Don't bind `value` to a committed value while the typed text lives only in the DOM. A `value` inside a spread is rewritten whenever the spread re-evaluates any prop.
+
 ### Conditional classes — always use the array/object form
 
 ```jsx

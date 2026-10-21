@@ -63,6 +63,10 @@ Also:
 - `<For>`: default gives a raw item and an index accessor; `keyed={false}`
   gives an item accessor and a plain number. `<Repeat>`: `i` is a number.
 - `onClick={cond() ? a : b}` binds once; decide inside a stable handler.
+- Inputs aren't strictly controlled: `value={x()}` writes only when the
+  binding re-runs. Keep typing in a draft signal (`onInput`), commit on
+  `onChange`/submit; when a handler rejects input, also set
+  `e.currentTarget.value = next` (an unchanged signal won't revert the DOM).
 
 ## Primitives to reach for
 
