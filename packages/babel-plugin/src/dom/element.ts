@@ -1005,7 +1005,9 @@ function transformAttributes(
         reservedNameSpace &&
         !t.isJSXExpressionContainer(value)
       ) {
-        node.value = value = t.jsxExpressionContainer(value || t.jsxEmptyExpression());
+        // A valueless `prop:x` means `prop:x={true}`, like a bare plain
+        // attribute (#4180).
+        node.value = value = t.jsxExpressionContainer(value || t.booleanLiteral(true));
       }
       if (
         t.isJSXExpressionContainer(value) &&
