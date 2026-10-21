@@ -59,13 +59,13 @@ _$effect(() => {
 });
 const style = _el$5;
 var _el$6 = _tmpl$3();
-_$effect(() => ({ active: active() }), (_v$) => {
-	_$setAttribute(_el$6, "classList", _v$);
+_$effect(() => !!active(), (_v$) => {
+	_el$6.classList.toggle("active", _v$);
 }, {
-	name: "div.classList",
-	loc: "bindings.jsx:6:24"
+	name: "div.class:active",
+	loc: "bindings.jsx:6:26"
 });
-const classList = _el$6;
+const classObject = _el$6;
 var _el$7 = _tmpl$3();
 _$effect(() => {
 	return {

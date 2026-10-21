@@ -477,7 +477,7 @@ function titleDirective(source) {
 <some-element enabled="true" />     // when platform requires the string
 ```
 
-Lowercase HTML attribute names. No `attr:` / `bool:` / `on:` / `oncapture:` namespaces. Event handlers stay camelCase (`onClick`).
+Lowercase HTML attribute names. No `attr:` / `bool:` / `on:` / `oncapture:` namespaces (or `use:` / `classList`): on native elements they are compile errors. Event handlers stay camelCase (`onClick`).
 
 For native listener options, use a ref callback:
 

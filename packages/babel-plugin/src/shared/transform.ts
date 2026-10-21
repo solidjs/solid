@@ -21,6 +21,7 @@ import {
 import { DOMWithState } from "../../../web/src/constants.js";
 import transformComponent from "./component";
 import transformFragmentChildren from "./fragment";
+import { assertNoRemovedAttributes } from "./removed";
 import type { NodePath } from "@babel/traverse";
 import type { PluginConfig, RendererConfig } from "../config";
 import type {
@@ -315,11 +316,13 @@ export function transformElement(
   );
 
   if (tagRenderer?.name === "dom" || getConfig(path).generate === "dom") {
+    assertNoRemovedAttributes(path, tagName);
     renameElementKey(path, false);
     return transformElementDOM(path, info);
   }
 
   if (getConfig(path).generate === "ssr") {
+    assertNoRemovedAttributes(path, tagName);
     renameElementKey(path, true);
     return transformElementSSR(path, info);
   }

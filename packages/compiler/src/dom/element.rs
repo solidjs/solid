@@ -213,6 +213,29 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         }
     }
 
+    /// Errors at the first removed 1.x attribute form (#4187) on `element` or
+    /// a native descendant, in document order. Components and other
+    /// renderers' elements are not descended into: their subtrees are
+    /// lowered (and checked) separately.
+    fn check_removed_attributes_in_subtree(
+        &self,
+        element: &JSXElement<'a>,
+        tag_name: &str,
+    ) -> Result<()> {
+        crate::shared::removed::check_removed_attributes(self.source, element, tag_name)?;
+        for child in &element.children {
+            let oxc_ast::ast::JSXChild::Element(child) = child else {
+                continue;
+            };
+            if is_component_name(&child.opening_element.name) || self.is_foreign_element(child) {
+                continue;
+            }
+            let child_tag = element_name(&child.opening_element.name)?;
+            self.check_removed_attributes_in_subtree(child, &child_tag)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn lower_element(&mut self, element: &JSXElement<'a>) -> Result<Expression<'a>> {
         let (result, setup) = self.lower_element_with_setup(element)?;
         if setup.is_empty() {
@@ -246,6 +269,10 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         }
 
         let tag_name = element_name(&element.opening_element.name)?;
+        // Nested native children lower through the static-template and
+        // dynamic-child paths, not back through here, so the template root
+        // checks its whole native subtree for removed 1.x attribute forms.
+        self.check_removed_attributes_in_subtree(element, &tag_name)?;
 
         // Each native template root replays hydratable events independently
         // (Babel transforms component children with `topLevel: true`).

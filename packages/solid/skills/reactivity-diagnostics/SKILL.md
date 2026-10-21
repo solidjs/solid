@@ -987,7 +987,8 @@ value first and insert that.
 
 A function was set on an attribute whose name starts with `on` but is not an
 event handler (`data.name`): a lowercase `onclick`, or a leftover 1.x
-`on:click`. In 2.0 only `on` + an uppercase letter binds an event; anything
+`on:click` passed through a spread (on a native element it is a compile
+error). In 2.0 only `on` + an uppercase letter binds an event; anything
 else is a plain attribute, so the function was stringified into it and never
 runs. Once per attribute name. Fix: use the camelCase handler
 (`data.handler` — `onclick={save}` → `onClick={save}`); keep a lowercase name

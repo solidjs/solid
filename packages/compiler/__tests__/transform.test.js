@@ -963,17 +963,17 @@ describe("@solidjs/compiler transform", () => {
     expect(result.code).not.toContain("_$delegateEvents");
   });
 
-  it("treats removed `on:` namespaced names as plain attributes", () => {
-    // Only `on` + an uppercase letter is an event handler; `on:click` is an
-    // unknown namespace like any other.
-    const result = transform("<button on:click={() => increment()} />", {
-      filename: "input.jsx",
-      moduleName: "r-dom"
-    });
-
-    expect(result.code).toContain('_$setAttribute(_el$, "on:click", () => increment());');
-    expect(result.code).not.toContain("addEventListener");
-    expect(result.code).not.toContain("_$delegateEvents");
+  it("rejects the removed `on:` namespace with a migration hint (#4187)", () => {
+    // Only `on` + an uppercase letter is an event handler; the 1.x `on:`
+    // namespace is a compile error instead of a silent literal attribute.
+    expect(() =>
+      transform("<button on:click={() => increment()} />", {
+        filename: "input.jsx",
+        moduleName: "r-dom"
+      })
+    ).toThrow(
+      "`on:click` on <button> uses the `on:` namespace, which was removed in Solid 2.0. Use a camelCase handler such as `onClick={handler}`"
+    );
   });
 
   it("lowers lowercase on* expressions as attributes, not events", () => {

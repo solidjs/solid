@@ -3,7 +3,7 @@ const single = <span textContent={label()} />;
 const attr = <input value={text()} />;
 const cls = <div class={active() ? "on" : "off"} />;
 const style = <div style={{ color: color(), "font-size": size() }} />;
-const classList = <div classList={{ active: active() }} />;
+const classObject = <div class={{ active: active() }} />;
 const ns = <div class:selected={selected()} style:width={width()} />;
 
 // Several bindings in one template → one merged effect listing all of them.
