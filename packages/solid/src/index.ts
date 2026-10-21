@@ -9,7 +9,6 @@ export {
   deep,
   flatten,
   flush,
-  from,
   getNextChildId,
   getObserver,
   getOwner,
@@ -41,6 +40,7 @@ export {
 } from "@solidjs/signals";
 /** @internal — the key a root owner carries `render`'s `onError` under, for the web runtime. */
 export { ROOT_ERROR_HOOK } from "@solidjs/signals";
+export { from } from "./from.js";
 
 export type {
   ClientErrorContext,
@@ -328,11 +328,10 @@ export {
   DevHooks,
   enableScheduling,
   equalFn, // renamed `isEqual`
-  from, // handled by async iterators
   getListener, // renamed `getObserver`
   indexArray, // handled in `mapArray`
   Index, // handled by For
-  observable, // handled by async iterators
+  observable, // push out with createEffect; `from` is exported above
   on, // with split effects this doesn't need to be core
   onError, // handled by ErrorBoundary
   onMount, // onSettled

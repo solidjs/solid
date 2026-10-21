@@ -2,6 +2,7 @@
 // Re-exports infrastructure from the real package, reimplements reactive primitives as pull-based.
 
 import { $REFRESH, from as signalsFrom, type FromSource } from "@solidjs/signals";
+import { brandFrom, isLiveSource } from "../from.js";
 export { $REFRESH };
 export type { FromSource, FromObserver } from "@solidjs/signals";
 
@@ -30,46 +31,40 @@ export {
 export { flatten } from "@solidjs/signals";
 
 /**
- * Server `from`: a subscription or Observable yields its **first** value,
- * then completes and unsubscribes, so a render never holds a live
- * subscription open (an SSR response has nothing to keep pushing into, and
- * a never-completing source would otherwise hold the stream open). Owner
- * disposal (a retried pass, an abandoned render) unsubscribes before the
- * first value. The client continues live after hydration with
- * `ssrSource: "hybrid"`. An AsyncIterable passes through unchanged, as on
- * the client: the server memo already owns its lifetime.
+ * Server `from`: the same stream as the client's, so the per-`ssrSource`
+ * machinery decides how much of it the server consumes (`processResult`). A
+ * subscription or Observable is branded live (`brandFrom`): the server takes
+ * its first value and closes it, and the hydrated client reconnects, so a
+ * never-ending source can't hold the response open. An AsyncIterable stays a
+ * plain stream. The source is released when the server stops consuming
+ * (return()) or when the owner that created it is disposed (a retried pass,
+ * the render's final dispose, an abandoned render), whichever comes first.
  */
 export function from<T>(source: FromSource<T>): AsyncIterable<T> {
-  const iterable = signalsFrom(source);
-  if (iterable === source) return iterable;
-  return {
+  if (isLiveSource(source)) return source as AsyncIterable<T>;
+  const inner = signalsFrom(source);
+  // The compute's owner: the runtime opens the iterable later, from a seat
+  // on its shared multicast, where no owner is current.
+  const owner = currentOwner;
+  return brandFrom(source, {
     [Symbol.asyncIterator](): AsyncIterator<T> {
-      const it = iterable[Symbol.asyncIterator]();
+      const done = (): Promise<IteratorResult<T>> =>
+        Promise.resolve({ value: undefined, done: true });
+      if (owner?._disposed) return { next: done, return: done };
+      const it = inner[Symbol.asyncIterator]();
       let closed = false;
       const close = () => {
         if (closed) return;
         closed = true;
-        it.return!().then(undefined, () => {});
+        closeAsyncIterator(it);
       };
-      onCleanup(close);
+      if (owner) runWithOwner(owner as unknown as Owner, () => onCleanup(close));
       return {
-        next(): Promise<IteratorResult<T>> {
-          if (closed) return Promise.resolve({ value: undefined, done: true });
-          return Promise.resolve(it.next()).then(
-            r => (close(), r),
-            e => {
-              close();
-              throw e;
-            }
-          );
-        },
-        return(): Promise<IteratorResult<T>> {
-          close();
-          return Promise.resolve({ value: undefined, done: true });
-        }
+        next: () => (closed ? done() : Promise.resolve(it.next())),
+        return: () => (close(), done())
       };
     }
-  };
+  });
 }
 export { snapshot, omit, storePath, isStatic, $PROXY, $TRACK } from "@solidjs/signals";
 

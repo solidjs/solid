@@ -245,8 +245,10 @@ const rows = createDeferred(() => fetchRows(period()));
 
 // External push source -> memo: from() takes a subscribe fn
 // ((next, error, complete) => unsubscribe), an Observable (RxJS, Symbol.observable)
-// or an AsyncIterable. Latest value wins; a re-run or disposal unsubscribes
-// at once. Transform in a downstream memo, not in a for-await body.
+// or an AsyncIterable (streamed as is). A subscription keeps the latest value;
+// a re-run or disposal closes the source at once. Transform in a downstream
+// memo, not in a for-await body. SSR: a subscription renders its first value,
+// then the client resubscribes after hydration.
 const price = createMemo(() => from(ticker(symbol())));
 const label = createMemo(() => format(price()));
 

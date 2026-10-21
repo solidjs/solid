@@ -1010,9 +1010,16 @@ import { createMemo, from } from "solid-js";
 const value = createMemo(() => from(observable$));
 ```
 
-`from` accepts a subscribe function (`(next, error, complete) => unsubscribe`), an Observable (anything with `subscribe(observer)`, including `Symbol.observable` / `"@@observable"` interop such as RxJS), or an async iterable (returned as is). It keeps only the latest value: values that arrive before the memo pulls again coalesce. A value the source emits during `subscribe` (a `BehaviorSubject`, say) shows on the first render, with no loading frame. Errors reach the nearest `Errored` boundary.
+`from` accepts a subscribe function (`(next, error, complete) => unsubscribe`), an Observable (anything with `subscribe(observer)`, including `Symbol.observable` / `"@@observable"` interop such as RxJS), or an async iterable. A subscription keeps only the latest value: values that arrive before the memo pulls again coalesce. A value the source emits during `subscribe` (a `BehaviorSubject`, say) shows on the first render, with no loading frame. An async iterable streams every value through. Errors reach the nearest `Errored` boundary.
 
-The subscription closes as soon as the memo re-runs (for example, when a source it reads changes), or when its owner is disposed. It doesn't wait for the new source's first value.
+The source closes as soon as the memo re-runs (for example, when a source it reads changes), or when its owner is disposed. It doesn't wait for the new source's first value.
+
+Under SSR, `from` follows the memo's `ssrSource`:
+
+- **A subscription or Observable** counts as a live source: each value is the whole current state. With the default `ssrSource`, the server renders and serializes its first value, then unsubscribes. The client adopts that value while hydrating, then subscribes again once its section has hydrated. A source that never emits can't hold the response open. `"hybrid"` behaves the same on the server, but the client treats its first new value as a repeat of the server's and drops it, so use it only with a source that replays its current value on subscribe. With `"client"`, the server never subscribes.
+- **An async iterable** streams like any other: with the default `ssrSource`, the server renders the first value and streams the rest to the client until the source ends. A source that never ends keeps the response open until the client disconnects. Return a subscription instead, or use `"hybrid"` (the server takes one value) or `"client"`.
+
+Either way the server releases the source when it stops reading it, or when the render is disposed.
 
 An async iterable can also be consumed directly in an async generator:
 
@@ -1024,7 +1031,7 @@ const value = createMemo(async function* () {
 });
 ```
 
-Here cleanup is not immediate. When the owner is disposed, or a re-run replaces the stream, Solid calls the generator's `return()`, but a generator waiting at an `await` can't finish until that `await` settles. The source stays subscribed until it produces another value or ends. `from` is the exception: a `from(source)` iterated with `for await` still closes its source immediately on a re-run. Even so, prefer returning `from(source)` directly and doing transforms in a downstream memo (`createMemo(() => format(value()))`) rather than in the loop body: the loop may run once more after a re-run, as the closed source ends the loop.
+Here cleanup is not immediate. When the owner is disposed, or a re-run replaces the stream, Solid calls the generator's `return()`, but a generator waiting at an `await` can't finish until that `await` settles. The source stays subscribed until it produces another value or ends. `from` is the exception: a `from(source)` iterated with `for await` still closes its source immediately on a re-run (`from(iterable)` calls the iterable's `return()` immediately; an async generator source still finishes its own pending `await` first, but its values no longer reach the memo). Even so, prefer returning `from(source)` directly and doing transforms in a downstream memo (`createMemo(() => format(value()))`) rather than in the loop body: the loop may run once more after a re-run, as the closed source ends the loop.
 
 **Solid → External (`observable`):** There's no drop-in replacement. `observable()` produced a standard Observable that external libraries could subscribe to. In 2.0, use `createEffect` to push signal changes to an external subscriber:
 
