@@ -994,26 +994,37 @@ setState(s => {
 
 The key difference: writes go through `setState`, which makes them visible to the reactive system's batching and transition coordination. Direct mutation on a proxy can't participate in transitions or optimistic rollback.
 
-### `from` / `observable` → async iterators / effects
+### `from` / `observable` → `from` returns an async iterable / effects
 
 `from` converted external reactive sources into signals. `observable` converted signals into observables. These directions have different replacements.
 
-**External → Solid (`from`):** Async iterables work directly in computations:
+**External → Solid (`from`):** `from(source)` now returns an async iterable, and async iterables are first-class in computations. Return it from a memo:
 
 ```js
 // 1.x
 import { from } from "solid-js";
 const signal = from(observable$);
 
-// 2.0 — async iterables are first-class in computations
+// 2.0 — from() adapts the source; the memo consumes it
+import { createMemo, from } from "solid-js";
+const value = createMemo(() => from(observable$));
+```
+
+`from` accepts a subscribe function (`(next, error, complete) => unsubscribe`), an Observable (anything with `subscribe(observer)`, including `Symbol.observable` / `"@@observable"` interop such as RxJS), or an async iterable (returned as is). It keeps only the latest value: values that arrive before the memo pulls again coalesce. A value the source emits during `subscribe` (a `BehaviorSubject`, say) shows on the first render, with no loading frame. Errors reach the nearest `Errored` boundary.
+
+The subscription closes as soon as the memo re-runs (for example, when a source it reads changes), or when its owner is disposed. It doesn't wait for the new source's first value.
+
+An async iterable can also be consumed directly in an async generator:
+
+```js
 const value = createMemo(async function* () {
-  for await (const val of observable$) {
+  for await (const val of iterable) {
     yield val;
   }
 });
 ```
 
-Cleanup is not immediate. When the owner is disposed, or a re-run replaces the stream, Solid calls the generator's `return()`, but a generator waiting at an `await` can't finish until that `await` settles. The source stays subscribed until it produces another value or ends. If the memo only forwards values, return the iterable itself (`createMemo(() => observable$)`): Solid closes it right away. A source that isn't an async iterable (a callback subscription, an Observable) needs an adapter (see #4182, which also tracks prompt cleanup for generators).
+Here cleanup is not immediate. When the owner is disposed, or a re-run replaces the stream, Solid calls the generator's `return()`, but a generator waiting at an `await` can't finish until that `await` settles. The source stays subscribed until it produces another value or ends. `from` is the exception: a `from(source)` iterated with `for await` still closes its source immediately on a re-run. Even so, prefer returning `from(source)` directly and doing transforms in a downstream memo (`createMemo(() => format(value()))`) rather than in the loop body: the loop may run once more after a re-run, as the closed source ends the loop.
 
 **Solid → External (`observable`):** There's no drop-in replacement. `observable()` produced a standard Observable that external libraries could subscribe to. In 2.0, use `createEffect` to push signal changes to an external subscriber:
 
@@ -1067,7 +1078,8 @@ If you need a standard Observable/AsyncIterable interface for external consumers
 - **`onError` / `catchError`** → `Errored` or effect `error` option
 - **`produce`** → now the default store setter behavior (draft-first)
 - **`createMutable` / `modifyMutable`** → use `createStore` with draft setters
-- **`from` / `observable`** → async iterators
+- **`from`** → still exported, but returns an async iterable for a memo: `createMemo(() => from(source))`
+- **`observable`** → `createEffect` pushing to the external subscriber
 - **`createDeferred`** → same name, new meaning: an async memo that may lag but never leads (keeps its last answer while a refetch is in flight; `isPending` reports the refetch). 1.x's idle-time deferral and `timeoutMs` are gone; with a synchronous function it behaves like `createMemo`
 - **`indexArray`** → use `mapArray` with `keyed: false`
 - **`resetErrorBoundaries`** → no longer needed (error boundaries heal automatically)

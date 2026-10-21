@@ -1,8 +1,9 @@
 // Mock @solidjs/signals for server-side rendering
 // Re-exports infrastructure from the real package, reimplements reactive primitives as pull-based.
 
-import { $REFRESH } from "@solidjs/signals";
+import { $REFRESH, from as signalsFrom, type FromSource } from "@solidjs/signals";
 export { $REFRESH };
+export type { FromSource, FromObserver } from "@solidjs/signals";
 
 // === Re-exports from @solidjs/signals (infrastructure — no reactive scheduling) ===
 //
@@ -27,6 +28,49 @@ export {
 } from "@solidjs/signals";
 
 export { flatten } from "@solidjs/signals";
+
+/**
+ * Server `from`: a subscription or Observable yields its **first** value,
+ * then completes and unsubscribes, so a render never holds a live
+ * subscription open (an SSR response has nothing to keep pushing into, and
+ * a never-completing source would otherwise hold the stream open). Owner
+ * disposal (a retried pass, an abandoned render) unsubscribes before the
+ * first value. The client continues live after hydration with
+ * `ssrSource: "hybrid"`. An AsyncIterable passes through unchanged, as on
+ * the client: the server memo already owns its lifetime.
+ */
+export function from<T>(source: FromSource<T>): AsyncIterable<T> {
+  const iterable = signalsFrom(source);
+  if (iterable === source) return iterable;
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<T> {
+      const it = iterable[Symbol.asyncIterator]();
+      let closed = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        it.return!().then(undefined, () => {});
+      };
+      onCleanup(close);
+      return {
+        next(): Promise<IteratorResult<T>> {
+          if (closed) return Promise.resolve({ value: undefined, done: true });
+          return Promise.resolve(it.next()).then(
+            r => (close(), r),
+            e => {
+              close();
+              throw e;
+            }
+          );
+        },
+        return(): Promise<IteratorResult<T>> {
+          close();
+          return Promise.resolve({ value: undefined, done: true });
+        }
+      };
+    }
+  };
+}
 export { snapshot, omit, storePath, isStatic, $PROXY, $TRACK } from "@solidjs/signals";
 
 // === Type re-exports ===

@@ -34,6 +34,7 @@ import {
   isPending,
   latest,
   createDeferred,
+  from,
   refresh,
   affects,
   untrack,
@@ -241,6 +242,13 @@ latest(id);
 // first answer, a refetch keeps the last value on screen instead of holding
 // the change; isPending(() => rows()) reports the refetch.
 const rows = createDeferred(() => fetchRows(period()));
+
+// External push source -> memo: from() takes a subscribe fn
+// ((next, error, complete) => unsubscribe), an Observable (RxJS, Symbol.observable)
+// or an AsyncIterable. Latest value wins; a re-run or disposal unsubscribes
+// at once. Transform in a downstream memo, not in a for-await body.
+const price = createMemo(() => from(ticker(symbol())));
+const label = createMemo(() => format(price()));
 
 // Force recompute of a derived read after a server write.
 // Action: call from handlers/effects/actions, not pure reads.
@@ -694,7 +702,7 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 | `onError` / `catchError`           | `<Errored>` or effect `error` option                                |
 | `produce`                          | Default — store setters are draft-first                             |
 | `createMutable` / `modifyMutable`  | `createStore` with draft setters                                    |
-| `from` / `observable`              | Async iterables in computations / `createEffect` to push out        |
+| `observable`                       | `createEffect` to push out; `from`: `createMemo(() => from(src))`   |
 | `Index`                            | `<For keyed={false}>`                                               |
 | `indexArray`                       | `mapArray` (handles non-keyed too)                                  |
 | `use:foo={x}` directives           | `ref={foo(x)}` (or array `ref={[a, b(x)]}`)                         |
