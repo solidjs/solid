@@ -7,8 +7,10 @@ the browser as HTML.
 
 Two routes render the same simulation, so they can be compared:
 
-- `/` — the live view. The table is a server component behind a `live()`
-  address; the browser only applies the markup it receives.
+- `/` — the live view. The table is a server component behind a
+  `broadcast()` address: every tab sees the same table, so the server
+  renders it once and streams the same changes to every viewer. The
+  browser only applies the markup it receives.
 - `/spa` — the client-rendered twin. The server streams the databases as
   data and the browser renders them with keyed `<For>`s.
 

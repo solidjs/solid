@@ -207,7 +207,7 @@ function serverComponentScope(render, live = false) {
 // `brandLive`). The document face reads it at scope entry — see
 // `frameTransformDirectResult`.
 const LIVE_SOURCE = Symbol.for("solid.LiveSource");
-import { renderToStream, createLiveHoles } from "../../src/server.js";
+import { renderToStream, createLiveHoles, RequestContext } from "../../src/server.js";
 import { devCheck } from "../../src/diagnostics.js";
 import { createJSONSerializer } from "../../serialization/src/serializer.js";
 import { isContainerTraced, toBorderForm } from "./frame-container-plugin.js";
@@ -848,6 +848,14 @@ export function createFrameSink(write, frame, have, hooks) {
       } else record.value = source;
       // Holes inside what changed now show it.
       withHoles(record, holeDigests(record.rows ? rows.r.map(r => r[1]).join("") : source, null));
+      // A broadcast keeps what the range now shows whole, for viewers that
+      // join later (the row op names a base they never had). Symbol-keyed:
+      // never serialized.
+      if (record.rows && hooks && hooks.retain)
+        record[HOLE_SOURCE] = withHoles(
+          { kind: "html", value: source, digest: record.digest },
+          holeDigests(source, null)
+        );
       const r = { ["hole:" + key]: record };
       showing(r);
       swept ? Object.assign(swept.r, r) : put(id, r);
@@ -866,6 +874,7 @@ export function createFrameSink(write, frame, have, hooks) {
     // source for root/fragment `holes` maps and the resume compare.
     attrBaseline(key, text) {
       attrText.set(key, text);
+      if (hooks && hooks.retain) hooks.retain(key, text);
     },
     // ---- the binding ledger (DR-2 case 1) ----
     /**
@@ -1125,6 +1134,7 @@ function frameStream(makeCode, options) {
     };
     const sink = createFrameSink(emit, frame, options.resume && options.resume.have, {
       live: options.live,
+      retain: options.broadcast,
       onYield: bounded
         ? () => {
             if (flushed && maxYields > 0 && ++yields >= maxYields) cut("yields");
@@ -3130,6 +3140,15 @@ export function frameTransformResult(event, result, context) {
   // §9.5 Resume request): the render is conditional against it. Read only
   // at the live address — the header never rides a cacheable read.
   const have = live ? decodeHaveList(requestHeader(event, FRAME_HAVE_HEADER)) : undefined;
+  if (live && invocation.broadcast && invocation.shareKey !== undefined)
+    return broadcastResponse(
+      invocation.id + "\0" + invocation.shareKey,
+      result,
+      { frame: { id: invocation.id || "" }, live: true },
+      requestSignal(event),
+      have,
+      init
+    );
   return serverComponentResponse(
     result,
     {
@@ -3142,6 +3161,292 @@ export function frameTransformResult(event, result, context) {
     },
     init
   );
+}
+
+// ---- broadcast: one render per live address, its viewers taps on it ----
+//
+// A `broadcast` declaration promises its answer is the same for every
+// viewer, so callers with the same arguments share ONE render: the first
+// call starts it, every call (that one included) is a tap. The render's
+// messages are serialized once and written to every tap. A tap that joins
+// later gets the frame as it stands now (`retain` keeps the latest record
+// per key, a hole's whole content where the wire sent row ops), then the
+// shared batches from the next one on. The render ends when its last tap
+// does, as a disconnect ends a per-viewer one.
+const HOLE_SOURCE = Symbol("solid.frames.holeSource");
+const BROADCASTS = new Map();
+const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
+
+function broadcastResponse(key, component, options, signal, have, init) {
+  let shared = BROADCASTS.get(key);
+  if (!shared || shared.ended) shared = startBroadcast(key, component, options);
+  return tapResponse(shared, signal, have, init);
+}
+
+function startBroadcast(key, component, options) {
+  const shared = {
+    key,
+    id: options.frame.id,
+    start: null,
+    taps: new Set(),
+    records: new Map(),
+    data: [],
+    kept: 0,
+    attrs: new Map(),
+    tiers: new Set(["wire"]),
+    failed: false,
+    ended: false,
+    teardown: new AbortController()
+  };
+  BROADCASTS.set(key, shared);
+  const stream = renderServerComponent(component, {
+    ...options,
+    // The sink hands a broadcast what a resume compares that no record
+    // carries: each attr hole's first-render text.
+    broadcast: (key, text) => shared.attrs.set(key, text),
+    signal: shared.teardown.signal
+  });
+  const run = () =>
+    stream.pipe({
+      write(message) {
+        const bytes = createEventChunk(JSON.stringify(message));
+        if (message.type === "start") return void (shared.start = bytes);
+        retain(shared, message);
+        for (const tap of shared.taps) tap.write(bytes);
+      },
+      end() {
+        shared.ended = true;
+        if (BROADCASTS.get(key) === shared) BROADCASTS.delete(key);
+        for (const tap of [...shared.taps]) tap.end();
+      },
+      [ANNOUNCE](tiers) {
+        for (const tier of tiers) shared.tiers.add(tier);
+      }
+    });
+  // The shared render is nobody's request: it runs under its own event, so
+  // request-scoped state (the router's query cache) starts empty, and the
+  // request fields read as absent.
+  const store = (globalThis as any)[RequestContext];
+  store ? store.run(broadcastEvent(), run) : run();
+  return shared;
+}
+
+function broadcastEvent() {
+  const event = { broadcast: true };
+  for (const name of ["request", "locals", "clientAddress", "nativeEvent"])
+    Object.defineProperty(event, name, {
+      get() {
+        if (IS_DEV)
+          console.warn(
+            `A broadcast server component read the request (\`event.${name}\`). Its answer is ` +
+              "shared by every viewer; read per-viewer state in the server function body instead."
+          );
+        return undefined;
+      }
+    });
+  return event;
+}
+
+// The latest record per key, in last-write order: what a joining tap
+// replays. A root resets everything its frame showed, as on the client.
+function retain(shared, message) {
+  if (message.tiers) for (const tier of message.tiers) shared.tiers.add(tier);
+  if (!message.r) {
+    shared.data.push(message);
+    // Superseded arg versions are never read again: keep the table to what
+    // the records still reference (amortized — at most double).
+    if (shared.data.length > 64 && shared.data.length > 2 * shared.kept)
+      shared.kept = (shared.data = referencedData(shared)).length;
+    return;
+  }
+  const { id, version } = message;
+  for (const k in message.r) {
+    let record = message.r[k];
+    if (k === ":error") shared.failed = true;
+    if (k === "") for (const [rk, e] of shared.records) if (e.id === id) shared.records.delete(rk);
+    if (record && record[HOLE_SOURCE]) record = record[HOLE_SOURCE];
+    const rk = id + "\0" + k;
+    const prev = shared.records.get(rk);
+    if (prev && record && record.kind === "attrs" && prev.record.removed) {
+      const removed = new Set(prev.record.removed);
+      if (record.removed) for (const name of record.removed) removed.add(name);
+      record = { ...record, removed: [...removed] };
+    }
+    shared.records.delete(rk);
+    shared.records.set(rk, { id, version, k, record });
+  }
+}
+
+// The data messages the current records reference (by `$ref` key), in
+// order; keyless payloads always.
+function referencedData(shared) {
+  const refs = new Set();
+  for (const { record } of shared.records.values())
+    if (record && typeof record === "object")
+      for (const m of JSON.stringify(record).matchAll(/"\$ref":"((?:[^"\\]|\\.)*)"/g))
+        refs.add(JSON.parse(`"${m[1]}"`));
+  return shared.data.filter(m => typeof m.key !== "string" || refs.has(m.key));
+}
+
+/**
+ * What a joining tap is sent: the frame as it stands. A reconnect's
+ * have-list whose skeleton matches gets only what differs from it — the
+ * resume the per-viewer render gives (see `shell` / `emitDiffering`),
+ * computed against the frame the shared render holds instead of a render.
+ */
+function snapshot(shared, have) {
+  const out = referencedData(shared);
+  const root = shared.records.get(shared.id + "\0");
+  const conditional = !!(have && root && root.record && have[""] === root.record.digest);
+  let open = null;
+  const put = (id, version, k, record) => {
+    if (!open || open.id !== id) out.push((open = { id, version, r: {} }));
+    open.r[k] = record;
+  };
+  if (!conditional) {
+    for (const { id, version, k, record } of shared.records.values()) put(id, version, k, record);
+    return out;
+  }
+  // The root and each fragment as they show now: every later hole record
+  // spliced into whichever of them holds its range, in write order.
+  const containers = [];
+  for (const e of shared.records.values())
+    if (e.id === shared.id && (e.k === "" || /^seg:[^:]+$/.test(e.k)) && e.record)
+      containers.push({ e, value: e.record.value });
+  for (const { k, record } of shared.records.values()) {
+    if (!k.startsWith("hole:lh:") || k.endsWith(":error") || !record || record.value == null)
+      continue;
+    const n = k.slice(8);
+    const startMark = `<!--lh:${n}-->`;
+    const endMark = `<!--lh:/${n}-->`;
+    for (const c of containers) {
+      const start = c.value.indexOf(startMark);
+      if (start < 0) continue;
+      const end = c.value.indexOf(endMark, start);
+      if (end < 0) continue;
+      c.value = c.value.slice(0, start + startMark.length) + record.value + c.value.slice(end);
+      break;
+    }
+  }
+  for (const e of shared.records.values()) {
+    const { id, version, k, record } = e;
+    if (id !== shared.id) {
+      put(id, version, k, record);
+      continue;
+    }
+    if (k === "" || k === "seg::assets" || (k.startsWith("hole:lh:") && !k.endsWith(":error")))
+      continue;
+    const seg = /^seg:([^:]+)(?::(.*))?$/.exec(k);
+    if (seg && have[seg[1]] !== undefined && seg[2] !== "error") continue;
+    if (seg && seg[2] === undefined) {
+      // A fragment the client lacks streams whole, as it shows now.
+      const c = containers.find(c => c.e === e);
+      if (c && c.value !== record.value) {
+        put(
+          id,
+          version,
+          k,
+          withHoles(
+            { ...record, value: c.value, digest: textDigest(c.value) },
+            holeDigests(c.value, null)
+          )
+        );
+        continue;
+      }
+    }
+    if (k.startsWith("attr:")) continue;
+    put(id, version, k, record);
+  }
+  // Each top-level hole whose digest moved, whole (an equal one covers its
+  // interior), from the root and from every fragment the client shows.
+  for (const c of containers) {
+    const seg = c.e.k && /^seg:([^:]+)$/.exec(c.e.k);
+    if (seg && have[seg[1]] === undefined) continue;
+    for (const m of c.value.matchAll(HOLE_RANGE)) {
+      const key = "lh:" + m[1];
+      const digest = textDigest(stripHoleMarkers(m[2]));
+      if (have[key] === digest) continue;
+      put(
+        shared.id,
+        c.e.version,
+        "hole:" + key,
+        withHoles({ kind: "html", value: m[2], digest }, holeDigests(m[2], null))
+      );
+    }
+    // Each addressed attr whose text moved: its latest record, else the
+    // text it rendered with.
+    for (const m of c.value.matchAll(ATTR_ADDRESS)) {
+      const latest = shared.records.get(shared.id + "\0attr:" + m[1]);
+      const text = latest ? latest.record.value : shared.attrs.get("lha:" + m[1]);
+      if (text === undefined) continue;
+      const digest = latest ? latest.record.digest : textDigest(text);
+      if (have["lha:" + m[1]] === digest) continue;
+      put(
+        shared.id,
+        c.e.version,
+        "attr:" + m[1],
+        latest ? latest.record : { kind: "attrs", value: text, digest }
+      );
+    }
+  }
+  return out;
+}
+
+function tapResponse(shared, signal, have, init = {}) {
+  const headers = copyInitHeaders(init.headers);
+  headers.set(FRAME_STREAM_HEADER, shared.id);
+  headers.set("X-Content-Raw", "1");
+  headers.set("Content-Type", "text/event-stream");
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-Accel-Buffering", "no");
+  headers.set(FRAME_TIERS_HEADER, [...shared.tiers].join(","));
+  let closed = false;
+  let stopLive = null;
+  let tap = null;
+  const leave = () => {
+    if (closed) return;
+    closed = true;
+    if (stopLive) stopLive();
+    if (signal) signal.removeEventListener("abort", leave);
+    shared.taps.delete(tap);
+    if (!shared.taps.size && !shared.ended) {
+      shared.ended = true;
+      if (BROADCASTS.get(shared.key) === shared) BROADCASTS.delete(shared.key);
+      shared.teardown.abort({ [DISCONNECTED]: true });
+    }
+  };
+  const body = new ReadableStream({
+    start(controller) {
+      tap = {
+        write(bytes) {
+          if (closed) return;
+          try {
+            controller.enqueue(bytes);
+          } catch (_) {
+            leave();
+          }
+        },
+        end() {
+          leave();
+          try {
+            controller.close();
+          } catch (_) {}
+        }
+      };
+      if (shared.start) controller.enqueue(shared.start);
+      for (const message of snapshot(shared, have))
+        controller.enqueue(createEventChunk(JSON.stringify(message)));
+      if (shared.ended || (signal && signal.aborted)) return tap.end();
+      shared.taps.add(tap);
+      stopLive = armLiveBody(controller, leave);
+      if (signal) signal.addEventListener("abort", leave, { once: true });
+    },
+    cancel() {
+      leave();
+    }
+  });
+  if (shared.failed) headers.set("Cache-Control", "no-store");
+  return new Response(body, { status: init.status || 200, headers });
 }
 
 /** The request's abort, when the event carries a standards-shaped request. */

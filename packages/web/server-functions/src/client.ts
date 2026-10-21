@@ -307,9 +307,11 @@ export interface ServerFunctionsClientConfig {
    * Encoder for argument lists JSON can't carry faithfully. JSON-safe args
    * always go as plain JSON (no codec in the bundle); anything else throws
    * unless this is set. Installed by `enableRichArguments()` from the
-   * rich-args entry — set directly only for custom wire encodings.
+   * rich-args entry — set directly only for custom wire encodings. A
+   * `FormData` answer is sent as an upload: the codec output in its `args`
+   * field and each file in a `file<index>` part.
    */
-  serializeArgs?(args: unknown[]): string | Promise<string>;
+  serializeArgs?(args: unknown[]): string | FormData | Promise<string | FormData>;
 }
 
 /** Wire-state transitions a live call's iterable can report. */
@@ -434,7 +436,7 @@ function serializeArguments(args) {
       "Server function arguments are sent as JSON by default and these " +
         "arguments are not JSON-serializable. Call enableRichArguments() " +
         '(from "@solidjs/web/server-functions/rich-args") once at startup ' +
-        "to send Dates, Maps, Sets, typed arrays, etc. through the codec — " +
+        "to send Dates, Maps, Sets, typed arrays, files, etc. through the codec — " +
         "or pass a single Blob/FormData/File argument, which has a native " +
         "HTTP encoding."
     );
@@ -760,6 +762,10 @@ async function initializeResponse(base, id, options, args, meta) {
     }
   }
   // Everything else needs the codec, which is opt-in (enableRichArguments).
+  // The encoder answers `FormData` when the arguments hold files (see
+  // uploads.js). No content type is set here: fetch gives a string body
+  // `text/plain` and a form its multipart boundary, which is how the handler
+  // tells the two apart.
   return createRequest(
     base,
     id,
@@ -768,7 +774,6 @@ async function initializeResponse(base, id, options, args, meta) {
       body: await serializeArguments(args),
       headers: {
         ...options.headers,
-        "Content-Type": "text/plain",
         [BODY_FORMAT_HEADER]: BodyFormat.Serialized
       }
     },
@@ -1262,6 +1267,19 @@ export interface LiveServerFunction<A extends readonly any[] = any[], R = any> {
   readonly id: string;
   /** URL invoking this function directly over HTTP. */
   readonly url: string;
+}
+
+/**
+ * Declares a live server function whose answer is the same for every
+ * viewer: on the client exactly `live(fn)` — the sharing is the server's.
+ * @experimental
+ */
+export function broadcast<A extends readonly any[], R>(
+  fn: (...args: A) => R
+): LiveServerFunction<A, Awaited<R>>;
+
+export function broadcast(fn) {
+  return live(fn);
 }
 
 /**
