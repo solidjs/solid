@@ -447,6 +447,8 @@ hydrate(() => <App />, document.getElementById("root")!);
 <button ref={[autofocus, tooltip({ content: "Save" })]} />
 ```
 
+A ref runs before the element is attached: `el.isConnected` is `false` and `el.ownerDocument.defaultView` is `null`. Use the global `window`/`document`, or do layout-dependent work in `onSettled`.
+
 Two-phase directive (recommended):
 
 ```ts
