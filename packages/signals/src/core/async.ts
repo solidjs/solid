@@ -186,10 +186,12 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
   // Staged whether or not the flush has joined a hold yet: a pass that runs
   // before its async sibling joins is the seam's to decide, like a value
   // (#4109). A flush that parks nothing publishes it at its commit (S-38).
+  // Not a projection's derive: its readers learn its error through the
+  // family, which the commit's publish never reaches (#4189).
   if (
     !(
       el._config & CONFIG_HELD ||
-      (inPass && el._flags & REACTIVE_STAGED_READ && globalQueue._running)
+      (inPass && el._flags & REACTIVE_STAGED_READ && globalQueue._running && !(el as any).fam)
     ) ||
     passLane
   )
