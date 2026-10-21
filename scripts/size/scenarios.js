@@ -3974,8 +3974,9 @@ module.exports = [
     // Every comparator call guarded, default comparators on a fast path (#4111, 2026-10-20, over next @ 6371b910): cap 26.10 KB unchanged, recorded minified 81,083 -> 81,112 B (+29 B), measured in CI at 26,086 B brotli. `isSame` is the one guarded comparator call (a NotReady read is a change, any other throw goes to the node's boundary, A3), with `isEqual` on a fast path so the propagation benches keep next's speed. Size-Exception accepted by the maintainer (2026-10-19). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Writable memo write clears its error without a torn read (#4110, 2026-10-20, over next @ 7014aca4, accepted by the maintainer): 26.10 KB (unchanged), recorded minified 81,112 -> 81,172 B, measured locally (linux) at 26,087 B brotli / 81,172 B minified (+60 B minified over the recorded size), which includes #4163's +9 B merged without re-recording: a write to an errored writable memo recovers it at commit and keeps the error shown until then, and clears an error a pass staged under the same hold. Correctness; matches CI's numbers.
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): 26.10 KB -> 26.11 KB, recorded minified 81,172 -> 81,138 B (-34 B), measured in CI at 26,092 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
-    limit: "26.11 KB",
-    capMinified: 81138,
+    // Re-recorded on next @ 0222d684 (2026-10-21, accepted by the maintainer): 26.11 KB -> 26.14 KB, recorded minified 81,138 -> 81,159 B (+21 B), measured in CI at 26,123 B brotli. #4188 (reaction arms captured before tracking reads), #4207 (#4203, unread pending memo under a verdict mount) and #4176 (deferred releases restored after a throwing cleanup) each passed alone and together put next 1 B past the 20 B minified allowance. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "26.14 KB",
+    capMinified: 81159,
     alias
   },
   {
