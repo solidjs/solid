@@ -1001,37 +1001,15 @@ The key difference: writes go through `setState`, which makes them visible to th
 import { from } from "solid-js";
 const signal = from(observable$);
 
-// 2.0 — async iterables are first-class in computations. Return the iterable
-// itself: disposing the owner calls its return() and unsubscribes at once.
-const value = createMemo(() => observable$);
-```
-
-Solid calls the returned iterator's `return()` when the owner is disposed and when a re-run replaces the stream. When the memo needs logic around the source (mapping, filtering, picking the source from a signal), an `async function*` is the natural fit, but don't hand it to Solid as-is. While the generator waits at an `await`, its `return()` is queued, so the source stays subscribed until it produces another value. Close the source yourself in `return()`:
-
-```js
-const value = createMemo(() => {
-  // Read signals here, before any await, so they are tracked.
-  const source = feedFor(id())[Symbol.asyncIterator]();
-  const scale = factor();
-  const gen = (async function* () {
-    for (let r; !(r = await source.next()).done; ) {
-      if (r.value.visible) yield r.value.amount * scale;
-    }
-  })();
-  return {
-    [Symbol.asyncIterator]: () => ({
-      next: () => gen.next(),
-      // Close the source at once; the generator's own return() waits for its await.
-      return: () => {
-        source.return?.();
-        return gen.return();
-      }
-    })
-  };
+// 2.0 — async iterables are first-class in computations
+const value = createMemo(async function* () {
+  for await (const val of observable$) {
+    yield val;
+  }
 });
 ```
 
-A source that isn't an async iterable (a callback subscription, an Observable) needs an adapter whose `return()` unsubscribes synchronously (see #4182).
+Cleanup is not immediate. When the owner is disposed, or a re-run replaces the stream, Solid calls the generator's `return()`, but a generator waiting at an `await` can't finish until that `await` settles. The source stays subscribed until it produces another value or ends. If the memo only forwards values, return the iterable itself (`createMemo(() => observable$)`): Solid closes it right away. A source that isn't an async iterable (a callback subscription, an Observable) needs an adapter (see #4182, which also tracks prompt cleanup for generators).
 
 **Solid → External (`observable`):** There's no drop-in replacement. `observable()` produced a standard Observable that external libraries could subscribe to. In 2.0, use `createEffect` to push signal changes to an external subscriber:
 
