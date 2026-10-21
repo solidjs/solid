@@ -173,7 +173,8 @@ return a cleanup function from the callback instead.
 ### SETTLED_CLEANUP_UNOWNED
 
 `onSettled` returned a cleanup while running in an unowned scope, so the
-cleanup cannot be honored. Call the setup helper from an owned scope (the
+cleanup cannot be honored. Throws in dev; in production the cleanup is
+dropped. Call the setup helper from an owned scope (the
 component body), not from an event handler, tracked effect, or another
 `onSettled`.
 

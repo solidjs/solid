@@ -33,6 +33,7 @@ import {
   createOptimisticStore,
   isPending,
   latest,
+  createDeferred,
   refresh,
   affects,
   untrack,
@@ -224,6 +225,11 @@ const user = createMemo(() => fetchUser(id()));
 
 // Peek at the in-flight value during a transition
 latest(id);
+
+// A memo that may lag but never leads (React's useDeferredValue): after its
+// first answer, a refetch keeps the last value on screen instead of holding
+// the change; isPending(() => rows()) reports the refetch.
+const rows = createDeferred(() => fetchRows(period()));
 
 // Force recompute of a derived read after a server write.
 // Action: call from handlers/effects/actions, not pure reads.

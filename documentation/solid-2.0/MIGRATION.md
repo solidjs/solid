@@ -1001,13 +1001,12 @@ The key difference: writes go through `setState`, which makes them visible to th
 import { from } from "solid-js";
 const signal = from(observable$);
 
-// 2.0 — async iterables are first-class in computations
-const value = createMemo(async function* () {
-  for await (const val of observable$) {
-    yield val;
-  }
-});
+// 2.0 — async iterables are first-class in computations. Return the iterable
+// itself: disposing the owner calls its return() and unsubscribes at once.
+const value = createMemo(() => observable$);
 ```
+
+Avoid wrapping the source in an `async function*` with `for await`. While the generator waits at an `await`, its `return()` is queued, so the upstream subscription stays open after disposal until the source produces another value. A source that isn't an async iterable (a callback subscription, an Observable) needs an adapter whose `return()` unsubscribes synchronously (see #4182).
 
 **Solid → External (`observable`):** There's no drop-in replacement. `observable()` produced a standard Observable that external libraries could subscribe to. In 2.0, use `createEffect` to push signal changes to an external subscriber:
 
