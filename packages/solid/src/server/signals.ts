@@ -459,6 +459,9 @@ export function onCleanup(fn: Disposable): Disposable {
 }
 
 export function createContext<T>(defaultValue?: T, description?: string): Context<T> {
+  // Dev: an explicit `undefined` default is still no default (#4181).
+  if (IS_DEV && arguments.length && defaultValue === undefined)
+    return { id: Symbol(description), defaultValue, _undefinedDefault: true } as Context<T>;
   return { id: Symbol(description), defaultValue };
 }
 
@@ -470,7 +473,12 @@ export function getContext<T>(
   const map = (owner as unknown as SSROwner)._context;
   const stored = map[context.id];
   const value = stored !== undefined ? (stored as T) : context.defaultValue;
-  if (value === undefined) throw new ContextNotFoundError();
+  if (value === undefined)
+    // Dev names the context and why it has no value (no provider, or a
+    // provider that passed `undefined`), as the client's getContext does.
+    throw IS_DEV
+      ? new ContextNotFoundError(context, context.id in map)
+      : new ContextNotFoundError();
   return value as T;
 }
 

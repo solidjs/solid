@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { createContext, useContext, Show } from "solid-js";
+import { createContext, useContext, Show, Errored } from "solid-js";
 import { render } from "../src/index.js";
 
 describe("Testing Context", () => {
@@ -109,5 +109,45 @@ describe("Testing Context", () => {
     );
     expect((div.firstChild!.nextSibling! as HTMLDivElement).innerHTML).toBe("dark");
     div.innerHTML = "";
+  });
+});
+
+// #4181: `undefined` means "not provided" for context, from the provider side
+// too. The dev message says the provider passed `undefined` and points at
+// `null` as the explicit empty value; a provided `null` reads back as `null`.
+describe("Context provided as undefined (#4181)", () => {
+  const Opt = createContext<string | null | undefined>(undefined, { name: "Opt" });
+  const Reader = () => <span>{String(useContext(Opt))}</span>;
+
+  it("a Provider passing undefined counts as not provided", () => {
+    const div = document.createElement("div");
+    const dispose = render(
+      () => (
+        <Errored fallback={err => <p>{(err() as Error).message}</p>}>
+          <Opt value={undefined}>
+            <Reader />
+          </Opt>
+        </Errored>
+      ),
+      div
+    );
+    expect(div.textContent).toBe(
+      'Context "Opt" was provided with `undefined`, which counts as not provided: `undefined` means "no value" for context. To provide an empty value, create the context with a `null` default (`createContext<T | null>(null)`) and pass `null`.'
+    );
+    dispose();
+  });
+
+  it("a Provider passing null provides null", () => {
+    const div = document.createElement("div");
+    const dispose = render(
+      () => (
+        <Opt value={null}>
+          <Reader />
+        </Opt>
+      ),
+      div
+    );
+    expect(div.textContent).toBe("null");
+    dispose();
   });
 });

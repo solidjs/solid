@@ -8,6 +8,7 @@ import {
   serverComponentContextError
 } from "./signals.js";
 import type { Accessor, EffectOptions } from "./signals.js";
+import { IS_DEV } from "./diagnostics.js";
 import type { ArrayElement, Element as SolidElement } from "../types.js";
 import type { FlowComponent, FlowProps } from "./component.js";
 
@@ -47,6 +48,10 @@ export function createContext<T>(defaultValue?: T, options?: EffectOptions): Con
   }
   provider.id = id;
   provider.defaultValue = defaultValue;
+  // Dev: an explicit `undefined` default is still no default (`undefined`
+  // means "not provided"); remembered so a failed read can say so (#4181).
+  if (IS_DEV && arguments.length && defaultValue === undefined)
+    (provider as any)._undefinedDefault = true;
   return provider as unknown as Context<T>;
 }
 

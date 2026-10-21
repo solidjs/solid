@@ -72,6 +72,11 @@ export interface Context<T> extends ContextProviderComponent<T> {
  *   static fallback (theme, locale, frozen config). Outside any Provider,
  *   `useContext` returns `defaultValue`.
  *
+ * `undefined` means "not provided": `createContext(undefined)` is still the
+ * default-less form, and a Provider passing `value={undefined}` counts as no
+ * Provider. For an optional context use `null` as the empty value:
+ * `createContext<T | null>(null)`.
+ *
  * Context is for state that belongs to a subtree, which includes app-wide
  * state in an app that renders on the server: a value created inside a
  * component is created once per request, and the Provider owns and disposes
@@ -127,6 +132,10 @@ export function createContext<T>(defaultValue?: T, options?: EffectOptions): Con
   }
   provider.id = id;
   provider.defaultValue = defaultValue;
+  // Dev: an explicit `undefined` default is still no default (`undefined`
+  // means "not provided"); remembered so a failed read can say so (#4181).
+  if (IS_DEV && arguments.length && defaultValue === undefined)
+    (provider as any)._undefinedDefault = true;
   return provider as unknown as Context<T>;
 }
 
