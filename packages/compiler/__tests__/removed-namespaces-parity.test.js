@@ -52,11 +52,12 @@ function attempt(compile) {
 }
 
 function babelDiagnostic(error) {
-  // CI forces color, so Babel's code frame carries ANSI escapes.
+  // CI forces color, so Babel's code frame carries ANSI escapes. The filename
+  // prefix is matched lazily: a Windows path has a drive colon.
   const text = error.message.replace(/\u001b\[[0-9;]*m/g, "");
   const [first] = text.split("\n");
   const frame = text.match(/^>\s*(\d+) \|/m);
-  return { message: first.replace(/^[^:]*\.jsx: /, ""), line: frame && Number(frame[1]) };
+  return { message: first.replace(/^.*?\.jsx: /, ""), line: frame && Number(frame[1]) };
 }
 
 function oxcDiagnostic(error) {
