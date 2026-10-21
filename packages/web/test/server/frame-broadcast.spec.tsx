@@ -34,11 +34,28 @@ const tick = (ms = 10) => new Promise<void>(r => setTimeout(r, ms));
 const handle = (request: Request) =>
   handleServerFunctionRequest(request, { transformResult: frameTransformResult });
 
-const get = (id: string, args: unknown[]) =>
+const get = (id: string, args: unknown[], headers: HeadersInit = {}) =>
   new Request(
     `http://localhost/_server/live/${id}?args=${encodeURIComponent(JSON.stringify(args))}`,
-    { method: "GET" }
+    { method: "GET", headers }
   );
+
+/** The have-list a client holding `messages` would send: root skeleton + hole digests. */
+function haveOf(messages: any[]) {
+  const have: Record<string, string> = {};
+  for (const m of messages)
+    for (const k in m.r || {}) {
+      const record = m.r[k];
+      if (k === "") for (const key in have) delete have[key];
+      if (k === "") have[""] = record.digest;
+      if (k.startsWith("hole:lh:") && !k.endsWith(":error")) have[k.slice(5)] = record.digest;
+      if (k.startsWith("attr:")) have["lha:" + k.slice(5)] = record.digest;
+      for (const key in record.holes || {}) have[key] = record.holes[key];
+    }
+  return Object.entries(have)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(",");
+}
 
 /** A source the test drives: each `push` is the next yield. */
 function channel() {
@@ -205,6 +222,98 @@ describe("broadcast server components", () => {
     expect(seen[0]).toContain("/_server/live/bc-event");
     expect(seen.slice(1)).toEqual([true, undefined]);
     a.cancel();
+    await tick();
+  });
+
+  it("a reconnect whose skeleton matches gets only the holes that moved", async () => {
+    const { rooms } = declareRoom("bc-resume");
+    const a = tap(await handle(get("bc-resume", ["r"])));
+    await tick();
+    rooms.get("r")!.push("one");
+    await tick();
+    const have = haveOf(a.messages);
+    // Same view: nothing owed but the start.
+    const same = tap(await handle(get("bc-resume", ["r"], { "X-Frame-Have": have })));
+    await tick();
+    expect(same.messages.map(m => m.type || Object.keys(m.r))).toEqual(["start"]);
+    // One value behind: only the hole, never the root.
+    rooms.get("r")!.push("two");
+    await tick();
+    const behind = tap(await handle(get("bc-resume", ["r"], { "X-Frame-Have": have })));
+    await tick();
+    const keys = behind.messages.flatMap(m => (m.r ? Object.keys(m.r) : []));
+    expect(keys).not.toContain("");
+    expect(keys.some(k => k.startsWith("hole:lh:"))).toBe(true);
+    expect(sent(behind)).toContain("two");
+    for (const t of [a, same, behind]) t.cancel();
+    await tick();
+  });
+
+  it("a joiner gets the data its slot records read, not every superseded version", async () => {
+    let ch: ReturnType<typeof channel>;
+    broadcast(
+      createServerReference(
+        registerServerReference("bc-slots", async () => {
+          return (props: any) => {
+            ch = channel();
+            const value = createMemo(() => ch.source);
+            return <div>{props.item({ data: { label: value() } })}</div>;
+          };
+        })
+      )
+    );
+    const a = tap(await handle(get("bc-slots", [])));
+    await tick();
+    for (let i = 0; i < 100; i++) {
+      ch!.push("v" + i);
+      await tick(1);
+    }
+    await tick();
+    expect(sent(a)).toContain("v99");
+    // The first viewer was sent every version.
+    expect(a.messages.filter(m => m.type === "data").length).toBeGreaterThan(50);
+    const b = tap(await handle(get("bc-slots", [])));
+    await tick();
+    const data = b.messages.filter(m => m.type === "data");
+    expect(data.length).toBeLessThanOrEqual(2);
+    expect(JSON.stringify(data)).toContain("v99");
+    a.cancel();
+    b.cancel();
+    await tick();
+  });
+
+  it("a reconnect gets a dynamic attribute that moved, without the root", async () => {
+    let ch: ReturnType<typeof channel>;
+    broadcast(
+      createServerReference(
+        registerServerReference("bc-attrs", async () => {
+          return () => {
+            ch = channel();
+            const value = createMemo(() => ch.source);
+            return (
+              <div>
+                <a href={"/" + value()}>link</a>
+              </div>
+            );
+          };
+        })
+      )
+    );
+    const a = tap(await handle(get("bc-attrs", [])));
+    await tick();
+    ch!.push("one");
+    await tick();
+    const have = haveOf(a.messages);
+    ch!.push("two");
+    await tick();
+    expect(sent(a)).toContain("two");
+    const b = tap(await handle(get("bc-attrs", [], { "X-Frame-Have": have })));
+    await tick();
+    const keys = b.messages.flatMap(m => (m.r ? Object.keys(m.r) : []));
+    expect(keys).not.toContain("");
+    expect(sent(b)).toContain("two");
+    a.cancel();
+    b.cancel();
     await tick();
   });
 });
