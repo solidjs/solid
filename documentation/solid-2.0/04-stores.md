@@ -167,6 +167,8 @@ setStore(s => {
 
 This pairs naturally with `createProjection`, where returning a value from the derive function uses reconciliation automatically (keyed by `options.key`, default `"id"`).
 
+Don't keep mutating an object after handing it to a store. A later in-place change to that object isn't observed, and assigning or reconciling the same object again doesn't pick it up either, because the store sees the same reference. Pass a fresh object instead (a new response, or a copy such as `{ ...next }`). This mostly affects test fixtures and caches that reuse one response object.
+
 ### Shallow stores (`shallow: true`)
 
 By default stores track at property level all the way down — that is the model, and it is the right choice for almost all state. `shallow: true` is a **specialized performance opt-in** for one identifiable workload shape, not a general recommendation: reach for it when profiling shows ingestion cost on data whose records change wholesale.

@@ -93,6 +93,8 @@ let el;
 <div ref={[node => (el = node), autofocus]} />; // assigned
 ```
 
+A ref runs before the element is inserted into the page. At that point `el.isConnected` is `false`, and `el.ownerDocument` is the inert document of the template the element was cloned from, so `el.ownerDocument.defaultView` is `null`. Don't reach the window or document through the element inside a ref: use the global `window`/`document`, or do work that needs the attached element (measuring, reading computed styles) in `onSettled`.
+
 #### Two-phase directive factories (owned setup, unowned application)
 
 The recommended directive pattern is **two-phase**, similar in spirit to “split effects” (compute phase vs apply phase):
