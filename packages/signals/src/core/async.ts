@@ -381,6 +381,11 @@ export function releaseFlightTeardown(el: Computed<any>): void {
 export function onSupersede(fn: () => void): void {
   const el = context as Computed<any> | null;
   if (el === null || el._fn === undefined || !(el._flags & REACTIVE_RECOMPUTING_DEPS)) return;
+  chainFlightTeardown(el, fn);
+}
+
+/** Add `fn` to `el`'s teardown slot after whatever the slot already holds. */
+function chainFlightTeardown(el: Computed<any>, fn: () => void): void {
   const x = ext(el);
   const prev = x._flightTeardown;
   x._flightTeardown =
@@ -622,8 +627,11 @@ export function handleAsync<T>(
     cleanup(close, owner);
     // Flight-identity cancellation (#3122): the registration above is the
     // owner-death backstop; the teardown slot fires at the _inFlight release
-    // sites so supersede stops this stream immediately.
-    ext(el)._flightTeardown = close;
+    // sites so supersede stops this stream immediately. Chained, not
+    // assigned: the slot may already hold teardowns this run registered
+    // (`onSupersede` — a source the compute opened but didn't return).
+    // Directly on `el`: the deferred posture has no ambient run.
+    chainFlightTeardown(el, close);
 
     // Release check before each next pull: an unobserved lazy node must tear
     // down (its close above runs via disposal, closing the iterator) instead

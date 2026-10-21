@@ -584,3 +584,70 @@ describe("from: AsyncIterable sources", () => {
     expect(log).toEqual(["open a", "return a", "loop exited"]);
   });
 });
+
+describe("from: several sources in one run", () => {
+  it("a from() the compute opens but doesn't return closes at supersede too", async () => {
+    const log: string[] = [];
+    const sources = {
+      a: { side: source("side a", log, { value: 0 }), main: source("main a", log, { value: "a" }) },
+      b: { side: source("side b", log, { value: 0 }), main: source("main b", log, { value: "b" }) }
+    };
+    let setX!: (v: "a" | "b") => void;
+    let m!: () => string;
+    const { dispose } = mount(() => {
+      const [x, set] = createSignal<"a" | "b">("a");
+      setX = set;
+      return (m = createMemo(() => {
+        const s = sources[x()];
+        // Opened (subscribed) and kept by the compute, not returned.
+        from<number>(s.side)[Symbol.asyncIterator]();
+        return from<string>(s.main);
+      }));
+    });
+    expect(m()).toBe("a");
+    expect(log).toEqual(["open side a", "open main a"]);
+
+    setX("b");
+    flush();
+    expect(log).toEqual([
+      "open side a",
+      "open main a",
+      "close side a",
+      "close main a",
+      "open side b",
+      "open main b"
+    ]);
+    await microtasks();
+    expect(m()).toBe("b");
+    dispose();
+    expect(log.slice(6).sort()).toEqual(["close main b", "close side b"]);
+  });
+
+  it("deferred posture: a promise resolving to from(...) closes at supersede", async () => {
+    const log: string[] = [];
+    const sources = { a: source("a", log, { value: "a1" }), b: source("b", log, { value: "b1" }) };
+    let setX!: (v: "a" | "b") => void;
+    let m!: () => string;
+    const { dispose } = mount(() => {
+      const [x, set] = createSignal<"a" | "b">("a");
+      setX = set;
+      return (m = createMemo(async () => {
+        const s = sources[x()];
+        await Promise.resolve();
+        return from<string>(s);
+      }) as unknown as () => string);
+    });
+    await microtasks();
+    expect(m()).toBe("a1");
+    expect(log).toEqual(["open a"]);
+
+    setX("b");
+    flush();
+    expect(log).toEqual(["open a", "close a"]);
+    await microtasks();
+    expect(m()).toBe("b1");
+    expect(log).toEqual(["open a", "close a", "open b"]);
+    dispose();
+    expect(log).toEqual(["open a", "close a", "open b", "close b"]);
+  });
+});
