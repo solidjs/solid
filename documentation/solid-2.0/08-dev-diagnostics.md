@@ -78,6 +78,19 @@ const bump = action(async function* () {
 });
 ```
 
+#### `STORE_WRITE_OUTSIDE_SETTER`
+
+**Message:** "Writing store property \"n\" outside its setter was ignored. Stores are read-only outside the setter's draft: use `setStore(s => { s.n = value })`."
+
+A store proxy is read-only outside its setter's draft: a direct assignment, `delete`, or `Object.defineProperty` on it (including array mutators such as `store.items.push(x)`) changes nothing and notifies nobody. The trap still returns `true` so strict-mode code does not throw — production behavior is unchanged — but dev warns, once per store object and key, naming the key and the setter form of the write. `data` carries `{ operation, property }`, where `operation` is `set`, `defineProperty` or `deleteProperty`.
+
+```js
+store.n = 5; // ignored; warns in dev
+setStore(s => {
+  s.n = 5; // the write, in the setter's draft
+});
+```
+
 #### `PENDING_ASYNC_UNTRACKED_READ`
 
 **Message:** "Reading a pending async value directly in [context]. Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function)."
@@ -916,6 +929,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | ---------------------------------- | ---------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`    | error      | write          | Reactive write/invalidation inside component/computation                                                                                                          |
 | `ASYNC_STORE_SETTER`               | error      | write          | Store setter callback returned a Promise (setters are synchronous transactions)                                                                                   |
+| `STORE_WRITE_OUTSIDE_SETTER`       | warn       | write          | Store proxy written, deleted from, or defined on outside its setter; the write is ignored (once per store object and key)                                         |
 | `PENDING_ASYNC_UNTRACKED_READ`     | error      | async          | Reading pending async outside tracking scope                                                                                                                      |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`   | warn       | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                                                                  |
 | `CLEANUP_IN_FORBIDDEN_SCOPE`       | error      | lifecycle      | `onCleanup` inside trackedEffect/onSettled                                                                                                                        |

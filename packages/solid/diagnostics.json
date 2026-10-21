@@ -495,6 +495,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/stacked-holds"
   },
   {
+    "code": "STORE_WRITE_OUTSIDE_SETTER",
+    "kind": ["write"],
+    "severity": ["warn"],
+    "category": "write",
+    "trigger": "Store proxy written, deleted from, or defined on outside its setter; the write is ignored (once per store object and key)",
+    "repair": "A store proxy was written, deleted from, or had a property defined on it outside its setter — `store.n = 5`, `store.items.push(x)`, `delete store.user` — and the write was ignored.",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/store-write-outside-setter"
+  },
+  {
     "code": "STRICT_READ_UNTRACKED",
     "kind": ["strict-read"],
     "severity": ["warn"],
