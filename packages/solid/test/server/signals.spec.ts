@@ -621,6 +621,22 @@ describe("Server context", () => {
       { id: "test-throw" }
     );
   });
+
+  test("an explicit undefined default is no default; the dev message says so (#4181)", () => {
+    createRoot(
+      () => {
+        const Opt = createContext<string | undefined>(undefined, { name: "Opt" });
+        expect(() => useContext(Opt)).toThrow(
+          /^Context "Opt" has no provider above this read, and `createContext\(undefined\)` does not give it a default/
+        );
+        const Todos = createContext<number>();
+        expect(() => useContext(Todos)).toThrow(
+          /^Context has no provider above this read and no default value\./
+        );
+      },
+      { id: "test-undefined-default" }
+    );
+  });
 });
 
 // === Owner / ID tree ===

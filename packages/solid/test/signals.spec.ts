@@ -468,6 +468,34 @@ describe("create and use context", () => {
       expect(useContext(ThemeContext)).toBe("light");
     });
   });
+
+  // #4181: `undefined` means "not provided" for context, so an explicit
+  // `createContext(undefined)` is still default-less. The dev message says
+  // so, names the context, and points at `null` as the explicit empty value.
+  test("an explicit undefined default is no default; the dev message says so", () => {
+    const Opt = createContext<string | undefined>(undefined, { name: "Opt" });
+    createRoot(() => {
+      expect(() => useContext(Opt)).toThrow(
+        'Context "Opt" has no provider above this read, and `createContext(undefined)` does not give it a default: `undefined` means "no value" for context. Mount a provider above this read, or use `null` as an explicit empty default: `createContext<T | null>(null)`.'
+      );
+    });
+  });
+
+  test("a default-less read with no Provider suggests a null default", () => {
+    const Todos = createContext<number>();
+    createRoot(() => {
+      expect(() => useContext(Todos)).toThrow(
+        /has no provider above this read and no default value\..*`createContext<T \| null>\(null\)`/
+      );
+    });
+  });
+
+  test("a null default is a value outside any Provider", () => {
+    const OptNull = createContext<string | null>(null);
+    createRoot(() => {
+      expect(useContext(OptNull)).toBeNull();
+    });
+  });
 });
 
 describe("runWithOwner", () => {

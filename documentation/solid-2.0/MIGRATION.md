@@ -743,6 +743,8 @@ The default form `createContext<T>(defaultValue)` is unchanged — `useContext` 
 
 If you genuinely relied on `useContext(ctx)` returning `undefined` for a default-less context, either pass an explicit default to `createContext` or wrap the call in a try/catch. Most existing wrapper hooks were already throwing on `undefined`, so for them the change is a removal, not a migration.
 
+`undefined` is never a context value: it means "not provided". `createContext<T | undefined>(undefined)` is still a default-less context, and a Provider passing `value={undefined}` counts as no Provider, so both throw `ContextNotFoundError` (in dev the message names the context and which case it hit). For an optional context, use `null` as the explicit empty value: `createContext<T | null>(null)` returns `null` outside a Provider, and a Provider can pass `null` too.
+
 ## New in 2.0
 
 These APIs are new additions (not renames of 1.x APIs):

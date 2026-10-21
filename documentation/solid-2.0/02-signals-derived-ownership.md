@@ -92,7 +92,14 @@ The default form `createContext<T>(defaultValue)` is unchanged: `useContext` fal
 
 > Context is for state that belongs to a subtree, which includes app-wide state in an app that renders on the server: a value created inside a component is created once per request, and the Provider owns and disposes it. **Module scope is shared by every request in the same process, so reserve it for constants** (and the `createContext` call itself). That's why a Provider is mandatory in the default-less form.
 
-**Migration:** drop `useX`-with-throw wrappers and call `useContext` directly. If you actively relied on `useContext(ctx)` returning `undefined` for a default-less context, either pass an explicit default to `createContext` or wrap the call in a try/catch.
+`undefined` is never a context value: it means "not provided", on either side. `createContext<T | undefined>(undefined)` is still default-less, and a Provider passing `value={undefined}` counts as no Provider, so both throw `ContextNotFoundError`. The dev message names the context and which case it hit. For an optional context, use `null` as the explicit empty value:
+
+```ts
+const Session = createContext<Session | null>(null);
+useContext(Session); // null outside a Provider; a Provider may pass null too
+```
+
+**Migration:** drop `useX`-with-throw wrappers and call `useContext` directly. If you actively relied on `useContext(ctx)` returning `undefined` for a default-less context, either pass an explicit default to `createContext` (`null` for "empty", not `undefined`) or wrap the call in a try/catch.
 
 ### Derived primitives: function-form `createSignal` and `createStore`
 
