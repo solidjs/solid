@@ -93,6 +93,16 @@ const modes = {
       contextToCustomElements: true
     }
   },
+  "dom-dev": {
+    fixtureDir: "__dom_dev_fixtures__",
+    options: {
+      moduleName: "r-dom",
+      builtIns: ["For", "Show"],
+      generate: "dom",
+      dev: true,
+      contextToCustomElements: true
+    }
+  },
   "dom-source-names": {
     fixtureDir: "__dom_source_names_fixtures__",
     options: {

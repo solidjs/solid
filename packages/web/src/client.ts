@@ -193,7 +193,13 @@ import {
   qualifierValue,
   STYLESHEET_FETCH_META
 } from "./head.js";
-import { devCheck, lowercaseEventAttribute, unscopedHoleAllocatedIds } from "./diagnostics.js";
+import {
+  checkStatefulWrite,
+  devCheck,
+  lowercaseEventAttribute,
+  recordStatefulWrite,
+  unscopedHoleAllocatedIds
+} from "./diagnostics.js";
 export {
   DOMWithState,
   ChildProperties,
@@ -656,6 +662,7 @@ export function setProperty(node, name, value) {
   // attribute removed to restore their default submission value of "on".
   // Non-hydratable inline bindings still coalesce nullish values to "".
   const nodeName = node.nodeName;
+  if ("_SOLID_DEV_") checkStatefulWrite(node, name, value);
   if (name === "value" && nodeName === "SELECT") writeSelectValue(node, value);
   else if (
     (name === "value" || name === "defaultValue") &&
@@ -664,7 +671,26 @@ export function setProperty(node, name, value) {
     if (value == null && /^(checkbox|radio)$/.test(node.type)) node.removeAttribute("value");
     else node[name] = value ?? "";
   } else node[name] = value;
+  if ("_SOLID_DEV_") recordStatefulWrite(node, name, value);
   reclaimAttribute(node, name);
+}
+
+/**
+ * A stateful DOM property write (`input.value`, `input.checked`,
+ * `option.selected`, `video.muted`, ...) from dev-compiled, non-hydratable
+ * DOM output: exactly `node[name] = value`, which is what production
+ * output inlines. The dev runtime checks it first and warns
+ * (`UNCOMMITTED_INPUT_OVERWRITTEN`) when it re-applies an unchanged bound
+ * value over an edit the user never committed to the signal. Production
+ * compile output never imports it, so it tree-shakes away.
+ *
+ * @internal Compiler output only.
+ */
+export function setStatefulProperty(node: Element, name: string, value: any): void;
+export function setStatefulProperty(node, name, value) {
+  if ("_SOLID_DEV_") checkStatefulWrite(node, name, value);
+  node[name] = value;
+  if ("_SOLID_DEV_") recordStatefulWrite(node, name, value);
 }
 
 // === Element claims ===
@@ -2893,6 +2919,7 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
   ) {
     if (hasNamespace) prop = prop.slice(5);
     else if (isHydrating(node)) return value; // TODO IS this correct?
+    if ("_SOLID_DEV_") checkStatefulWrite(node, prop, value);
     if (prop === "value" && nodeName === "SELECT") writeSelectValue(node, value);
     else if (
       (prop === "value" || prop === "defaultValue") &&
@@ -2903,6 +2930,7 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
       if (value == null && /^(checkbox|radio)$/.test(node.type)) node.removeAttribute("value");
       else node[prop] = value ?? "";
     } else node[prop] = value;
+    if ("_SOLID_DEV_") recordStatefulWrite(node, prop, value);
     // The claim contract is in plain names: `prop:href` re-claims as `href`.
     reclaimAttribute(node, prop);
   } else {

@@ -996,6 +996,22 @@ runs. Once per attribute name. Fix: use the camelCase handler
 (`data.handler` — `onclick={save}` → `onClick={save}`); keep a lowercase name
 only for a string inline-handler attribute.
 
+### UNCOMMITTED_INPUT_OVERWRITTEN
+
+A stateful property binding (`value`/`checked` on an input, `value` on a
+textarea, `selected` on an option, `muted` on media) re-wrote the value it
+wrote last time over an edit the user made and never committed to the bound
+signal — the typed text (or toggled box) is lost. The binding shares its
+template's grouped effect, so any other dynamic attribute in the same template
+changing re-runs it; so does a spread re-run or an `equals: false` source
+firing an equal value. Typical cause: `value={props.name} onChange={commit}`
+with no draft signal. Once per element and property; the write still happens.
+Fix: write the signal on every edit (`onInput={e =>
+setDraft(e.currentTarget.value)}`, commit the draft separately), use
+`defaultValue`/`defaultChecked` for an uncontrolled element, or reject an edit
+by writing the accepted value back in the handler (`e.currentTarget.value =
+next`) instead of re-asserting an equal value through the signal.
+
 ## Verifying a fix
 
 If you are working with `@solidjs/diagnostics`, re-run the capture after the

@@ -29,6 +29,7 @@ import {
   escapeHTML,
   convertJSXIdentifier,
   isLockedDOMProperty,
+  isStatefulDOMProperty,
   trimWhitespace,
   inlineCallExpression,
   hasStaticMarker,
@@ -449,11 +450,6 @@ export function setAttr(
       ]);
     }
 
-    const assignment = t.assignmentExpression(
-      "=",
-      t.memberExpression(elem, t.identifier(name)),
-      value
-    );
     if (
       (name === "value" || name === "defaultValue") &&
       (tagName === "input" || tagName === "textarea") &&
@@ -462,13 +458,20 @@ export function setAttr(
     ) {
       // prevents undefined on text input/textarea.value/defaultValue, fallback
       // to empty string (#2957)
-      return t.assignmentExpression(
-        "=",
-        t.memberExpression(elem, t.identifier(name)),
-        t.logicalExpression("??", value, t.stringLiteral(""))
-      );
+      value = t.logicalExpression("??", value, t.stringLiteral(""));
     }
-    return assignment;
+    // Dev DOM output writes stateful properties (value/checked/selected/
+    // muted) through `setStatefulProperty` — the same `elem[name] = value`,
+    // preceded in the dev runtime by the UNCOMMITTED_INPUT_OVERWRITTEN check
+    // (#4186). Production output keeps the inline assignment, byte for byte.
+    if (config.dev && config.generate === "dom" && isStatefulDOMProperty(tagName, name)) {
+      return t.callExpression(registerImportMethod(path, "setStatefulProperty"), [
+        elem,
+        t.stringLiteral(name),
+        value
+      ]);
+    }
+    return t.assignmentExpression("=", t.memberExpression(elem, t.identifier(name)), value);
   }
 
   const ns = name.indexOf(":") > -1 && Namespaces[name.split(":")[0]];
