@@ -3,6 +3,7 @@
 import {
   Feature,
   Serializer,
+  crossSerializeStream,
   getCrossReferenceHeader,
   toCrossJSONStream,
   createPlugin as createPluginImpl,
@@ -65,12 +66,13 @@ export interface WebSerializerOptions {
 
 /**
  * Options for `createHydrationSerializer` — `WebSerializerOptions` minus
- * the knobs hydration pins (`globalIdentifier`, `disabledFeatures`).
+ * the knobs hydration pins (`globalIdentifier`, `disabledFeatures`,
+ * `serializeErrorStacks`: its stacks follow `NODE_ENV`).
  * @internal
  */
 export type HydrationSerializerOptions = Omit<
   WebSerializerOptions,
-  "globalIdentifier" | "disabledFeatures"
+  "globalIdentifier" | "disabledFeatures" | "serializeErrorStacks"
 >;
 
 // ---- JSON codec (server function transports) ----
@@ -103,7 +105,10 @@ export interface JSONSerializerOptions extends JSONCodecOptions {
    */
   onData: (record: { key: string; node: SerovalNode; initial: boolean }) => void;
   onError?: (error: unknown) => void;
-  /** Fires once `flush()` has been called and every pending value settled. */
+  /**
+   * Fires once `flush()` has been called and every pending value settled, or
+   * once `close()` runs.
+   */
   onDone?: () => void;
 }
 
@@ -195,22 +200,151 @@ export function createSerializer(options) {
  * `createSerializer` or the JSON codec.
  * @internal
  */
-export function createHydrationSerializer(options: HydrationSerializerOptions): Serializer;
+export function createHydrationSerializer(options: HydrationSerializerOptions): {
+  write(key: string, value: unknown): void;
+  flush(): void;
+  close(): void;
+};
+
+// The keyed writes both render codecs share. Each `write` runs one seroval
+// stream session: `serialize(key, value, callbacks, live)` starts it and
+// returns its dispose, and the codec checks `live(initial)` before it hands
+// out a chunk, which is false once `close()` ran. Writes after `flush()` are
+// dropped, and `onDone` fires once `flush()` was called and every write
+// settled. A write settles on its own `onDone`, except one whose value fails
+// inside the call and hands out no initial chunk: seroval reports that
+// through `onError`, and when the value failed to parse it never reaches the
+// write's `onDone`, so a render with such a write never completed. That
+// write settles on return instead, disposed so nothing it started outlives
+// it. A write whose initial chunk went out by the time the call returns
+// keeps its session, even if a chunk replayed from a stream's buffer failed
+// before it, and settles on `onDone` like any later failure. Without
+// `onError` seroval throws out of the write, as before; the write still
+// settles, so a later `flush()` completes.
+function createKeyedSerializer(serialize, onError, onDone) {
+  const cancels = new Set();
+  let pendingWrites = 0;
+  let flushed = false;
+  let done = false;
+  let closed = false;
+  const maybeDone = () => {
+    if (flushed && pendingWrites === 0 && !done) {
+      done = true;
+      onDone && onDone();
+    }
+  };
+  return {
+    write(key, value) {
+      if (flushed) return;
+      pendingWrites++;
+      // Sync values settle inside the serialize call, before the cancel
+      // function exists — track with a flag instead of the handle.
+      let settled = false;
+      let failed = false;
+      let started = false;
+      let cancel = null;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        if (cancel) cancels.delete(cancel);
+        pendingWrites--;
+        maybeDone();
+      };
+      let stream;
+      try {
+        stream = serialize(
+          key,
+          value,
+          {
+            onError:
+              onError &&
+              (err => {
+                failed = true;
+                onError(err);
+              }),
+            onDone: settle
+          },
+          initial => {
+            if (initial) started = true;
+            return !closed;
+          }
+        );
+      } catch (err) {
+        settle();
+        throw err;
+      }
+      if (settled) return;
+      // A `close()` from inside the call could not dispose this write yet.
+      if (closed || (failed && !started)) {
+        stream();
+        settle();
+        return;
+      }
+      cancel = stream;
+      cancels.add(cancel);
+    },
+    flush() {
+      flushed = true;
+      maybeDone();
+    },
+    // Disposes every write still in flight, then completes: `renderToStream`
+    // tears down through here and its `onDone` returns early on a dead
+    // render.
+    close() {
+      closed = flushed = true;
+      for (const cancel of cancels) cancel();
+      cancels.clear();
+      if (!done) {
+        done = true;
+        onDone && onDone();
+      }
+    }
+  };
+}
+
+// seroval's `serializeString`, which its entry doesn't export: a key goes
+// into a double-quoted literal inside a <script>, so `<` is escaped too.
+const KEY_ESCAPES = {
+  '"': '\\"',
+  "\\": "\\\\",
+  "\n": "\\n",
+  "\r": "\\r",
+  "\b": "\\b",
+  "\t": "\\t",
+  "\f": "\\f",
+  "<": "\\x3C",
+  "\u2028": "\\u2028",
+  "\u2029": "\\u2029"
+};
+const serializeKey = key =>
+  ("" + key).replace(/["\\\n\r\b\t\f<\u2028\u2029]/g, c => KEY_ESCAPES[c]);
 
 /**
  * Serializer for SSR hydration output. Pins the hydration global (`_$HY.r`)
  * and feature policy — only the wiring options (callbacks, scope, extra
- * plugins) are configurable.
+ * plugins) are configurable. Keyed like seroval's `Serializer` (same
+ * output), but every write settles, failed ones included.
  */
 export function createHydrationSerializer({ onData, onDone, scopeId, onError, plugins }) {
-  return createSerializer({
-    scopeId,
-    plugins,
-    globalIdentifier: HYDRATION_GLOBAL,
-    onData,
-    onDone,
-    onError
-  });
+  const resolvedPlugins = resolveSerializerPlugins(plugins);
+  const disabledFeatures = defaultDisabledFeatures() | serializeOnlyDisabledFeatures();
+  const refs = new Map();
+  return createKeyedSerializer(
+    (key, value, callbacks, live) =>
+      crossSerializeStream(value, {
+        scopeId,
+        refs,
+        plugins: resolvedPlugins,
+        disabledFeatures,
+        onSerialize(data, initial) {
+          if (!live(initial)) return;
+          onData(initial ? HYDRATION_GLOBAL + '["' + serializeKey(key) + '"]=' + data : data);
+        },
+        ...callbacks
+      }),
+    onError,
+    onDone
+  );
 } /**
  * Renderer primitive — returns the cross-reference bootstrap script SSR
  * emits ahead of hydration data for a render scope. Not meant for
@@ -262,7 +396,8 @@ export function serializeJSON(value, { onParse, onDone, onError, ...codecOptions
  * stream's data serializer (frames default to it). Each `write(key, value)`
  * shares one reference space, so cross-record identity holds; `flush()`
  * marks the write set complete (writes after it are dropped, mirroring the
- * hydration serializer); `close()` aborts pending async serialization.
+ * hydration serializer); `close()` aborts pending async serialization and
+ * calls `onDone` once.
  */
 export function createJSONSerializer(options: JSONSerializerOptions): {
   write(key: string, value: unknown): void;
@@ -280,8 +415,8 @@ export function createJSONSerializer(options: JSONSerializerOptions): {
  *
  * `onData` receives `{ key, node, initial }` records — passive data, no eval
  * on the consumer (see `createJSONDataTable`). `onDone` fires once `flush()`
- * has been called and every pending value has settled. Writes after flush
- * are dropped, mirroring the hydration serializer.
+ * has been called and every pending value has settled, or once `close()`
+ * runs. Writes after flush are dropped, mirroring the hydration serializer.
  */
 export function createJSONSerializer({
   onData,
@@ -299,53 +434,19 @@ export function createJSONSerializer({
     serializeErrorStacks
   });
   const refs = new Map();
-  const cancels = new Set();
-  let pendingWrites = 0;
-  let flushed = false;
-  let done = false;
-  const maybeDone = () => {
-    if (flushed && pendingWrites === 0 && !done) {
-      done = true;
-      onDone && onDone();
-    }
-  };
-  return {
-    write(key, value) {
-      if (flushed) return;
-      pendingWrites++;
-      // Sync values settle inside the toCrossJSONStream call, before the
-      // cancel function exists — track with a flag instead of the handle.
-      let settled = false;
-      let cancel = null;
-      const stream = toCrossJSONStream(value, {
+  return createKeyedSerializer(
+    (key, value, callbacks, live) =>
+      toCrossJSONStream(value, {
         refs,
         plugins: resolved.plugins,
         disabledFeatures:
           resolved.disabledFeatures | serializeOnlyDisabledFeatures(resolved.serializeErrorStacks),
         onParse(node, initial) {
-          onData({ key, node, initial });
+          if (live(initial)) onData({ key, node, initial });
         },
-        onError,
-        onDone() {
-          settled = true;
-          if (cancel) cancels.delete(cancel);
-          pendingWrites--;
-          maybeDone();
-        }
-      });
-      if (!settled) {
-        cancel = stream;
-        cancels.add(cancel);
-      }
-    },
-    flush() {
-      flushed = true;
-      maybeDone();
-    },
-    close() {
-      flushed = true;
-      for (const cancel of cancels) cancel();
-      cancels.clear();
-    }
-  };
+        ...callbacks
+      }),
+    onError,
+    onDone
+  );
 }

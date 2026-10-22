@@ -2141,8 +2141,8 @@ export function renderToStream(code, options = {}) {
       dispose = () => {};
       d();
     }
-    // Close the serializer AFTER `dead` is set: seroval's `close()` runs
-    // each pending write's cleanup — a serialized async iterator gets its
+    // Close the serializer AFTER `dead` is set: its `close()` runs each
+    // pending write's seroval cleanup — a serialized async iterator gets its
     // `return()` called (on a microtask, errors swallowed by seroval), which
     // is what reaches a source whose pending `next()` will never settle and
     // so would never hit the disposed check on its next pull — and then

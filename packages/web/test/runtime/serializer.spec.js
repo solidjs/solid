@@ -1,8 +1,9 @@
-import { createPlugin } from "seroval";
+import { createPlugin, createStream } from "seroval";
 import {
   DEFAULT_WEB_PLUGINS,
   createHydrationSerializer,
   createJSONDeserializer,
+  createJSONSerializer,
   createSerializer,
   getLocalHeaderScript,
   resolveSerializerPlugins,
@@ -162,6 +163,153 @@ describe("createSerializer", () => {
     modern.serializer.write("e", err);
     modern.serializer.close();
     expect(modern.scripts.join(";")).toContain("AggregateError");
+  });
+});
+
+describe.each([
+  ["createHydrationSerializer", createHydrationSerializer],
+  ["createJSONSerializer", createJSONSerializer]
+])("%s: every write settles", (_, create) => {
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  function record() {
+    const events = [];
+    const serializer = create({
+      onData: () => events.push("data"),
+      onError: () => events.push("error"),
+      onDone: () => events.push("done")
+    });
+    return { serializer, events };
+  }
+
+  it("a value that fails inside the write settles it, and the others still complete", () => {
+    const { serializer, events } = record();
+    serializer.write("bad", () => "fn");
+    serializer.write("good", "ok");
+    serializer.flush();
+    expect(events).toEqual(["error", "data", "done"]);
+  });
+
+  it("a promise that settles to such a value settles its write once", async () => {
+    const { serializer, events } = record();
+    serializer.write(
+      "bad",
+      Promise.resolve(() => "fn")
+    );
+    serializer.write("good", "ok");
+    serializer.flush();
+    expect(events).not.toContain("done");
+    await tick();
+    expect(events.filter(e => e === "error")).toHaveLength(1);
+    expect(events.filter(e => e === "done")).toHaveLength(1);
+    expect(events.at(-1)).toBe("done");
+  });
+
+  it("a stream chunk that fails does not end the stream's write", async () => {
+    const { serializer, events } = record();
+    const stream = createStream();
+    serializer.write("s", stream);
+    serializer.flush();
+    stream.next(() => "fn");
+    stream.next(1);
+    await tick();
+    expect(events).not.toContain("done");
+    stream.return(2);
+    await tick();
+    expect(events.at(-1)).toBe("done");
+    expect(events.filter(e => e === "done")).toHaveLength(1);
+  });
+
+  it("a stream that already holds a failing chunk keeps streaming until it ends", async () => {
+    const { serializer, events } = record();
+    const stream = createStream();
+    stream.next(() => "fn");
+    serializer.write("s", stream);
+    serializer.flush();
+    expect(events).toContain("error");
+    expect(events).not.toContain("done");
+    const before = events.length;
+    stream.next(1);
+    stream.return(2);
+    await tick();
+    expect(events.slice(before)).toEqual(["data", "data", "done"]);
+  });
+
+  it("without onError a failing write throws, and the serializer still completes", () => {
+    const events = [];
+    const serializer = create({
+      onData: () => events.push("data"),
+      onDone: () => events.push("done")
+    });
+    expect(() => serializer.write("bad", () => "fn")).toThrow();
+    serializer.write("good", "ok");
+    serializer.flush();
+    expect(events).toEqual(["data", "done"]);
+  });
+
+  it("a value that fails next to a pending promise settles its write at once", async () => {
+    const { serializer, events } = record();
+    serializer.write("bad", { pending: Promise.resolve(1), fn: () => "fn" });
+    serializer.flush();
+    expect(events).toEqual(["error", "done"]);
+    await tick();
+    expect(events).toEqual(["error", "done"]);
+  });
+
+  it("a stream that ended before the write does not cut off the rest of the value", async () => {
+    const { serializer, events } = record();
+    const stream = createStream();
+    stream.next(1);
+    stream.return(2);
+    serializer.write("k", { stream, later: Promise.resolve(3) });
+    serializer.flush();
+    await tick();
+    expect(events.filter(e => e === "data")).toHaveLength(4);
+    expect(events.filter(e => e === "done")).toHaveLength(1);
+  });
+
+  it("close() completes once, failed writes included", () => {
+    const { serializer, events } = record();
+    serializer.write("bad", () => "fn");
+    serializer.write("pending", new Promise(() => {}));
+    serializer.close();
+    serializer.flush();
+    expect(events.filter(e => e === "done")).toHaveLength(1);
+  });
+
+  it("close() during a write stops that write", async () => {
+    const events = [];
+    const serializer = create({
+      onData: () => {
+        events.push("data");
+        serializer.close();
+      },
+      onError: () => events.push("error"),
+      onDone: () => events.push("done")
+    });
+    const buffered = createStream();
+    buffered.next(1);
+    serializer.write("k", { buffered, later: new Promise(r => setTimeout(r, 1, 5)) });
+    await new Promise(r => setTimeout(r, 20));
+    expect(events).toEqual(["data", "done"]);
+  });
+});
+
+describe("createHydrationSerializer output", () => {
+  it("matches seroval's Serializer, escaped keys, scope and shared references included", async () => {
+    const shared = { name: "shared" };
+    async function emit(create) {
+      const { serializer, scripts } = collect(create, { scopeId: "r1" });
+      serializer.write("plain", shared);
+      serializer.write('q"\\</script>\u2028\n', [shared, Promise.resolve(shared)]);
+      serializer.flush();
+      await new Promise(r => setTimeout(r, 0));
+      return scripts;
+    }
+    const scripts = await emit(createHydrationSerializer);
+    expect(scripts).toEqual(
+      await emit(options => createSerializer({ ...options, globalIdentifier: "_$HY.r" }))
+    );
+    expect(scripts.join(";")).not.toContain("</script>");
   });
 });
 
