@@ -112,18 +112,16 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
     return;
   }
   if (nextArr) {
-    const prevRows = prevView as any[];
-    const nextRows = incoming as any[];
     const nodes = t.n;
     let nodesHit = 0;
     if (keyFn && !shallow) {
-      const plen = prevRows.length;
-      const nlen = nextRows.length;
+      const plen = prevView.length;
+      const nlen = incoming.length;
       let i = 0;
       // Aligned prefix: same row (by reference or key) at the same index.
       for (const end = Math.min(plen, nlen); i < end; i++) {
-        const nv = nextRows[i];
-        const pvRaw = prevRows[i];
+        const nv = incoming[i];
+        const pvRaw = prevView[i];
         if (pvRaw !== nv && !sameRow(pvRaw, nv, keyFn)) break; // misaligned: fall to the keyed remainder below
         if (nv !== null && typeof nv === "object" && (pvRaw !== nv || isOwned(nv)))
           descend(unwrapValue(pvRaw), nv, keyFn, proj, t, i);
@@ -142,19 +140,19 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           }
         }
       }
-      if (!bumped && i < nextRows.length) bumpDeep(t);
+      if (!bumped && i < incoming.length) bumpDeep(t);
       const structStart = i; // misalignment point (== nlen on aligned ticks)
       let prevByKey: Map<any, any> | null = null;
-      for (; i < nextRows.length; i++) {
-        const nv = nextRows[i];
+      for (; i < incoming.length; i++) {
+        const nv = incoming[i];
         if (nv !== null && typeof nv === "object") {
           const nk = keyFn(nv);
           let pv: any;
           if (nk !== undefined) {
             if (prevByKey === null) {
               prevByKey = new Map();
-              for (let j = structStart; j < prevRows.length; j++) {
-                const p = unwrapValue(prevRows[j]);
+              for (let j = structStart; j < prevView.length; j++) {
+                const p = unwrapValue(prevView[j]);
                 if (p !== null && typeof p === "object") {
                   const pk = keyFn(p);
                   if (pk === undefined) continue;
@@ -168,14 +166,14 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
             const m = prevByKey.get(nk);
             if (m === undefined) pv = undefined;
             else if (Array.isArray(m)) {
-              pv = unwrapValue(prevRows[m.shift()!]);
+              pv = unwrapValue(prevView[m.shift()!]);
               if (m.length === 1) prevByKey.set(nk, m[0]);
             } else {
-              pv = unwrapValue(prevRows[m]);
+              pv = unwrapValue(prevView[m]);
               prevByKey.delete(nk);
             }
           } else {
-            pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
+            pv = unwrapValue(prevView[i]); // keyless item: positional fallback
           }
           descend(pv, nv, keyFn, proj, t, i);
         }
@@ -188,17 +186,17 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
         }
       }
     } else {
-      const dlen = Math.min(prevRows.length, nextRows.length);
-      const nlen = nextRows.length;
+      const dlen = Math.min(prevView.length, incoming.length);
+      const nlen = incoming.length;
       for (let i = 0; i < nlen; i++) {
-        const nvP = nextRows[i];
+        const nvP = incoming[i];
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
-          descend(unwrapValue(prevRows[i]), nvP, keyFn, proj, t, i);
+          descend(unwrapValue(prevView[i]), nvP, keyFn, proj, t, i);
         if (
           !bumped &&
           !(nvP !== null && typeof nvP === "object"
-            ? targetsEqual(prevRows[i], nvP)
-            : isEqual(prevRows[i], nvP))
+            ? targetsEqual(prevView[i], nvP)
+            : isEqual(prevView[i], nvP))
         ) {
           bumpDeep(t);
           bumped = true;
@@ -216,7 +214,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
     if (nodes !== null && nodesHit < t.nc) {
       for (const key of Reflect.ownKeys(nodes)) {
         const idx = typeof key === "string" ? +key : NaN;
-        if (!(idx >= 0 && idx < nextRows.length))
+        if (!(idx >= 0 && idx < incoming.length))
           notifyKeyDiff(nodes[key as any], key, old, incoming);
       }
     }
@@ -301,8 +299,8 @@ function descend(
   nv = unwrapValue(nv);
   let ct = lookupTarget(pv, fam);
   const nt = lookupTarget(nv, fam);
-  if (ct !== undefined && ct.pk != k) {
-    if (t.v[ct.pk as any] === ct.v) ct = undefined;
+  if (ct !== undefined && ct.pk !== k) {
+    if (ct.pk != k && t.v[ct.pk as any] === ct.v) ct = undefined;
     else if (ct.u === t) ct.pk = k;
   }
   if (nt !== undefined && nt !== ct) {
@@ -316,7 +314,8 @@ function descend(
   if (!isWrappable(nv)) return;
   if (rawValuesUsed && isRawValue(nv)) return;
   if (Array.isArray(pv) !== Array.isArray(nv)) return;
-  if (keyFn) {
+  // An array slot was paired by key already (or both rows are keyless).
+  if (typeof k !== "number" && keyFn) {
     const pk = keyFn(pv);
     const nk = keyFn(nv);
     if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return;
