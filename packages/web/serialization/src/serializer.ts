@@ -66,12 +66,13 @@ export interface WebSerializerOptions {
 
 /**
  * Options for `createHydrationSerializer` — `WebSerializerOptions` minus
- * the knobs hydration pins (`globalIdentifier`, `disabledFeatures`).
+ * the knobs hydration pins (`globalIdentifier`, `disabledFeatures`,
+ * `serializeErrorStacks`: its stacks follow `NODE_ENV`).
  * @internal
  */
 export type HydrationSerializerOptions = Omit<
   WebSerializerOptions,
-  "globalIdentifier" | "disabledFeatures"
+  "globalIdentifier" | "disabledFeatures" | "serializeErrorStacks"
 >;
 
 // ---- JSON codec (server function transports) ----
