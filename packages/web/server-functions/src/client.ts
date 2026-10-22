@@ -24,7 +24,6 @@ const CALL_OBSERVATION = Symbol("solid.CallObservation");
 import type { ServerFunction, ServerFunctionMetadata } from "./shared.js";
 import {
   BODY_FORMAT_HEADER,
-  BUILD_HEADER,
   BodyFormat,
   ERROR_HEADER,
   EventStreamReader,
@@ -71,7 +70,6 @@ export {
   // import HERE instead — one copy of the framing/addressing code in the
   // app, and the codec/flight-consumer config the transport reads is the
   // shared built instance by construction.
-  BUILD_HEADER,
   ChunkReader,
   ERROR_HEADER,
   EVENT_STREAM_HEARTBEAT,
@@ -314,16 +312,6 @@ export interface ServerFunctionsClientConfig {
    * field and each file in a `file<index>` part.
    */
   serializeArgs?(args: unknown[]): string | FormData | Promise<string | FormData>;
-  /**
-   * Id of the build this client was bundled with. Must match the server's
-   * `buildId` for the same deploy. Sent on every call that is not
-   * GET-encoded, so a server from another build refuses the call with a
-   * `409` before running it, and the rejection carries
-   * `versionSkew: true`. Recover by reloading the document onto the current
-   * build. GET-encoded reads carry no transport header (their url is their
-   * identity), so they are not checked. Leave unset to send nothing.
-   */
-  buildId?: string;
 }
 
 /** Wire-state transitions a live call's iterable can report. */
@@ -355,8 +343,7 @@ const config = {
   fetch: undefined,
   prepareRequest: undefined,
   responseHandler: undefined,
-  serializeArgs: undefined,
-  buildId: undefined
+  serializeArgs: undefined
 };
 
 /**
@@ -486,8 +473,7 @@ export function configureServerFunctionsClient({
   fetch,
   prepareRequest,
   responseHandler,
-  serializeArgs,
-  buildId
+  serializeArgs
 } = {}) {
   if (endpoint !== undefined) config.endpoint = endpoint;
   if (codec !== undefined) configureServerFunctionsCodec(codec);
@@ -495,7 +481,6 @@ export function configureServerFunctionsClient({
   if (prepareRequest !== undefined) config.prepareRequest = prepareRequest;
   if (responseHandler !== undefined) config.responseHandler = responseHandler;
   if (serializeArgs !== undefined) config.serializeArgs = serializeArgs;
-  if (buildId !== undefined) config.buildId = buildId;
 }
 
 // Longest url the GET transport will build before falling back to POST.
@@ -545,17 +530,12 @@ function serverFunctionFailure(response, value) {
   // not know this call's id — version skew (a tab holding the previous
   // build's ids across a deploy) or a genuinely removed function.
   const unknown = response.headers.get(UNKNOWN_HEADER) !== null;
-  // The build-id refusal: the server runs another build than the one this
-  // page was bundled with, so the call was not run.
-  const skewed = response.status === 409 && response.headers.get(BUILD_HEADER) !== null;
   const error =
     value ??
     new Error(
       unknown
         ? "Server function is not part of the deployment that answered (version skew or removed function)"
-        : skewed
-          ? "Server function call refused: the server runs a different build than this page (version skew)"
-          : `Server function call failed with status ${response.status}`
+        : `Server function call failed with status ${response.status}`
     );
   // Stamp the HTTP status so policy layers (live retry loops, router
   // channels) can classify the failure: 4xx is a definite rejection that
@@ -575,8 +555,6 @@ function serverFunctionFailure(response, value) {
   // failed call. Retrying cannot help: the id will stay unknown until the
   // page runs the new bundle.
   if (unknown && error instanceof Error) error.unknownFunction = true;
-  // Same recovery, named apart: the id is still known, the build is not.
-  if (skewed && error instanceof Error) error.versionSkew = true;
   return error;
 }
 
@@ -639,12 +617,6 @@ async function createRequest(base, id, options, meta) {
   const flightSources = getFlightDataSourceIds();
   if (flightSources.length > 0 && !isReadCall(options)) {
     headers[SINGLE_FLIGHT_HEADER] = flightSources.join(",");
-  }
-  // The build id rides every call the read rule above leaves room for: a
-  // POST-shaped read (`read: true`) is never cached or preloaded, so only
-  // GET-encoded calls go without it.
-  if (config.buildId && !(options.method && options.method.toUpperCase() === "GET")) {
-    headers[BUILD_HEADER] = config.buildId;
   }
   let init = {
     method: "POST",

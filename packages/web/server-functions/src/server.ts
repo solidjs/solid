@@ -78,7 +78,6 @@ export {
   // so the framing/addressing code and the streaming codec entry it uses
   // are the handler's own instance — never a private copy. Transport
   // building blocks, not for hand-written code.
-  BUILD_HEADER,
   ChunkReader,
   ERROR_HEADER,
   FLASH_COOKIE,
@@ -498,14 +497,15 @@ export interface ServerFunctionsServerConfig {
    */
   chaosReconnectEvery?: number;
   /**
-   * Id of the build this server was bundled with. Must match the client's
-   * `buildId` for the same deploy. A call whose `X-Server-Function-Build`
-   * names another build is answered `409`, labelled with this id, and the
-   * function does not run: the page was loaded from a build whose functions
-   * may take other arguments or return another shape. Calls without the
-   * header (GET-encoded reads, form posts without the client runtime, a
-   * client with no `buildId`) are not checked. Leave unset to check
-   * nothing.
+   * Id of the build this server was bundled with. A call whose
+   * `X-Server-Function-Build` header names another build is answered `409`
+   * and the function does not run: the page was loaded from a build whose
+   * functions may take other arguments or return another shape. The answer
+   * carries the unknown-function label, so the client rejects with
+   * `unknownFunction: true`, the same as for an id this build does not
+   * have. The client runtime does not send the header itself: the build
+   * integration adds it through `prepareRequest`. Calls without the header
+   * are not checked. Leave unset to check nothing.
    */
   buildId?: string;
 }
@@ -4241,7 +4241,8 @@ export async function handleServerFunctionRequest(request, options = {}) {
   // takes, nor its decoder what this build's result is. Refused before the
   // arguments are parsed or the function runs. After the origin gate, unlike
   // the unknown-id 404: only the client runtime sends the header, and it
-  // sends the fetch metadata the gate reads.
+  // sends the fetch metadata the gate reads. Labelled as unknown so the
+  // client reports one skew signal: this page came from another build.
   const callerBuild = request.headers.get(BUILD_HEADER);
   if (config.buildId && callerBuild !== null && callerBuild !== config.buildId) {
     return finish(
@@ -4249,7 +4250,14 @@ export async function handleServerFunctionRequest(request, options = {}) {
         DEV
           ? `Server function call from build "${callerBuild}" refused by build "${config.buildId}"`
           : null,
-        { status: 409, headers: { [BUILD_HEADER]: config.buildId, "Cache-Control": "no-store" } }
+        {
+            status: 409,
+            headers: {
+              [UNKNOWN_HEADER]: "true",
+              [BUILD_HEADER]: config.buildId,
+              "Cache-Control": "no-store"
+            }
+          }
       )
     );
   }

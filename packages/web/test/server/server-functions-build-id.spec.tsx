@@ -4,9 +4,10 @@
  * The unknown-id 404 (#3110) catches a function that a deploy removed or
  * renamed. It cannot catch one whose id survived but whose arguments or
  * result changed shape. When both halves are configured with a `buildId`,
- * the client sends its id on every call that is not GET-encoded, and a
+ * the integration sends the client's id through `prepareRequest`, and a
  * server with another id answers `409` before the function runs. The
- * client names it on the error (`versionSkew: true`).
+ * answer carries the unknown-function label, so the client reports the
+ * same skew signal as the 404 (`unknownFunction: true`).
  *
  * Like the other server-function specs, these run against the built
  * bundles (server-functions/dist/*, wired up in vite.config.server.mjs).
@@ -19,11 +20,22 @@ import {
   registerServerFunction
 } from "@solidjs/web/server-functions/server";
 import {
-  BUILD_HEADER,
   configureServerFunctionsClient,
-  createServerReference,
-  GET
+  createServerReference
 } from "@solidjs/web/server-functions/client";
+
+const BUILD_HEADER = "X-Server-Function-Build";
+const UNKNOWN_HEADER = "X-Server-Function-Unknown";
+
+/** What a build integration installs: its build id on every call that is not GET-encoded. */
+function sendBuildId(buildId: string) {
+  configureServerFunctionsClient({
+    prepareRequest(init) {
+      if (init.method?.toUpperCase() === "GET") return init;
+      return { ...init, headers: { ...(init.headers as object), [BUILD_HEADER]: buildId } };
+    }
+  });
+}
 
 const RequestContext = Symbol.for("solid.RequestContext");
 
@@ -36,9 +48,9 @@ afterAll(() => {
 });
 
 afterEach(() => {
-  // an empty id turns the check off on both halves
+  // an empty id turns the check off
   configureServerFunctionsServer({ buildId: "" });
-  configureServerFunctionsClient({ buildId: "" });
+  configureServerFunctionsClient({ prepareRequest: null as any });
   while (disconnects.length) disconnects.pop()!();
 });
 
@@ -83,6 +95,7 @@ describe("build-id skew check", () => {
 
     expect(wire.status).toBe(409);
     expect(wire.headers.get(BUILD_HEADER)).toBe("build-b");
+    expect(wire.headers.get(UNKNOWN_HEADER)).toBe("true");
     expect(wire.headers.get("Cache-Control")).toBe("no-store");
     expect(fn).not.toHaveBeenCalled();
   });
@@ -119,10 +132,10 @@ describe("build-id skew check", () => {
     expect(wire.status).toBe(200);
   });
 
-  it("names the refusal on the client error", async () => {
+  it("reports the refusal as an unknown function on the client", async () => {
     registerServerFunction("skewed-a1b2c3d4", async () => "ran");
     configureServerFunctionsServer({ buildId: "build-b" });
-    configureServerFunctionsClient({ buildId: "build-a" });
+    sendBuildId("build-a");
     const sent = connectTransport();
     const skewed = createServerReference("skewed-a1b2c3d4") as () => Promise<unknown>;
 
@@ -135,8 +148,7 @@ describe("build-id skew check", () => {
 
     expect(sent[0]!.headers.get(BUILD_HEADER)).toBe("build-a");
     expect(outcome).toBeInstanceOf(Error);
-    expect(outcome.versionSkew).toBe(true);
-    expect(outcome.unknownFunction).toBeUndefined();
+    expect(outcome.unknownFunction).toBe(true);
     expect(outcome.status).toBe(409);
     expect(outcome.message).toMatch(/version skew/);
   });
@@ -144,34 +156,10 @@ describe("build-id skew check", () => {
   it("resolves a call when the builds match", async () => {
     registerServerFunction("matched-a1b2c3d4", async () => "ran");
     configureServerFunctionsServer({ buildId: "build-b" });
-    configureServerFunctionsClient({ buildId: "build-b" });
+    sendBuildId("build-b");
     connectTransport();
     const matched = createServerReference("matched-a1b2c3d4") as () => Promise<unknown>;
 
     await expect(matched()).resolves.toBe("ran");
-  });
-
-  it("sends no build id on a GET-encoded read", async () => {
-    // A read's url is its identity (#3406): caches and preloads match it
-    // without the transport's headers, so the build id stays off it.
-    registerServerFunction("read-a1b2c3d4", async () => "read");
-    configureServerFunctionsClient({ buildId: "build-a" });
-    const sent = connectTransport();
-    const read = GET(createServerReference("read-a1b2c3d4")) as () => Promise<unknown>;
-
-    await read().catch(() => {});
-
-    expect(sent[0]!.method).toBe("GET");
-    expect(sent[0]!.headers.get(BUILD_HEADER)).toBeNull();
-  });
-
-  it("sends no build id when the client has none", async () => {
-    registerServerFunction("plain-a1b2c3d4", async () => "ran");
-    const sent = connectTransport();
-    const plain = createServerReference("plain-a1b2c3d4") as () => Promise<unknown>;
-
-    await plain();
-
-    expect(sent[0]!.headers.get(BUILD_HEADER)).toBeNull();
   });
 });
