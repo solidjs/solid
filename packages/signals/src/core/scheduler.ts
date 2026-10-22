@@ -1131,8 +1131,9 @@ export class GlobalQueue implements IQueue {
  * or without the held read) owes nothing. A run this transaction stashed
  * for it is void (#3322: an effect has one value slot, and the stale pass
  * overwrote the value that run was for) — the re-derivation's run replaces
- * it. */
-export function reruns(u: Transaction): void {
+ * it. Truthy when an effect re-derives (`land`). */
+export function reruns(u: Transaction): unknown {
+  let frame;
   for (let i = 0; i < u._reruns.length; i++) {
     const r = u._reruns[i];
     // An errored reader's display is its error (D-39): the landing gives it
@@ -1140,6 +1141,7 @@ export function reruns(u: Transaction): void {
     // errored source (#3945).
     if (r._flags & REACTIVE_DISPOSED || r._statusFlags & STATUS_ERROR) continue;
     if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
+      frame ||= (r as any)._type;
       r._flags &= ~REACTIVE_FRAME_READ;
       (r as any)._modified = false;
       // Its frame is replaced by the re-derivation: a run one of its
@@ -1151,6 +1153,7 @@ export function reruns(u: Transaction): void {
     }
   }
   u._reruns.length = 0;
+  return frame;
 }
 
 /** The landing: the held frame becomes the frame. */
@@ -1158,7 +1161,7 @@ function land(u: Transaction): void {
   // Attribution hook: judged complete — its held writes commit next
   // (`_nodes` still lists them).
   if (__OBSERVE__ && attrHooks !== null) attrHooks.transitionSettled(u);
-  reruns(u);
+  const frame = reruns(u);
   if (u._marks !== null) releaseMarksHook!(u._marks);
   // Old children die in the commits (cleanups first), then the stashed
   // effects run ahead of this flush's own. A node a lane took over since
@@ -1173,7 +1176,16 @@ function land(u: Transaction): void {
   // `u`, which has left `transactions`: the write is this landing's, and
   // the next flush must not park in it (#4089).
   if (flushTransaction === u) flushTransaction = null;
-  releaseQueues(u);
+  // An effect re-derives next round (`reruns`): the held runs wait for it
+  // (D-9, the A15 reveal corollary, #4071). Its re-derivation can discover a
+  // flight — a stale reader whose mainline pass stopped reading it, now
+  // reading the landed world — and a landing that showed its runs first
+  // would reveal the held write beside a frame that can only show its old
+  // value. Queued last in this effect phase, the release hands them to the
+  // next round's own runs, ahead of the re-derivation's: they show with it,
+  // or park with it in the hold its pending opens. The commits stand.
+  if (frame) globalQueue._queues[1].push(() => releaseQueues(u));
+  else releaseQueues(u);
 }
 
 /** The held runs join this flush's effect phase after its own runs (the
