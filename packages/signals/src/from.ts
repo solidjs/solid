@@ -230,7 +230,9 @@ export function from<T>(source: FromSource<T>): AsyncIterable<T> {
       if (closed) {
         const c = unsubscribe;
         unsubscribe = null;
-        c();
+        try {
+          c();
+        } catch {}
       }
 
       // Idempotent: return(), supersede and disposal may all reach it.
