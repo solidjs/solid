@@ -1661,9 +1661,10 @@ export function live(fn) {
 /**
  * Declares a live server function whose answer is the same for every
  * viewer: implies `live` and `GET`, and at the live address every caller
- * with the same arguments shares ONE render (frames server half). The
- * outer body still runs per call — a gate (auth, redirects) — but what it
- * returns is the shared answer's to render.
+ * with the same arguments shares ONE render (frames server half) or ONE
+ * data source (see sharedSourceResponse). The outer body still runs per
+ * call — a gate (auth, redirects) — but what it returns is the shared
+ * answer's to render.
  * @experimental
  */
 export function broadcast<A extends readonly any[], R>(
@@ -3040,6 +3041,9 @@ function keepGuarded(value, next, changed, state) {
  * encodeLiveResult): the same payloads one per event, a comment heartbeat
  * while idle, and each yield's position — parked on `live.pending` by the
  * live adapter — riding as the `id:` of the record that carries the yield.
+ * A broadcast's shared stream (`live.nodes`) is nobody's body: it carries
+ * no heartbeat or chaos (each tap arms its own), and records which node
+ * each chunk carries for the fan-out to read (see startSharedSource).
  */
 export function serializeResponseStream(value, codecOptions, signal, scope, live) {
   let closed = false;
@@ -3127,7 +3131,7 @@ export function serializeResponseStream(value, codecOptions, signal, scope, live
     // promise — reads wait for it, so the stream's contract is unchanged
     async start(controller) {
       streamController = controller;
-      if (live) stopLive = armLiveBody(controller, teardown);
+      if (live && !live.nodes) stopLive = armLiveBody(controller, teardown);
       if (signal) {
         if (signal.aborted) {
           teardown();
@@ -3161,7 +3165,14 @@ export function serializeResponseStream(value, codecOptions, signal, scope, live
       cancelSerialize = serializeJSON(value, {
         ...codecOptions,
         onParse(node) {
-          if (!closed) controller.enqueue(frame(JSON.stringify(node)));
+          if (closed) return;
+          const id = live ? live.pending : undefined;
+          const chunk = frame(JSON.stringify(node));
+          if (live && live.nodes) {
+            live.nodes.set(chunk, { node, id, value: live.value });
+            live.value = undefined;
+          }
+          controller.enqueue(chunk);
         },
         onDone() {
           if (closed) return;
@@ -3291,8 +3302,13 @@ export function armLiveBody(controller, teardown) {
  * A one-value answer gets the same treatment: skipped, it is an empty
  * stream — the iteration completes with nothing, exactly as it would have
  * completed after one value the client already had.
+ *
+ * `refs` (a broadcast's shared stream) is the codec's reference space,
+ * turned as each yield arrives so it never reaches past the yield before
+ * (see GenerationalRefs); the yield itself is parked beside its position
+ * for the fan-out to encode for a joiner.
  */
-function liveSource(value, lastEventId, position, scope) {
+function liveSource(value, lastEventId, position, scope, refs) {
   const digestOf = v => (scope ? scope(() => positionDigest(v)) : positionDigest(v));
   if (
     value === null ||
@@ -3312,6 +3328,10 @@ function liveSource(value, lastEventId, position, scope) {
       const step = () =>
         iterator.next().then(result => {
           if (result.done) return result;
+          if (refs) {
+            refs.turn();
+            position.value = result.value;
+          }
           const digest = digestOf(result.value);
           if (first) {
             first = false;
@@ -3342,9 +3362,18 @@ function liveSource(value, lastEventId, position, scope) {
  * (a returned Response body, a Blob) take the ordinary road — there is
  * nothing to stream and nothing to position.
  */
-function encodeLiveResult(value, headers, status, codec, request, scope) {
+function encodeLiveResult(value, headers, status, codec, request, scope, shareKey) {
   if (NULL_BODY_STATUSES.has(status) || value === undefined || getHeadersAndBody(value)) {
     return encodeResult(value, headers, status, codec, request.signal, scope);
+  }
+  if (
+    shareKey !== undefined &&
+    value !== null &&
+    typeof value === "object" &&
+    typeof value[Symbol.asyncIterator] === "function"
+  ) {
+    const shared = sharedSourceResponse(shareKey, value, headers, status, codec, request);
+    if (shared) return shared;
   }
   const position = { pending: undefined };
   const source = liveSource(value, request.headers.get(LAST_EVENT_ID_HEADER), position, scope);
@@ -3363,6 +3392,263 @@ function encodeLiveResult(value, headers, status, codec, request, scope) {
       ? new Error(`Server function result could not be encoded: ${error.message}`)
       : error;
   }
+}
+
+// ---- broadcast: one source per live address, its viewers taps on it ----
+//
+// A `broadcast` declaration promises its answer is the same for every
+// viewer, so callers with the same arguments share ONE source: the first
+// call's is started, and every call (that one included) is a tap. Each
+// codec record is framed once and written to every tap. A later caller's
+// own answer is never read: it is closed unstarted (a generator's body
+// never runs). The frames sink does the same for a server component.
+//
+// A yield still refers to the objects it shares with the yield before it
+// (an unchanged row goes as a reference, as on a per-viewer stream), but
+// never further back: the reference space keeps only what the latest yield
+// touched. So a tap that joins late is sent the stream's head and the
+// latest yield encoded on its own, with each object under the id the
+// shared stream gave it; every record after that refers only to ids it
+// holds. A reconnect is sent that yield too, even when it holds the value
+// already: the ids are what it lacks. The source ends when its last tap
+// does.
+const SHARED_SOURCES = new Map();
+
+// The codec's reference space for a shared stream (see above): ids keep
+// counting, what they point at is kept one yield (`turn`).
+class GenerationalRefs extends Map {
+  count = 0;
+  touched = new Set();
+  get size() {
+    return this.count;
+  }
+  get(key) {
+    const id = super.get(key);
+    if (id !== undefined) this.touched.add(key);
+    return id;
+  }
+  set(key, value) {
+    if (!super.has(key)) this.count++;
+    this.touched.add(key);
+    return super.set(key, value);
+  }
+  turn() {
+    for (const key of [...super.keys()]) if (!this.touched.has(key)) super.delete(key);
+    this.touched = new Set();
+  }
+  idOf(key) {
+    return super.get(key);
+  }
+  reserve() {
+    return this.count++;
+  }
+}
+
+/**
+ * Answers a broadcast call from its key's shared source, starting one when
+ * none runs. `undefined` when the call can't join the running one (its
+ * latest yield holds a value still settling, which no joiner can be given
+ * whole): the caller is then served per connection.
+ */
+function sharedSourceResponse(key, value, headers, status, codec, request) {
+  let shared = SHARED_SOURCES.get(key);
+  let snapshot;
+  if (shared && !shared.ended) {
+    snapshot = sharedSnapshot(shared);
+    if (snapshot === null) return undefined;
+    closeUnread(value);
+  } else shared = startSharedSource(key, value, codec);
+  return tapSharedSource(shared, request, headers, status, snapshot);
+}
+
+function closeUnread(value) {
+  try {
+    const closing =
+      typeof value.return === "function"
+        ? value.return()
+        : typeof value.cancel === "function"
+          ? value.cancel()
+          : undefined;
+    if (closing && typeof closing.then === "function") closing.then(undefined, () => {});
+  } catch {}
+}
+
+function startSharedSource(key, value, codec) {
+  const refs = new GenerationalRefs();
+  const shared = {
+    key,
+    codec,
+    refs,
+    encode: null,
+    head: null,
+    node: null,
+    value: undefined,
+    position: undefined,
+    stream: undefined,
+    taps: new Set(),
+    ended: false,
+    teardown: new AbortController()
+  };
+  SHARED_SOURCES.set(key, shared);
+  // The shared source is nobody's request: its steps run under their own
+  // event, so request-scoped state starts empty and request fields read as
+  // absent.
+  const event = broadcastEvent();
+  const store = globalThis[RequestContext];
+  const scope = run => (store ? store.run(event, run) : run());
+  const live = { pending: undefined, value: undefined, nodes: new WeakMap() };
+  const body = serializeResponseStream(
+    liveSource(value, undefined, live, scope, refs),
+    { ...codec, refs },
+    shared.teardown.signal,
+    scope,
+    live
+  );
+  pumpSharedSource(shared, body.getReader(), live.nodes);
+  return shared;
+}
+
+async function pumpSharedSource(shared, reader, nodes) {
+  try {
+    shared.encode = (await import("../../serialization/src/serializer.js")).serializeJSON;
+    while (true) {
+      const { done, value: chunk } = await reader.read();
+      if (done) break;
+      const record = nodes.get(chunk);
+      if (shared.head === null) shared.head = chunk;
+      else if (
+        record &&
+        record.node.t === 32 /* StreamNext */ &&
+        (shared.stream ??= record.node.i) === record.node.i
+      ) {
+        shared.node = record.node;
+        shared.value = record.value;
+        shared.position = record.id;
+      }
+      for (const tap of shared.taps) tap.write(chunk);
+    }
+  } catch {}
+  shared.ended = true;
+  if (SHARED_SOURCES.get(shared.key) === shared) SHARED_SOURCES.delete(shared.key);
+  for (const tap of [...shared.taps]) tap.end();
+}
+
+/**
+ * The latest yield, encoded whole for a joining tap under the shared
+ * stream's ids (see the notes above). `undefined` before the first yield
+ * (the head is all there is); `null` when the value can't be encoded
+ * synchronously (it holds a promise or stream still settling).
+ */
+function sharedSnapshot(shared) {
+  if (shared.node === null) return undefined;
+  const own = new Map();
+  let root;
+  let done = false;
+  const cancel = shared.encode(shared.value, {
+    ...shared.codec,
+    refs: own,
+    onParse(node) {
+      root ??= node;
+    },
+    onDone() {
+      done = true;
+    },
+    onError() {}
+  });
+  if (!done || root === undefined) {
+    cancel();
+    return null;
+  }
+  const ids = new Map();
+  for (const [value, id] of own) ids.set(id, shared.refs.idOf(value) ?? shared.refs.reserve());
+  return createEventChunk(
+    JSON.stringify({ ...shared.node, f: renumberNode(root, ids) }),
+    shared.position
+  );
+}
+
+// A codec node with its reference ids (`i`, on every node that has one)
+// mapped through `ids`. Data never appears raw in a node — keys are
+// strings, values are nodes — so every `i` is an id.
+function renumberNode(node, ids) {
+  if (Array.isArray(node)) return node.map(item => renumberNode(item, ids));
+  if (node === null || typeof node !== "object") return node;
+  const out = {};
+  for (const key in node)
+    out[key] =
+      key === "i" && typeof node[key] === "number"
+        ? (ids.get(node[key]) ?? node[key])
+        : renumberNode(node[key], ids);
+  return out;
+}
+
+function tapSharedSource(shared, request, headers, status, snapshot) {
+  headers.set(BODY_FORMAT_HEADER, BodyFormat.Serialized);
+  headers.set("Content-Type", "text/event-stream");
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-Accel-Buffering", "no");
+  const signal = request.signal;
+  let closed = false;
+  let stopLive = null;
+  let tap = null;
+  const leave = () => {
+    if (closed) return;
+    closed = true;
+    if (stopLive) stopLive();
+    if (signal) signal.removeEventListener("abort", leave);
+    shared.taps.delete(tap);
+    if (!shared.taps.size && !shared.ended) {
+      shared.ended = true;
+      if (SHARED_SOURCES.get(shared.key) === shared) SHARED_SOURCES.delete(shared.key);
+      shared.teardown.abort();
+    }
+  };
+  const body = new ReadableStream({
+    start(controller) {
+      tap = {
+        write(chunk) {
+          if (closed) return;
+          try {
+            controller.enqueue(chunk);
+          } catch {
+            leave();
+          }
+        },
+        end() {
+          leave();
+          try {
+            controller.close();
+          } catch {}
+        }
+      };
+      stopLive = armLiveBody(controller, leave);
+      if (shared.head) controller.enqueue(shared.head);
+      if (snapshot) controller.enqueue(snapshot);
+      if (shared.ended || (signal && signal.aborted)) return tap.end();
+      shared.taps.add(tap);
+      if (signal) signal.addEventListener("abort", leave);
+    },
+    cancel() {
+      leave();
+    }
+  });
+  return new Response(body, { status, headers });
+}
+
+function broadcastEvent() {
+  const event = { broadcast: true };
+  for (const name of ["request", "locals", "clientAddress", "nativeEvent"])
+    Object.defineProperty(event, name, {
+      get() {
+        if (DEV)
+          console.warn(
+            `A broadcast server function read the request (\`event.${name}\`) while producing ` +
+              "its answer, which every viewer shares; read per-viewer state before returning it."
+          );
+        return undefined;
+      }
+    });
+  return event;
 }
 
 function encodeResult(value, headers, status, codec, signal, scope) {
@@ -4659,7 +4945,20 @@ export async function handleServerFunctionRequest(request, options = {}) {
       // only: a refusal or a thrown outcome is a whole answer, delivered as
       // the ordinary scripted encoding (the loop's reader is chosen off the
       // content type, so it reads either).
-      if (live) return encodeLiveResult(result, headers, status, codec, request, scope);
+      if (live) {
+        const invocation = INVOCATIONS.get(event);
+        return encodeLiveResult(
+          result,
+          headers,
+          status,
+          codec,
+          request,
+          scope,
+          invocation && invocation.broadcast && invocation.shareKey !== undefined
+            ? invocation.id + "\0" + invocation.shareKey
+            : undefined
+        );
+      }
       return encodeResult(result, headers, status, codec, request.signal, scope);
     } catch (x) {
       // Plain-thrown tail, hoisted so the thrown-path transformResult can
