@@ -38,6 +38,10 @@ use oxc_syntax::symbol::SymbolId;
 use super::validate::line_column;
 
 const BROADCAST: &str = "broadcast";
+/// `respond(value, init)`: only `value` is shared; each caller's response
+/// carries its own `init` (headers, status).
+const RESPOND: &str = "respond";
+const RESPOND_SOURCE: &str = "@solidjs/web";
 
 /// Checks every function passed to `broadcast` imported from one of the
 /// runtime `sources`, returning a
@@ -87,10 +91,30 @@ pub(crate) fn validate_broadcast_captures(
     let callees: HashSet<SymbolId> = specifiers()
         .filter_map(|local| local.symbol_id.get())
         .collect();
+    let responders: HashSet<SymbolId> = program
+        .body
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::ImportDeclaration(import) if import.source.value == RESPOND_SOURCE => {
+                import.specifiers.as_ref()
+            }
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|specifier| match specifier {
+            ImportDeclarationSpecifier::ImportSpecifier(named)
+                if named.imported.name() == RESPOND =>
+            {
+                named.local.symbol_id.get()
+            }
+            _ => None,
+        })
+        .collect();
 
     let mut finder = BroadcastFinder {
         semantic: &semantic,
         callees,
+        responders,
         code,
         filename,
         error: None,
@@ -105,6 +129,7 @@ pub(crate) fn validate_broadcast_captures(
 struct BroadcastFinder<'s, 'a> {
     semantic: &'s Semantic<'a>,
     callees: HashSet<SymbolId>,
+    responders: HashSet<SymbolId>,
     code: &'s str,
     filename: &'s str,
     error: Option<String>,
@@ -177,6 +202,21 @@ impl<'s, 'a> BroadcastFinder<'s, 'a> {
         self.semantic.scoping().get_reference(reference).symbol_id()
     }
 
+    /// What of a returned value is shared: the value a `respond(value,
+    /// init)` carries, else the whole of it.
+    fn shared_part<'b>(&self, expression: &'b Expression<'a>) -> &'b Expression<'a> {
+        if let Expression::CallExpression(call) = expression
+            && let Expression::Identifier(callee) = &call.callee
+            && self
+                .resolve(callee)
+                .is_some_and(|symbol| self.responders.contains(&symbol))
+            && let Some(value) = call.arguments.first().and_then(|argument| argument.as_expression())
+        {
+            return value;
+        }
+        expression
+    }
+
     fn within(&self, scope: ScopeId, ancestor: ScopeId) -> bool {
         self.semantic
             .scoping()
@@ -201,6 +241,7 @@ impl<'s, 'a> BroadcastFinder<'s, 'a> {
         let mut queue: Vec<ScopeId> = vec![];
         let mut values: Vec<Span> = vec![];
         for expression in returned(target) {
+            let expression = self.shared_part(expression);
             match self.function_of(expression) {
                 Some(component) => {
                     if self.within(component.scope, target.scope) {

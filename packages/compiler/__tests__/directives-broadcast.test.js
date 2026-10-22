@@ -200,6 +200,24 @@ describe("broadcast() capture rule", () => {
       expect(() => compile(code)).not.toThrow();
     });
 
+    it("checks only the value of a respond(), not its per-caller init", () => {
+      const code = (value, headers) =>
+        [
+          IMPORT,
+          'import { respond } from "@solidjs/web";',
+          'import { watch, getUser } from "./db";',
+          "export const feed = broadcast(async (room) => {",
+          '  "use server";',
+          "  const user = await getUser();",
+          `  return respond(${value}, { headers: ${headers} });`,
+          "});"
+        ].join("\n");
+      expect(() => compile(code("watch(room)", '{ "x-user": user.id }'))).not.toThrow();
+      expect(() => compile(code("watch(user.id)", "{}"))).toThrow(DATA_LEAK);
+      // A respond() carrying a component is checked as the component.
+      expect(() => compile(code("() => <p>{user.name}</p>", "{}"))).toThrow(LEAK);
+    });
+
     it("leaves a generator alone: all of its body is shared", () => {
       const code = [
         IMPORT,
