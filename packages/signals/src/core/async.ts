@@ -28,7 +28,7 @@ import { emitDiagnostic, reportDiagnostic, watchAsyncTail } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
 import { trimStaleDeps, unobserved } from "./graph.js";
 import { enqueueSub } from "./heap.js";
-import { cleanup } from "./owner.js";
+import { cleanup, disposeChildren } from "./owner.js";
 import {
   clock,
   flush,
@@ -509,8 +509,14 @@ export function handleAsync<T>(
     // D-41: a held node's error is staged (`stageError`). A derived store's
     // readers learn its error through the family, not the derive's
     // dependents: it publishes now.
-    if (stillPending || setter || !stageError(el, error))
+    if (stillPending || setter || !stageError(el, error)) {
       notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
+      // The error is this pass's answer, published now: it replaces the shown
+      // frame as a value's commit would (`commitPendingNode`), so the frame
+      // the pass parked goes instead of waiting for a later success. A no-op
+      // when nothing is parked.
+      if (!stillPending) disposeChildren(el, false, true);
+    }
     // A NotReady rejection is a landing into another pending source. The
     // rejected flight will never settle its self entry, so transfer ownership
     // after notifyStatus has propagated the replacement source.
