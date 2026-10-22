@@ -263,7 +263,7 @@ export function unwrapValue(v: any): any {
 // adoption swap raw identity without changing the logical value — only
 // changed leaves notify, R9).
 const slotNodeEquals = function (this: any, a: any, b: any): boolean {
-  return isEqual(a, b) || targetsEqual(a, b, this._host.fam);
+  return isEqual(a, b) || sameLogicalSlot(this._host, a, b);
 };
 /** The deep witness: the store decides when it notifies. */
 const never = false as unknown as (a: any, b: any) => boolean;
@@ -301,6 +301,12 @@ export function asBacking(v: any): Record<PropertyKey, any> {
 export const containerEquals = function (this: any, a: any, b: any): boolean {
   return a === b || !!optHooks?.arrangement(this._host, a, b);
 };
+
+function sameLogicalSlot(target: StoreTarget, a: any, b: any): boolean {
+  if (a === null || typeof a !== "object" || b === null || typeof b !== "object") return false;
+  const at = lookupTarget(a, target.fam);
+  return at !== undefined && at === lookupTarget(b, target.fam);
+}
 
 /** Slot nodes whose last subscriber left while they still held a staging:
  * released at the commit that resolves it (`drainFolds`). */
@@ -1258,12 +1264,11 @@ function notifyWrites(t: StoreTarget): void {
 /** Accessor-node wake sentinel: readers re-run and re-invoke the getter. */
 const FORCE: unique symbol = Symbol();
 
-/** Two raws that wrap to the same target (of `fam`; the plain lookup by
- * default) are the same logical value — the same slot. */
-export function targetsEqual(ov: any, nv: any, fam: StoreFamily | null = null): boolean {
+/** Two raws that wrap to the same target are the same logical value. */
+export function targetsEqual(ov: any, nv: any): boolean {
   if (ov === null || typeof ov !== "object" || nv === null || typeof nv !== "object") return false;
-  const ot = lookupTarget(ov, fam);
-  return ot !== undefined && ot === lookupTarget(nv, fam);
+  const ot = lookupTarget(ov, null);
+  return ot !== undefined && ot === lookupTarget(nv, null);
 }
 
 /** Positional identity IS content for arrays (R15). */
@@ -1690,7 +1695,7 @@ function changedBetween(
     return true;
   const nv = pb[key as any];
   const ov = v[key as any];
-  return !isEqual(ov, nv) && !targetsEqual(ov, nv, target.fam);
+  return !isEqual(ov, nv) && !sameLogicalSlot(target, ov, nv);
 }
 
 /** Value of a key with a leaf: core's — `read()` links a tracked reader and,
