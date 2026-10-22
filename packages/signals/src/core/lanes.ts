@@ -553,12 +553,21 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
  * member throws like any. */
 export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
   const guess = el._config & CONFIG_GUESS;
+  const l = txOf(el);
+  // A lane a correction folded under (D-34): store/optimistic.ts reads it.
+  // Before the authoritative arm: an `until` outside the lane reads the
+  // same truth there, and joins the hold it folded into — its posture over
+  // a foreign hold (D-31), which the truth read alone would not take.
+  const folded = c !== null && l.folded;
+  if (folded) {
+    const v = folded(c, el);
+    if (v !== NOT_PENDING) return v;
+  }
   if (c !== null && c._config & CONFIG_AUTHORITATIVE) return GlobalQueue._truth!(el);
   const status = (el as Computed<any>)._statusFlags;
   // An errored member's lane value predates its error; the error is the answer (#4106).
   if (!guess && status & STATUS_ERROR) return NOT_PENDING;
   if (c === null) return laneValueOf(el);
-  const l = txOf(el);
   if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) {
     // An untracked read inside lane work derives from the lane like a
     // tracked one, minus the subscription — `untrack` is about
@@ -733,10 +742,12 @@ function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
     // question is the one being asked (`question`: a slice's, a derive's
     // continuation's — the flight's); unstamped writes and mainline are
     // current.
-    if (stale(el, question)) {
+    // A store re-bases a keyed arrangement guess over an older truth, and
+    // folds a current one beneath it (D-34): true.
+    const older = stale(el, question);
+    if (GlobalQueue._laneRebase?.(el, v, older) || older) {
       el._pendingValue = v;
       el._config |= CONFIG_HELD;
-      GlobalQueue._laneRebase?.(el, v);
       schedule();
       return v;
     }

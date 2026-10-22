@@ -1095,8 +1095,9 @@ module.exports = [
     // Writable memo write clears its error without a torn read (#4110, 2026-10-20, over next @ 7014aca4, accepted by the maintainer): 14.94 -> 14.95 KB, recorded minified 45,115 -> 45,175 B, measured locally (linux) at 14,932 B brotli / 45,175 B minified (+60 B minified over the recorded size), which includes #4163's +9 B merged without re-recording: a write to an errored writable memo recovers it at commit and keeps the error shown until then, and clears an error a pass staged under the same hold. Correctness; matches CI's numbers.
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): cap 14.95 KB unchanged, recorded minified 45,175 -> 45,145 B (-30 B), measured in CI at 14,914 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 14.95 KB -> 15.01 KB, recorded minified 45,145 -> 45,286 B (+141 B), measured in CI at 14,997 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
-    limit: "15.01 KB",
-    capMinified: 45286,
+    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): 15.01 -> 15.04 KB, recorded minified 45,286 -> 45,330 B (+44 B), measured locally (linux) at 15,030 B brotli: a key born under a container guess that a correction folded under is held in that correction's hold; the fold itself lives in store/optimistic.ts behind the lane's `_laneRebase` hook. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "15.04 KB",
+    capMinified: 45330,
     alias
   },
   {
@@ -1405,8 +1406,9 @@ module.exports = [
     // Writable memo write clears its error without a torn read (#4110, 2026-10-20, over next @ 7014aca4, accepted by the maintainer): 10.14 -> 10.16 KB, recorded minified 28,383 -> 28,443 B, measured locally (linux) at 10,144 B brotli / 28,443 B minified (+60 B minified over the recorded size), which includes #4163's +9 B merged without re-recording: a write to an errored writable memo recovers it at commit and keeps the error shown until then, and clears an error a pass staged under the same hold. Correctness; matches CI's numbers.
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): 10.16 KB -> 10.19 KB, recorded minified 28,443 -> 28,463 B (+20 B), measured in CI at 10,173 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 10.19 KB -> 10.25 KB, recorded minified 28,463 -> 28,625 B (+162 B), measured in CI at 10,236 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
-    limit: "10.25 KB",
-    capMinified: 28625,
+    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): 10.25 -> 10.30 KB, recorded minified 28,625 -> 28,735 B (+110 B, golfed from +142 B at the maintainer's request), measured locally (linux) at 10,281 B brotli: `laneWrite` hands a current truth on a guess to the store's `_laneRebase` hook (one hook for the re-base and the fold), and a folded lane carries the store's reader of it (`Transaction.folded`), which `laneRead`, `latest()` (`verdictValue`) and a folded lane's list pass in `read()` use. The floors carry none of it. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "10.30 KB",
+    capMinified: 28735,
     alias
   },
   {
@@ -2642,8 +2644,9 @@ module.exports = [
     // Writable memo write clears its error without a torn read (#4110, 2026-10-20, over next @ 7014aca4, accepted by the maintainer): 30.30 -> 30.32 KB, recorded minified 95,025 -> 95,085 B, measured locally (linux) at 30,308 B brotli / 95,085 B minified (+60 B minified over the recorded size), which includes #4163's +9 B merged without re-recording: a write to an errored writable memo recovers it at commit and keeps the error shown until then, and clears an error a pass staged under the same hold. Correctness; matches CI's numbers.
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): 30.32 KB -> 30.41 KB, recorded minified 95,085 -> 95,109 B (+24 B), measured in CI at 30,394 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 30.41 KB -> 30.42 KB, recorded minified 95,109 -> 95,268 B (+159 B), measured in CI at 30,403 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
-    limit: "30.42 KB",
-    capMinified: 95268,
+    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): 30.42 -> 30.66 KB, recorded minified 95,268 -> 95,837 B (+569 B, golfed from +694 B at the maintainer's request), measured locally (linux) at 30,642 B brotli: this scenario carries createOptimisticStore, so it pays for the fold itself (store/optimistic.ts `fold`, `foldedRead`, core `joinPassAt`); a keyed arrangement guess is recognized by its view's removed-keys set. Correctness: two overlapping writes on one keyed store no longer tear the store or remount the confirmed row. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "30.66 KB",
+    capMinified: 95837,
     alias
   },
   {
@@ -2933,6 +2936,7 @@ module.exports = [
     // Writable memo write clears its error without a torn read (#4110, 2026-10-20, over next @ 7014aca4, accepted by the maintainer): 13.24 -> 13.28 KB, recorded minified 37,087 -> 37,147 B, measured locally (linux) at 13,264 B brotli / 37,147 B minified (+60 B minified over the recorded size), which includes #4163's +9 B merged without re-recording: a write to an errored writable memo recovers it at commit and keeps the error shown until then, and clears an error a pass staged under the same hold. Correctness; matches CI's numbers.
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): cap 13.28 KB unchanged, recorded minified 37,147 -> 37,113 B (-34 B), measured in CI at 13,249 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 13.28 KB -> 13.33 KB, recorded minified 37,113 -> 37,252 B (+139 B), measured in CI at 13,312 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
+    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): cap 13.33 KB and recorded minified 37,252 B unchanged: +0 B minified here, measured locally (linux) at 13,316 B brotli.
     limit: "13.33 KB",
     capMinified: 37252,
     alias
@@ -3987,8 +3991,9 @@ module.exports = [
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): 26.10 KB -> 26.11 KB, recorded minified 81,172 -> 81,138 B (-34 B), measured in CI at 26,092 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Re-recorded on next @ 0222d684 (2026-10-21, accepted by the maintainer): 26.11 KB -> 26.14 KB, recorded minified 81,138 -> 81,159 B (+21 B), measured in CI at 26,123 B brotli. #4188 (reaction arms captured before tracking reads), #4207 (#4203, unread pending memo under a verdict mount) and #4176 (deferred releases restored after a throwing cleanup) each passed alone and together put next 1 B past the 20 B minified allowance. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 26.14 KB -> 26.23 KB, recorded minified 81,159 -> 81,283 B (+124 B), measured in CI at 26,214 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
+    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): cap 26.23 KB unchanged, recorded minified 81,283 -> 81,327 B (+44 B: the app's store pays the birth check under a folded guess), measured locally (linux) at 26,216 B brotli, under the cap.
     limit: "26.23 KB",
-    capMinified: 81283,
+    capMinified: 81327,
     alias
   },
   {
@@ -4144,8 +4149,9 @@ module.exports = [
     // Writable memo write clears its error without a torn read (#4110, 2026-10-20, over next @ 7014aca4, accepted by the maintainer): 32.13 KB (unchanged), recorded minified 101,677 -> 101,737 B, measured locally (linux) at 32,091 B brotli / 101,737 B minified (+60 B minified over the recorded size), which includes #4163's +9 B merged without re-recording: a write to an errored writable memo recovers it at commit and keeps the error shown until then, and clears an error a pass staged under the same hold. Correctness; matches CI's numbers.
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): 32.13 KB -> 32.20 KB, recorded minified 101,737 -> 101,703 B (-34 B), measured in CI at 32,182 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 32.20 KB (unchanged), recorded minified 101,703 -> 101,848 B (+145 B), measured in CI at 32,174 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
-    limit: "32.20 KB",
-    capMinified: 101848,
+    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): 32.20 -> 32.23 KB, recorded minified 101,848 -> 101,892 B (+44 B: the app's store pays the birth check under a folded guess), measured locally (linux) at 32,215 B brotli. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.23 KB",
+    capMinified: 101892,
     alias
   },
   {
@@ -5408,6 +5414,7 @@ module.exports = [
     // Writable memo write clears its error without a torn read (#4110, 2026-10-20, over next @ 7014aca4, accepted by the maintainer): 37.46 -> 37.48 KB, recorded minified 114,922 -> 114,982 B, measured locally (linux) at 37,467 B brotli / 114,982 B minified (+60 B minified over the recorded size), which includes #4163's +9 B merged without re-recording: a write to an errored writable memo recovers it at commit and keeps the error shown until then, and clears an error a pass staged under the same hold. Correctness; matches CI's numbers.
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): 37.48 KB -> 37.53 KB, recorded minified 114,982 -> 115,031 B (+49 B), measured in CI at 37,516 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 37.53 KB (unchanged), recorded minified 115,031 -> 115,011 B (-20 B), measured in CI at 37,512 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
+    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, re-measured over next @ db8241ce): frozen floor 37.53 -> 37.64 KB, recorded minified 115,011 -> 115,136 B (+125 B: +110 B the lane engine's fold hooks, as `signals: + isPending/latest`, the rest brotli/mangle layout), measured locally (linux) at 37,627 B brotli. Size-Exception: the maintainer accepted the keyed-fold size cost (2026-10-22). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5697,8 +5704,9 @@ module.exports = [
     // Writable memo write clears its error without a torn read (#4110, 2026-10-20, over next @ 7014aca4, accepted by the maintainer): 41.31 KB (unchanged), recorded minified 122,907 -> 122,967 B, measured locally (linux) at 41,300 B brotli / 122,967 B minified (+60 B minified over the recorded size), which includes #4163's +9 B merged without re-recording: a write to an errored writable memo recovers it at commit and keeps the error shown until then, and clears an error a pass staged under the same hold. Correctness; matches CI's numbers.
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): 41.31 KB -> 41.42 KB, recorded minified 122,967 -> 123,015 B (+48 B), measured in CI at 41,410 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 41.42 KB (unchanged), recorded minified 123,015 -> 123,010 B (-5 B), measured in CI at 41,403 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
-    limit: "41.42 KB",
-    capMinified: 123010,
+    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): 41.42 -> 41.47 KB, recorded minified 123,010 -> 123,120 B (+110 B: the page carries the lane engine's fold hooks, as `signals: + isPending/latest`), measured locally (linux) at 41,452 B brotli. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "41.47 KB",
+    capMinified: 123120,
     alias: pageAlias
   },
   {
@@ -6073,8 +6081,9 @@ module.exports = [
     // Writable memo write clears its error without a torn read (#4110, 2026-10-20, over next @ 7014aca4, accepted by the maintainer): 46.90 -> 46.91 KB, recorded minified 140,198 -> 140,258 B, measured locally (linux) at 46,896 B brotli / 140,258 B minified (+60 B minified over the recorded size), which includes #4163's +9 B merged without re-recording: a write to an errored writable memo recovers it at commit and keeps the error shown until then, and clears an error a pass staged under the same hold. Correctness; matches CI's numbers.
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): cap 46.91 KB unchanged, recorded minified 140,258 -> 140,296 B (+38 B), measured in CI at 46,884 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 46.91 KB -> 46.96 KB, recorded minified 140,296 -> 140,292 B (-4 B), measured in CI at 46,942 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
-    limit: "46.96 KB",
-    capMinified: 140292,
+    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): 46.96 -> 47.01 KB, recorded minified 140,292 -> 140,402 B (+110 B: the page carries the lane engine's fold hooks, as `signals: + isPending/latest`), measured locally (linux) at 46,993 B brotli. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "47.01 KB",
+    capMinified: 140402,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
