@@ -166,10 +166,12 @@ export function notifyOptimisticWrites(
   if (structural) {
     const rows = isArr ? (pb as any[]).map(unwrapValue) : shallowKeys(pb);
     // The rows the setter removed from the view it saw, by key: a later
-    // re-base over another action's truth must not bring them back.
+    // re-base over another action's truth must not bring them back. A set
+    // (empty or not) marks a keyed arrangement guess (`fold`).
     let removed: Set<unknown> | null = null;
     const keyFn = t.fam!.key;
     if (isArr && keyFn !== null && keyFn !== undefined) {
+      removed = new Set();
       const kept = new Set<unknown>();
       for (let i = 0; i < rows.length; i++) {
         const k = isWrappable(rows[i]) ? keyFn(rows[i]) : undefined;
@@ -178,7 +180,7 @@ export function notifyOptimisticWrites(
       for (let i = 0; i < (old as any[]).length; i++) {
         const r = unwrapValue((old as any[])[i]);
         const k = isWrappable(r) ? keyFn(r) : undefined;
-        if (k !== undefined && !kept.has(k)) (removed ??= new Set()).add(k);
+        if (k !== undefined && !kept.has(k)) removed.add(k);
       }
     }
     optimisticWrite(getContainerNode(t), new LaneView(rows, base, removed) as any);
@@ -397,17 +399,11 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
  * (A17): only truth readers are told. True: the lane stages the truth
  * beneath (`laneWrite`). */
 function fold(el: Signal<any>, truth: unknown): boolean {
-  const t = (el as any)._host as StoreTarget | undefined;
-  const k = t?.k;
+  const k = ((el as any)._host as StoreTarget | undefined)?.k;
   const l = txOf(el);
-  // A guess the screen never showed is void at the correction (D-34).
-  if (
-    !l._shown ||
-    !(k?._config! & CONFIG_OVERRIDE) ||
-    t!.fam?.key == null ||
-    !(k!._x!._lane instanceof LaneView) ||
-    !Array.isArray(k!._x!._lane.rows)
-  )
+  // A guess the screen never showed is void at the correction (D-34); a
+  // keyed arrangement guess's view carries its removed-keys set.
+  if (!l._shown || !(k?._config! & CONFIG_OVERRIDE) || !(k!._x!._lane as LaneView)?.removed)
     return false;
   const guess = el._x!._lane;
   if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth)) {
