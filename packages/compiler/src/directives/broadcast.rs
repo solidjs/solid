@@ -210,7 +210,10 @@ impl<'s, 'a> BroadcastFinder<'s, 'a> {
             && self
                 .resolve(callee)
                 .is_some_and(|symbol| self.responders.contains(&symbol))
-            && let Some(value) = call.arguments.first().and_then(|argument| argument.as_expression())
+            && let Some(value) = call
+                .arguments
+                .first()
+                .and_then(|argument| argument.as_expression())
         {
             return value;
         }
@@ -259,7 +262,9 @@ impl<'s, 'a> BroadcastFinder<'s, 'a> {
             let declared_at = scoping.symbol_span(symbol).start;
             if !self.within(declared, target.scope)
                 || params.contains(&symbol)
-                || values.iter().any(|value| value.start <= declared_at && declared_at < value.end)
+                || values
+                    .iter()
+                    .any(|value| value.start <= declared_at && declared_at < value.end)
             {
                 continue;
             }
