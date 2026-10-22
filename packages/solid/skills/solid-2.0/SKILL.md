@@ -49,7 +49,7 @@ Nothing in the left column exists in 2.0.
 | `classList={{ a: x() }}`                       | `class={{ a: x() }}` or `class={["base", { a: x() }]}`            |
 | `use:dir={x}` / `attr:` / `on:` / `tabIndex`   | `ref={dir(x)}` / plain attributes / `onClick` / `tabindex`        |
 | `onError` / `catchError`                       | `<Errored>` or `createEffect(c, { effect, error })`               |
-| `from(source)` / `observable`                  | return an AsyncIterable from a computation                        |
+| `from(source)` / `observable`                  | `createMemo(() => from(source))`; push out with `createEffect`    |
 
 Also:
 
