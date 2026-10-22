@@ -1,5 +1,28 @@
 # @solidjs/web
 
+## 2.0.0-rc.17
+
+### Patch Changes
+
+- a40b6cd: Experimental `broadcast(fn)`: a live server function whose answer is the same for every viewer. It implies `live` (and so `GET`); at the live address every caller with the same arguments shares one server render, and each viewer is a tap on it. A viewer that joins later gets the frame as it stands, then the shared batches; the render ends with its last viewer. The outer body still runs per call (auth, redirects), and the shared render runs under its own request event, so per-viewer state such as the router's query cache never reaches it.
+- 9f64ca9: `live(fn)` now implies `GET`: a live source is a read by contract, so the declaration grants GET dispatch on the server and connects over the GET transport on the client. `live(GET(fn))` keeps working and is equivalent. The client's POST-at-the-live-address path is gone, which trims live pages by ~144 B minified.
+- 0222d68: With `enableRichArguments()`, a server function can take files and blobs anywhere in its arguments. Calls like `upload(file, { tags })`, `upload({ file })` and `upload(formData, 1)` used to fail before sending. They now send multipart form data, with each file as its own part instead of encoded inside the arguments.
+- ee4963a: A live server component's slot record that a commit changes now leaves in the same write as the holes that commit moved, with every arg current. Before, each arg of the occurrence re-sent the record as it updated, so the first copy went out alone with the other args still at their previous values, ahead of the hole. A client fill reading those args could show a state no commit had: the chat's pending message left the outbox before the thread showed its row.
+- 5c0d190: `renderToStream` now reports two failures through the server error hook even when the render has no `onError` of its own (#4193). A value the serializer cannot handle reaches the render's hook, else the one set with `configureServerErrors`, as `{ kind: "render", handling: "serialize" }`, and the render settles. Before, it was an unhandled rejection and the render stayed pending forever. With no hook anywhere, the failure goes to `console.error`. An `onCleanup` that throws when the render is disposed after a normal completion is now contained as `abandon()` already did (#4029): it is reported as `{ kind: "render", handling: "failed" }` instead of escaping as an unhandled rejection.
+- 6cca8b5: Dev builds now warn with `UNCOMMITTED_INPUT_OVERWRITTEN` (#4186) when a stateful DOM property binding (`value`/`checked` on an input, `value` on a textarea, `value`/`selected` on an option, `muted` on media) is about to re-write the value it wrote last time over an edit the user never committed to the bound signal — e.g. `value={props.name} onChange={commit}` with no draft signal, when another dynamic attribute in the same template changes. Runtime behavior is unchanged: the write still happens, once per element and property the warning names the fix (write the signal from `onInput`, use `defaultValue`/`defaultChecked` for an uncontrolled element, or write a rejected edit back with `e.currentTarget.value = next`).
+
+  Production output is unchanged byte for byte. In dev DOM output both compilers write stateful properties through a new `setStatefulProperty(el, name, value)` helper instead of the inline `el.name = value`; hydratable output keeps `setProperty`, and `spread`/`assign` check in the runtime. The check lives only in `@solidjs/web`'s dev build; the production entry carries a plain `node[name] = value` stub that no production-compiled module imports, so it tree-shakes away.
+
+  The "Form inputs" section of the DOM RFC, the cheatsheet and the solid-2.0 skill now say that a change to any other dynamic attribute in the same template re-runs a stateful binding, link the new code, and drop `equals: false` as a way to reject input (it is what the warning reports); write the accepted value back with `e.currentTarget.value = next` instead.
+
+- Updated dependencies [db8241c]
+- Updated dependencies [690228a]
+- Updated dependencies [a2a5b6f]
+- Updated dependencies [0771dc8]
+- Updated dependencies [d682022]
+- Updated dependencies [6cca8b5]
+  - solid-js@2.0.0-rc.17
+
 ## 2.0.0-rc.16
 
 ### Patch Changes
