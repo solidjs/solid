@@ -181,7 +181,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           const node = nodes[i];
           if (node !== undefined) {
             nodesHit++;
-            notifyKeyDiff(node, i as any, old, incoming);
+            notifyKeyDiff(node, i as any, old, incoming, false);
           }
         }
       }
@@ -205,7 +205,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           const node = nodes[i];
           if (node !== undefined) {
             nodesHit++;
-            notifyKeyDiff(node, i as any, old, incoming);
+            notifyKeyDiff(node, i as any, old, incoming, false);
           }
         }
       }
@@ -215,7 +215,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       for (const key of Reflect.ownKeys(nodes)) {
         const idx = typeof key === "string" ? +key : NaN;
         if (!(idx >= 0 && idx < incoming.length))
-          notifyKeyDiff(nodes[key as any], key, old, incoming);
+          notifyKeyDiff(nodes[key as any], key, old, incoming, false);
       }
     }
     notifyFoldTail(t, old, incoming);
@@ -266,7 +266,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // Keys the incoming object no longer has still have nodes.
   if (nodes !== null && nodesHit < t.nc) {
     for (const key of Reflect.ownKeys(nodes)) {
-      if (!hasOwnP.call(incoming, key)) notifyKeyDiff(nodes[key as any], key, old, incoming);
+      if (!hasOwnP.call(incoming, key)) notifyKeyDiff(nodes[key as any], key, old, incoming, false);
     }
   }
   notifyFoldTail(t, old, incoming);
