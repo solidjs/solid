@@ -234,6 +234,18 @@ describe.each([
     expect(events.slice(before)).toEqual(["data", "data", "done"]);
   });
 
+  it("without onError a failing write throws, and the serializer still completes", () => {
+    const events = [];
+    const serializer = create({
+      onData: () => events.push("data"),
+      onDone: () => events.push("done")
+    });
+    expect(() => serializer.write("bad", () => "fn")).toThrow();
+    serializer.write("good", "ok");
+    serializer.flush();
+    expect(events).toEqual(["data", "done"]);
+  });
+
   it("a value that fails next to a pending promise settles its write at once", async () => {
     const { serializer, events } = record();
     serializer.write("bad", { pending: Promise.resolve(1), fn: () => "fn" });

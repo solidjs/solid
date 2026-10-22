@@ -218,7 +218,8 @@ export function createHydrationSerializer(options: HydrationSerializerOptions): 
 // it. A write whose initial chunk went out by the time the call returns
 // keeps its session, even if a chunk replayed from a stream's buffer failed
 // before it, and settles on `onDone` like any later failure. Without
-// `onError` seroval throws, as before.
+// `onError` seroval throws out of the write, as before; the write still
+// settles, so a later `flush()` completes.
 function createKeyedSerializer(serialize, onError, onDone) {
   const cancels = new Set();
   let pendingWrites = 0;
@@ -248,23 +249,29 @@ function createKeyedSerializer(serialize, onError, onDone) {
         pendingWrites--;
         maybeDone();
       };
-      const stream = serialize(
-        key,
-        value,
-        {
-          onError:
-            onError &&
-            (err => {
-              failed = true;
-              onError(err);
-            }),
-          onDone: settle
-        },
-        initial => {
-          if (initial) started = true;
-          return !closed;
-        }
-      );
+      let stream;
+      try {
+        stream = serialize(
+          key,
+          value,
+          {
+            onError:
+              onError &&
+              (err => {
+                failed = true;
+                onError(err);
+              }),
+            onDone: settle
+          },
+          initial => {
+            if (initial) started = true;
+            return !closed;
+          }
+        );
+      } catch (err) {
+        settle();
+        throw err;
+      }
       if (settled) return;
       // A `close()` from inside the call could not dispose this write yet.
       if (closed || (failed && !started)) {
