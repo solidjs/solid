@@ -80,7 +80,7 @@ fact about the thread, not something left hanging.
 
 ```tsx
 const getThread = liveQuery(
-  live(async (id: string) => {
+  async (id: string) => {
     "use server";
     return (props: { composer: ComposerSlot; copyCode: CopySlot }) => {
       const view = createMemo(() => db.watchThread(id, gone.signal));
@@ -95,13 +95,13 @@ const getThread = liveQuery(
         </article>
       );
     };
-  }),
+  },
   "thread"
 );
 ```
 
-`live` holds the response open and reconnects it if it dies. `liveQuery`
-gives it a key and one connection per thread.
+`liveQuery` declares the function `live`, which holds the response open and
+reconnects it if it dies, and gives it a key and one connection per thread.
 
 Each `{…}` that reads `view()` is a piece of the page the server can send
 again by itself, and it sends one only when its HTML has changed. The thread

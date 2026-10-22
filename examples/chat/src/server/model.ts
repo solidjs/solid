@@ -44,13 +44,15 @@ This thread is one. It renders on the server, from the messages the server has s
 
 \`\`\`jsx
 const getThread = liveQuery(
-  live(async (id) => {
+  async (id) => {
     "use server";
     return props => <Thread id={id} composer={props.composer} />;
-  }),
+  },
   "thread"
 );
 \`\`\`
+
+\`liveQuery\` declares it \`live\`, so the response stays open and the server sends the parts of the thread that change.
 
 The markdown parser and the syntax highlighter that produced this reply never reach the browser. Only what they produce does.`
     }
