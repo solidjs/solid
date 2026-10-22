@@ -22,6 +22,14 @@ on:
     paths:
       - "packages/compiler/**"
       - ".github/workflows/compiler-binaries.yml"
+  # The WASI binding is only exercised here; testing it on PRs catches what
+  # used to surface first in a release's publish job.
+  pull_request:
+    branches:
+      - next
+    paths:
+      - "packages/compiler/**"
+      - ".github/workflows/compiler-binaries.yml"
 
 jobs:
   build:
@@ -81,13 +89,24 @@ jobs:
       # The parity suites compile every fixture through the babel plugin for
       # comparison, and its entry point is a rollup artifact.
       - name: Build babel plugin (needed by parity suites)
-        if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-unknown-linux-gnu' || matrix.settings.target == 'aarch64-unknown-linux-gnu' || matrix.settings.target == 'x86_64-pc-windows-msvc'
+        if: matrix.settings.target != 'x86_64-apple-darwin'
         run: pnpm --filter @solidjs/babel-plugin run build
 
       - name: Test binary (native targets)
         if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-unknown-linux-gnu' || matrix.settings.target == 'aarch64-unknown-linux-gnu' || matrix.settings.target == 'x86_64-pc-windows-msvc'
         working-directory: packages/compiler
         run: pnpm exec vitest run
+
+      # The WASI build regenerates index.js; the tests must load the committed
+      # one (its hostRoot is what a WASI binding needs). The binding loads from
+      # the workspace's platform package, as an install would.
+      - name: Test WASI binary
+        if: matrix.settings.target == 'wasm32-wasip1-threads'
+        working-directory: packages/compiler
+        run: |
+          git checkout -- index.js
+          cp compiler.wasm32-wasi.wasm compiler.wasi.cjs wasi-worker.mjs npm/wasm32-wasi/
+          NODE_NO_WARNINGS=1 SOLID_COMPILER_TEST_WASI=1 pnpm exec vitest run --exclude '**/binding-loader.test.js'
 
       - uses: actions/upload-artifact@v4
         with:
@@ -131,13 +150,6 @@ jobs:
       - name: Move binaries into platform packages
         working-directory: packages/compiler
         run: pnpm exec napi artifacts --build-output-dir artifacts/bindings-wasm32-wasip1-threads
-
-      - name: Build babel plugin (needed by parity suites)
-        run: pnpm --filter @solidjs/babel-plugin run build
-
-      - name: Test WASI binary
-        working-directory: packages/compiler
-        run: NODE_NO_WARNINGS=1 SOLID_COMPILER_TEST_WASI=1 pnpm exec vitest run --exclude '**/binding-loader.test.js'
 
       # Authenticates via OIDC trusted publishing (id-token: write above) —
       # no npm token. Each platform package must have this repo + workflow
