@@ -145,51 +145,52 @@ describe("fuzz findings on L2 — holds and boundaries", () => {
   // mainline pass (served the committed `show`) stops reading it, so the hold
   // lands — and its stale-reader re-derivation then discovers flight(0) with
   // `src=0` visible. The landing published `show=true` beside a panel that can
-  // only say "hidden": a torn frame the reveal corollary forbids.
-  // Deferred (#4071): the fix re-derives the stale reader before the
-  // landing, which costs the core floor.
-  it.fails(
-    "F2: a landing does not reveal a gate its stale reader re-derives onto a new flight (A15 reveal corollary)",
-    async () => {
-      const [show, setShow] = createSignal(true);
-      const [src, setSrc] = createSignal(0);
-      const gates = new Map<string, () => void>();
-      let shown: unknown, panel: unknown;
-      let dispose!: () => void;
-      createRoot(d => {
-        dispose = d;
-        const m0 = createMemo(() => gated(gates, `m0:${src()}`, src()));
-        const m1 = createMemo(() => m0());
-        createRenderEffect(
-          () => (show() ? [src(), m1()] : "hidden"),
-          v => {
-            panel = JSON.stringify(v);
-          }
-        );
-        createRenderEffect(show, v => {
-          shown = v;
-        });
+  // only say "hidden": a torn frame the reveal corollary forbids. Built
+  // (#4071): the landing commits, and its held runs wait for the stale
+  // reader's re-derivation — its pending parks them in the new hold.
+  it("F2: a landing does not reveal a gate its stale reader re-derives onto a new flight (A15 reveal corollary)", async () => {
+    const [show, setShow] = createSignal(true);
+    const [src, setSrc] = createSignal(0);
+    const gates = new Map<string, () => void>();
+    let shown: unknown, panel: unknown;
+    let dispose!: () => void;
+    createRoot(d => {
+      dispose = d;
+      const m0 = createMemo(() => gated(gates, `m0:${src()}`, src()));
+      const m1 = createMemo(() => m0());
+      createRenderEffect(
+        () => (show() ? [src(), m1()] : "hidden"),
+        v => {
+          panel = JSON.stringify(v);
+        }
+      );
+      createRenderEffect(show, v => {
+        shown = v;
       });
-      flush();
-      gates.get("m0:0")!();
-      await drain();
-      expect([shown, panel]).toEqual([true, "[0,0]"]);
-      setShow(false);
-      setSrc(1); // hide, and start flight(1) that nothing observes → commits
-      await drain();
-      expect([shown, panel]).toEqual([false, '"hidden"']);
-      setShow(true); // the reveal discovers flight(1) (inputs visible): held
-      await drain();
-      expect([shown, panel]).toEqual([false, '"hidden"']);
-      setSrc(0); // flight(0) supersedes flight(1); the hold on `show` lands
-      await drain();
-      // Either both are revealed together (flight(0) landed) or neither is.
-      expect(shown === true ? panel : '"hidden"').toBe(shown === true ? "[0,0]" : '"hidden"');
-      dispose();
-      gates.get("m0:0")?.();
-      await drain();
-    }
-  );
+    });
+    flush();
+    gates.get("m0:0")!();
+    await drain();
+    expect([shown, panel]).toEqual([true, "[0,0]"]);
+    setShow(false);
+    setSrc(1); // hide, and start flight(1) that nothing observes → commits
+    await drain();
+    expect([shown, panel]).toEqual([false, '"hidden"']);
+    setShow(true); // the reveal discovers flight(1) (inputs visible): held
+    await drain();
+    expect([shown, panel]).toEqual([false, '"hidden"']);
+    setSrc(0); // flight(0) supersedes flight(1); the hold on `show` lands
+    await drain();
+    // Either both are revealed together (flight(0) landed) or neither is.
+    expect(shown === true ? panel : '"hidden"').toBe(shown === true ? "[0,0]" : '"hidden"');
+    // flight(0) lands: the reveal and the panel show together.
+    gates.get("m0:0")!();
+    await drain();
+    expect([shown, panel]).toEqual([true, "[0,0]"]);
+    dispose();
+    gates.get("m0:1")?.();
+    await drain();
+  });
 
   // F3. L2 ruling A (A29): "a held pass's children compute but do not effect
   // and die with the commit that replaces their frame"; A15 #3463: a zombie
