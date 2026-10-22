@@ -26,6 +26,7 @@ import {
 } from "../src/client/hydration.js";
 import { lazy, lazyModule } from "../src/client/component.js";
 import { Errored, Loading } from "../src/client/flow.js";
+import { from } from "../src/from.js";
 
 // Enable the hydration-aware wrappers
 enableHydration();
@@ -2491,6 +2492,61 @@ describe("live-branded sources — automatic takeover", () => {
     await new Promise(r => setTimeout(r, 20));
     flush();
     uninstall();
+  });
+
+  test("from(subscription) is live: adopts the server value, then resubscribes after hydration", async () => {
+    startHydration({ t0: { v: "server-current", s: 1 } });
+    const log: string[] = [];
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() =>
+          from<string>(next => {
+            log.push("subscribe");
+            next("live-current");
+            return () => log.push("unsubscribe");
+          })
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+    // The adoption trace builds the iterable but never subscribes.
+    expect(result()).toBe("server-current");
+    expect(log).toEqual([]);
+
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(result()).toBe("live-current");
+    expect(log).toEqual(["subscribe"]);
+  });
+
+  test("from(asyncIterable) is a plain stream: adopt-and-latch, no takeover", async () => {
+    startHydration({ t0: { v: "server-value", s: 1 } });
+    let opened = 0;
+    let result: any;
+    createRoot(
+      () => {
+        result = createMemo(() =>
+          from({
+            [Symbol.asyncIterator]() {
+              opened++;
+              return { next: () => Promise.resolve({ done: false, value: "client-value" }) };
+            }
+          })
+        );
+      },
+      { id: "t" }
+    );
+    flush();
+    stopHydration();
+    flush();
+    await new Promise(r => setTimeout(r, 10));
+    flush();
+    expect(result()).toBe("server-value");
+    expect(opened).toBe(0);
   });
 
   test("unbranded computes keep adopt-and-latch semantics — no takeover", async () => {

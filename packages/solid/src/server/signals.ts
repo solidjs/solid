@@ -1,8 +1,10 @@
 // Mock @solidjs/signals for server-side rendering
 // Re-exports infrastructure from the real package, reimplements reactive primitives as pull-based.
 
-import { $REFRESH } from "@solidjs/signals";
+import { $REFRESH, from as signalsFrom, type FromSource } from "@solidjs/signals";
+import { brandFrom, isLiveSource } from "../from.js";
 export { $REFRESH };
+export type { FromSource } from "@solidjs/signals";
 
 // === Re-exports from @solidjs/signals (infrastructure — no reactive scheduling) ===
 //
@@ -27,6 +29,43 @@ export {
 } from "@solidjs/signals";
 
 export { flatten } from "@solidjs/signals";
+
+/**
+ * Server `from`: the same stream as the client's, so the per-`ssrSource`
+ * machinery decides how much of it the server consumes (`processResult`). A
+ * subscription or Observable is branded live (`brandFrom`): the server takes
+ * its first value and closes it, and the hydrated client reconnects, so a
+ * never-ending source can't hold the response open. An AsyncIterable stays a
+ * plain stream. The source is released when the server stops consuming
+ * (return()) or when the owner that created it is disposed (a retried pass,
+ * the render's final dispose, an abandoned render), whichever comes first.
+ */
+export function from<T>(source: FromSource<T>): AsyncIterable<T> {
+  if (isLiveSource(source)) return source as AsyncIterable<T>;
+  const inner = signalsFrom(source);
+  // The compute's owner: the runtime opens the iterable later, from a seat
+  // on its shared multicast, where no owner is current.
+  const owner = currentOwner;
+  return brandFrom(source, {
+    [Symbol.asyncIterator](): AsyncIterator<T> {
+      const done = (): Promise<IteratorResult<T>> =>
+        Promise.resolve({ value: undefined, done: true });
+      if (owner?._disposed) return { next: done, return: done };
+      const it = inner[Symbol.asyncIterator]();
+      let closed = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        closeAsyncIterator(it);
+      };
+      if (owner) runWithOwner(owner as unknown as Owner, () => onCleanup(close));
+      return {
+        next: () => (closed ? done() : Promise.resolve(it.next())),
+        return: () => (close(), done())
+      };
+    }
+  });
+}
 export { snapshot, omit, storePath, isStatic, $PROXY, $TRACK } from "@solidjs/signals";
 
 // === Type re-exports ===
