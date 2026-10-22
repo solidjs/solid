@@ -4251,13 +4251,13 @@ export async function handleServerFunctionRequest(request, options = {}) {
           ? `Server function call from build "${callerBuild}" refused by build "${config.buildId}"`
           : null,
         {
-            status: 409,
-            headers: {
-              [UNKNOWN_HEADER]: "true",
-              [BUILD_HEADER]: config.buildId,
-              "Cache-Control": "no-store"
-            }
+          status: 409,
+          headers: {
+            [UNKNOWN_HEADER]: "true",
+            [BUILD_HEADER]: config.buildId,
+            "Cache-Control": "no-store"
           }
+        }
       )
     );
   }
