@@ -13,7 +13,6 @@
 // code block's Copy button, a client component in a slot in that block.
 import { createMemo, For, Loading, onCleanup } from "solid-js";
 import { dynamicComponent, getRequestEvent, redirect } from "@solidjs/web";
-import { live } from "@solidjs/web/server-functions";
 import type { Slot } from "@solidjs/web/frames";
 import { formAction, liveQuery, type RouteSectionProps } from "@solidjs/router";
 import Composer from "~/components/composer";
@@ -65,53 +64,51 @@ const deleteThread = formAction(async (id: string) => {
   return redirect("/");
 }, "deleteThread");
 
-// `live` holds the response open and reconnects it if it dies; `liveQuery`
-// gives it a key and one connection per thread, and tells the router that
-// this address is kept fresh by its own stream.
-const getThread = liveQuery(
-  live(async (id: string) => {
-    "use server";
-    return (props: { composer: ComposerSlot; copyCode: CopySlot }) => {
-      // This render lives as long as its response. When the tab goes away
-      // the watcher below is told at once.
-      const gone = new AbortController();
-      onCleanup(() => gone.abort());
-      getRequestEvent()?.request.signal.addEventListener("abort", () => gone.abort(), {
-        once: true
-      });
+// `liveQuery` declares it `live`, which holds the response open and
+// reconnects it if it dies; it also gives it a key and one connection per
+// thread, and tells the router that this address is kept fresh by its own
+// stream.
+const getThread = liveQuery(async (id: string) => {
+  "use server";
+  return (props: { composer: ComposerSlot; copyCode: CopySlot }) => {
+    // This render lives as long as its response. When the tab goes away
+    // the watcher below is told at once.
+    const gone = new AbortController();
+    onCleanup(() => gone.abort());
+    getRequestEvent()?.request.signal.addEventListener("abort", () => gone.abort(), {
+      once: true
+    });
 
-      // The thread as it is stored, again after every write to it.
-      const view = createMemo(() => db.watchThread(id, gone.signal));
+    // The thread as it is stored, again after every write to it.
+    const view = createMemo(() => db.watchThread(id, gone.signal));
 
-      return (
-        <article class="thread">
-          <header class="thread-head">
-            {headMarkup(view().thread)}
-            <p class="muted">Answered by {model.modelName()}</p>
-          </header>
-          <ol class="messages">
-            {/* A row the server has already rendered is kept while its
+    return (
+      <article class="thread">
+        <header class="thread-head">
+          {headMarkup(view().thread)}
+          <p class="muted">Answered by {model.modelName()}</p>
+        </header>
+        <ol class="messages">
+          {/* A row the server has already rendered is kept while its
                   message is unchanged, so a streaming reply doesn't render
                   the whole history again on every write (#4056). */}
-            <For each={view().messages.filter(m => m.status !== "generating")}>
-              {message => messageMarkup(message, props.copyCode)}
-            </For>
-            {messagesMarkup(view().messages, true, props.copyCode)}
-          </ol>
-          {/* Keyed by thread: going to another conversation is a new
+          <For each={view().messages.filter(m => m.status !== "generating")}>
+            {message => messageMarkup(message, props.copyCode)}
+          </For>
+          {messagesMarkup(view().messages, true, props.copyCode)}
+        </ol>
+        {/* Keyed by thread: going to another conversation is a new
                 composer, so a half-typed message stays with its thread. */}
-          <props.composer
-            $key={id}
-            threadId={id}
-            seen={view().messages.map(m => m.id)}
-            busy={view().messages.some(m => m.status === "generating")}
-          />
-        </article>
-      );
-    };
-  }),
-  "thread"
-);
+        <props.composer
+          $key={id}
+          threadId={id}
+          seen={view().messages.map(m => m.id)}
+          busy={view().messages.some(m => m.status === "generating")}
+        />
+      </article>
+    );
+  };
+}, "thread");
 
 // The title is its own editor: a form around a field, so renaming is typing
 // and pressing Enter, with or without JavaScript.
