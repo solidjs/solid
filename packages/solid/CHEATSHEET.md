@@ -247,8 +247,9 @@ const rows = createDeferred(() => fetchRows(period()));
 // ((next, error, complete) => unsubscribe), an Observable (RxJS, Symbol.observable)
 // or an AsyncIterable (streamed as is). A subscription keeps the latest value;
 // a re-run or disposal closes the source at once. Transform in a downstream
-// memo, not in a for-await body. SSR: a subscription renders its first value,
-// then the client resubscribes after hydration.
+// memo, not in a for-await body; if you must for-await a stream inside an
+// async compute, wrap it in from() so a re-run stops it. SSR: a subscription
+// renders its first value, then the client resubscribes after hydration.
 const price = createMemo(() => from(ticker(symbol())));
 const label = createMemo(() => format(price()));
 
@@ -598,6 +599,10 @@ Reach for these only when the named situation applies. **If you're not sure, you
 // on disposal. For component-level setup-and-teardown, use onSettled and
 // return a cleanup; onCleanup is for library/primitive internals where the
 // cleanup is tied to a reactive run, not a component lifecycle.
+// Timing: a run that never committed cleans up when superseded (so an
+// AbortController aborted here, registered before the first await, cancels an
+// unfinished fetch); the run on screen stays live until its replacement lands.
+// Never await that cleanup inside the transition that replaces it (deadlock).
 onCleanup(() => disposeReactiveResource());
 
 // Deep tracking — only when an effect needs to react to *any* nested store change.
