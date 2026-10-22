@@ -381,12 +381,15 @@ export function serializeJSON(value: unknown, options: JSONSerializeOptions): ()
  * settled. Returns a cancel function that aborts any pending async
  * serialization.
  */
-export function serializeJSON(value, { onParse, onDone, onError, ...codecOptions }) {
+export function serializeJSON(value, { onParse, onDone, onError, refs, ...codecOptions }) {
   const resolved = resolveCodecOptions(codecOptions);
   return toCrossJSONStream(value, {
     onParse,
     onDone,
     onError,
+    // Internal: the reference space, when the caller owns it (a shared live
+    // stream forgets it between yields — see server-functions' broadcast).
+    refs,
     ...resolved,
     disabledFeatures:
       resolved.disabledFeatures | serializeOnlyDisabledFeatures(resolved.serializeErrorStacks)

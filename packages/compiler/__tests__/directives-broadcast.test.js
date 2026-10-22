@@ -134,6 +134,165 @@ describe("broadcast() capture rule", () => {
     });
   });
 
+  describe("data answers", () => {
+    const DATA_LEAK = /a broadcast\(\) answer cannot read `user` from its server function's body/;
+
+    it("rejects an outer-body local in a returned iterable", () => {
+      const code = [
+        IMPORT,
+        'import { getUser, watch } from "./db";',
+        "export const feed = broadcast(async (room) => {",
+        '  "use server";',
+        "  const user = await getUser();",
+        "  return watch(room, user.id);",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(DATA_LEAK);
+      expect(() => compile(code)).toThrow(
+        /module\.tsx:6:\d+: .*declared at \/project\/src\/module\.tsx:5:\d+/
+      );
+    });
+
+    it("rejects one read through an expression-bodied arrow and a component picked by it", () => {
+      const arrow = [
+        IMPORT,
+        "const user = 1;",
+        "export const feed = broadcast(async (room, user = load()) => watch(user));"
+      ].join("\n");
+      // A parameter is the share key, not the outer body.
+      expect(() => compile(arrow)).not.toThrow();
+      const picked = [
+        IMPORT,
+        "export const room = broadcast(async () => {",
+        '  "use server";',
+        "  const user = await load();",
+        "  return user.admin ? Admin : Viewer;",
+        "});"
+      ].join("\n");
+      expect(() => compile(picked)).toThrow(DATA_LEAK);
+    });
+
+    it("follows a local generator the returned call makes", () => {
+      const code = [
+        IMPORT,
+        "export const feed = broadcast(async () => {",
+        '  "use server";',
+        "  const user = await load();",
+        "  async function* rows() { yield user; }",
+        "  return rows();",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/cannot read `user`/);
+    });
+
+    it("allows the arguments, module scope, and locals of the returned expression", () => {
+      const code = [
+        IMPORT,
+        'import { watch, getUser } from "./db";',
+        "const LIMIT = 10;",
+        "export const feed = broadcast(async (room) => {",
+        '  "use server";',
+        "  const user = await getUser();",
+        '  if (!user) throw new Error("no");',
+        "  return watch(room, LIMIT, (row) => { const id = row.id; return id; });",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).not.toThrow();
+    });
+
+    it("checks only the value of a respond(), not its per-caller init", () => {
+      const code = (value, headers) =>
+        [
+          IMPORT,
+          'import { respond } from "@solidjs/web";',
+          'import { watch, getUser } from "./db";',
+          "export const feed = broadcast(async (room) => {",
+          '  "use server";',
+          "  const user = await getUser();",
+          `  return respond(${value}, { headers: ${headers} });`,
+          "});"
+        ].join("\n");
+      expect(() => compile(code("watch(room)", '{ "x-user": user.id }'))).not.toThrow();
+      expect(() => compile(code("watch(user.id)", "{}"))).toThrow(DATA_LEAK);
+      // A respond() carrying a component is checked as the component.
+      expect(() => compile(code("() => <p>{user.name}</p>", "{}"))).toThrow(LEAK);
+    });
+
+    it("leaves a generator alone: all of its body is shared", () => {
+      const code = [
+        IMPORT,
+        'import { watch, getUser } from "./db";',
+        "export const feed = broadcast(async function* (room) {",
+        '  "use server";',
+        "  const user = await getUser();",
+        "  yield* watch(room, user);",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).not.toThrow();
+    });
+
+    it("rejects per-caller reads written inline in the answer", () => {
+      const code = answer =>
+        [
+          IMPORT,
+          'import { getRequestEvent } from "@solidjs/web";',
+          'import { watch, getUser } from "./db";',
+          "export const feed = broadcast(async (room) => {",
+          '  "use server";',
+          `  return ${answer};`,
+          "});"
+        ].join("\n");
+      expect(() => compile(code("watch((await getUser()).id)"))).toThrow(
+        /a broadcast\(\) answer cannot await inside its returned expression/
+      );
+      expect(() => compile(code("watch(getRequestEvent().locals.user)"))).toThrow(
+        /a broadcast\(\) answer cannot read getRequestEvent\(\) in its returned expression/
+      );
+      // Inside a function the answer hands on, they run later, per use.
+      expect(() => compile(code("watch(room, async () => (await getUser()).id)"))).not.toThrow();
+    });
+
+    it("rejects a reassigned parameter: it is no longer the share key", () => {
+      const code = [
+        IMPORT,
+        'import { watch, getUser } from "./db";',
+        "export const feed = broadcast(async (id) => {",
+        '  "use server";',
+        "  id = (await getUser()).id;",
+        "  return watch(id);",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/a broadcast\(\) answer cannot read `id`/);
+    });
+
+    it("checks only the value of a respond() re-exported by a framework", () => {
+      const code = [
+        IMPORT,
+        `import { respond } from "${RUNTIME}";`,
+        'import { watch, getUser } from "./db";',
+        "export const feed = broadcast(async (room) => {",
+        '  "use server";',
+        "  const user = await getUser();",
+        '  return respond(watch(room), { headers: { "x-user": user.id } });',
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).not.toThrow();
+    });
+
+    it("suggests an early return for a gate in the answer", () => {
+      const code = [
+        IMPORT,
+        'import { watch, getUser } from "./db";',
+        "export const feed = broadcast(async (room) => {",
+        '  "use server";',
+        "  const user = await getUser();",
+        "  return user ? watch(room) : null;",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/if \(!user\) return null;/);
+    });
+  });
+
   describe("allowed", () => {
     it("reads parameters, its own locals and module scope", () => {
       const code = [
