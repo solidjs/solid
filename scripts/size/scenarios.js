@@ -3991,9 +3991,9 @@ module.exports = [
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): 26.10 KB -> 26.11 KB, recorded minified 81,172 -> 81,138 B (-34 B), measured in CI at 26,092 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Re-recorded on next @ 0222d684 (2026-10-21, accepted by the maintainer): 26.11 KB -> 26.14 KB, recorded minified 81,138 -> 81,159 B (+21 B), measured in CI at 26,123 B brotli. #4188 (reaction arms captured before tracking reads), #4207 (#4203, unread pending memo under a verdict mount) and #4176 (deferred releases restored after a throwing cleanup) each passed alone and together put next 1 B past the 20 B minified allowance. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 26.14 KB -> 26.23 KB, recorded minified 81,159 -> 81,283 B (+124 B), measured in CI at 26,214 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
-    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): cap 26.23 KB unchanged, recorded minified 81,283 B (+44 B: the app's store pays the birth check under a folded guess), measured locally (linux) at 26,216 B brotli, under the cap.
+    // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): cap 26.23 KB unchanged, recorded minified 81,283 -> 81,327 B (+44 B: the app's store pays the birth check under a folded guess), measured locally (linux) at 26,216 B brotli, under the cap.
     limit: "26.23 KB",
-    capMinified: 81283,
+    capMinified: 81327,
     alias
   },
   {
