@@ -1,5 +1,33 @@
 # solid-js
 
+## 2.0.0-rc.17
+
+### Patch Changes
+
+- db8241c: A cleanup (`onCleanup` or an effect's returned cleanup) that throws no longer aborts the rest of the teardown: every other cleanup in the tree still runs, and the first error is rethrown once the teardown is done. Outside a flush (a root's `dispose()`), the dispose call rethrows it. Inside a flush (a branch switch retiring a frame, a pass replacing an uncommitted one, an effect disposing a root), `flush()` rethrows it after the flush has finished, so commits and effects are never left half-applied, and lazy nodes released before the throw are still released. An `unobserved` hook that throws is handled the same way. If an uncaught error halts the reactive system, a collected cleanup error is dropped rather than surfacing later from an unrelated `dispose()`. On the server, `disposeOwner` runs every cleanup the same way, so `renderToStream`'s final dispose still reports the error (#4193).
+- 690228a: Clearer dev message for `ContextNotFoundError` (#4181). `undefined` still means "not provided" for context, but the message now names the context and says which case it hit: no provider and no default; a `createContext(undefined)` default, which is no default; or a provider that passed `undefined`, which counts as not provided. Each suggests `null` as the explicit empty value (`createContext<T | null>(null)`). Applies on the client and the server. Production messages and bundles are unchanged. The context docs and cheatsheet now say that `undefined` is "not provided" and that `null` is how to make a context optional.
+- a2a5b6f: The migration guide notes when a `from()` async generator's cleanup runs, the cheatsheet adds `createDeferred`, and the docs note that `SETTLED_CLEANUP_UNOWNED` throws in development (#4183).
+- 0771dc8: Docs: effects never compare compute values. The effect half (and the previous cleanup) runs every time the compute half re-runs, even when compute returned an equal value. To skip work on an unchanged value, read a `createMemo` (optionally with `equals`) in the compute. Noted in the `solid-2.0` skill and the cheatsheet (#4184).
+- d682022: Document how form inputs work with `value`/`checked` bindings: draft signals for editable fields, writing rejected input back in the handler (or `equals: false`), uncontrolled inputs, and spreads (#4185).
+- 6cca8b5: Dev builds now warn with `UNCOMMITTED_INPUT_OVERWRITTEN` (#4186) when a stateful DOM property binding (`value`/`checked` on an input, `value` on a textarea, `value`/`selected` on an option, `muted` on media) is about to re-write the value it wrote last time over an edit the user never committed to the bound signal — e.g. `value={props.name} onChange={commit}` with no draft signal, when another dynamic attribute in the same template changes. Runtime behavior is unchanged: the write still happens, once per element and property the warning names the fix (write the signal from `onInput`, use `defaultValue`/`defaultChecked` for an uncontrolled element, or write a rejected edit back with `e.currentTarget.value = next`).
+
+  Production output is unchanged byte for byte. In dev DOM output both compilers write stateful properties through a new `setStatefulProperty(el, name, value)` helper instead of the inline `el.name = value`; hydratable output keeps `setProperty`, and `spread`/`assign` check in the runtime. The check lives only in `@solidjs/web`'s dev build; the production entry carries a plain `node[name] = value` stub that no production-compiled module imports, so it tree-shakes away.
+
+  The "Form inputs" section of the DOM RFC, the cheatsheet and the solid-2.0 skill now say that a change to any other dynamic attribute in the same template re-runs a stateful binding, link the new code, and drop `equals: false` as a way to reject input (it is what the warning reports); write the accepted value back with `e.currentTarget.value = next` instead.
+
+- Updated dependencies [db8241c]
+- Updated dependencies [690228a]
+- Updated dependencies [3373ae1]
+- Updated dependencies [411f73b]
+- Updated dependencies [ee4963a]
+- Updated dependencies [2c442c4]
+- Updated dependencies [b2d9ed0]
+- Updated dependencies [f7f30b9]
+- Updated dependencies [a99550e]
+- Updated dependencies [6cca8b5]
+- Updated dependencies [0117658]
+  - @solidjs/signals@2.0.0-rc.17
+
 ## 2.0.0-rc.16
 
 ### Patch Changes
