@@ -230,6 +230,67 @@ describe("broadcast() capture rule", () => {
       ].join("\n");
       expect(() => compile(code)).not.toThrow();
     });
+
+    it("rejects per-caller reads written inline in the answer", () => {
+      const code = answer =>
+        [
+          IMPORT,
+          'import { getRequestEvent } from "@solidjs/web";',
+          'import { watch, getUser } from "./db";',
+          "export const feed = broadcast(async (room) => {",
+          '  "use server";',
+          `  return ${answer};`,
+          "});"
+        ].join("\n");
+      expect(() => compile(code("watch((await getUser()).id)"))).toThrow(
+        /a broadcast\(\) answer cannot await inside its returned expression/
+      );
+      expect(() => compile(code("watch(getRequestEvent().locals.user)"))).toThrow(
+        /a broadcast\(\) answer cannot read getRequestEvent\(\) in its returned expression/
+      );
+      // Inside a function the answer hands on, they run later, per use.
+      expect(() => compile(code("watch(room, async () => (await getUser()).id)"))).not.toThrow();
+    });
+
+    it("rejects a reassigned parameter: it is no longer the share key", () => {
+      const code = [
+        IMPORT,
+        'import { watch, getUser } from "./db";',
+        "export const feed = broadcast(async (id) => {",
+        '  "use server";',
+        "  id = (await getUser()).id;",
+        "  return watch(id);",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/a broadcast\(\) answer cannot read `id`/);
+    });
+
+    it("checks only the value of a respond() re-exported by a framework", () => {
+      const code = [
+        IMPORT,
+        `import { respond } from "${RUNTIME}";`,
+        'import { watch, getUser } from "./db";',
+        "export const feed = broadcast(async (room) => {",
+        '  "use server";',
+        "  const user = await getUser();",
+        '  return respond(watch(room), { headers: { "x-user": user.id } });',
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).not.toThrow();
+    });
+
+    it("suggests an early return for a gate in the answer", () => {
+      const code = [
+        IMPORT,
+        'import { watch, getUser } from "./db";',
+        "export const feed = broadcast(async (room) => {",
+        '  "use server";',
+        "  const user = await getUser();",
+        "  return user ? watch(room) : null;",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/if \(!user\) return null;/);
+    });
   });
 
   describe("allowed", () => {

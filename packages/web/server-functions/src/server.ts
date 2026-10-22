@@ -3166,12 +3166,8 @@ export function serializeResponseStream(value, codecOptions, signal, scope, live
         ...codecOptions,
         onParse(node) {
           if (closed) return;
-          const id = live ? live.pending : undefined;
           const chunk = frame(JSON.stringify(node));
-          if (live && live.nodes) {
-            live.nodes.set(chunk, { node, id, value: live.value });
-            live.value = undefined;
-          }
+          if (live && live.nodes) live.nodes.set(chunk, node);
           controller.enqueue(chunk);
         },
         onDone() {
@@ -3305,8 +3301,9 @@ export function armLiveBody(controller, teardown) {
  *
  * `refs` (a broadcast's shared stream) is the codec's reference space,
  * turned as each yield arrives so it never reaches past the yield before
- * (see GenerationalRefs); the yield itself is parked beside its position
- * for the fan-out to encode for a joiner.
+ * (see GenerationalRefs); each yield is queued with its position for the
+ * fan-out, which takes one per yield record it reads (a record of a value
+ * nested in an earlier yield can land between a step and its yield's).
  */
 function liveSource(value, lastEventId, position, scope, refs) {
   const digestOf = v => (scope ? scope(() => positionDigest(v)) : positionDigest(v));
@@ -3328,11 +3325,9 @@ function liveSource(value, lastEventId, position, scope, refs) {
       const step = () =>
         iterator.next().then(result => {
           if (result.done) return result;
-          if (refs) {
-            refs.turn();
-            position.value = result.value;
-          }
+          if (refs) refs.turn();
           const digest = digestOf(result.value);
+          if (refs) position.yields.push({ value: result.value, digest });
           if (first) {
             first = false;
             if (digest !== undefined && digest === lastEventId) return step();
@@ -3456,7 +3451,7 @@ function sharedSourceResponse(key, value, headers, status, codec, request) {
   if (shared && !shared.ended) {
     snapshot = sharedSnapshot(shared);
     if (snapshot === null) return undefined;
-    closeUnread(value);
+    if (value !== shared.source) closeUnread(value);
   } else shared = startSharedSource(key, value, codec);
   return tapSharedSource(shared, request, headers, status, snapshot);
 }
@@ -3485,6 +3480,9 @@ function startSharedSource(key, value, codec) {
     value: undefined,
     position: undefined,
     stream: undefined,
+    // What the first caller answered: a later caller answering the same
+    // iterable (a module-scope source) is not closed out from under it.
+    source: value,
     taps: new Set(),
     ended: false,
     teardown: new AbortController()
@@ -3496,7 +3494,7 @@ function startSharedSource(key, value, codec) {
   const event = broadcastEvent();
   const store = globalThis[RequestContext];
   const scope = run => (store ? store.run(event, run) : run());
-  const live = { pending: undefined, value: undefined, nodes: new WeakMap() };
+  const live = { pending: undefined, yields: [], nodes: new WeakMap() };
   const body = serializeResponseStream(
     liveSource(value, undefined, live, scope, refs),
     { ...codec, refs },
@@ -3504,26 +3502,23 @@ function startSharedSource(key, value, codec) {
     scope,
     live
   );
-  pumpSharedSource(shared, body.getReader(), live.nodes);
+  pumpSharedSource(shared, body.getReader(), live);
   return shared;
 }
 
-async function pumpSharedSource(shared, reader, nodes) {
+async function pumpSharedSource(shared, reader, { nodes, yields }) {
   try {
     shared.encode = (await import("../../serialization/src/serializer.js")).serializeJSON;
     while (true) {
       const { done, value: chunk } = await reader.read();
       if (done) break;
-      const record = nodes.get(chunk);
+      const node = nodes.get(chunk);
       if (shared.head === null) shared.head = chunk;
-      else if (
-        record &&
-        record.node.t === 32 /* StreamNext */ &&
-        (shared.stream ??= record.node.i) === record.node.i
-      ) {
-        shared.node = record.node;
-        shared.value = record.value;
-        shared.position = record.id;
+      else if (node && node.t === 32 /* StreamNext */ && (shared.stream ??= node.i) === node.i) {
+        const { value, digest } = yields.shift();
+        shared.node = node;
+        shared.value = value;
+        shared.position = digest;
       }
       for (const tap of shared.taps) tap.write(chunk);
     }
@@ -3559,6 +3554,10 @@ function sharedSnapshot(shared) {
     cancel();
     return null;
   }
+  // Every object of the latest read yield is still in `shared.refs`: the
+  // demand gate lets the source step at most once past the pump, and a
+  // turn keeps what the yield before touched. `reserve` covers what the
+  // codec registers that is not the value's own (none for plain data).
   const ids = new Map();
   for (const [value, id] of own) ids.set(id, shared.refs.idOf(value) ?? shared.refs.reserve());
   return createEventChunk(

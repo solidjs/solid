@@ -252,6 +252,51 @@ describe("broadcast data sources", () => {
     await tick();
   });
 
+  it("a joiner gets the latest yield even when an earlier yield's promise settles beside it", async () => {
+    for (const settle of [(r: () => void) => r(), (r: () => void) => queueMicrotask(r)]) {
+      const id = `bd-settle-${settle.length}-${Math.random()}`;
+      const { feeds } = declareFeed<any>(id);
+      const a = tap(await handleServerFunctionRequest(get(id, ["k"])));
+      await tick();
+      const feed = feeds.get("k")!;
+      let resolve!: () => void;
+      feed.push({ n: 1, p: new Promise<number>(r => (resolve = () => r(1))) });
+      await tick();
+      feed.push({ n: 2 });
+      settle(resolve);
+      await tick();
+      const b = tap(await handleServerFunctionRequest(get(id, ["k"])));
+      await tick();
+      expect(a.values.at(-1)).toEqual({ n: 2 });
+      expect(b.values).toEqual([{ n: 2 }]);
+      a.cancel();
+      b.cancel();
+      await tick();
+    }
+  });
+
+  it("a joiner handed the running iterator itself doesn't end it for everyone", async () => {
+    const feed = channel<number>();
+    const shared = feed.source();
+    broadcast(
+      createServerReference(registerServerReference("bd-same", async (_key: string) => shared))
+    );
+    const a = tap(await handleServerFunctionRequest(get("bd-same", ["k"])));
+    await tick();
+    feed.push(1);
+    await tick();
+    const b = tap(await handleServerFunctionRequest(get("bd-same", ["k"])));
+    await tick();
+    feed.push(2);
+    await tick();
+    expect(feed.state.returned).toBe(false);
+    expect(a.values).toEqual([1, 2]);
+    expect(b.values).toEqual([1, 2]);
+    a.cancel();
+    b.cancel();
+    await tick();
+  });
+
   it("different arguments are separate sources", async () => {
     const { feeds } = declareFeed<string>("bd-args");
     const a = tap(await handleServerFunctionRequest(get("bd-args", ["red"])));
