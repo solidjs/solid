@@ -885,6 +885,16 @@ export const LIVE_WIRE = Symbol("solid.LiveWire");
 export const UNKNOWN_HEADER = "X-Server-Function-Unknown";
 
 /**
+ * Header carrying a build id, when both halves are configured with one
+ * (`buildId`). The client sends its build's id on every call that is not
+ * GET-encoded. A server whose id differs answers `409` with its own id under
+ * the same header, and does not run the function. This catches the skew the
+ * unknown-id 404 cannot: a function whose id survived the deploy but whose
+ * arguments or result changed shape.
+ */
+export const BUILD_HEADER = "X-Server-Function-Build";
+
+/**
  * Header carrying a redirect to scripted callers. fetch FOLLOWS redirect
  * statuses before the transport can read them, so a scripted answer masks
  * the 3xx to 200 and this header carries what the mask erases: the author's
