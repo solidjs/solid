@@ -21,7 +21,7 @@ import {
   setEffectStatusNotify
 } from "./core.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { emitDiagnostic, reportDiagnostic } from "./dev.js";
+import { emitDiagnostic, reportDiagnostic, type DiagnosticSubject } from "./dev.js";
 import { StatusError, unwrapStatusError } from "./error.js";
 import { trimStaleDeps } from "./graph.js";
 import { enqueueSub } from "./heap.js";
@@ -98,10 +98,9 @@ export function effect<T>(
   }
 }
 
-function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): void {
-  // Use passed values if provided, otherwise read from node
-  const actualStatus = status !== undefined ? status : this._statusFlags;
-  const actualError = error !== undefined ? error : this._x?._error;
+function notifyEffectStatus(this: Effect<any>): void {
+  const actualStatus = this._statusFlags;
+  const actualError = this._x?._error;
   if (actualStatus & STATUS_ERROR) {
     globalQueue.notify(this, STATUS_PENDING, 0);
     if (this._type === EFFECT_USER) {
@@ -109,26 +108,22 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
       // queue it like the effect function. It runs in the same imperative,
       // writable scope and throws escalate the same way. No payload is queued — the node already carries `_statusFlags`/`_error`,
       // and the runner dispatches on them, so a recovery before the effect
-      // phase takes the success arm instead. Blocked forwards (explicit
-      // `status` arg without node-state writes) don't queue: the status
-      // re-propagates unblocked at commit.
+      // phase takes the success arm instead. (Re-read: the boundary
+      // notify above can run a redraw.)
       if (this._statusFlags & STATUS_ERROR) {
         this._modified = true;
         globalQueue.enqueue(this._type, (this._boundRunEffect ??= runEffect.bind(null, this)));
       }
       return;
     }
-    if (!globalQueue.notify(this, STATUS_ERROR, STATUS_ERROR)) {
-      // Dev locates the halt at the node that threw: the StatusError's
-      // source, upstream of this effect when a computed failed.
-      __DEV__
-        ? haltReactivityAt(
-            unwrapStatusError(actualError),
-            actualError instanceof StatusError ? actualError.source : this
-          )
-        : haltReactivity(unwrapStatusError(actualError));
-      throw actualError;
-    }
+    // Dev locates the halt at the node that threw: the StatusError's
+    // source, upstream of this effect when a computed failed.
+    escalate(
+      this,
+      unwrapStatusError(actualError),
+      actualError,
+      __DEV__ && actualError instanceof StatusError ? actualError.source : this
+    );
   } else if (this._type === EFFECT_RENDER) {
     globalQueue.notify(this, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
     if (__DEV__ && _hitUnhandledAsync && resetUnhandledAsync()) {
@@ -155,6 +150,20 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
         )
       );
     }
+  }
+}
+
+/** An effect's error no boundary takes halts the system (boundary-or-halt):
+ * halted with `cause`, `thrown` rethrown; dev locates it at `subject`. */
+function escalate(
+  node: Effect<any>,
+  cause: unknown,
+  thrown: unknown = cause,
+  subject: DiagnosticSubject = node
+): void {
+  if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
+    __DEV__ ? haltReactivityAt(cause, subject) : haltReactivity(cause);
+    throw thrown;
   }
 }
 
@@ -192,10 +201,7 @@ function runEffect(node: Effect<any>, type: number): void {
           })
         : console.error(err);
     } catch (error) {
-      if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
-        __DEV__ ? haltReactivityAt(error, node) : haltReactivity(error);
-        throw error;
-      }
+      escalate(node, error);
     }
     return;
   }
@@ -228,10 +234,7 @@ function runEffect(node: Effect<any>, type: number): void {
   } catch (error) {
     ext(node)._error = new StatusError(node, error);
     node._statusFlags |= STATUS_ERROR;
-    if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
-      __DEV__ ? haltReactivityAt(error, node) : haltReactivity(error);
-      throw error;
-    }
+    escalate(node, error);
   } finally {
     if (__DEV__) {
       setStrictRead(prevStrictRead);

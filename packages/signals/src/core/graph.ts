@@ -4,7 +4,8 @@ import {
   REACTIVE_DISPOSED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_ZOMBIE,
-  STATUS_PENDING
+  STATUS_PENDING,
+  NewSet
 } from "./constants.js";
 import { deleteFromHeap } from "./heap.js";
 import { disposeChildren, runCleanup } from "./owner.js";
@@ -122,7 +123,7 @@ export function unobserved(el: Computed<unknown>) {
  * reclamation still happens within one microtask — the enqueue site arms
  * schedule(), so a flush is guaranteed even when no other work is queued.
  */
-export const dormantNodes = new Set<Computed<unknown>>();
+export const dormantNodes = new NewSet<Computed<unknown>>();
 
 export function sweepDormant(): void {
   if (dormantNodes.size === 0) return;

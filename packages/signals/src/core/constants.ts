@@ -240,3 +240,9 @@ export const $REFRESH = Symbol("refresh");
  * signatures (TS4058).
  */
 export type Refreshable<T> = T & { readonly [$REFRESH]: any };
+
+/** `Set` under a module binding. Bundlers mark a bare `new Set()` pure with
+ * a `/* @__PURE__ *\/` comment that survives minification (16 bytes a site);
+ * a construction through a binding carries none. Same constructor, so the
+ * same objects. */
+export const NewSet = Set;

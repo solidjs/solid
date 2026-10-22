@@ -17,7 +17,8 @@ import {
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED
+  STATUS_UNINITIALIZED,
+  NewSet
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
@@ -50,7 +51,7 @@ import type { Computed, Link, Owner } from "./types.js";
 // to clear it, stranding the Set members' pending forever (#2893).
 export function addPendingSource(el: Computed<any>, source: Computed<any>): boolean {
   if (el._x?._pendingSources?.has(source)) return false;
-  (ext(el)._pendingSources ??= new Set()).add(source);
+  (ext(el)._pendingSources ??= new NewSet()).add(source);
   return true;
 }
 
@@ -145,7 +146,7 @@ export function releaseIfSettledUnobserved(node: Computed<any>): void {
 // Collect-then-release so unobserved() never unlinks under the walk.
 export function releaseSettledDependents(el: Computed<any>): void {
   let candidates: Computed<any>[] | undefined;
-  const visited = new Set<Computed<any>>();
+  const visited = new NewSet<Computed<any>>();
   const visit = (node: Computed<any>) => {
     if (visited.has(node)) return;
     visited.add(node);
@@ -213,7 +214,7 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
 
 export function settleErroredDependents(el: Computed<any>, error: any): void {
   let scheduled = false;
-  const visited = new Set<Computed<any>>();
+  const visited = new NewSet<Computed<any>>();
   const visit = (node: Computed<any>) => {
     if (visited.has(node)) return;
     visited.add(node);
@@ -291,7 +292,7 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
   removePendingSource(el, source);
   let scheduled = false;
   let released: Computed<any>[] | undefined;
-  const visited = new Set<Computed<any>>();
+  const visited = new NewSet<Computed<any>>();
   const settle = (node: Computed<any>) => {
     if (
       visited.has(node) ||
@@ -766,12 +767,12 @@ export function handleAsync<T>(
       handleError(syncError);
       throw syncError;
     } else if (!resolved) {
-      // Loading window: serve commit #0 instead of suspending — first-flight
-      // work on a loadingValue node is loading-class (invisible to
-      // boundaries); the flight itself is already registered in _inFlight and
-      // lands through asyncWrite.
-      if (el._loading) return el._value;
-      throw new NotReadyError(context!);
+      // Not landed: the shared tail below suspends, or — loading window —
+      // serves commit #0 (first-flight work on a loadingValue node is
+      // loading-class, invisible to boundaries; the flight itself is already
+      // registered in _inFlight and lands through asyncWrite). A promise is
+      // never an iterator, so nothing between here and there runs.
+      liveLanded = false;
     } else if (!flattenIfIterable(syncValue!)) {
       // Synchronously-resolved promise: the first real answer landed.
       el._loading = false;
@@ -785,7 +786,7 @@ export function handleAsync<T>(
 
   if (liveLanded !== null) {
     if (!liveLanded) {
-      // Loading window: serve commit #0 (see the promise branch above).
+      // Loading window: serve commit #0 instead of suspending.
       if (el._loading) return el._value;
       throw new NotReadyError(context!);
     }
@@ -799,7 +800,7 @@ export function handleAsync<T>(
 
 export function clearStatus(el: Computed<any>, clearUninitialized: boolean = false): void {
   if (el._x?._pendingSources) clearPendingSources(el);
-  if (el._x?._blocked) if (el._x !== null) el._x._blocked = false;
+  if (el._x?._blocked) el._x._blocked = false;
   el._statusFlags = clearUninitialized ? 0 : el._statusFlags & STATUS_UNINITIALIZED;
   if (el._x?._error) setPendingError(el);
   const notify = statusNotifierOf(el);
@@ -841,12 +842,7 @@ function landStatus(el: Computed<any>, clearUninitialized: boolean = false): voi
   } else clearStatus(el, clearUninitialized);
 }
 
-export function notifyStatus(
-  el: Computed<any>,
-  status: number,
-  error: any,
-  blockStatus?: boolean
-): void {
+export function notifyStatus(el: Computed<any>, status: number, error: any): void {
   // Wrap regular errors to track source node
   if (
     status === STATUS_ERROR &&
@@ -859,24 +855,20 @@ export function notifyStatus(
     status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
   // (CARVE 2: the lane assignment went with the engine.)
 
-  if (!blockStatus) {
-    if (status === STATUS_PENDING && pendingSource) {
-      // D-41: a re-ask of a shown error keeps it the display (`_shownError`).
-      if (el._statusFlags & STATUS_ERROR) el._x!._shownError = el._x!._error;
-      addPendingSource(el, pendingSource);
-      el._statusFlags = STATUS_PENDING | (el._statusFlags & STATUS_UNINITIALIZED);
-      // Preserve the current source on this propagation so readers park on
-      // the distinct pending source.
-      setPendingError(el, pendingSource, error);
-    } else {
-      clearPendingSources(el);
-      el._statusFlags =
-        status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
-      ext(el)._error = error;
-    }
+  if (status === STATUS_PENDING && pendingSource) {
+    // D-41: a re-ask of a shown error keeps it the display (`_shownError`).
+    if (el._statusFlags & STATUS_ERROR) el._x!._shownError = el._x!._error;
+    addPendingSource(el, pendingSource);
+    el._statusFlags = STATUS_PENDING | (el._statusFlags & STATUS_UNINITIALIZED);
+    // Preserve the current source on this propagation so readers park on
+    // the distinct pending source.
+    setPendingError(el, pendingSource, error);
+  } else {
+    clearPendingSources(el);
+    el._statusFlags =
+      status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
+    ext(el)._error = error;
   }
-
-  const downstreamBlockStatus = blockStatus;
 
   // Lanes: a written guess is an optimistic boundary (A17 — "the optimistic
   // future value until we know otherwise"). Its own source in flight is its
@@ -891,17 +883,10 @@ export function notifyStatus(
 
   const elNotify = statusNotifierOf(el);
   if (elNotify) {
-    if (blockStatus && status === STATUS_PENDING) {
-      return;
-    }
-    if (downstreamBlockStatus) {
-      elNotify.call(el, status, error);
-    } else {
-      elNotify.call(el);
-    }
+    elNotify.call(el);
     return;
   }
-  propagateStatus(el, status, error, downstreamBlockStatus);
+  propagateStatus(el, status, error);
 }
 
 /** The dependents' half of `notifyStatus`: `el`'s status reaches each
@@ -909,12 +894,7 @@ export function notifyStatus(
  * family's leaves, which are not the derive's dependents — the family
  * propagates the derive's status from each leaf to the leaf's readers
  * (store/projection.ts `wakeFamily`), exactly as a memo's would reach its. */
-export function propagateStatus(
-  el: Computed<any>,
-  status: number,
-  error: any,
-  downstreamBlockStatus?: boolean
-): void {
+export function propagateStatus(el: Computed<any>, status: number, error: any): void {
   const pendingSource =
     status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
   forEachDependent(el, (sub, link) => {
@@ -971,25 +951,23 @@ export function propagateStatus(
       // bookkeeping (loading window, uninitialized clear) runs with the flush
       // — with the lane, when the pass propagating is the lane's work and
       // the dependent's pending is the lane's own flight (`laneStage`).
-      if (!downstreamBlockStatus) {
-        // (No answer: a pending propagation leaves a written guess a guess.)
-        if (laneStageHook && passLane !== null) laneStageHook(sub, passLane, true, el);
-        else {
-          queuePendingNode(sub);
-          // A15 (#3443): pending propagates onto a held memo without
-          // recomputing it, and the propagation itself enters the memo's
-          // transaction — the flight flows into a memo that transaction
-          // holds, so the write that started it is held with it. A render
-          // effect's membership is its pass's (`notify`), never sticky.
-          if (
-            status === STATUS_PENDING &&
-            (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
-            !(sub as any)._type
-          )
-            joinFuture(txOf(sub));
-        }
+      // (No answer: a pending propagation leaves a written guess a guess.)
+      if (laneStageHook && passLane !== null) laneStageHook(sub, passLane, true, el);
+      else {
+        queuePendingNode(sub);
+        // A15 (#3443): pending propagates onto a held memo without
+        // recomputing it, and the propagation itself enters the memo's
+        // transaction — the flight flows into a memo that transaction
+        // holds, so the write that started it is held with it. A render
+        // effect's membership is its pass's (`notify`), never sticky.
+        if (
+          status === STATUS_PENDING &&
+          (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
+          !(sub as any)._type
+        )
+          joinFuture(txOf(sub));
       }
-      notifyStatus(sub, status, error, downstreamBlockStatus);
+      notifyStatus(sub, status, error);
     }
   });
 }

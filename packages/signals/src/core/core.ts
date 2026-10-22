@@ -66,7 +66,8 @@ import {
   STATUS_NONE,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
-  type Refreshable
+  type Refreshable,
+  NewSet
 } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import {
@@ -248,7 +249,7 @@ function ownerInSnapshotScope(owner: Owner | null): boolean {
 
 export function setSnapshotCapture(active: boolean): void {
   snapshotCaptureActive = active;
-  if (active && !snapshotSources) snapshotSources = new Set();
+  if (active && !snapshotSources) snapshotSources = new NewSet();
 }
 
 export function markSnapshotScope(owner: Owner): void {
@@ -1318,7 +1319,7 @@ export function createEffectNode<T>(
  * channel (`_x._notifyStatus`) went with them; effects are the only
  * display consumers.
  */
-export let effectStatusNotify: ((this: any, status?: number, error?: any) => void) | null = null;
+export let effectStatusNotify: ((this: any) => void) | null = null;
 export function setEffectStatusNotify(fn: NonNullable<typeof effectStatusNotify>): void {
   effectStatusNotify = fn;
 }
@@ -1327,10 +1328,8 @@ export function setEffectStatusNotify(fn: NonNullable<typeof effectStatusNotify>
  * 0, and only effect literals carry the field) get the shared notifier.
  * Presence doubles as the "display consumer" membership test in the status
  * walks, exactly as the per-node field did when every effect carried one. */
-export function statusNotifierOf(
-  el: any
-): ((this: any, status?: number, error?: any) => void) | undefined {
-  return el._type ? (effectStatusNotify ?? undefined) : undefined;
+export function statusNotifierOf(el: any): ((this: any) => void) | null {
+  return el._type ? effectStatusNotify : null;
 }
 
 const lazyOptions = { lazy: true } as const;
