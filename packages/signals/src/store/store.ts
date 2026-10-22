@@ -227,7 +227,7 @@ export function wrap<T extends Record<PropertyKey, any>>(
   const existing = lookupTarget(value, fam);
   if (existing !== undefined) return existing.px;
   const t: StoreTarget | undefined = (value as any)[$TARGET];
-  if (t !== undefined && t.px === value) {
+  if (t?.px === value) {
     // Foreign-family proxies re-wrap into THIS family (writes stay isolated);
     // same-family and plain-store proxies pass through.
     if (fam === null || t.fam === fam) return value;
@@ -263,7 +263,7 @@ export function unwrapValue(v: any): any {
 // adoption swap raw identity without changing the logical value — only
 // changed leaves notify, R9).
 const slotNodeEquals = function (this: any, a: any, b: any): boolean {
-  return isEqual(a, b) || sameLogicalSlot(this._host, a, b);
+  return isEqual(a, b) || targetsEqual(a, b, this._host.fam);
 };
 /** The deep witness: the store decides when it notifies. */
 const never = false as unknown as (a: any, b: any) => boolean;
@@ -299,14 +299,8 @@ export function asBacking(v: any): Record<PropertyKey, any> {
  * pending backing is never "equal" to the committed one); a lane value is
  * an arrangement (`LaneView`), judged by the optimistic machinery. */
 export const containerEquals = function (this: any, a: any, b: any): boolean {
-  return a === b || (optHooks !== null && optHooks.arrangement(this._host, a, b));
+  return a === b || !!optHooks?.arrangement(this._host, a, b);
 };
-
-function sameLogicalSlot(target: StoreTarget, a: any, b: any): boolean {
-  if (a === null || typeof a !== "object" || b === null || typeof b !== "object") return false;
-  const at = lookupTarget(a, target.fam);
-  return at !== undefined && at === lookupTarget(b, target.fam);
-}
 
 /** Slot nodes whose last subscriber left while they still held a staging:
  * released at the commit that resolves it (`drainFolds`). */
@@ -319,10 +313,10 @@ function releaseSlot(node: any): void {
     if (t.k === node) t.k = null;
   } else if (key === $DEEP) {
     if (t.dk === node) t.dk = null;
-  } else if (t.n !== null && t.n[key as any] === node) {
-    delete t.n[key as any];
+  } else if (t.n?.[key as any] === node) {
+    delete t.n![key as any];
     t.nc--;
-  } else if (t.h !== null && t.h[key as any] === node) delete t.h[key as any];
+  } else if (t.h?.[key as any] === node) delete t.h![key as any];
   // The family's index keeps only targets that still carry a node.
   if (
     t.fam !== null &&
@@ -407,12 +401,7 @@ export function getNode(
       accKnown === -1 ? isOwnAccessor(pb ?? target.v, key) : accKnown === 1
     ));
     if (pb !== null && !(created as any).acc)
-      bornStaged(
-        target,
-        created,
-        target.del !== null && target.del.has(key) ? undefined : pb[key as any],
-        key
-      );
+      bornStaged(target, created, target.del?.has(key) ? undefined : pb[key as any], key);
     // Attribution-only: name store property nodes by path segment so
     // attribution chains and wide-scope warnings read "store.todos" (or
     // "todos.title" when the store was declared with a name), not
@@ -438,8 +427,7 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
   if (node === undefined) {
     const created = (node = slotSignal(key in committed(target), isEqual, target, key, false));
     const pb = target.pb;
-    if (pb !== null)
-      bornStaged(target, created, key in pb && !(target.del !== null && target.del.has(key)), key);
+    if (pb !== null) bornStaged(target, created, key in pb && !target.del?.has(key), key);
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(created, target);
     nodes[key] = node;
     noteNode(target, created, key);
@@ -631,7 +619,7 @@ function scanAccessorsOnce(target: StoreTarget): boolean {
   const keys = Reflect.ownKeys(src);
   let plain = Object.getPrototypeOf(src) === Object.prototype;
   for (const key of keys) {
-    if (lookupGetter.call(src, key) !== undefined || lookupSetter.call(src, key) !== undefined) {
+    if (isOwnAccessor(src, key)) {
       target.a = true;
       plain = false;
       break;
@@ -660,7 +648,7 @@ const plainProto = (o: object): boolean => {
  * container at flatten so its shape stays fast (#3689). */
 function overlayRebuilds(t: StoreTarget, pb: Record<PropertyKey, any>): boolean {
   if (t.kc > OVERLAY_REBUILD_MAX_KEYS) return false;
-  if (t.del !== null && t.del.size !== 0) return true;
+  if (t.del?.size) return true;
   const wk = t.wk;
   if (wk !== null && wk !== WK_ALL && wk.u === undefined && wk.size <= OVERLAY_REBUILD_MIN_ADDS)
     return false;
@@ -675,18 +663,14 @@ function overlayRebuilds(t: StoreTarget, pb: Record<PropertyKey, any>): boolean 
 export function materializePB(target: StoreTarget): Record<PropertyKey, any> {
   const pb = target.pb!;
   if (!target.ovl) return pb;
-  const clone = target.sc === 2 ? wideClone(target.v, target) : cloneRaw(target.v, target);
-  if (target.del !== null) {
-    for (const key of target.del) delete (clone as any)[key];
-    target.kc -= target.del.size;
-    target.del = null;
-  }
-  for (const key of Reflect.ownKeys(pb))
-    target.sc === 2 ? ((clone as any)[key] = pb[key as any]) : copyOwn(clone, pb, key);
+  const clone = overlayOnto(
+    target,
+    target.sc === 2 ? wideClone(target.v, target) : cloneRaw(target.v, target),
+    pb
+  );
   target.pb = clone;
-  target.ovl = false;
   // The staging IS the pending backing: re-point the container node.
-  if (target.k !== null && target.k._pendingValue === pb) target.k._pendingValue = clone;
+  if (target.k?._pendingValue === pb) target.k._pendingValue = clone;
   return clone;
 }
 
@@ -740,7 +724,7 @@ function privatizeCommitted(target: StoreTarget): void {
   target.ch = false;
   if (target.u) {
     privatizeCommitted(target.u);
-    devAssertNeverUserMutation(target.u.v);
+    if (__TEST__) devAssertNeverUserMutation(target.u.v);
     const pv = target.u.v;
     const slot = parentSlotKey(target, before);
     if (pv[slot] === before) pv[slot] = target.v;
@@ -766,17 +750,25 @@ function parentSlotKey(target: StoreTarget, expected: unknown): PropertyKey {
  * place — the backing keeps its identity. */
 function flattenOverlay(t: StoreTarget, pb: Record<PropertyKey, any>): void {
   privatizeCommitted(t);
-  const v = t.v;
+  overlayOnto(t, t.v, pb); // the caller (`foldTarget`) closes the staging
+}
+
+/** An overlay's own keys and deletions onto `to` (the two are disjoint: a
+ * write un-deletes its key); the overlay is closed. */
+function overlayOnto<T extends Record<PropertyKey, any>>(
+  t: StoreTarget,
+  to: T,
+  pb: Record<PropertyKey, any>
+): T {
   for (const key of Reflect.ownKeys(pb))
-    t.sc === 2 ? ((v as any)[key] = pb[key as any]) : copyOwn(v, pb, key);
+    t.sc === 2 ? ((to as any)[key] = pb[key as any]) : copyOwn(to, pb, key);
   if (t.del !== null) {
-    for (const key of t.del) delete (v as any)[key];
+    for (const key of t.del) delete (to as any)[key];
     t.kc -= t.del.size;
     t.del = null;
   }
-  t.pb = null;
   t.ovl = false;
-  t.wk = null; // written-keys window closes with the commit
+  return to;
 }
 
 /** Adoption (a setter's returned replacement; reconcile and projection
@@ -820,7 +812,7 @@ export function adoptPB(
   target.a = false;
   target.wk = null; // adoption supersedes staged trap writes
   const owner: StoreTarget | undefined = (incoming as any)[$OWNER];
-  if (owner !== undefined && owner.fam === target.fam) (incoming as any)[$OWNER] = target;
+  if (owner?.fam === target.fam) (incoming as any)[$OWNER] = target;
   else setLookup(incoming, target);
   if (__TEST__ && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
   if (notify && base !== incoming) notifyFold(target, base, incoming);
@@ -923,7 +915,7 @@ function drainFolds(): void {
  * landing) read it. */
 GlobalQueue._slotFlight = (n: Signal<any>): boolean => {
   const fam = ((n as any)._host as StoreTarget | undefined)?.fam;
-  return fam != null && fam.node !== null && (fam.node._statusFlags & STATUS_PENDING) !== 0;
+  return (fam?.node?._statusFlags! & STATUS_PENDING) !== 0;
 };
 /** Core asks (lanes.ts `covered`): the value a slot node's guess covered.
  * A chained link's committed value is the inner store's at the last
@@ -934,9 +926,8 @@ GlobalQueue._slotCovered = (n: Signal<any>): unknown => {
   if (t.ch) {
     const key = (n as any)._key as PropertyKey;
     const inner = t.v as Record<PropertyKey, any>;
-    if (t.h !== null && t.h[key as any] === n) n._value = untrack(() => key in inner);
-    else if (t.n !== null && t.n[key as any] === n)
-      n._value = untrack(() => unwrapValue(inner[key as any]));
+    if (t.h?.[key as any] === n) n._value = untrack(() => key in inner);
+    else if (t.n?.[key as any] === n) n._value = untrack(() => unwrapValue(inner[key as any]));
   }
   return n._value;
 };
@@ -974,8 +965,6 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
         if (pb === t.v) {
           // An eager adoption nothing wrote after: the backing is already
           // the adopted object (shared ownership — never cloned).
-          t.pb = null;
-          t.wk = null;
         } else if (
           t.ovl &&
           (t.v !== old || (!overlayRebuilds(t, pb) && k?._x?._snapshotValue !== old))
@@ -999,27 +988,19 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
                 else delete (v as any)[key];
               }
           } else {
-            for (const key of Reflect.ownKeys(pb)) {
-              const d = Object.getOwnPropertyDescriptor(pb, key)!;
-              if (d.get || d.set || !d.enumerable || !d.writable || !d.configurable)
-                Object.defineProperty(v, key, d);
-              else if (d.value !== (old as any)[key] || !hasOwn.call(old, key))
-                (v as any)[key] = d.value;
-            }
+            for (const key of Reflect.ownKeys(pb)) copyOwn(v, pb, key);
             for (const key of Reflect.ownKeys(old)) {
               if (!hasOwn.call(pb, key)) delete (v as any)[key];
             }
           }
-          t.pb = null;
-          t.wk = null;
         } else {
           // The clone (or adopted object) becomes the committed backing
           // (path copy below).
           t.v = t.ovl ? materializePB(t) : pb;
           t.ch = (t.v as any)[$TARGET] !== undefined;
-          t.pb = null;
-          t.wk = null;
         }
+        t.pb = null;
+        t.wk = null; // the written-keys window closes with the commit
       }
       if (k !== null) {
         // The node's committed value is the backing. A container nobody
@@ -1034,7 +1015,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
         const slot = parentSlotKey(t, old);
         if (t.u.v[slot] === old) {
           privatizeCommitted(t.u);
-          devAssertNeverUserMutation(t.u.v);
+          if (__TEST__) devAssertNeverUserMutation(t.u.v);
           t.u.v[slot] = t.v;
         }
       }
@@ -1069,7 +1050,7 @@ function reportReplacedContainers(
   const owner = storeRootOwner(t);
   for (const key of keys) {
     if ((isArray && key === "length") || key === $OWNER) continue;
-    if (t.del !== null && t.del.has(key)) continue;
+    if (t.del?.has(key)) continue;
     const ov = unwrapValue(old[key as any]);
     const nv = unwrapValue(pb[key as any]);
     if (
@@ -1205,22 +1186,13 @@ function notifyWrites(t: StoreTarget): void {
       ) {
         // Accessor keys: the node is linked for shape-change notification,
         // its value is never served (the getter runs with the proxy
-        // receiver on read) — FORCE wakes the readers. A data descriptor
-        // falls through so the cleared-acc hot read serves it (#3949);
-        // an own getter's descriptor has no `value`, so the compare below
-        // would otherwise keep the getter's result (or FORCE) for `undefined`.
-        (node as any).acc = isOwnAccessor(pb, key);
-        const od = Object.getOwnPropertyDescriptor(old, key);
-        const nd = Object.getOwnPropertyDescriptor(pb, key);
-        if (!nd || nd.get || nd.set) {
-          if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
-            setSignal(node, () => FORCE as any);
-          continue;
-        }
-        if (od?.get || od?.set || !isEqual(od?.value, nd.value)) setSignal(node, () => nd.value);
+        // receiver on read) — FORCE wakes the readers; a data descriptor
+        // falls through so the cleared-acc hot read serves it (#3949). The
+        // adoption's accessor diff is the same (`notifyKeyDiff`).
+        notifyKeyDiff(node, key, old, pb, true);
         continue;
       }
-      const nv = t.del !== null && t.del.has(key) ? undefined : pb[key as any];
+      const nv = t.del?.has(key) ? undefined : pb[key as any];
       setSignal(node, () => nv);
       if (t.fam !== null) {
         // The derive's write is a derivation; a user setter's is a proposal
@@ -1238,13 +1210,13 @@ function notifyWrites(t: StoreTarget): void {
     for (const key of keys) {
       const node = has[key as any];
       if (node !== undefined) {
-        setSignal(node, key in pb && !(t.del !== null && t.del.has(key)));
+        setSignal(node, key in pb && !t.del?.has(key));
         if (t.fam !== null) holdWithDerive(t, node);
       }
     }
   }
   if (t.dk !== null) {
-    if (t.del !== null && t.del.size !== 0) bumpDeep(t);
+    if (t.del?.size) bumpDeep(t);
     else
       for (const key of writtenKeys ?? Reflect.ownKeys(pb)) {
         if (key === $OWNER) continue;
@@ -1264,7 +1236,7 @@ function notifyWrites(t: StoreTarget): void {
   if (k !== null && (k._subs !== null || k._config & CONFIG_OVERRIDE)) {
     let changed: boolean;
     if (t.ovl) {
-      changed = t.del !== null && t.del.size !== 0;
+      changed = !!t.del?.size;
       if (!changed) {
         for (const key of Reflect.ownKeys(pb)) {
           if (!hasOwn.call(old, key)) {
@@ -1286,11 +1258,12 @@ function notifyWrites(t: StoreTarget): void {
 /** Accessor-node wake sentinel: readers re-run and re-invoke the getter. */
 const FORCE: unique symbol = Symbol();
 
-/** Two raws that wrap to the same target are the same logical value. */
-export function targetsEqual(ov: any, nv: any): boolean {
+/** Two raws that wrap to the same target (of `fam`; the plain lookup by
+ * default) are the same logical value — the same slot. */
+export function targetsEqual(ov: any, nv: any, fam: StoreFamily | null = null): boolean {
   if (ov === null || typeof ov !== "object" || nv === null || typeof nv !== "object") return false;
-  const ot = lookupTarget(ov, null);
-  return ot !== undefined && ot === lookupTarget(nv, null);
+  const ot = lookupTarget(ov, fam);
+  return ot !== undefined && ot === lookupTarget(nv, fam);
 }
 
 /** Positional identity IS content for arrays (R15). */
@@ -1320,7 +1293,7 @@ export function notifyKeyDiff(
   key: PropertyKey,
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>,
-  probe = true
+  probe?: boolean
 ): void {
   if (
     (node as any).acc === true ||
@@ -1361,7 +1334,7 @@ export function notifyKeyValue(
   neu: Record<PropertyKey, any>
 ): void {
   if ((node as any).acc === true) {
-    notifyKeyDiff(node, key, old, neu, false);
+    notifyKeyDiff(node, key, old, neu);
     return;
   }
   if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
@@ -1420,7 +1393,7 @@ export function notifyFold(
   if (t.dk !== null && old !== neu) bumpDeep(t);
   const nodes = t.n;
   if (nodes !== null) {
-    for (const key of Reflect.ownKeys(nodes)) notifyKeyDiff(nodes[key as any], key, old, neu);
+    for (const key of Reflect.ownKeys(nodes)) notifyKeyDiff(nodes[key as any], key, old, neu, true);
   }
   notifyFoldTail(t, old, neu);
 }
@@ -1456,7 +1429,7 @@ function serveShallow(target: StoreTarget, key: PropertyKey, v: any): any {
 function draftServe(target: StoreTarget, proxy: any): any {
   if (writeScopes !== null && inDraft(target)) {
     const ct: StoreTarget | undefined = proxy?.[$TARGET];
-    if (ct !== undefined && ct.v !== undefined) writeScopes.add(scopeKey(ct));
+    if (ct?.v !== undefined) writeScopes.add(scopeKey(ct));
   }
   return proxy;
 }
@@ -1506,13 +1479,7 @@ function readSource(
   // sees — the lanes' values and the tick's own guesses over the truth
   // (#3665), never a staging awaiting its fold: the draft is born on the
   // read (and notified at the setter's exit like any).
-  if (
-    userWrite &&
-    target.fam !== null &&
-    target.fam.opt === true &&
-    !pendingNotify.has(target) &&
-    inDraft(target)
-  ) {
+  if (userWrite && target.fam?.opt === true && !pendingNotify.has(target) && inDraft(target)) {
     const draft = ensurePB(target);
     pendingNotify.add(target);
     return draft;
@@ -1551,7 +1518,7 @@ function readSource(
   // it).
   if (key !== undefined) {
     const leaf = target.n?.[key as any];
-    if (leaf !== undefined && leaf._config & CONFIG_OVERRIDE) return committed(target);
+    if (leaf?._config! & CONFIG_OVERRIDE) return committed(target);
   }
   const held = k !== null && (k._config & CONFIG_HELD) !== 0;
   // A held container: the hold's unit is the key (#3706). A key the HELD
@@ -1668,8 +1635,8 @@ function adoptChild(target: StoreTarget, key: PropertyKey): boolean {
     return false;
   // A raw-marked value wraps to itself, a proxy to its own target: neither
   // is a fresh target around `ov`.
-  const ct: StoreTarget | undefined = (wrap(ov, target, key) as any)[$TARGET];
-  if (ct === undefined || ct.v !== ov) return false;
+  const ct: StoreTarget = (wrap(ov, target, key) as any)[$TARGET];
+  if (ct?.v !== ov) return false;
   adoptPB(ct, nv, false);
   holdNode(getContainerNode(ct), txOf(k));
   return true;
@@ -1677,11 +1644,7 @@ function adoptChild(target: StoreTarget, key: PropertyKey): boolean {
 
 /** A family target's unheld staging, read with no pass (a handler). */
 function familyAhead(target: StoreTarget): boolean {
-  return (
-    target.fam !== null &&
-    context === null &&
-    !(target.k !== null && target.k._config & CONFIG_HELD)
-  );
+  return target.fam !== null && context === null && !(target.k?._config! & CONFIG_HELD);
 }
 
 /** Did this batch change `key` — value (slot equality), presence, and (for
@@ -1714,7 +1677,7 @@ function changedBetween(
     !plainProto(v)
   )
     return true;
-  if (target.del !== null && target.del.has(key)) return key in v;
+  if (target.del?.has(key)) return key in v;
   const inNew = hasOwn.call(pb, key) || (target.ovl && hasOwn.call(target.v, key));
   if (inNew !== hasOwn.call(v, key)) return true;
   if (!inNew) return false;
@@ -1727,7 +1690,7 @@ function changedBetween(
     return true;
   const nv = pb[key as any];
   const ov = v[key as any];
-  return !isEqual(ov, nv) && !sameLogicalSlot(target, ov, nv);
+  return !isEqual(ov, nv) && !targetsEqual(ov, nv, target.fam);
 }
 
 /** Value of a key with a leaf: core's — `read()` links a tracked reader and,
@@ -1910,7 +1873,7 @@ function enumerationSource(target: StoreTarget): Record<PropertyKey, any> {
  * draft's (it composed already), not a derive's write-override read (the
  * derive composes on the truth). */
 function optRead(target: StoreTarget): boolean {
-  return target.fam !== null && target.fam.opt === true && !inDraft(target) && !writeOverride;
+  return target.fam?.opt === true && !inDraft(target) && !writeOverride;
 }
 
 /** Pollution keys are never served from the prototype (core R30). */
@@ -2048,7 +2011,7 @@ const traps: ProxyHandler<StoreTarget> = {
     const src = readSource(target, key);
     // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
     // deleted keys are tracked aside and read as absent in the pending view.
-    if (target.del !== null && src === target.pb && target.del.has(key)) {
+    if (src === target.pb && target.del?.has(key)) {
       if (!inDraft(target) && getObserver() !== null) readNode(getNode(target, key));
       return undefined;
     }
@@ -2181,7 +2144,7 @@ const traps: ProxyHandler<StoreTarget> = {
         if (guessed !== undefined) return guessed;
       }
     }
-    return key in src && !(target.del !== null && src === target.pb && target.del.has(key));
+    return key in src && !(src === target.pb && target.del?.has(key));
   },
 
   ownKeys(target) {
@@ -2231,8 +2194,7 @@ const traps: ProxyHandler<StoreTarget> = {
 
   set(target, key, value) {
     const draft = inDraft(target);
-    const override = !draft && writeOverride;
-    if (!draft && !override) {
+    if (!draft && !writeOverride) {
       if (__DEV__) warnWriteOutsideSetter(target, key, "set");
       return true;
     }
@@ -2259,17 +2221,8 @@ const traps: ProxyHandler<StoreTarget> = {
       touch(target, key);
       if (!(key in pb)) target.kc++;
     }
-    if (UNSAFE_KEYS.has(key)) {
-      Object.defineProperty(pb, key, {
-        value: uv,
-        writable: true,
-        enumerable: true,
-        configurable: true
-      });
-      if (target.del !== null) target.del.delete(key);
-      return true;
-    }
-    if (target.ovl && target.sc !== 2 && !hasOwn.call(pb, key)) {
+    const unsafe = UNSAFE_KEYS.has(key);
+    if (unsafe || (target.ovl && target.sc !== 2 && !hasOwn.call(pb, key))) {
       Object.defineProperty(pb, key, {
         value: uv,
         writable: true,
@@ -2277,16 +2230,16 @@ const traps: ProxyHandler<StoreTarget> = {
         configurable: true
       });
     } else pb[key as any] = uv;
-    if (target.del !== null) target.del.delete(key);
+    target.del?.delete(key);
+    if (unsafe) return true;
     if (target.s && uv !== null && typeof uv === "object") markRawOne(uv);
-    if (override) notifyWrites(target);
+    if (!draft) notifyWrites(target); // a write-override write
     return true;
   },
 
   defineProperty(target, key, desc) {
     const draft = inDraft(target);
-    const override = !draft && writeOverride;
-    if (!draft && !override) {
+    if (!draft && !writeOverride) {
       if (__DEV__) warnWriteOutsideSetter(target, key, "defineProperty");
       return true;
     }
@@ -2297,15 +2250,14 @@ const traps: ProxyHandler<StoreTarget> = {
     if (target.a || !(desc.enumerable && desc.writable && desc.configurable)) target.sc = 1;
     touch(target, key);
     Object.defineProperty(pb, key, desc);
-    if (target.del !== null) target.del.delete(key);
-    if (override) notifyWrites(target);
+    target.del?.delete(key);
+    if (!draft) notifyWrites(target); // a write-override write
     return true;
   },
 
   deleteProperty(target, key) {
     const draft = inDraft(target);
-    const override = !draft && writeOverride;
-    if (!draft && !override) {
+    if (!draft && !writeOverride) {
       if (__DEV__) warnWriteOutsideSetter(target, key, "deleteProperty");
       return true;
     }
@@ -2326,7 +2278,7 @@ const traps: ProxyHandler<StoreTarget> = {
       committed || target.kc--;
     }
     if (committed) (target.del ??= new Set()).add(key);
-    if (override) notifyWrites(target);
+    if (!draft) notifyWrites(target); // a write-override write
     return true;
   }
 };
@@ -2499,19 +2451,19 @@ export function createStore<T extends Record<PropertyKey, any>>(
  * slot-patch channel (collected row bodies) over per-record registration. */
 export function storeIsShallow(proxy: any): boolean {
   const t: StoreTarget | undefined = proxy?.[$TARGET];
-  return t !== undefined && t.s === true;
+  return t?.s === true;
 }
 
 /** True when `proxy` belongs to a projection family (S3). */
 export function storeHasFamily(proxy: any): boolean {
   const t: StoreTarget | undefined = proxy?.[$TARGET];
-  return t !== undefined && t.fam !== null;
+  return t?.fam != null;
 }
 
 /** True when `proxy` belongs to an OPTIMISTIC family (S4). */
 export function storeHasOptimisticFamily(proxy: any): boolean {
   const t: StoreTarget | undefined = proxy?.[$TARGET];
-  return t !== undefined && t.fam?.opt === true;
+  return t?.fam?.opt === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -2522,7 +2474,7 @@ function visibleKeys(target: StoreTarget, src: Record<PropertyKey, any>): (strin
   if (target.ovl && src === target.pb) {
     keys = Reflect.ownKeys(target.v);
     const del = target.del;
-    if (del !== null && del.size !== 0) keys = keys.filter(key => !del.has(key));
+    if (del?.size) keys = keys.filter(key => !del.has(key));
     for (const key of Reflect.ownKeys(src)) {
       if (!hasOwn.call(target.v, key)) keys.push(key);
     }
@@ -2544,7 +2496,7 @@ function visibleDescriptor(
 ): PropertyDescriptor | undefined {
   let desc = Object.getOwnPropertyDescriptor(src, key);
   if (target.ovl && src === target.pb) {
-    if (target.del !== null && target.del.has(key)) return undefined;
+    if (target.del?.has(key)) return undefined;
     if (desc === undefined) desc = Object.getOwnPropertyDescriptor(target.v, key);
   }
   return desc;
@@ -2557,7 +2509,7 @@ function visibleDescriptor(
  * witness (one node per record, not one per path), then snapshots. */
 export function deep<T>(value: T): T {
   const t0: StoreTarget | undefined = (value as any)?.[$TARGET];
-  if (t0 === undefined || t0.px !== value) return value;
+  if (t0?.px !== value) return value;
   const visited = new Set<object>();
   const childTarget = (
     t: StoreTarget,
