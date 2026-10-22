@@ -4,7 +4,7 @@
 import { $REFRESH, from as signalsFrom, type FromSource } from "@solidjs/signals";
 import { brandFrom, isLiveSource } from "../from.js";
 export { $REFRESH };
-export type { FromSource, FromObserver } from "@solidjs/signals";
+export type { FromSource } from "@solidjs/signals";
 
 // === Re-exports from @solidjs/signals (infrastructure — no reactive scheduling) ===
 //

@@ -54,7 +54,6 @@ export type {
   ExternalSource,
   ExternalSourceConfig,
   ExternalSourceFactory,
-  FromObserver,
   FromSource,
   Merge,
   MemoOptions,

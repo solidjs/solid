@@ -375,6 +375,40 @@ describe("from: supersede closes the old source with no tick", () => {
     }
   }
 
+  for (const shape of ["direct", "for await"] as const) {
+    it(`${shape}: a throwing unsubscribe stays inside from, and the re-run lands`, async () => {
+      const log: string[] = [];
+      const throwing = (label: string, value: string) => (next: (v: string) => void) => {
+        log.push(`open ${label}`);
+        next(value);
+        return () => {
+          log.push(`close ${label}`);
+          throw new Error("unsub boom");
+        };
+      };
+      const sources = new Map<string, any>([
+        ["a", throwing("a", "a1")],
+        ["b", throwing("b", "b1")]
+      ]);
+      let setX!: (v: string) => void;
+      let m!: () => string;
+      const { dispose } = mount(() => {
+        const r = build(shape, sources);
+        setX = r.setX;
+        return (m = r.m);
+      });
+      await microtasks();
+      expect(m()).toBe("a1");
+
+      setX("b");
+      expect(() => flush()).not.toThrow();
+      await microtasks();
+      expect(m()).toBe("b1");
+      expect(log).toEqual(["open a", "close a", "open b"]);
+      dispose();
+    });
+  }
+
   it("closes at supersede under a loading boundary that reads isPending", async () => {
     const log: string[] = [];
     const sources = new Map<string, ReturnType<typeof source<string>>>();

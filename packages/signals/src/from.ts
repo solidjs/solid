@@ -13,7 +13,7 @@ import { CONFIG_CHILDREN_FORBIDDEN } from "./core/constants.js";
 import { cleanup, getOwner } from "./core/owner.js";
 
 /** The observer a `subscribe` call receives. */
-export type FromObserver<T> = {
+type FromObserver<T> = {
   next(value: T): void;
   error(err: unknown): void;
   complete(): void;
@@ -58,9 +58,10 @@ const DONE: IteratorResult<any> = { value: undefined, done: true };
  * an iterator's return() only when the compute returns the iterable directly.
  * Inside an async generator the generator's own return() is queued behind its
  * pending `await`, and owner cleanups wait for the replacing pass to commit,
- * so close on supersede, with owner disposal as the backstop. No owner: no
- * registration (no diagnostic either). Scopes that forbid cleanups rely on
- * supersede and return().
+ * so close on supersede, with owner disposal as the backstop. No owner (an
+ * async compute iterating it after its first `await`, or plain iteration):
+ * no registration and no diagnostic, so only return() closes it. Scopes that
+ * forbid cleanups rely on supersede and return().
  */
 function bindToOwner(finish: () => void): void {
   const owner = getOwner();
@@ -130,10 +131,15 @@ const toCleanup = (t: Teardown): (() => void) =>
  * value, and a value the source emits during `subscribe` is served without a
  * loading frame; an AsyncIterable streams every value through.
  *
- * The source closes on supersede — the owning computation re-running — even
- * when `from` is iterated with `for await` inside an async generator memo, and
- * on owner disposal. Do transforms in a downstream memo rather than in the
- * loop body.
+ * The source closes on supersede — the owning computation re-running — and
+ * on owner disposal. Inside an async generator memo that holds for a
+ * `for await` that starts before the first `await`; one that starts after it
+ * has no owner to bind to, so its source closes only when the loop ends.
+ * Prefer returning `from(...)` from its own memo, with awaited inputs read
+ * from upstream memos and transforms done in a downstream memo.
+ *
+ * Iterate the result with `for await` or return it from a computation: its
+ * `next()` returns an already-buffered value as a bare result, not a promise.
  *
  * @example
  * ```ts
@@ -173,7 +179,12 @@ export function from<T>(source: FromSource<T>): AsyncIterable<T> {
         done = true;
         const c = unsubscribe;
         unsubscribe = null;
-        c?.();
+        // A throwing unsubscribe must not escape: at supersede this runs
+        // inside flush(), ahead of the replacing pass (the returned-iterator
+        // path swallows it the same way).
+        try {
+          c?.();
+        } catch {}
       };
       const settle = () => {
         if (!waiting) return;
