@@ -206,6 +206,15 @@ there is nothing to diff.)
 - Reconcile/projection preserve *logical* identity for key-matched branches
   (same proxy, keyed flows compare proxy identity); reference-equal unowned
   branches additionally keep raw identity (the skip path).
+- Positional pairing (unkeyed rows, keyless rows of a keyed array, a
+  record's keys) never gives one row two slots of the incoming frame
+  (#4001): a raw that is already a live row keeps it at the slot it moved
+  to, a row whose raw sits at another slot of the incoming frame — the slot
+  its `pk` names, which pairing and that move both write — is not paired
+  again, and a raw left resolving to a row that moved on drops the lookup
+  (it wraps fresh). A move is followed when the row's new slot comes first
+  in the walk; otherwise the row stays at its slot and the moved raw wraps
+  fresh. Values are right either way; only which proxy differs.
 - New objects introduced under a pending lane are wrapped on read like any
   other; on rollback they simply become unreachable.
 

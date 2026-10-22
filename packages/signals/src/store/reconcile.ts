@@ -49,9 +49,8 @@ export function reconcileState(
   replace = false
 ): void {
   if (state == null) throw new Error(__DEV__ ? "Cannot reconcile null or undefined state" : "");
-  const t: StoreTarget | undefined = state?.[$TARGET];
-  if (t === undefined || t.px !== state)
-    throw new Error(__DEV__ ? "reconcile target is not a store proxy" : "");
+  const t: StoreTarget = state[$TARGET];
+  if (t?.px !== state) throw new Error(__DEV__ ? "reconcile target is not a store proxy" : "");
   const keyFn: KeyFn | null =
     key === null ? null : typeof key === "string" ? (item: any) => item?.[key] : (key as KeyFn);
   // A user's reconcile on an optimistic family (S4): not an adoption of
@@ -78,9 +77,8 @@ export function reconcileState(
         throw new Error(__DEV__ ? "Cannot reconcile states with different identity" : "");
       // A different entity at the root: the old backing is disowned (wraps
       // fresh if re-handed) and the new one adopted whole.
-      const out = t.pb ?? t.v;
-      if (isOwned(out)) delete (out as any)[$OWNER];
-      else (t.fam?.map ?? storeLookup).delete(out);
+      if (isOwned(prev)) delete (prev as any)[$OWNER];
+      else (t.fam?.map ?? storeLookup).delete(prev);
       adoptPB(t, incoming);
       return;
     }
@@ -97,50 +95,42 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // as present through its prototype; materialized first — `adoptPB` does
   // so anyway, after the base was taken — so a deletion the draft made is
   // a deletion here (#3743: the presence and value diffs both read `old`).
-  const prev = t.ovl ? materializePB(t) : (t.pb ?? t.v);
-  if (incoming === prev && !isOwned(prev)) return;
-  const fam = t.fam;
+  const old = t.ovl ? materializePB(t) : (t.pb ?? t.v);
+  if (incoming === old && !isOwned(old)) return;
   // Q-D: a landing on an optimistic family is reconciled against the VIEW
   // — key matching from the arrangement the guesses made (R28), so a row
   // the guess added keeps its proxy when the server returns it.
-  const prevView = fam?.opt === true ? optHooks!.view(t, prev) : prev;
+  const prevView = t.fam?.opt === true ? optHooks!.view(t, old) : old;
   const nextArr = Array.isArray(incoming);
   const shallow = t.s === true;
-  const old = prev;
   adoptPB(t, incoming, false);
   if (shallow) markRawIngest(incoming);
+  // The deep witness is bumped once per adoption (none to bump: done).
+  let bumped = t.dk === null;
   if (Array.isArray(prevView) !== nextArr) {
     notifyFold(t, old, incoming);
     return;
   }
   if (nextArr) {
-    const prevRows = prevView as any[];
-    const nextRows = incoming as any[];
     const nodes = t.n;
     let nodesHit = 0;
     if (keyFn && !shallow) {
-      const plen = prevRows.length;
-      const nlen = nextRows.length;
-      let dkBumpedA = false;
+      const plen = prevView.length;
+      const nlen = incoming.length;
       let i = 0;
       // Aligned prefix: same row (by reference or key) at the same index.
       for (const end = Math.min(plen, nlen); i < end; i++) {
-        const nv = nextRows[i];
-        const pvRaw = prevRows[i];
+        const nv = incoming[i];
+        const pvRaw = prevView[i];
         if (pvRaw !== nv && !sameRow(pvRaw, nv, keyFn)) break; // misaligned: fall to the keyed remainder below
+        if (nv !== null && typeof nv === "object" && (pvRaw !== nv || isOwned(nv)))
+          descend(unwrapValue(pvRaw), nv, keyFn, proj, t, i);
         if (
-          (pvRaw !== nv || (nv !== null && typeof nv === "object" && isOwned(nv))) &&
-          nv !== null &&
-          typeof nv === "object"
-        )
-          descend(unwrapValue(pvRaw), nv, keyFn, fam, proj);
-        if (
-          t.dk !== null &&
-          !dkBumpedA &&
+          !bumped &&
           !(nv !== null && typeof nv === "object" ? targetsEqual(pvRaw, nv) : isEqual(pvRaw, nv))
         ) {
           bumpDeep(t);
-          dkBumpedA = true;
+          bumped = true;
         }
         if (nodes !== null) {
           const node = nodes[i];
@@ -150,19 +140,19 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           }
         }
       }
-      if (t.dk !== null && !dkBumpedA && i < nextRows.length) bumpDeep(t);
+      if (!bumped && i < incoming.length) bumpDeep(t);
       const structStart = i; // misalignment point (== nlen on aligned ticks)
       let prevByKey: Map<any, any> | null = null;
-      for (; i < nextRows.length; i++) {
-        const nv = nextRows[i];
+      for (; i < incoming.length; i++) {
+        const nv = incoming[i];
         if (nv !== null && typeof nv === "object") {
           const nk = keyFn(nv);
           let pv: any;
           if (nk !== undefined) {
             if (prevByKey === null) {
               prevByKey = new Map();
-              for (let j = structStart; j < prevRows.length; j++) {
-                const p = unwrapValue(prevRows[j]);
+              for (let j = structStart; j < prevView.length; j++) {
+                const p = unwrapValue(prevView[j]);
                 if (p !== null && typeof p === "object") {
                   const pk = keyFn(p);
                   if (pk === undefined) continue;
@@ -176,16 +166,16 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
             const m = prevByKey.get(nk);
             if (m === undefined) pv = undefined;
             else if (Array.isArray(m)) {
-              pv = unwrapValue(prevRows[m.shift()!]);
+              pv = unwrapValue(prevView[m.shift()!]);
               if (m.length === 1) prevByKey.set(nk, m[0]);
             } else {
-              pv = unwrapValue(prevRows[m]);
+              pv = unwrapValue(prevView[m]);
               prevByKey.delete(nk);
             }
           } else {
-            pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
+            pv = unwrapValue(prevView[i]); // keyless item: positional fallback
           }
-          descend(pv, nv, keyFn, fam, proj);
+          descend(pv, nv, keyFn, proj, t, i);
         }
         if (nodes !== null) {
           const node = nodes[i];
@@ -196,22 +186,20 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
         }
       }
     } else {
-      const dlen = Math.min(prevRows.length, nextRows.length);
-      const nlen = nextRows.length;
-      let dkBumpedP = false;
+      const dlen = Math.min(prevView.length, incoming.length);
+      const nlen = incoming.length;
       for (let i = 0; i < nlen; i++) {
-        const nvP = nextRows[i];
+        const nvP = incoming[i];
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
-          descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
+          descend(unwrapValue(prevView[i]), nvP, keyFn, proj, t, i);
         if (
-          t.dk !== null &&
-          !dkBumpedP &&
+          !bumped &&
           !(nvP !== null && typeof nvP === "object"
-            ? targetsEqual(prevRows[i], nvP)
-            : isEqual(prevRows[i], nvP))
+            ? targetsEqual(prevView[i], nvP)
+            : isEqual(prevView[i], nvP))
         ) {
           bumpDeep(t);
-          dkBumpedP = true;
+          bumped = true;
         }
         if (nodes !== null) {
           const node = nodes[i];
@@ -226,7 +214,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
     if (nodes !== null && nodesHit < t.nc) {
       for (const key of Reflect.ownKeys(nodes)) {
         const idx = typeof key === "string" ? +key : NaN;
-        if (!(idx >= 0 && idx < nextRows.length))
+        if (!(idx >= 0 && idx < incoming.length))
           notifyKeyDiff(nodes[key as any], key, old, incoming, false);
       }
     }
@@ -235,7 +223,6 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   }
   const nodes = t.n;
   let nodesHit = 0;
-  let dkBumped = false;
   for (const k in incoming) {
     const nv = (incoming as any)[k];
     const ov = (old as any)[k];
@@ -245,13 +232,13 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       (!isObj || !isOwned(nv)) &&
       (nodes === null || nodes[k] === undefined || !hasAccessorFlag(nodes[k]))
     ) {
-      if (nodes !== null && nodes[k] !== undefined) nodesHit++;
+      if (nodes?.[k] !== undefined) nodesHit++;
       continue;
     }
-    if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
-    if (t.dk !== null && !dkBumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
+    if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, proj, t, k);
+    if (!bumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
       bumpDeep(t);
-      dkBumped = true;
+      bumped = true;
     }
     if (nodes !== null) {
       const node = nodes[k];
@@ -267,7 +254,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
     if (k === $OWNER) continue;
     const nv = (incoming as any)[k];
     if (!shallow && nv !== null && typeof nv === "object")
-      descend(unwrapValue((old as any)[k]), nv, keyFn, fam, proj);
+      descend(unwrapValue((old as any)[k]), nv, keyFn, proj, t, k);
     if (nodes !== null) {
       const node = nodes[k as any];
       if (node !== undefined) {
@@ -289,22 +276,46 @@ const hasOwnP = Object.prototype.hasOwnProperty;
 
 /** Descend into a changed child pair — only where something is proxied
  * below (§6d), never into a raw-marked leaf, never across array/object or a
- * key mismatch (that is a replacement, handled by the parent's slot). */
+ * key mismatch (that is a replacement, handled by the parent's slot).
+ *
+ * A raw in both frames (the same objects swapped, reordered or shifted,
+ * #4001) must not leave two slots on one row. A raw already a live row keeps
+ * it at the slot it moved to; a row's `pk` follows the slot it sits at (a
+ * move or a pairing writes it), so a row whose raw is at that slot of the
+ * incoming frame is spoken for and not paired again here; a raw still
+ * resolving to a row that moved on drops the lookup (it wraps fresh, or is
+ * paired here). One lookup of `nv` on the common path, no allocation. */
 function descend(
   pv: any,
   nv: any,
   keyFn: KeyFn | null,
-  fam: StoreFamily | null,
-  proj = false
+  proj: boolean,
+  t: StoreTarget,
+  k: PropertyKey
 ): void {
-  if (pv === null || typeof pv !== "object" || nv === null || typeof nv !== "object") return;
-  const ct = lookupTarget(pv, fam);
+  // `nv` is an object at every call site.
+  if (pv === null || typeof pv !== "object") return;
+  const fam = t.fam;
+  nv = unwrapValue(nv);
+  let ct = lookupTarget(pv, fam);
+  const nt = lookupTarget(nv, fam);
+  if (ct !== undefined && ct.pk !== k) {
+    if (ct.pk != k && t.v[ct.pk as any] === ct.v) ct = undefined;
+    else if (ct.u === t) ct.pk = k;
+  }
+  if (nt !== undefined && nt !== ct) {
+    if (nt.v === nv) {
+      if (nt.u === t) nt.pk = k;
+      return;
+    }
+    (fam?.map ?? storeLookup).delete(nv);
+  }
   if (ct === undefined) return; // nothing proxied below this pair
   if (!isWrappable(nv)) return;
   if (rawValuesUsed && isRawValue(nv)) return;
-  nv = unwrapValue(nv);
   if (Array.isArray(pv) !== Array.isArray(nv)) return;
-  if (keyFn) {
+  // An array slot was paired by key already (or both rows are keyless).
+  if (typeof k !== "number" && keyFn) {
     const pk = keyFn(pv);
     const nk = keyFn(nv);
     if (pk !== undefined && nk !== undefined && !sameKey(pk, nk)) return;
