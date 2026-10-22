@@ -25,19 +25,26 @@
  */
 import {
   CONFIG_AUTO_DISPOSE,
+  CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_GUESS,
   CONFIG_OVERRIDE,
+  CONFIG_SLOT_NODE,
+  EFFECT_RENDER,
   NOT_PENDING,
   STATUS_PENDING
 } from "../core/constants.js";
-import { computed, ext, isEqual, read as readNode, untrack } from "../core/core.js";
+import { computed, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
 import { laneValueOf, optimisticWrite, pendingGuessOf } from "../core/lanes.js";
 import { getOwner } from "../core/owner.js";
 import {
   GlobalQueue,
   insertSubs,
+  joinFuture,
   laneDirty,
   list,
   notifyEpoch,
+  passLane,
+  resolveTx,
   schedule,
   txOf
 } from "../core/scheduler.js";
@@ -159,10 +166,12 @@ export function notifyOptimisticWrites(
   if (structural) {
     const rows = isArr ? (pb as any[]).map(unwrapValue) : shallowKeys(pb);
     // The rows the setter removed from the view it saw, by key: a later
-    // re-base over another action's truth must not bring them back.
+    // re-base over another action's truth must not bring them back. A set
+    // (empty or not) marks a keyed arrangement guess (`fold`).
     let removed: Set<unknown> | null = null;
     const keyFn = t.fam!.key;
     if (isArr && keyFn !== null && keyFn !== undefined) {
+      removed = new Set();
       const kept = new Set<unknown>();
       for (let i = 0; i < rows.length; i++) {
         const k = isWrappable(rows[i]) ? keyFn(rows[i]) : undefined;
@@ -171,7 +180,7 @@ export function notifyOptimisticWrites(
       for (let i = 0; i < (old as any[]).length; i++) {
         const r = unwrapValue((old as any[])[i]);
         const k = isWrappable(r) ? keyFn(r) : undefined;
-        if (k !== undefined && !kept.has(k)) (removed ??= new Set()).add(k);
+        if (k !== undefined && !kept.has(k)) removed.add(k);
       }
     }
     optimisticWrite(getContainerNode(t), new LaneView(rows, base, removed) as any);
@@ -319,7 +328,8 @@ function reconcileDraft(draft: any, incoming: any, keyFn: KeyFn | null): void {
  * committed length differs, and as the `LaneView`'s base for structural
  * reads. Unkeyed families compose
  * positionally — the guess stands as written (the documented residue). */
-GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown): void => {
+GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
+  if (!older) return fold(el, truth);
   const t = (el as any)._host as StoreTarget | undefined;
   if (t === undefined || (el as any)._key !== $TRACK) return;
   const view = el._x!._lane;
@@ -380,6 +390,54 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown): void => {
       laneSet(len, rows.length, lane);
   }
 };
+
+/** D-34 for a keyed arrangement guess: rows by key, not positions. A
+ * current truth that differs folds into the hold beneath it instead of
+ * voiding the lane: the guess stays the lane's value and the screen's until
+ * the hold commits, where rows match by key, and the graph outside the lane
+ * re-derives from the truth now (`foldedRead`). A confirmation is silent
+ * (A17): only truth readers are told. True: the lane stages the truth
+ * beneath (`laneWrite`). */
+function fold(el: Signal<any>, truth: unknown): boolean {
+  const k = ((el as any)._host as StoreTarget | undefined)?.k;
+  const l = txOf(el);
+  // A guess the screen never showed is void at the correction (D-34); a
+  // keyed arrangement guess's view carries its removed-keys set.
+  if (!l._shown || !(k?._config! & CONFIG_OVERRIDE) || !(k!._x!._lane as LaneView)?.removed)
+    return false;
+  const guess = el._x!._lane;
+  if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth)) {
+    l.folded = foldedRead;
+    insertSubs(el);
+  } else GlobalQueue._confirmed?.(l);
+  joinFuture(resolveTx(l._parent ?? l));
+  return true;
+}
+
+/** A folded lane's guess read by a deriving pass outside the lane, tracked
+ * or not (`untrack` is about dependencies, not about which world a pass
+ * derives from), or by `latest()` (`c` null): the hold's world — the truth
+ * staged beneath the guess, else the value it covered — and the pass joins
+ * the hold. Lane passes and the screen keep the guess: held truth is masked
+ * from lane passes only (#3164). The store's own derive reconciles its
+ * landings against the arrangement the guesses made: it is the author, not
+ * a reader. */
+function foldedRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
+  if (c !== null) {
+    if (
+      !(el._config & CONFIG_GUESS) ||
+      passLane !== null ||
+      (c as any)._type === EFFECT_RENDER ||
+      c._config & CONFIG_CHILDREN_FORBIDDEN ||
+      (el as any)._host?.fam?.node === c
+    )
+      return NOT_PENDING;
+    const l = txOf(el);
+    joinPassAt(c, resolveTx(l._parent ?? l));
+  }
+  if (el._pendingValue !== NOT_PENDING) return el._pendingValue;
+  return el._config & CONFIG_SLOT_NODE ? GlobalQueue._slotCovered!(el) : el._value;
+}
 
 function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {
   if (a === b) return true;

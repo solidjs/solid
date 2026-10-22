@@ -681,6 +681,33 @@ describe("Server owner tree", () => {
     expect(order).toEqual(["C", "B", "A"]);
   });
 
+  test("a throwing cleanup does not stop the walk; the first error is rethrown after (#4193)", () => {
+    const order: string[] = [];
+    let dispose!: () => void;
+    let child!: Owner;
+    createRoot(
+      d => {
+        dispose = d;
+        onCleanup(() => order.push("A"));
+        onCleanup(() => {
+          throw new Error("owner threw");
+        });
+        createRoot(() => {
+          child = getOwner()!;
+          onCleanup(() => order.push("C"));
+          onCleanup(() => {
+            throw new Error("child threw");
+          });
+        });
+        createRoot(() => onCleanup(() => order.push("D")));
+      },
+      { id: "test" }
+    );
+    expect(dispose).toThrow("child threw");
+    expect(order).toEqual(["D", "C", "A"]);
+    expect(isDisposed(child)).toBe(true);
+  });
+
   test("a cleanup that disposes its own root during a rerun reset runs once (#3601)", () => {
     // Twin of the client `runDisposal` ruling: `disposeOwner` detaches the
     // list before running it. A rerun reset (`self=false`, the server's

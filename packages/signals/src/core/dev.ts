@@ -1267,9 +1267,10 @@ export function checkPostAwaitRead(
   if (callbackDepth !== 0) return;
   if (disposalDepth !== 0) {
     // Teardown is synchronous, so a depth still raised on the next microtask
-    // was left behind by a cleanup that threw (owner.ts brackets it without
-    // try/finally, which would survive into prod). Clear it then, or every
-    // later check would stay silent.
+    // was left behind by a throw that escaped it (owner.ts brackets it
+    // without try/finally, which would survive into prod; a cleanup's own
+    // throw is caught there). Clear it then, or every later check would stay
+    // silent.
     if (!disposalHealQueued) {
       disposalHealQueued = true;
       queueMicrotask(healDisposalDepth);

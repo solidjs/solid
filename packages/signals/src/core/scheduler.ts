@@ -43,6 +43,7 @@ import {
 import { sweepDormant, trimStaleDeps } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
 import { devCheckQuiescent } from "./invariants.js";
+import { rethrowCleanupError } from "./owner.js";
 import type { Computed, Owner, Signal } from "./types.js";
 
 // Optional-module hooks: module bindings, not `GlobalQueue` statics, so a
@@ -245,6 +246,15 @@ export interface Transaction {
    * leaf reading a held lane that has not shown is a stale reader of it
    * (#3460); one reading a lane the seam has not judged yet is its work. */
   _held: boolean;
+  /** Lane: a current truth that differs folded beneath one of its keyed
+   * guesses (lanes.ts `laneWrite`, D-34) — the store's reader of it: a
+   * deriving pass outside the lane, or `latest()` (`c` null), is served
+   * the hold's world from its guesses; NOT_PENDING otherwise
+   * (store/optimistic.ts `foldedRead`). Unset until then; not
+   * `_`-prefixed: a new mangled name shifts every later one
+   * (scripts/mangle-props.mjs), which costs the floors bytes for a path
+   * only optimistic stores reach. */
+  folded?: (c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown;
   /** `affects()` marks declared in it (affects.ts): released at the landing.
    * Not nodes — a mark holds nothing (`blocked` never sees one). */
   _marks: Signal<any>[] | null;
@@ -702,6 +712,8 @@ export const ROOT_ERROR_HOOK: unique symbol = Symbol.for("solid-js/root-error-ho
 export function haltReactivity(cause?: unknown): void {
   if (halted) return;
   halted = true;
+  // A cleanup error collected before the halt is dropped (owner.ts).
+  rethrowCleanupError(true);
   let message = "[REACTIVITY_HALTED]";
   if (__DEV__) {
     message +=
@@ -804,10 +816,14 @@ export class GlobalQueue implements IQueue {
   declare static _storeWrappable: ((v: unknown) => boolean) | undefined;
   declare static _mark: ((node: Signal<any> | Computed<any>) => void) | undefined;
   declare static _witnessMark: (() => void) | undefined;
-  /** An older question's truth was held beneath a guess (lanes.ts
-   * `laneWrite`): the store re-bases an arrangement guess over it
-   * (store/optimistic.ts). */
-  declare static _laneRebase: ((el: Signal<any>, truth: unknown) => void) | undefined;
+  /** A truth landing on a guess (lanes.ts `laneWrite`), `older` when it
+   * answers an older question: the store re-bases an arrangement guess over
+   * it; a current one differing from a shown keyed arrangement guess folds
+   * beneath it instead of voiding it (D-34) — true: the lane stages it
+   * beneath (store/optimistic.ts). */
+  declare static _laneRebase:
+    | ((el: Signal<any>, truth: unknown, older: boolean) => boolean | void)
+    | undefined;
   // Lanes (lanes.ts).
   declare static _verdictLane: ((t: Transaction) => Transaction) | undefined;
   // Observe tier (attribution.ts): the guesses of `t`'s lanes (lanes.ts).
@@ -1459,6 +1475,7 @@ export function flush<T>(fn?: () => T): T | void {
   if (__OBSERVE__ && attrHooks !== null && scheduled) attrHooks.flushStart();
   while (scheduled) {
     if (__DEV__ && ++count === 1e5) {
+      rethrowCleanupError(true);
       // Attribution beats a bare guard (#3140): say what kept the loop alive.
       throw new Error(
         `Potential Infinite Loop Detected. Kept alive by scheduled work${
@@ -1474,6 +1491,9 @@ export function flush<T>(fn?: () => T): T | void {
   // so this is the "committed and effects ran" instant for everything the
   // loop processed.
   if (__OBSERVE__ && drained && attrHooks !== null) attrHooks.flushEnd();
+  // A cleanup that threw during the drain, now that the drain is complete
+  // (owner.ts).
+  rethrowCleanupError();
 }
 
 function runQueue(queue: QueueCallback[], type: number): void {

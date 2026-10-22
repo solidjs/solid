@@ -1,5 +1,18 @@
 # @solidjs/babel-plugin
 
+## 2.0.0-rc.17
+
+### Patch Changes
+
+- 3e72783: The removed Solid 1.x attribute forms are now compile errors on native elements in the `dom` and `ssr` generates (#4187). `on:`, `oncapture:`, `attr:`, `bool:`, `use:` and `classList` used to compile silently into literal attributes (`<div use:tip="() => {}">`, `classlist="[object Object]"`). Both compilers now reject them with the same message, which names the 2.0 replacement: a camelCase handler or a `ref` callback for `on:`, a plain attribute for `attr:`, a boolean value for `bool:`, a `ref` directive factory for `use:`, and an object or array `class` for `classList`. Components, the universal generate, `prop:` and the XML namespaces (`xlink:`, `xml:`, `xmlns:`) are unaffected. The check runs only at compile time and adds no runtime code.
+- 6cca8b5: Dev builds now warn with `UNCOMMITTED_INPUT_OVERWRITTEN` (#4186) when a stateful DOM property binding (`value`/`checked` on an input, `value` on a textarea, `value`/`selected` on an option, `muted` on media) is about to re-write the value it wrote last time over an edit the user never committed to the bound signal — e.g. `value={props.name} onChange={commit}` with no draft signal, when another dynamic attribute in the same template changes. Runtime behavior is unchanged: the write still happens, once per element and property the warning names the fix (write the signal from `onInput`, use `defaultValue`/`defaultChecked` for an uncontrolled element, or write a rejected edit back with `e.currentTarget.value = next`).
+
+  Production output is unchanged byte for byte. In dev DOM output both compilers write stateful properties through a new `setStatefulProperty(el, name, value)` helper instead of the inline `el.name = value`; hydratable output keeps `setProperty`, and `spread`/`assign` check in the runtime. The check lives only in `@solidjs/web`'s dev build; the production entry carries a plain `node[name] = value` stub that no production-compiled module imports, so it tree-shakes away.
+
+  The "Form inputs" section of the DOM RFC, the cheatsheet and the solid-2.0 skill now say that a change to any other dynamic attribute in the same template re-runs a stateful binding, link the new code, and drop `equals: false` as a way to reject input (it is what the warning reports); write the accepted value back with `e.currentTarget.value = next` instead.
+
+- 2ba1c4a: A valueless `prop:` attribute (`<el prop:active />`) now compiles as `prop:active={true}`, matching bare plain attributes, instead of being dropped silently (#4180).
+
 ## 2.0.0-rc.16
 
 ### Patch Changes

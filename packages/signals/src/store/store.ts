@@ -91,6 +91,7 @@ import {
   passLane,
   queuePendingNode,
   schedule,
+  resolveTx,
   txOf,
   type Transaction,
   installStoreHooks
@@ -370,9 +371,13 @@ function bornStaged(target: StoreTarget, node: Signal<any>, staged: any, key: Pr
   if (k === null) return; // a node-less staging holds nothing (`stageOn`)
   // Held by the container's transaction only for a key the HELD staging
   // changed — a mainline layer's change above it stages mainline. (A
-  // container carrying a guess is a lane's: the flush's park decides.)
-  if ((k._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD && heldKeyChanged(target, key))
-    holdNode(node, txOf(k));
+  // container carrying a guess is a lane's: the flush's park decides —
+  // unless a correction folded under the guess, D-34: the key is that
+  // correction's hold's.)
+  if (k._config & CONFIG_HELD && heldKeyChanged(target, key)) {
+    const l = txOf(k);
+    if (!(k._config & CONFIG_OVERRIDE) || l.folded) holdNode(node, resolveTx(l._parent ?? l));
+  }
   // A28 (4): a batch written inside a creation-time pass is promoted — its
   // late-materialized leaf with it.
   if (k._config & CONFIG_PROMOTED) notePromotedWrite(node);
