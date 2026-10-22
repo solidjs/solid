@@ -93,7 +93,7 @@ let el;
 <div ref={[node => (el = node), autofocus]} />; // assigned
 ```
 
-A ref runs before the element is inserted into the page. At that point `el.isConnected` is `false`, and `el.ownerDocument` is the inert document of the template the element was cloned from, so `el.ownerDocument.defaultView` is `null`. Don't reach the window or document through the element inside a ref: use the global `window`/`document`, or do work that needs the attached element (measuring, reading computed styles) in `onSettled`.
+A ref runs before the element is inserted into the page, so `el.isConnected` is `false`. Its document depends on the rest of the template: an element cloned from a template with no custom element still belongs to that template's inert document, so `el.ownerDocument.defaultView` is `null`, while a template containing a custom element is imported into the live document as a whole. Don't reach the window or document through the element inside a ref: use the global `window`/`document`, or do work that needs the attached element (measuring, reading computed styles) in `onSettled`.
 
 #### Two-phase directive factories (owned setup, unowned application)
 

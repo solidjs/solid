@@ -37,6 +37,7 @@ import {
 import { UPLOAD_ARGS_PART, createUploadDeserializer } from "./uploads.js";
 import {
   BODY_FORMAT_HEADER,
+  BUILD_HEADER,
   BodyFormat,
   ERROR_HEADER,
   LIVE_SOURCE,
@@ -495,6 +496,18 @@ export interface ServerFunctionsServerConfig {
    * outside the dev build; `0`/`undefined` is off.
    */
   chaosReconnectEvery?: number;
+  /**
+   * Id of the build this server was bundled with. A call whose
+   * `X-Server-Function-Build` header names another build is answered `409`
+   * and the function does not run: the page was loaded from a build whose
+   * functions may take other arguments or return another shape. The answer
+   * carries the unknown-function label, so the client rejects with
+   * `unknownFunction: true`, the same as for an id this build does not
+   * have. The client runtime does not send the header itself: the build
+   * integration adds it through `prepareRequest`. Calls without the header
+   * are not checked. Leave unset to check nothing.
+   */
+  buildId?: string;
 }
 
 /**
@@ -687,7 +700,8 @@ const config = {
   csrf: true,
   bodySizeLimit: 1_048_576,
   maxArguments: 1000,
-  chaosReconnectEvery: 0
+  chaosReconnectEvery: 0,
+  buildId: undefined
 }; /**
  * Configures the server runtime. Call once at server startup, before
  * handling requests. Only needed when deviating from the defaults (custom
@@ -728,7 +742,8 @@ export function configureServerFunctionsServer({
   bodySizeLimit,
   maxArguments,
   secret,
-  chaosReconnectEvery
+  chaosReconnectEvery,
+  buildId
 } = {}) {
   if (provideEvent !== undefined) config.provideEvent = provideEvent;
   if (wrapInvocation !== undefined) config.wrapInvocation = wrapInvocation;
@@ -745,6 +760,7 @@ export function configureServerFunctionsServer({
   // the flash codec owns the key (flash.js) — the option just names it
   if (secret !== undefined) setFlashSecret(secret);
   if (chaosReconnectEvery !== undefined) config.chaosReconnectEvery = chaosReconnectEvery;
+  if (buildId !== undefined) config.buildId = buildId;
 }
 
 // Named flight-data collectors, keyed by source id. The unnamed
@@ -3829,9 +3845,12 @@ function withCSRFVary(response) {
 // The request headers the client transport sets on its own calls — what a
 // preflight that names none (a bare `Access-Control-Request-Method`) is
 // told it may send.
-const TRANSPORT_REQUEST_HEADERS = ["Content-Type", BODY_FORMAT_HEADER, SINGLE_FLIGHT_HEADER].join(
-  ", "
-);
+const TRANSPORT_REQUEST_HEADERS = [
+  "Content-Type",
+  BODY_FORMAT_HEADER,
+  SINGLE_FLIGHT_HEADER,
+  BUILD_HEADER
+].join(", ");
 // How long a browser may reuse a preflight answer for one address. Each
 // function has an address of its own, so this is per function, and a
 // change to the allowlist is honoured within it (browsers cap the value
@@ -4216,6 +4235,31 @@ export async function handleServerFunctionRequest(request, options = {}) {
   if (!functionId) {
     const response = new Response(DEV ? "Server function not found" : null, { status: 404 });
     return finish(protectsRequest ? withCSRFVary(response) : response);
+  }
+  // The build-id refusal (see BUILD_HEADER): the caller was bundled with
+  // another build, so its arguments may not be what this build's function
+  // takes, nor its decoder what this build's result is. Refused before the
+  // arguments are parsed or the function runs. After the origin gate, unlike
+  // the unknown-id 404: only the client runtime sends the header, and it
+  // sends the fetch metadata the gate reads. Labelled as unknown so the
+  // client reports one skew signal: this page came from another build.
+  const callerBuild = request.headers.get(BUILD_HEADER);
+  if (config.buildId && callerBuild !== null && callerBuild !== config.buildId) {
+    return finish(
+      new Response(
+        DEV
+          ? `Server function call from build "${callerBuild}" refused by build "${config.buildId}"`
+          : null,
+        {
+          status: 409,
+          headers: {
+            [UNKNOWN_HEADER]: "true",
+            [BUILD_HEADER]: config.buildId,
+            "Cache-Control": "no-store"
+          }
+        }
+      )
+    );
   }
 
   // Which of the three answer shapes this call gets — codec encodings for
