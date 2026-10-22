@@ -12,10 +12,9 @@
  * - an `onCleanup` that throws in the final dispose after a normal
  *   completion: only `abandon()` contained a throwing dispose (#4029).
  *
- * Not pinned here: whether the cleanups registered before a throwing one
- * still run. The owner teardown stops at a throw on the server as it does on
- * the client (`disposeOwner` / `runDisposal`); that is owner semantics, not
- * this containment.
+ * The cleanups registered before a throwing one still run: the owner
+ * teardown (`disposeOwner`) runs every cleanup and rethrows the first error
+ * once it is done, which is what reaches the hook.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
@@ -198,6 +197,7 @@ describe("renderToStream: an onCleanup that throws in the final dispose (#4193)"
     expect(completed).toBe(true);
     expect(kinds()).toEqual(["render/failed"]);
     expect((heard[0].error as Error).message).toBe("cleanup threw");
+    expect(ran).toEqual(["first"]);
   });
 
   test("reaches the ambient hook as render/failed when piped", async () => {
@@ -210,6 +210,7 @@ describe("renderToStream: an onCleanup that throws in the final dispose (#4193)"
     expect(escaped).toEqual([]);
     expect(result!.state).toBe("settled");
     expect(kinds()).toEqual(["render/failed"]);
+    expect(ran).toEqual(["first"]);
   });
 
   test("the render's own onError hears it ahead of the ambient hook", async () => {

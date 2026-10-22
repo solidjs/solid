@@ -519,7 +519,8 @@ function unlinkOwner(node: SSROwner): void {
  * forward-only `_firstChild` -> `_nextSibling` chain, recursively disposing
  * each child with `self=true`, then runs the owner's own `_disposal` queue
  * in unwind order (later registrations first) and resets `_firstChild` /
- * `_childCount`.
+ * `_childCount`. A cleanup that throws does not stop the walk: every cleanup
+ * runs, and the first error is rethrown once the walk is done (#4193).
  *
  * `self=false` keeps `owner` itself alive (its `_disposed` flag stays clear,
  * future `runWithOwner(owner, ...)` keeps working) but tears down its
@@ -555,10 +556,18 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
     return;
   }
   if (self) node._disposed = true;
+  // A cleanup that throws stops neither the rest of the tree nor this
+  // owner's other cleanups (#4193): the first error is rethrown once the
+  // walk is done — a child's walk rethrows its own, collected here.
+  let error: [unknown] | undefined;
   let child = node._firstChild;
   while (child) {
     const next = child._nextSibling;
-    disposeOwner(child as unknown as Owner, true);
+    try {
+      disposeOwner(child as unknown as Owner, true);
+    } catch (e) {
+      error ||= [e];
+    }
     child = next;
   }
   node._firstChild = null;
@@ -571,14 +580,16 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
   // cleanup that re-enters this owner's disposal must find nothing to re-run.
   const d = node._disposal;
   node._disposal = null;
+  // Unwind order, mirroring the client `runDisposal` (#3572): later
+  // registrations run before earlier ones.
   if (d) {
-    if (Array.isArray(d)) {
-      // Unwind order, mirroring the client `runDisposal` (#3572): later
-      // registrations run before earlier ones.
-      for (let i = d.length - 1; i >= 0; i--) d[i]();
-    } else {
-      d();
-    }
+    const many = Array.isArray(d);
+    for (let i = many ? d.length - 1 : 0; i >= 0; i--)
+      try {
+        (many ? d[i] : d)();
+      } catch (e) {
+        error ||= [e];
+      }
   }
   if (self) unlinkOwner(node);
   // Recycle the disposed owner. Skip the root case (`self=false`) and the
@@ -588,6 +599,7 @@ export function disposeOwner(owner: Owner, self: boolean = true): void {
     node.id = undefined;
     ownerPool.push(node);
   }
+  if (error) throw error[0];
 }
 
 /**
