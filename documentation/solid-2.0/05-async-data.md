@@ -35,6 +35,21 @@ This pushes “loading state” to UI structure (boundaries) instead of leaking 
 
 **Setting before the first value.** A writable async source (function-form `createSignal`/`createStore`, `createProjection`, the optimistic variants) can be written before its first answer lands. Absolute writes apply as usual. A function-form setter runs immediately against the raw base: `prev` is `undefined` for a signal or optimistic computed, and the draft is the seed (or `{}` for a seedless store). This holds for 2.x; the updater is not deferred until a value exists, because that would add a check and a queue to every setter call. The base itself is never readable (reads throw until something is written or lands). When the first answer lands, a return-form derive replaces the write; a derive that mutates its draft keeps it. If an updater can run in this window, guard it (`set(prev => (prev ?? 0) + 1)`).
 
+**Cleanup timing and cancellation.** Solid drops a superseded run's result on its own; stopping the work itself is up to the run. Two rules decide when:
+
+- **A flight stops when it's superseded.** An iterable the compute returns is closed (`return()`) as soon as the run re-runs, since nothing can show what it yields any more. An iterable you `for await` over inside an async compute is yours, and the language can't interrupt a generator paused on an `await`, so wrap it in `from()` to get the same prompt close.
+- **A frame's `onCleanup` runs when something replaces it on screen.** A run that never committed is cleaned up when it's superseded, so `onCleanup(() => ac.abort())` registered before the first `await` aborts an unfinished request promptly. The run on screen stays fully live until its replacement lands (a value or an error): its children keep reacting and its subscriptions and timers keep running, because it's still what the user sees.
+
+```js
+const results = createMemo(async () => {
+  const ac = new AbortController();
+  onCleanup(() => ac.abort()); // before the first await
+  return (await fetch(`/search?q=${query()}`, { signal: ac.signal })).json();
+});
+```
+
+Because the visible frame lives until its replacement lands, don't wait on its cleanup from inside the transition that replaces it: an action racing a promise that a memo's `onCleanup` resolves, or a new run awaiting a lock the old run releases in `onCleanup`, waits forever. Signal from the input instead (compare against the changed value, or hand the lock over when the new run acquires it). To stop work when an input changes, tie it to that input in a child computation (or a `from()` that re-runs with it), not to the outer frame.
+
 ### `Loading` is the UI boundary
 
 `Loading` shows fallback while the subtree needs unresolved async values.
@@ -205,12 +220,7 @@ Because async lives in ordinary computations, SSR/hydration policy is a per-prim
 const user = createMemo(() => fetchUser(id()));
 
 // Server serializes the first tick; the client continues the stream from it.
-const price = createMemo(
-  async function* () {
-    for await (const tick of priceTicks(symbol())) yield tick;
-  },
-  { ssrSource: "hybrid" }
-);
+const price = createMemo(() => priceTicks(symbol()), { ssrSource: "hybrid" });
 
 // Never serialized; computed fresh once hydration completes. The declared
 // commit #0 (null) is what renders until then.
