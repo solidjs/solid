@@ -134,6 +134,86 @@ describe("broadcast() capture rule", () => {
     });
   });
 
+  describe("data answers", () => {
+    const DATA_LEAK = /a broadcast\(\) answer cannot read `user` from its server function's body/;
+
+    it("rejects an outer-body local in a returned iterable", () => {
+      const code = [
+        IMPORT,
+        'import { getUser, watch } from "./db";',
+        "export const feed = broadcast(async (room) => {",
+        '  "use server";',
+        "  const user = await getUser();",
+        "  return watch(room, user.id);",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(DATA_LEAK);
+      expect(() => compile(code)).toThrow(
+        /module\.tsx:6:\d+: .*declared at \/project\/src\/module\.tsx:5:\d+/
+      );
+    });
+
+    it("rejects one read through an expression-bodied arrow and a component picked by it", () => {
+      const arrow = [
+        IMPORT,
+        "const user = 1;",
+        "export const feed = broadcast(async (room, user = load()) => watch(user));"
+      ].join("\n");
+      // A parameter is the share key, not the outer body.
+      expect(() => compile(arrow)).not.toThrow();
+      const picked = [
+        IMPORT,
+        "export const room = broadcast(async () => {",
+        '  "use server";',
+        "  const user = await load();",
+        "  return user.admin ? Admin : Viewer;",
+        "});"
+      ].join("\n");
+      expect(() => compile(picked)).toThrow(DATA_LEAK);
+    });
+
+    it("follows a local generator the returned call makes", () => {
+      const code = [
+        IMPORT,
+        "export const feed = broadcast(async () => {",
+        '  "use server";',
+        "  const user = await load();",
+        "  async function* rows() { yield user; }",
+        "  return rows();",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).toThrow(/cannot read `user`/);
+    });
+
+    it("allows the arguments, module scope, and locals of the returned expression", () => {
+      const code = [
+        IMPORT,
+        'import { watch, getUser } from "./db";',
+        "const LIMIT = 10;",
+        "export const feed = broadcast(async (room) => {",
+        '  "use server";',
+        "  const user = await getUser();",
+        '  if (!user) throw new Error("no");',
+        "  return watch(room, LIMIT, (row) => { const id = row.id; return id; });",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).not.toThrow();
+    });
+
+    it("leaves a generator alone: all of its body is shared", () => {
+      const code = [
+        IMPORT,
+        'import { watch, getUser } from "./db";',
+        "export const feed = broadcast(async function* (room) {",
+        '  "use server";',
+        "  const user = await getUser();",
+        "  yield* watch(room, user);",
+        "});"
+      ].join("\n");
+      expect(() => compile(code)).not.toThrow();
+    });
+  });
+
   describe("allowed", () => {
     it("reads parameters, its own locals and module scope", () => {
       const code = [

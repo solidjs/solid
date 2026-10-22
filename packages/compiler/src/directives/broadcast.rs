@@ -12,6 +12,14 @@
 //! read the server function's parameters (the share key), its own locals,
 //! and module scope. Anything else from the outer body is rejected.
 //!
+//! A data broadcast is the same bug in another shape: whatever the body
+//! returns that is not a component (an async iterable, usually a call that
+//! makes one) is the first caller's, and every later caller gets its stream.
+//! `const user = await getUser(); return watch(user.id)` leaks too. So the
+//! returned expression is held to the same rule. A generator (`async
+//! function*`) has no outer body: calling it runs nothing, so all of it is
+//! the shared part, and its request reads are the runtime's to warn about.
+//!
 //! What a call into imported code reads at runtime is out of reach here; the
 //! shared render's own request event covers that in dev.
 
@@ -23,7 +31,7 @@ use oxc_ast::ast::{
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::{Semantic, SemanticBuilder};
-use oxc_span::GetSpan;
+use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeId;
 use oxc_syntax::symbol::SymbolId;
 
@@ -105,6 +113,8 @@ struct BroadcastFinder<'s, 'a> {
 /// A function handed to `broadcast`: its scope, parameters and body.
 struct Target<'b, 'a> {
     scope: ScopeId,
+    /// A generator: calling it runs none of its body.
+    generator: bool,
     params: &'b FormalParameters<'a>,
     /// A block body's statements.
     body: Option<&'b FunctionBody<'a>>,
@@ -116,12 +126,14 @@ fn target_of<'b, 'a>(expression: &'b Expression<'a>) -> Option<Target<'b, 'a>> {
     match expression {
         Expression::ArrowFunctionExpression(arrow) => Some(Target {
             scope: arrow.scope_id.get()?,
+            generator: false,
             params: &arrow.params,
             body: arrow.get_function_body(),
             value: arrow.get_expression(),
         }),
         Expression::FunctionExpression(function) => Some(Target {
             scope: function.scope_id.get()?,
+            generator: function.generator,
             params: &function.params,
             body: Some(function.body.as_deref()?),
             value: None,
@@ -137,6 +149,7 @@ impl<'s, 'a> BroadcastFinder<'s, 'a> {
         match self.semantic.symbol_declaration(symbol).kind() {
             AstKind::Function(function) => Some(Target {
                 scope: function.scope_id.get()?,
+                generator: function.generator,
                 params: &function.params,
                 body: Some(function.body.as_deref()?),
                 value: None,
@@ -172,6 +185,9 @@ impl<'s, 'a> BroadcastFinder<'s, 'a> {
     }
 
     fn check(&mut self, target: &Target<'_, 'a>) {
+        if target.generator {
+            return;
+        }
         let scoping = self.semantic.scoping();
         let params: HashSet<SymbolId> = target
             .params
@@ -180,13 +196,66 @@ impl<'s, 'a> BroadcastFinder<'s, 'a> {
             .filter_map(|binding| binding.symbol_id.get())
             .collect();
 
-        // The components the body returns.
+        // The components the body returns, and the values it returns that
+        // are not one.
         let mut queue: Vec<ScopeId> = vec![];
+        let mut values: Vec<Span> = vec![];
         for expression in returned(target) {
-            if let Some(component) = self.function_of(expression)
-                && self.within(component.scope, target.scope)
+            match self.function_of(expression) {
+                Some(component) => {
+                    if self.within(component.scope, target.scope) {
+                        queue.push(component.scope);
+                    }
+                }
+                None => values.push(expression.span()),
+            }
+        }
+
+        // Every outer-body binding a returned value reads. A local function
+        // it calls is followed as a component is.
+        for symbol in scoping.symbol_ids() {
+            let declared = scoping.symbol_scope_id(symbol);
+            let declared_at = scoping.symbol_span(symbol).start;
+            if !self.within(declared, target.scope)
+                || params.contains(&symbol)
+                || values.iter().any(|value| value.start <= declared_at && declared_at < value.end)
             {
-                queue.push(component.scope);
+                continue;
+            }
+            for &reference_id in scoping.get_resolved_reference_ids(symbol) {
+                let reference = scoping.get_reference(reference_id);
+                if !reference.flags().is_value() {
+                    continue;
+                }
+                let span = self
+                    .semantic
+                    .nodes()
+                    .get_node(reference.node_id())
+                    .kind()
+                    .span();
+                if !values
+                    .iter()
+                    .any(|value| value.start <= span.start && span.end <= value.end)
+                {
+                    continue;
+                }
+                if let Some(function) = self.declared_function(symbol) {
+                    queue.push(function.scope);
+                    continue;
+                }
+                let (line, column) = line_column(self.code, span.start);
+                let (decl_line, decl_column) = line_column(self.code, declared_at);
+                let filename = self.filename;
+                self.error = Some(format!(
+                    "{filename}:{line}:{column}: a broadcast() answer cannot read `{name}` from \
+                     its server function's body (declared at {filename}:{decl_line}:{decl_column}). \
+                     The answer is shared by every caller with the same arguments, but the body \
+                     runs per caller, so every viewer would get the first caller's. Build it from \
+                     the arguments in the returned expression, or make the server function a \
+                     generator (`async function*`), which runs once for everyone.",
+                    name = scoping.symbol_name(symbol),
+                ));
+                return;
             }
         }
 
