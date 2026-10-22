@@ -175,7 +175,11 @@ export function createDeferred<T>(
             // promise, as for a plain flight: verdict and value in one flush.
             next: v => {
               const p = it.next(v);
-              if (first) ((first = false), p.then(done, done));
+              if (first) {
+                first = false;
+                if (isThenable(p)) p.then(done, done);
+                else done();
+              }
               return p;
             },
             return: v => it.return?.(v) ?? Promise.resolve({ done: true, value: v })
