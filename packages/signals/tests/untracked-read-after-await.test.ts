@@ -250,8 +250,8 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
         return 1;
       }, "thrower");
       await settle();
-      // The throw skipped the depth's exit. The first check to see the stale
-      // depth is muted and schedules the repair; the next continuation warns.
+      // The throwing cleanup is caught inside the teardown, so the depth is
+      // lowered on the spot: the very next continuation warns.
       const first = mount(async () => {
         await null;
         return x();
@@ -262,7 +262,10 @@ describe("UNTRACKED_READ_AFTER_AWAIT (dev)", () => {
         return x();
       }, "second-after");
       await settle();
-      expect(stop().map(e => [e.ownerName, e.nodeName])).toEqual([["second-after", "x"]]);
+      expect(stop().map(e => [e.ownerName, e.nodeName])).toEqual([
+        ["first-after", "x"],
+        ["second-after", "x"]
+      ]);
       dispose();
       first.dispose();
       second.dispose();

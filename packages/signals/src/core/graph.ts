@@ -7,7 +7,7 @@ import {
   STATUS_PENDING
 } from "./constants.js";
 import { deleteFromHeap } from "./heap.js";
-import { disposeChildren } from "./owner.js";
+import { disposeChildren, runCleanup } from "./owner.js";
 import { bumpNotifyEpoch, dirtyQueue } from "./scheduler.js";
 import type { Computed, Link, Signal } from "./types.js";
 
@@ -35,8 +35,10 @@ export function unlinkSubs(link: Link): Link | null {
     if (nextSub === null) {
       // Store slot nodes dispatch to the ONE shared hook — no per-node
       // unobserved closure, no NodeExtension to hold it.
+      // A user hook that throws is collected like a cleanup (owner.ts): the
+      // unlink and the teardown around it carry on.
       if (dep._config & CONFIG_SLOT_NODE) slotUnobservedHook(dep as Signal<any>);
-      else dep._x?._unobserved?.();
+      else if (dep._x?._unobserved) runCleanup(dep._x._unobserved);
       // No more subscribers; only tear down if CONFIG_AUTO_DISPOSE is set.
       // A pending node is exempt: its in-flight async work is an observer —
       // tearing down would orphan the work and re-execute it on the next

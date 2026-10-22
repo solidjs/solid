@@ -29,7 +29,7 @@ import {
 } from "./dev.js";
 import { clearDeps, unobserved } from "./graph.js";
 import { deleteFromHeap } from "./heap.js";
-import { dirtyQueue, schedule } from "./scheduler.js";
+import { dirtyQueue, globalQueue, schedule } from "./scheduler.js";
 import type { Computed, Disposable, Owner, Root } from "./types.js";
 
 // L2 (step 2): the parked frame. A pass parks the previous frame's children
@@ -58,6 +58,32 @@ export function dispose(node: Computed<unknown>): void {
   // this flag distinguishes death from dormancy.
   node._config &= ~CONFIG_AUTO_DISPOSE;
   unobserved(node);
+}
+
+// The first error a cleanup threw, boxed so a thrown `undefined` still
+// counts. A throwing cleanup stops neither its siblings nor the rest of the
+// tree: every cleanup runs. The error is rethrown once the teardown is over:
+// by a root's dispose call outside a flush (`disposeRootSelf`), otherwise when
+// the flush ends (`flush`; `runCleanup` schedules one), so a flush is never
+// left half-applied. A halt drops it: the error that halted is the one
+// reported, and a stale one must not surface from a later, unrelated dispose.
+let cleanupError: [unknown] | undefined;
+
+/** Runs a cleanup or `unobserved` hook; a throw is collected, not raised. @internal */
+export function runCleanup(fn: () => void): void {
+  try {
+    fn();
+  } catch (e) {
+    cleanupError ||= [e];
+    schedule();
+  }
+}
+
+/** Rethrows the error `runCleanup` collected, once; `drop` discards it. @internal */
+export function rethrowCleanupError(drop?: boolean): void {
+  const error = cleanupError;
+  cleanupError = undefined;
+  if (error && !drop) throw error[0];
 }
 
 export function disposeChildren(node: Owner, self: boolean = false, zombie?: boolean): void {
@@ -163,7 +189,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     const effectCleanup = node._cleanup;
     node._cleanup = undefined;
     if (__DEV__) enterDisposal();
-    effectCleanup();
+    runCleanup(effectCleanup);
     if (__DEV__) exitDisposal();
   }
 }
@@ -188,9 +214,7 @@ function runDisposal(node: Owner, zombie?: boolean): void {
   if (zombie) node._x!._pendingDisposal = null;
   else node._disposal = null;
 
-  // No try/finally: it would survive into prod (rollup keeps the frame). A
-  // throw leaves the depth raised; dev.ts clears the stale count on the next
-  // microtask, since teardown never spans one (core.ts).
+  // Each cleanup is guarded (`runCleanup`), so the depth is always lowered.
   if (__DEV__) enterDisposal();
   if (Array.isArray(disposal)) {
     // Unwind order (#3572, restores 1.x #1562): later registrations run
@@ -198,11 +222,10 @@ function runDisposal(node: Owner, zombie?: boolean): void {
     // so with LIFO a body that registers cleanup before creating its children
     // tears down after them — the same order a per-component owner gives.
     for (let i = disposal.length - 1; i >= 0; i--) {
-      const callable = disposal[i];
-      callable.call(callable);
+      runCleanup(disposal[i]);
     }
   } else {
-    disposal.call(disposal);
+    runCleanup(disposal);
   }
   if (__DEV__) exitDisposal();
 }
@@ -335,6 +358,9 @@ export function isDisposed(node: Owner): boolean {
 
 function disposeRootSelf(this: Root, self: boolean = true): void {
   disposeChildren(this, self);
+  // Outside a flush the dispose call rethrows; inside one, the flush does.
+  // Kept out of `disposeChildren`, whose hot path it slows.
+  if (cleanupError && !globalQueue._running) rethrowCleanupError();
 }
 
 /**

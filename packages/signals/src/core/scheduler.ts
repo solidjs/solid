@@ -43,6 +43,7 @@ import {
 import { sweepDormant, trimStaleDeps } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
 import { devCheckQuiescent } from "./invariants.js";
+import { rethrowCleanupError } from "./owner.js";
 import type { Computed, Owner, Signal } from "./types.js";
 
 // Optional-module hooks: module bindings, not `GlobalQueue` statics, so a
@@ -702,6 +703,8 @@ export const ROOT_ERROR_HOOK: unique symbol = Symbol.for("solid-js/root-error-ho
 export function haltReactivity(cause?: unknown): void {
   if (halted) return;
   halted = true;
+  // A cleanup error collected before the halt is dropped (owner.ts).
+  rethrowCleanupError(true);
   let message = "[REACTIVITY_HALTED]";
   if (__DEV__) {
     message +=
@@ -1459,6 +1462,7 @@ export function flush<T>(fn?: () => T): T | void {
   if (__OBSERVE__ && attrHooks !== null && scheduled) attrHooks.flushStart();
   while (scheduled) {
     if (__DEV__ && ++count === 1e5) {
+      rethrowCleanupError(true);
       // Attribution beats a bare guard (#3140): say what kept the loop alive.
       throw new Error(
         `Potential Infinite Loop Detected. Kept alive by scheduled work${
@@ -1474,6 +1478,9 @@ export function flush<T>(fn?: () => T): T | void {
   // so this is the "committed and effects ran" instant for everything the
   // loop processed.
   if (__OBSERVE__ && drained && attrHooks !== null) attrHooks.flushEnd();
+  // A cleanup that threw during the drain, now that the drain is complete
+  // (owner.ts).
+  rethrowCleanupError();
 }
 
 function runQueue(queue: QueueCallback[], type: number): void {
