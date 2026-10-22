@@ -133,7 +133,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           nv !== null &&
           typeof nv === "object"
         )
-          descend(unwrapValue(pvRaw), nv, keyFn, fam, proj);
+          descend(unwrapValue(pvRaw), nv, keyFn, fam, proj, t, i);
         if (
           t.dk !== null &&
           !dkBumpedA &&
@@ -185,7 +185,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
           } else {
             pv = unwrapValue(prevRows[i]); // keyless item: positional fallback
           }
-          descend(pv, nv, keyFn, fam, proj);
+          descend(pv, nv, keyFn, fam, proj, t, i);
         }
         if (nodes !== null) {
           const node = nodes[i];
@@ -202,7 +202,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       for (let i = 0; i < nlen; i++) {
         const nvP = nextRows[i];
         if (!shallow && i < dlen && nvP !== null && typeof nvP === "object")
-          descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj);
+          descend(unwrapValue(prevRows[i]), nvP, keyFn, fam, proj, t, i);
         if (
           t.dk !== null &&
           !dkBumpedP &&
@@ -248,7 +248,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
       if (nodes !== null && nodes[k] !== undefined) nodesHit++;
       continue;
     }
-    if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj);
+    if (isObj && !shallow) descend(unwrapValue((prevView as any)[k]), nv, keyFn, fam, proj, t, k);
     if (t.dk !== null && !dkBumped && !(isObj ? targetsEqual(ov, nv) : isEqual(ov, nv))) {
       bumpDeep(t);
       dkBumped = true;
@@ -267,7 +267,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
     if (k === $OWNER) continue;
     const nv = (incoming as any)[k];
     if (!shallow && nv !== null && typeof nv === "object")
-      descend(unwrapValue((old as any)[k]), nv, keyFn, fam, proj);
+      descend(unwrapValue((old as any)[k]), nv, keyFn, fam, proj, t, k);
     if (nodes !== null) {
       const node = nodes[k as any];
       if (node !== undefined) {
@@ -289,20 +289,42 @@ const hasOwnP = Object.prototype.hasOwnProperty;
 
 /** Descend into a changed child pair — only where something is proxied
  * below (§6d), never into a raw-marked leaf, never across array/object or a
- * key mismatch (that is a replacement, handled by the parent's slot). */
+ * key mismatch (that is a replacement, handled by the parent's slot).
+ *
+ * A raw in both frames (the same objects swapped, reordered or shifted,
+ * #4001) must not leave two slots on one row. A raw already a live row keeps
+ * it at the slot it moved to; a row's `pk` follows the slot it sits at (a
+ * move or a pairing writes it), so a row whose raw is at that slot of the
+ * incoming frame is spoken for and not paired again here; a raw still
+ * resolving to a row that moved on drops the lookup (it wraps fresh, or is
+ * paired here). One lookup of `nv` on the common path, no allocation. */
 function descend(
   pv: any,
   nv: any,
   keyFn: KeyFn | null,
   fam: StoreFamily | null,
-  proj = false
+  proj: boolean,
+  t: StoreTarget,
+  k: PropertyKey
 ): void {
   if (pv === null || typeof pv !== "object" || nv === null || typeof nv !== "object") return;
-  const ct = lookupTarget(pv, fam);
+  nv = unwrapValue(nv);
+  let ct = lookupTarget(pv, fam);
+  const nt = lookupTarget(nv, fam);
+  if (ct !== undefined && ct.pk != k) {
+    if (t.v[ct.pk as any] === ct.v) ct = undefined;
+    else if (ct.u === t) ct.pk = k;
+  }
+  if (nt !== undefined && nt !== ct) {
+    if (nt.v === nv) {
+      if (nt.u === t) nt.pk = k;
+      return;
+    }
+    (fam?.map ?? storeLookup).delete(nv);
+  }
   if (ct === undefined) return; // nothing proxied below this pair
   if (!isWrappable(nv)) return;
   if (rawValuesUsed && isRawValue(nv)) return;
-  nv = unwrapValue(nv);
   if (Array.isArray(pv) !== Array.isArray(nv)) return;
   if (keyFn) {
     const pk = keyFn(pv);

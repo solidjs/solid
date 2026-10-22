@@ -1096,8 +1096,9 @@ module.exports = [
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): cap 14.95 KB unchanged, recorded minified 45,175 -> 45,145 B (-30 B), measured in CI at 14,914 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 14.95 KB -> 15.01 KB, recorded minified 45,145 -> 45,286 B (+141 B), measured in CI at 14,997 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
     // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): 15.01 -> 15.04 KB, recorded minified 45,286 -> 45,330 B (+44 B), measured locally (linux) at 15,030 B brotli: a key born under a container guess that a correction folded under is held in that correction's hold; the fold itself lives in store/optimistic.ts behind the lane's `_laneRebase` hook. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "15.04 KB",
-    capMinified: 45330,
+    // Eager adoption no longer aliases swapped or shifted raws (#4001, 2026-10-22, over next @ 5b1b7776, pending the maintainer's acceptance): 15.04 KB -> 15.11 KB, recorded minified 45,330 -> 45,506 B (+176 B), measured locally (linux) at 15,099 B brotli. `descend` looks up the incoming raw and tracks the slot each row takes (`pk`), so a raw in both frames never leaves two slots on one row. Correctness; one WeakMap lookup per descended pair, no allocation. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "15.11 KB",
+    capMinified: 45506,
     alias
   },
   {
@@ -2645,8 +2646,9 @@ module.exports = [
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): 30.32 KB -> 30.41 KB, recorded minified 95,085 -> 95,109 B (+24 B), measured in CI at 30,394 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 30.41 KB -> 30.42 KB, recorded minified 95,109 -> 95,268 B (+159 B), measured in CI at 30,403 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
     // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): 30.42 -> 30.66 KB, recorded minified 95,268 -> 95,837 B (+569 B, golfed from +694 B at the maintainer's request), measured locally (linux) at 30,642 B brotli: this scenario carries createOptimisticStore, so it pays for the fold itself (store/optimistic.ts `fold`, `foldedRead`, core `joinPassAt`); a keyed arrangement guess is recognized by its view's removed-keys set. Correctness: two overlapping writes on one keyed store no longer tear the store or remount the confirmed row. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "30.66 KB",
-    capMinified: 95837,
+    // Eager adoption no longer aliases swapped or shifted raws (#4001, 2026-10-22, over next @ 5b1b7776, pending the maintainer's acceptance): 30.66 KB -> 30.74 KB, recorded minified 95,837 -> 96,018 B (+181 B), measured locally (linux) at 30,729 B brotli. `descend` looks up the incoming raw and tracks the slot each row takes (`pk`), so a raw in both frames never leaves two slots on one row. Correctness; one WeakMap lookup per descended pair, no allocation. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "30.74 KB",
+    capMinified: 96018,
     alias
   },
   {
@@ -3992,8 +3994,9 @@ module.exports = [
     // Re-recorded on next @ 0222d684 (2026-10-21, accepted by the maintainer): 26.11 KB -> 26.14 KB, recorded minified 81,138 -> 81,159 B (+21 B), measured in CI at 26,123 B brotli. #4188 (reaction arms captured before tracking reads), #4207 (#4203, unread pending memo under a verdict mount) and #4176 (deferred releases restored after a throwing cleanup) each passed alone and together put next 1 B past the 20 B minified allowance. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 26.14 KB -> 26.23 KB, recorded minified 81,159 -> 81,283 B (+124 B), measured in CI at 26,214 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
     // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): cap 26.23 KB unchanged, recorded minified 81,283 -> 81,327 B (+44 B: the app's store pays the birth check under a folded guess), measured locally (linux) at 26,216 B brotli, under the cap.
-    limit: "26.23 KB",
-    capMinified: 81327,
+    // Eager adoption no longer aliases swapped or shifted raws (#4001, 2026-10-22, over next @ 5b1b7776, pending the maintainer's acceptance): 26.23 KB -> 26.27 KB, recorded minified 81,327 -> 81,507 B (+180 B), measured locally (linux) at 26,254 B brotli. `descend` looks up the incoming raw and tracks the slot each row takes (`pk`), so a raw in both frames never leaves two slots on one row. Correctness; one WeakMap lookup per descended pair, no allocation. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "26.27 KB",
+    capMinified: 81507,
     alias
   },
   {
@@ -4150,8 +4153,9 @@ module.exports = [
     // Verdict-mount lane provenance for nested first passes (#4166, 2026-10-20, over next @ 5a4b2e85): 32.13 KB -> 32.20 KB, recorded minified 101,737 -> 101,703 B (-34 B), measured in CI at 32,182 B brotli. A module-local laneRoot carries the mount's lane through nested first passes, gated on the lane engine, so bundles without it shrink. Size-Exception accepted by the maintainer (2026-10-20). Cap at measured + 10 B rounded up to 0.01 KB, never lowered here; recorded minified = measured.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 32.20 KB (unchanged), recorded minified 101,703 -> 101,848 B (+145 B), measured in CI at 32,174 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
     // Keyed optimistic guess folds a correction (D-34, #4210, 2026-10-21, accepted by the maintainer 2026-10-22, re-measured over next @ db8241ce): 32.20 -> 32.23 KB, recorded minified 101,848 -> 101,892 B (+44 B: the app's store pays the birth check under a folded guess), measured locally (linux) at 32,215 B brotli. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "32.23 KB",
-    capMinified: 101892,
+    // Eager adoption no longer aliases swapped or shifted raws (#4001, 2026-10-22, over next @ 5b1b7776, pending the maintainer's acceptance): 32.23 KB -> 32.27 KB, recorded minified 101,892 -> 102,076 B (+184 B), measured locally (linux) at 32,259 B brotli. `descend` looks up the incoming raw and tracks the slot each row takes (`pk`), so a raw in both frames never leaves two slots on one row. Correctness; one WeakMap lookup per descended pair, no allocation. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.27 KB",
+    capMinified: 102076,
     alias
   },
   {
