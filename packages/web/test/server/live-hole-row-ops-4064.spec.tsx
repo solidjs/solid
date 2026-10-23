@@ -7,7 +7,7 @@
  * Anywhere else the hole goes whole.
  */
 import { expect, test } from "vitest";
-import { createMemo, For } from "solid-js";
+import { createMemo, For, Repeat } from "solid-js";
 import { Loading } from "@solidjs/web";
 import { renderServerComponent } from "../../frames/src/frame-sink.js";
 import { content, records } from "./wire.js";
@@ -226,4 +226,32 @@ test("an SVG attribute change ships the row whole", async () => {
   );
   const [op] = holes(chunks);
   expect(typeof op.rows.r[0][1]).toBe("string");
+});
+
+test("a live Repeat's rows travel as row ops too", async () => {
+  const ch = channel<string[]>();
+  const List = () => {
+    const view = createMemo(() => ch.iterable);
+    return (
+      <Loading fallback={<p>wait</p>}>
+        <ul>
+          <Repeat count={view().length}>{i => <li>{view()[i]}</li>}</Repeat>
+        </ul>
+      </Loading>
+    );
+  };
+  const { chunks, done } = consume(renderServerComponent(List, { frame: { id: "f" }, live: true }));
+  await tick();
+  for (const p of [
+    ["a", "b", "c"],
+    ["a", "B", "c"]
+  ]) {
+    ch.push(p);
+    await tick(20);
+  }
+  ch.end();
+  await done;
+  const [op] = holes(chunks);
+  expect(op.value).toBeUndefined();
+  expect(op.rows).toEqual({ n: 3, r: [[1, [[0, 0, "B"]], expect.any(Number)]] });
 });
