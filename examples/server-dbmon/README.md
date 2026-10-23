@@ -20,6 +20,12 @@ pnpm dev                       # https://localhost:3020/  (self-signed cert)
 pnpm build && pnpm start       # production harness, http://localhost:3020/
 ```
 
+The dashboard's top line shows how many live responses the server holds
+open and how much CPU the process used in the last second (the production
+server also prints it every second). Neither is any viewer's data, so the
+shared render may show them. Open more tabs and the count climbs while the
+CPU barely moves; under `pnpm dev` only the CPU is shown.
+
 Knobs (environment, read by the server):
 
 ```sh

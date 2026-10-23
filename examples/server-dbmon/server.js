@@ -19,6 +19,21 @@ import { handleRequest } from "./dist/server/server.js";
 const root = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3020;
 
+// Open live responses, for the dashboard's stats line (src/server/stats.ts).
+const VIEWERS = Symbol.for("solid.dbmon.viewers");
+globalThis[VIEWERS] = 0;
+
+// The same numbers on the console, every second: open live responses and
+// the CPU the process used. They stay flat as the audience grows.
+let lastCpu = process.cpuUsage();
+setInterval(() => {
+  const used = process.cpuUsage(lastCpu);
+  lastCpu = process.cpuUsage();
+  console.log(
+    `${globalThis[VIEWERS]} watching · server CPU ${Math.round((used.user + used.system) / 1000)} ms/s`
+  );
+}, 1000).unref();
+
 const MIME = {
   ".js": "application/javascript",
   ".css": "text/css",
@@ -104,6 +119,10 @@ createServer(async (req, res) => {
     });
     if (cookies?.length) res.setHeader("set-cookie", cookies);
     res.statusCode = response.status;
+    if (response.headers.get("content-type")?.startsWith("text/event-stream")) {
+      globalThis[VIEWERS]++;
+      res.on("close", () => globalThis[VIEWERS]--);
+    }
     const out = encoder(req, res) ?? res;
     if (response.body) {
       const reader = response.body.getReader();
