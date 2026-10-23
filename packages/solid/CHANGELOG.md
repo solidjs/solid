@@ -1,5 +1,24 @@
 # solid-js
 
+## 2.0.0-rc.18
+
+### Patch Changes
+
+- 50a810b: The DOM docs and cheatsheet narrow the ref-timing note: inside a ref, `el.ownerDocument.defaultView` is `null` only when the element's template contains no custom element; a template with one is imported into the live document as a whole.
+- f373683: Dev: an event handler fired synchronously from an effect callback (by `el.focus()`, `el.click()`, `dialog.showModal()`) no longer inherits the effect's strict-read window or effect-callback phase, so reading a prop in it no longer logs `STRICT_READ_UNTRACKED`, and creating a root in it no longer throws `PRIMITIVE_IN_EFFECT_CALLBACK`. Development builds only; production output is unchanged.
+- ec4483d: Live `For` rows whose markup kept its structure now travel as text and attribute edits that the client writes in place, instead of html it parses and morphs; any other change still ships the row whole. A dev server also ships a hash of each patched row's element tree, so a row the browser's parser restructured is reported and resynced instead of written. A live `<Repeat>`'s rows now take the same path; before, its hole was re-sent whole on every change.
+- 4645cff: Bump `seroval` and `seroval-plugins` to 1.7.0 (faster serialization: about 20–35% on hydration and JSON writes). A serialized write now ends at its first failing value, so later siblings in the same write are no longer sent after one fails; the keyed serializer settles that write instead of waiting for a `done` that seroval no longer sends. The JSON decoder's end-of-body open-stream count handles 1.7's single-consumer streams (from `ReadableStream` values).
+- aece1d4: `from(source)` turns a callback subscription (`(next, error, complete) => unsubscribe`), an Observable (`subscribe(observer)`, with `Symbol.observable` / `"@@observable"` interop) or an AsyncIterable into an AsyncIterable for a computation: `createMemo(() => from(source))`. A subscription keeps only the latest value, and a value emitted during `subscribe` lands with no loading frame; an AsyncIterable streams through. Errors reach the nearest error boundary. The source closes when the computation re-runs or its owner is disposed, without waiting for the replacement's first value, including a `for await` over `from` that starts before an async generator memo's first `await`: an internal supersede hook chains onto the node's iterator teardown slot (#3122). On the server, `from` streams like the client, and `ssrSource` decides how much of it the server consumes. Subscriptions and Observables carry the live-source brand, so the server serializes their first value and unsubscribes, and the hydrated client subscribes again. The server releases the source on `return()` or owner disposal.
+- Updated dependencies [c7f2d36]
+- Updated dependencies [0e668d8]
+- Updated dependencies [1c0ff9f]
+- Updated dependencies [f373683]
+- Updated dependencies [b9b6f33]
+- Updated dependencies [cdd9561]
+- Updated dependencies [a0520f6]
+- Updated dependencies [aece1d4]
+  - @solidjs/signals@2.0.0-rc.18
+
 ## 2.0.0-rc.17
 
 ### Patch Changes

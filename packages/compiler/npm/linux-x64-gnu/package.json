@@ -1,6 +1,6 @@
 {
   "name": "@solidjs/compiler-linux-x64-gnu",
-  "version": "2.0.0-rc.17",
+  "version": "2.0.0-rc.18",
   "cpu": [
     "x64"
   ],

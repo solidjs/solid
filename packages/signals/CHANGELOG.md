@@ -1,5 +1,18 @@
 # @solidjs/signals
 
+## 2.0.0-rc.18
+
+### Patch Changes
+
+- c7f2d36: End a superseded deferred flight when a later computation throws synchronously, so truth readers can deliver the current error.
+- 0e668d8: Accept synchronous iterator results during deferred refetches, matching the ordinary async consumer without wrapping buffered results in promises.
+- 1c0ff9f: A reconcile or derived-store adoption that receives the same raws swapped, reordered or shifted (`{ x: A, y: B }` → `{ x: B, y: A }`, an unkeyed `[A, B]` → `[B, A]`, `[A, B, C]` → `[B, C, D]`) no longer aliases two slots to one row. A raw that is already a row keeps its proxy at the slot it moved to, a row is paired with at most one slot of the incoming frame, and a raw whose row was paired away to another slot wraps fresh. Before, the slots read each other's values after the commit (#4001).
+- f373683: Dev: an event handler fired synchronously from an effect callback (by `el.focus()`, `el.click()`, `dialog.showModal()`) no longer inherits the effect's strict-read window or effect-callback phase, so reading a prop in it no longer logs `STRICT_READ_UNTRACKED`, and creating a root in it no longer throws `PRIMITIVE_IN_EFFECT_CALLBACK`. Development builds only; production output is unchanged.
+- b9b6f33: Contain unsubscribe throws when a `from()` subscription completes or errors synchronously, preserving its buffered value or original error.
+- cdd9561: A transition landing no longer shows its held writes before a render effect it re-derives on the landed world discovers a new pending flight: the landing's effect runs wait for that re-derivation, and park with it until the flight lands (#4071).
+- a0520f6: A rejected async replacement retires the frame it replaces. When an async memo re-ran over a committed value and the new run rejected, the error showed, but the old run's `onCleanup` callbacks and owned children stayed parked until a later run succeeded, so a subscription or timer from the replaced run kept going behind the error. The rejection now disposes the parked frame when it publishes, as a value's commit does (and as a synchronous throw already did). Also pins the existing timing: a run that never committed is cleaned up when it's superseded, and the committed run when its replacement lands (#4222).
+- aece1d4: `from(source)` turns a callback subscription (`(next, error, complete) => unsubscribe`), an Observable (`subscribe(observer)`, with `Symbol.observable` / `"@@observable"` interop) or an AsyncIterable into an AsyncIterable for a computation: `createMemo(() => from(source))`. A subscription keeps only the latest value, and a value emitted during `subscribe` lands with no loading frame; an AsyncIterable streams through. Errors reach the nearest error boundary. The source closes when the computation re-runs or its owner is disposed, without waiting for the replacement's first value, including a `for await` over `from` that starts before an async generator memo's first `await`: an internal supersede hook chains onto the node's iterator teardown slot (#3122). On the server, `from` streams like the client, and `ssrSource` decides how much of it the server consumes. Subscriptions and Observables carry the live-source brand, so the server serializes their first value and unsubscribes, and the hydrated client subscribes again. The server releases the source on `return()` or owner disposal.
+
 ## 2.0.0-rc.17
 
 ### Patch Changes
