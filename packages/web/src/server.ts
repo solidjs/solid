@@ -3981,9 +3981,16 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
   // Null when every row changed: the whole hole is then no more to send.
   function rowOps(last, rows) {
     const ops = [];
+    const html = [];
     for (let i = 0; i < rows.length; i++)
-      if (i >= last.length || rows[i] !== last[i]) ops.push([i, rows[i]]);
-    return ops.length < rows.length ? { n: rows.length, r: ops } : null;
+      if (i >= last.length || rows[i] !== last[i]) {
+        const patch = i < last.length ? rowPatch(last[i], rows[i]) : null;
+        ops.push(patch ? ("_SOLID_DEV_" ? [i, patch.p, patch.h] : [i, patch.p]) : [i, rows[i]]);
+        html.push(rows[i]);
+      }
+    if (ops.length >= rows.length) return null;
+    // The changed rows' html, for the sink's digests: never on the wire.
+    return Object.defineProperty({ n: rows.length, r: ops }, ROW_HTML, { value: html });
   }
   // Resolve a hole thunk's value to a `{ t, h, p }` result (`rows` as
   // `resolveValue` returns them). NotReady escalations are absorbed into
@@ -4507,6 +4514,89 @@ function attrNames(text) {
   let m;
   while ((m = re.exec(text))) names.push(m[1]);
   return names;
+}
+
+// Row patches: a changed row whose markup has the same structure as the
+// one the client shows (same tags, same comments, in the same order)
+// travels as the edits between them instead of its html, so the client
+// writes text and attributes in place with no parse and no morph. `p`
+// lists `[el, attrs]` (element `el`'s whole attribute area, `el` counting
+// the row's elements in document order) and `[el, slot, text]` (the text
+// run before the `slot`-th non-text child of `el`, -1 the row itself);
+// In dev, `h` hashes the row's element tree (each element's tag and its
+// parent's ordinal): the client hashes the row it shows the same way and
+// reports a mismatch instead of writing, since a parser fix-up (foster
+// parenting, an implied close) can give the DOM a shape the strings don't
+// have. The compiler rejects such markup in DOM templates, but server
+// components compile only for SSR, and nesting across components is never
+// one template. Null
+// when the structure differs or a text run carries an entity this
+// decoder doesn't know; the row then ships whole. Shares `rowShape` with
+// the client (wire-tier.ts), which must hash identically.
+const ROW_HTML = Symbol.for("solid.rowHtml");
+const ROW_TOKEN = /<(\/?)([a-zA-Z][^\s/>]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|<!--([\s\S]*?)-->/g;
+const ROW_VOID = /^(?:area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/i;
+const ROW_FOREIGN = /^(?:svg|math)$/i;
+const ROW_RAW = /^(?:script|style|textarea|title|template)$/i;
+const ROW_ENTITY = /&(?:amp|lt|gt|quot|#39);/g;
+const ROW_ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" };
+function rowText(text) {
+  if (!text.includes("&")) return text;
+  if (text.replace(ROW_ENTITY, "").includes("&")) return null;
+  return text.replace(ROW_ENTITY, e => ROW_ENTITIES[e]);
+}
+const ROW_HASH_SEED = 0x811c9dc5;
+function rowShape(h, tag, parent) {
+  for (let i = 0; i < tag.length; i++) h = Math.imul(h ^ (tag.charCodeAt(i) | 32), 16777619);
+  return Math.imul(h ^ (parent + 2), 16777619);
+}
+function rowPatch(a, b) {
+  const ra = new RegExp(ROW_TOKEN);
+  const rb = new RegExp(ROW_TOKEN);
+  const p = [];
+  // Open elements: [ordinal, non-text children so far, inside SVG/MathML];
+  // the row is -1.
+  const stack: [number, number, boolean][] = [[-1, 0, false]];
+  let el = -1;
+  let h = ROW_HASH_SEED;
+  let ia = 0;
+  let ib = 0;
+  for (;;) {
+    const ma = ra.exec(a);
+    const mb = rb.exec(b);
+    const ta = a.slice(ia, ma ? ma.index : a.length);
+    const tb = b.slice(ib, mb ? mb.index : b.length);
+    const top = stack[stack.length - 1];
+    if (ta !== tb) {
+      const text = rowText(tb);
+      if (text === null) return null;
+      p.push([top[0], top[1], text]);
+    }
+    if (!ma || !mb) return !ma && !mb ? { p, h: h >>> 0 } : null;
+    ia = ra.lastIndex;
+    ib = rb.lastIndex;
+    if (ma[4] !== undefined || mb[4] !== undefined) {
+      if (ma[4] !== mb[4]) return null;
+      top[1]++;
+    } else if (ma[1] !== mb[1] || ma[2] !== mb[2]) return null;
+    else if (ROW_RAW.test(ma[2])) return null;
+    else if (ma[1]) {
+      if (stack.length === 1) return null;
+      stack.pop();
+    } else {
+      el++;
+      if ("_SOLID_DEV_") h = rowShape(h, ma[2], top[0]);
+      top[1]++;
+      const foreign = top[2] || ROW_FOREIGN.test(ma[2]);
+      if (ma[3] !== mb[3]) {
+        // SVG and MathML attribute names are case-sensitive; the client
+        // folds names as the HTML parser does, so those rows ship whole.
+        if (foreign) return null;
+        p.push([el, mb[3].replace(/\/$/, "")]);
+      }
+      if (!ROW_VOID.test(ma[2]) && !ma[3].endsWith("/")) stack.push([el, 0, foreign]);
+    }
+  }
 }
 
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string };

@@ -93,7 +93,8 @@ test("a sweep that changed one row sends that row by index", async () => {
   const chunks = await run([rows("a", "b", "c"), rows("a", "B", "c")]);
   const [op] = holes(chunks);
   expect(op.value).toBeUndefined();
-  expect(op.rows).toEqual({ n: 3, r: [[1, "<li>B</li>"]] });
+  // Same structure: the row travels as its edit, text run 0 of element 0.
+  expect(op.rows).toEqual({ n: 3, r: [[1, [[0, 0, "B"]], expect.any(Number)]] });
   // The base is the digest the client's ledger took from the first render.
   const [, first] = records(chunks, "").find(([, r]) => r && r.holes && r.holes["lh:0"])!;
   expect(op.base).toBe(first.holes["lh:0"]);
@@ -124,4 +125,105 @@ test("a sweep that changed every row sends the whole hole", async () => {
   const [op] = holes(chunks);
   expect(op.rows).toBeUndefined();
   expect(op.value).toBe("<!--lr--><li>x</li><!--lr--><li>y</li>");
+});
+
+async function runRows<T>(pushes: T[][], row: (r: T) => any) {
+  const ch = channel<T[]>();
+  const List = () => {
+    const view = createMemo(() => ch.iterable);
+    return (
+      <Loading fallback={<p>wait</p>}>
+        <table>
+          <tbody>
+            <For each={view()}>{row}</For>
+          </tbody>
+        </table>
+      </Loading>
+    );
+  };
+  const { chunks, done } = consume(renderServerComponent(List, { frame: { id: "f" }, live: true }));
+  await tick();
+  for (const p of pushes) {
+    ch.push(p);
+    await tick(20);
+  }
+  ch.end();
+  await done;
+  return chunks;
+}
+
+type Cell = { cls: string; text: string; show?: boolean };
+const cell = (r: Cell) => (
+  <tr>
+    <td class={r.cls}>
+      {r.text}
+      <span>{r.show ? <b>!</b> : null}</span>
+    </td>
+  </tr>
+);
+
+test("a row with the same structure ships its attribute and text edits and its shape", async () => {
+  const chunks = await runRows(
+    [
+      [
+        { cls: "a", text: "x" },
+        { cls: "a", text: "y" }
+      ],
+      [
+        { cls: "a", text: "x" },
+        { cls: "b", text: "<y> & z" }
+      ]
+    ],
+    cell
+  );
+  const [op] = holes(chunks);
+  const [[i, patch, shape]] = op.rows.r;
+  expect(i).toBe(1);
+  // Entities decode: the client writes text, not markup. The text run is
+  // the td's second slot, after its text hole's opening marker.
+  expect(patch).toEqual([
+    [1, ' class="b"'],
+    [1, 1, "<y> & z"]
+  ]);
+  expect(typeof shape).toBe("number");
+  // The row's html still feeds the digests; it never rides the wire.
+  expect(JSON.stringify(op.rows)).not.toContain("<td");
+});
+
+test("a row whose structure changed ships whole", async () => {
+  const chunks = await runRows(
+    [
+      [
+        { cls: "a", text: "x" },
+        { cls: "a", text: "y" }
+      ],
+      [
+        { cls: "a", text: "x" },
+        { cls: "a", text: "y", show: true }
+      ]
+    ],
+    cell
+  );
+  const [op] = holes(chunks);
+  const [[i, html]] = op.rows.r;
+  expect(i).toBe(1);
+  expect(html).toContain("<b>!</b>");
+});
+
+test("an SVG attribute change ships the row whole", async () => {
+  const chunks = await runRows(
+    [
+      [{ w: "1" }, { w: "2" }],
+      [{ w: "1" }, { w: "3" }]
+    ],
+    (r: { w: string }) => (
+      <tr>
+        <td>
+          <svg viewBox={`0 0 ${r.w} 1`} />
+        </td>
+      </tr>
+    )
+  );
+  const [op] = holes(chunks);
+  expect(typeof op.rows.r[0][1]).toBe("string");
 });
