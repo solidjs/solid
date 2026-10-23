@@ -887,7 +887,16 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         // checked too. Content holes are opaque — under an `<html>` root one
         // may render the `<head>`/`<body>`, so those shells are skipped.
         if self.validate {
-            let (html, content_holes) = template.validation_markup();
+            let (mut html, content_holes) = template.validation_markup();
+            // Like the DOM compile, a template rooted at an SVG/MathML element
+            // (`<g>`, `<image>`, …) is parsed under its owner tag: it renders
+            // inside an `<svg>`/`<math>` of an enclosing template (#4241).
+            if let Some(wrapper) = element_name(&element.opening_element.name)
+                .ok()
+                .and_then(|tag_name| crate::dom::element::xml_wrapper_tag(element, &tag_name))
+            {
+                html = format!("<{wrapper}>{html}</{wrapper}>");
+            }
             let shell_with_holes = content_holes && html.starts_with("<html>");
             if let Some(result) = (!shell_with_holes)
                 .then(|| crate::shared::validate::is_invalid_markup(&html))
