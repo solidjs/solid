@@ -89,8 +89,10 @@ describe("#3478 renderToStream completion after a nested Loading settles before 
     // Before the fix: `done(undefined, err)` threw a TypeError out of
     // replacePlaceholder (splicing the settled inner fragment's parked markup
     // into an undefined value), so `0_fr` never rejected, seroval's onDone
-    // never fired and end() was never called.
-    expect(result.html).toContain('$R[7],$R[11]=new Error("boom")');
+    // never fired and end() was never called. `0_fr` ($R[4], its resolver)
+    // rejects with the error the sibling read's own rejection serialized.
+    expect(result.html).toContain('$R[10]=new Error("boom")');
+    expect(result.html).toContain("$R[11]($R[4],$R[10])");
     expect(result.ended).toBe(true);
   });
 

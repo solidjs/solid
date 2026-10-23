@@ -4,10 +4,6 @@ import vm from "node:vm";
  * Executes a rendered payload's <script> blocks the way a browser would and
  * returns the record ids filed under `_$HY.r` — asserting the serialized
  * record SET by protocol outcome rather than by scraping assignment text.
- * The wire format is not one-record-one-assignment: pre-shell pending
- * promises batch into a single seroval write (keyed "$B") that a spreader
- * task files under the real ids, so `_$HY.r["<id>"]=` only appears for
- * post-shell writes.
  *
  * `document.getElementById` returns null so `$df` reveal calls take their
  * graceful "template not present" early-return instead of touching a DOM;
