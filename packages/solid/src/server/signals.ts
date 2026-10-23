@@ -3589,6 +3589,9 @@ export function repeat<T>(
           rowOwner._childCount = len;
         }
       });
+      // Rows in a live render, as mapArray tags them (#4064): a sweep sends
+      // only the rows that changed, by index.
+      if ((sharedConfig.context as any)?.liveHoles) (out as any).$rows = true;
       return out;
     },
     { sync: true }

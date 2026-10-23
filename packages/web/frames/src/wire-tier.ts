@@ -82,7 +82,7 @@ import {
   FRAME_ID_ATTR
 } from "./frame-client.js";
 // The range morph (frame-morph.ts), bundled into this chunk.
-import { reconcileChildren } from "./frame-morph.js";
+import { morphAttributes, reconcileChildren } from "./frame-morph.js";
 
 import type { FrameHost, FrameHostOptions } from "./frame-client.js";
 
@@ -391,9 +391,10 @@ export function connect(
 function rows(
   open: Node,
   close: Node,
-  ops: { n: number; r: [number, string][] },
+  ops: { n: number; r: ([number, string] | [number, any[], number?])[] },
   parse: (html: string) => DocumentFragment,
-  morph: (start: Node, end: Node, fragment: DocumentFragment) => void
+  morph: (start: Node, end: Node, fragment: DocumentFragment) => void,
+  claim?: any
 ): boolean {
   const isRow = (n: Node) => n.nodeType === 8 && (n as Comment).data === "lr";
   const starts: Node[] = [];
@@ -410,30 +411,144 @@ function rows(
   let appended = 0;
   for (const [i] of ops.r) if (i >= had) appended++;
   if (!had || appended !== Math.max(0, n - had)) return false;
-  const fragment = parse(ops.r.map(op => "<!--lr-->" + op[1]).join(""));
-  const parsed: DocumentFragment[] = [];
-  for (let c = fragment.firstChild; c; ) {
-    const next = c.nextSibling;
-    if (isRow(c)) parsed.push(document.createDocumentFragment());
-    else parsed[parsed.length - 1].appendChild(c);
-    c = next;
+  // Row patches: resolve every patched row's elements first, so a row that
+  // doesn't show the structure its patch was taken against fails the whole
+  // op before anything is written.
+  const rowEnd = (i: number) => (i + 1 < Math.min(n, had) ? starts[i + 1] : close);
+  const patched: (Element[] | null)[] = [];
+  let html = "";
+  let whole = 0;
+  for (const op of ops.r) {
+    if (typeof op[1] === "string") {
+      html += "<!--lr-->" + op[1];
+      whole++;
+      patched.push(null);
+      continue;
+    }
+    if (op[0] >= had) return false;
+    const els = rowElements(starts[op[0]], rowEnd(op[0]), op[2]);
+    if (!els) return false;
+    for (const edit of op[1]) if (edit[0] >= els.length) return false;
+    patched.push(els);
   }
-  if (parsed.length !== ops.r.length) return false;
+  const parsed: DocumentFragment[] = [];
+  if (whole) {
+    const fragment = parse(html);
+    for (let c = fragment.firstChild; c; ) {
+      const next = c.nextSibling;
+      if (isRow(c)) parsed.push(document.createDocumentFragment());
+      else parsed[parsed.length - 1].appendChild(c);
+      c = next;
+    }
+    if (parsed.length !== whole) return false;
+  }
   const parent = open.parentNode!;
   // Truncate: everything from the first dropped row's marker to `close`.
   if (n < had) while (starts[n].nextSibling !== close) parent.removeChild(close.previousSibling!);
   if (n < had) parent.removeChild(starts[n]);
-  ops.r.forEach(([i], k) => {
-    if (i < had) {
-      const end = i + 1 < Math.min(n, had) ? starts[i + 1] : close;
-      morph(starts[i], end, parsed[k]);
-    } else {
+  let k = 0;
+  ops.r.forEach((op, j) => {
+    const i = op[0];
+    const els = patched[j];
+    if (els) return patchRow(starts[i], rowEnd(i), els, op[1] as any[], claim);
+    const fragment = parsed[k++];
+    if (i < had) morph(starts[i], rowEnd(i), fragment);
+    else {
       const marker = document.createComment("lr");
       parent.insertBefore(marker, close);
-      parent.insertBefore(parsed[k], close);
+      parent.insertBefore(fragment, close);
     }
   });
   return true;
+}
+
+/** A row's elements in document order, or null when the row holds a live
+ *  hole's markers (its text runs would not line up with the server's) or,
+ *  given a dev server's `shape` (see `rowPatch` in the server), its element
+ *  tree hashes to something else. */
+function rowElements(start: Node, end: Node, shape?: number): Element[] | null {
+  const els: Element[] = [];
+  let h = 0x811c9dc5;
+  const walk = (n: Node | null, stop: Node | null, parent: number): boolean => {
+    for (; n && n !== stop; n = n.nextSibling) {
+      if (n.nodeType === 8 && /^lh:/.test((n as Comment).data)) return false;
+      if (n.nodeType !== 1) continue;
+      const el = els.length;
+      if (shape !== undefined) {
+        const tag = (n as Element).localName;
+        for (let i = 0; i < tag.length; i++) h = Math.imul(h ^ (tag.charCodeAt(i) | 32), 16777619);
+        h = Math.imul(h ^ (parent + 2), 16777619);
+      }
+      els.push(n as Element);
+      if (!walk(n.firstChild, null, el)) return false;
+    }
+    return true;
+  };
+  if (!walk(start.nextSibling, end, -1)) return null;
+  if (shape !== undefined && h >>> 0 !== shape) {
+    console.error(
+      "A live row's markup doesn't parse to the elements the server rendered (invalid HTML nesting?); the row was re-sent whole.",
+      start.nextSibling
+    );
+    return null;
+  }
+  return els;
+}
+
+// An attribute area as the morph reads a source element: the server's
+// double-quoted, attribute-escaped text scans exactly; anything else (an
+// unquoted or single-quoted value, an entity beyond the escaper's own)
+// goes through the parser. Names fold to lower case as the HTML parser
+// folds them (the server ships foreign elements' attribute changes whole).
+const ATTR = /\s([^\s=/>"']+)(?:="([^"]*)")?/g;
+const ATTR_ENTITY = /&(?:amp|lt|gt|quot|#39);/g;
+const ATTR_ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'"
+};
+function attrArea(text: string): any {
+  if (/=[^"]/.test(text) || text.replace(ATTR_ENTITY, "").includes("&"))
+    return parseFragment(`<i${text}></i>`).firstChild;
+  const attributes: { name: string; value: string }[] = [];
+  const names = new Set<string>();
+  for (const m of text.matchAll(ATTR)) {
+    const value = m[2] === undefined ? "" : m[2].replace(ATTR_ENTITY, e => ATTR_ENTITIES[e]);
+    const name = m[1].toLowerCase();
+    attributes.push({ name, value });
+    names.add(name);
+  }
+  return { attributes, hasAttribute: (name: string) => names.has(name) };
+}
+
+/** Write a row patch (see `rowPatch` in the server): attribute areas the
+ *  way the morph matches them, text runs in place. */
+function patchRow(start: Node, end: Node, els: Element[], patch: any[], claim: any) {
+  for (const op of patch) {
+    const el = op[0] < 0 ? null : els[op[0]];
+    if (el && el.closest("[data-preserve]")) continue;
+    if (op.length === 2) {
+      morphAttributes(el, attrArea(op[1]), claim);
+      continue;
+    }
+    // The text run before the `slot`-th non-text child.
+    let seen = 0;
+    let at: Node | null = el ? el.firstChild : start.nextSibling;
+    const stop = el ? null : end;
+    let text: Text | null = null;
+    for (; at && at !== stop; at = at.nextSibling) {
+      if (at.nodeType === 3) {
+        if (seen === op[1]) {
+          text = at as Text;
+          break;
+        }
+      } else if (seen++ === op[1]) break;
+    }
+    if (text) text.data = op[2];
+    else if (op[2]) (el || start.parentNode!).insertBefore(document.createTextNode(op[2]), at);
+  }
 }
 
 /**
@@ -472,8 +587,13 @@ export function hole(
     // range shows, and the hole comes back whole.
     if (
       f.s()[marker] !== record.base ||
-      !rows(open, close, record.rows, parseFragment, (start, end, fragment) =>
-        reconcileChildren(start.parentNode!, fragment, start, end, f.c)
+      !rows(
+        open,
+        close,
+        record.rows,
+        parseFragment,
+        (start, end, fragment) => reconcileChildren(start.parentNode!, fragment, start, end, f.c),
+        f.c
       )
     ) {
       // Once: the record is spent, the resume re-sends the hole whole.

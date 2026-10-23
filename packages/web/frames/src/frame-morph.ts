@@ -88,7 +88,7 @@ function compatible(a, b) {
   return a.nodeType === TEXT_NODE || a.nodeType === COMMENT_NODE;
 }
 
-function morphAttributes(oldEl, newEl, claim) {
+export function morphAttributes(oldEl, newEl, claim) {
   let reclaim = false;
   let changed = false;
   const keepOpen = preservesOpen(oldEl);

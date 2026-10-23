@@ -36,6 +36,17 @@ function makeHost() {
 }
 
 const getTable = createServerReference(ID);
+// A row's element-tree hash as the server ships it beside a patch: each
+// element's tag and its parent's ordinal (-1 the row), in document order.
+const shape = (...els: [string, number][]) => {
+  let h = 0x811c9dc5;
+  for (const [tag, parent] of els) {
+    for (let i = 0; i < tag.length; i++) h = Math.imul(h ^ (tag.charCodeAt(i) | 32), 16777619);
+    h = Math.imul(h ^ (parent + 2), 16777619);
+  }
+  return h >>> 0;
+};
+const LI = shape(["li", -1]);
 const list = (...rows: string[]) => rows.map(r => `<!--lr--><li>${r}</li>`).join("");
 
 async function mount() {
@@ -301,6 +312,126 @@ describe("row ops on a live For hole", () => {
       await done();
     } finally {
       tierLoads.wire = load;
+      load.r = real;
+    }
+  });
+
+  test("a row patch writes text and attributes in place, without a parse", async () => {
+    await prepareTier("wire");
+    const { container, items, send, done } = await mount();
+    const [a, b, c] = items();
+    const text = b.firstChild;
+    const parsed: string[] = [];
+    const set = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML")!.set!;
+    vi.spyOn(HTMLTemplateElement.prototype, "innerHTML", "set").mockImplementation(function (
+      this: any,
+      v: string
+    ) {
+      parsed.push(v);
+      set.call(this, v);
+    });
+    const added: Node[] = [];
+    const observer = new MutationObserver(records => {
+      for (const r of records) added.push(...r.addedNodes);
+    });
+    observer.observe(container, { subtree: true, childList: true });
+    send({
+      type: "hole",
+      key: "lh:0",
+      digest: "d1",
+      base: "d0",
+      rows: {
+        n: 3,
+        r: [
+          [
+            1,
+            [
+              [0, ' class="x"'],
+              [0, 0, "<B>"]
+            ],
+            LI
+          ]
+        ]
+      }
+    });
+    await cycle();
+    observer.disconnect();
+    expect(parsed).toEqual([]);
+    expect(added).toEqual([]);
+    expect(items().map(li => li.outerHTML)).toEqual([
+      "<li>a</li>",
+      '<li class="x">&lt;B&gt;</li>',
+      "<li>c</li>"
+    ]);
+    expect(items()[1]).toBe(b);
+    expect(b.firstChild).toBe(text);
+    expect([items()[0], items()[2]]).toEqual([a, c]);
+    await done();
+  });
+
+  test("a row patch fills an empty text run and mixes with whole rows", async () => {
+    await prepareTier("wire");
+    const { items, send, done } = await mount();
+    send({
+      type: "hole",
+      key: "lh:0",
+      digest: "d1",
+      base: "d0",
+      rows: { n: 3, r: [[1, "<li><!--$--><!--/--><span>q</span></li>"]] }
+    });
+    await cycle();
+    const span = items()[1].querySelector("span")!;
+    send({
+      type: "hole",
+      key: "lh:0",
+      digest: "d2",
+      base: "d1",
+      rows: {
+        n: 3,
+        r: [
+          [0, "<li>A</li>"],
+          // A production server ships no shape: the patch writes unchecked.
+          [1, [[0, 1, "5"]]]
+        ]
+      }
+    });
+    await cycle();
+    expect(items()[0].textContent).toBe("A");
+    expect(items()[1].innerHTML).toBe("<!--$-->5<!--/--><span>q</span>");
+    expect(items()[1].querySelector("span")).toBe(span);
+    await done();
+  });
+
+  test("a row whose element tree doesn't hash to the patch's shape resyncs, writing nothing", async () => {
+    await prepareTier("wire");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const load = tierLoads.wire!;
+    const real = load.r;
+    const cancel = vi.fn();
+    load.r = { ...real, cancel };
+    try {
+      const { items, send, done } = await mount();
+      cancel.mockClear();
+      send({
+        type: "hole",
+        key: "lh:0",
+        digest: "d1",
+        base: "d0",
+        rows: {
+          n: 3,
+          r: [
+            [0, [[0, 0, "A"]], LI],
+            // The client shows an <li>; the patch was taken against a <p>.
+            [1, [[0, 0, "B"]], shape(["p", -1])]
+          ]
+        }
+      });
+      await cycle();
+      expect(cancel).toHaveBeenCalledWith(expect.anything(), ID);
+      expect(items().map(li => li.textContent)).toEqual(["a", "b", "c"]);
+      expect(error).toHaveBeenCalledTimes(1);
+      await done();
+    } finally {
       load.r = real;
     }
   });

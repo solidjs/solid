@@ -358,6 +358,7 @@ export function frameSkeleton(html) {
  * Digests of every live-hole range in `html` (nested included) and of every
  * attr hole addressed in it whose baseline text the sink holds.
  */
+const ROW_HTML = Symbol.for("solid.rowHtml");
 function holeDigests(html, attrText, into = {}) {
   for (const m of html.matchAll(HOLE_RANGE)) {
     into["lh:" + m[1]] = textDigest(stripHoleMarkers(m[2]));
@@ -857,7 +858,10 @@ export function createFrameSink(write, frame, have, hooks) {
         record.base = base;
       } else record.value = source;
       // Holes inside what changed now show it.
-      withHoles(record, holeDigests(record.rows ? rows.r.map(r => r[1]).join("") : source, null));
+      withHoles(
+        record,
+        holeDigests(record.rows ? (rows[ROW_HTML] || rows.r.map(r => r[1])).join("") : source, null)
+      );
       // A broadcast keeps what the range now shows whole, for viewers that
       // join later (the row op names a base they never had). Symbol-keyed:
       // never serialized.
