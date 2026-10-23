@@ -353,6 +353,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
                 location_base(options),
                 wrapper_name(&options.memo_wrapper, "memo"),
                 options.static_marker.clone(),
+                options.validate,
                 options.built_ins.clone(),
             );
             if options.hoist_props {
