@@ -1,0 +1,26 @@
+{
+  "name": "canvas-example",
+  "description": "A multiplayer canvas: shapes several people drag at once, with live cursors and live drags, over one shared broadcast and plain server-function writes",
+  "version": "0.0.0",
+  "private": true,
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server.js",
+    "typecheck": "tsc --noEmit",
+    "check:server": "node scripts/check-server.mjs",
+    "check": "pnpm check:server && vite build && node scripts/check-bundle.mjs"
+  },
+  "dependencies": {
+    "@solidjs/web": "workspace:*",
+    "solid-js": "workspace:*"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.50",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "vite": "^8.0.0"
+  }
+}
