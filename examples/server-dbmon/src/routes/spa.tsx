@@ -2,13 +2,12 @@
 // streams the databases as data after every tick, and the browser renders
 // the table with keyed `<For>`s.
 import { For, Loading, Show, createMemo, createSignal, onSettled } from "solid-js";
-import { getRequestEvent } from "@solidjs/web";
-import { live } from "@solidjs/web/server-functions";
+import { broadcast } from "@solidjs/web/server-functions";
 import { watchDatabases, type Database } from "~/server/databases";
 
-const getDatabaseData = live(async function* (): AsyncGenerator<Database[]> {
+const getDatabaseData = broadcast(async function* (): AsyncGenerator<Database[]> {
   "use server";
-  yield* watchDatabases(getRequestEvent()?.request.signal);
+  yield* watchDatabases();
 });
 
 export default function Spa() {

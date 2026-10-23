@@ -11,13 +11,20 @@ Two routes render the same simulation, so they can be compared:
   `broadcast()` address: every tab sees the same table, so the server
   renders it once and streams the same changes to every viewer. The
   browser only applies the markup it receives.
-- `/spa` — the client-rendered twin. The server streams the databases as
-  data and the browser renders them with keyed `<For>`s.
+- `/spa` — the client-rendered twin. The data is a `broadcast()` too: the
+  server reads each tick once and streams the same data to every viewer,
+  and the browser renders it with keyed `<For>`s.
 
 ```sh
 pnpm dev                       # https://localhost:3020/  (self-signed cert)
 pnpm build && pnpm start       # production harness, http://localhost:3020/
 ```
+
+The dashboard's top line shows how many live responses the server holds
+open and how much CPU the process used in the last second (the production
+server also prints it every second). Neither is any viewer's data, so the
+shared render may show them. Open more tabs and the count climbs while the
+CPU barely moves; under `pnpm dev` only the CPU is shown.
 
 Knobs (environment, read by the server):
 
