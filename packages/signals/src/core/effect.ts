@@ -16,6 +16,7 @@ import {
   exitCallback,
   recompute,
   setStrictRead,
+  strictReadEvent,
   staleValues,
   ext,
   setEffectStatusNotify
@@ -209,7 +210,9 @@ function runEffect(node: Effect<any>, type: number): void {
   // the compute pass that produced `_value` was clean, so its tail still goes.
   const cleanPass = node._x?._error == null;
   let prevStrictRead: string | false = false;
+  let prevStrictReadEvent: unknown;
   if (__DEV__) {
+    prevStrictReadEvent = strictReadEvent;
     prevStrictRead = setStrictRead("an effect callback");
     setEffectCallback(true);
     enterCallback();
@@ -237,7 +240,7 @@ function runEffect(node: Effect<any>, type: number): void {
     escalate(node, error);
   } finally {
     if (__DEV__) {
-      setStrictRead(prevStrictRead);
+      setStrictRead(prevStrictRead, prevStrictReadEvent);
       setEffectCallback(false);
       exitCallback();
     }

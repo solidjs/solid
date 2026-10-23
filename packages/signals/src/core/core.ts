@@ -120,6 +120,7 @@ import {
   setPassLane,
   txOf,
   inEffectCallback,
+  effectCallbackEvent,
   passTx,
   joinPassTx,
   stagedReaders,
@@ -207,7 +208,7 @@ export const PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE =
  * created there is inert and harmless. Tracked effects and onSettled are
  * children-forbidden and refuse through PRIMITIVE_IN_FORBIDDEN_SCOPE. */
 export function assertNotInEffectCallback(): void {
-  if (inEffectCallback && context === null) {
+  if (inEffectCallback && context === null && dispatchingEvent() === effectCallbackEvent) {
     emitDiagnostic({
       code: "PRIMITIVE_IN_EFFECT_CALLBACK",
       kind: "lifecycle",
@@ -1529,10 +1530,29 @@ export function exitDisposal(): void {
 export function resetDisposalDepth(): void {
   disposalDepth = 0;
 }
-export function setStrictRead(v: string | false): string | false {
+/**
+ * Dev-only: the DOM event being dispatched when the open strict-read window
+ * opened (`globalThis.event`; undefined between dispatches and off the main
+ * thread's Window). A DOM call made in the window that dispatches events
+ * synchronously (`el.focus()`, `el.click()`, `dialog.showModal()`) runs that
+ * event's handlers inside it; a handler is a one-shot snapshot whoever
+ * dispatched the event, so a read made while a different event is current is
+ * outside the window (#4235). `strictReadActive` is the check.
+ */
+export let strictReadEvent: unknown;
+export const dispatchingEvent = (): unknown => (globalThis as any).event;
+export function setStrictRead(
+  v: string | false,
+  event: unknown = dispatchingEvent()
+): string | false {
   const prev = strictRead;
   strictRead = v;
+  strictReadEvent = event;
   return prev;
+}
+/** Dev-only: is the strict-read window open for a read made now? */
+export function strictReadActive(): boolean {
+  return !!strictRead && dispatchingEvent() === strictReadEvent;
 }
 
 /**
@@ -1573,9 +1593,11 @@ export function setStrictRead(v: string | false): string | false {
 export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   const prevTracking = tracking;
   const prevStrictRead = strictRead;
+  const prevStrictReadEvent = strictReadEvent;
   tracking = false;
   if (__DEV__) {
     strictRead = strictReadLabel || false;
+    strictReadEvent = dispatchingEvent();
     untrackDepth++;
   }
   try {
@@ -1585,6 +1607,7 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
     tracking = prevTracking;
     if (__DEV__) {
       strictRead = prevStrictRead;
+      strictReadEvent = prevStrictReadEvent;
       untrackDepth--;
     }
   }
@@ -1827,7 +1850,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     return el._pendingValue as T;
   }
 
-  if (__DEV__ && strictRead && owner._statusFlags & STATUS_PENDING)
+  if (__DEV__ && strictRead && owner._statusFlags & STATUS_PENDING && strictReadActive())
     throwPendingUntrackedRead(strictRead, {
       ownerId: c?.id,
       ownerName: (c as any)?._name,
@@ -1956,7 +1979,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // Ahead of the snapshot serve below: a component body's direct read is
   // wrong in the same way whether the pass is hydrating or not, and the
   // hydration pass is the console nobody is watching (#3675).
-  if (__DEV__ && strictRead)
+  if (__DEV__ && strictRead && strictReadActive())
     warnStrictReadUntracked(strictRead, {
       ownerId: c?.id,
       ownerName: (c as any)?._name,

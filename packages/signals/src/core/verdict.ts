@@ -39,6 +39,7 @@ import {
   setVerdict,
   spectating,
   strictRead,
+  strictReadActive,
   tracking,
   unflushedValue,
   verdict
@@ -406,7 +407,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // verdict read as on any untracked read; the pending throw they add for a
   // plain read does not apply — a verdict read is a sanctioned read of a
   // pending node (an uninitialized one still throws NotReady below).
-  if (__DEV__ && strictRead)
+  if (__DEV__ && strictRead && strictReadActive())
     warnStrictReadUntracked(strictRead, {
       ownerId: c?.id,
       ownerName: (c as any)?._name,

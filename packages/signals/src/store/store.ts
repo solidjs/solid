@@ -62,6 +62,7 @@ import {
   stagedRead,
   stagedScreen,
   strictRead,
+  strictReadActive,
   untrack,
   untrackDepth,
   verdict
@@ -2055,7 +2056,8 @@ const traps: ProxyHandler<StoreTarget> = {
       !inDraft(target) &&
       typeof key === "string" &&
       key !== "then" &&
-      getObserver() === null
+      getObserver() === null &&
+      strictReadActive()
     ) {
       warnStrictReadUntracked(strictRead, {
         nodeName: key,

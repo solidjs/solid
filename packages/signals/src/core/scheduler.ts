@@ -676,9 +676,16 @@ export function nextQuestion(): number {
 export const MAINLINE_QUESTION = 0x7fffffff;
 
 export let inEffectCallback = false;
+/** Dev-only: the DOM event current when the effect phase was entered. A
+ * handler dispatched synchronously from that phase (`el.focus()`) runs under
+ * a different event and is not in it (#4235). */
+export let effectCallbackEvent: unknown;
 
 export function setEffectCallback(value: boolean) {
-  if (__DEV__) inEffectCallback = value;
+  if (__DEV__) {
+    inEffectCallback = value;
+    effectCallbackEvent = value ? (globalThis as any).event : undefined;
+  }
 }
 
 export type QueueCallback = (type: number) => void;
