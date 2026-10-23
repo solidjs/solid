@@ -554,11 +554,14 @@ export function deleteShape(seat: string, mutation: string, id: string): void {
 /**
  * Empties the room: every shape goes, and anything being dragged or drawn
  * ends. Only for whoever holds CANVAS_ADMIN_KEY; without one set, nobody.
- * True when it cleared.
+ * The two refusals are worded apart: a server started without the key and
+ * a mistyped key look the same from the page otherwise.
  */
-export function clear(key: string): boolean {
-  const admin = process.env.CANVAS_ADMIN_KEY;
-  if (!admin || key !== admin) return false;
+export function clear(key: string): void {
+  const admin = process.env.CANVAS_ADMIN_KEY?.trim();
+  if (!admin) throw new Rejected("This server has no host key: start it with CANVAS_ADMIN_KEY set");
+  if (typeof key !== "string" || key.trim() !== admin)
+    throw new Rejected("That isn't the host key (?admin= must match CANVAS_ADMIN_KEY)");
   shapes.length = 0;
   for (const pointer of pointers.values()) {
     if (pointer.drag) end(pointer.drag.key);
@@ -567,5 +570,4 @@ export function clear(key: string): boolean {
     pointers.set(pointer.id, rest);
   }
   notify();
-  return true;
 }

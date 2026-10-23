@@ -107,7 +107,11 @@ page decides. When a seat frees, whoever has been watching longest gets it,
 and a tab that reconnects keeps its own.
 
 `CANVAS_ADMIN_KEY` is the host's reset: a page opened with `?admin=<key>`
-shows "Clear the room", and the room clears only for the right key.
+shows "Clear the room", and the room clears only for the right key. The
+button shows for any `?admin=`; it is the server that checks, and its
+refusal says whether the key is wrong or the server was started without
+one. Keep the key to letters and digits: a `+`, `&` or `#` in the address
+changes what the page sends.
 
 ## Two speeds of input
 
