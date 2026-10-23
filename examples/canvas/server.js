@@ -19,6 +19,22 @@ import { handleRequest } from "./dist/server/server.js";
 const root = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3014;
 
+// The cap. Every open tab holds one room stream, and every value goes down
+// each of them, so the tabs a process can keep up with are a number: past it
+// a new tab is told the room is full (503, try again shortly), and the tabs
+// already in stay smooth. Its presence is refused with it, so it never takes
+// a seat it cannot see. Each kind of stream is counted on its own, since a
+// tab opens both in no set order. See the README's Cost section for where 70
+// comes from.
+const MAX_TABS = Number(process.env.CANVAS_MAX_TABS || 70);
+const open = { room: 0, presence: 0 };
+const streamOf = url =>
+  url.startsWith("/_server/live/getRoom-")
+    ? "room"
+    : url.startsWith("/_server/live/getPresence-")
+      ? "presence"
+      : null;
+
 const MIME = {
   ".js": "application/javascript",
   ".css": "text/css",
@@ -98,6 +114,16 @@ createServer(async (req, res) => {
     }
   }
 
+  const stream = streamOf(url);
+  if (stream) {
+    if (open[stream] >= MAX_TABS) {
+      res.writeHead(503, { "Retry-After": "15", "Content-Type": "text/plain" });
+      return res.end("The room is full");
+    }
+    open[stream]++;
+    res.once("close", () => open[stream]--);
+  }
+
   try {
     const response = await handleRequest(webRequest(req, res));
     const cookies = response.headers.getSetCookie?.();
@@ -115,6 +141,8 @@ createServer(async (req, res) => {
     }
     out.end();
   } catch (e) {
+    // A tab that closes mid-stream aborts its response; that is leaving, not a failure.
+    if (e?.name === "AbortError") return;
     console.error(e);
     res.statusCode = 500;
     res.end(e.message);

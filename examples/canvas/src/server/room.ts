@@ -9,13 +9,14 @@ import "server-only";
 // lose, since a reconnect rebuilds them by joining again.
 //
 // Everyone watches one value, `watchRoom`: the shapes, the ids of recent
-// writes, and every pointer. A write is answered by the next value, not by
+// writes, every pointer, and who is here. A write is answered by the next value, not by
 // its response. Because pointers ride in the same value as the shapes, a
 // drag or a line that ends and the write that ends it arrive together:
 // nobody sees a shape go back to where it was before landing where it was
 // dropped, or a line vanish before it lands.
+import { randomUUID } from "node:crypto";
 import { SIZES } from "~/kinds";
-import type { Drag, Identity, Ink, Kind, Member, Pointer, Room, Shape } from "~/types";
+import type { Drag, Identity, Ink, Kind, Member, Pointer, Presence, Room, Shape } from "~/types";
 
 /** The room holds at most this many shapes. Checked here and nowhere else. */
 export const SHAPE_LIMIT = 200;
@@ -50,7 +51,17 @@ const shapes: Shape[] = [
   }
 ];
 let applied: string[] = [];
-const members = new Map<string, Member>();
+/** A member's place in the room. `seat` is its secret: only its own presence stream carries it. */
+interface Entry extends Member {
+  seat: string | null;
+}
+const members = new Map<string, Entry>();
+/**
+ * Who is here as everyone is told it: rebuilt on a join, a leave or a seat
+ * changing hands, and otherwise the same array and the same objects, so a
+ * value sends it as a reference.
+ */
+let roster: Member[] = [];
 const pointers = new Map<string, Pointer>();
 /** Drags whose move has landed (or that were dropped): late positions for them are ignored. */
 const ended = new Set<string>();
@@ -93,7 +104,13 @@ export async function* watchRoom(signal?: AbortSignal): AsyncGenerator<Room> {
   while (!signal?.aborted) {
     if (version !== seen) {
       seen = version;
-      yield { shapes: [...shapes], applied, pointers: [...pointers.values()] };
+      yield {
+        shapes: [...shapes],
+        applied,
+        pointers: [...pointers.values()],
+        members: roster,
+        seats: SEATS
+      };
       if (FRAME_MS > 0) await new Promise(resolve => setTimeout(resolve, FRAME_MS));
       // A change can land while the consumer holds this value: look again
       // before waiting.
@@ -104,25 +121,77 @@ export async function* watchRoom(signal?: AbortSignal): AsyncGenerator<Room> {
 }
 
 // ---------------------------------------------------------------------------
-// Presence.
+// Presence, and seats.
+//
+// Anyone can watch; only the first SEATS people in the room can point, draw
+// and write. Each seated member holds a seat token, a secret sent only on its
+// own presence stream (never on the room's broadcast, where every member's id
+// is public), and every write names it. When a seat frees, whoever has been
+// watching longest takes it.
+
+/** How many people can point, draw and write at once. CANVAS_SEATS=<n> changes it. */
+export const SEATS = Number(process.env.CANVAS_SEATS || 20);
+
+// Gives free seats to whoever has waited longest, and rebuilds the roster.
+function seatEveryone() {
+  let taken = 0;
+  for (const entry of members.values()) if (entry.seat) taken++;
+  for (const entry of [...members.values()].sort((a, b) => a.since - b.since)) {
+    if (taken >= SEATS) break;
+    if (entry.seat) continue;
+    entry.seat = randomUUID().replaceAll("-", "");
+    entry.seated = true;
+    taken++;
+  }
+  roster = [...members.values()]
+    .sort((a, b) => a.since - b.since)
+    .map(({ id, name, since, seated }) => ({ id, name, since, seated }));
+}
+
+/** The member a seat token belongs to, or null. */
+function seated(seat: unknown): Entry | null {
+  if (typeof seat !== "string" || !seat) return null;
+  for (const entry of members.values()) if (entry.seat === seat) return entry;
+  return null;
+}
+
+function checkSeat(seat: unknown): Entry {
+  const entry = seated(seat);
+  if (!entry) throw new Rejected("Every seat is taken, so you're watching");
+  return entry;
+}
 
 /**
  * Present until the returned `leave` is called. The entry belongs to this
  * connection: a reconnect joins again under the same id before the dead
- * connection's cleanup has run, and that late `leave` removes only what it
- * joined. Leaving takes the member's pointer, and anything it was dragging
- * goes back to where the room has it.
+ * connection's cleanup has run, so it takes over the entry's place in line
+ * and its seat, and that late `leave` removes only what it joined. Leaving
+ * takes the member's pointer and what it was dragging or drawing, and gives
+ * its seat to whoever has waited longest.
  */
-export function join(me: Identity): () => void {
-  const entry: Member = { ...me, since: Date.now() };
+export function join(me: Identity): { entry: Entry; leave: () => void } {
+  const before = members.get(me.id);
+  const entry: Entry = {
+    id: me.id,
+    name: me.name,
+    since: before?.since ?? Date.now(),
+    seated: !!before?.seat,
+    seat: before?.seat ?? null
+  };
   members.set(me.id, entry);
+  seatEveryone();
+  notify();
   notifyMembers();
-  return () => {
-    if (members.get(me.id) !== entry) return;
-    members.delete(me.id);
-    pointers.delete(me.id);
-    notify();
-    notifyMembers();
+  return {
+    entry,
+    leave() {
+      if (members.get(me.id) !== entry) return;
+      members.delete(me.id);
+      pointers.delete(me.id);
+      seatEveryone();
+      notify();
+      notifyMembers();
+    }
   };
 }
 
@@ -136,13 +205,26 @@ function notifyMembers() {
   for (const wake of waking) wake();
 }
 
-/** The members now and after every join or leave; ends when `signal` aborts. */
-export async function* watchMembers(signal?: AbortSignal): AsyncGenerator<Member[]> {
+/**
+ * The seat token of the one watching (`entry`) now and whenever it changes:
+ * null while it watches, its token once it has a seat. Ends when `signal`
+ * aborts. Who else is here rides on the room's value, the same for everyone;
+ * only the token is this viewer's.
+ */
+export async function* watchSeat(
+  entry: Entry | null,
+  signal?: AbortSignal
+): AsyncGenerator<Presence> {
   let seen = -1;
+  let sent: string | null | undefined;
   while (!signal?.aborted) {
     if (membersVersion !== seen) {
       seen = membersVersion;
-      yield [...members.values()].sort((a, b) => a.since - b.since);
+      const seat = entry?.seat ?? null;
+      if (seat !== sent) {
+        sent = seat;
+        yield { seat };
+      }
       continue;
     }
     // Settles on the next join or leave, or when `signal` aborts: a
@@ -228,19 +310,20 @@ function inked(held: Ink | undefined, sent: InkSent): Ink | undefined {
  * Moves a present member's pointer, with the shape it drags or the stroke it
  * draws. Either left out keeps what the pointer had: a drag or a stroke
  * ends by the write it becomes (`moveShape`, `createStroke`) or by `drop`,
- * and anything sent for it after that only moves the pointer. Anyone not
- * present is ignored.
+ * and anything sent for it after that only moves the pointer. Anyone without
+ * a seat is ignored.
  */
 export function point(
-  id: string,
+  seat: string,
   x: number,
   y: number,
   t: number,
   drag?: Drag,
   ink?: InkSent
 ): void {
-  const member = members.get(id);
+  const member = seated(seat);
   if (!member || !finite(x) || !finite(y) || !finite(t)) return;
+  const id = member.id;
   const before = pointers.get(id);
   let held = before?.drag;
   if (
@@ -350,7 +433,15 @@ function replace(shape: Shape, next: Shape, toTop = false) {
 }
 
 /** A create is acknowledged by its row: the id is the creating browser's. */
-export function createShape(id: string, kind: Kind, x: number, y: number, color: string): void {
+export function createShape(
+  seat: string,
+  id: string,
+  kind: Kind,
+  x: number,
+  y: number,
+  color: string
+): void {
+  checkSeat(seat);
   checkId(id, "shape");
   if (!(kind in SIZES)) throw new Rejected("Bad kind");
   checkColor(color);
@@ -369,8 +460,9 @@ export function createShape(id: string, kind: Kind, x: number, y: number, color:
  * move, ends the drag on everyone's screen, and confirms it. A moved shape
  * comes to the top.
  */
-export function moveShape(mutation: string, id: string, x: number, y: number): void {
+export function moveShape(seat: string, mutation: string, id: string, x: number, y: number): void {
   try {
+    checkSeat(seat);
     apply(mutation, () => {
       const shape = shapeOf(id);
       replace(shape, { ...shape, x: at(x), y: at(y) }, true);
@@ -389,7 +481,13 @@ export function moveShape(mutation: string, id: string, x: number, y: number): v
  * the same commit lands the shape and ends the ink every other screen was
  * drawing, and the row is its acknowledgement, as with any create.
  */
-export function createStroke(id: string, color: string, points: number[]): void {
+export function createStroke(seat: string, id: string, color: string, points: number[]): void {
+  try {
+    checkSeat(seat);
+  } catch (err) {
+    drop(id);
+    throw err;
+  }
   checkId(id, "stroke");
   checkColor(color);
   if (
@@ -423,7 +521,8 @@ export function createStroke(id: string, color: string, points: number[]): void 
   notify();
 }
 
-export function recolorShape(mutation: string, id: string, color: string): void {
+export function recolorShape(seat: string, mutation: string, id: string, color: string): void {
+  checkSeat(seat);
   apply(mutation, () => {
     checkColor(color);
     const shape = shapeOf(id);
@@ -431,7 +530,8 @@ export function recolorShape(mutation: string, id: string, color: string): void 
   });
 }
 
-export function writeNote(mutation: string, id: string, text: string): void {
+export function writeNote(seat: string, mutation: string, id: string, text: string): void {
+  checkSeat(seat);
   apply(mutation, () => {
     const shape = shapeOf(id);
     if (shape.kind !== "note") throw new Rejected("Only a note has words");
@@ -440,9 +540,32 @@ export function writeNote(mutation: string, id: string, text: string): void {
 }
 
 /** Deleting what someone else already deleted is not a rejection: the room already says so. */
-export function deleteShape(mutation: string, id: string): void {
+export function deleteShape(seat: string, mutation: string, id: string): void {
+  checkSeat(seat);
   apply(mutation, () => {
     const index = shapes.findIndex(s => s.id === id);
     if (index >= 0) shapes.splice(index, 1);
   });
+}
+
+// ---------------------------------------------------------------------------
+// The host's reset.
+
+/**
+ * Empties the room: every shape goes, and anything being dragged or drawn
+ * ends. Only for whoever holds CANVAS_ADMIN_KEY; without one set, nobody.
+ * True when it cleared.
+ */
+export function clear(key: string): boolean {
+  const admin = process.env.CANVAS_ADMIN_KEY;
+  if (!admin || key !== admin) return false;
+  shapes.length = 0;
+  for (const pointer of pointers.values()) {
+    if (pointer.drag) end(pointer.drag.key);
+    if (pointer.ink) end(pointer.ink.key);
+    const { drag, ink, ...rest } = pointer;
+    pointers.set(pointer.id, rest);
+  }
+  notify();
+  return true;
 }

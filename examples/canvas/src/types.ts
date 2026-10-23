@@ -25,6 +25,13 @@ export interface Identity {
 
 export interface Member extends Identity {
   since: number;
+  /** Can point, draw and write. Everyone else is watching. */
+  seated: boolean;
+}
+
+/** What only this viewer is told: its seat token, which every write names; null while watching. */
+export interface Presence {
+  seat: string | null;
 }
 
 /** A shape someone is dragging, where they have it now. */
@@ -69,4 +76,8 @@ export interface Room {
   // effect.
   applied: string[];
   pointers: Pointer[];
+  /** Who is here, longest first. */
+  members: Member[];
+  /** How many of them can point, draw and write. */
+  seats: number;
 }

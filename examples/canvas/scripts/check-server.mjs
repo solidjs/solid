@@ -23,6 +23,8 @@ registerHooks({
   }
 });
 
+process.env.CANVAS_SEATS = "3";
+process.env.CANVAS_ADMIN_KEY = "hostkey";
 const room = await import("../src/server/room.ts");
 
 let passed = 0;
@@ -47,6 +49,9 @@ const last = () => seen.at(-1);
 const shape = id => last().shapes.find(s => s.id === id);
 await frame();
 
+// The host takes the first seat; the writes below are its.
+const S = room.join({ id: "host0001", name: "host" }).entry.seat;
+
 console.log("room");
 await check("first value is the seed, nothing applied, nobody pointing", () => {
   assert.deepEqual(
@@ -57,7 +62,7 @@ await check("first value is the seed, nothing applied, nobody pointing", () => {
   assert.deepEqual(last().pointers, []);
 });
 await check("a create lands, and its retry does nothing", async () => {
-  room.createShape("shape001", "note", 10, 20, "#579dff");
+  room.createShape(S, "shape001", "note", 10, 20, "#579dff");
   await frame();
   assert.deepEqual(shape("shape001"), {
     id: "shape001",
@@ -70,13 +75,13 @@ await check("a create lands, and its retry does nothing", async () => {
     text: ""
   });
   const before = seen.length;
-  room.createShape("shape001", "rect", 99, 99, "#f87168");
+  room.createShape(S, "shape001", "rect", 99, 99, "#f87168");
   await frame();
   assert.equal(seen.length, before);
 });
 await check("unchanged shapes are the same objects in the next value", async () => {
   const before = last();
-  room.recolorShape(mid(), "seedcirc1", "#4bce97");
+  room.recolorShape(S, mid(), "seedcirc1", "#4bce97");
   await frame();
   assert.equal(
     shape("seedrect1"),
@@ -91,13 +96,13 @@ await check(
   "a move lands with its id in applied, comes to the top, and a retry does nothing",
   async () => {
     const m = mid();
-    room.moveShape(m, "seedrect1", 300, 400);
+    room.moveShape(S, m, "seedrect1", 300, 400);
     await frame();
     assert.ok(last().applied.includes(m));
     assert.equal(last().shapes.at(-1).id, "seedrect1");
     assert.deepEqual([shape("seedrect1").x, shape("seedrect1").y], [300, 400]);
     const before = seen.length;
-    room.moveShape(m, "seedrect1", 0, 0);
+    room.moveShape(S, m, "seedrect1", 0, 0);
     await frame();
     assert.equal(seen.length, before);
   }
@@ -105,31 +110,33 @@ await check(
 await check("refusals change nothing and remember nothing", async () => {
   const before = seen.length;
   const m = mid();
-  rejects(() => room.moveShape(m, "nosuchshape", 1, 1), /deleted/);
-  rejects(() => room.writeNote(mid(), "seedrect1", "hi"), /Only a note/);
-  rejects(() => room.recolorShape(mid(), "seedrect1", "red"), /color/);
-  rejects(() => room.createShape("BAD ID", "rect", 1, 1, "#579dff"), /shape id/);
-  rejects(() => room.createShape("shape002", "star", 1, 1, "#579dff"), /kind/);
-  rejects(() => room.moveShape("x", "seedrect1", 1, 1), /mutation id/);
+  rejects(() => room.moveShape(S, m, "nosuchshape", 1, 1), /deleted/);
+  rejects(() => room.writeNote(S, mid(), "seedrect1", "hi"), /Only a note/);
+  rejects(() => room.recolorShape(S, mid(), "seedrect1", "red"), /color/);
+  rejects(() => room.createShape(S, "BAD ID", "rect", 1, 1, "#579dff"), /shape id/);
+  rejects(() => room.createShape(S, "shape002", "star", 1, 1, "#579dff"), /kind/);
+  rejects(() => room.moveShape(S, "x", "seedrect1", 1, 1), /mutation id/);
+  rejects(() => room.createShape("noseat", "shape009", "rect", 1, 1, "#579dff"), /watching/);
   await frame();
   assert.equal(seen.length, before);
   assert.ok(!last().applied.includes(m));
 });
 await check("deleting what is already deleted is acknowledged", async () => {
-  room.deleteShape(mid(), "seedcirc1");
+  room.deleteShape(S, mid(), "seedcirc1");
   const m = mid();
-  room.deleteShape(m, "seedcirc1");
+  room.deleteShape(S, m, "seedcirc1");
   await frame();
   assert.ok(!shape("seedcirc1"));
   assert.ok(last().applied.includes(m));
 });
 await check("the canvas holds at most SHAPE_LIMIT shapes", async () => {
   for (let i = last().shapes.length; i < room.SHAPE_LIMIT; i++)
-    room.createShape(`fill${String(i).padStart(4, "0")}`, "rect", i, i, "#579dff");
-  rejects(() => room.createShape("onetoomany", "rect", 0, 0, "#579dff"), /is full/);
+    room.createShape(S, `fill${String(i).padStart(4, "0")}`, "rect", i, i, "#579dff");
+  rejects(() => room.createShape(S, "onetoomany", "rect", 0, 0, "#579dff"), /is full/);
   await frame();
   assert.equal(last().shapes.length, room.SHAPE_LIMIT);
-  for (const s of last().shapes.filter(s => s.id.startsWith("fill"))) room.deleteShape(mid(), s.id);
+  for (const s of last().shapes.filter(s => s.id.startsWith("fill")))
+    room.deleteShape(S, mid(), s.id);
   await frame();
 });
 await check(`applied keeps the room's last 64 ids`, async () => {
@@ -137,30 +144,33 @@ await check(`applied keeps the room's last 64 ids`, async () => {
   for (let i = 0; i < 70; i++) {
     const m = mid();
     ids.push(m);
-    room.writeNote(m, "seednote1", `Note ${i}`);
+    room.writeNote(S, m, "seednote1", `Note ${i}`);
   }
   await frame();
   assert.deepEqual(last().applied, ids.slice(-64));
 });
 
 console.log("pointers");
-const leaveA = room.join({ id: "taba1", name: "one" });
-const leaveB = room.join({ id: "tabb1", name: "two" });
+const tabA = room.join({ id: "taba1", name: "one" });
+const tabB = room.join({ id: "tabb1", name: "two" });
+const [A, B] = [tabA.entry.seat, tabB.entry.seat];
+const leaveA = tabA.leave;
+const leaveB = tabB.leave;
 await check("only a present member's pointer shows", async () => {
   room.point("nobody1", 1, 2, 3);
-  room.point("taba1", 10.4, 20.6, 5);
+  room.point(A, 10.4, 20.6, 5);
   await frame();
   assert.deepEqual(last().pointers, [{ id: "taba1", name: "one", x: 10, y: 21, t: 5 }]);
 });
 await check("many positions inside one frame are sent as one value with the latest", async () => {
   const before = seen.length;
-  for (let i = 0; i < 50; i++) room.point("taba1", i, i, i);
+  for (let i = 0; i < 50; i++) room.point(A, i, i, i);
   await frame();
   assert.ok(seen.length - before <= 2, `${seen.length - before} values`);
   assert.equal(last().pointers.find(p => p.id === "taba1").x, 49);
 });
 await check("a drag shows on the pointer, and a position without one keeps it", async () => {
-  room.point("taba1", 50, 50, 6, { id: "seednote1", key: "dragkey1", x: 40, y: 45 });
+  room.point(A, 50, 50, 6, { id: "seednote1", key: "dragkey1", x: 40, y: 45 });
   await frame();
   assert.deepEqual(last().pointers.find(p => p.id === "taba1").drag, {
     id: "seednote1",
@@ -168,13 +178,13 @@ await check("a drag shows on the pointer, and a position without one keeps it", 
     x: 40,
     y: 45
   });
-  room.point("taba1", 60, 60, 7);
+  room.point(A, 60, 60, 7);
   await frame();
   assert.equal(last().pointers.find(p => p.id === "taba1").drag.key, "dragkey1");
 });
 await check("the move that ends a drag lands in the same value that ends it", async () => {
   const before = seen.length;
-  room.moveShape("dragkey1", "seednote1", 70, 75);
+  room.moveShape(S, "dragkey1", "seednote1", 70, 75);
   await frame();
   const after = seen.slice(before);
   // No value shows the shape moved with the drag still held, or the drag
@@ -187,14 +197,14 @@ await check("the move that ends a drag lands in the same value that ends it", as
   assert.ok(!last().pointers.find(p => p.id === "taba1").drag);
 });
 await check("a late position for an ended drag only moves the pointer", async () => {
-  room.point("taba1", 80, 80, 8, { id: "seednote1", key: "dragkey1", x: 10, y: 10 });
+  room.point(A, 80, 80, 8, { id: "seednote1", key: "dragkey1", x: 10, y: 10 });
   await frame();
   const pointer = last().pointers.find(p => p.id === "taba1");
   assert.equal(pointer.x, 80);
   assert.ok(!pointer.drag);
 });
 await check("a drag let go without a move ends, and the shape stays put", async () => {
-  room.point("tabb1", 5, 5, 9, { id: "seednote1", key: "dragkey2", x: 500, y: 500 });
+  room.point(B, 5, 5, 9, { id: "seednote1", key: "dragkey2", x: 500, y: 500 });
   await frame();
   room.drop("dragkey2");
   await frame();
@@ -202,9 +212,9 @@ await check("a drag let go without a move ends, and the shape stays put", async 
   assert.equal(shape("seednote1").x, 70);
 });
 await check("a refused drop still ends its drag", async () => {
-  room.point("tabb1", 5, 5, 11, { id: "seednote1", key: "dragkey4", x: 9, y: 9 });
-  room.deleteShape(mid(), "seednote1");
-  rejects(() => room.moveShape("dragkey4", "seednote1", 9, 9), /deleted/);
+  room.point(B, 5, 5, 11, { id: "seednote1", key: "dragkey4", x: 9, y: 9 });
+  room.deleteShape(S, mid(), "seednote1");
+  rejects(() => room.moveShape(S, "dragkey4", "seednote1", 9, 9), /deleted/);
   await frame();
   assert.ok(!last().pointers.find(p => p.id === "tabb1").drag);
 });
@@ -213,7 +223,7 @@ console.log("strokes");
 const inkOf = id => last().pointers.find(p => p.id === id).ink;
 await check("a full chunk of a stroke is the same object in every later value", async () => {
   const send = (from, points) =>
-    room.point("taba1", 0, 0, 12, undefined, { key: "strokech", color: "#f87168", from, points });
+    room.point(A, 0, 0, 12, undefined, { key: "strokech", color: "#f87168", from, points });
   for (let i = 0; i < 40; i++) send(i, [i, i]);
   await frame();
   const full = inkOf("taba1").chunks[0];
@@ -229,7 +239,7 @@ await check("a full chunk of a stroke is the same object in every later value", 
   room.drop("strokech");
 });
 await check("a stroke's points arrive a frame at a time", async () => {
-  room.point("taba1", 0, 0, 12, undefined, {
+  room.point(A, 0, 0, 12, undefined, {
     key: "stroke01",
     color: "#f87168",
     from: 0,
@@ -238,7 +248,7 @@ await check("a stroke's points arrive a frame at a time", async () => {
   await frame();
   const first = inkOf("taba1");
   assert.deepEqual(first, { key: "stroke01", color: "#f87168", chunks: [[10, 10, 20, 15]] });
-  room.point("taba1", 0, 0, 13, undefined, {
+  room.point(A, 0, 0, 13, undefined, {
     key: "stroke01",
     color: "#f87168",
     from: 2,
@@ -248,13 +258,13 @@ await check("a stroke's points arrive a frame at a time", async () => {
   assert.deepEqual(inkOf("taba1").chunks, [[10, 10, 20, 15, 30, 25]]);
 });
 await check("points sent again are not added twice, and a gap waits for the resend", async () => {
-  room.point("taba1", 0, 0, 14, undefined, {
+  room.point(A, 0, 0, 14, undefined, {
     key: "stroke01",
     color: "#f87168",
     from: 2,
     points: [30, 25, 40, 30]
   });
-  room.point("taba1", 0, 0, 15, undefined, {
+  room.point(A, 0, 0, 15, undefined, {
     key: "stroke01",
     color: "#f87168",
     from: 9,
@@ -264,13 +274,13 @@ await check("points sent again are not added twice, and a gap waits for the rese
   assert.deepEqual(inkOf("taba1").chunks.flat(), [10, 10, 20, 15, 30, 25, 40, 30]);
 });
 await check("a position without ink keeps the stroke", async () => {
-  room.point("taba1", 50, 50, 16);
+  room.point(A, 50, 50, 16);
   await frame();
   assert.equal(inkOf("taba1").key, "stroke01");
 });
 await check("the stroke lands in the same value that ends its ink", async () => {
   const before = seen.length;
-  room.createStroke("stroke01", "#f87168", [10, 10, 20, 15, 30, 25, 40, 30]);
+  room.createStroke(S, "stroke01", "#f87168", [10, 10, 20, 15, 30, 25, 40, 30]);
   await frame();
   for (const value of seen.slice(before)) {
     const landed = value.shapes.some(s => s.id === "stroke01");
@@ -288,7 +298,7 @@ await check("the stroke lands in the same value that ends its ink", async () => 
     text: "",
     points: [0, 0, 10, 5, 20, 15, 30, 20]
   });
-  room.point("taba1", 0, 0, 17, undefined, {
+  room.point(A, 0, 0, 17, undefined, {
     key: "stroke01",
     color: "#f87168",
     from: 4,
@@ -298,7 +308,7 @@ await check("the stroke lands in the same value that ends its ink", async () => 
   assert.ok(!inkOf("taba1"), "a late piece of a landed stroke draws nothing");
 });
 await check("a stroke let go without landing ends; bad strokes are refused", async () => {
-  room.point("taba1", 0, 0, 18, undefined, {
+  room.point(A, 0, 0, 18, undefined, {
     key: "stroke02",
     color: "#579dff",
     from: 0,
@@ -308,12 +318,12 @@ await check("a stroke let go without landing ends; bad strokes are refused", asy
   room.drop("stroke02");
   await frame();
   assert.ok(!inkOf("taba1"));
-  rejects(() => room.createStroke("stroke03", "#579dff", [1, 1]), /Bad stroke/);
-  rejects(() => room.createStroke("stroke03", "#579dff", [1, 1, 2]), /Bad stroke/);
-  rejects(() => room.createStroke("stroke03", "#579dff", new Array(4002).fill(1)), /Bad stroke/);
+  rejects(() => room.createStroke(S, "stroke03", "#579dff", [1, 1]), /Bad stroke/);
+  rejects(() => room.createStroke(S, "stroke03", "#579dff", [1, 1, 2]), /Bad stroke/);
+  rejects(() => room.createStroke(S, "stroke03", "#579dff", new Array(4002).fill(1)), /Bad stroke/);
 });
 await check("leaving takes the pointer, and what it was drawing", async () => {
-  room.point("taba1", 0, 0, 19, undefined, {
+  room.point(A, 0, 0, 19, undefined, {
     key: "stroke04",
     color: "#579dff",
     from: 0,
@@ -326,7 +336,7 @@ await check("leaving takes the pointer, and what it was drawing", async () => {
 });
 
 await check("leaving takes the pointer, and what it was dragging", async () => {
-  room.point("tabb1", 5, 5, 10, { id: "seednote1", key: "dragkey3", x: 1, y: 1 });
+  room.point(B, 5, 5, 10, { id: "seednote1", key: "dragkey3", x: 1, y: 1 });
   await frame();
   leaveB();
   await frame();
@@ -334,23 +344,84 @@ await check("leaving takes the pointer, and what it was dragging", async () => {
 });
 
 console.log("presence");
-await check("join and leave yield; a late leave removes only what it joined", async () => {
-  const members = [];
-  const end = new AbortController();
-  const done = (async () => {
-    for await (const value of room.watchMembers(end.signal)) members.push(value.map(m => m.id));
-  })();
+await check(
+  "join and leave reach the room's value; a late leave removes only what it joined",
+  async () => {
+    const ids = () => last().members.map(m => m.id);
+    const first = room.join({ id: "tab1", name: "one" });
+    const second = room.join({ id: "tab1", name: "one" }); // the reconnect
+    first.leave(); // the dead connection's cleanup, arriving late
+    await frame();
+    assert.deepEqual(ids(), ["host0001", "tab1"]);
+    second.leave();
+    await frame();
+    assert.deepEqual(ids(), ["host0001"]);
+  }
+);
+await check("the member list is the same array until someone joins or leaves", async () => {
+  const before = last().members;
+  room.point(S, 3, 3, 1);
   await frame();
-  const leaveFirst = room.join({ id: "tab1", name: "one" });
-  const leaveSecond = room.join({ id: "tab1", name: "one" }); // the reconnect
-  leaveFirst(); // the dead connection's cleanup, arriving late
+  assert.equal(last().members, before);
+});
+await check(
+  "past the seats people watch, and a freed seat goes to whoever waited longest",
+  async () => {
+    const two = room.join({ id: "seat2", name: "two" });
+    const three = room.join({ id: "seat3", name: "three" });
+    const four = room.join({ id: "seat4", name: "four" });
+    const five = room.join({ id: "seat5", name: "five" });
+    assert.ok(two.entry.seat && three.entry.seat, "seats 2 and 3 of 3");
+    assert.equal(four.entry.seat, null);
+    assert.equal(five.entry.seat, null);
+    // A watcher's stream carries no token, and its pointer and writes do nothing.
+    const end = new AbortController();
+    const told = [];
+    const done = (async () => {
+      for await (const value of room.watchSeat(four.entry, end.signal)) told.push(value);
+    })();
+    await frame();
+    assert.equal(told.at(-1).seat, null);
+    assert.deepEqual(
+      last().members.map(m => [m.id, m.seated]),
+      [
+        ["host0001", true],
+        ["seat2", true],
+        ["seat3", true],
+        ["seat4", false],
+        ["seat5", false]
+      ]
+    );
+    assert.ok(!JSON.stringify(last()).includes(two.entry.seat), "no token in the list");
+    rejects(() => room.createShape(null, "shape010", "rect", 1, 1, "#579dff"), /watching/);
+    two.leave();
+    await frame();
+    assert.equal(typeof told.at(-1).seat, "string", "four, who waited longest, is told its token");
+    assert.equal(five.entry.seat, null);
+    room.point(told.at(-1).seat, 7, 7, 1);
+    await frame();
+    assert.ok(last().pointers.some(p => p.id === "seat4"));
+    // A reconnect keeps its seat even with someone waiting.
+    const again = room.join({ id: "seat3", name: "three" });
+    assert.equal(again.entry.seat, three.entry.seat);
+    three.leave(); // the dead connection, late: nothing changes
+    assert.equal(five.entry.seat, null);
+    end.abort();
+    await done;
+    for (const left of [again, four, five]) left.leave();
+  }
+);
+
+console.log("reset");
+await check("only the host's key clears the room", async () => {
+  assert.ok(last().shapes.length > 0);
+  assert.equal(room.clear("wrong"), false);
+  assert.equal(room.clear(""), false);
   await frame();
-  assert.deepEqual(members.at(-1), ["tab1"]);
-  leaveSecond();
+  assert.ok(last().shapes.length > 0);
+  assert.equal(room.clear("hostkey"), true);
   await frame();
-  assert.deepEqual(members.at(-1), []);
-  end.abort();
-  await done;
+  assert.deepEqual(last().shapes, []);
 });
 
 console.log("teardown");

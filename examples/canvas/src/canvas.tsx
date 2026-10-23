@@ -23,6 +23,7 @@ import {
   For,
   latest,
   Loading,
+  onSettled,
   Show,
   until,
   useContext
@@ -33,7 +34,7 @@ import { IdentityContext, mintId } from "~/identity";
 import { colorOf, PALETTE, SIZES } from "~/kinds";
 import * as room from "~/server/room";
 import type { InkSent } from "~/server/room";
-import type { Drag, Identity, Kind, Member, Room, Shape } from "~/types";
+import type { Drag, Identity, Kind, Presence, Room, Shape } from "~/types";
 
 // ---------------------------------------------------------------------------
 // The wire. Each of these runs on the server; in the browser the compiler
@@ -46,24 +47,25 @@ const getRoom = broadcast(async function* (): AsyncGenerator<Room> {
   yield* room.watchRoom();
 });
 
-// Who is here. Joining is the connection: a tab is present while this
-// response is open, and the generator's `finally` is what leaving means. It
-// is the one per-viewer stream, because it is about the viewer. The
-// document's render has no identity and only watches.
-const getPresence = live(async function* (me: Identity | null): AsyncGenerator<Member[]> {
+// Being here, and this tab's seat. Joining is the connection:
+// a tab is present while this response is open, and the generator's
+// `finally` is what leaving means. It is the one per-viewer stream, because
+// it is about the viewer: it alone carries this tab's seat token, the secret
+// every write names. The document's render has no identity and only watches.
+const getPresence = live(async function* (me: Identity | null): AsyncGenerator<Presence> {
   "use server";
-  const leave = me ? room.join(me) : () => {};
+  const joined = me ? room.join(me) : null;
   try {
-    yield* room.watchMembers(getRequestEvent()?.request.signal);
+    yield* room.watchSeat(joined?.entry ?? null, getRequestEvent()?.request.signal);
   } finally {
-    leave();
+    joined?.leave();
   }
 });
 
 // What the pointer holds or draws is `null` when nothing: arguments go as
 // JSON, which has no `undefined` before the last one.
 async function point(
-  id: string,
+  seat: string,
   x: number,
   y: number,
   t: number,
@@ -71,7 +73,7 @@ async function point(
   ink: InkSent | null
 ) {
   "use server";
-  room.point(id, x, y, t, drag ?? undefined, ink ?? undefined);
+  room.point(seat, x, y, t, drag ?? undefined, ink ?? undefined);
 }
 
 async function letGo(key: string) {
@@ -79,34 +81,48 @@ async function letGo(key: string) {
   room.drop(key);
 }
 
-async function createStroke(id: string, color: string, points: number[]) {
+async function createStroke(seat: string, id: string, color: string, points: number[]) {
   "use server";
-  room.createStroke(id, color, points);
+  room.createStroke(seat, id, color, points);
 }
 
-async function createShape(id: string, kind: Kind, x: number, y: number, color: string) {
+async function createShape(
+  seat: string,
+  id: string,
+  kind: Kind,
+  x: number,
+  y: number,
+  color: string
+) {
   "use server";
-  room.createShape(id, kind, x, y, color);
+  room.createShape(seat, id, kind, x, y, color);
 }
 
-async function moveShape(mutation: string, id: string, x: number, y: number) {
+async function moveShape(seat: string, mutation: string, id: string, x: number, y: number) {
   "use server";
-  room.moveShape(mutation, id, x, y);
+  room.moveShape(seat, mutation, id, x, y);
 }
 
-async function recolorShape(mutation: string, id: string, color: string) {
+async function recolorShape(seat: string, mutation: string, id: string, color: string) {
   "use server";
-  room.recolorShape(mutation, id, color);
+  room.recolorShape(seat, mutation, id, color);
 }
 
-async function writeNote(mutation: string, id: string, text: string) {
+async function writeNote(seat: string, mutation: string, id: string, text: string) {
   "use server";
-  room.writeNote(mutation, id, text);
+  room.writeNote(seat, mutation, id, text);
 }
 
-async function deleteShape(mutation: string, id: string) {
+async function deleteShape(seat: string, mutation: string, id: string) {
   "use server";
-  room.deleteShape(mutation, id);
+  room.deleteShape(seat, mutation, id);
+}
+
+// The host's reset, for whoever opened the page with `?admin=<key>` matching
+// the server's CANVAS_ADMIN_KEY.
+async function clearRoom(key: string) {
+  "use server";
+  if (!room.clear(key)) throw new room.Rejected("Only the host can clear the room");
 }
 
 // ---------------------------------------------------------------------------
@@ -160,9 +176,37 @@ function createCanvas() {
       if (!isServer) source.onstatus = status => setReconnecting(status === "reconnecting");
       return source;
     },
-    { shapes: [], applied: [], pointers: [] }
+    { shapes: [], applied: [], pointers: [], members: [], seats: 0 }
   );
-  const people = createMemo(() => getPresence(me()));
+  // No identity (the document's render, and until the browser mints one) asks nothing.
+  const presence = createMemo(() => {
+    const m = me();
+    return m ? getPresence(m) : null;
+  });
+  const people = () => state.members;
+  /** This tab's seat token, or null while it watches (or has not heard yet). */
+  const seat = () => {
+    try {
+      return latest(presence)?.seat ?? null;
+    } catch {
+      return null;
+    }
+  };
+  /** Told there is no seat for this tab, as opposed to not told yet. */
+  const watching = () => {
+    try {
+      return latest(presence)?.seat === null;
+    } catch {
+      return false;
+    }
+  };
+  // The host's key, from the page's address. Only a key the server agrees
+  // with clears anything.
+  // Read once settled, like the identity, so hydration matches the server.
+  const [admin, setAdmin] = createSignal<string | null>(null);
+  onSettled(() => {
+    if (!isServer) setAdmin(new URLSearchParams(location.search).get("admin"));
+  });
 
   const [tool, setTool] = createSignal<Tool>("draw");
   const [color, setColor] = createSignal(PALETTE[0]);
@@ -242,7 +286,7 @@ function createCanvas() {
       setError(undefined);
       setState(r => void r.shapes.push(shape));
       try {
-        yield createShape(id, kind, shape.x, shape.y, shape.color);
+        yield createShape(seat() ?? "", id, kind, shape.x, shape.y, shape.color);
         yield exists(id);
       } catch (err) {
         fail(err);
@@ -256,7 +300,7 @@ function createCanvas() {
       setError(undefined);
       setState(r => void r.shapes.push(strokeShape(id, color, points)));
       try {
-        yield createStroke(id, color, points);
+        yield createStroke(seat() ?? "", id, color, points);
         yield exists(id);
       } catch (err) {
         fail(err);
@@ -274,7 +318,7 @@ function createCanvas() {
         r.shapes.push({ ...shape, x, y });
       });
       try {
-        yield moveShape(key, id, x, y);
+        yield moveShape(seat() ?? "", key, id, x, y);
         yield applied(key);
       } catch (err) {
         fail(err);
@@ -286,7 +330,7 @@ function createCanvas() {
       setError(undefined);
       edit(id, shape => void (shape.color = next));
       try {
-        yield recolorShape(mutation, id, next);
+        yield recolorShape(seat() ?? "", mutation, id, next);
         yield applied(mutation);
       } catch (err) {
         fail(err);
@@ -298,7 +342,7 @@ function createCanvas() {
       setError(undefined);
       edit(id, shape => void (shape.text = text));
       try {
-        yield writeNote(mutation, id, text);
+        yield writeNote(seat() ?? "", mutation, id, text);
         yield applied(mutation);
       } catch (err) {
         fail(err);
@@ -310,7 +354,7 @@ function createCanvas() {
       setError(undefined);
       setState(r => void (r.shapes = r.shapes.filter(s => s.id !== id)));
       try {
-        yield deleteShape(mutation, id);
+        yield deleteShape(seat() ?? "", mutation, id);
         yield applied(mutation);
       } catch (err) {
         fail(err);
@@ -332,8 +376,8 @@ function createCanvas() {
   let landed = { key: "", count: 0 };
   const send = async () => {
     frame = 0;
-    const id = me()?.id;
-    if (!pointer || !id || sending) return;
+    const mine = seat();
+    if (!pointer || !mine || sending) return;
     const { x, y } = pointer;
     pointer = undefined;
     sending = true;
@@ -347,7 +391,7 @@ function createCanvas() {
       if (stroke.points.length > (landed.count + POINTS_PER_SEND) * 2) pointer = { x, y };
     }
     try {
-      await point(id, x, y, Date.now(), latest(held), ink);
+      await point(mine, x, y, Date.now(), latest(held), ink);
       if (ink && landed.key === ink.key) landed.count = ink.from + ink.points.length / 2;
     } catch {
       // A lost position is replaced by the next one, and a lost piece of a
@@ -373,7 +417,7 @@ function createCanvas() {
   const SLOP = 4;
 
   const grab = (shape: Shape, e: PointerEvent) => {
-    if (tool() !== "select" || e.button !== 0) return;
+    if (tool() !== "select" || e.button !== 0 || !seat()) return;
     e.stopPropagation();
     setSelected(shape.id);
     const start = at(e);
@@ -462,7 +506,7 @@ function createCanvas() {
    * places a shape, or clears the selection.
    */
   const press = (e: PointerEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !seat()) return;
     const kind = tool();
     if (kind === "draw") return draw(e);
     if (kind === "select") return setSelected(null);
@@ -478,6 +522,14 @@ function createCanvas() {
     drawing: () => latest(drawing),
     me,
     people,
+    seat,
+    watching,
+    admin,
+    clear: () =>
+      clearRoom(admin() ?? "").then(
+        () => setError(undefined),
+        err => fail(err)
+      ),
     others,
     reconnecting,
     error,
@@ -520,7 +572,7 @@ const TOOLS: [Tool, string][] = [
 function CanvasView() {
   const canvas = useContext(CanvasContext);
   const { state, me, people, others, reconnecting, error, tool, setTool, color, setColor } = canvas;
-  const { selected, write, press, track, setSvg, drawing } = canvas;
+  const { selected, write, press, track, setSvg, drawing, watching, admin } = canvas;
 
   // Delete or Backspace removes the selected shape, unless a field has the keys.
   const onKeyDown = (e: KeyboardEvent) => {
@@ -533,7 +585,7 @@ function CanvasView() {
   };
 
   return (
-    <div class="canvas" tabindex="-1" onKeyDown={onKeyDown}>
+    <div class={["canvas", { watching: watching() }]} tabindex="-1" onKeyDown={onKeyDown}>
       <header class="toolbar">
         <div class="tools" role="toolbar" aria-label="Tools">
           <For each={TOOLS}>
@@ -578,9 +630,19 @@ function CanvasView() {
             Reconnecting…
           </p>
         </Show>
-        <ul class="people" aria-label="Here now">
-          <Loading>
-            <For each={people()}>
+        <Show when={admin()}>
+          <button type="button" class="clear" onClick={() => canvas.clear()}>
+            Clear the room
+          </button>
+        </Show>
+        <Loading>
+          <Show when={watching()}>
+            <p class="wire" role="status">
+              Watching: all {state.seats} seats are taken. You get one when someone leaves.
+            </p>
+          </Show>
+          <ul class="people" aria-label="Here now">
+            <For each={people().filter(person => person.seated)}>
               {person => (
                 <li
                   class={{ me: person.id === me()?.id }}
@@ -591,8 +653,11 @@ function CanvasView() {
                 </li>
               )}
             </For>
-          </Loading>
-        </ul>
+            <Show when={people().filter(person => !person.seated).length}>
+              {count => <li class="watching">+{count()}</li>}
+            </Show>
+          </ul>
+        </Loading>
       </header>
       <Loading fallback={<p class="loading">Loading the room…</p>}>
         <svg

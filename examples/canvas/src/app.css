@@ -108,6 +108,31 @@ body {
   font-weight: 600;
 }
 
+.people li.watching {
+  width: auto;
+  padding: 0 8px;
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--text);
+}
+
+/* Without a seat a tab watches: its tools do nothing, so they look it. */
+.watching .tools,
+.watching .palette {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.clear {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--danger);
+  color: var(--panel);
+  font: inherit;
+  cursor: pointer;
+}
+
 .people li.me {
   outline: 2px solid var(--strong);
 }

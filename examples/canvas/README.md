@@ -19,6 +19,15 @@ pnpm check                     # server checks, build, client-bundle check
 
 Open it in **two tabs** (or two browsers). Each tab is its own person.
 
+For a room you share widely (a live stream, say), three knobs, all on the
+server:
+
+```sh
+CANVAS_SEATS=20         # how many people can draw at once; the rest watch (default 20)
+CANVAS_MAX_TABS=70      # how many tabs the room lets in at all (default 70)
+CANVAS_ADMIN_KEY=<key>  # open the page with ?admin=<key> for a "Clear the room" button
+```
+
 ## What to look at
 
 - **Drawing.** Draw in one tab (Draw is the starting tool): the other tab
@@ -42,6 +51,11 @@ Open it in **two tabs** (or two browsers). Each tab is its own person.
   place one. With Select, a finished line is a shape too: drag it, delete
   it. With a shape selected, a colour swatch recolours it.
   Double-click a note to write in it.
+- **Seats.** With `CANVAS_SEATS=1`, the second tab watches: it sees
+  everything, its tools are off, and it says so. Close the first tab and the
+  second gets the seat.
+- **Full.** With `CANVAS_MAX_TABS=1`, the second tab says the room is full
+  and tries again by itself.
 
 ## One value for everyone
 
@@ -71,9 +85,29 @@ ten people moving at once already put seconds of lag on every screen,
 because a stream that can't keep up only grows (`CANVAS_FRAME_MS=0` turns
 it off, to see that).
 
-Who is here is the one per-viewer stream, `getPresence`, as on the board: a
+Who is here rides on the same value: the members, longest here first, and
+whether each has a seat. The list is rebuilt only when someone joins or
+leaves, so the rest of the time it crosses as a reference.
+
+Being here is the one per-viewer stream, `getPresence`, as on the board: a
 tab is present while its response is open, and the generator's `finally` is
-what leaving means. It is about the viewer, so it can't be shared.
+what leaving means. All it sends is the tab's seat token, which is a secret,
+so it can't be shared. (It used to send the member list too, and then every
+join sent the whole list down every tab's stream: with a hundred tabs
+arriving at once, the server spent its time telling everyone who had just
+arrived.)
+
+## Seats, and the host
+
+Anyone can watch; only the first `CANVAS_SEATS` people can point, draw and
+write. The room gives each of them a seat token, sends it only on that
+tab's own presence stream, and every write names it. Without a token the
+room ignores a position and refuses a write, so a seat is not something the
+page decides. When a seat frees, whoever has been watching longest gets it,
+and a tab that reconnects keeps its own.
+
+`CANVAS_ADMIN_KEY` is the host's reset: a page opened with `?admin=<key>`
+shows "Clear the room", and the room clears only for the right key.
 
 ## Two speeds of input
 
@@ -82,7 +116,7 @@ its latest position at most once a frame, and only once the previous one
 has arrived:
 
 ```tsx
-await point(id, x, y, Date.now(), latest(held), ink);
+await point(seat, x, y, Date.now(), latest(held), ink);
 ```
 
 Nothing confirms it and nothing undoes it: a position that never lands is
@@ -113,7 +147,7 @@ move: action(function* (id, key, x, y) {
   setState(r => {
     /* the shape, at x/y, on top */
   });
-  yield moveShape(key, id, x, y);
+  yield moveShape(seat() ?? "", key, id, x, y);
   yield applied(key);
 });
 ```
@@ -171,9 +205,33 @@ Drawing costs more than pointing, because every value carries everyone's
 unfinished line: up to 25 people drawing at once is smooth, and 50 is past
 the edge on one process.
 
-What runs out first is the cost of each POST, not sending the value to
-everyone. Most of a POST's server time is turning Node's request into a
-fetch `Request` and its answer back, not the server-function runtime.
+With few tabs, what runs out first is the cost of each POST, not sending
+the value to everyone. Most of a POST's server time is turning Node's
+request into a fetch `Request` and its answer back, not the server-function
+runtime.
+
+Watchers cost no POSTs, but every value goes down every tab's stream, and
+each stream is written and compressed on its own. 20 people at their
+seats with more tabs watching, two rounds each:
+
+| watching | 20 pointing: latency p50 / p95 | 20 drawing: latency p50 / p95 | server CPU, ms/s (drawing) |
+| -------- | ------------------------------ | ----------------------------- | -------------------------- |
+| 0        | 13-14 / 24 ms                  | 16 / 27 ms                    | 961-963                    |
+| 50       | 16-18 / 27-30 ms               | 23-30 / 92-269 ms             | 1584-1599                  |
+| 100      | 21-24 / 49-222 ms              | 1.4-1.8 / 1.8-2.6 s           | 1748-1757                  |
+| 200      | 1.5-1.9 / 1.7-2.0 s            | 2.6 / 5.2-5.9 s               | 1816-1833                  |
+
+So one process keeps up with 20 seats and 50 more tabs even with every seat
+drawing at once, which a real room rarely does; that is where
+`CANVAS_MAX_TABS=70` comes from. Past the cap a new tab is answered 503
+with `Retry-After` and says the room is full ([server.js](./server.js)),
+and the tabs already in are not slowed: with 200 tabs trying to get in, the
+70 inside measured 20-22 / 125-155 ms with everyone drawing and 15-17 /
+25-27 ms with everyone pointing. If your seats will mostly point, not draw,
+100 is fine too.
+
+The clients ran on the same 4-core machine as the server, so the server
+had less than the whole machine; treat these as a floor.
 
 ## Notes
 
@@ -181,7 +239,9 @@ fetch `Request` and its answer back, not the server-function runtime.
   Browsers allow six connections per origin over HTTP/1.1, so a second tab
   in the same browser stalls; `pnpm dev` serves HTTPS, which Vite speaks as
   HTTP/2. Deploy it on HTTP/2 too.
-- **Memory only.** The room resets with the server.
+- **Memory only.** The room resets with the server, and it is one
+  process: the room lives in its memory, so it can't be spread across
+  several.
 - **No pan, zoom or resize.** The canvas is the window.
 - **Touch dragging** uses the same pointer events but has not been checked
   on a device.
