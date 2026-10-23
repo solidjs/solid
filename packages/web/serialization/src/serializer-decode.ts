@@ -421,7 +421,16 @@ export function createJSONDeserializer(options) {
     const close = () => {
       alive = false;
     };
-    const off = stream.on({ next() {}, throw: close, return: close });
+    let off;
+    try {
+      off = stream.on({ next() {}, throw: close, return: close });
+    } catch {
+      // seroval 1.7: a single-consumer stream (`l: 1`, what a plugin's
+      // `parseStreamSource` mints, e.g. ReadableStreamPlugin) refuses a
+      // second `.on()` once its consumer subscribed ("Stream consumed").
+      // Its liveness is then only on the instance.
+      return (stream as any).alive !== false;
+    }
     if (typeof off === "function") off();
     return alive;
   }
