@@ -30,7 +30,14 @@ import {
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { notifyStatus } from "./async.js";
-import { ext, isSame, markUnflushedStaged, recompute, resyncUnflushedCompanions } from "./core.js";
+import {
+  dispatchingEvent,
+  ext,
+  isSame,
+  markUnflushedStaged,
+  recompute,
+  resyncUnflushedCompanions
+} from "./core.js";
 import {
   DEV,
   emitDiagnostic,
@@ -676,9 +683,19 @@ export function nextQuestion(): number {
 export const MAINLINE_QUESTION = 0x7fffffff;
 
 export let inEffectCallback = false;
+/** Dev-only: matches no event, so a window or phase holding it applies
+ * whatever event is current (see `strictReadEvent`, core.ts). */
+export const ANY_EVENT = {};
+/** Dev-only: the DOM event current when the effect phase was entered. A
+ * handler dispatched synchronously from that phase (`el.focus()`) runs under
+ * a different event and is not in it (#4235). */
+export let effectCallbackEvent: unknown = ANY_EVENT;
 
-export function setEffectCallback(value: boolean) {
-  if (__DEV__) inEffectCallback = value;
+export function setEffectCallback(value: boolean, event: unknown = ANY_EVENT) {
+  if (__DEV__) {
+    inEffectCallback = value;
+    effectCallbackEvent = event;
+  }
 }
 
 export type QueueCallback = (type: number) => void;
@@ -1508,6 +1525,22 @@ export function flush<T>(fn?: () => T): T | void {
   rethrowCleanupError();
 }
 
+/** Dev-only: the DOM event current when the running effect queue started,
+ * or `ANY_EVENT` outside one. Read once per queue rather than once per
+ * effect (the getter is costly under jsdom); no event starts or ends between
+ * two effects of one synchronous queue (#4235). */
+export let queueEvent: unknown = ANY_EVENT;
+
 function runQueue(queue: QueueCallback[], type: number): void {
+  if (__DEV__) {
+    const prev = queueEvent;
+    queueEvent = dispatchingEvent();
+    try {
+      for (let i = 0; i < queue.length; i++) queue[i](type);
+    } finally {
+      queueEvent = prev;
+    }
+    return;
+  }
   for (let i = 0; i < queue.length; i++) queue[i](type);
 }

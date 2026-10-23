@@ -16,6 +16,7 @@ import {
   exitCallback,
   recompute,
   setStrictRead,
+  strictReadEvent,
   staleValues,
   ext,
   setEffectStatusNotify
@@ -35,7 +36,8 @@ import {
   schedule,
   setTrackedQueueCallback,
   setEffectCallback,
-  heldRunHook
+  heldRunHook,
+  queueEvent
 } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
@@ -209,9 +211,13 @@ function runEffect(node: Effect<any>, type: number): void {
   // the compute pass that produced `_value` was clean, so its tail still goes.
   const cleanPass = node._x?._error == null;
   let prevStrictRead: string | false = false;
+  let prevStrictReadEvent: unknown;
   if (__DEV__) {
-    prevStrictRead = setStrictRead("an effect callback");
-    setEffectCallback(true);
+    prevStrictReadEvent = strictReadEvent;
+    // A run outside a queue (a render effect's first run at creation) records
+    // no event: its callback is the compiler's DOM writes.
+    prevStrictRead = setStrictRead("an effect callback", queueEvent);
+    setEffectCallback(true, queueEvent);
     enterCallback();
   }
   // Observe tier, like its `effectRunEnd` twin below: the frame the engine
@@ -237,7 +243,7 @@ function runEffect(node: Effect<any>, type: number): void {
     escalate(node, error);
   } finally {
     if (__DEV__) {
-      setStrictRead(prevStrictRead);
+      setStrictRead(prevStrictRead, prevStrictReadEvent);
       setEffectCallback(false);
       exitCallback();
     }

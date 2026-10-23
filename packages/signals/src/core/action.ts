@@ -6,6 +6,7 @@ import { emitDiagnostic } from "./dev.js";
 import { attrHooks } from "./attribution-hooks.js";
 import {
   actionDepth,
+  effectCallbackEvent,
   enterAction,
   exitAction,
   flush,
@@ -169,21 +170,23 @@ export function action<Args extends any[], Y, R>(
         // it may have been called from — a root created in it (`until`,
         // `resolve`) is deliberate (PRIMITIVE_IN_EFFECT_CALLBACK is off).
         let effectCallback = false;
+        let effectEvent: unknown;
         if (__DEV__) {
           enterCallback();
           effectCallback = inEffectCallback;
+          effectEvent = effectCallbackEvent;
           setEffectCallback(false);
         }
         try {
           r = err ? it.throw!(v) : it.next(v);
         } catch (e) {
           exitAction();
-          if (__DEV__) (exitCallback(), setEffectCallback(effectCallback));
+          if (__DEV__) (exitCallback(), setEffectCallback(effectCallback, effectEvent));
           if (__OBSERVE__ && attrHooks !== null) attrHooks.actionStepEnd(it);
           return done(undefined, e, true);
         }
         exitAction();
-        if (__DEV__) (exitCallback(), setEffectCallback(effectCallback));
+        if (__DEV__) (exitCallback(), setEffectCallback(effectCallback, effectEvent));
         if (__OBSERVE__ && attrHooks !== null) attrHooks.actionStepEnd(it);
         // A rejected iterator result (async generators) means the error already
         // escaped the generator body — it is completed, and throwing back in
