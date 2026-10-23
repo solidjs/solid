@@ -1,8 +1,9 @@
 # Canvas — multiplayer over one broadcast
 
-A shared canvas: rectangles, ellipses and notes that several people drag at
-once, with everyone's pointer on everyone's screen and a shape someone is
-dragging moving on every screen as they drag it. No sockets. The server
+A shared canvas that several people draw on at once. A line appears on
+everyone's screen as it is drawn, everyone's pointer is on everyone's
+screen, and there are rectangles, ellipses and notes to place and drag
+around, moving on every screen while they are dragged. No sockets. The server
 sends one value to every tab, and a tab writes with plain server functions.
 
 It sits next to [../board](../board), which has the same optimistic writes
@@ -20,6 +21,10 @@ Open it in **two tabs** (or two browsers). Each tab is its own person.
 
 ## What to look at
 
+- **Drawing.** Draw in one tab (Draw is the starting tool): the other tab
+  sees the line grow as you draw it, not appear when you let go. When you
+  let go nothing flickers: the line being drawn becomes the finished one in
+  the same frame, on both screens. Escape abandons a line.
 - **Pointers.** Move the mouse in one tab; its pointer moves in the other,
   with the tab's name on it.
 - **A drag is seen while it happens.** Drag a shape: the other tab sees it
@@ -31,9 +36,11 @@ Open it in **two tabs** (or two browsers). Each tab is its own person.
   (select, then Delete), and drop it. The drop is refused and the tab says
   why.
 - **Leaving.** Close a tab in the middle of a drag: in the other tab the
-  shape goes back to where it was, and the pointer goes.
+  shape goes back to where it was, and the pointer goes. In the middle of a
+  line, the unfinished line goes.
 - **Create, colour, words.** Pick Rectangle, Ellipse or Note and click to
-  place one. With a shape selected, a colour swatch recolours it.
+  place one. With Select, a finished line is a shape too: drag it, delete
+  it. With a shape selected, a colour swatch recolours it.
   Double-click a note to write in it.
 
 ## One value for everyone
@@ -51,7 +58,8 @@ const [state, setState] = createOptimisticStore<Room>(() => getRoom(), …);
 ```
 
 The room is one value: the shapes, the ids of recent writes (`applied`),
-and every pointer, each with the shape it is dragging, if any. Every tab
+and every pointer, each with the shape it is dragging or the line it is
+drawing, if any. Every tab
 gets the same value, so it is a `broadcast`: one watcher on the server, its
 records written to every open tab. A shape or a pointer that did not change
 is the same object as in the value before, so it crosses as a reference.
@@ -74,7 +82,7 @@ its latest position at most once a frame, and only once the previous one
 has arrived:
 
 ```tsx
-await point(id, x, y, Date.now(), latest(held) ?? undefined);
+await point(id, x, y, Date.now(), latest(held), ink);
 ```
 
 Nothing confirms it and nothing undoes it: a position that never lands is
@@ -86,6 +94,17 @@ A tab's own pointer and drag are never eased.
 While a tab drags a shape, its position carries the drag: the shape, where
 it is now, and the drag's key. The room keeps that on the tab's pointer
 until the drag ends, and every tab draws the shape there.
+
+While a tab draws, its position carries the points added since the last
+position that landed (`ink`). The room keeps the line on the tab's pointer
+in chunks of 32 points: only the last chunk grows, and a full one never
+changes, so each value sends the last chunk and refers to the full ones. A
+long line costs a viewer at most a chunk of points per frame, not the whole
+line again. (A chunk per frame looks cheaper but is not: every value then
+refers to every chunk so far, and a two-second line cost more each frame
+until 25 people drawing saturated the server.) A lost position is not a
+lost piece of the line: the tab counts what landed, and the next position
+starts from there.
 
 **A drop is a write**, with the same life as the board's:
 
@@ -106,14 +125,20 @@ they arrive in the same value. No tab ever sees the shape back where it
 started between the end of the drag and the move. A position for that drag
 that arrives after the move only moves the pointer.
 
+**A finished line is a create.** Its key, minted when the line started, is
+the new shape's id, so `createStroke` lands the shape and takes the
+unfinished line off the tab's pointer in the same commit. Every other tab
+sees one value with the line drawn, then the next with it finished, never
+one with neither. The row turning up is the confirmation, as for any shape.
+
 ## Cost
 
 Measured on one Node process (`pnpm start`) on a 4-core container, with
 Node clients on the same machine. Each client acts as a tab: presence and
 the room's broadcast open, and a pointer moving every frame, sent the way
 canvas.tsx sends it. Everyone moves at once, which a real room rarely does.
-"Drags" means every client is also dragging a shape the whole time. Two
-rounds; ranges are across them.
+Two rounds; ranges are across them. Pointing (and dragging a shape, which
+measured the same):
 
 | people moving | server CPU, ms/s | positions sent per person (of 60/s) | pointer latency p50 / p95 |
 | ------------- | ---------------- | ----------------------------------- | ------------------------- |
@@ -130,6 +155,21 @@ send fewer, larger steps (the easing hides some of it) rather than falling
 behind. Latency is measured from the sending tab's clock to the viewer's
 receipt, on one machine, so it has no network in it; over a real network
 each person also sends at most one position per round trip.
+
+Everyone drawing at once (each client draws a two-second line, lets it go
+and starts the next), latency measured to the points showing up on other
+screens:
+
+| people drawing | server CPU, ms/s | positions sent per person (of 60/s) | latency p50 / p95   | sent to each viewer |
+| -------------- | ---------------- | ----------------------------------- | ------------------- | ------------------- |
+| 1              | 157-159          | 62                                  | 9 / 17-18 ms        | 5 kB/s              |
+| 10             | 565-599          | 62                                  | 12 / 21 ms          | 27-28 kB/s          |
+| 25             | 1143-1159        | 60                                  | 19 / 32-34 ms       | 63-65 kB/s          |
+| 50             | 1832             | 20-22                               | 97-329 / 376-567 ms | 165-175 kB/s        |
+
+Drawing costs more than pointing, because every value carries everyone's
+unfinished line: up to 25 people drawing at once is smooth, and 50 is past
+the edge on one process.
 
 What runs out first is the cost of each POST, not sending the value to
 everyone. Most of a POST's server time is turning Node's request into a

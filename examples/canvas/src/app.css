@@ -132,9 +132,34 @@ body {
   cursor: grab;
 }
 
-.shape.selected > :first-child {
+.shape.selected:not(.is-stroke) > :first-child {
   stroke: var(--strong);
   stroke-width: 2;
+}
+
+/* A drawn line, finished or still being drawn. */
+.line,
+.ink {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ink {
+  pointer-events: none;
+}
+
+.hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.is-stroke.selected > .hit {
+  stroke: rgb(222 228 234 / 0.2);
 }
 
 /* What another tab moves arrives a frame (or a round trip) at a time.

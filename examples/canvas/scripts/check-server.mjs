@@ -196,18 +196,139 @@ await check("a late position for an ended drag only moves the pointer", async ()
 await check("a drag let go without a move ends, and the shape stays put", async () => {
   room.point("tabb1", 5, 5, 9, { id: "seednote1", key: "dragkey2", x: 500, y: 500 });
   await frame();
-  room.drop("tabb1", "dragkey2");
+  room.drop("dragkey2");
   await frame();
   assert.ok(!last().pointers.find(p => p.id === "tabb1").drag);
   assert.equal(shape("seednote1").x, 70);
 });
+await check("a refused drop still ends its drag", async () => {
+  room.point("tabb1", 5, 5, 11, { id: "seednote1", key: "dragkey4", x: 9, y: 9 });
+  room.deleteShape(mid(), "seednote1");
+  rejects(() => room.moveShape("dragkey4", "seednote1", 9, 9), /deleted/);
+  await frame();
+  assert.ok(!last().pointers.find(p => p.id === "tabb1").drag);
+});
+
+console.log("strokes");
+const inkOf = id => last().pointers.find(p => p.id === id).ink;
+await check("a full chunk of a stroke is the same object in every later value", async () => {
+  const send = (from, points) =>
+    room.point("taba1", 0, 0, 12, undefined, { key: "strokech", color: "#f87168", from, points });
+  for (let i = 0; i < 40; i++) send(i, [i, i]);
+  await frame();
+  const full = inkOf("taba1").chunks[0];
+  assert.equal(full.length, 64);
+  assert.deepEqual(
+    inkOf("taba1").chunks[1],
+    [32, 32, 33, 33, 34, 34, 35, 35, 36, 36, 37, 37, 38, 38, 39, 39]
+  );
+  send(40, [40, 40]);
+  await frame();
+  assert.equal(inkOf("taba1").chunks[0], full);
+  assert.equal(inkOf("taba1").chunks[1].length, 18);
+  room.drop("strokech");
+});
+await check("a stroke's points arrive a frame at a time", async () => {
+  room.point("taba1", 0, 0, 12, undefined, {
+    key: "stroke01",
+    color: "#f87168",
+    from: 0,
+    points: [10, 10, 20, 15]
+  });
+  await frame();
+  const first = inkOf("taba1");
+  assert.deepEqual(first, { key: "stroke01", color: "#f87168", chunks: [[10, 10, 20, 15]] });
+  room.point("taba1", 0, 0, 13, undefined, {
+    key: "stroke01",
+    color: "#f87168",
+    from: 2,
+    points: [30, 25]
+  });
+  await frame();
+  assert.deepEqual(inkOf("taba1").chunks, [[10, 10, 20, 15, 30, 25]]);
+});
+await check("points sent again are not added twice, and a gap waits for the resend", async () => {
+  room.point("taba1", 0, 0, 14, undefined, {
+    key: "stroke01",
+    color: "#f87168",
+    from: 2,
+    points: [30, 25, 40, 30]
+  });
+  room.point("taba1", 0, 0, 15, undefined, {
+    key: "stroke01",
+    color: "#f87168",
+    from: 9,
+    points: [99, 99]
+  });
+  await frame();
+  assert.deepEqual(inkOf("taba1").chunks.flat(), [10, 10, 20, 15, 30, 25, 40, 30]);
+});
+await check("a position without ink keeps the stroke", async () => {
+  room.point("taba1", 50, 50, 16);
+  await frame();
+  assert.equal(inkOf("taba1").key, "stroke01");
+});
+await check("the stroke lands in the same value that ends its ink", async () => {
+  const before = seen.length;
+  room.createStroke("stroke01", "#f87168", [10, 10, 20, 15, 30, 25, 40, 30]);
+  await frame();
+  for (const value of seen.slice(before)) {
+    const landed = value.shapes.some(s => s.id === "stroke01");
+    const drawing = !!value.pointers.find(p => p.id === "taba1").ink;
+    assert.notEqual(landed, drawing);
+  }
+  assert.deepEqual(shape("stroke01"), {
+    id: "stroke01",
+    kind: "stroke",
+    x: 10,
+    y: 10,
+    w: 30,
+    h: 20,
+    color: "#f87168",
+    text: "",
+    points: [0, 0, 10, 5, 20, 15, 30, 20]
+  });
+  room.point("taba1", 0, 0, 17, undefined, {
+    key: "stroke01",
+    color: "#f87168",
+    from: 4,
+    points: [1, 1]
+  });
+  await frame();
+  assert.ok(!inkOf("taba1"), "a late piece of a landed stroke draws nothing");
+});
+await check("a stroke let go without landing ends; bad strokes are refused", async () => {
+  room.point("taba1", 0, 0, 18, undefined, {
+    key: "stroke02",
+    color: "#579dff",
+    from: 0,
+    points: [1, 1, 2, 2]
+  });
+  await frame();
+  room.drop("stroke02");
+  await frame();
+  assert.ok(!inkOf("taba1"));
+  rejects(() => room.createStroke("stroke03", "#579dff", [1, 1]), /Bad stroke/);
+  rejects(() => room.createStroke("stroke03", "#579dff", [1, 1, 2]), /Bad stroke/);
+  rejects(() => room.createStroke("stroke03", "#579dff", new Array(4002).fill(1)), /Bad stroke/);
+});
+await check("leaving takes the pointer, and what it was drawing", async () => {
+  room.point("taba1", 0, 0, 19, undefined, {
+    key: "stroke04",
+    color: "#579dff",
+    from: 0,
+    points: [1, 1, 2, 2]
+  });
+  await frame();
+  leaveA();
+  await frame();
+  assert.ok(!last().pointers.some(p => p.id === "taba1"));
+});
+
 await check("leaving takes the pointer, and what it was dragging", async () => {
   room.point("tabb1", 5, 5, 10, { id: "seednote1", key: "dragkey3", x: 1, y: 1 });
   await frame();
   leaveB();
-  await frame();
-  assert.ok(!last().pointers.some(p => p.id === "tabb1"));
-  leaveA();
   await frame();
   assert.deepEqual(last().pointers, []);
 });

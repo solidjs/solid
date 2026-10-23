@@ -1,10 +1,11 @@
 // The canvas as it crosses the wire.
 
+/** What can be placed with a click. A stroke is drawn instead. */
 export type Kind = "rect" | "ellipse" | "note";
 
 export interface Shape {
   id: string;
-  kind: Kind;
+  kind: Kind | "stroke";
   /** Top-left corner and size, in canvas pixels. */
   x: number;
   y: number;
@@ -13,6 +14,8 @@ export interface Shape {
   color: string;
   /** A note's words; empty for the other kinds. */
   text: string;
+  /** A stroke's points, flat (`x0, y0, x1, y1, …`), from its top-left corner. */
+  points?: number[];
 }
 
 export interface Identity {
@@ -34,11 +37,25 @@ export interface Drag {
   y: number;
 }
 
-/** Where a member's pointer is, and what it holds. */
+/**
+ * A stroke someone is drawing, as far as it has reached the server, in
+ * canvas coordinates. Its points are kept in chunks of a fixed size: only
+ * the last chunk grows, and a full one never changes, so each value sends
+ * the last chunk and refers to the rest.
+ */
+export interface Ink {
+  /** The stroke's own id, which is also the id of the shape it becomes. */
+  key: string;
+  color: string;
+  chunks: number[][];
+}
+
+/** Where a member's pointer is, and what it holds or draws. */
 export interface Pointer extends Identity {
   x: number;
   y: number;
   drag?: Drag;
+  ink?: Ink;
   /** When the browser sent it (its clock): for measuring, not shown. */
   t: number;
 }

@@ -8,11 +8,12 @@
 //
 // There are two speeds of input. A pointer moves sixty times a second, and
 // is sent as it moves — the latest position at most once a frame, and only
-// when the last one has arrived — with the shape it is dragging, if any.
-// That is not a write: nobody confirms it, and a position that never lands
-// is replaced by the next. A drop is a write, with the same life as every
-// other: it shows at once as an optimistic write to the store, is sent, and
-// holds until the room's own stream carries it.
+// when the last one has arrived — with the shape it is dragging or the
+// points of the line it is drawing, if any. That is not a write: nobody
+// confirms it, and a position that never lands is replaced by the next. A
+// drop, or a line let go, is a write, with the same life as every other: it
+// shows at once as an optimistic write to the store, is sent, and holds
+// until the room's own stream carries it.
 import {
   action,
   createContext,
@@ -31,6 +32,7 @@ import { broadcast, live } from "@solidjs/web/server-functions";
 import { IdentityContext, mintId } from "~/identity";
 import { colorOf, PALETTE, SIZES } from "~/kinds";
 import * as room from "~/server/room";
+import type { InkSent } from "~/server/room";
 import type { Drag, Identity, Kind, Member, Room, Shape } from "~/types";
 
 // ---------------------------------------------------------------------------
@@ -58,14 +60,28 @@ const getPresence = live(async function* (me: Identity | null): AsyncGenerator<M
   }
 });
 
-async function point(id: string, x: number, y: number, t: number, drag?: Drag) {
+// What the pointer holds or draws is `null` when nothing: arguments go as
+// JSON, which has no `undefined` before the last one.
+async function point(
+  id: string,
+  x: number,
+  y: number,
+  t: number,
+  drag: Drag | null,
+  ink: InkSent | null
+) {
   "use server";
-  room.point(id, x, y, t, drag);
+  room.point(id, x, y, t, drag ?? undefined, ink ?? undefined);
 }
 
-async function dropShape(id: string, key: string) {
+async function letGo(key: string) {
   "use server";
-  room.drop(id, key);
+  room.drop(key);
+}
+
+async function createStroke(id: string, color: string, points: number[]) {
+  "use server";
+  room.createStroke(id, color, points);
 }
 
 async function createShape(id: string, kind: Kind, x: number, y: number, color: string) {
@@ -99,7 +115,38 @@ async function deleteShape(mutation: string, id: string) {
 /** How long a write waits for the room to carry it before undoing itself. */
 const CONFIRM_WITHIN = 10_000;
 
-export type Tool = "select" | Kind;
+export type Tool = "draw" | "select" | Kind;
+
+/** The most points one position carries; a longer backlog goes over the next ones. */
+const POINTS_PER_SEND = 256;
+/** As room.ts's STROKE_LIMIT: drawing on past it adds nothing. */
+const STROKE_LIMIT = 2000;
+
+/** An SVG path through flat points (`x0, y0, x1, y1, …`). */
+export const pathOf = (points: readonly number[]) => {
+  let d = "";
+  for (let i = 0; i < points.length; i += 2) d += `${i ? "L" : "M"}${points[i]} ${points[i + 1]}`;
+  return d;
+};
+
+/** A stroke as it lands: placed at its top-left corner, its points from there. */
+function strokeShape(id: string, color: string, points: number[]): Shape {
+  const xs = points.filter((_, i) => i % 2 === 0);
+  const ys = points.filter((_, i) => i % 2 === 1);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return {
+    id,
+    kind: "stroke",
+    x,
+    y,
+    w: Math.max(...xs) - x,
+    h: Math.max(...ys) - y,
+    color,
+    text: "",
+    points: xs.flatMap((px, i) => [px - x, ys[i] - y])
+  };
+}
 
 function createCanvas() {
   const me = useContext(IdentityContext);
@@ -117,7 +164,7 @@ function createCanvas() {
   );
   const people = createMemo(() => getPresence(me()));
 
-  const [tool, setTool] = createSignal<Tool>("select");
+  const [tool, setTool] = createSignal<Tool>("draw");
   const [color, setColor] = createSignal(PALETTE[0]);
   const [selected, setSelected] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string>();
@@ -125,6 +172,14 @@ function createCanvas() {
   // The shape this tab is dragging, where it has it now. Client state until
   // the drop, which is the write.
   const [held, setHeld] = createSignal<Drag | null>(null);
+
+  // The stroke this tab is drawing: client state until it is let go, which
+  // is the write. Its points are a new array per move, for the path.
+  const [drawing, setDrawing] = createSignal<{
+    key: string;
+    color: string;
+    points: number[];
+  } | null>(null);
 
   // Everyone else's pointers, and the shapes they are dragging.
   const others = () => state.pointers.filter(p => p.id !== me()?.id);
@@ -188,6 +243,20 @@ function createCanvas() {
       setState(r => void r.shapes.push(shape));
       try {
         yield createShape(id, kind, shape.x, shape.y, shape.color);
+        yield exists(id);
+      } catch (err) {
+        fail(err);
+      }
+    }),
+
+    // A stroke let go. Its key is the shape's id, so the commit that lands it
+    // also ends the ink every other screen was drawing, in the same value,
+    // and the row turning up confirms it.
+    stroke: action(function* (id: string, color: string, points: number[]) {
+      setError(undefined);
+      setState(r => void r.shapes.push(strokeShape(id, color, points)));
+      try {
+        yield createStroke(id, color, points);
         yield exists(id);
       } catch (err) {
         fail(err);
@@ -259,6 +328,8 @@ function createCanvas() {
   let pointer: { x: number; y: number } | undefined;
   let frame = 0;
   let sending = false;
+  // How many points of the stroke being drawn have reached the server.
+  let landed = { key: "", count: 0 };
   const send = async () => {
     frame = 0;
     const id = me()?.id;
@@ -266,10 +337,21 @@ function createCanvas() {
     const { x, y } = pointer;
     pointer = undefined;
     sending = true;
+    const stroke = latest(drawing);
+    let ink: InkSent | null = null;
+    if (stroke) {
+      if (landed.key !== stroke.key) landed = { key: stroke.key, count: 0 };
+      const points = stroke.points.slice(landed.count * 2, (landed.count + POINTS_PER_SEND) * 2);
+      ink = { key: stroke.key, color: stroke.color, from: landed.count, points };
+      // More than one send's worth waiting: come back next frame for the rest.
+      if (stroke.points.length > (landed.count + POINTS_PER_SEND) * 2) pointer = { x, y };
+    }
     try {
-      await point(id, x, y, Date.now(), latest(held) ?? undefined);
+      await point(id, x, y, Date.now(), latest(held), ink);
+      if (ink && landed.key === ink.key) landed.count = ink.from + ink.points.length / 2;
     } catch {
-      // A lost position is replaced by the next one.
+      // A lost position is replaced by the next one, and a lost piece of a
+      // stroke is sent again with it: `landed` did not move.
     } finally {
       sending = false;
       if (pointer && !frame) frame = requestAnimationFrame(send);
@@ -315,8 +397,7 @@ function createCanvas() {
       setHeld(null);
       if (drop) write.move(shape.id, key, drag.x, drag.y);
       else {
-        const id = me()?.id;
-        if (id) dropShape(id, key).catch(() => {});
+        letGo(key).catch(() => {});
       }
     };
     const up = () => finish(true);
@@ -334,10 +415,56 @@ function createCanvas() {
     window.addEventListener("keydown", escape, true);
   };
 
-  /** A press on the canvas itself: places a shape with a drawing tool, else clears the selection. */
+  // ---- drawing a stroke ----
+
+  const draw = (e: PointerEvent) => {
+    const key = mintId();
+    const start = at(e);
+    let points = [start.x, start.y];
+    setDrawing({ key, color: color(), points });
+    track(e);
+
+    const move = (e: PointerEvent) => {
+      const { x, y } = at(e);
+      const n = points.length;
+      if (n >= STROKE_LIMIT * 2) return track(e);
+      // Closer than this to the last point adds nothing you can see.
+      if (Math.hypot(x - points[n - 2], y - points[n - 1]) < 2) return;
+      points = [...points, x, y];
+      setDrawing({ key, color: color(), points });
+      track(e);
+    };
+    const finish = (keep: boolean) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", escape, true);
+      setDrawing(null);
+      if (keep && points.length >= 4) write.stroke(key, color(), points);
+      else letGo(key).catch(() => {});
+    };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      finish(false);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", escape, true);
+  };
+
+  /**
+   * A press on the canvas itself (or, when drawing, anywhere on it): draws,
+   * places a shape, or clears the selection.
+   */
   const press = (e: PointerEvent) => {
     if (e.button !== 0) return;
     const kind = tool();
+    if (kind === "draw") return draw(e);
     if (kind === "select") return setSelected(null);
     const { x, y } = at(e);
     const id = mintId();
@@ -348,6 +475,7 @@ function createCanvas() {
 
   return {
     state,
+    drawing: () => latest(drawing),
     me,
     people,
     others,
@@ -382,6 +510,7 @@ export default function CanvasScreen() {
 }
 
 const TOOLS: [Tool, string][] = [
+  ["draw", "Draw"],
   ["select", "Select"],
   ["rect", "Rectangle"],
   ["ellipse", "Ellipse"],
@@ -391,7 +520,7 @@ const TOOLS: [Tool, string][] = [
 function CanvasView() {
   const canvas = useContext(CanvasContext);
   const { state, me, people, others, reconnecting, error, tool, setTool, color, setColor } = canvas;
-  const { selected, write, press, track, setSvg } = canvas;
+  const { selected, write, press, track, setSvg, drawing } = canvas;
 
   // Delete or Backspace removes the selected shape, unless a field has the keys.
   const onKeyDown = (e: KeyboardEvent) => {
@@ -473,6 +602,18 @@ function CanvasView() {
           onPointerMove={track}
         >
           <For each={state.shapes}>{shape => <ShapeView shape={shape} />}</For>
+          {/* Strokes being drawn: everyone else's as far as the server has
+              them, then this tab's own, as it draws. */}
+          <For each={others()}>
+            {pointer => (
+              <Show when={pointer.ink}>
+                {ink => <path class="ink" d={pathOf(ink().chunks.flat())} stroke={ink().color} />}
+              </Show>
+            )}
+          </For>
+          <Show when={drawing()}>
+            {stroke => <path class="ink" d={pathOf(stroke().points)} stroke={stroke().color} />}
+          </Show>
           <For each={others()}>
             {pointer => (
               <g
@@ -509,13 +650,23 @@ function ShapeView(props: { shape: Shape }) {
   const [writing, setWriting] = createSignal(false);
   return (
     <g
-      class={["shape", { selected: selected() === props.shape.id, remote: place().remote }]}
+      class={[
+        "shape",
+        `is-${props.shape.kind}`,
+        { selected: selected() === props.shape.id, remote: place().remote }
+      ]}
       style={{ transform: `translate(${place().x}px, ${place().y}px)` }}
       data-shape={props.shape.id}
       onPointerDown={e => grab(props.shape, e)}
       onDblClick={() => props.shape.kind === "note" && setWriting(true)}
     >
-      {props.shape.kind === "ellipse" ? (
+      {props.shape.kind === "stroke" ? (
+        <>
+          {/* Wide and invisible, so a thin line is easy to grab. */}
+          <path class="hit" d={pathOf(props.shape.points ?? [])} />
+          <path class="line" d={pathOf(props.shape.points ?? [])} stroke={props.shape.color} />
+        </>
+      ) : props.shape.kind === "ellipse" ? (
         <ellipse
           cx={props.shape.w / 2}
           cy={props.shape.h / 2}
