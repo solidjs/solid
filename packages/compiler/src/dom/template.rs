@@ -105,7 +105,7 @@ pub(crate) struct InsertMarker<'a> {
 }
 
 /// 1-based line and UTF-16 column for a byte offset, for diagnostics.
-fn line_and_column(source: &str, offset: u32) -> (usize, usize) {
+pub(crate) fn line_and_column(source: &str, offset: u32) -> (usize, usize) {
     let offset = (offset as usize).min(source.len());
     let mut line = 1;
     let mut line_start = 0;
@@ -281,8 +281,8 @@ impl<'a> AstDomTransform<'a, '_> {
         // in server stderr. The message carries the registration site's
         // line:col so bundler overlays land on the JSX. `validate: false`
         // remains the opt-out. Only DOM templates carry the closing-tags
-        // variant — Babel skips SSR templates for the same reason (theirs
-        // are AST nodes, not strings).
+        // variant; SSR templates rebuild it from their parts
+        // (`validation_markup` in ssr/template.rs).
         if self.validate {
             for template in &self.template_state.templates {
                 if let Some(result) =

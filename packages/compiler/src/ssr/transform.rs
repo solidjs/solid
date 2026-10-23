@@ -60,6 +60,8 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// The memo wrapper import name; `None` disables memo wrapping.
     memo_wrapper: Option<String>,
     static_marker: String,
+    /// The `validate` option: malformed template markup is a compile error.
+    validate: bool,
     uses_ssr: bool,
     uses_create_component: bool,
     uses_ssr_hydration_key: bool,
@@ -234,6 +236,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         location_base: Option<String>,
         memo_wrapper: Option<String>,
         static_marker: String,
+        validate: bool,
         built_ins: std::vec::Vec<String>,
     ) -> Self {
         Self {
@@ -248,6 +251,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             location_base,
             memo_wrapper,
             static_marker,
+            validate,
             uses_ssr: false,
             uses_create_component: false,
             uses_ssr_hydration_key: false,
@@ -878,6 +882,27 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     ) -> Result<Expression<'a>> {
         let span = element.span;
         let wont_escape = self.wont_escape_spans.contains(&element.span);
+        // The DOM `validate` pass (#3099) over the SSR markup, so templates
+        // that only ever compile for the server (server components) are
+        // checked too. Content holes are opaque — under an `<html>` root one
+        // may render the `<head>`/`<body>`, so those shells are skipped.
+        if self.validate {
+            let (html, content_holes) = template.validation_markup();
+            let shell_with_holes = content_holes && html.starts_with("<html>");
+            if let Some(result) = (!shell_with_holes)
+                .then(|| crate::shared::validate::is_invalid_markup(&html))
+                .flatten()
+            {
+                let (line, column) = crate::dom::template::line_and_column(self.source, span.start);
+                return Err(Error::transform(format!(
+                    "The HTML provided is malformed and will yield unexpected output when evaluated by a browser. ({line}:{column})\n\
+                     User HTML:\n {}\n\
+                     Browser HTML:\n {}\n\
+                     Original HTML:\n {}",
+                    result.html, result.browser, html
+                )));
+            }
+        }
         let template_local = self.register_template(&template.parts);
         // A pass-through element (already inside `_$escape`) with a static
         // template needs no `ssr()` wrapper — the raw HTML template reference
@@ -2841,11 +2866,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             marker_static,
             can_allocate_ids,
         } = children;
+        let inner_html = do_not_escape;
         let do_not_escape = do_not_escape || element_do_not_escape;
         // Literal after folding — Babel's `getStaticExpression` text path.
         match &value {
             Expression::StringLiteral(literal) => {
-                if do_not_escape {
+                if inner_html {
+                    template.push_opaque(&literal.value);
+                } else if do_not_escape {
                     let text = literal.value.to_string();
                     template.current_mut().push_str(&text);
                 } else {
