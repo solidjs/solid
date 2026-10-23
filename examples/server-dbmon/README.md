@@ -11,8 +11,12 @@ Two routes render the same simulation, so they can be compared:
   `broadcast()` address: every tab sees the same table, so the server
   renders it once and streams the same changes to every viewer. The
   browser only applies the markup it receives.
-- `/spa` — the client-rendered twin. The server streams the databases as
-  data and the browser renders them with keyed `<For>`s.
+- `/spa` — the client-rendered twin. The data is a `broadcast()` too: the
+  server reads each tick once and streams the same data to every viewer,
+  and the browser renders it with keyed `<For>`s.
+
+Both routes show how many tabs are watching. That count is a plain per-tab
+`live()` stream: each tab's open stream is what counts it as a viewer.
 
 ```sh
 pnpm dev                       # https://localhost:3020/  (self-signed cert)

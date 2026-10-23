@@ -125,3 +125,7 @@ table {
   left: -100%;
   width: 100%;
 }
+
+.viewers {
+  margin: 8px;
+}
