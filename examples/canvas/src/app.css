@@ -1,0 +1,173 @@
+:root {
+  --bg: #1d2125;
+  --panel: #101204;
+  --card: #22272b;
+  --text: #b6c2cf;
+  --strong: #dee4ea;
+  --muted: #8c9bab;
+  --accent: #579dff;
+  --danger: #f87168;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.4 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+.canvas {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  outline: none;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 8px 16px;
+  background: var(--panel);
+}
+
+.tools,
+.palette {
+  display: flex;
+  gap: 4px;
+}
+
+.tools button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tools button.on {
+  background: var(--accent);
+  color: var(--panel);
+}
+
+.palette button {
+  width: 22px;
+  height: 22px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.palette button.on {
+  border-color: var(--strong);
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+}
+
+.wire {
+  margin: 0;
+  color: var(--muted);
+}
+
+.people {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.people li {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--panel);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.people li.me {
+  outline: 2px solid var(--strong);
+}
+
+.loading {
+  margin: 24px;
+  color: var(--muted);
+}
+
+.surface {
+  flex: 1;
+  width: 100%;
+  touch-action: none;
+  user-select: none;
+}
+
+.surface.drawing {
+  cursor: crosshair;
+}
+
+.shape {
+  cursor: grab;
+}
+
+.shape.selected > :first-child {
+  stroke: var(--strong);
+  stroke-width: 2;
+}
+
+/* What another tab moves arrives a frame (or a round trip) at a time.
+   Easing over about one step turns the steps back into motion; this tab's
+   own pointer and drag are never eased. */
+.remote {
+  transition: transform 80ms linear;
+}
+
+.cursor {
+  pointer-events: none;
+}
+
+.cursor text {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.note {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 10px;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: #172b4d;
+  font: inherit;
+  white-space: pre-wrap;
+  resize: none;
+  outline: none;
+}
+
+.app-error {
+  margin: 24px;
+}
