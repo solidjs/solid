@@ -4,7 +4,6 @@
 import { For, Loading, Show, createMemo, createSignal, onSettled } from "solid-js";
 import { broadcast } from "@solidjs/web/server-functions";
 import { watchDatabases, type Database } from "~/server/databases";
-import Viewers from "~/components/viewers";
 
 const getDatabaseData = broadcast(async function* (): AsyncGenerator<Database[]> {
   "use server";
@@ -19,12 +18,9 @@ export default function Spa() {
     setRunning(true);
   });
   return (
-    <>
-      <Viewers />
-      <Show when={running()}>
-        <Table />
-      </Show>
-    </>
+    <Show when={running()}>
+      <Table />
+    </Show>
   );
 }
 

@@ -15,9 +15,6 @@ Two routes render the same simulation, so they can be compared:
   server reads each tick once and streams the same data to every viewer,
   and the browser renders it with keyed `<For>`s.
 
-Both routes show how many tabs are watching. That count is a plain per-tab
-`live()` stream: each tab's open stream is what counts it as a viewer.
-
 ```sh
 pnpm dev                       # https://localhost:3020/  (self-signed cert)
 pnpm build && pnpm start       # production harness, http://localhost:3020/

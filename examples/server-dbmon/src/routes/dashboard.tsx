@@ -7,7 +7,6 @@ import { dynamicComponent } from "@solidjs/web";
 import { broadcast } from "@solidjs/web/server-functions";
 import { liveQuery } from "@solidjs/router";
 import { watchDatabases } from "~/server/databases";
-import Viewers from "~/components/viewers";
 
 const getDatabases = liveQuery(
   broadcast(async () => {
@@ -51,11 +50,8 @@ const getDatabases = liveQuery(
 export default function Dashboard() {
   const Databases = dynamicComponent(() => getDatabases());
   return (
-    <>
-      <Viewers />
-      <Loading fallback={<p>Loading…</p>}>
-        <Databases />
-      </Loading>
-    </>
+    <Loading fallback={<p>Loading…</p>}>
+      <Databases />
+    </Loading>
   );
 }
