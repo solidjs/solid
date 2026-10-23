@@ -1,5 +1,21 @@
 # @solidjs/web
 
+## 2.0.0-rc.18
+
+### Patch Changes
+
+- f5ad065: `broadcast(fn)` now shares data sources too. When a broadcast returns an async iterable of values (a generator of data), callers with the same arguments share one source: the first caller's runs, later callers' answers are closed unread, and each codec record is serialized once and written to every viewer. A viewer that joins later gets the latest value, then the shared stream. Before, a data broadcast was served per connection, exactly like `live`.
+- ec4483d: Live `For` rows whose markup kept its structure now travel as text and attribute edits that the client writes in place, instead of html it parses and morphs; any other change still ships the row whole. A dev server also ships a hash of each patched row's element tree, so a row the browser's parser restructured is reported and resynced instead of written. A live `<Repeat>`'s rows now take the same path; before, its hole was re-sent whole on every change.
+- 4645cff: Bump `seroval` and `seroval-plugins` to 1.7.0 (faster serialization: about 20–35% on hydration and JSON writes). A serialized write now ends at its first failing value, so later siblings in the same write are no longer sent after one fails; the keyed serializer settles that write instead of waiting for a `done` that seroval no longer sends. The JSON decoder's end-of-body open-stream count handles 1.7's single-consumer streams (from `ReadableStream` values).
+- b883323: Add a `buildId` option to `configureServerFunctionsServer`. A call whose `X-Server-Function-Build` header names another build is answered `409` without running the function, and the client rejects with `error.unknownFunction: true`, the same as for a function the deploy removed. The build integration adds the header through `prepareRequest`, so the client runtime does not grow. This catches skew the unknown-id 404 cannot: a function whose id survived a deploy but whose arguments or result changed shape.
+- a4e9d10: `renderToStream` now completes when a value the serializer cannot handle is written already settled (a `deferStream` value, or a `getHydrationWriter().write`). The failure was already reported as `{ kind: "render", handling: "serialize" }`, but the render stayed pending: no `onCompleteAll`, no end of the piped stream, no final dispose. `createJSONSerializer` (the frames default) had the same gap and is fixed too; its `close()` now always calls `onDone` once. Without an `onError`, a write that fails still throws, and both serializers now complete on `flush()` after it. `createHydrationSerializer` (internal) returns `{ write, flush, close }` instead of seroval's `Serializer`, with the same output.
+- Updated dependencies [50a810b]
+- Updated dependencies [f373683]
+- Updated dependencies [ec4483d]
+- Updated dependencies [4645cff]
+- Updated dependencies [aece1d4]
+  - solid-js@2.0.0-rc.18
+
 ## 2.0.0-rc.17
 
 ### Patch Changes

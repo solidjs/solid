@@ -1,5 +1,12 @@
 # @solidjs/compiler
 
+## 2.0.0-rc.18
+
+### Patch Changes
+
+- f5ad065: The `broadcast()` capture rule now covers data answers too. A returned value that is not a component (an async iterable, usually a call that makes one) may read the server function's parameters and module scope, never its outer body's locals: every later caller gets the first caller's stream, so `const user = await getUser(); return watch(user.id)` is a compile error. Of a returned `respond(value, init)` only `value` is checked, since each caller's response carries its own headers and status. A generator (`async function*`) is not checked: calling it runs none of its body, so all of it is shared.
+- 642ea75: Validate SSR templates for malformed HTML under the `validate` option, as DOM templates already are, so markup that only compiles for the server (such as server components) reports the same compile error.
+
 ## 2.0.0-rc.17
 
 ### Patch Changes
