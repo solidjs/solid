@@ -6205,6 +6205,7 @@ module.exports = [
     // measured locally (linux) at 20,573 B (72,154 B minified). Lower only: cap
     // at measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Throwing cleanups no longer abort teardown (#4213, 2026-10-21, over next @ a2a5b6f8): 20.59 KB -> 20.65 KB, recorded minified 72,154 -> 72,189 B (+35 B), measured in CI at 20,632 B brotli. Every onCleanup and effect cleanup runs when one throws; the first error is rethrown by a root's dispose() or at the end of the flush. Size-Exception accepted by the maintainer (2026-10-21). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
+    // seroval 1.7.0 (#4234, 2026-10-23, over next @ b9b6f333): 20.65 KB -> 22.80 KB, recorded minified 72,189 -> 77,473 B (+5,925 B over base), measured in CI at 22,786 B brotli (+2,178 B). The growth is inside seroval 1.7's crossSerializeStream path (its live-stream support); 1.7 is 21-37% faster at serializing. Server-only: client eager chunks are unchanged. Size-Exception accepted by the maintainer (2026-10-23: "only client size really matters"). Cap at measured + 10 B rounded up to 0.01 KB, never lowered; recorded minified = measured.
     limit: floorCaps["server: renderToString (the server-render floor)"],
     capMinified: floorMinified["server: renderToString (the server-render floor)"],
     alias: serverAlias,
