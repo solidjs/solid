@@ -121,6 +121,7 @@ import {
   txOf,
   inEffectCallback,
   effectCallbackEvent,
+  ANY_EVENT,
   passTx,
   joinPassTx,
   stagedReaders,
@@ -208,7 +209,11 @@ export const PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE =
  * created there is inert and harmless. Tracked effects and onSettled are
  * children-forbidden and refuse through PRIMITIVE_IN_FORBIDDEN_SCOPE. */
 export function assertNotInEffectCallback(): void {
-  if (inEffectCallback && context === null && dispatchingEvent() === effectCallbackEvent) {
+  if (
+    inEffectCallback &&
+    context === null &&
+    (effectCallbackEvent === ANY_EVENT || dispatchingEvent() === effectCallbackEvent)
+  ) {
     emitDiagnostic({
       code: "PRIMITIVE_IN_EFFECT_CALLBACK",
       kind: "lifecycle",
@@ -1532,19 +1537,20 @@ export function resetDisposalDepth(): void {
 }
 /**
  * Dev-only: the DOM event being dispatched when the open strict-read window
- * opened (`globalThis.event`; undefined between dispatches and off the main
- * thread's Window). A DOM call made in the window that dispatches events
- * synchronously (`el.focus()`, `el.click()`, `dialog.showModal()`) runs that
- * event's handlers inside it; a handler is a one-shot snapshot whoever
+ * opened (`globalThis.event`; null between dispatches and off the main
+ * thread's Window), or `ANY_EVENT` when the window did not record one. A DOM
+ * call made in an effect callback that dispatches events synchronously
+ * (`el.focus()`, `el.click()`, `dialog.showModal()`) runs that event's
+ * handlers inside the window; a handler is a one-shot snapshot whoever
  * dispatched the event, so a read made while a different event is current is
- * outside the window (#4235). `strictReadActive` is the check.
+ * outside the window (#4235). Only queued effect runs record the event, read
+ * once per queue (the getter is costly under jsdom); `strictReadActive` is
+ * the check.
  */
 export let strictReadEvent: unknown;
-export const dispatchingEvent = (): unknown => (globalThis as any).event;
-export function setStrictRead(
-  v: string | false,
-  event: unknown = dispatchingEvent()
-): string | false {
+// `?? null`: no current event must not read as a missing argument below.
+export const dispatchingEvent = (): unknown => (globalThis as any).event ?? null;
+export function setStrictRead(v: string | false, event: unknown = ANY_EVENT): string | false {
   const prev = strictRead;
   strictRead = v;
   strictReadEvent = event;
@@ -1552,7 +1558,7 @@ export function setStrictRead(
 }
 /** Dev-only: is the strict-read window open for a read made now? */
 export function strictReadActive(): boolean {
-  return !!strictRead && dispatchingEvent() === strictReadEvent;
+  return !!strictRead && (strictReadEvent === ANY_EVENT || dispatchingEvent() === strictReadEvent);
 }
 
 /**
@@ -1597,7 +1603,7 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   tracking = false;
   if (__DEV__) {
     strictRead = strictReadLabel || false;
-    strictReadEvent = dispatchingEvent();
+    strictReadEvent = ANY_EVENT;
     untrackDepth++;
   }
   try {
