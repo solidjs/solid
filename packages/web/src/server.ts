@@ -4538,6 +4538,9 @@ const ROW_TOKEN = /<(\/?)([a-zA-Z][^\s/>]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|<!--([
 const ROW_VOID = /^(?:area|base|br|col|embed|hr|img|input|link|meta|source|track|wbr)$/i;
 const ROW_FOREIGN = /^(?:svg|math)$/i;
 const ROW_RAW = /^(?:script|style|textarea|title|template)$/i;
+// An element's `$key` (compiled to `_key`): a changed key is another entity.
+const ROW_KEY = /\s_key(?:="[^"]*")?(?![^\s/])/;
+const rowKey = attrs => (ROW_KEY.exec(attrs) || [""])[0];
 const ROW_ENTITY = /&(?:amp|lt|gt|quot|#39);/g;
 const ROW_ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" };
 function rowText(text) {
@@ -4591,7 +4594,9 @@ function rowPatch(a, b) {
       if (ma[3] !== mb[3]) {
         // SVG and MathML attribute names are case-sensitive; the client
         // folds names as the HTML parser does, so those rows ship whole.
-        if (foreign) return null;
+        // So does an element whose `$key` changed: the morph replaces it
+        // instead of carrying its live state (value, open, focus) over.
+        if (foreign || rowKey(ma[3]) !== rowKey(mb[3])) return null;
         p.push([el, mb[3].replace(/\/$/, "")]);
       }
       if (!ROW_VOID.test(ma[2]) && !ma[3].endsWith("/")) stack.push([el, 0, foreign]);

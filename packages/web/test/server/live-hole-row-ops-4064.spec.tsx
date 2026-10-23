@@ -255,3 +255,27 @@ test("a live Repeat's rows travel as row ops too", async () => {
   expect(op.value).toBeUndefined();
   expect(op.rows).toEqual({ n: 3, r: [[1, [[0, 0, "B"]], expect.any(Number)]] });
 });
+
+test("a row whose element's $key changed ships whole", async () => {
+  const chunks = await runRows(
+    [
+      [
+        { id: "a", t: "x" },
+        { id: "b", t: "y" }
+      ],
+      [
+        { id: "a", t: "x" },
+        { id: "c", t: "y" }
+      ]
+    ],
+    (r: { id: string; t: string }) => (
+      <tr $key={r.id}>
+        <td>{r.t}</td>
+      </tr>
+    )
+  );
+  const [op] = holes(chunks);
+  const [[i, html]] = op.rows.r;
+  expect(i).toBe(1);
+  expect(html).toContain('_key="c"');
+});
