@@ -261,6 +261,13 @@ function createKeyedSerializer(serialize, onError, onDone) {
               (err => {
                 failed = true;
                 onError(err);
+                // seroval 1.7 ends a write at its first failure and never
+                // calls its `onDone`: a failure after the call returned
+                // settles the write here, disposed.
+                if (cancel) {
+                  cancel();
+                  settle();
+                }
               }),
             onDone: settle
           },
@@ -275,7 +282,7 @@ function createKeyedSerializer(serialize, onError, onDone) {
       }
       if (settled) return;
       // A `close()` from inside the call could not dispose this write yet.
-      if (closed || (failed && !started)) {
+      if (closed || failed) {
         stream();
         settle();
         return;

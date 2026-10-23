@@ -204,34 +204,48 @@ describe.each([
     expect(events.at(-1)).toBe("done");
   });
 
-  it("a stream chunk that fails does not end the stream's write", async () => {
+  // seroval 1.7 ends a write at its first failure (no further chunks, no
+  // onDone): the write settles on that onError, exactly once.
+  it("a stream chunk that fails ends and settles the stream's write once", async () => {
     const { serializer, events } = record();
     const stream = createStream();
     serializer.write("s", stream);
     serializer.flush();
+    expect(events).not.toContain("done");
     stream.next(() => "fn");
     stream.next(1);
-    await tick();
-    expect(events).not.toContain("done");
     stream.return(2);
     await tick();
-    expect(events.at(-1)).toBe("done");
+    expect(events.filter(e => e === "error")).toHaveLength(1);
     expect(events.filter(e => e === "done")).toHaveLength(1);
+    expect(events.at(-1)).toBe("done");
+    expect(events.filter(e => e === "data")).toHaveLength(1); // the initial chunk only
   });
 
-  it("a stream that already holds a failing chunk keeps streaming until it ends", async () => {
+  it("a stream that already holds a failing chunk settles its write at once", async () => {
     const { serializer, events } = record();
     const stream = createStream();
     stream.next(() => "fn");
     serializer.write("s", stream);
     serializer.flush();
-    expect(events).toContain("error");
-    expect(events).not.toContain("done");
-    const before = events.length;
+    expect(events).toEqual(["error", "done"]);
     stream.next(1);
     stream.return(2);
     await tick();
-    expect(events.slice(before)).toEqual(["data", "data", "done"]);
+    expect(events).toEqual(["error", "done"]);
+  });
+
+  it("a later sibling of a failing promise in the same write is not delivered (1.7)", async () => {
+    const { serializer, events } = record();
+    serializer.write("v", {
+      bad: Promise.resolve(() => "fn"),
+      later: new Promise(r => setTimeout(() => r(3), 1))
+    });
+    serializer.flush();
+    await new Promise(r => setTimeout(r, 10));
+    expect(events.filter(e => e === "error")).toHaveLength(1);
+    expect(events.filter(e => e === "done")).toHaveLength(1);
+    expect(events.filter(e => e === "data")).toHaveLength(1);
   });
 
   it("without onError a failing write throws, and the serializer still completes", () => {
