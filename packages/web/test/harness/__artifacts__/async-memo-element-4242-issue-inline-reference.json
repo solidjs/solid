@@ -1,0 +1,5 @@
+{
+  "name": "async-memo-element-4242-issue-inline-reference",
+  "shell": "<script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0_fr\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"0000\"]=$R[3]=($R[4]=$R[2]()).p;($R[6]=(resolver, data) => {\n\tresolver.f(data);\n\tresolver.p.s = 2;\n\tresolver.p.v = data;\n})($R[4],$R[5]=new Error(\"[SERVER_RENDER_ERROR] the reference twin's server error\"));$R[6]($R[1],$R[5]);</script>",
+  "rest": ""
+}

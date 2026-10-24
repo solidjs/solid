@@ -81,18 +81,30 @@ describe("renderToStream: a value that fails to serialize in the pre-shell batch
     expect(await outcome(r["lib:bad"])).toBe("pending");
   });
 
-  test("an async memo resolving to a Loading boundary: both boundaries complete", async () => {
-    const { html, r, heard } = await render(() =>
+  test("an async memo resolving to a Loading boundary: both boundaries settle", async () => {
+    // The outer memo's landing is an element, which the server now refuses
+    // where it lands (ASYNC_MEMO_ELEMENT, async-memo-element-4242.spec.tsx):
+    // the outer boundary's fragment rejects with the refusal instead of
+    // leaving its value to the serializer. Nothing in the batch is stranded:
+    // every completion flag settles, and the inner one still completes.
+    const { r, heard } = await render(() =>
       slot(
         () => Promise.resolve(1).then(v => slot(async () => `nested-${v * 41}`, "inner")),
         "outer"
       )
     );
-    expect(heard.length).toBe(1);
-    expect(html.startsWith("nested-41")).toBe(true);
+    expect(heard.map(e => String(e))).toEqual([expect.stringContaining("[ASYNC_MEMO_ELEMENT]")]);
     const flags = Object.keys(r).filter(k => k.endsWith("_fr"));
     expect(flags.length).toBe(2);
-    for (const key of flags) expect(await outcome(r[key])).toEqual({ fulfilled: true });
+    const settled = await Promise.all(flags.map(key => outcome(r[key])));
+    expect(settled).toEqual([
+      {
+        rejected: expect.objectContaining({
+          message: expect.stringContaining("[ASYNC_MEMO_ELEMENT]")
+        })
+      },
+      { fulfilled: true }
+    ]);
   });
 
   test("a boundary rejecting with a value seroval cannot handle: its siblings still complete", async () => {

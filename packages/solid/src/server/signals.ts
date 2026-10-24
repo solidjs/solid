@@ -1222,8 +1222,19 @@ function settleServerAsync<T, U>(
         // (and shared across slot re-creations), so a known answer must land
         // regardless of this node's lifetime — an unresolved serialized
         // promise holds the response open forever. Mutating a disposed comp
-        // is inert; slot recording wants the answer either way.
-        deferred.resolve(onSuccess(value));
+        // is inert; slot recording wants the answer either way. A landing
+        // `onSuccess` refuses (throws — ASYNC_MEMO_ELEMENT) settles as the
+        // node's error, never as a rejection nobody observes that leaves the
+        // deferred pending.
+        let landed: U;
+        try {
+          landed = onSuccess(value);
+        } catch (error) {
+          onError(error);
+          deferred.reject(error);
+          return;
+        }
+        deferred.resolve(landed);
       },
       error => {
         // NotReady defers to the retry chain (`attempt` no-ops once disposed —
@@ -1835,6 +1846,70 @@ export function createDeepProxy<T extends object>(
   return new Proxy(target, handler);
 }
 
+/**
+ * Rendered output: what JSX and components produce on the server, which has
+ * no meaning as data — a boundary's output accessor (`$lhSkip`: <Loading>,
+ * <Errored>) or an SSR template object (`SSRTemplateObject`, from `ssr()` /
+ * `ssrElement()`), alone or inside a fragment array. Plain data never
+ * matches: only own-`Object.prototype` objects are inspected (class instances
+ * — Date, Map, URL, anything a serializer plugin owns — skip at the first
+ * check), a pending template carries its holes as functions (`h`), which no
+ * serializer encodes, and a settled one is the single key `t` holding markup.
+ */
+function isRenderedOutput(value: any, seen?: Set<unknown>): boolean {
+  if (typeof value === "function") return value.$lhSkip === true;
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) {
+    // Fragments nest arrays; the set is only for the (rare) nested case and
+    // keeps a self-referencing data array from recursing forever.
+    for (let i = 0; i < value.length; i++) {
+      const item = value[i];
+      if (Array.isArray(item)) {
+        if ((seen ||= new Set([value])).has(item)) continue;
+        seen.add(item);
+      }
+      if (isRenderedOutput(item, seen)) return true;
+    }
+    return false;
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+  const t = value.t;
+  if (typeof t === "string") {
+    if (t.charCodeAt(0) !== 60 /* < */) return false;
+    for (const key in value) if (key !== "t") return false;
+    return true;
+  }
+  return Array.isArray(t) && Array.isArray(value.h) && Array.isArray(value.p);
+}
+
+/**
+ * Refuses an async landing that is rendered output when the memo serializes
+ * it for hydration (#4242). Elements cannot cross the wire: a boundary's
+ * accessor has no encoding (the record would never resolve, and the client
+ * memo would wait on it forever), and a template object would arrive as a
+ * plain object the client cannot insert. The client also cannot rebuild the
+ * element without re-running the async work under the boundary — the pending
+ * beat `dynamic()` refuses for the same reason (DYNAMIC_ASYNC_COMPONENT). So
+ * the memo rejects with this error, which its boundary contains like any
+ * render error.
+ */
+function refuseRenderedLanding(value: unknown, owner: Owner): void {
+  if (!isRenderedOutput(value)) return;
+  const message = IS_DEV
+    ? "[ASYNC_MEMO_ELEMENT] An async memo resolved to rendered output (JSX, or a component's " +
+      "result), which cannot be serialized for hydration: the client would wait on a value " +
+      "that never arrives, and the boundary around it would never hydrate. Return data from " +
+      "the async memo and render the JSX from it in the component " +
+      "(`const user = createMemo(async () => fetchUser(id)); return <Profile user={user()} />`)."
+    : "[ASYNC_MEMO_ELEMENT] An async memo resolved to rendered output";
+  if (IS_OBSERVE)
+    recordFinding(
+      { code: "ASYNC_MEMO_ELEMENT", kind: "ssr", severity: "error", message },
+      owner as unknown as DiagnosticSubject
+    );
+  throw new Error(message);
+}
+
 /** Process async results from a computation (Promise / AsyncIterable) */
 function processResult<T>(
   comp: ServerComputation<T>,
@@ -1991,9 +2066,29 @@ function processResult<T>(
       // iterable nested in a serialized parent, or read by another memo, is
       // pumped once and seen whole by every reader.
       const iter = shareAsyncIterable(source)[Symbol.asyncIterator]();
+      const fail = (error: any) => {
+        // Terminal for this render: stream errors don't re-enter the
+        // NotReady retry chain (the outer promise already resolved — the
+        // compute's dependencies are settled; this is the stream failing).
+        (result as any).s = 2;
+        (result as any).v = error;
+        recordSlot(2, error);
+        comp.error = error;
+        comp.errored = true;
+        ctx?.commit?.();
+        throw error;
+      };
       return iter.next().then(
         (r: IteratorResult<T>) => {
           const first = (r.done ? undefined : r.value) as T;
+          if (serializes) {
+            try {
+              refuseRenderedLanding(first, owner);
+            } catch (error) {
+              closeAsyncIterator(iter);
+              return fail(error);
+            }
+          }
           // First yield is the settled answer for this render: stamp and
           // record it like a plain resolution (first-value lock — re-created
           // slots adopt V1, exactly what the document claims against).
@@ -2042,18 +2137,7 @@ function processResult<T>(
           }
           return first;
         },
-        (error: any) => {
-          // Terminal for this render: stream errors don't re-enter the
-          // NotReady retry chain (the outer promise already resolved — the
-          // compute's dependencies are settled; this is the stream failing).
-          (result as any).s = 2;
-          (result as any).v = error;
-          recordSlot(2, error);
-          comp.error = error;
-          comp.errored = true;
-          ctx?.commit?.();
-          throw error;
-        }
+        (error: any) => fail(error)
       );
     };
     settleServerAsync(
@@ -2064,6 +2148,7 @@ function processResult<T>(
         if (typeof (value as any)?.[Symbol.asyncIterator] === "function") {
           return flattenResolvedIterable(value as unknown as AsyncIterable<T>) as unknown as T;
         }
+        if (serializes) refuseRenderedLanding(value, owner);
         (result as any).s = 1;
         (result as any).v = value;
         recordSlot(1, value);
@@ -2168,6 +2253,7 @@ function processResult<T>(
         runFirst,
         deferred,
         (value: T) => {
+          if (serializes) refuseRenderedLanding(value, owner);
           if (slotted) recordSlot(1, value);
           // First-value lock for commit #0 (see thenable branch).
           if (!(loadingState?.served && serializes)) {
@@ -2224,6 +2310,14 @@ function processResult<T>(
         deferred,
         () => {
           const resolved = firstResult;
+          if (serializes && resolved && !resolved.done) {
+            try {
+              refuseRenderedLanding(resolved.value, owner);
+            } catch (error) {
+              closeAsyncIterator(iter);
+              throw error;
+            }
+          }
           if (slotted) recordSlot(1, resolved && !resolved.done ? resolved.value : undefined);
           // First-value lock for commit #0: with a loading value on a
           // serialized stream, HTML stays at commit #0 and the first yield

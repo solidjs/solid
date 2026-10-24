@@ -1,0 +1,5 @@
+{
+  "name": "async-memo-element-4242-jsx-errored-inline",
+  "shell": "<main _hk=1><b _hk=20010 id=\"caught\">ASYNC_MEMO_ELEMENT</b></main><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"2_fr\"]=$R[3]=($R[4]=$R[2]()).p;($R[6]=(resolver, data) => {\n\tresolver.f(data);\n\tresolver.p.s = 2;\n\tresolver.p.v = data;\n})($R[1],$R[5]=new Error(\"[ASYNC_MEMO_ELEMENT] An async memo resolved to rendered output (JSX, or a component's result), which cannot be serialized for hydration: the client would wait on a value that never arrives, and the boundary around it would never hydrate. Return data from the async memo and render the JSX from it in the component (`const user = createMemo(async () => fetchUser(id)); return \\x3CProfile user={user()} />`).\"));_$HY.r[\"2000\"]=$R[5];($R[7]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[4],!0);</script>",
+  "rest": ""
+}
