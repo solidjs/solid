@@ -111,7 +111,8 @@ export type DiagnosticCode =
   | "LOWERCASE_EVENT_ATTRIBUTE"
   | "UNCOMMITTED_INPUT_OVERWRITTEN"
   | "FRAME_MARKER_CORRUPTED"
-  | "DYNAMIC_ASYNC_COMPONENT";
+  | "DYNAMIC_ASYNC_COMPONENT"
+  | "ASYNC_MEMO_ELEMENT";
 
 export type DiagnosticKind =
   | "strict-read"

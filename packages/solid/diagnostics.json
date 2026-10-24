@@ -18,6 +18,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/action-called-in-owned-scope"
   },
   {
+    "code": "ASYNC_MEMO_ELEMENT",
+    "kind": ["ssr"],
+    "severity": ["error"],
+    "category": "ssr",
+    "trigger": "An async memo landed on rendered output (JSX, a boundary), which cannot serialize for hydration; the memo rejects (observe + dev; rejects in every tier)",
+    "repair": "An async memo (or async iterable source) resolved, on the server, to rendered output — JSX, a component's result, a `<Loading>`/`<Errored>` boundary.",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/async-memo-element"
+  },
+  {
     "code": "ASYNC_OUTSIDE_LOADING_BOUNDARY",
     "kind": ["async"],
     "severity": ["warn"],

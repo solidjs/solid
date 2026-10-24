@@ -774,7 +774,8 @@ Every hold, flight and show counts here at any duration; `SILENT_HOLD` and
 The server runtime reports on the same channel, with the same `in <App> ›
 <Page>` line. Two groups. **Findings** (`SSR_RENDER_ERROR_CONTAINED`,
 `SSR_SUBTREE_ABANDONED`, `SSR_STREAM_ABANDONED`, `LATE_HEADER_WRITE`,
-`DYNAMIC_ASYNC_COMPONENT`, `SERVER_ERROR_SANITIZED`, `FRAME_MARKER_CORRUPTED`)
+`DYNAMIC_ASYNC_COMPONENT`, `ASYNC_MEMO_ELEMENT`, `SERVER_ERROR_SANITIZED`,
+`FRAME_MARKER_CORRUPTED`)
 are facts about a render
 that exist in observe builds too — an APM sees them in production; in dev
 they print. **Checks** (the rest, `SSR_BOUNDARY_WATERFALL` and
@@ -827,6 +828,19 @@ phantom-fallback bug the adoption fixed. `data.component` names the
 function. Move the async upstream (a `createAsync`/`createMemo` the source
 reads synchronously) or use `lazy()` for code; a server component or a tag
 name may stay async.
+
+### ASYNC_MEMO_ELEMENT
+
+An async memo (or async iterable source) resolved, on the server, to rendered
+output — JSX, a component's result, a `<Loading>`/`<Errored>` boundary. The
+memo serializes its landing for the client to adopt, and an element has no
+encoding (a boundary's accessor fails in the serializer and the client memo
+waits forever; a template object arrives as data the client cannot insert),
+so the memo rejects with this message in every tier and its boundary
+contains it: the nearest `<Errored>` renders its fallback, with none the
+`<Loading>` fragment rejects and the client renders the subtree. Return data
+from the async memo and render the JSX from it in the component. Content
+that never hydrates (`<NoHydration>`) is untouched.
 
 ### SERVER_ERROR_SANITIZED
 

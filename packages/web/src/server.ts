@@ -2666,10 +2666,15 @@ export function renderToStream(code, options = {}) {
   // request cost wants to know how much was thrown away. A leaf fragment's
   // failure alone is the render error's own finding, not this one.
   const abandonSubtree = (key, error) => {
+    // A boundary created where no owner id was current (inside an async
+    // memo's continuation, #4242) registers under an undefined key. It is
+    // nobody's descendant and has no addressable subtree of its own; reading
+    // its length would turn one fragment's failure into a whole-request one.
+    if (key == null) return;
     let fragments = 0;
     let serialized = 0;
     for (const [k, entry] of registry) {
-      if (k.length > key.length && k.startsWith(key)) {
+      if (k != null && k.length > key.length && k.startsWith(key)) {
         registry.delete(k);
         entry.resolve();
         fragments++;
