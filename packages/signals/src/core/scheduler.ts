@@ -1222,7 +1222,8 @@ function append<T>(a: T[], b: T[]): void {
 }
 
 /** Nodes staged this flush (`_pendingValue` set), committed at its end. */
-const pendingNodes: Signal<any>[] = [];
+export const pendingNodes: Signal<any>[] = [];
+
 /** Passes that read a staging of this flush as the screen — lane work
  * (core.ts `stagedRead`), a verdict reader before the frame's verdict
  * (verdict.ts): if the frame parks they read a held write — re-derived next
