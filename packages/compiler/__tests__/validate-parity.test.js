@@ -116,6 +116,20 @@ const ssrCases = {
     throws: false
   },
   tdPartial: { code: "const t = <td title={t()}>cell</td>;", throws: false },
+  // SVG partials parse under an `<svg>` like the DOM compile's (#4241).
+  svgImageUnderShow: {
+    code: "const t = <svg><Show when={on()}><image href='a.png' /></Show></svg>;",
+    options: { hydratable: true },
+    throws: false
+  },
+  svgGRoot: { code: "const t = <g><image href='a.png' /></g>;", throws: false },
+  svgFragment: {
+    code: "const t = <><clipPath id='c'><circle r={1} /></clipPath><image href='a.png' /></>;",
+    options: { hydratable: true },
+    throws: false
+  },
+  svgImageRoot: { code: "const t = <image href={h()} />;", throws: false },
+  mathRoot: { code: "const t = <mi>x</mi>;", throws: false },
   disabled: {
     code: "const t = <p>a<div>b</div></p>;",
     options: { validate: false },

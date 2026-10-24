@@ -490,21 +490,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
     /// by element name or an explicit `xmlns` attribute, mirroring the Babel
     /// plugin's top-level XML handling.
     fn xml_wrapper_tag(&self, element: &JSXElement<'a>, tag_name: &str) -> Option<&'static str> {
-        if tag_name == "svg" || tag_name == "math" {
-            return None;
-        }
-        let xmlns = xmlns_attribute_value(element);
-        if crate::shared::constants::svg_elements(tag_name)
-            || xmlns.as_deref() == Some("http://www.w3.org/2000/svg")
-        {
-            return Some("svg");
-        }
-        if crate::shared::constants::mathml_elements(tag_name)
-            || xmlns.as_deref() == Some("http://www.w3.org/1998/Math/MathML")
-        {
-            return Some("math");
-        }
-        None
+        xml_wrapper_tag(element, tag_name)
     }
 
     /// Whether any native element in the template's subtree requires
@@ -601,6 +587,26 @@ fn has_attribute_named(element: &JSXElement<'_>, attribute_name: &str) -> bool {
                 )
         )
     })
+}
+
+/// The owner tag (`svg`/`math`) a template-root SVG or MathML element is
+/// parsed under, if any — shared with the SSR `validate` pass.
+pub(crate) fn xml_wrapper_tag(element: &JSXElement<'_>, tag_name: &str) -> Option<&'static str> {
+    if tag_name == "svg" || tag_name == "math" {
+        return None;
+    }
+    let xmlns = xmlns_attribute_value(element);
+    if crate::shared::constants::svg_elements(tag_name)
+        || xmlns.as_deref() == Some("http://www.w3.org/2000/svg")
+    {
+        return Some("svg");
+    }
+    if crate::shared::constants::mathml_elements(tag_name)
+        || xmlns.as_deref() == Some("http://www.w3.org/1998/Math/MathML")
+    {
+        return Some("math");
+    }
+    None
 }
 
 /// Static string value of an element's `xmlns` attribute, if present.
