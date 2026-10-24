@@ -1685,7 +1685,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         if let (Some(JSXAttributeItem::SpreadAttribute(spread)), None) =
             (prop_attributes.next(), prop_attributes.next())
         {
-            return Ok((spread.argument.clone_in(self.allocator), None));
+            // A lone dynamic spread defers behind a thunk too (#4240): see
+            // the source loop below. `ssrElement` calls a function props
+            // argument after allocating the key.
+            let argument = spread.argument.clone_in(self.allocator);
+            if self.classify().is_dynamic(None, &argument, false) {
+                return Ok((self.inline_call_expression(argument), None));
+            }
+            return Ok((argument, None));
         }
         let last_spread = attributes
             .iter()
