@@ -2279,21 +2279,17 @@ export function renderToStream(code, options = {}) {
   });
   const blockingPromises = new Set();
   // Pre-shell pending-promise stubs (fragment `_fr` promises and thrown async
-  // sources) batch into ONE seroval write at shell flush. Every
-  // serializer.write() spins up a full crossSerializeStream session (plugin
-  // resolution, parser context, ref bookkeeping) — ~30% of shell CPU on an
-  // async-heavy page went to N of those sessions emitting formulaic deferred
-  // stubs. One object write collapses the session cost; a spreader task files
-  // each entry under its real `_$HY.r` key, and seroval's fulfillment
-  // machinery is untouched because it parses the same promise instances.
-  // Document-mode only: the serializer seam's keys are wire protocol for
-  // custom serializers (the frame sink's keyed codec addresses records BY
-  // key, no eval on the consumer), and the spreader task is a document
-  // <script> construct. Any serializer/sink override opts out of batching
-  // and gets the original per-key writes.
+  // sources) are held here and handed to seroval at shell flush, so their
+  // timing and order are the shell's, not each registration's. Each stub is
+  // still its own keyed write: since seroval 1.7 a value that fails to
+  // serialize ends the write it belongs to, and the stubs used to share one
+  // object write, so one async value seroval cannot handle left every other
+  // stub in the shell, `_fr` completion flags included, pending on the
+  // client forever (#4242). A write is the unit seroval isolates.
+  // Document-mode only: a custom serializer or sink addresses records by key
+  // and keeps its own delivery order, so it gets each write as it happens.
   const canBatchStubs = !options.serializer && !options.sink;
   let stubBatch = null;
-  const STUB_BATCH_KEY = "$B";
   // Async mode (the thenable: the whole document resolves at once) has no
   // reader before completion, so nothing is gained by handing seroval a
   // value as it arrives — and handing it over in arrival order makes the
@@ -2321,21 +2317,10 @@ export function renderToStream(code, options = {}) {
   };
   const flushStubBatch = () => {
     if (!stubBatch) return;
-    const batch = stubBatch;
+    const entries = [...stubBatch];
     stubBatch = null;
-    if (batch.size === 1) {
-      const [id, p] = batch.entries().next().value;
-      serializer.write(id, p);
-      return;
-    }
-    const obj = {};
-    const entries = [...batch];
     if (stableOrder) entries.sort(byKey);
-    for (const [id, p] of entries) obj[id] = p;
-    serializer.write(STUB_BATCH_KEY, obj);
-    pushTask(
-      `(b=>{for(var k in b)_$HY.r[k]=b[k];delete _$HY.r["${STUB_BATCH_KEY}"]})(_$HY.r["${STUB_BATCH_KEY}"])`
-    );
+    for (let i = 0; i < entries.length; i++) serializer.write(entries[i][0], entries[i][1]);
   };
   let headerEmitted = false;
   const pushTask = task => {
