@@ -86,6 +86,7 @@ function createHtml() {
       }
       node.children.forEach(child => buildTemplate(child, insideTemplate));
     } else if (node.type === COMPONENT_NODE || node.type === ROOT_NODE) {
+      if (node.type === COMPONENT_NODE) decodeStaticProps(node);
       node.children.forEach(child => buildTemplate(child, false));
     } else if (node.type === TEXT_NODE && !insideTemplate) {
       textTemplate.innerHTML = node.value;
@@ -94,6 +95,17 @@ function createHtml() {
   };
 
   const textTemplate = document.createElement("template");
+
+  // Decode character references in static attribute strings with the HTML
+  // parser's quoted-attribute rules, as plain HTML would: `&amp;` decodes,
+  // `&region=` in a URL does not.
+  const decodeStaticProps = (node: ElementNode | ComponentNode): void => {
+    for (const prop of node.props) {
+      if (prop.type !== STATIC_PROP || !prop.value.includes("&")) continue;
+      textTemplate.innerHTML = `<i a="${prop.value.replace(/"/g, "&quot;")}"></i>`;
+      prop.value = (textTemplate.content.firstChild as Element).getAttribute("a")!;
+    }
+  };
 
   const buildNodes = (node: ChildNode): Node => {
     switch (node.type) {
@@ -115,6 +127,7 @@ function createHtml() {
         // clone-time claim; props that survive into runtime assignment are
         // claimed by `setAttribute`'s own recheck.
         const claimAttr = node.name === "a" ? "href" : node.name === "form" ? "action" : undefined;
+        decodeStaticProps(node);
         // Props located after spread need to be applied after spread for possible overrides.
         node.props = node.props.filter(prop => {
           if (prop.type === STATIC_PROP) {

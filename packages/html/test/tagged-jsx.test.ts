@@ -619,6 +619,29 @@ describe("Tagged JSX Integration Tests", () => {
         expect(elem[1].textContent).toEqual(">");
         dispose();
       }));
+
+    it("decodes html encodings in static attribute values", () =>
+      createRoot(dispose => {
+        let label: string | undefined;
+        const Comp = (props: any) => {
+          label = props.label;
+          return null;
+        };
+        const link = html`<a
+          href="/search?q=1&amp;page=2&region=eu"
+          title="Tom &amp; Jerry"
+          data-raw="&amp;lt;"
+        />` as HTMLAnchorElement;
+        const input = html`<input ...${{}} placeholder="Search&hellip;" />` as HTMLInputElement;
+        html`<${Comp} label='&lt;b&gt; &amp; "i"' />`;
+
+        expect(link.getAttribute("href")).toBe("/search?q=1&page=2&region=eu");
+        expect(link.getAttribute("title")).toBe("Tom & Jerry");
+        expect(link.getAttribute("data-raw")).toBe("&lt;");
+        expect(input.getAttribute("placeholder")).toBe("Search…");
+        expect(label).toBe('<b> & "i"');
+        dispose();
+      }));
   });
 
   describe("Edge Cases and Error Handling", () => {
