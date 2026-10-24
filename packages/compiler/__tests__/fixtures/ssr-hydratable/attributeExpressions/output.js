@@ -218,7 +218,9 @@ const template = _$ssrElement("div", [{ id: "main" }, results], () => {
 		selected
 	}]));
 }, true, _sk$2, () => _$ssrElementAttribute("class", { selected: unknown }) + _$ssrElementAttribute("style", { color }));
-const template2 = _$ssrElement("div", getProps("test"), () => {
+const template2 = _$ssrElement("div", () => {
+	return getProps("test");
+}, () => {
 	return [
 		(_v$ = _$escape(rowId || " "), _$ssr(_tmpl$2, _v$)),
 		(_v$2 = () => {
@@ -275,9 +277,11 @@ var _v$22 = _$ssrHydrationKey();
 const template16 = _$ssr(_tmpl$14, _v$22, ((_v$23) => _v$23 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$23)))(["static", { hi: "k" }]));
 var _v$24 = _$ssrHydrationKey();
 const template17 = _$ssr(_tmpl$15, _v$24, "a  b  c");
-const template18 = _$ssrElement("div", { get [key()]() {
-	return props.value;
-} }, undefined, true);
+const template18 = _$ssrElement("div", () => {
+	return { get [key()]() {
+		return props.value;
+	} };
+}, undefined, true);
 var _v$25 = _$ssrHydrationKey();
 const template19 = _$ssr(_tmpl$16, _v$25, ((_v$26) => _v$26 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$26)))([{ "bg-red-500": true }, "flex flex-col"]));
 var _v$27 = _$ssrHydrationKey(), _g$3 = _$ssrGroup(() => {
@@ -324,9 +328,9 @@ const template27 = _$ssrElement("div", [
 ], () => {
 	return "Hi";
 }, true);
-const template28 = _$ssrElement("label", api(), () => {
+const template28 = _$ssrElement("label", api, () => {
 	return [
-		_$ssrElement("span", api(), () => {
+		_$ssrElement("span", api, () => {
 			return [
 				"Input is ",
 				"<!--$-->",
@@ -336,8 +340,8 @@ const template28 = _$ssrElement("label", api(), () => {
 				"<!--/-->"
 			];
 		}, false),
-		_$ssrElement("input", api(), undefined, false),
-		_$ssrElement("div", api(), undefined, false)
+		_$ssrElement("input", api, undefined, false),
+		_$ssrElement("div", api, undefined, false)
 	];
 }, true);
 var _v$43 = _$ssrHydrationKey(), _v$44 = !!someValue;

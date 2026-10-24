@@ -150,7 +150,7 @@ const template = _$ssrElement(
 );
 const template2 = _$ssrElement(
   "div",
-  getProps("test"),
+  () => getProps("test"),
   () => [
     ((_v$ = _$escape(rowId || " ")), _$ssr(_tmpl$2, _v$)),
     ((_v$2 = () => _$escape(row.label || " ")), _$ssr(_tmpl$2, _v$2)),
@@ -226,11 +226,11 @@ var _v$22 = _$ssrHydrationKey();
 const template17 = _$ssr(_tmpl$13, _v$22, "a  b  c");
 const template18 = _$ssrElement(
   "div",
-  {
+  () => ({
     get [key()]() {
       return props.value;
     }
-  },
+  }),
   undefined,
   true
 );
@@ -320,16 +320,16 @@ const template27 = _$ssrElement(
 );
 const template28 = _$ssrElement(
   "label",
-  api(),
+  api,
   () => [
     _$ssrElement(
       "span",
-      api(),
+      api,
       () => ["Input is ", "<!--$-->", () => (api() ? "checked" : "unchecked"), "<!--/-->"],
       false
     ),
-    _$ssrElement("input", api(), undefined, false),
-    _$ssrElement("div", api(), undefined, false)
+    _$ssrElement("input", api, undefined, false),
+    _$ssrElement("div", api, undefined, false)
   ],
   true
 );

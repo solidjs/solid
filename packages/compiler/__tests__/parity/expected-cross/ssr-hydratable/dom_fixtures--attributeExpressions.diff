@@ -64,7 +64,7 @@
    return _$ssrElementAttribute__r_server("class", {
      selected: unknown
    }) + _$ssrElementAttribute__r_server("style", {
-@@ -131,116 +130,116 @@
+@@ -133,66 +132,66 @@
      return _$escape__r_server(row.label || " ");
    }, _$ssr__r_server(_g11$, _g3$)), _$ssr__r_server("<div><div/></div>")];
  }, true);
@@ -163,10 +163,12 @@
 -const template17 = _$ssr__r_server(_g23$, _g96$, "a  b  c");
 +var _g95$ = _$ssrHydrationKey__r_server();
 +const template17 = _$ssr__r_server(_g23$, _g95$, "a  b  c");
- const template18 = _$ssrElement__r_server("div", {
-   get [key()]() {
-     return props.value;
-   }
+ const template18 = _$ssrElement__r_server("div", () => {
+   return {
+     get [key()]() {
+@@ -200,51 +199,51 @@
+     }
+   };
  }, undefined, true);
 -var _g97$ = _$ssrHydrationKey__r_server();
 -const template19 = _$ssr__r_server(_g24$, _g97$, (_g98$ => {
@@ -238,9 +240,9 @@
  const template26 = _$ssrElement__r_server("div", [{
    start: "Hi",
    middle: middle
-@@ -261,154 +260,154 @@
+@@ -265,154 +264,154 @@
      }, "<!--/-->"];
-   }, false), _$ssrElement__r_server("input", api(), undefined, false), _$ssrElement__r_server("div", api(), undefined, false)];
+   }, false), _$ssrElement__r_server("input", api, undefined, false), _$ssrElement__r_server("div", api, undefined, false)];
  }, true);
 -var _g113$ = _$ssrHydrationKey__r_server();
 -var _g114$ = !!someValue;
@@ -486,7 +488,7 @@
  const propsSpread = {
    something: color(),
    style: {
-@@ -419,13 +418,13 @@
+@@ -423,13 +422,13 @@
  };
  const template80 = _$ssrElement__r_server("div", propsSpread, undefined, true);
  const template81 = _$ssrElement__r_server("div", propsSpread, undefined, true);
@@ -503,7 +505,7 @@
    return _$ssrElementAttribute__r_server("data-dynamic", color()) + _$ssrElementAttribute__r_server("data-static", color());
  });
  const styleProp = {
-@@ -434,51 +433,51 @@
+@@ -438,51 +437,51 @@
      height: props.height
    }
  };
@@ -583,7 +585,7 @@
  const o = {
    ref: null
  };
-@@ -487,128 +486,128 @@
+@@ -491,128 +490,128 @@
  };
  const valid = Div({
    ref(r$) {

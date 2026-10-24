@@ -1152,7 +1152,15 @@ function createElement(
       refs.push(node.value.expression);
   }
   if (propAttributes.length === 1 && t.isJSXSpreadAttribute(propAttributes[0].node)) {
-    props = [propAttributes[0].node.argument];
+    // A lone dynamic spread defers behind a thunk too (#4240): see the
+    // source loop below. `ssrElement` calls a function props argument after
+    // allocating the key.
+    const argument = propAttributes[0].node.argument;
+    props = [
+      isDynamic(propAttributes[0].get("argument"), { checkMember: true })
+        ? inlineCallExpression(argument)
+        : argument
+    ];
   } else {
     props = [];
     let runningObject: Array<babelTypes.ObjectProperty | babelTypes.ObjectMethod> = [],

@@ -46,7 +46,7 @@
    });
  }, true, _g19$, () => {
    return _$ssrElementAttribute__r_server("style", {
-@@ -75,102 +66,102 @@
+@@ -77,65 +68,65 @@
      return _$escape__r_server(row.label || " ");
    }, _$ssr__r_server(_g5$, _g3$)), _$ssr__r_server("<div><div/></div>")];
  }, true);
@@ -145,10 +145,12 @@
 -const template17 = _$ssr__r_server(_g16$, _g45$, "a  b  c");
 +var _g43$ = _$ssrHydrationKey__r_server();
 +const template17 = _$ssr__r_server(_g16$, _g43$, "a  b  c");
- const template18 = _$ssrElement__r_server("div", {
-   get [key()]() {
-     return props.value;
-   }
+ const template18 = _$ssrElement__r_server("div", () => {
+   return {
+     get [key()]() {
+@@ -143,38 +134,38 @@
+     }
+   };
  }, undefined, true);
 -var _g46$ = _$ssrHydrationKey__r_server();
 -var _g47$ = () => {

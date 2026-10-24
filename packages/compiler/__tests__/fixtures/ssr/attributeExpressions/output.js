@@ -168,7 +168,9 @@ const template = _$ssrElement("div", [{ id: "main" }, results], _$ssrElement("h1
 	dynamic: dynamic(),
 	selected
 }])), false, _sk$2, () => _$ssrElementAttribute("class", { selected: unknown }) + _$ssrElementAttribute("style", { color }));
-const template2 = _$ssrElement("div", getProps("test"), [
+const template2 = _$ssrElement("div", () => {
+	return getProps("test");
+}, [
 	(_v$ = _$escape(rowId), _$ssr(_tmpl$2, _v$)),
 	(_v$2 = () => {
 		return _$escape(row.label);
@@ -220,9 +222,11 @@ const template14 = _$ssr(_tmpl$12, _v$9);
 const template15 = _$ssr(_tmpl$13);
 const template16 = _$ssr(_tmpl$14, ((_v$10) => _v$10 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$10)))(["static", { hi: "k" }]));
 const template17 = _$ssr(_tmpl$15, "a  b  c");
-const template18 = _$ssrElement("div", { get [key()]() {
-	return props.value;
-} }, undefined, false);
+const template18 = _$ssrElement("div", () => {
+	return { get [key()]() {
+		return props.value;
+	} };
+}, undefined, false);
 const template19 = _$ssr(_tmpl$16, ((_v$11) => _v$11 == null ? "" : _$ssrAttribute("class", _$ssrClassName(_v$11)))([{ "bg-red-500": true }, "flex flex-col"]));
 var _g$3 = _$ssrGroup(() => {
 	return [_$ssrAttribute("min", _$escape(min(), true)), _$ssrAttribute("max", _$escape(max(), true))];
@@ -263,12 +267,12 @@ const template27 = _$ssrElement("div", [
 	{ middle },
 	second
 ], "Hi", false);
-const template28 = _$ssrElement("label", api(), [
-	_$ssrElement("span", api(), ["Input is ", () => {
+const template28 = _$ssrElement("label", api, [
+	_$ssrElement("span", api, ["Input is ", () => {
 		return api() ? "checked" : "unchecked";
 	}], false),
-	_$ssrElement("input", api(), undefined, false),
-	_$ssrElement("div", api(), undefined, false)
+	_$ssrElement("input", api, undefined, false),
+	_$ssrElement("div", api, undefined, false)
 ], false);
 var _v$23 = !!someValue;
 const template29 = _$ssr(_tmpl$20, _$ssrAttribute("attribute", !!someValue), _v$23);
@@ -461,7 +465,7 @@ const template89 = [
 ];
 const styleProps = { children: css };
 const template90 = [
-	_$ssrElement("style", styleProps(), () => {
+	_$ssrElement("style", styleProps, () => {
 		return css();
 	}, false),
 	_$ssrElement("style", [styleProps, { get children() {
