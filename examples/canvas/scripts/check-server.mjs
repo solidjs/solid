@@ -415,11 +415,14 @@ await check(
 console.log("reset");
 await check("only the host's key clears the room", async () => {
   assert.ok(last().shapes.length > 0);
-  assert.equal(room.clear("wrong"), false);
-  assert.equal(room.clear(""), false);
+  rejects(() => room.clear("wrong"), /isn't the host key/);
+  rejects(() => room.clear(""), /isn't the host key/);
   await frame();
   assert.ok(last().shapes.length > 0);
-  assert.equal(room.clear("hostkey"), true);
+  process.env.CANVAS_ADMIN_KEY = "";
+  rejects(() => room.clear("hostkey"), /no host key/);
+  process.env.CANVAS_ADMIN_KEY = "hostkey";
+  room.clear("hostkey");
   await frame();
   assert.deepEqual(last().shapes, []);
 });

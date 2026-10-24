@@ -122,7 +122,7 @@ async function deleteShape(seat: string, mutation: string, id: string) {
 // the server's CANVAS_ADMIN_KEY.
 async function clearRoom(key: string) {
   "use server";
-  if (!room.clear(key)) throw new room.Rejected("Only the host can clear the room");
+  room.clear(key);
 }
 
 // ---------------------------------------------------------------------------
