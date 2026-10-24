@@ -1,3 +1,4 @@
+import { Session } from "node:inspector/promises";
 import {
   createEffect,
   createMemo,
@@ -22,6 +23,72 @@ function gc() {
     }, 0)
   );
 }
+
+async function collectGarbage() {
+  // WeakRef targets survive the job that created them.
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  const inspector = new Session();
+  inspector.connect();
+  try {
+    await inspector.post("HeapProfiler.collectGarbage");
+    await inspector.post("HeapProfiler.collectGarbage");
+  } finally {
+    inspector.disconnect();
+  }
+}
+
+it("releases an unobserved pending computation disposed while idle", async () => {
+  flush();
+  const refs = (() => {
+    const payload = { retained: true };
+    let refs!: WeakRef<object>[];
+    const dispose = createRoot(dispose => {
+      refs = [new WeakRef(payload), new WeakRef(getOwner()!), new WeakRef({ control: true })];
+      createMemo(async () => {
+        await new Promise(() => {});
+        return payload;
+      });
+      return dispose;
+    });
+    dispose();
+    return refs;
+  })();
+  await collectGarbage();
+  expect(refs.map(ref => ref.deref())).toEqual([undefined, undefined, undefined]);
+});
+
+it("releases an unobserved reader queued by an idle cross-root rejection", async () => {
+  const source = createRoot(dispose => {
+    let reject!: (reason: unknown) => void;
+    const read = createMemo(() => new Promise<string>((_, fail) => (reject = fail)), {
+      loadingValue: "ready"
+    });
+    return { read, reject, dispose };
+  });
+  try {
+    const refs = await (async () => {
+      const payload = { retained: true };
+      let refs!: WeakRef<object>[];
+      const dispose = createRoot(dispose => {
+        refs = [new WeakRef(payload), new WeakRef(getOwner()!), new WeakRef({ control: true })];
+        createMemo(() => {
+          source.read();
+          return payload;
+        });
+        return dispose;
+      });
+      flush();
+      source.reject(new Error("idle rejection"));
+      await Promise.resolve();
+      dispose();
+      return refs;
+    })();
+    await collectGarbage();
+    expect(refs.map(ref => ref.deref())).toEqual([undefined, undefined, undefined]);
+  } finally {
+    source.dispose();
+  }
+});
 
 if (global.gc) {
   it("should gc computed if there are no observers", async () => {
