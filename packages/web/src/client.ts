@@ -3201,17 +3201,19 @@ function writeSelectValue(node, value) {
     return queueMicrotask(() => (node.value = value)) || (node.value = value);
   }
   node._$v = value;
-  (selectInsert ||= p => {
-    p && p._$v == null && (p = p.parentNode);
-    const v = p && p._$v;
-    if (v == null) return;
-    if (v.map) {
-      const o = [...p.options];
-      for (let i = 0; i < o.length; i++) o[i].selected = v.some(x => x == o[i].value);
-      v.every(x => o.some(el => el.value == x)) && selectChange(p);
-    } else ((p.value = v), p.selectedIndex > -1 && p.value == v && (p._$v = null));
-  })(node);
+  (selectInsert ||= applySelectValue)(node);
   queueMicrotask(() => selectInsert(node));
+}
+// Keep the shared hook outside a per-select closure context.
+function applySelectValue(p) {
+  p && p._$v == null && (p = p.parentNode);
+  const v = p && p._$v;
+  if (v == null) return;
+  if (v.map) {
+    const o = [...p.options];
+    for (let i = 0; i < o.length; i++) o[i].selected = v.some(x => x == o[i].value);
+    v.every(x => o.some(el => el.value == x)) && selectChange(p);
+  } else ((p.value = v), p.selectedIndex > -1 && p.value == v && (p._$v = null));
 }
 
 function normalize(value, current, multi, doNotUnwrap) {
