@@ -1,5 +1,12 @@
 # @solidjs/compiler
 
+## 2.0.0-rc.19
+
+### Patch Changes
+
+- 9e1edbc: A lone dynamic spread on an SSR element (`<label {...props()} />`) now defers behind a thunk like a spread beside other attributes, so it runs after the element's hydration key. A spread that created a memo shifted the element's key on the server only, and hydration missed the element (#4240).
+- 4b836ab: Validate SSR templates rooted at an SVG or MathML element (such as `<image>` or `<g>` under control flow, in a fragment, or as a component root) inside their `<svg>`/`<math>` owner, as DOM templates already are, so valid SVG partials no longer fail the `validate` check.
+
 ## 2.0.0-rc.18
 
 ### Patch Changes
