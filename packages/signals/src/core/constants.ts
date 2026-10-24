@@ -205,6 +205,10 @@ export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
 export const STATUS_ERROR = 1 << 1;
 export const STATUS_UNINITIALIZED = 1 << 2;
+/** An error that answered a node's first read (no value has ever landed):
+ * the error, not UNINITIALIZED, is its status while shown, but a re-ask
+ * makes it uninitialized-pending again — it still has no value (#4244). */
+export const STATUS_NO_VALUE = 1 << 3;
 
 /** `catchHook`'s answer when the catcher is a boundary re-armed by
  * `on` (truthy, as any catch): what it collects is its own, not the hold's. */

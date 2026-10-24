@@ -19,6 +19,7 @@ import {
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED,
+  STATUS_NO_VALUE,
   NewSet
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
@@ -902,14 +903,28 @@ export function notifyStatus(el: Computed<any>, status: number, error: any): voi
     // D-41: a re-ask of a shown error keeps it the display (`_shownError`).
     if (el._statusFlags & STATUS_ERROR) el._x!._shownError = el._x!._error;
     addPendingSource(el, pendingSource);
-    el._statusFlags = STATUS_PENDING | (el._statusFlags & STATUS_UNINITIALIZED);
+    // A re-ask of an error that answered the first read: still no value.
+    el._statusFlags =
+      STATUS_PENDING |
+      (el._statusFlags & STATUS_NO_VALUE
+        ? STATUS_UNINITIALIZED
+        : el._statusFlags & STATUS_UNINITIALIZED);
     // Preserve the current source on this propagation so readers park on
     // the distinct pending source.
     setPendingError(el, pendingSource, error);
   } else {
     clearPendingSources(el);
+    // An error answering a node with no value marks it so; a re-ask of it
+    // (pending) is uninitialized again; a write (STATUS_NONE) gives it one.
     el._statusFlags =
-      status | (status !== STATUS_ERROR ? el._statusFlags & STATUS_UNINITIALIZED : 0);
+      status |
+      (status === STATUS_ERROR
+        ? el._statusFlags & (STATUS_UNINITIALIZED | STATUS_NO_VALUE)
+          ? STATUS_NO_VALUE
+          : 0
+        : status === STATUS_PENDING && el._statusFlags & STATUS_NO_VALUE
+          ? STATUS_UNINITIALIZED
+          : el._statusFlags & STATUS_UNINITIALIZED);
     ext(el)._error = error;
   }
 
