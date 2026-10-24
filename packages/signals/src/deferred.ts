@@ -148,9 +148,41 @@ export function createDeferred<T>(
       // Sticky, and read before this wrapper ever opens the window itself.
       const open = (answered ||= !(node._statusFlags & STATUS_UNINITIALIZED) && !node._loading);
       if (open) ((node._loading = true), (node._config |= CONFIG_LAGS));
-      let r: T | PromiseLike<T> | AsyncIterable<T>;
       try {
-        r = fn(prev);
+        const r = fn(prev);
+        if (open && typeof r === "object" && r !== null) {
+          if (isThenable(r as PromiseLike<T>)) {
+            ask(r);
+            const done = () => land(r, true);
+            (r as PromiseLike<T>).then(done, done);
+            return serve(r as PromiseLike<T>);
+          }
+          const iterate = (r as AsyncIterable<T>)[Symbol.asyncIterator];
+          if (iterate) {
+            // A stream's flight ends at its first yield (or its end).
+            const it = iterate.call(r);
+            let first = true;
+            const done = () => land(s, true);
+            const s: AsyncIterator<T> = {
+              // Registered ahead of the engine's own reaction to the same
+              // promise, as for a plain flight: verdict and value in one flush.
+              next: v => {
+                const p = it.next(v);
+                if (first) {
+                  first = false;
+                  if (isThenable(p)) p.then(done, done);
+                  else done();
+                }
+                return p;
+              },
+              return: v => it.return?.(v) ?? Promise.resolve({ done: true, value: v })
+            };
+            ask(s);
+            return serve({ [Symbol.asyncIterator]: () => s });
+          }
+        }
+        land(flight);
+        return r;
       } catch (e) {
         // The wrapping form: an unready source parks the node in the window,
         // and the wait is its flight until the source's settle re-runs it.
@@ -158,39 +190,6 @@ export function createDeferred<T>(
         else land(flight);
         throw e;
       }
-      if (open && typeof r === "object" && r !== null) {
-        if (isThenable(r as PromiseLike<T>)) {
-          ask(r);
-          const done = () => land(r, true);
-          (r as PromiseLike<T>).then(done, done);
-          return serve(r as PromiseLike<T>);
-        }
-        const iterate = (r as AsyncIterable<T>)[Symbol.asyncIterator];
-        if (iterate) {
-          // A stream's flight ends at its first yield (or its end).
-          const it = iterate.call(r);
-          let first = true;
-          const done = () => land(s, true);
-          const s: AsyncIterator<T> = {
-            // Registered ahead of the engine's own reaction to the same
-            // promise, as for a plain flight: verdict and value in one flush.
-            next: v => {
-              const p = it.next(v);
-              if (first) {
-                first = false;
-                if (isThenable(p)) p.then(done, done);
-                else done();
-              }
-              return p;
-            },
-            return: v => it.return?.(v) ?? Promise.resolve({ done: true, value: v })
-          };
-          ask(s);
-          return serve({ [Symbol.asyncIterator]: () => s });
-        }
-      }
-      land(flight);
-      return r;
     }, options)
   );
 }
