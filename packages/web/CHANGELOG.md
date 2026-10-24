@@ -1,5 +1,19 @@
 # @solidjs/web
 
+## 2.0.0-rc.19
+
+### Patch Changes
+
+- 2a0da2f: fix(web): refuse an async memo that resolves to an element (#4242)
+
+  On the server, an async memo (or async iterable source) whose value is rendered output — JSX, a component's result, a `<Loading>`/`<Errored>` boundary — can no longer reach the hydration serializer. A boundary's output failed in seroval, so its record never resolved and the hydrating client waited on the memo forever (streamed, the boundary reverted to its fallback); a template object crossed as data, duplicating the markup, and streamed the client could not insert it (`UNRECOGNIZED_INSERT_VALUE`). The memo now rejects where its value lands, with the new diagnostic `ASYNC_MEMO_ELEMENT` (recorded on the observe channel; the dev message says what to do instead, other tiers carry the code), and its boundary contains the error like any render error: the nearest `<Errored>` renders its fallback and the client hydrates it; with none, the `<Loading>` fragment rejects and the client renders the subtree. Return data from the async memo and render the JSX from it. Ordinary data is never refused (only plain objects in the SSR template shape, boundary outputs and fragment arrays holding them count as rendered output), and content that never hydrates (`<NoHydration>`) is untouched.
+
+  Also, a fragment failing while a boundary registered under an undefined key (one created inside an async memo's continuation) is pending no longer fails the whole request in `renderToStream`.
+
+- e8b0b15: `renderToStream`: a value that fails to serialize no longer leaves the other pre-shell hydration values pending on the client (#4242). Pending promises registered before the shell (async sources and Loading boundaries' `<key>_fr` completion flags) were handed to seroval as one object write. Since seroval 1.7, a value that fails to serialize ends the write it belongs to, so one failure stopped every value in that write. An async memo that resolves to an element, such as a nested `<Loading>`, left both boundaries unresolved and hydration never finished. The stubs are still held until the shell and handed over at the same point, in the same order, but each is now its own keyed write, so a failure only affects its own key, as on rc.17.
+- Updated dependencies [2a0da2f]
+  - solid-js@2.0.0-rc.19
+
 ## 2.0.0-rc.18
 
 ### Patch Changes
