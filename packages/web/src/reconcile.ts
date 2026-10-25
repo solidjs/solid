@@ -2,18 +2,23 @@
 // Slightly modified version of: https://github.com/WebReflection/udomdiff/blob/master/index.js
 import { $$SLOT } from "./constants.js";
 
-// Places `node` before `ref`. A node that is already in the document moves
-// with `moveBefore()` where the browser has it, so focus, CSS animations and
-// iframes survive the move (#3997). `moveBefore()` throws where
-// `insertBefore()` would not (another document, a detached parent); those
-// fall back. A new (disconnected) node never reaches the `try`.
+// Places `node` before `ref`. The node holding focus moves with
+// `moveBefore()` where the browser has it, so focus survives the move (#3997).
+// Every other node takes plain `insertBefore()`: `moveBefore()` for all
+// connected nodes cost whole-list reorders 4–8% once layout ran, and focus is
+// the state worth keeping (a playing video already survives a same-task move).
+// `moveBefore()` throws where `insertBefore()` would not (another document, a
+// detached parent); those fall back. The `isConnected` read keeps new
+// nodes off the focus check.
 export function insertNode(parent: any, node: any, ref: any) {
-  if (parent.moveBefore && node.isConnected)
+  if (parent.moveBefore && node.isConnected && hasFocus(node))
     try {
       return parent.moveBefore(node, ref);
     } catch {}
   parent.insertBefore(node, ref);
 }
+
+const hasFocus = (node: any) => node.contains(document.activeElement);
 
 export default function reconcileArrays(
   parentNode: Node,
@@ -164,12 +169,13 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
           } else {
             const newNode = b[bStart++],
               node = a[aStart++];
-            // `node` is placed again later in this pass. `replaceChild`
-            // detaches it, and a detached node can't keep its state, so with
-            // `moveBefore()` it waits at the region's end instead: every
-            // node still to place is inserted before a node that precedes
-            // it, or before `after` in order, so it can't anchor an insert.
-            if (parentNode.moveBefore) {
+            // `replaceChild` detaches both nodes when `newNode` is connected,
+            // and `node` is placed again later in this pass, so either can
+            // lose focus. While focus is in the list, `node` waits at the
+            // region's end instead: every node still to place is inserted
+            // before a node that precedes it, or before `after` in order, so
+            // it can't anchor an insert.
+            if (hasFocus(parentNode)) {
               insertNode(parentNode, newNode, node);
               insertNode(parentNode, node, after);
             } else parentNode.replaceChild(newNode, node);

@@ -2,10 +2,11 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-// #3997: a node the runtime moves keeps its connection to the document when
-// the browser has `moveBefore()`, so focus, animations and iframes survive.
-// jsdom has no `moveBefore()`; the mock below throws where browsers do (a
-// node or parent outside the document) and records each node it moves.
+// #3997: the node holding focus keeps its connection to the document when the
+// runtime moves it and the browser has `moveBefore()`, so focus survives.
+// Every other node keeps plain `insertBefore()`. jsdom has no `moveBefore()`;
+// the mock below throws where browsers do (a node or parent outside the
+// document), keeps focus as browsers do, and records each node it moves.
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { createSignal, flush, For } from "solid-js";
 import { render } from "../src/index.js";
@@ -24,7 +25,9 @@ function install() {
     if (!node.isConnected || !this.isConnected || node.ownerDocument !== this.ownerDocument)
       throw new DOMException("", "HierarchyRequestError");
     moved.push(node);
-    return insertBefore.call(this, node, ref);
+    const active = document.activeElement as HTMLElement | null;
+    insertBefore.call(this, node, ref);
+    if (active && node.contains(active)) active.focus();
   };
   // Any other way a connected node leaves its place detaches it first.
   proto.insertBefore = function (node: Node, ref: Node | null) {
@@ -59,6 +62,7 @@ function rows(parent: Node, n: number) {
   return Array.from({ length: n }, (_, i) => {
     const el = document.createElement("i");
     el.id = "n" + i;
+    el.tabIndex = 0;
     parent.appendChild(el);
     return el;
   });
@@ -67,7 +71,7 @@ function rows(parent: Node, n: number) {
 let seed = 7;
 const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
-test("reorders move kept nodes with moveBefore and never detach them", () => {
+test("a reorder moves the focused node with moveBefore and never detaches it", () => {
   for (let it = 0; it < 3000; it++) {
     const useMarker = it % 2 === 1;
     const parent = document.createElement("div");
@@ -82,30 +86,54 @@ test("reorders move kept nodes with moveBefore and never detach them", () => {
       const j = Math.floor(rnd() * (i + 1));
       [b[i], b[j]] = [b[j], b[i]];
     }
+    const kept = b.filter(n => a.includes(n));
+    const focused = kept.length ? kept[Math.floor(rnd() * kept.length)] : undefined;
+    focused?.focus();
+    moved = [];
     detached = [];
     reconcileArrays(parent, a, b, marker);
     expect([...parent.childNodes]).toEqual(marker ? [before, ...b, marker] : [before, ...b]);
-    expect(detached.filter(n => b.includes(n as HTMLElement))).toEqual([]);
+    expect(moved.every(n => n === focused)).toBe(true);
+    if (focused) {
+      expect(detached).not.toContain(focused);
+      expect(document.activeElement).toBe(focused);
+    }
     parent.remove();
   }
 });
 
-test("moving a row to the end keeps it connected (the replaceChild path)", () => {
+test("a focused row moving to the end stays connected (the replaceChild path)", () => {
   const parent = document.body.appendChild(document.createElement("div"));
   const a = rows(parent, 5);
+  a[0].focus();
   moved = [];
   detached = [];
   reconcileArrays(parent, a, [...a.slice(1), a[0]]);
   expect([...parent.childNodes]).toEqual([...a.slice(1), a[0]]);
-  expect(detached).toEqual([]);
+  expect(detached).not.toContain(a[0]);
   expect(moved).toContain(a[0]);
+  expect(document.activeElement).toBe(a[0]);
   parent.remove();
+});
+
+test("with nothing focused in the list, moves take plain insertBefore", () => {
+  const button = document.body.appendChild(document.createElement("button"));
+  button.focus();
+  const parent = document.body.appendChild(document.createElement("div"));
+  const a = rows(parent, 5);
+  reconcileArrays(parent, a, [...a].reverse());
+  reconcileArrays(parent, [...a].reverse(), [...a.slice(1), a[0]]);
+  expect([...parent.childNodes]).toEqual([...a.slice(1), a[0]]);
+  expect(moved).toEqual([]);
+  parent.remove();
+  button.remove();
 });
 
 test("falls back to insertBefore where moveBefore throws", () => {
   // A detached parent: moveBefore() throws, insertBefore() works.
   const parent = document.createElement("div");
   const a = rows(document.body, 3);
+  a[0].focus();
   reconcileArrays(parent, [], a);
   expect([...parent.childNodes]).toEqual(a);
   expect(moved).toEqual([]);
@@ -122,6 +150,7 @@ test("without moveBefore the reconcile behaves as before", () => {
   delete proto.moveBefore;
   const parent = document.body.appendChild(document.createElement("div"));
   const a = rows(parent, 5);
+  a[0].focus();
   const b = [...a.slice(1), a[0]];
   reconcileArrays(parent, a, b);
   expect([...parent.childNodes]).toEqual(b);
@@ -129,7 +158,7 @@ test("without moveBefore the reconcile behaves as before", () => {
   parent.remove();
 });
 
-test("a <For> row reordered or moved between lists keeps its connection", () => {
+test("a focused <For> row reordered or moved between lists keeps its connection", () => {
   const [left, setLeft] = createSignal([1, 2, 3]);
   const [right, setRight] = createSignal<number[]>([]);
   const els = new Map<number, HTMLElement>();
@@ -137,6 +166,7 @@ test("a <For> row reordered or moved between lists keeps its connection", () => 
     if (!els.has(n)) {
       const e = document.createElement("li");
       e.textContent = "" + n;
+      e.tabIndex = 0;
       els.set(n, e);
     }
     return els.get(n)!;
@@ -157,12 +187,13 @@ test("a <For> row reordered or moved between lists keeps its connection", () => 
   );
   flush();
   expect(root.textContent).toBe("123");
+  el(1).focus();
   moved = [];
   detached = [];
   setLeft([2, 3, 1]);
   flush();
   expect(root.textContent).toBe("231");
-  expect(detached).toEqual([]);
+  expect(detached).not.toContain(el(1));
   expect(moved).toContain(el(1));
   // The list it lands in updates first, so the row is still in the document.
   moved = [];
@@ -171,6 +202,7 @@ test("a <For> row reordered or moved between lists keeps its connection", () => 
   flush();
   expect(root.textContent).toBe("123");
   expect(moved).toEqual([el(1)]);
+  expect(document.activeElement).toBe(el(1));
   dispose();
   root.remove();
 });
