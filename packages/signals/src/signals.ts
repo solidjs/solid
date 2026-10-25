@@ -787,7 +787,10 @@ export function createReaction(
  *   own settle);
  * - a mainline reader whose pass read a frame another transaction holds
  *   joined it (L2, born held — A29) and delivers at that commit: the
- *   committed view, never a foreign hold's unrevealed frame. */
+ *   committed view, never a foreign hold's unrevealed frame;
+ * - except `refresh()`'s waiter when the transaction it joined is one an
+ *   action keeps open (`_open`): it delivers the landing it read, since that
+ *   commit may itself wait on the promise. */
 function watch<T>(
   fn: () => T,
   onValue: (v: T) => void,
@@ -827,8 +830,6 @@ function watch<T>(
         c._flags & REACTIVE_JOINED &&
         joined !== null &&
         (own === null || resolveTx(own) !== resolveTx(joined)) &&
-        // refresh's waiter under a hold an action keeps open delivers the landing: the
-        // commit may be waiting on this very promise (#4263).
         !(config & CONFIG_FRESH_READ && resolveTx(joined)._open !== 0)
       ) {
         staleReader(c, resolveTx(joined));
