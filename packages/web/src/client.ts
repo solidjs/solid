@@ -177,7 +177,7 @@ export const waitAsset = (promise: Promise<unknown>): void => {
   gate();
 };
 
-import reconcileArrays from "./reconcile.js";
+import reconcileArrays, { insertNode } from "./reconcile.js";
 import { DOMWithState } from "./constants.js";
 import {
   HEAD_ELIGIBLE_TAGS,
@@ -3267,7 +3267,7 @@ function tagHost(value, host) {
 function appendNodes(parent, array, marker = null) {
   for (let i = 0, len = array.length; i < len; i++) {
     const n = array[i];
-    parent.insertBefore(n, marker);
+    insertNode(parent, n, marker);
     if (marker) n[$$SLOT] = marker;
   }
 }

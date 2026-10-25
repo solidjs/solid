@@ -2,6 +2,19 @@
 // Slightly modified version of: https://github.com/WebReflection/udomdiff/blob/master/index.js
 import { $$SLOT } from "./constants.js";
 
+// Places `node` before `ref`. A node that is already in the document moves
+// with `moveBefore()` where the browser has it, so focus, CSS animations and
+// iframes survive the move (#3997). `moveBefore()` throws where
+// `insertBefore()` would not (another document, a detached parent); those
+// fall back. A new (disconnected) node never reaches the `try`.
+export function insertNode(parent: any, node: any, ref: any) {
+  if (parent.moveBefore && node.isConnected)
+    try {
+      return parent.moveBefore(node, ref);
+    } catch {}
+  parent.insertBefore(node, ref);
+}
+
 export default function reconcileArrays(
   parentNode: Node,
   a: Node[],
@@ -69,7 +82,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
 
       while (bStart < bEnd) {
         const n = b[bStart++];
-        parentNode.insertBefore(n, node);
+        insertNode(parentNode, n, node);
         if (marker) n[$$SLOT] = marker;
       }
       // remove
@@ -100,14 +113,14 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
       if (marker) {
         do {
           const n = a[--aEnd];
-          parentNode.insertBefore(n, anchor);
+          insertNode(parentNode, n, anchor);
           n[$$SLOT] = marker;
           bStart++;
           if (aStart >= aEnd - 1 || bStart >= bEnd) break;
         } while (a[aStart] === b[bEnd - 1] && b[bStart] === a[aEnd - 1]);
       } else {
         do {
-          parentNode.insertBefore(a[--aEnd], anchor);
+          insertNode(parentNode, a[--aEnd], anchor);
           bStart++;
           if (aStart >= aEnd - 1 || bStart >= bEnd) break;
         } while (a[aStart] === b[bEnd - 1] && b[bStart] === a[aEnd - 1]);
@@ -145,12 +158,21 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
             const node = a[aStart];
             while (bStart < index) {
               const n = b[bStart++];
-              parentNode.insertBefore(n, node);
+              insertNode(parentNode, n, node);
               if (marker) n[$$SLOT] = marker;
             }
           } else {
-            const newNode = b[bStart++];
-            parentNode.replaceChild(newNode, a[aStart++]);
+            const newNode = b[bStart++],
+              node = a[aStart++];
+            // `node` is placed again later in this pass. `replaceChild`
+            // detaches it, and a detached node can't keep its state, so with
+            // `moveBefore()` it waits at the region's end instead: every
+            // node still to place is inserted before a node that precedes
+            // it, or before `after` in order, so it can't anchor an insert.
+            if (parentNode.moveBefore) {
+              insertNode(parentNode, newNode, node);
+              insertNode(parentNode, node, after);
+            } else parentNode.replaceChild(newNode, node);
             if (marker) newNode[$$SLOT] = marker;
           }
         } else aStart++;
