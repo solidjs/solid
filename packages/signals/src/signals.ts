@@ -1,4 +1,11 @@
-import type { Computed, Disposable, Owner, Refreshable } from "./core/index.js";
+import type {
+  Computed,
+  Disposable,
+  MaySuspend,
+  SuspendingIf,
+  Owner,
+  Refreshable
+} from "./core/index.js";
 import {
   $REFRESH,
   cleanup,
@@ -129,6 +136,8 @@ export function onCleanup(fn: Disposable): Disposable {
  */
 export type Accessor<T> = () => T;
 export type SourceAccessor<T> = Refreshable<Accessor<T>>;
+/** A `SourceAccessor` whose read may suspend to the nearest `<Loading>`. */
+export type AsyncAccessor<T> = SourceAccessor<T> & MaySuspend;
 
 export function accessor<T>(node: any): SourceAccessor<T> {
   const fn = read.bind(null, node) as SourceAccessor<T>;
@@ -155,6 +164,8 @@ export type Setter<in out T> = {
 
 /** A `[get, set]` pair returned from `createSignal` / `createOptimistic`. */
 export type Signal<T> = [get: SourceAccessor<T>, set: Setter<T>];
+/** A derived `Signal` whose getter may suspend to the nearest `<Loading>`. */
+export type AsyncSignal<T> = [get: AsyncAccessor<T>, set: Setter<T>];
 
 export type ComputeFunction<Prev, Next extends Prev = Prev> = (
   v: Prev
@@ -400,6 +411,14 @@ export type NoInfer<T extends any> = [T][T extends any ? 0 : never];
 export function createSignal<T>(): Signal<T | undefined>;
 export function createSignal<T>(value: Exclude<T, Function>, options?: SignalOptions<T>): Signal<T>;
 export function createSignal<T>(
+  fn: ComputeFunction<NoInfer<T>, T>,
+  options: SignalOptions<T> & MemoOptions<T> & { loadingValue: T }
+): Signal<T>;
+export function createSignal<T, F extends (prev: any) => unknown>(
+  fn: F & ComputeFunction<T>,
+  options?: SignalOptions<T> & MemoOptions<T>
+): SuspendingIf<F, Signal<T>, AsyncSignal<T>, Signal<any>>;
+export function createSignal<T>(
   fn: ComputeFunction<T>,
   options?: SignalOptions<T> & MemoOptions<T>
 ): Signal<T>;
@@ -503,6 +522,10 @@ export function createMemo<T>(
   compute: ComputeFunction<NoInfer<T>, T>,
   options: MemoOptions<T> & { loadingValue: T }
 ): SourceAccessor<T>;
+export function createMemo<T, F extends (prev: any) => unknown>(
+  compute: F & ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: MemoOptions<T>
+): SuspendingIf<F, SourceAccessor<T>, AsyncAccessor<T>, SourceAccessor<any>>;
 export function createMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: MemoOptions<T>

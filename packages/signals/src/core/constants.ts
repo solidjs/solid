@@ -245,6 +245,21 @@ export const $REFRESH = Symbol("refresh");
  */
 export type Refreshable<T> = T & { readonly [$REFRESH]: any };
 
+declare const $SUSPENDS: unique symbol;
+/** Type-only brand: reading this source may throw `NotReadyError` to the nearest `<Loading>`. */
+export type MaySuspend = { readonly [$SUSPENDS]: true };
+/**
+ * `Async` when `F` returns a promise or async iterable; `Untyped` when `F` is `any`.
+ * Each overload using it keeps an unbranded twin: explicit type arguments skip a required `F`.
+ */
+export type SuspendingIf<F, Sync, Async, Untyped = Sync> = 0 extends 1 & F
+  ? Untyped
+  : [F] extends [(...args: any[]) => infer R]
+    ? [Extract<R, PromiseLike<any> | AsyncIterable<any>>] extends [never]
+      ? Sync
+      : Async
+    : Sync;
+
 /** `Set` under a module binding. Bundlers mark a bare `new Set()` pure with
  * a `/* @__PURE__ *\/` comment that survives minification (16 bytes a site);
  * a construction through a binding carries none. Same constructor, so the

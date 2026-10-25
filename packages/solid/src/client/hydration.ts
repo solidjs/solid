@@ -30,11 +30,16 @@ import {
   type NoInfer,
   type Owner,
   type ProjectionOptions,
+  type SuspendingIf,
+  type AsyncAccessor,
   type Refreshable,
   type Signal,
+  type AsyncSignal,
+  type AsyncStoreReturn,
   type SignalOptions,
   type SourceAccessor,
   type Store,
+  type AsyncStore,
   type StoreOptions,
   type StoreSetter,
   type RevealOrder,
@@ -1614,6 +1619,10 @@ export const createMemo: {
     compute: ComputeFunction<NoInfer<T>, T>,
     options: HydrationMemoOptions<T> & { loadingValue: T }
   ): SourceAccessor<T>;
+  <T, F extends (prev: any) => unknown>(
+    compute: F & ComputeFunction<undefined | NoInfer<T>, T>,
+    options?: HydrationMemoOptions<T>
+  ): SuspendingIf<F, SourceAccessor<T>, AsyncAccessor<T>, SourceAccessor<any>>;
   <T>(
     compute: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationMemoOptions<T>
@@ -1671,6 +1680,10 @@ export const createSignal: {
     fn: ComputeFunction<NoInfer<T>, T>,
     options: HydrationSignalOptions<T> & { loadingValue: T }
   ): Signal<T>;
+  <T, F extends (prev: any) => unknown>(
+    fn: F & ComputeFunction<undefined | NoInfer<T>, T>,
+    options?: HydrationSignalOptions<T>
+  ): SuspendingIf<F, Signal<T>, AsyncSignal<T>, Signal<any>>;
   <T>(
     fn: ComputeFunction<undefined | NoInfer<T>, T>,
     options?: HydrationSignalOptions<T>
@@ -1829,11 +1842,26 @@ export const createDeferred: {
  * tradeoffs as the other primitives. See {@link HydrationSsrFields}.
  */
 export const createProjection: {
+  <T extends object, F extends () => unknown>(
+    fn: F & (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+    seed?: null,
+    options?: Omit<HydrationProjectionOptions, "seedLoadingValue">
+  ): SuspendingIf<F, Refreshable<Store<T>>, AsyncStore<T>, Refreshable<Store<any>>>;
   <T extends object = {}>(
     fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
     seed?: null,
     options?: Omit<HydrationProjectionOptions, "seedLoadingValue">
   ): Refreshable<Store<T>>;
+  <T extends object = {}>(
+    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+    seed: NoFn<T> | Store<NoFn<T>>,
+    options: HydrationProjectionOptions & { seedLoadingValue: true }
+  ): Refreshable<Store<T>>;
+  <T extends object, F extends (draft: T) => unknown>(
+    fn: F & ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
+    seed: NoFn<T> | Store<NoFn<T>>,
+    options?: HydrationProjectionOptions
+  ): SuspendingIf<F, Refreshable<Store<T>>, AsyncStore<T>>;
   <T extends object = {}>(
     fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
     seed: NoFn<T> | Store<NoFn<T>>,
@@ -1915,11 +1943,31 @@ export const createStore: {
     initialValue: NoFn<T> | Store<NoFn<T>>,
     options?: StoreOptions
   ): [get: Store<T>, set: StoreSetter<T>];
+  <T extends object, F extends () => unknown>(
+    fn: F & (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+    seed?: null,
+    options?: Omit<HydrationProjectionOptions, "seedLoadingValue">
+  ): SuspendingIf<
+    F,
+    [get: Refreshable<Store<T>>, set: StoreSetter<T>],
+    AsyncStoreReturn<T>,
+    [get: Refreshable<Store<any>>, set: StoreSetter<any>]
+  >;
   <T extends object = {}>(
     fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
     seed?: null,
     options?: Omit<HydrationProjectionOptions, "seedLoadingValue">
   ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+  <T extends object = {}>(
+    fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+    seed: NoFn<T> | Store<NoFn<T>>,
+    options: HydrationProjectionOptions & { seedLoadingValue: true }
+  ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+  <T extends object, F extends (draft: T) => unknown>(
+    fn: F & ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
+    seed: NoFn<T> | Store<NoFn<T>>,
+    options?: HydrationProjectionOptions
+  ): SuspendingIf<F, [get: Refreshable<Store<T>>, set: StoreSetter<T>], AsyncStoreReturn<T>>;
   <T extends object = {}>(
     fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
     seed: NoFn<T> | Store<NoFn<T>>,

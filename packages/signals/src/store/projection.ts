@@ -31,7 +31,7 @@ import { enqueueSub } from "../core/heap.js";
 import { getOwner, isDisposed } from "../core/owner.js";
 import { insertSubs, question, schedule, setQuestion } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
-import type { Refreshable } from "../core/index.js";
+import type { Refreshable, SuspendingIf } from "../core/index.js";
 import { reconcileState } from "./reconcile.js";
 import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
 import { setLookup, storeOwners, type StoreFamily, type StoreTarget } from "./target.js";
@@ -42,6 +42,7 @@ import {
   setWriteOverride,
   type NoArray,
   type NoFn,
+  type AsyncStore,
   type ProjectionOptions,
   type Store
 } from "./types.js";
@@ -362,11 +363,26 @@ function createProjectionInternal<T extends object = {}>(
  * firewall). `fn` may be async or an async iterator; the seed is a draft,
  * never an observable value, until the first landing (A25).
  */
+export function createProjection<T extends object, F extends () => unknown>(
+  fn: F & (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ProjectionOptions, "seedLoadingValue">
+): SuspendingIf<F, Refreshable<Store<T>>, AsyncStore<T>, Refreshable<Store<any>>>;
 export function createProjection<T extends object = {}>(
   fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
   seed?: null,
   options?: Omit<ProjectionOptions, "seedLoadingValue">
 ): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options: ProjectionOptions & { seedLoadingValue: true }
+): Refreshable<Store<T>>;
+export function createProjection<T extends object, F extends (draft: T) => unknown>(
+  fn: F & ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): SuspendingIf<F, Refreshable<Store<T>>, AsyncStore<T>>;
 export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: NoFn<T> | Store<NoFn<T>>,

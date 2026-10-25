@@ -78,6 +78,7 @@ import type {
 } from "@solidjs/signals";
 
 export type SourceAccessor<T> = Refreshable<SignalAccessor<T>>;
+export type AsyncAccessor<T> = SourceAccessor<T> & MaySuspend;
 
 export type {
   Accessor,
@@ -130,13 +131,18 @@ import type {
   EffectFunction,
   EffectBundle,
   EffectOptions,
+  MaySuspend,
+  SuspendingIf,
   MemoOptions,
   SignalOptions,
   Setter,
   Signal,
+  AsyncSignal,
+  AsyncStoreReturn,
   Merge,
   Owner,
   Store,
+  AsyncStore,
   StoreSetter,
   Context,
   UntilOptions
@@ -1354,6 +1360,10 @@ export function createSignal<T>(
   fn: ComputeFunction<NoInfer<T>, T>,
   options: ServerSignalOptions<T> & { loadingValue: T }
 ): Signal<T>;
+export function createSignal<T, F extends (prev: any) => unknown>(
+  fn: F & ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: ServerSignalOptions<T>
+): SuspendingIf<F, Signal<T>, AsyncSignal<T>, Signal<any>>;
 export function createSignal<T>(
   fn: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: ServerSignalOptions<T>
@@ -1400,6 +1410,10 @@ export function createMemo<T>(
   compute: ComputeFunction<NoInfer<T>, T>,
   options: ServerMemoOptions<T> & { loadingValue: T }
 ): SourceAccessor<T>;
+export function createMemo<T, F extends (prev: any) => unknown>(
+  compute: F & ComputeFunction<undefined | NoInfer<T>, T>,
+  options?: ServerMemoOptions<T>
+): SuspendingIf<F, SourceAccessor<T>, AsyncAccessor<T>, SourceAccessor<any>>;
 export function createMemo<T>(
   compute: ComputeFunction<undefined | NoInfer<T>, T>,
   options?: ServerMemoOptions<T>
@@ -2732,11 +2746,31 @@ export function createStore<T extends object = {}>(
   initialValue: NoFn<T> | Store<NoFn<T>>,
   options?: StoreOptions
 ): [get: Store<T>, set: StoreSetter<T>];
+export function createStore<T extends object, F extends () => unknown>(
+  fn: F & (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ServerProjectionOptions, "seedLoadingValue">
+): SuspendingIf<
+  F,
+  [get: Refreshable<Store<T>>, set: StoreSetter<T>],
+  AsyncStoreReturn<T>,
+  [get: Refreshable<Store<any>>, set: StoreSetter<any>]
+>;
 export function createStore<T extends object = {}>(
   fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
   seed?: null,
   options?: Omit<ServerProjectionOptions, "seedLoadingValue">
 ): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createStore<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options: ServerProjectionOptions & { seedLoadingValue: true }
+): [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+export function createStore<T extends object, F extends (draft: T) => unknown>(
+  fn: F & ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ServerProjectionOptions
+): SuspendingIf<F, [get: Refreshable<Store<T>>, set: StoreSetter<T>], AsyncStoreReturn<T>>;
 export function createStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: NoFn<T> | Store<NoFn<T>>,
@@ -2956,11 +2990,26 @@ function replaceState<T extends object>(target: T, next: T): void {
   Object.assign(target, next);
 }
 
+export function createProjection<T extends object, F extends () => unknown>(
+  fn: F & (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ServerProjectionOptions, "seedLoadingValue">
+): SuspendingIf<F, Refreshable<Store<T>>, AsyncStore<T>, Refreshable<Store<any>>>;
 export function createProjection<T extends object = {}>(
   fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
   seed?: null,
   options?: Omit<ServerProjectionOptions, "seedLoadingValue">
 ): Refreshable<Store<T>>;
+export function createProjection<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options: ServerProjectionOptions & { seedLoadingValue: true }
+): Refreshable<Store<T>>;
+export function createProjection<T extends object, F extends (draft: T) => unknown>(
+  fn: F & ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ServerProjectionOptions
+): SuspendingIf<F, Refreshable<Store<T>>, AsyncStore<T>>;
 export function createProjection<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: NoFn<T> | Store<NoFn<T>>,

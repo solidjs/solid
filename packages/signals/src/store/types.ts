@@ -2,11 +2,13 @@
  * Store — public types, brand symbols, wrappability and raw marking. Shared
  * by every store module; carries no reactive machinery of its own.
  */
-import type { Refreshable } from "../core/index.js";
+import type { MaySuspend, Refreshable } from "../core/index.js";
 import { lookupTarget } from "./target.js";
 
 /** A reactive view of a store's value. Update it through the paired `StoreSetter`. */
 export type Store<T> = T;
+/** A projected store whose reads may suspend to the nearest `<Loading>` until its first answer lands. */
+export type AsyncStore<T> = Refreshable<Store<T>> & MaySuspend;
 
 /**
  * A store setter. The callback receives a writable **draft** of the store.
@@ -29,6 +31,8 @@ export type StoreSetter<T> = (fn: (state: T) => T | void) => void;
 export type StoreReturn<T> = [get: Store<T>, set: StoreSetter<T>];
 /** Tuple returned by the derived `createStore(fn, seed, options?)` form. */
 export type ProjectionStoreReturn<T> = [get: Refreshable<Store<T>>, set: StoreSetter<T>];
+/** Tuple returned by an async derived `createStore`. */
+export type AsyncStoreReturn<T> = [get: AsyncStore<T>, set: StoreSetter<T>];
 
 /** Options shared by all store primitives. */
 export interface StoreOptions {

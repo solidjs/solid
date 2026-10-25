@@ -11,10 +11,13 @@ export type {
   ProjectionStoreReturn,
   SolidStore,
   Store,
+  AsyncStore,
+  AsyncStoreReturn,
   StoreOptions,
   StoreReturn,
   StoreSetter
 } from "./types.js";
+import type { SuspendingIf } from "../core/index.js";
 export { $PROXY, $RECORD, $TARGET, $TRACK, isWrappable, markRaw } from "./types.js";
 export { storeIsShallow, storeHasFamily, storeHasOptimisticFamily } from "./store.js";
 export { storePath } from "./storePath.js";
@@ -38,6 +41,7 @@ import type {
   NoArray,
   NoFn,
   ProjectionOptions,
+  AsyncStoreReturn,
   ProjectionStoreReturn,
   Store,
   StoreOptions,
@@ -90,11 +94,26 @@ export function createStore<T extends object = {}>(
   initialValue: NoFn<T>,
   options?: StoreOptions
 ): StoreReturn<T>;
+export function createStore<T extends object, F extends () => unknown>(
+  fn: F & (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
+  seed?: null,
+  options?: Omit<ProjectionOptions, "seedLoadingValue">
+): SuspendingIf<F, ProjectionStoreReturn<T>, AsyncStoreReturn<T>, ProjectionStoreReturn<any>>;
 export function createStore<T extends object = {}>(
   fn: (() => T | Promise<T> | AsyncIterable<T>) & NoArray<T>,
   seed?: null,
   options?: Omit<ProjectionOptions, "seedLoadingValue">
 ): ProjectionStoreReturn<T>;
+export function createStore<T extends object = {}>(
+  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options: ProjectionOptions & { seedLoadingValue: true }
+): ProjectionStoreReturn<T>;
+export function createStore<T extends object, F extends (draft: T) => unknown>(
+  fn: F & ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>),
+  seed: NoFn<T> | Store<NoFn<T>>,
+  options?: ProjectionOptions
+): SuspendingIf<F, ProjectionStoreReturn<T>, AsyncStoreReturn<T>>;
 export function createStore<T extends object = {}>(
   fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
   seed: NoFn<T> | Store<NoFn<T>>,
