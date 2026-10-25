@@ -175,7 +175,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
             // region's end instead: every node still to place is inserted
             // before a node that precedes it, or before `after` in order, so
             // it can't anchor an insert.
-            if (hasFocus(parentNode)) {
+            if (parentNode.moveBefore && hasFocus(parentNode)) {
               insertNode(parentNode, newNode, node);
               insertNode(parentNode, node, after);
             } else parentNode.replaceChild(newNode, node);
