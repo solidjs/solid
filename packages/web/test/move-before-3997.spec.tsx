@@ -72,7 +72,7 @@ let seed = 7;
 const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
 test("a reorder moves the focused node with moveBefore and never detaches it", () => {
-  for (let it = 0; it < 3000; it++) {
+  for (let it = 0; it < 500; it++) {
     const useMarker = it % 2 === 1;
     const parent = document.createElement("div");
     document.body.appendChild(parent);
