@@ -8,6 +8,7 @@ import {
 import {
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
+  CONFIG_KEY_BAG,
   CONFIG_PLUMBING,
   CONFIG_WIDE,
   CONFIG_SUPERSEDES,
@@ -1778,6 +1779,8 @@ function checkUnstableOutput(el: Computed<any>, prevValue: unknown, newValue: un
   // typeof guard: an explicit `unstableMemos: undefined` in enable() options
   // clobbers the default through the spread — treat any non-number as off.
   if (typeof limit !== "number") return;
+  // merge()'s function-source memo: a key bag no user configures (#4256).
+  if (el._config & CONFIG_KEY_BAG) return;
   const node = el as AttributedNode;
   if (
     prevValue === newValue || // paranoia: changed runs should never hit this
