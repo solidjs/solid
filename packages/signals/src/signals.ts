@@ -826,7 +826,10 @@ function watch<T>(
       if (
         c._flags & REACTIVE_JOINED &&
         joined !== null &&
-        (own === null || resolveTx(own) !== resolveTx(joined))
+        (own === null || resolveTx(own) !== resolveTx(joined)) &&
+        // refresh's waiter under a hold an action keeps open delivers the landing: the
+        // commit may be waiting on this very promise (#4263).
+        !(config & CONFIG_FRESH_READ && resolveTx(joined)._open !== 0)
       ) {
         staleReader(c, resolveTx(joined));
         return;
