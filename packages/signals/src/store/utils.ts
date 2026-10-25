@@ -1,4 +1,4 @@
-import { SUPPORTS_PROXY } from "../core/constants.js";
+import { CONFIG_KEY_BAG, SUPPORTS_PROXY } from "../core/constants.js";
 import { createMemo } from "../signals.js";
 import { $PROXY, $RECORD, $TARGET, ownEnumerableKeys } from "./types.js";
 
@@ -991,7 +991,13 @@ export function merge<T extends unknown[]>(...sources: T): Merge<T> {
     count++;
     only = s;
     if (typeof s === "function") {
-      flattened[n] = createMemo(s as () => any) as any;
+      // Observe tiers name it and exempt it from UNSTABLE_MEMO_OUTPUT (see
+      // CONFIG_KEY_BAG); prod passes no options.
+      flattened[n] = (
+        __OBSERVE__
+          ? createMemo(s as () => any, { name: "merge", _extraConfig: CONFIG_KEY_BAG } as {})
+          : createMemo(s as () => any)
+      ) as any;
       kinds[n++] = SOURCE_MEMO;
       continue;
     }

@@ -200,6 +200,13 @@ export const CONFIG_WIDE = 1 << 26;
  * creation by dev builds only (the observe artifact mangles the option name,
  * as it does `_wide`). */
 export const CONFIG_SUPERSEDES = 1 << 27;
+/** Observe tiers only: the memo `merge()` creates for a function source — a
+ * key bag readers consume key by key, built by the framework (a compiled
+ * component spread) with options no user can reach. The attribution engine's
+ * UNSTABLE_MEMO_OUTPUT skips it: a fresh-but-equal bag is the idiom
+ * (`{...(on() ? { a } : {})}`), and the advice (`equals`) cannot be applied
+ * (#4256). Set through `_extraConfig` by observe builds only. */
+export const CONFIG_KEY_BAG = 1 << 28;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
