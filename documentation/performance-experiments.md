@@ -10362,3 +10362,79 @@ a scheduler design question, not a tweak. A Vapor-style text cache would
 change behaviour. Local only: the branches `perf/write-path-constant`,
 `perf/insert-text-in-place` and `perf/normalize-split` with its stash, and
 the fork builds `dist-pw-*`, `dist-ip-*`, `dist-ns-*` and `dist-scan`.
+
+### 18 (Vapor lane, follow-up): one template clone path — `importNode` or adopt-once, priced on the board (2026-10-25)
+
+`template(html, flag)` clones through `cloneNode(true)` from the node parsed
+into a `<template>`'s inert document, and switches to
+`document.importNode` when the compiler sets flag 1: custom elements, `is`
+attributes, or a lazy-loading `<img>`/`<iframe>`
+(`template_subtree_is_import_node`, `packages/compiler/src/dom/element.rs`).
+`importNode` creates the clone in the document, so a custom element upgrades
+at clone time, before Solid's walk sets its properties. A `cloneNode` copy
+from the inert document upgrades only when it is inserted. The question was
+whether one path could replace the special case, and what that costs on the
+Octane board.
+
+**No board fixture emits flag 1.** A scan of every built Solid fixture bundle
+found no flagged template, no `loading=` attribute and no custom-element
+tag. Dropping the flag in favour of plain `cloneNode` changes nothing on the
+board, but it reopens the upgrade-timing problem the flag exists for. The
+measurable choice is a uniform path that is also correct for custom
+elements:
+
+- **import** (`perf/template-import`, 3d4f9ffa9): every template clones
+  through `document.importNode`.
+- **adopt** (`perf/template-adopt`, d0c7633bb): `create` adopts the parsed
+  node into the document once (`document.adoptNode`), then every clone uses
+  `cloneNode(true)`. The clone is born in the document, so nothing is adopted
+  on insertion.
+
+Both pass every web suite that passes on `next` in that worktree. Four
+`UNCOMMITTED_INPUT_OVERWRITTEN` dev tests and one #4240 server test fail
+there on `next` too.
+
+**Setup.** `next` @ 4ea2f4986 and both probes, two rounds interleaved per
+round (next, import, adopt), 11 client suites chosen for template mounts.
+Results are in `results-tpl-{next,import,adopt}-r{1,2}-oct25`, the log in
+`.logs/template-clone-2026-10-25.log`. Each figure is Solid's own per-op
+score against `next` from the same round, as a geomean over ops and then
+over rounds. list-clear has no Solid target, which leaves 10 suites.
+
+| suite | import | adopt | `next` r2 / r1 |
+| --- | ---: | ---: | ---: |
+| js-framework | +4.7% | +2.6% | −2.8% |
+| todomvc | +7.6% | +6.8% | +0.3% |
+| chat-stream | +11.5% | +9.8% | +10.2% (noise) |
+| svg-dashboard | +0.8% | +0.3% | 0.0% |
+| uibench | +0.5% | +1.4% | −0.2% |
+| spa-navigation | +9.6% | +6.4% | +2.0% |
+| application-composition | −0.8% | −2.5% | +0.8% |
+| scaling-curves | −5.4% | −5.4% | −0.5% |
+| effectful-list | +5.4% | +6.0% | +0.4% |
+| memo-wall | −0.9% | +1.3% | −0.1% |
+| **geomean, 10 suites** | **+3.2%** | **+2.6%** | \|noise\| 1.7% |
+
+Ops that moved more than 5% the same way in both rounds, for both probes:
+the creation ops. js-framework `run` +13–14%, `runlots` +16–18%, `add`
++11%, `replace` +8% (import). spa-navigation `nav_nested`, `nav_deep` and
+`nav_mount` +9–16%. todomvc toggles +24–26%. uibench `render` cases +5–8%.
+uibench's deep-tree `removeAll` is +33–34% on both, which suggests the cost
+does not stop at the clone: nodes born in the document are slower to tear
+down as well. js-framework `select` (−13–14%) and todomvc `clearCompleted`
+(−8%) improved on both probes. Neither clones a template, so they probably
+reflect a different heap shape, not the path itself.
+
+**Board impact.** Holding the 15 untouched suites at zero, the change to the
+25-suite board geomean is +1.3% for import and +1.0% for adopt. Without
+chat-stream, whose own round-to-round spread is 10%, it is +0.8% and +0.7%.
+The cost lands on creation ops, 10–17% on the most clone-heavy.
+
+**Verdict.** Keep the special case. `cloneNode` from the template's inert
+document, with adoption on insertion, is the fastest path in Chromium. It is
+faster than creating each clone in the document, by `importNode` or from a
+pre-adopted node: adopt-once beats `importNode` by about half a percent and
+still loses to `next`. The flag costs only templates that need it, and none
+of the board's do. Removing it is worth doing only if custom-element upgrade
+timing is dropped as a guarantee, which is a semantics call, not a speed
+call. The probe branches stay local.
