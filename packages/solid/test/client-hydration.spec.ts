@@ -87,13 +87,14 @@ describe("Error Boundary Hydration", () => {
           () => "children content",
           (err: any) => `fallback: ${err().message}`
         );
-        result = read();
+        result = read;
       },
       { id: "t" }
     );
     flush();
+    // The display settles in the flush after creation (#4273).
 
-    expect(result).toBe("fallback: server error");
+    expect(result()).toBe("fallback: server error");
   });
 
   test("createErrorBoundary passes through when no serialized error", () => {
@@ -131,14 +132,15 @@ describe("Error Boundary Hydration", () => {
             return `fallback: ${err().message}`;
           }
         );
-        result = read();
+        result = read;
       },
       { id: "t" }
     );
     flush();
+    // The display settles in the flush after creation (#4273).
 
     // Initially shows fallback from serialized error
-    expect(result).toBe("fallback: server error");
+    expect(result()).toBe("fallback: server error");
     expect(resetFn).toBeDefined();
 
     // After reset, the real fn should run
@@ -178,7 +180,7 @@ describe("Error Boundary Hydration", () => {
     expect(read()).toBe("item 3");
   });
 
-  test("createErrorBoundary hydrated from a server error holds the client's own error once hydration ends (#4273)", () => {
+  test("createErrorBoundary hydrated from a server error holds the client's own error (#4273)", () => {
     startHydration({ t0: new Error("server error") });
 
     let fails = true;
@@ -203,20 +205,44 @@ describe("Error Boundary Hydration", () => {
       { id: "t" }
     );
     flush();
-    expect(read()).toBe("fallback: server error");
-
-    // At hydration end the content's own run throws: the boundary holds the
-    // client error, and the fallback receives it.
-    stopHydration();
-    flush();
+    // The content's own run in the hydration pass throws: the boundary holds
+    // the client error, and the fallback receives it.
     expect(read()).toBe("fallback: client error");
     expect((seen[seen.length - 1] as Error).message).toBe("client error");
 
     // reset() clears the client error.
+    stopHydration();
     fails = false;
     resetFn();
     flush();
     expect(read()).toBe("recovered");
+  });
+
+  test("createErrorBoundary content that runs clean keeps the server's fallback until the content re-runs (#4273)", () => {
+    startHydration({ t0: new Error("server error") });
+
+    const [label, setLabel] = coreSignal("client");
+    let read!: () => unknown;
+    createRoot(
+      () => {
+        read = createErrorBoundary(
+          () => label(),
+          (err: any) => `fallback: ${err().message}`
+        );
+        read();
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(read()).toBe("fallback: server error");
+
+    stopHydration();
+    flush();
+    expect(read()).toBe("fallback: server error");
+
+    setLabel("changed");
+    flush();
+    expect(read()).toBe("changed");
   });
 
   test("createErrorBoundary handles non-Error serialized values", () => {
@@ -230,13 +256,14 @@ describe("Error Boundary Hydration", () => {
           () => "children content",
           (err: any) => `fallback: ${err()}`
         );
-        result = read();
+        result = read;
       },
       { id: "t" }
     );
     flush();
+    // The display settles in the flush after creation (#4273).
 
-    expect(result).toBe("fallback: string error");
+    expect(result()).toBe("fallback: string error");
   });
 
   test("Errored component reads serialized error during hydration", () => {
@@ -336,13 +363,14 @@ describe("Error Boundary Hydration", () => {
           },
           (err: any) => `outer-fallback: ${err().message}`
         );
-        result = read();
+        result = read;
       },
       { id: "t" }
     );
     flush();
+    // The display settles in the flush after creation (#4273).
 
-    expect(result).toBe("outer-fallback: outer error");
+    expect(result()).toBe("outer-fallback: outer error");
   });
 
   test("ID alignment: boundary after memo during hydration", () => {
@@ -359,16 +387,17 @@ describe("Error Boundary Hydration", () => {
           () => "children",
           (err: any) => `fallback: ${err().message}`
         );
-        boundaryResult = read();
+        boundaryResult = read;
       },
       { id: "t" }
     );
     flush();
+    // The display settles in the flush after creation (#4273).
 
     // Memo should have loaded serialized value 42 (not computed 99)
     expect(memoResult).toBe(42);
     // Boundary should have loaded serialized error
-    expect(boundaryResult).toBe("fallback: boundary error");
+    expect(boundaryResult()).toBe("fallback: boundary error");
   });
 
   test("Errored shows async rejection fallback after Loading resolves during hydration", async () => {
@@ -510,7 +539,7 @@ describe("Error Boundary Hydration", () => {
     expect(read(result)).toBe("Test Item");
   });
 
-  test("Loading inner Errored hydrated with a server-only error renders client content once hydration ends", async () => {
+  test("Loading inner Errored reset recovers after hydrated server error", async () => {
     let resolveLoading!: () => void;
     const loading = new Promise<void>(r => {
       resolveLoading = r;
@@ -556,12 +585,8 @@ describe("Error Boundary Hydration", () => {
     await Promise.resolve();
     flush();
 
-    // The resume ends hydration: the content runs once for real and, since
-    // the error was server-only, the client's answer replaces it (#4273).
-    expect(resetFn).toBeDefined();
-    expect(read(result)).toBe("Bad Item");
+    expect(read(result)).toBe("ItemError: Item bad-item not found");
 
-    // The content is live: it tracks its inputs, and a reset is harmless.
     setId("1");
     resetFn!();
     flush();
