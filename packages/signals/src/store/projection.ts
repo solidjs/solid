@@ -17,7 +17,12 @@
  * rules a memo's read follows. No per-leaf back-pointer, nothing in core.
  */
 import { attrHooks } from "../core/attribution-hooks.js";
-import { CONFIG_AUTO_DISPOSE, STATUS_PENDING, STATUS_UNINITIALIZED } from "../core/constants.js";
+import {
+  CONFIG_AUTO_DISPOSE,
+  STATUS_ERROR,
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED
+} from "../core/constants.js";
 import { computed } from "../core/core.js";
 import { NotReadyError } from "../core/error.js";
 import {
@@ -180,6 +185,14 @@ function settleFamily(fam: StoreFamily): void {
   });
 }
 
+/** A source's status reached the derive by propagation (core
+ * `propagateStatus`), its pass not re-run: the family learns it as from the
+ * pass's own throw. */
+function familyStatus(this: StoreFamily, status: number, error: unknown): void {
+  if (status & STATUS_PENDING) wakeFamily(this, error);
+  else if (status & STATUS_ERROR) errorFamily(this);
+}
+
 function forEachFamilyNode(fam: StoreFamily, fn: (n: Signal<any>) => void): void {
   for (const t of fam.live) {
     const nodes = t.n;
@@ -319,6 +332,7 @@ function createProjectionInternal<T extends object = {}>(
     map: new WeakMap(),
     node: null,
     live: new Set(),
+    st: familyStatus,
     shallow: !!options?.shallow,
     // The row key, for a child paired after the adoption (store.ts
     // `adoptChild`, #3712) as the adoption pairs them.
