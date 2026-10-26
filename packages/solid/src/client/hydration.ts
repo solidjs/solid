@@ -2827,18 +2827,11 @@ function hydratedCreateLoadingBoundary<T, U>(
             setOpen(1);
             checkHydrationComplete();
           };
-          if (assetPromise)
-            // Server showed the fallback, so content is always fresh client
-            // DOM; on preload failure proceed anyway and let lazy's own
-            // import() retry/fail through normal channels.
-            assetPromise.then(
-              () => queueMicrotask(afterAssets),
-              err => {
-                reportAssetFailure(err);
-                queueMicrotask(afterAssets);
-              }
-            );
-          else queueMicrotask(afterAssets);
+          // Server showed the fallback, so content is always fresh client
+          // DOM; on preload failure proceed anyway (waitAndResume reports
+          // it) and let lazy's own import() retry/fail through normal
+          // channels.
+          waitAndResume(1, afterAssets, assetPromise);
           return coreLoadingBoundary(
             () => {
               if (!open()) throw new NotReadyError(getOwner());
@@ -2893,16 +2886,7 @@ function hydratedCreateLoadingBoundary<T, U>(
         // there is no server-rendered content branch to adopt. Hydrating
         // straight through here claims keys the document never emitted (the
         // welcome/status mid-stream ticker miss).
-        const resumeFresh = () => resume(false);
-        if (assetPromise)
-          assetPromise.then(
-            () => queueMicrotask(resumeFresh),
-            err => {
-              reportAssetFailure(err);
-              queueMicrotask(resumeFresh);
-            }
-          );
-        else queueMicrotask(resumeFresh);
+        waitAndResume(1, () => resume(false), assetPromise);
         return fallback();
       }
 
@@ -2917,18 +2901,11 @@ function hydratedCreateLoadingBoundary<T, U>(
           (fr as Promise<never>).catch?.(noop);
           // Observe: the fresh render is a "recovery" record; prod folds the
           // branch and `recover` with it.
-          const resumeRejected = IS_OBSERVE
-            ? () => recover(id, registeredAt, resume)
-            : () => resume(false);
-          if (assetPromise)
-            assetPromise.then(
-              () => queueMicrotask(resumeRejected),
-              err => {
-                reportAssetFailure(err);
-                queueMicrotask(resumeRejected);
-              }
-            );
-          else queueMicrotask(resumeRejected);
+          waitAndResume(
+            1,
+            IS_OBSERVE ? () => recover(id, registeredAt, resume) : () => resume(false),
+            assetPromise
+          );
           return undefined;
         }
         scheduleResumeAfterAssets(id, resume, assetPromise);
