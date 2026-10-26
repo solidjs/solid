@@ -8,8 +8,8 @@
 //!
 //! # Stability
 //!
-//! The Rust API (`compile`, `compile_program`, [`CompileOptions`], [`CompileOutput`],
-//! [`CompileError`]) is **unstable**. The compiler is pre-1.0 and under
+//! The Rust API (`compile`, `compile_program`, [`style`], [`CompileOptions`],
+//! [`CompileOutput`], [`CompileError`]) is **unstable**. The compiler is pre-1.0 and under
 //! active development; this surface carries no semver commitment and may
 //! change shape in any release while the compiler churns. Pin an exact
 //! revision when embedding it. The Node `transform()` interface remains the
@@ -32,6 +32,7 @@ mod shared;
 #[cfg(feature = "node")]
 mod source_names;
 mod ssr;
+pub mod style;
 #[cfg(feature = "tsrx")]
 mod tsrx;
 mod universal;

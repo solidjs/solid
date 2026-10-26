@@ -212,6 +212,28 @@ let program = my_frontend::lower(&allocator, authored_source)?; // oxc_ast::ast:
 let output = compile_program(&allocator, program, authored_source, &CompileOptions::default())?;
 ```
 
+TSRX's scoped-CSS engine is exported as `solidjs_compiler::style` for other frontends, in every build (it does not need the `tsrx` feature). It has no dependency on TSRX syntax or Oxc: describe the elements a `<style>` block governs as `Element` values, and `compile_style` returns the scoped stylesheet, its hash, the class map and the ids of the elements to annotate, the same bytes a `.tsrx` file with that stylesheet at that `StyleLocation` gets.
+
+```rust
+use solidjs_compiler::style::{compile_style, Element, ElementKind, StyleInput, StyleKind, StyleLocation};
+
+let elements = [Element {
+    id: 1,
+    kind: ElementKind::Native("div".into()),
+    attributes: Vec::new(),
+    has_spread: false,
+    children: Vec::new(),
+}];
+let output = compile_style(StyleInput {
+    css: "div { color: red }",
+    location: StyleLocation { filename: "view.rx", line: 3, column: 4 },
+    elements: &elements,
+    kind: StyleKind::Block,
+    minify: false,
+})?;
+// output.css, output.hash, output.class_map, output.scoped_elements
+```
+
 The unstable Rust typecheck projection reports embedded ranges in authored UTF-8 bytes. The N-API adapter converts those ranges to UTF-16 code units for JavaScript tooling.
 
 > **Stability:** the Rust API is unstable while the compiler is pre-1.0. Options, output, and error types may change in any release — pin an exact revision when embedding it.

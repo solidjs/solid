@@ -35,6 +35,9 @@ export interface OptHooks {
    * into the draft. */
   reconcile(draft: any, incoming: any, keyFn: ((item: any) => any) | null): void;
 }
+// Set before any family is optimistic (`fam.opt`): a call site checks the
+// hooks first, so a build that does not import optimistic.ts folds the arm
+// away.
 export let optHooks: OptHooks | null = null;
 export function installOptHooks(hooks: OptHooks): void {
   optHooks = hooks;
