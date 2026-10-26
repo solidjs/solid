@@ -42,6 +42,7 @@
 import {
   CAUGHT_REARMED,
   CONFIG_REDERIVE,
+  CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_OVERRIDE,
   CONFIG_VERDICT,
@@ -472,6 +473,8 @@ function arm(b: Boundary): void {
     return;
   }
   b._armed = true;
+  // The swap is the change's work: the output joins it (D-13, #3540).
+  b._output!._config &= ~CONFIG_FRAME;
   // A verdict read in `on` (`isPending`, or a memo of one — #3528's
   // `createMemo(() => isPending(m2))`: the mark carries, core.ts `read`)
   // whose frame has no transaction yet: the swap is still display-ahead — the frame gets one now (it lands
@@ -605,6 +608,13 @@ function createBoundary<T>(
   if (revealHooks && controller) revealHooks._register(controller, b);
   const output = computed<T>(
     (): T => {
+      // Structure, not a derivation of its content (CONFIG_FRAME, #4283): it
+      // reads a hold it is not part of as the screen, as the render effect
+      // flattening the same children without a boundary would. Not while a
+      // re-arm's swap is the change's work (`arm`), until that swap commits
+      // (D-13, #3540).
+      const self = getOwner() as Computed<any>;
+      if (!b._armed && !(self._config & CONFIG_HELD)) self._config |= CONFIG_FRAME;
       // Reveal order (reveal.ts): a gated slot shows its fallback — or, in a
       // collapsed tail, nothing — whatever its content's state; the
       // controller is told the pass ran (its readiness may have changed) and
@@ -615,7 +625,7 @@ function createBoundary<T>(
         // It may release this very slot (the frontier whose content just
         // settled): the pass goes on to show it — the redraw it asks for is
         // refused mid-pass and not needed.
-        link(tree, getOwner() as Computed<any>);
+        link(tree, self);
         if (revealHooks && b._reveal !== null) revealHooks._changed(b._reveal);
         if (b._gated) {
           if (b._collapsed) {
@@ -634,7 +644,7 @@ function createBoundary<T>(
       // once clean.
       const status = tree._statusFlags & (STATUS_PENDING | STATUS_ERROR);
       if (status !== 0) {
-        link(tree, getOwner() as Computed<any>);
+        link(tree, self);
         if (status & type) {
           if (isCollecting(b)) {
             caught(b, tree, undefined);
@@ -660,7 +670,6 @@ function createBoundary<T>(
         // enters: the outside sees its committed value until the landing,
         // which reveals the content — a fallback staged earlier is replaced
         // ahead of the commit and never shown.
-        const self = getOwner() as Computed<any>;
         if (
           b._readers.size !== 0 &&
           self._statusFlags & STATUS_UNINITIALIZED &&
@@ -734,6 +743,8 @@ function createBoundary<T>(
     __OBSERVE__ ? { name: "value", _noSnapshot: true } : { _noSnapshot: true }
   );
   output._config |= CONFIG_REDERIVE;
+  // The tree is structure too (the output's pass marks the output).
+  tree._config |= CONFIG_FRAME;
   b._output = output;
   return accessor<T>(output);
 }
