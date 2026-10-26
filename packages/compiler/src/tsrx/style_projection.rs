@@ -9,11 +9,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::project::ProjectError;
 use super::{
     semantic::SolidTsrxModule,
-    style::{
-        self, Attribute, AttributeValue, ClassMapEntry, Element, ElementChild, ElementKind,
-        StyleInput, StyleKind, StyleLocation,
-    },
     tape::{self, Node},
+};
+use crate::style::{
+    self, Attribute, AttributeValue, ClassMapEntry, Element, ElementChild, ElementKind, StyleInput,
+    StyleKind, StyleLocation,
 };
 
 #[derive(Clone)]

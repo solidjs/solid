@@ -7,7 +7,7 @@
 //!
 //! # Stability
 //!
-//! The Rust API (`compile`, [`CompileOptions`], [`CompileOutput`],
+//! The Rust API (`compile`, [`style`], [`CompileOptions`], [`CompileOutput`],
 //! [`CompileError`]) is **unstable**. The compiler is pre-1.0 and under
 //! active development; this surface carries no semver commitment and may
 //! change shape in any release while the compiler churns. Pin an exact
@@ -31,6 +31,7 @@ mod shared;
 #[cfg(feature = "node")]
 mod source_names;
 mod ssr;
+pub mod style;
 #[cfg(feature = "tsrx")]
 mod tsrx;
 mod universal;

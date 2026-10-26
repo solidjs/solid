@@ -148,6 +148,9 @@ export interface RevealHooks {
   _unregister(controller: object, b: Boundary): void;
   _changed(controller: object): void;
 }
+// Every call site checks the hooks themselves first (not only the slot or
+// controller, which are never set without them): a build that does not
+// import `createRevealOrder` folds the reveal-order arms away.
 export let revealHooks: RevealHooks | null = null;
 export function setRevealHooks(h: RevealHooks): void {
   revealHooks = h;
@@ -193,7 +196,7 @@ function caught(b: Boundary, node: Computed<any>, error: unknown): void {
   // nothing on screen. The fallback is instantiated once per show — a later
   // error reaches it through the `error` accessor, which is why it is one.
   if (!b._fallback) redraw(b);
-  if (b._reveal !== null) revealHooks!._changed(b._reveal);
+  if (revealHooks && b._reveal !== null) revealHooks._changed(b._reveal);
 }
 
 /** A re-armed boundary found something pending: fresh again, and the swap
@@ -206,7 +209,8 @@ function flip(b: Boundary): void {
   b._lane = b._armLane;
   const o = b._output!;
   if (!b._lane && o._config & CONFIG_HELD && txOf(o) !== flushTransaction) unhold(o);
-  if (b._lane !== null && b._output !== null) laneStageHook!(b._output, b._lane, true, false);
+  if (laneStageHook && b._lane !== null && b._output !== null)
+    laneStageHook(b._output, b._lane, true, false);
 }
 
 export function redraw(b: Boundary): void {
@@ -240,7 +244,7 @@ function catchStatus(
           b._readers.size === 0
         ) {
           if (b._fallback) redraw(b);
-          if (b._reveal !== null) revealHooks!._changed(b._reveal);
+          if (revealHooks && b._reveal !== null) revealHooks._changed(b._reveal);
         }
     return false;
   }
@@ -384,7 +388,7 @@ function boundarySeam(): void {
     if (b._readers.size === 0) {
       collecting.delete(b);
       if (b._fallback) redraw(b);
-      if (b._reveal !== null) revealHooks!._changed(b._reveal);
+      if (revealHooks && b._reveal !== null) revealHooks._changed(b._reveal);
     }
   }
 }
@@ -558,7 +562,7 @@ function createBoundary<T>(
   if (getOwner())
     cleanup(() => {
       collecting.delete(b);
-      if (controller) revealHooks!._unregister(controller, b);
+      if (revealHooks && controller) revealHooks._unregister(controller, b);
     });
   // The `on` dependencies live OUTSIDE the boundary, as the condition of a
   // `<Show>` wrapping it would: created before the owner's context names it.
@@ -598,7 +602,7 @@ function createBoundary<T>(
   b._tree = tree;
   // A slot of the reveal order in its context (reveal.ts): gated until the
   // controller releases it — before the output's first pass.
-  if (controller) revealHooks!._register(controller, b);
+  if (revealHooks && controller) revealHooks._register(controller, b);
   const output = computed<T>(
     (): T => {
       // Reveal order (reveal.ts): a gated slot shows its fallback — or, in a
@@ -612,7 +616,7 @@ function createBoundary<T>(
         // settled): the pass goes on to show it — the redraw it asks for is
         // refused mid-pass and not needed.
         link(tree, getOwner() as Computed<any>);
-        if (b._reveal !== null) revealHooks!._changed(b._reveal);
+        if (revealHooks && b._reveal !== null) revealHooks._changed(b._reveal);
         if (b._gated) {
           if (b._collapsed) {
             b._fallback = true;
@@ -697,26 +701,30 @@ function createBoundary<T>(
       // landing when the frame parks (the run is held with it, as the old
       // children of a held pass are) — not now: a held swap keeps the
       // fallback on screen, live, until it commits. A pass back to the
-      // fallback before then finds it still built and keeps it.
+      // fallback before then finds it still built and keeps it. A fallback
+      // the screen does not show (a swap staged with a held frame, replaced
+      // before it commits) dies now: what it reads holds nothing (S-22 row
+      // 3′, #4268).
       const fb = b._fb;
+      const drop = () => {
+        if (!b._fallback && b._fb === fb) {
+          // A fallback that threw (a rethrow the boundary does not
+          // handle) is what an enclosing boundary waits on: it died, and
+          // the seam of another round drops it there (#4270).
+          if (fb!._statusFlags & STATUS_ERROR) schedule();
+          dispose(fb!);
+          b._fb = null;
+        }
+      };
       if (fb !== null)
-        globalQueue.enqueue(EFFECT_RENDER, () => {
-          if (!b._fallback && b._fb === fb) {
-            // A fallback that threw (a rethrow the boundary does not
-            // handle) is what an enclosing boundary waits on: it died, and
-            // the seam of another round drops it there (#4270).
-            if (fb._statusFlags & STATUS_ERROR) schedule();
-            dispose(fb);
-            b._fb = null;
-          }
-        });
+        b._output!._value !== fb._value ? drop() : globalQueue.enqueue(EFFECT_RENDER, drop);
       release(b);
       // Shown: the slot leaves its reveal order (a later re-arm gates nobody
       // else; the frontier moves on).
-      if (b._reveal !== null) {
+      if (revealHooks && b._reveal !== null) {
         const controller = b._reveal;
         b._reveal = null;
-        revealHooks!._changed(controller);
+        revealHooks._changed(controller);
       }
       return value;
     },
