@@ -1055,6 +1055,9 @@ function reportReplacedContainers(
   const keys = writtenKeys ?? Reflect.ownKeys(pb);
   const isArray = Array.isArray(pb);
   const owner = storeRootOwner(t);
+  // Items the array held before the write: an index that now holds one of
+  // them was moved into place (an in-place splice / shift), not replaced.
+  let oldArrayItems: Set<unknown> | null = null;
   for (const key of keys) {
     if ((isArray && key === "length") || key === $OWNER) continue;
     if (t.del?.has(key)) continue;
@@ -1069,6 +1072,13 @@ function reportReplacedContainers(
       targetsEqual(ov, nv)
     )
       continue;
+    if (isArray) {
+      if (oldArrayItems === null) {
+        oldArrayItems = new Set<unknown>();
+        for (const item of old as unknown[]) oldArrayItems.add(unwrapValue(item));
+      }
+      if (oldArrayItems.has(nv)) continue;
+    }
     const isArr = Array.isArray(nv);
     if (isArr !== Array.isArray(ov)) continue;
     let total: number;
