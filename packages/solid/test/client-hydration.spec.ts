@@ -4811,7 +4811,9 @@ describe("Loading boundary: fragment registration channel (_fr)", () => {
     flush();
 
     expect(typeof result).toBe("function");
-    expect(result()).toBe("fallback-sync");
+    // The "$$f" route is a loading boundary whose content waits on the
+    // resume: its accessor serves the hydrated fallback (#4286).
+    expect(result()()).toBe("fallback-sync");
   });
 
   test("_fr channel isolation: sibling boundaries with distinct root IDs", async () => {
