@@ -304,14 +304,18 @@ let _snapshotRootOwner: Owner | null = null;
 // The boundary owner whose resume window is open (null during a root pass,
 // which claims everything). Reached as `sharedConfig.isClaiming`.
 let _claimOwner: Owner | null = null;
+// Set once a hydrated `<Errored>` runs content the server drew no markup
+// for: that content's owner (`_uc`) claims nothing.
+let _unclaimed = false;
 function isClaiming(): boolean {
-  if (!_claimOwner) return true;
+  if (!_claimOwner && !_unclaimed) return true;
   let owner: Owner | null = getOwner();
   while (owner) {
+    if ((owner as any)._uc) return false;
     if (owner === _claimOwner) return true;
     owner = owner._parent;
   }
-  return false;
+  return !_claimOwner;
 }
 
 /** @internal — shared with the store adapter module (store-hydration.ts). */
@@ -421,6 +425,7 @@ export function onHydrationEnd(callback: () => void): void {
 function drainHydrationCallbacks() {
   if (_hydrationDone) return;
   _hydrationDone = true;
+  _unclaimed = false;
   _doneValue = true;
   clearSnapshots();
   setSnapshotCapture(false);
@@ -1276,20 +1281,14 @@ function hydratedCreateErrorBoundary<T, U>(
   const expectedId = peekNextChildId(parent);
   if (sharedConfig.has!(expectedId)) {
     const err = sharedConfig.load!(expectedId);
-    // The server drew the fallback: the first pass throws its error to claim
-    // that markup. It tracks the end of hydration, where the content runs
-    // once for real so the boundary tracks its inputs and recovers when they
-    // change (D-39, #4273); failing again keeps the built fallback.
+    // The server drew the fallback; the client's own run decides. The
+    // content runs now with its data adopted by id but claiming no DOM —
+    // the markup is the fallback's — so what it throws is the client's
+    // error, held and tracked like any other (#4273).
     if (err !== undefined) {
-      let hydrated = true;
-      const [ended, setEnded] = coreSignal(false);
-      onHydrationEnd(() => setEnded(true));
+      _unclaimed = true;
       return coreErrorBoundary(() => {
-        if (hydrated) {
-          hydrated = false;
-          ended();
-          throw err;
-        }
+        (getOwner() as any)._uc = 1;
         return fn();
       }, fallback);
     }
