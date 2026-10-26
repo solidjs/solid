@@ -580,6 +580,17 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     if (!guess && status & STATUS_PENDING) return NOT_PENDING;
     return laneValueOf(el);
   }
+  // D-28: a leaf a verdict read moved into the lane still throws on a flight
+  // that has never shown — the pass leaves the lane, and its frame holds as
+  // if the read had come first (S-39, #4275).
+  if (
+    (c as any)._type === EFFECT_RENDER &&
+    passLane?._parent!._verdict === passLane &&
+    !guess &&
+    status & STATUS_PENDING &&
+    el._x!._lane === NOT_PENDING
+  )
+    setPassLane(null);
   if ((c as any)._type === EFFECT_RENDER && (passLane === null || !sameLane(passLane, l))) {
     if (!guess) {
       // A flight whose value has never shown: nothing to show — the leaf
