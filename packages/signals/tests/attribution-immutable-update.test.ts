@@ -102,6 +102,46 @@ describe("IMMUTABLE_UPDATE_IN_STORE", () => {
     expect(hits).toEqual([]);
   });
 
+  it("does not report an existing item shifted into a spliced-out index (#4262)", () => {
+    const hits = arm();
+    const [state, setState] = createStore({
+      items: [
+        { id: "a", product: "p1", name: "Pancakes", variant: "meat", quantity: 2 },
+        { id: "b", product: "p1", name: "Pancakes", variant: "cheese", quantity: 2 },
+        { id: "c", product: "p1", name: "Pancakes", variant: "plain", quantity: 2 }
+      ]
+    });
+    setState(s => {
+      s.items.splice(0, 1);
+    });
+    flush();
+    expect(state.items.map(i => i.id)).toEqual(["b", "c"]);
+    setState(s => {
+      const [first, second] = [s.items[0], s.items[1]];
+      s.items[0] = second;
+      s.items[1] = first;
+    });
+    flush();
+    expect(state.items.map(i => i.id)).toEqual(["c", "b"]);
+    expect(hits).toEqual([]);
+  });
+
+  it("still reports a spread copy assigned to an array index", () => {
+    const hits = arm();
+    const [, setState] = createStore({
+      items: [
+        { id: "a", product: "p1", name: "Pancakes", variant: "meat", quantity: 2 },
+        { id: "b", product: "p1", name: "Pancakes", variant: "cheese", quantity: 2 }
+      ]
+    });
+    setState(s => {
+      s.items[0] = { ...s.items[1], id: "a" };
+    });
+    flush();
+    expect(hits).toHaveLength(1);
+    expect(hits[0].message).toContain('"store.items.0" was replaced with a fresh object');
+  });
+
   it("does not report genuinely new data (nothing carried over)", () => {
     const hits = arm();
     const [, setState] = createStore<State>(initial());

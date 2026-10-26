@@ -704,6 +704,10 @@ function createBoundary<T>(
       const fb = b._fb;
       const drop = () => {
         if (!b._fallback && b._fb === fb) {
+          // A fallback that threw (a rethrow the boundary does not
+          // handle) is what an enclosing boundary waits on: it died, and
+          // the seam of another round drops it there (#4270).
+          if (fb!._statusFlags & STATUS_ERROR) schedule();
           dispose(fb!);
           b._fb = null;
         }

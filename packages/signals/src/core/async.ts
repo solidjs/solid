@@ -4,6 +4,7 @@ import {
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
   CONFIG_HELD,
+  CONFIG_INPUTS_PUBLISHED,
   CONFIG_STAGED,
   CONFIG_STAGED_ERROR,
   CONFIG_SYNC,
@@ -550,8 +551,14 @@ export function handleAsync<T>(
         return;
       }
       // A store derive's landing commits through its setter: unheld, the
-      // shown error leaves now; held, at the derive's commit.
-      if (!(el._config & CONFIG_HELD)) el._x!._shownError = undefined;
+      // shown error leaves now, and so does a commit-beneath-a-flight's
+      // CONFIG_INPUTS_PUBLISHED (its first flight's, #4269) — left standing,
+      // a verdict reader of the next flight would suspend instead of being
+      // served the screen; held, both at the derive's commit.
+      if (!(el._config & CONFIG_HELD)) {
+        el._x!._shownError = undefined;
+        el._config &= ~CONFIG_INPUTS_PUBLISHED;
+      }
       if (wasUninitialized) landStatus(el, true);
       // Attribution hook: this path landed through the setter (derived
       // stores, projections), which does not go through setSignal, so the
@@ -1026,6 +1033,9 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
           joinFuture(txOf(sub));
       }
       notifyStatus(sub, status, error);
+      // A derived store's derive (store/projection.ts): marked, not re-run —
+      // its leaves' readers are not its dependents, so the family walks them.
+      (sub as any).fam?.st(status, error);
     }
   });
 }

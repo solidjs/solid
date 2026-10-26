@@ -223,6 +223,9 @@ export function createRenderer({
     value = flatten(value, { skipNonRendered: true, doNotUnwrap });
     if (doNotUnwrap && typeof value === "function") return value;
     if (multi && !Array.isArray(value)) value = [value != null ? value : ""];
+    // An empty region keeps a sentinel: with a `null` marker it is the only
+    // thing holding the region's slot among its siblings (#4274).
+    else if (multi && !value.length) value = [createSentinel()];
     if (Array.isArray(value)) {
       for (let i = 0, len = value.length; i < len; i++) {
         const item = value[i],
