@@ -2,6 +2,23 @@
 // Slightly modified version of: https://github.com/WebReflection/udomdiff/blob/master/index.js
 import { $$SLOT } from "./constants.js";
 
+// Moves keep the node holding focus connected with `moveBefore()` where the
+// browser has it, so focus survives (#3997). `focusFor` reads focus once per
+// pass: `null`/falsy without `moveBefore()`, with a detached parent (where
+// `moveBefore()` throws), or with focus on the body. Only a connected node
+// that holds focus takes `moveBefore()`: using it for every node cost
+// whole-list reorders 4–8% once layout ran, and checking `isConnected` first
+// keeps new nodes off the focus check.
+export const focusFor = (parent: any, a?: any) =>
+  (a = parent.moveBefore && parent.isConnected && document.activeElement) === document.body
+    ? null
+    : a;
+
+export const place = (parent: any, n: any, ref: any, active: any) =>
+  active && n.isConnected && n.contains(active)
+    ? parent.moveBefore(n, ref)
+    : parent.insertBefore(n, ref);
+
 export default function reconcileArrays(
   parentNode: Node,
   a: Node[],
@@ -9,19 +26,8 @@ export default function reconcileArrays(
   marker?: Node | null
 ): void;
 export default function reconcileArrays(parentNode: any, a: any[], b: any[], marker?: any) {
-  // Moves keep the node holding focus connected with `moveBefore()` where
-  // the browser has it, so focus survives (#3997). Focus is read once per
-  // pass, and not at all without `moveBefore()` or with focus on the body.
-  // Only a connected node that holds focus takes `moveBefore()`: using it for
-  // every node cost whole-list reorders 4–8% once layout ran, and checking
-  // `isConnected` first keeps new nodes off the focus check. It throws for a
-  // detached parent, hence the `isConnected` check on the parent.
-  let active = parentNode.moveBefore && parentNode.isConnected && document.activeElement;
-  if (active === document.body) active = null;
-  const insert = (n, ref) =>
-    active && n.isConnected && n.contains(active)
-      ? parentNode.moveBefore(n, ref)
-      : parentNode.insertBefore(n, ref);
+  const active = focusFor(parentNode);
+  const insert = (n, ref) => place(parentNode, n, ref, active);
   // Ownership: an unclaimed node (no `$$SLOT`) is fair game; a tagged node
   // belongs only to the slot whose marker matches. `a[]` can name a node that
   // user code moved out of this parent (or into another slot of it); every

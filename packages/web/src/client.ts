@@ -177,7 +177,7 @@ export const waitAsset = (promise: Promise<unknown>): void => {
   gate();
 };
 
-import reconcileArrays from "./reconcile.js";
+import reconcileArrays, { focusFor, place } from "./reconcile.js";
 import { DOMWithState } from "./constants.js";
 import {
   HEAD_ELIGIBLE_TAGS,
@@ -3153,11 +3153,13 @@ function insertExpression(parent, value, current, marker) {
     if (value.length === 0) {
       cleanChildren(parent, current, marker);
     } else if (currentArray) {
-      reconcileArrays(parent, current, value, marker);
+      if (current.length === 0) {
+        appendNodes(parent, value, marker);
+      } else reconcileArrays(parent, current, value, marker);
     } else {
       // Same sole-primitive case: `0` / `NaN` still own a text node (#3571).
       if (current != null) cleanChildren(parent, current);
-      reconcileArrays(parent, [], value);
+      appendNodes(parent, value);
     }
   } else if ("_SOLID_DEV_")
     // The server renderer's code for the same rule (`UNRECOGNIZED_INSERT_VALUE`
@@ -3259,6 +3261,18 @@ function tagHost(value, host) {
   } else if (value && value.nodeType && value[$$HOST] !== host) {
     value[$$HOST] = host;
     Object.defineProperty(value, "_$host", { get: host, configurable: true });
+  }
+}
+
+// First mounts skip reconcileArrays' setup, which cost spa-navigation mounts
+// ~8% through that path. A node holding focus can still arrive from another
+// list (#3997), so the same once-per-pass focus read applies.
+function appendNodes(parent, array, marker = null) {
+  const active = focusFor(parent);
+  for (let i = 0, len = array.length; i < len; i++) {
+    const n = array[i];
+    place(parent, n, marker, active);
+    if (marker) n[$$SLOT] = marker;
   }
 }
 
