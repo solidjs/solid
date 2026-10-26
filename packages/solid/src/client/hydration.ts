@@ -2777,10 +2777,6 @@ function hydratedCreateLoadingBoundary<T, U>(
   if (!sharedConfig.hydrating || noHydrationId()) return coreLoadingBoundary(fn, fallback, options);
 
   let settledSerializationResumeQueued = false;
-  // The "$$f" route's hydrated fallback (#4286): built in an owner of its
-  // own beside this memo, so the resume's re-run keeps it alive and hands it
-  // to the boundary as its first fallback instead of rebuilding it.
-  let fo: any;
 
   return coreMemo(() => {
     const o = getOwner()!;
@@ -2817,13 +2813,18 @@ function hydratedCreateLoadingBoundary<T, U>(
         return coreLoadingBoundary(fn, fallback, options);
       }
       if (p) {
-        const [set, resume, release] = initBoundaryResume(o, id);
+        const [, resume, release] = initBoundaryResume(o, id);
         if (p !== "$$f") {
           waitAndResume(p, resume, assetPromise);
         } else {
+          // One boundary from the start (#4286): its content waits on `open`
+          // and its fallback hydrates the served one (built at the boundary's
+          // id, as the server built it), so content that suspends after the
+          // resume keeps it instead of a rebuilt one.
+          const [open, setOpen] = coreSignal<any>();
           const afterAssets = () => {
             if (!release()) return;
-            set();
+            setOpen(1);
             checkHydrationComplete();
           };
           if (assetPromise)
@@ -2838,8 +2839,14 @@ function hydratedCreateLoadingBoundary<T, U>(
               }
             );
           else queueMicrotask(afterAssets);
-          fo = runWithOwner(o._parent, () => createOwner({ id }));
-          return (fo.v = runWithOwner(fo, fallback));
+          return coreLoadingBoundary(
+            () => {
+              if (!open()) throw new NotReadyError(getOwner());
+              return fn();
+            },
+            () => coreRoot(fallback, { id }),
+            options
+          );
         }
         return fallback();
       }
@@ -2974,21 +2981,6 @@ function hydratedCreateLoadingBoundary<T, U>(
         }
       );
       return undefined;
-    }
-    if (fo) {
-      // Resuming a "$$f" boundary: content that suspends shows the hydrated
-      // fallback (disposed with the boundary's fallback); content that shows
-      // at once retires it now.
-      let f = fo,
-        g: any;
-      fo = 0;
-      const r = coreLoadingBoundary(
-        fn,
-        () => (f ? ((g = f), (f = 0), onCleanup(() => g.dispose()), g.v) : fallback()),
-        options
-      );
-      f && (f.dispose(), (f = 0));
-      return r;
     }
     return coreLoadingBoundary(fn, fallback, options);
   }) as unknown as Accessor<T | U>;
