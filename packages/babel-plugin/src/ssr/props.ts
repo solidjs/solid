@@ -84,9 +84,11 @@ export function hoistProps(program: NodePath<t.Program>, config: PluginConfig): 
   // program scope's `uids` (the names generateUid handed out — `hasUid` is
   // how a compiler temp is told from user code below) and `data` (imports,
   // templates, events — what postprocess is about to place); both survive.
-  const uids = program.scope.uids;
+  const scope = program.scope as typeof program.scope & { uidsSet?: Set<string> };
+  const uids = scope.uidsSet ? new Set(scope.uidsSet) : scope.uids;
   program.scope.crawl();
-  Object.assign(program.scope.uids, uids);
+  if (uids instanceof Set) for (const name of uids) scope.uidsSet!.add(name);
+  else Object.assign(program.scope.uids, uids);
   program.scope.data = data as Record<string | symbol, unknown>;
 
   const state: HoistState = {

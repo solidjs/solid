@@ -773,7 +773,7 @@ export function evaluateAndInline(
       if (typeof r.value === "string") {
         valueNode.replaceWith(t.stringLiteral(r.value));
       } else if (typeof r.value === "number") {
-        valueNode.replaceWith(t.numericLiteral(r.value));
+        valueNode.replaceWith(t.valueToNode(r.value));
       } else if (typeof r.value === "boolean") {
         valueNode.replaceWith(t.booleanLiteral(r.value));
       }

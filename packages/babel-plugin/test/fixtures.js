@@ -49,6 +49,9 @@ function createFixtureTests(fixturesDir, options) {
           babelrc: hasBabelrc,
           configFile: false,
           ...options.babelOptions,
+          // Babel 8 prints non-ASCII characters raw; pin Babel 7's escaping so
+          // snapshots match under either major.
+          generatorOpts: { jsescOption: { minimal: false } },
           plugins: [[options.plugin, pluginOptions], ...extraPlugins],
           filename: codePath
         });

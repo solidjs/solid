@@ -27,7 +27,7 @@
     "parse5": "^7.1.2"
   },
   "peerDependencies": {
-    "@babel/core": "^7.20.12",
+    "@babel/core": "^7.20.12 || ^8.0.0",
     "@tsrx/core": "0.1.63"
   },
   "peerDependenciesMeta": {
