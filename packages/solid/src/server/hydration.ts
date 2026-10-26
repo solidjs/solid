@@ -379,16 +379,16 @@ function ssrLoadingBoundary(
   // hydration-free scope's; its head and asset registrations drop with the
   // error, as the error path drops them today.
   // An `<Errored>` fallback still resolving answers with a function (see
-  // `renderOutcome`); waited for only while this fragment is parked in an
-  // enclosing pending one, where nothing of the failure shows yet and the
-  // enclosing fragment can carry the finished fallback (#4306). Elsewhere
-  // it is no markup: the fragment settles as a plain rejection now.
+  // `renderOutcome`): the failure waits for it, as a client swap to a
+  // fallback waits for the fallback to be ready (RULES-DERIVED D-18) — the
+  // placeholder stays until the finished fallback replaces it, or, parked
+  // in an enclosing pending fragment, that fragment carries it (#4306).
   type Outcome = { value?: string; escaped?: { frame?: string } } | undefined;
   function errorOutcome(err: any, wait?: boolean): Outcome | Promise<Outcome> {
     const scoped = inServerComponentScope(o as any);
     const rendered = parentHandler ? parentHandler(err, scoped || id) : undefined;
     if (typeof rendered === "string") return { value: rendered };
-    if (typeof rendered === "function" && wait && done!.parked?.())
+    if (typeof rendered === "function" && wait)
       return rendered().then(value => (value === undefined ? undefined : { value }));
     if (scoped) return { value: plainFallback(), escaped: { frame: ctx.frameId } };
   }

@@ -2962,7 +2962,7 @@ export function renderToStream(code, options = {}) {
           (stubBatch ||= new Map()).set(key + "_fr", p);
         else write(key + "_fr", p);
       }
-      const settle = (value, error, escaped) => {
+      return (value, error, escaped) => {
         if (registry.has(key)) {
           const item = registry.get(key);
           registry.delete(key);
@@ -3051,13 +3051,6 @@ export function renderToStream(code, options = {}) {
         }
         return firstFlushed;
       };
-      // Whether settling now would park this fragment's markup in an
-      // enclosing pending one (above) — nothing of it would show yet (#4306).
-      settle.parked = () => {
-        for (const k of registry.keys()) if (k !== key && key.startsWith(k)) return true;
-        return false;
-      };
-      return settle;
     },
     revealFragments(groupOrKeys) {
       // Group reveal follows fragment registration order so visibility order

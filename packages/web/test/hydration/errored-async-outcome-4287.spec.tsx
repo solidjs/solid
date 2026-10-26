@@ -12,8 +12,9 @@
  * - Hydrating before it arrived, the client renders the failure itself once
  *   the fragment rejects, with nothing of the server's swap left beside it.
  * - With an async hole in the fallback still pending when the Loading fails,
- *   the server has no fallback markup to draw and serializes no error: the
- *   client renders the failure itself instead of claiming a missing node.
+ *   the failure waits for the fallback (RULES-DERIVED D-18, #4306): the
+ *   loading placeholder stays until the fragment swaps in the finished
+ *   fallback with the error record, and the client claims it.
  *
  * Replays the parity harness artifact (test/server/hydration-harness.spec.tsx).
  */
@@ -23,7 +24,11 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
-import { scenarios, postflushClientAskCount } from "../harness/scenarios.jsx";
+import {
+  scenarios,
+  postflushClientAskCount,
+  postflushHoleAskCount
+} from "../harness/scenarios.jsx";
 
 const artifact = (name: string) =>
   resolve(dirname(fileURLToPath(import.meta.url)), `../harness/__artifacts__/${name}.json`);
@@ -84,29 +89,60 @@ async function run(mode: "loaded" | "streamed") {
   }
 }
 
+// The stream after the shell, one script at a time (a template rides with
+// the script after it), as a browser parses it.
+const pieces = (rest: string) => rest.match(/[\s\S]*?<\/script>/g) ?? [rest];
+
 async function runAsyncFallback(mode: "loaded" | "streamed") {
   const name = "errored-loading-postflush-rejection-async-fallback-4287";
   const file = artifact(name);
   const scenario = scenarios.find(s => s.name === name)!;
   expect(existsSync(file)).toBe(true);
   const { shell, rest } = JSON.parse(readFileSync(file, "utf-8"));
+  // The failure waited for its fallback: the fragment carries it finished,
+  // and the error record at the Errored id with it (#4306).
+  expect(rest).toContain('_$HY.r["3"]');
+  expect(rest).toContain("HINT<!--/--></p></template>");
   const container = document.createElement("div");
   document.body.appendChild(container);
   (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const asksBefore = postflushHoleAskCount();
   let dispose: (() => void) | undefined;
   try {
     applyChunk(container, shell, true);
     if (mode === "loaded") applyChunk(container, rest, false);
+    const serverP = container.querySelector("p");
     dispose = hydrate(() => <scenario.App />, container);
     flush();
     await sleep(10);
     flush();
-    if (mode === "streamed") applyChunk(container, rest, false);
+    if (mode === "streamed") {
+      // Between the failure and the hint landing the loading placeholder
+      // stays: nothing shows until the swap brings the finished fallback.
+      const seen: string[] = [container.textContent!];
+      for (const piece of pieces(rest)) {
+        applyChunk(container, piece, false);
+        flush();
+        await sleep(5);
+        flush();
+        seen.push(container.textContent!);
+      }
+      const swapped = seen.indexOf("failed: no user 7 HINTtail");
+      expect(swapped).toBeGreaterThan(1);
+      expect(new Set(seen.slice(0, swapped))).toEqual(new Set(["loadingtail"]));
+    }
     await sleep(40);
     flush();
     expect(container.textContent).toBe("failed: no user 7 HINTtail");
     expect(container.querySelectorAll("p").length).toBe(1);
+    if (mode === "loaded") expect(container.querySelector("p")).toBe(serverP);
+    // Hydrated after the failure, the server's answers are used: neither
+    // read is asked again. Hydrated before it, the client renders the
+    // failure itself once `_fr` rejects (as for the plain fallback), and
+    // that fresh read of `user` — a cycle after its error landed — retries
+    // it: one ask, during which the inner Loading shows its fallback again.
+    expect(postflushHoleAskCount()).toBe(asksBefore + (mode === "streamed" ? 1 : 0));
 
     scenario.update!();
     flush();
@@ -114,8 +150,6 @@ async function runAsyncFallback(mode: "loaded" | "streamed") {
     flush();
     expect(container.textContent).toBe("user:u8tail");
     expect(warn).not.toHaveBeenCalled();
-    // No fallback markup was sent, so no error record either.
-    expect(rest).not.toContain('_$HY.r["3"]');
   } finally {
     warn.mockRestore();
     dispose?.();
@@ -127,8 +161,8 @@ async function runAsyncFallback(mode: "loaded" | "streamed") {
 describe("#4287: Errored over a Loading whose read fails after the shell", () => {
   test("hydrated after the failure arrived: adopts the server's fallback", () => run("loaded"));
   test("hydrated before the failure arrived: shows it once, no ask", () => run("streamed"));
-  test("fallback with a pending async hole, hydrated after the failure: renders it", () =>
+  test("fallback with a pending async hole, hydrated after the failure: adopts it", () =>
     runAsyncFallback("loaded"));
-  test("fallback with a pending async hole, hydrated before the failure: renders it", () =>
+  test("fallback with a pending async hole, hydrated before the failure: placeholder until the swap", () =>
     runAsyncFallback("streamed"));
 });

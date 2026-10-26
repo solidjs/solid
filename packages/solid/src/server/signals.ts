@@ -4277,11 +4277,11 @@ export function createErrorBoundary<T, U>(
   // all of its content: the fallback then lands where the client twin draws
   // it, and the error serialized here lets it adopt that markup. Deeper in
   // the content it answers nothing — the client renders the failure fresh.
-  // Asked by a `<Loading>` whose failure nothing shows yet (its fragment is
-  // parked in an enclosing pending one, #4306), a fallback still resolving
-  // answers with a function instead: called, it waits out the fallback's
-  // holes and answers with the finished markup (or `undefined`, a client
-  // hole or a failure in it), serializing the error only then.
+  // Asked by a `<Loading>` (outside a server component), a fallback still
+  // resolving answers with a function instead: called, it waits out the
+  // fallback's holes and answers with the finished markup (or `undefined`,
+  // a client hole or a failure in it), serializing the error only then
+  // (#4306).
   const renderOutcome = (err: any, outcome: true | string): BoundaryOutcome => {
     let t = shown && shown.t;
     if (Array.isArray(t)) t = t[0];

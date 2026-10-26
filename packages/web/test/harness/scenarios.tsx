@@ -1537,21 +1537,26 @@ function PostflushRejection() {
 }
 
 // The same failure with an async hole in the Errored fallback, still
-// pending when the Loading fails: the server has no finished fallback markup
-// to draw, so it serializes no error either (a record with no markup behind
-// it would make the client claim a fallback that is not there). The client
-// renders the failure itself, as it does on `next`.
+// pending when the Loading fails: the failure waits for the fallback to be
+// ready (RULES-DERIVED D-18, #4306) — the loading placeholder stays until
+// the fragment swaps in the finished fallback, its error serialized with it
+// (serializing it before would make the client claim a fallback that is not
+// there). The client claims it, asking for neither read again.
 let setPostflushHoleKey!: (v: string) => void;
+let postflushHoleAsks = 0;
+export const postflushHoleAskCount = () => postflushHoleAsks;
 function PostflushRejectionAsyncFallback() {
   const [key, setKey] = createSignal("u7");
   setPostflushHoleKey = setKey;
   const user = createMemo(async (): Promise<string> => {
     const k = key();
+    if (!isServer && Promise === RealPromise) postflushHoleAsks++;
     await sleep(5);
     if (k === "u7") throw new Error("no user 7");
     return k;
   });
   const hint = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) postflushHoleAsks++;
     await sleep(20);
     return "HINT";
   });
@@ -1634,7 +1639,7 @@ function PostflushRejectionParked() {
 
 // #4306: the parked failure with an async hole in the Errored fallback,
 // still pending when the inner Loading fails. The failure waits out the
-// hole while parked (nothing of it shows yet): settled before the outer
+// hole (as unparked, above): settled before the outer
 // Loading, the outer fragment carries the finished fallback; settled after
 // it (`late`), the outer fragment carries the inner placeholder and the
 // inner fragment streams the fallback once the hole lands. Either way the
@@ -3040,7 +3045,8 @@ export const scenarios: Scenario[] = [
     App: PostflushRejectionAsyncFallback,
     async: true,
     expectedText: "failed: no user 7 HINTtail",
-    serverText: "loading tail",
+    // Shell: the loading fallback; the fragment: the finished fallback.
+    serverText: "loading tail failed: no user 7 HINT",
     update: () => setPostflushHoleKey("u8"),
     expectedTextAfterUpdate: "user:u8tail"
   },

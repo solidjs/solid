@@ -5,8 +5,8 @@
  * #4306: `<Errored>` with an async hole in its fallback, around a
  * `<Loading>` whose read fails after the shell, inside an outer `<Loading>`
  * still pending when it fails. The failure waits out the fallback's hole
- * while parked in the outer fragment, so the server sends the finished
- * fallback (and the error record at the Errored id):
+ * (RULES-DERIVED D-18), so the server sends the finished fallback (and the
+ * error record at the Errored id):
  *
  * - hole settled before the outer Loading: inside the outer fragment;
  * - hole settled after it: the outer fragment carries the inner
