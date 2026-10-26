@@ -697,19 +697,23 @@ function createBoundary<T>(
       // landing when the frame parks (the run is held with it, as the old
       // children of a held pass are) — not now: a held swap keeps the
       // fallback on screen, live, until it commits. A pass back to the
-      // fallback before then finds it still built and keeps it.
+      // fallback before then finds it still built and keeps it. A fallback
+      // the screen does not show (a swap staged with a held frame, replaced
+      // before it commits) dies now: what it reads holds nothing (S-22 row
+      // 3′, #4268).
       const fb = b._fb;
+      const drop = () => {
+        if (!b._fallback && b._fb === fb) {
+          // A fallback that threw (a rethrow the boundary does not
+          // handle) is what an enclosing boundary waits on: it died, and
+          // the seam of another round drops it there (#4270).
+          if (fb!._statusFlags & STATUS_ERROR) schedule();
+          dispose(fb!);
+          b._fb = null;
+        }
+      };
       if (fb !== null)
-        globalQueue.enqueue(EFFECT_RENDER, () => {
-          if (!b._fallback && b._fb === fb) {
-            // A fallback that threw (a rethrow the boundary does not
-            // handle) is what an enclosing boundary waits on: it died, and
-            // the seam of another round drops it there (#4270).
-            if (fb._statusFlags & STATUS_ERROR) schedule();
-            dispose(fb);
-            b._fb = null;
-          }
-        });
+        b._output!._value !== fb._value ? drop() : globalQueue.enqueue(EFFECT_RENDER, drop);
       release(b);
       // Shown: the slot leaves its reveal order (a later re-arm gates nobody
       // else; the frontier moves on).
