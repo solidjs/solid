@@ -8,13 +8,18 @@ import { $$SLOT } from "./constants.js";
 // 4–8% once layout ran. Both ends must be connected or `moveBefore()` throws;
 // `node.isConnected` first also keeps new nodes off the focus check.
 const canMove = (parent: any, node: any) =>
-  parent.moveBefore &&
-  node.isConnected &&
-  parent.isConnected &&
-  node.contains(document.activeElement);
+  node.isConnected && parent.isConnected && node.contains(document.activeElement);
 
-export const insertNode = (parent: any, node: any, ref: any) =>
-  canMove(parent, node) ? parent.moveBefore(node, ref) : parent.insertBefore(node, ref);
+// Whether a pass might move the node holding focus, read once per pass and
+// passed to every insert as `keep`. With no `moveBefore()`, or focus on the
+// body, no node can need it and no insert checks focus: checking per node cost
+// whole-list reorders 5–15%. Focus anywhere else, including outside this
+// parent (a node can arrive from another list), checks per node.
+export const mayKeepFocus = (parent: any, active?: any) =>
+  parent.moveBefore && (active = document.activeElement) && active !== document.body;
+
+export const insertNode = (parent: any, node: any, ref: any, keep: any) =>
+  keep && canMove(parent, node) ? parent.moveBefore(node, ref) : parent.insertBefore(node, ref);
 
 export default function reconcileArrays(
   parentNode: Node,
@@ -23,6 +28,7 @@ export default function reconcileArrays(
   marker?: Node | null
 ): void;
 export default function reconcileArrays(parentNode: any, a: any[], b: any[], marker?: any) {
+  const keep = mayKeepFocus(parentNode);
   // Ownership: an unclaimed node (no `$$SLOT`) is fair game; a tagged node
   // belongs only to the slot whose marker matches. `a[]` can name a node that
   // user code moved out of this parent (or into another slot of it); every
@@ -83,7 +89,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
 
       while (bStart < bEnd) {
         const n = b[bStart++];
-        insertNode(parentNode, n, node);
+        insertNode(parentNode, n, node, keep);
         if (marker) n[$$SLOT] = marker;
       }
       // remove
@@ -114,14 +120,14 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
       if (marker) {
         do {
           const n = a[--aEnd];
-          insertNode(parentNode, n, anchor);
+          insertNode(parentNode, n, anchor, keep);
           n[$$SLOT] = marker;
           bStart++;
           if (aStart >= aEnd - 1 || bStart >= bEnd) break;
         } while (a[aStart] === b[bEnd - 1] && b[bStart] === a[aEnd - 1]);
       } else {
         do {
-          insertNode(parentNode, a[--aEnd], anchor);
+          insertNode(parentNode, a[--aEnd], anchor, keep);
           bStart++;
           if (aStart >= aEnd - 1 || bStart >= bEnd) break;
         } while (a[aStart] === b[bEnd - 1] && b[bStart] === a[aEnd - 1]);
@@ -159,7 +165,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
             const node = a[aStart];
             while (bStart < index) {
               const n = b[bStart++];
-              insertNode(parentNode, n, node);
+              insertNode(parentNode, n, node, keep);
               if (marker) n[$$SLOT] = marker;
             }
           } else {
@@ -171,9 +177,9 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
             // region's end instead: every node still to place is inserted
             // before a node that precedes it, or before `after` in order, so
             // it can't anchor an insert.
-            if (canMove(parentNode, parentNode)) {
-              insertNode(parentNode, newNode, node);
-              insertNode(parentNode, node, after);
+            if (keep && canMove(parentNode, parentNode)) {
+              insertNode(parentNode, newNode, node, keep);
+              insertNode(parentNode, node, after, keep);
             } else parentNode.replaceChild(newNode, node);
             if (marker) newNode[$$SLOT] = marker;
           }
