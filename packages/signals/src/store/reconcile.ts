@@ -57,8 +57,8 @@ export function reconcileState(
   // truth but an optimistic edit — the keyed diff is written into the draft
   // (a matched row keeps its proxy, its changed leaves become its guesses),
   // and the setter's exit turns the draft into guesses like any.
-  if (userWriting() && t.fam?.opt === true) {
-    optHooks!.reconcile(state, unwrapValue(value), keyFn);
+  if (optHooks && userWriting() && t.fam?.opt === true) {
+    optHooks.reconcile(state, unwrapValue(value), keyFn);
     return;
   }
   // Replace-mode root handed another store's proxy: chain to it (§7b).
@@ -100,7 +100,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // Q-D: a landing on an optimistic family is reconciled against the VIEW
   // — key matching from the arrangement the guesses made (R28), so a row
   // the guess added keeps its proxy when the server returns it.
-  const prevView = t.fam?.opt === true ? optHooks!.view(t, old) : old;
+  const prevView = optHooks && t.fam?.opt === true ? optHooks.view(t, old) : old;
   const nextArr = Array.isArray(incoming);
   const shallow = t.s === true;
   adoptPB(t, incoming, false);
