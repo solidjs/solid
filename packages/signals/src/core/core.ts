@@ -16,7 +16,6 @@ import {
   CONFIG_FRESH_READ,
   CONFIG_GUESS,
   CONFIG_VERDICT,
-  CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_INPUTS_PUBLISHED,
@@ -392,8 +391,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // world (`read`), and has left it otherwise.
       // An answered deferred node's re-pass is a lagging question (D-40):
       // it joins nothing, so the write that reached it commits mainline.
+      // `EFFECT_RENDER << 23` is CONFIG_FRAME (a render effect, a boundary's
+      // tree and output), spelled from the effect type as at creation.
       if (tx._lane || el._config & CONFIG_LAGS) {
-      } else if (!(el._config & (CONFIG_VERDICT | CONFIG_FRAME)))
+      } else if (!(el._config & (CONFIG_VERDICT | (EFFECT_RENDER << 23))))
         joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
       else if (
         tx !== flushTransaction &&
@@ -405,8 +406,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // after the new frame's first runs, and the held pass's own
         // children die below (`disposeChildren`). The landing re-derives a
         // fresh held frame for the reveal (`_reruns`).
+        // Not held any more, whichever frame reader it is: its readers read
+        // the value this pass publishes.
         el._pendingValue = NOT_PENDING;
-        if (el._config & CONFIG_FRAME) el._config &= ~CONFIG_HELD;
+        el._config &= ~CONFIG_HELD;
       }
     }
     // The previous pass's frame. If that pass is still awaiting its commit
@@ -1164,7 +1167,8 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
       (c._statusFlags & STATUS_UNINITIALIZED &&
         (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
     !verdict &&
-    (!(c._config & CONFIG_FRAME) || el._config & CONFIG_INPUTS_PUBLISHED)
+    // CONFIG_FRAME, spelled as at the effect's creation.
+    (!(c._config & (EFFECT_RENDER << 23)) || el._config & CONFIG_INPUTS_PUBLISHED)
   )
     return false;
   const t = txOf(el);
@@ -1234,11 +1238,13 @@ export function createEffectNode<T>(
     ? ({
         id: inheritId(options, transparent, context),
         _config:
+          // CONFIG_FRAME for a render effect (EFFECT_RENDER = 1; a user
+          // effect's 1 << 24 is unused).
+          (type << 23) |
           (transparent ? CONFIG_TRANSPARENT : 0) |
           (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
           (options?.sync ? CONFIG_SYNC : 0) |
           (options?._extraConfig ?? 0) |
-          ((type & EFFECT_RENDER) << 23) | // CONFIG_FRAME: a render effect is the frame
           (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
         _equals: false as unknown as Computed<T>["_equals"],
         _disposal: null,
@@ -1278,11 +1284,13 @@ export function createEffectNode<T>(
     : ({
         id: inheritId(options, transparent, context),
         _config:
+          // CONFIG_FRAME for a render effect (EFFECT_RENDER = 1; a user
+          // effect's 1 << 24 is unused).
+          (type << 23) |
           (transparent ? CONFIG_TRANSPARENT : 0) |
           (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
           (options?.sync ? CONFIG_SYNC : 0) |
           (options?._extraConfig ?? 0) |
-          ((type & EFFECT_RENDER) << 23) | // CONFIG_FRAME: a render effect is the frame
           (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
         _equals: false as unknown as Computed<T>["_equals"],
         _disposal: null,

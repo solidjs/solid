@@ -21,13 +21,18 @@ const tick = async () => {
   }
 };
 
-it.each(["error", "loading", "none"])(
-  "two mounts made in separate flushes keep independent holds (boundary: %s)",
-  async boundary => {
+it.each(
+  ["error", "loading", "loading-on", "none"].flatMap(boundary =>
+    ["A", "B"].map(first => [boundary, first])
+  )
+)(
+  "two mounts made in separate flushes keep independent holds (boundary: %s, %s lands first)",
+  async (boundary, first) => {
     const [a, setA] = createSignal(0);
     const [b, setB] = createSignal(0);
     const [showA, setShowA] = createSignal(false);
     const [showB, setShowB] = createSignal(false);
+    const [k, setK] = createSignal(0);
     const res = new Map<string, (v: string) => void>();
     const fetchKey = (k: string) => new Promise<string>(r => res.set(k, r));
     const screen: Record<string, string> = {};
@@ -56,10 +61,16 @@ it.each(["error", "loading", "none"])(
       if (boundary === "none") for (const m of untrack(branches)) createRenderEffect(m, () => {});
       else
         createRenderEffect(
-          (boundary === "error" ? createErrorBoundary : createLoadingBoundary)(
-            () => untrack(branches),
-            () => "fallback"
-          ),
+          boundary === "error"
+            ? createErrorBoundary(
+                () => untrack(branches),
+                () => "fallback"
+              )
+            : createLoadingBoundary(
+                () => untrack(branches),
+                () => "fallback",
+                boundary === "loading-on" ? { on: k } : undefined
+              ),
           v => void (screen.out = String(v))
         );
     });
@@ -67,6 +78,11 @@ it.each(["error", "loading", "none"])(
     flush();
     res.get("A:0")!("x");
     res.get("B:0")!("y");
+    await tick();
+    // A re-arm with nothing pending under it: the swap resolves at its seam,
+    // and the output is structure again afterwards.
+    setK(1);
+    flush();
     await tick();
     setA(1);
     flush();
@@ -83,11 +99,17 @@ it.each(["error", "loading", "none"])(
     await tick();
     expect(screen).toEqual({ p: "x/y", ...out(",") });
 
-    res.get("A:1")!("x1");
-    await tick();
-    expect(screen).toEqual({ p: "x1/y", pA: "pA 1", ...out("pA,") });
-
-    res.get("B:1")!("y1");
+    if (first === "A") {
+      res.get("A:1")!("x1");
+      await tick();
+      expect(screen).toEqual({ p: "x1/y", pA: "pA 1", ...out("pA,") });
+      res.get("B:1")!("y1");
+    } else {
+      res.get("B:1")!("y1");
+      await tick();
+      expect(screen).toEqual({ p: "x/y1", pB: "pB 1", ...out(",pB") });
+      res.get("A:1")!("x1");
+    }
     await tick();
     expect(screen).toEqual({ p: "x1/y1", pA: "pA 1", pB: "pB 1", ...out("pA,pB") });
   }
