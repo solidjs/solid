@@ -1285,13 +1285,16 @@ function hydratedCreateErrorBoundary<T, U>(
     // content runs now with its data adopted by id but claiming no DOM —
     // the markup is the fallback's — so what it throws is the client's
     // error, held and tracked like any other. Content that runs clean keeps
-    // the server's fallback up through the hydration pass behind a hold: a
-    // render effect in the content throwing the server's error until
-    // hydration ends or reset(), disposed with the content when it re-runs
-    // (#4273).
+    // the server's fallback up behind a hold: a render effect in the content
+    // throwing the server's error until reset() — which a re-run of an
+    // effect the content created calls — disposed with the content when it
+    // re-runs (#4273).
     if (err !== undefined) {
       _unclaimed = true;
-      let o: any, held: any;
+      let o: any, held: any, r: any;
+      const prev = _hold;
+      // An effect the content creates now re-running: an input changed.
+      _hold = () => held && r();
       const read = coreErrorBoundary(
         () => {
           (o = getOwner() as any)._uc = 1;
@@ -1300,25 +1303,23 @@ function hydratedCreateErrorBoundary<T, U>(
         (e, reset) =>
           fallback(
             e,
-            (held = () => {
+            (r = () => {
               held = 0;
               reset();
             })
           )
       );
+      _hold = prev;
       // No fallback yet: the content ran clean.
-      if (!held && (held = 1)) {
-        const [g, end] = coreSignal(true);
-        onHydrationEnd(() => end(false));
+      if (!r && (held = 1))
         runWithOwner(o, () =>
           coreRenderEffect(
             () => {
-              if (g() && held) throw err;
+              if (held) throw err;
             },
             () => {}
           )
         );
-      }
       return read;
     }
   }
@@ -1350,7 +1351,15 @@ function hydratedCreateRoot(init: Function, options?: { id?: string; transparent
 
 // --- Hydration-aware effect implementations ---
 
+let _hold: (() => void) | undefined;
+
 function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?: any) {
+  const h = _hold;
+  if (h) {
+    const c = compute;
+    let ran: any;
+    compute = (prev: any) => (ran ? h() : (ran = 1), c(prev));
+  }
   if (!sharedConfig.hydrating || options?.transparent || noHydrationId())
     return coreFn(compute, effectFn, options);
 
