@@ -357,6 +357,16 @@ The promise is safe to ignore — fire-and-forget `refresh()` is unchanged, and 
 
 Refresh granularity is the granularity of the _derive function_: there is no per-path refetch to re-run, so refresh a derived store by passing its root (`refresh(todos)`, not `refresh(todos.items[0])`) — that re-asks the whole projection, and reads through any nested node after the `await` are fresh. Inside actions, `yield refresh(x)` is the mutate-then-refetch sequencing primitive — see RFC 06.
 
+Inside an action, `refresh()` and `until()` belong in the generator, after a `yield`. Code after an `await`, including inside an async helper the action yields, runs outside the action's transaction. An `await refresh(x)` there waits for the action's commit, and the commit waits for the helper. So it works until `x` happens to re-run during the action, and then it hangs:
+
+```js
+const like = action(function* () {
+  setLikes(likes() + 1);
+  yield saveLike(); // async helper: no refresh() inside it
+  yield refresh(post); // not `await refresh(post)` inside saveLike
+});
+```
+
 #### `resource.mutate` → `createOptimisticStore` / `action`
 
 In 1.x, `mutate` replaced the resource value wholesale. This had several problems: no granular updates (the entire list re-rendered), no reconciliation (identity lost on every mutation), and no protection against race conditions (concurrent mutations could clobber each other):

@@ -89,6 +89,13 @@ function inTransaction<T>(t: Transaction, q: number, fn: () => T): T {
  * yield until(() => todos.some(t => t.id === saved.id));
  * ```
  *
+ * The same holds inside an async helper the action yields
+ * (`yield (async () => { ... })()`): everything after its first `await` runs
+ * outside the transaction. An `await refresh(x)` or `await until(...)` there
+ * waits for this action's commit, which waits on the helper, so it hangs
+ * whenever `x` re-ran during the action (#4263) and works otherwise. Return
+ * from the helper and `yield refresh(x)` in the generator instead.
+ *
  * (For the same reason, don't call `flush()` inside an action body — it
  * cannot reveal the held writes and is refused.)
  *
