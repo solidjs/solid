@@ -1285,43 +1285,37 @@ function hydratedCreateErrorBoundary<T, U>(
     // content runs now with its data adopted by id but claiming no DOM —
     // the markup is the fallback's — so what it throws is the client's
     // error, held and tracked like any other. Content that runs clean keeps
-    // the server's fallback up behind a hold: a render effect throwing the
-    // server's error until reset() — which a re-run of an effect the content
-    // created (an input changed) calls — and disposed with the content when
-    // it re-runs (#4273).
+    // the server's fallback up behind a hold: a render effect in the content
+    // throwing the server's error until reset(), disposed with the content
+    // when it re-runs (#4273).
     if (err !== undefined) {
       _unclaimed = true;
-      const h: Hold = {};
-      return coreErrorBoundary(
+      let o: any, held: any;
+      const read = coreErrorBoundary(
         () => {
-          const o = getOwner() as any;
-          if (o._uc) return fn();
-          o._uc = 1;
-          const prev = _hold;
-          _hold = h;
-          try {
-            var v = fn();
-          } finally {
-            _hold = prev;
-          }
-          if ((h.h = !h.f))
-            coreRenderEffect(
-              () => {
-                if (h.h) throw err;
-              },
-              () => {}
-            );
-          return v;
+          (o = getOwner() as any)._uc = 1;
+          return fn();
         },
         (e, reset) =>
           fallback(
             e,
-            (h.r = () => {
-              h.h = false;
+            (held = () => {
+              held = 0;
               reset();
             })
           )
       );
+      // No fallback yet: the content ran clean.
+      if (!held && (held = 1))
+        runWithOwner(o, () =>
+          coreRenderEffect(
+            () => {
+              if (held) throw err;
+            },
+            () => {}
+          )
+        );
+      return read;
     }
   }
   return coreErrorBoundary(fn, fallback);
@@ -1352,28 +1346,7 @@ function hydratedCreateRoot(init: Function, options?: { id?: string; transparent
 
 // --- Hydration-aware effect implementations ---
 
-// An errored boundary's content run in the hydration pass (see
-// hydratedCreateErrorBoundary): `f` — an effect of it threw on the client
-// (or went pending); `h` — the server's fallback is held over it; `r` — the
-// boundary's reset, which ends the hold.
-type Hold = { f?: boolean; h?: boolean; r?: () => void };
-let _hold: Hold | undefined;
-
 function hydratedEffect(coreFn: Function, compute: any, effectFn: any, options?: any) {
-  const h = _hold;
-  if (h) {
-    const c = compute;
-    let ran = false;
-    compute = (prev: any) => {
-      if (ran && h.h) h.r!();
-      ran = true;
-      try {
-        return c(prev);
-      } catch (e) {
-        throw ((h.f = true), e);
-      }
-    };
-  }
   if (!sharedConfig.hydrating || options?.transparent || noHydrationId())
     return coreFn(compute, effectFn, options);
 
