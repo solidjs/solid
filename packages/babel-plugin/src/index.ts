@@ -15,7 +15,7 @@ type ParserOptions = { sourceFileName?: string };
 type ParseFn = (code: string, parserOpts: ParserOptions) => t.File;
 
 export default (
-  _api?: unknown,
+  api?: { version?: string },
   options: { syntax?: SyntaxOption } = {}
 ): {
   name: string;
@@ -23,12 +23,14 @@ export default (
   parserOverride: (code: string, parserOpts: ParserOptions, parse: ParseFn) => t.File;
   visitor: Visitor<PluginPass>;
 } => {
+  // TSRX builds its own AST, so it has to match the running core's shape.
+  const babelMajor = parseInt(api?.version ?? "7", 10) || 7;
   return {
     name: "@solidjs/babel-plugin",
     inherits: SyntaxJSX.default,
     parserOverride(code, parserOpts, parse) {
       if (isTsrxSource(options.syntax, parserOpts?.sourceFileName)) {
-        return parseTsrx(code, parserOpts?.sourceFileName);
+        return parseTsrx(code, parserOpts?.sourceFileName, babelMajor);
       }
       return parse(code, parserOpts);
     },

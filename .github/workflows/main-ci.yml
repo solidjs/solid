@@ -63,3 +63,31 @@ jobs:
       path: |
         '*/dist'
         '*/types'
+
+ # @solidjs/babel-plugin peers @babel/core ^7 || ^8 and keeps its own 7.x
+ # helpers, so this runs its suite against the core a Babel 8 user installs.
+ babel-8:
+  runs-on: ubuntu-latest
+  steps:
+  - uses: actions/checkout@v4
+  - uses: pnpm/action-setup@v4
+  - uses: actions/setup-node@v4
+    with:
+      node-version-file: ".nvmrc"
+      cache: "pnpm"
+
+  - name: Installing deps
+    run: pnpm install
+
+  - name: Building babel plugin
+    run: pnpm --filter @solidjs/babel-plugin run build
+
+  - name: Swapping in @babel/core 8
+    run: |
+      npm install --prefix "$RUNNER_TEMP/babel8" --no-save --no-package-lock @babel/core@^8
+      ln -sfn "$RUNNER_TEMP/babel8/node_modules/@babel/core" packages/babel-plugin/node_modules/@babel/core
+      node -p "'@babel/core ' + require('./packages/babel-plugin/node_modules/@babel/core/package.json').version"
+
+  - name: Testing on Babel 8
+    working-directory: packages/babel-plugin
+    run: pnpm exec vitest run
