@@ -177,7 +177,7 @@ export const waitAsset = (promise: Promise<unknown>): void => {
   gate();
 };
 
-import reconcileArrays, { insertNode, mayKeepFocus } from "./reconcile.js";
+import reconcileArrays from "./reconcile.js";
 import { DOMWithState } from "./constants.js";
 import {
   HEAD_ELIGIBLE_TAGS,
@@ -3153,13 +3153,11 @@ function insertExpression(parent, value, current, marker) {
     if (value.length === 0) {
       cleanChildren(parent, current, marker);
     } else if (currentArray) {
-      if (current.length === 0) {
-        appendNodes(parent, value, marker);
-      } else reconcileArrays(parent, current, value, marker);
+      reconcileArrays(parent, current, value, marker);
     } else {
       // Same sole-primitive case: `0` / `NaN` still own a text node (#3571).
       if (current != null) cleanChildren(parent, current);
-      appendNodes(parent, value);
+      reconcileArrays(parent, [], value);
     }
   } else if ("_SOLID_DEV_")
     // The server renderer's code for the same rule (`UNRECOGNIZED_INSERT_VALUE`
@@ -3261,15 +3259,6 @@ function tagHost(value, host) {
   } else if (value && value.nodeType && value[$$HOST] !== host) {
     value[$$HOST] = host;
     Object.defineProperty(value, "_$host", { get: host, configurable: true });
-  }
-}
-
-function appendNodes(parent, array, marker = null) {
-  const keep = mayKeepFocus(parent);
-  for (let i = 0, len = array.length; i < len; i++) {
-    const n = array[i];
-    insertNode(parent, n, marker, keep);
-    if (marker) n[$$SLOT] = marker;
   }
 }
 
