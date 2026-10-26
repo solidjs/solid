@@ -779,18 +779,15 @@ export function createReaction(
  * re-runs it when the source lands (the pass is pending itself); the
  * expression throwing settles the rejection. */
 /** The promise-delivery readers' pass (`resolve`, `until`, `refresh`'s
- * waiter): delivers what it read on a microtask. By posture (#3482, #3490):
+ * waiter): delivers what it read on a microtask. Delivery is authoritative,
+ * not the transition's completion (#3482, #4263):
  * - the reader of the transaction it was created in (`own`: an action's
- *   body, a `refresh()` called there — the waiter reads its slice's frame on
- *   a later microtask) delivers that frame — the staged landing an action
- *   holds (the action awaits the promise that would otherwise wait on its
- *   own settle);
- * - a mainline reader whose pass read a frame another transaction holds
- *   joined it (L2, born held — A29) and delivers at that commit: the
- *   committed view, never a foreign hold's unrevealed frame;
- * - except `refresh()`'s waiter when the transaction it joined is one an
- *   action keeps open (`_open`): it delivers the landing it read, since that
- *   commit may itself wait on the promise. */
+ *   body, a `refresh()` called there) delivers that frame;
+ * - a reader whose pass read a frame held by a transaction an action keeps
+ *   open (`_open`) delivers that landing too, from any posture: the truth
+ *   has answered, and the commit may itself wait on this promise;
+ * - a mainline reader over a plain pending frame (no action open) joined it
+ *   (L2, born held — A29) and delivers at that commit. */
 function watch<T>(
   fn: () => T,
   onValue: (v: T) => void,
@@ -830,7 +827,7 @@ function watch<T>(
         c._flags & REACTIVE_JOINED &&
         joined !== null &&
         (own === null || resolveTx(own) !== resolveTx(joined)) &&
-        !(config & CONFIG_FRESH_READ && resolveTx(joined)._open !== 0)
+        resolveTx(joined)._open === 0
       ) {
         staleReader(c, resolveTx(joined));
         return;
@@ -896,7 +893,9 @@ export function resolve<T>(fn: () => T): Promise<T> {
  * Awaiting it gives imperative flows the settle point without a reactive
  * read:
  * - Accessor targets resolve with the settled value; store targets resolve
- *   with the store node passed (reads through it are fresh after the await).
+ *   with the store node passed (reads through it are fresh after the await,
+ *   except outside an action whose hold still stages the landing: the value
+ *   is authoritative, the screen follows at that action's commit).
  * - A failed re-ask rejects with the error.
  * - Semantics are quiescence, not flight identity: if another refresh (or
  *   any invalidation) supersedes this one mid-flight, the promise waits for

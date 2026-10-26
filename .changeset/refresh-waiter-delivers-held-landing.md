@@ -2,12 +2,13 @@
 "@solidjs/signals": patch
 ---
 
-`await refresh(memo)` no longer hangs when the memo is held by an in-flight
-action's transaction (#4263). After an optimistic write, a mainline change to
-one of the memo's dependencies lands a new value into the action's hold; a
-`refresh()` waiter created after that landing read the held node, was born
-held, and waited for a commit the awaiting action could never produce. Under
-a hold an action keeps open, the waiter now delivers the re-ask's landing
-instead of parking until the commit, as it already did when it ran in the
-landing's own flush. A plain pending frame still delivers at its commit, and
-`until()` and `resolve()` keep their posture (#3482).
+`refresh()`, `until()` and `resolve()` deliver authoritatively, not at the
+holding transition's completion (#4263). When an in-flight action's
+transaction holds the landing a waiter reads — e.g. after an optimistic
+write, a dependency change re-ran the memo and its landing was staged under
+the action — the promise now resolves with that landing as soon as it has
+settled, whether it was created inside the action (including an `await`
+continuation with no bare `yield`, which used to deadlock: #3482 as filed,
+#4263) or outside it. The screen still reveals the landing with the action's
+commit. A waiter over a plain pending frame (no action open) still delivers
+at its commit.

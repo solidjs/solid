@@ -4,12 +4,12 @@
  * the action, already contains that acknowledgement.
  *
  * Distinct from #3482 (`direct-commit-readers-posture.test.ts`). There the
- * confirming frame is broadcast only under the action's own hold, and a
- * mainline `until()` (no bare `yield` after `await`) is born held and must
- * time out. Here the source signal is written from outside the action to the
+ * confirming frame is broadcast only under the action's own hold. Here the
+ * source signal is written from outside the action to the
  * same client id the optimistic draft already pushed. That echo is
  * authoritative truth, and `until()` must resolve. A bare `yield` after
- * `await` is not required for this echo.
+ * `await` is not required — for an echo, nor (#4263) for a correction the
+ * action's open hold stages: delivery is authoritative, not the commit.
  */
 import { expect, test } from "vitest";
 import {
@@ -112,10 +112,10 @@ test("an echo with nested rows confirms leaf by leaf (#3898)", async () => {
   e.dispose();
 });
 
-test("an answer whose content differs corrects: the mainline wait is the hold's (D-31, #3482)", async () => {
+test("an answer whose content differs corrects, and still answers the wait: the truth contains c1 (D-31, #4263)", async () => {
   const e = echo({ clientId: "c1", text: "hi" }, { clientId: "c1", text: "edited" });
   await e.land();
-  await expect(e.done).resolves.toBe("TimeoutError");
+  await expect(e.done).resolves.toBe("confirmed");
   e.dispose();
 });
 
@@ -151,7 +151,8 @@ test("a row that references itself is not an echo: the landing corrects, the sto
 
 // A signal is not reconciled: an optimistic signal's echo is judged by the
 // signal's own `equals` (F-11 — the slot's comparator). A server's new array
-// is a correction unless `equals` says otherwise.
+// is a correction unless `equals` says otherwise. Either way the truth
+// contains c1, so the wait is answered (authoritative delivery, #4263).
 for (const deep of [false, true])
   test(`createOptimistic (signal) judges an echo by its equals — ${deep ? "deep equals: confirms" : "default: corrects"}`, async () => {
     const [source, setSource] = createSignal<{ clientId: string }[]>([]);
@@ -177,6 +178,8 @@ for (const deep of [false, true])
     await new Promise(r => setTimeout(r, 20));
     setSource([{ clientId: "c1" }]);
     flush();
-    await expect(done).resolves.toBe(deep ? "confirmed" : "TimeoutError");
+    await expect(done).resolves.toBe("confirmed");
+    flush();
+    expect(rows()).toEqual([{ clientId: "c1" }]);
     dispose();
   });

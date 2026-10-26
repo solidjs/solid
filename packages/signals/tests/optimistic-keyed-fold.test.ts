@@ -190,7 +190,7 @@ describe("keyed arrangement guess: a correction folds beneath it (D-34)", () => 
     expect(h.counts()).toEqual({ mounts: 3, unmounts: 1 });
   });
 
-  it("a mainline `until` over a folded lane keeps its posture: it reads the truth, joins the hold and delivers at its commit (D-31)", async () => {
+  it("a mainline `until` over a folded lane reads the truth and delivers it under the open hold, not at its commit (D-31, #4263)", async () => {
     const h = setup([row("a")]);
     const p1 = push(h, "b");
     flush();
@@ -201,21 +201,21 @@ describe("keyed arrangement guess: a correction folds beneath it (D-34)", () => 
     h.setSource([row("a"), row("b")]);
     flush();
     const log: string[] = [];
-    // The truth confirms `b`; a mainline wait over the hold delivers at its
-    // commit, never in the window (the truth read alone would).
+    // The truth confirms `b`; a mainline wait over a hold an action keeps
+    // open delivers the truth now (authoritative), not at the commit.
     void until(() => h.rows.some(r => r.id === "b")).then(() => log.push("b"));
     // `c` is a guess the truth has not confirmed: invisible to `until`.
     void until(() => h.rows.some(r => r.id === "c")).then(() => log.push("c"));
     void resolve(() => h.rows.length).then(n => log.push(`resolve ${n}`));
     await p1;
     await sleep(5);
-    expect(log).toEqual([]);
+    expect(log.sort()).toEqual(["b", "resolve 2"]);
     h.setSource([row("a"), row("b"), row("c")]);
     flush();
     await p2;
     flush();
     await sleep(5);
-    expect(log.sort()).toEqual(["b", "c", "resolve 3"]);
+    expect(log.sort()).toEqual(["b", "c", "resolve 2"]);
   });
 
   it("a keyed guess the screen never showed is void at a correction, as any guess's (D-34)", async () => {
