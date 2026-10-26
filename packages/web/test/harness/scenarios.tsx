@@ -1536,6 +1536,43 @@ function PostflushRejection() {
   );
 }
 
+// The same failure with an async hole in the Errored fallback, still
+// pending when the Loading fails: the server has no finished fallback markup
+// to draw, so it serializes no error either (a record with no markup behind
+// it would make the client claim a fallback that is not there). The client
+// renders the failure itself, as it does on `next`.
+let setPostflushHoleKey!: (v: string) => void;
+function PostflushRejectionAsyncFallback() {
+  const [key, setKey] = createSignal("u7");
+  setPostflushHoleKey = setKey;
+  const user = createMemo(async (): Promise<string> => {
+    const k = key();
+    await sleep(5);
+    if (k === "u7") throw new Error("no user 7");
+    return k;
+  });
+  const hint = createMemo(async () => {
+    await sleep(20);
+    return "HINT";
+  });
+  return (
+    <div>
+      <Errored
+        fallback={(e: any) => (
+          <p>
+            failed: {e().message} {hint()}
+          </p>
+        )}
+      >
+        <Loading fallback={<i>loading</i>}>
+          <span>user:{user()}</span>
+        </Loading>
+      </Errored>
+      <span>tail</span>
+    </div>
+  );
+}
+
 // The same failure with markup between the Errored and the Loading: the
 // Loading's position is not the Errored's, so the server draws nothing there
 // (the client twin's fallback replaces the whole <section>) and the client
@@ -2936,6 +2973,15 @@ export const scenarios: Scenario[] = [
     // No update pass: hydrated mid-stream, the memo re-asks on the outer
     // boundary's resume (as it does on `next`), so the Errored holds the
     // server's fallback until reset() rather than tracking the memo.
+  },
+  {
+    name: "errored-loading-postflush-rejection-async-fallback-4287",
+    App: PostflushRejectionAsyncFallback,
+    async: true,
+    expectedText: "failed: no user 7 HINTtail",
+    serverText: "loading tail",
+    update: () => setPostflushHoleKey("u8"),
+    expectedTextAfterUpdate: "user:u8tail"
   },
   {
     name: "errored-loading-postflush-rejection-4287",

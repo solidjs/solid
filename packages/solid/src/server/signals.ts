@@ -4237,7 +4237,11 @@ export function createErrorBoundary<T, U>(
   // rendered here with the error and hydrates against the record (a
   // sanitized record under a fallback rendered from the original would
   // mismatch). See `ssrSanitizeError`.
-  const handleError = (err: any) => {
+  // `defer`: the outcome path serializes only once it has finished markup to
+  // send (`deferredWire`) — a record with no fallback behind it would have
+  // the client claim nodes that are not there.
+  let deferredWire: any;
+  const handleError = (err: any, defer?: boolean) => {
     if (fallbackSettled) return fallbackResult;
     reportContained(err);
     const wire = ssrSanitizeError(
@@ -4247,7 +4251,8 @@ export function createErrorBoundary<T, U>(
       ctx && ctx.errorPolicy,
       ctx && ctx._errorScope
     );
-    serializeError(wire);
+    if (defer) deferredWire = wire;
+    else serializeError(wire);
     fallbackResult = renderFallback(wire);
     fallbackSettled = true;
     return fallbackResult;
@@ -4264,7 +4269,7 @@ export function createErrorBoundary<T, U>(
   // the component (the app's, at t = 0 — a client twin) answers nothing, and
   // the error escapes the component as the frame's own error (the outward
   // face). A fallback still resolving (an async hole in it) has no finished
-  // markup to answer with and escapes the same way.
+  // markup to answer with and escapes the same way, serializing nothing.
   // Outside a server component (`outcome` is the asking `<Loading>`'s id,
   // #4287) this boundary answers only when that Loading's placeholder is
   // all of its content: the fallback then lands where the client twin draws
@@ -4287,8 +4292,9 @@ export function createErrorBoundary<T, U>(
     const prevCtx = sharedConfig.context;
     sharedConfig.context = ctx;
     try {
-      const resolved: any = ctx.resolve(ctx.escape(handleError(err)));
+      const resolved: any = ctx.resolve(ctx.escape(handleError(err, true)));
       if (!resolved || (resolved.h && resolved.h.length)) return undefined;
+      if (deferredWire) (serializeError(deferredWire), (deferredWire = undefined));
       const t = resolved.t;
       return Array.isArray(t) ? t[0] : t;
     } catch {
