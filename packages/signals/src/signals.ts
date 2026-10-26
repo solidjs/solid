@@ -36,6 +36,7 @@ import {
   joinFuture,
   passTx,
   resolveTx,
+  schedule,
   staleReader,
   type Transaction
 } from "./core/scheduler.js";
@@ -1227,4 +1228,64 @@ export function onSettled(callback: () => void | (() => void)): void {
           throw new Error(message);
         }
       });
+}
+
+/**
+ * Schedules `callback` to run **once**, right after the pending flush
+ * finishes, in the same microtask checkpoint (before the browser paints).
+ * Unlike `onSettled`, it never waits on async work: if that flush is held by
+ * a pending transition, the callback still runs.
+ *
+ * Its main use is keeping a write out of another update's hold. Writes made
+ * in the same synchronous frame are applied together, so when one of them
+ * starts async work (a route change, a fetch), the others are held with it
+ * until it resolves. A write made in `onFlush` happens after that flush, so
+ * it is its own update: it commits on its own unless something it changes
+ * also derives from the held work (a memo or `createEffect` reading both),
+ * in which case it joins that hold as any later write would.
+ *
+ * Call it from event handlers and effect callbacks (including
+ * `createTrackedEffect` and `onSettled` bodies). In an owned scope such as a
+ * component body or a computation it warns in dev: use `onSettled` there.
+ *
+ * - A write in the callback lands after any write made inline in the same
+ *   frame. Don't write the same signal both inside and outside it; use a
+ *   functional setter if the order matters.
+ * - Several `onFlush` callbacks run in call order and batch into one flush.
+ * - `queueMicrotask` is not a substitute: called before the frame's first
+ *   write, it runs before that flush and its write joins it.
+ *
+ * @example
+ * ```tsx
+ * // A menu closes now even when the consumer's onSelect starts async work.
+ * const select = (id: string) => {
+ *   onFlush(() => setOpen(false));
+ *   props.onSelect?.(id);
+ * };
+ * ```
+ *
+ * @param callback Function to run once after the pending flush
+ */
+export function onFlush(callback: () => void): void {
+  if (__DEV__) {
+    const owner = getOwner();
+    if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)) {
+      const message =
+        "[ON_FLUSH_IN_OWNED_SCOPE] onFlush called in an owned scope (a component body or a computation). It is meant for event handlers and effect callbacks; to run work after this scope's first stable render, use onSettled.";
+      reportDiagnostic(
+        emitDiagnostic({
+          code: "ON_FLUSH_IN_OWNED_SCOPE",
+          kind: "lifecycle",
+          severity: "warn",
+          message,
+          ownerId: owner.id,
+          ownerName: (owner as any)._name
+        })
+      );
+    }
+  }
+  // The frame's flush is queued (or already draining) ahead of this
+  // microtask, so the callback's writes start a flush of their own.
+  schedule();
+  queueMicrotask(callback);
 }
