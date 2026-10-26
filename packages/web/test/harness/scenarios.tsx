@@ -1632,6 +1632,53 @@ function PostflushRejectionParked() {
   );
 }
 
+// #4306: the parked failure with an async hole in the Errored fallback,
+// still pending when the inner Loading fails. The failure waits out the
+// hole while parked (nothing of it shows yet): settled before the outer
+// Loading, the outer fragment carries the finished fallback; settled after
+// it (`late`), the outer fragment carries the inner placeholder and the
+// inner fragment streams the fallback once the hole lands. Either way the
+// client claims it. (No update pass, as for the plain-fallback parked
+// scenario above.)
+let parkedHoleAsks = 0;
+export const parkedHoleAskCount = () => parkedHoleAsks;
+function parkedRejectionAsyncFallback(late: boolean) {
+  return function PostflushRejectionParkedAsyncFallback() {
+    const outer = createMemo(async () => {
+      await sleep(15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      if (!isServer && Promise === RealPromise) parkedHoleAsks++;
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    const hint = createMemo(async () => {
+      await sleep(late ? 25 : 10);
+      return "HINT";
+    });
+    return (
+      <div>
+        <Loading fallback={<i>outer loading</i>}>
+          <b>{outer()}</b>
+          <Errored
+            fallback={(e: any) => (
+              <p>
+                failed: {e().message} {hint()}
+              </p>
+            )}
+          >
+            <Loading fallback={<i>loading</i>}>
+              <span>user:{user()}</span>
+            </Loading>
+          </Errored>
+        </Loading>
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+
 // ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
@@ -2973,6 +3020,20 @@ export const scenarios: Scenario[] = [
     // No update pass: hydrated mid-stream, the memo re-asks on the outer
     // boundary's resume (as it does on `next`), so the Errored holds the
     // server's fallback until reset() rather than tracking the memo.
+  },
+  {
+    name: "errored-loading-parked-rejection-async-fallback-4306",
+    App: parkedRejectionAsyncFallback(false),
+    async: true,
+    expectedText: "outerfailed: no user 7 HINTtail",
+    serverText: "outer loading tail failed: no user 7 HINT"
+  },
+  {
+    name: "errored-loading-parked-rejection-late-async-fallback-4306",
+    App: parkedRejectionAsyncFallback(true),
+    async: true,
+    expectedText: "outerfailed: no user 7 HINTtail",
+    serverText: "outer loading tail loading failed: no user 7 HINT"
   },
   {
     name: "errored-loading-postflush-rejection-async-fallback-4287",

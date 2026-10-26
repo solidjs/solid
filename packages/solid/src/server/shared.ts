@@ -42,12 +42,15 @@ export type HydrationContext = {
    * server component (no server `<Errored>` rendered an outcome for it) —
    * the renderer surfaces it as the frame's own error, the outward face;
    * `escaped.frame` names the component's frame where the channel needs it
-   * (the document face's `sc:live` op).
+   * (the document face's `sc:live` op). `parked`: whether settling now
+   * would park its markup in an enclosing pending fragment.
    */
   registerFragment: (
     v: string,
     options?: { revealGroup?: string }
-  ) => (v?: string, err?: any, escaped?: { frame?: string }) => boolean;
+  ) => ((v?: string, err?: any, escaped?: { frame?: string }) => boolean) & {
+    parked?: () => boolean;
+  };
   /**
    * @internal The frame id of the server component this context renders
    * inside, on the document face (set by the frames server runtime on the
