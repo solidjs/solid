@@ -42,6 +42,7 @@
 import {
   CAUGHT_REARMED,
   CONFIG_REDERIVE,
+  CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_OVERRIDE,
   CONFIG_VERDICT,
@@ -733,7 +734,12 @@ function createBoundary<T>(
     // frozen by snapshot capture.
     __OBSERVE__ ? { name: "value", _noSnapshot: true } : { _noSnapshot: true }
   );
-  output._config |= CONFIG_REDERIVE;
+  // Structure, not a derivation of its content: it reads a foreign hold as
+  // the screen, as the render effect flattening the same children without
+  // a boundary would (CONFIG_FRAME, #4283). An `on` boundary's output stays
+  // a derivation: its re-arm swap is the change's work (D-13, #3540).
+  output._config |= CONFIG_REDERIVE | (onFn ? 0 : CONFIG_FRAME);
+  tree._config |= CONFIG_FRAME;
   b._output = output;
   return accessor<T>(output);
 }

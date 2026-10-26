@@ -16,6 +16,7 @@ import {
   CONFIG_FRESH_READ,
   CONFIG_GUESS,
   CONFIG_VERDICT,
+  CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_INPUTS_PUBLISHED,
@@ -376,6 +377,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A29, or mounted by a pass of it still awaiting its commit, #4010) keeps
     // staging: live writes keep it current, it effects at the swap (ruling
     // A).
+    // A boundary's structure (CONFIG_FRAME) is the frame like a render
+    // effect: it publishes mainline outside its transaction's flush (#4283).
     // A pending flight is the transition's own work (#3884). A probe on an
     // earlier pass left CONFIG_VERDICT, and a frame read here would serve the
     // committed screen, settle the flight and drop the hold — a superseding
@@ -390,7 +393,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // An answered deferred node's re-pass is a lagging question (D-40):
       // it joins nothing, so the write that reached it commits mainline.
       if (tx._lane || el._config & CONFIG_LAGS) {
-      } else if (isEffect !== EFFECT_RENDER && !(el._config & CONFIG_VERDICT))
+      } else if (!(el._config & (CONFIG_VERDICT | CONFIG_FRAME)))
         joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
       else if (
         tx !== flushTransaction &&
@@ -403,7 +406,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // children die below (`disposeChildren`). The landing re-derives a
         // fresh held frame for the reveal (`_reruns`).
         el._pendingValue = NOT_PENDING;
-        if (isEffect === EFFECT_RENDER) el._config &= ~CONFIG_HELD;
+        if (el._config & CONFIG_FRAME) el._config &= ~CONFIG_HELD;
       }
     }
     // The previous pass's frame. If that pass is still awaiting its commit
@@ -1149,6 +1152,10 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // read the screen. Lane work with no committed value yet reads a flight
   // as a mount's memo does: it enters, and the boundary it mounts catches
   // the pending (#3540).
+  // A boundary's tree and output (CONFIG_FRAME) read as a render effect
+  // does: structure, not a derivation of what it shows (#4283). A mount
+  // under a hold still enters it: the content memo it reads is born held,
+  // with no committed value to serve.
   // (Verdict readers and lanes exist only with their engines installed.)
   const verdict = observeFlightHook && c._config & CONFIG_VERDICT;
   const lane = laneStageHook && passLane !== null;
@@ -1157,7 +1164,7 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
       (c._statusFlags & STATUS_UNINITIALIZED &&
         (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
     !verdict &&
-    ((c as any)._type !== EFFECT_RENDER || el._config & CONFIG_INPUTS_PUBLISHED)
+    (!(c._config & CONFIG_FRAME) || el._config & CONFIG_INPUTS_PUBLISHED)
   )
     return false;
   const t = txOf(el);
@@ -1231,6 +1238,7 @@ export function createEffectNode<T>(
           (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
           (options?.sync ? CONFIG_SYNC : 0) |
           (options?._extraConfig ?? 0) |
+          ((type & EFFECT_RENDER) << 23) | // CONFIG_FRAME: a render effect is the frame
           (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
         _equals: false as unknown as Computed<T>["_equals"],
         _disposal: null,
@@ -1274,6 +1282,7 @@ export function createEffectNode<T>(
           (options?.ownedWrite ? CONFIG_OWNED_WRITE : 0) |
           (options?.sync ? CONFIG_SYNC : 0) |
           (options?._extraConfig ?? 0) |
+          ((type & EFFECT_RENDER) << 23) | // CONFIG_FRAME: a render effect is the frame
           (snapshotCaptureActive && ownerInSnapshotScope(context) ? CONFIG_IN_SNAPSHOT_SCOPE : 0),
         _equals: false as unknown as Computed<T>["_equals"],
         _disposal: null,
