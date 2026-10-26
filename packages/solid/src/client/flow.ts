@@ -138,7 +138,9 @@ export function Repeat<T extends SolidElement>(props: {
   if (IS_OBSERVE) options.name = "<Repeat>";
   return repeat(
     () => props.count,
-    index => (typeof props.children === "function" ? props.children(index) : props.children),
+    // Read `children` once per row: an element child is a JSX getter, so a
+    // second read would build the row's nodes (and run its refs) twice (#4296).
+    (index, c = props.children) => (typeof c === "function" ? c(index) : c),
     options
   ) as unknown as SolidElement;
 }
