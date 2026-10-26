@@ -1,4 +1,5 @@
 use oxc_allocator::Allocator;
+use oxc_ast::ast::Program;
 use oxc_ast_visit::VisitMut;
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_parser::{ParseOptions, Parser};
@@ -221,8 +222,79 @@ pub(crate) fn compile_for_node_adapter(
     compile_inner(source, options)
 }
 
+/// Compile a Solid JSX program the caller has already built in `allocator`.
+///
+/// This is [`compile`] with the parse step split off, for frontends that
+/// produce an Oxc AST themselves instead of source text: the program goes
+/// through the same back ends, selected by [`CompileOptions::generate`], that
+/// a parsed module reaches. `program` must be allocated in `allocator`, which
+/// the back ends also allocate their output nodes in.
+///
+/// `source` is the authored text the program's spans index, and must be the
+/// program's [`Program::source_text`] (a frontend that builds the program from
+/// other text sets that field to the authored text, as the TSRX frontend
+/// does). The back ends only read it through spans (comments, coverage
+/// pragmas, source-map content), so a frontend that keeps authored spans on
+/// the nodes it carries over and leaves the nodes it synthesizes unspanned
+/// (`SPAN`) gets source maps and diagnostics on its own authored positions.
+/// The program is compiled as given: [`CompileOptions::syntax`] is not
+/// consulted, no span is rewritten, and the output carries no stylesheet
+/// (`css` and `css_hash` are `None`).
+///
+/// Unlike [`compile`], an Oxc allocator and AST cross this interface, so the
+/// caller must build against the same Oxc release this crate depends on.
+pub fn compile_program<'a>(
+    allocator: &'a Allocator,
+    program: Program<'a>,
+    source: &str,
+    options: &CompileOptions,
+) -> Result<CompileOutput, CompileError> {
+    if options.module_name.is_empty() {
+        return Err(CompileError::configuration(
+            "JSX compilation requires a non-empty module name",
+        ));
+    }
+    if program.source_text != source {
+        return Err(CompileError::configuration(
+            "compile_program requires `source` to be the program's `source_text`",
+        ));
+    }
+    compile_lowered(allocator, program, source, options, Frontend::Jsx)
+}
+
+/// Which frontend produced the program [`compile_lowered`] compiles.
+enum Frontend {
+    /// A Solid JSX program: parsed from the source, or handed in by
+    /// [`compile_program`].
+    Jsx,
+    /// The TSRX frontend's lowered program and the stylesheet it extracted.
+    #[cfg(feature = "tsrx")]
+    Tsrx {
+        css: String,
+        css_hash: Option<String>,
+    },
+}
+
+impl Frontend {
+    fn is_tsrx(&self) -> bool {
+        match self {
+            Frontend::Jsx => false,
+            #[cfg(feature = "tsrx")]
+            Frontend::Tsrx { .. } => true,
+        }
+    }
+
+    /// The `css` / `css_hash` pair this frontend reports.
+    fn styles(self) -> (Option<String>, Option<String>) {
+        match self {
+            Frontend::Jsx => (None, None),
+            #[cfg(feature = "tsrx")]
+            Frontend::Tsrx { css, css_hash } => (Some(css), css_hash),
+        }
+    }
+}
+
 fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput, CompileError> {
-    let authored_source = source;
     let tsrx_route = match options.syntax {
         Syntax::Jsx => false,
         Syntax::Tsrx => true,
@@ -241,40 +313,37 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
 
     let allocator = Allocator::default();
     #[cfg(feature = "tsrx")]
-    let (mut direct_program, direct_css, direct_css_hash) = if tsrx_route {
+    if tsrx_route {
         let lowered =
             crate::tsrx::run_compiler_frontend(&allocator, source, options.filename.as_deref())?;
-        (Some(lowered.program), Some(lowered.css), lowered.css_hash)
-    } else {
-        (None, None, None)
-    };
+        let frontend = Frontend::Tsrx {
+            css: lowered.css,
+            css_hash: lowered.css_hash,
+        };
+        return compile_lowered(&allocator, lowered.program, source, options, frontend);
+    }
 
-    let source_type = if tsrx_route {
-        // TSRX leaves and generated nodes are represented as a TSX program.
-        SourceType::tsx()
-    } else {
-        source_type_for_filename(options.filename.as_deref())?
-    };
-    #[cfg(feature = "tsrx")]
-    let mut program = if let Some(program) = direct_program.take() {
-        program
-    } else {
-        parse_program(&allocator, source, source_type)?
-    };
-    #[cfg(not(feature = "tsrx"))]
-    let mut program = parse_program(&allocator, source, source_type)?;
+    let source_type = source_type_for_filename(options.filename.as_deref())?;
+    let program = parse_program(&allocator, source, source_type)?;
+    compile_lowered(&allocator, program, source, options, Frontend::Jsx)
+}
+
+/// The shared back half of [`compile`] and [`compile_program`]: everything
+/// after a frontend has produced the program.
+fn compile_lowered<'a>(
+    allocator: &'a Allocator,
+    mut program: Program<'a>,
+    source: &str,
+    options: &CompileOptions,
+    frontend: Frontend,
+) -> Result<CompileOutput, CompileError> {
+    let authored_source = source;
+    let tsrx_route = frontend.is_tsrx();
 
     if let Some(lib) = options.require_import_source.as_deref()
         && !has_jsx_import_source(&program, source, lib)
     {
-        #[cfg(feature = "tsrx")]
-        let (css, css_hash) = if tsrx_route {
-            (direct_css.clone(), direct_css_hash.clone())
-        } else {
-            (None, None)
-        };
-        #[cfg(not(feature = "tsrx"))]
-        let (css, css_hash) = (None, None);
+        let (css, css_hash) = frontend.styles();
         return Ok(CompileOutput {
             // Babel's requireImportSource gate skips the transform, so callers
             // receive exactly what they authored. Style metadata was already
@@ -296,7 +365,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
     match options.generate {
         Generate::Dom => {
             let mut transform = AstDomTransform::new(
-                &allocator,
+                allocator,
                 source,
                 &options.module_name,
                 dom_transform_config(options, options.built_ins.clone()),
@@ -312,7 +381,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         Generate::Dynamic => {
             if let Some(renderer) = dom_renderer(&options.renderers) {
                 let mut transform = AstUniversalTransform::new_dynamic(
-                    &allocator,
+                    allocator,
                     source,
                     &options.module_name,
                     options.built_ins.clone(),
@@ -328,7 +397,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
                 }
             } else {
                 let mut transform = AstUniversalTransform::new(
-                    &allocator,
+                    allocator,
                     source,
                     &options.module_name,
                     options.built_ins.clone(),
@@ -344,7 +413,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         }
         Generate::Ssr => {
             let mut transform = AstSsrTransform::new(
-                &allocator,
+                allocator,
                 source,
                 &options.module_name,
                 options.hydratable,
@@ -368,7 +437,7 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         }
         Generate::Universal => {
             let mut transform = AstUniversalTransform::new(
-                &allocator,
+                allocator,
                 source,
                 &options.module_name,
                 options.built_ins.clone(),
@@ -396,19 +465,8 @@ fn compile_inner(source: &str, options: &CompileOptions) -> Result<CompileOutput
         })
         .build(&program);
 
-    #[cfg(feature = "tsrx")]
     let source_map = build.map.as_ref().map(|map| map.to_json_string());
-    #[cfg(not(feature = "tsrx"))]
-    let source_map = build.map.as_ref().map(|map| map.to_json_string());
-
-    #[cfg(feature = "tsrx")]
-    let (css, css_hash) = if tsrx_route {
-        (direct_css, direct_css_hash)
-    } else {
-        (None, None)
-    };
-    #[cfg(not(feature = "tsrx"))]
-    let (css, css_hash) = (None, None);
+    let (css, css_hash) = frontend.styles();
 
     Ok(CompileOutput {
         code: build.code,
@@ -422,7 +480,7 @@ fn parse_program<'a>(
     allocator: &'a Allocator,
     source: &'a str,
     source_type: SourceType,
-) -> Result<oxc_ast::ast::Program<'a>, CompileError> {
+) -> Result<Program<'a>, CompileError> {
     // Babel has no ParenthesizedExpression node (parens are trivia), so the
     // transform's expression matchers must never see one either. Preserving
     // parens here can hide logical expressions from conditional wrapping and
@@ -439,11 +497,7 @@ fn parse_program<'a>(
     Ok(parsed.program)
 }
 
-pub(crate) fn has_jsx_import_source(
-    program: &oxc_ast::ast::Program<'_>,
-    source: &str,
-    required: &str,
-) -> bool {
+pub(crate) fn has_jsx_import_source(program: &Program<'_>, source: &str, required: &str) -> bool {
     program.comments.iter().any(|comment| {
         let text = comment.content_span().source_text(source);
         let mut pieces = text.split("@jsxImportSource");
@@ -572,6 +626,132 @@ mod tests {
         };
         let configuration = compile("const view = <div />;", &options).unwrap_err();
         assert_eq!(configuration.kind(), crate::CompileErrorKind::Configuration);
+    }
+
+    fn compile_parsed(source: &str, options: &CompileOptions) -> CompileOutput {
+        let allocator = Allocator::default();
+        let source_type = source_type_for_filename(options.filename.as_deref()).unwrap();
+        let program = parse_program(&allocator, source, source_type).expect("parse JSX");
+        compile_program(&allocator, program, source, options).expect("compile program")
+    }
+
+    #[test]
+    fn compile_program_matches_compile_for_every_back_end() {
+        let source = r#"import { For } from "@solidjs/web";
+export const View = props => <div class={props.kind} onClick={props.onClick}>
+  <For each={props.items}>{item => <span>{item}</span>}</For>
+  {props.ready ? <b>ready</b> : <i>waiting</i>}
+  <Child value={props.value} />
+</div>;"#;
+        for generate in [
+            Generate::Dom,
+            Generate::Ssr,
+            Generate::Universal,
+            Generate::Dynamic,
+        ] {
+            for hydratable in [false, true] {
+                let options = CompileOptions {
+                    filename: Some("/src/view.tsx".into()),
+                    generate,
+                    hydratable,
+                    source_map: true,
+                    renderers: if generate == Generate::Dynamic {
+                        vec![Renderer {
+                            name: "dom".into(),
+                            module_name: None,
+                            elements: vec!["div".into(), "span".into(), "b".into(), "i".into()],
+                        }]
+                    } else {
+                        Vec::new()
+                    },
+                    ..CompileOptions::default()
+                };
+                assert_eq!(
+                    compile_parsed(source, &options),
+                    compile(source, &options).unwrap(),
+                    "{generate:?} hydratable={hydratable}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn compile_program_keeps_the_import_source_gate_and_coverage_pragmas() {
+        let gated = CompileOptions {
+            require_import_source: Some("solid-js".into()),
+            ..CompileOptions::default()
+        };
+        let skipped = "export const view = <div />;";
+        assert_eq!(compile_parsed(skipped, &gated).code, skipped);
+        let opted_in = "/** @jsxImportSource solid-js */\nexport const view = <div>{a()}</div>;";
+        assert_eq!(
+            compile_parsed(opted_in, &gated),
+            compile(opted_in, &gated).unwrap()
+        );
+
+        let pragma = "export const view = <div>{/* istanbul ignore next */ a()}</div>;";
+        assert_eq!(
+            compile_parsed(pragma, &CompileOptions::default()),
+            compile(pragma, &CompileOptions::default()).unwrap()
+        );
+    }
+
+    #[test]
+    fn compile_program_reports_configuration_and_transform_errors() {
+        let allocator = Allocator::default();
+        let source = "const view = <div />;";
+        let program = parse_program(&allocator, source, SourceType::tsx()).unwrap();
+        let options = CompileOptions {
+            module_name: String::new(),
+            ..CompileOptions::default()
+        };
+        let error = compile_program(&allocator, program, source, &options).unwrap_err();
+        assert_eq!(error.kind(), crate::CompileErrorKind::Configuration);
+
+        let program = parse_program(&allocator, source, SourceType::tsx()).unwrap();
+        let error = compile_program(
+            &allocator,
+            program,
+            "other text",
+            &CompileOptions::default(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), crate::CompileErrorKind::Configuration);
+
+        let invalid = "const view = <div><td /></div>;";
+        let program = parse_program(&allocator, invalid, SourceType::tsx()).unwrap();
+        let expected = compile(invalid, &CompileOptions::default()).map(|output| output.code);
+        assert!(expected.is_err(), "{expected:?}");
+        let actual = compile_program(&allocator, program, invalid, &CompileOptions::default())
+            .map(|output| output.code);
+        assert_eq!(
+            actual.as_ref().map_err(|error| error.kind()),
+            expected.as_ref().map_err(|error| error.kind())
+        );
+    }
+
+    #[cfg(feature = "tsrx")]
+    #[test]
+    fn compile_program_ignores_syntax_routing_and_reports_no_styles() {
+        let source = "export const view = <div>{a()}</div>;";
+        let tsrx_named = CompileOptions {
+            filename: Some("view.tsrx".into()),
+            ..CompileOptions::default()
+        };
+        let allocator = Allocator::default();
+        let program = parse_program(&allocator, source, SourceType::tsx()).unwrap();
+        let output = compile_program(&allocator, program, source, &tsrx_named).unwrap();
+        let jsx = compile(
+            source,
+            &CompileOptions {
+                filename: Some("view.tsx".into()),
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(output.code, jsx.code);
+        assert_eq!(output.css, None);
+        assert_eq!(output.css_hash, None);
     }
 
     #[cfg(feature = "tsrx")]

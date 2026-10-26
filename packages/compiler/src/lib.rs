@@ -3,11 +3,12 @@
 //! The crate exposes two surfaces: the Node/N-API `transform()` interface
 //! (behind the default `node` feature) that `@solidjs/compiler`
 //! ships, and a host-independent Rust [`compile`] API for embedding the
-//! compiler directly.
+//! compiler directly. Frontends that build an Oxc AST themselves instead of
+//! source text hand it to [`compile_program`], which runs the same back ends.
 //!
 //! # Stability
 //!
-//! The Rust API (`compile`, [`CompileOptions`], [`CompileOutput`],
+//! The Rust API (`compile`, `compile_program`, [`CompileOptions`], [`CompileOutput`],
 //! [`CompileError`]) is **unstable**. The compiler is pre-1.0 and under
 //! active development; this surface carries no semver commitment and may
 //! change shape in any release while the compiler churns. Pin an exact
@@ -37,6 +38,7 @@ mod universal;
 
 pub use compiler::{
     CompileOptions, CompileOutput, Generate, Renderer, SourceNames, Syntax, Wrapper, compile,
+    compile_program,
 };
 pub use error::{CompileError, CompileErrorKind};
 #[cfg(feature = "tsrx")]
