@@ -60,6 +60,20 @@ describe("Server Repeat", () => {
     const val = typeof result === "function" ? (result as any)() : result;
     expect(val).toEqual(["item-0", "item-1", "item-2"]);
   });
+
+  test("reads element children once per row (#4296)", () => {
+    let reads = 0;
+    const result = Repeat({
+      count: 2,
+      get children() {
+        reads++;
+        return "row";
+      }
+    });
+    const val = typeof result === "function" ? (result as any)() : result;
+    expect(val).toEqual(["row", "row"]);
+    expect(reads).toBe(2);
+  });
 });
 
 describe("Server Show", () => {
