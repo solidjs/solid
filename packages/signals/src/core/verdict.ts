@@ -61,7 +61,8 @@ import {
   staleReader,
   txOf,
   type Transaction,
-  installVerdictHooks
+  installVerdictHooks,
+  laneReadHook
 } from "./scheduler.js";
 import type { Computed, Root, Signal } from "./types.js";
 
@@ -343,7 +344,8 @@ function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): u
  *   lane's — a lane blocked on its own flight would hold the reader's run,
  *   the opposite of a verdict's display-ahead). A guess is the value (A17),
  *   not final while its own question flies or a truth held beneath it
- *   differs (A24, A18 provenance). A derivation: `latest` sees the lane's
+ *   differs (A24, A18 provenance); `latest` of it reads it as the lane's,
+ *   held with the lane's readers (#4284). A derivation: `latest` sees the lane's
  *   latest (a landing a blocked lane holds has answered its question — the
  *   checkout's shipping text updates independently of the tax in flight),
  *   `isPending` the screen; not final while its own flight is up;
@@ -385,6 +387,12 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     !(owner._statusFlags & STATUS_ERROR && !(el._config & CONFIG_GUESS))
   ) {
     const l = txOf(el);
+    // `latest()` of a guess is the guess — read as the lane's, as a plain
+    // read is: a lane blocked on a derivation of the guess holds it with the
+    // rest of its readers (F-6: `latest()` escapes the hold, not its own
+    // lane; #4284).
+    if (tracked && latestActive && !probing && el._config & CONFIG_GUESS && !l.folded)
+      return laneReadHook!(c!, el);
     if (tracked) verdictRead(c!, l._parent ?? l);
     const flying = (owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner);
     if (el._config & CONFIG_GUESS) {

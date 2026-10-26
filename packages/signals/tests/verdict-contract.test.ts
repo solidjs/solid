@@ -203,7 +203,7 @@ describe("a verdict reader is a frame reader for as long as it probes", () => {
 });
 
 describe("verdicts of a guess", () => {
-  it("latest() of a blocked lane's guess shows it; isPending reads it not final; the reader breaks out of the lane", async () => {
+  it("latest() of a blocked lane's guess is held with the lane; isPending reads it not final", async () => {
     const [src, setSrc] = createSignal(0);
     let resolveTruth!: (v: number) => void;
     let resolveDetail!: (v: number) => void;
@@ -230,16 +230,16 @@ describe("verdicts of a guess", () => {
     setSrc(1);
     setOpt(5);
     flush();
-    // The lane is blocked on `detail`: the guess does not show (`opt:` keeps
-    // 0), but `latest` shows it and the slot is not final. (The first frame
-    // is the probe re-derived for `truth`'s flight before the seam applies
-    // the guess — A28, the write is visible from the flush's verdict on.)
-    expect(log).toEqual(["probe:0/true", "probe:5/true"]);
+    // The lane is blocked on `detail`, a derivation of the guess: the guess
+    // does not show (`opt:` keeps 0), and neither does `latest` — it escapes
+    // the hold, not its own lane (F-6, #4284) — while the slot is not final
+    // (`truth` is in flight).
+    expect(log).toEqual(["probe:0/true"]);
 
     resolveDetail(50);
     await settled();
-    // The lane reveals.
-    expect(log.slice(2).sort()).toEqual(["detail:50", "opt:5"]);
+    // The lane reveals, the probe with it.
+    expect(log.slice(1).sort()).toEqual(["detail:50", "opt:5", "probe:5/true"]);
 
     resolveTruth(5); // confirm
     await settled();
