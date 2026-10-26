@@ -178,6 +178,47 @@ describe("Error Boundary Hydration", () => {
     expect(read()).toBe("item 3");
   });
 
+  test("createErrorBoundary hydrated from a server error holds the client's own error once hydration ends (#4273)", () => {
+    startHydration({ t0: new Error("server error") });
+
+    let fails = true;
+    const seen: unknown[] = [];
+    let read!: () => unknown;
+    let resetFn!: () => void;
+    createRoot(
+      () => {
+        read = createErrorBoundary(
+          () => {
+            if (fails) throw new Error("client error");
+            return "recovered";
+          },
+          (err: any, reset) => {
+            resetFn = reset;
+            seen.push(err());
+            return `fallback: ${err().message}`;
+          }
+        );
+        read();
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(read()).toBe("fallback: server error");
+
+    // At hydration end the content's own run throws: the boundary holds the
+    // client error, and the fallback receives it.
+    stopHydration();
+    flush();
+    expect(read()).toBe("fallback: client error");
+    expect((seen[seen.length - 1] as Error).message).toBe("client error");
+
+    // reset() clears the client error.
+    fails = false;
+    resetFn();
+    flush();
+    expect(read()).toBe("recovered");
+  });
+
   test("createErrorBoundary handles non-Error serialized values", () => {
     // Server might serialize a string or other value as the error
     startHydration({ t0: "string error" });
