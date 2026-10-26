@@ -752,6 +752,32 @@ describe("universal insert caching", () => {
 
     expect(parent.innerHTML).toBe("A<!--marker-->");
   });
+
+  it("keeps a null-marker region's slot through an empty array (#4274)", () => {
+    const parent = document.createElement("main");
+    const [on, setOn] = createSignal(false);
+    const section = document.createElement("section");
+    section.textContent = "results";
+    const p = document.createElement("p");
+    p.textContent = "pick";
+
+    createRoot(() => {
+      r.insert(parent, () => (on() ? section : []), null);
+      r.insert(parent, () => p, null);
+    });
+    flush();
+    expect(parent.innerHTML).toBe("<p>pick</p>");
+
+    setOn(true);
+    flush();
+    expect(parent.innerHTML).toBe("<section>results</section><p>pick</p>");
+
+    setOn(false);
+    flush();
+    setOn(true);
+    flush();
+    expect(parent.innerHTML).toBe("<section>results</section><p>pick</p>");
+  });
 });
 
 describe("universal render error handling", () => {
