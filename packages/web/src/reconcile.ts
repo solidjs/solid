@@ -2,23 +2,19 @@
 // Slightly modified version of: https://github.com/WebReflection/udomdiff/blob/master/index.js
 import { $$SLOT } from "./constants.js";
 
-// Places `node` before `ref`. The node holding focus moves with
-// `moveBefore()` where the browser has it, so focus survives the move (#3997).
-// Every other node takes plain `insertBefore()`: `moveBefore()` for all
-// connected nodes cost whole-list reorders 4–8% once layout ran, and focus is
-// the state worth keeping (a playing video already survives a same-task move).
-// `moveBefore()` throws where `insertBefore()` would not (another document, a
-// detached parent); those fall back. The `isConnected` read keeps new
-// nodes off the focus check.
-export function insertNode(parent: any, node: any, ref: any) {
-  if (parent.moveBefore && node.isConnected && hasFocus(node))
-    try {
-      return parent.moveBefore(node, ref);
-    } catch {}
-  parent.insertBefore(node, ref);
-}
+// Moves keep the node holding focus connected with `moveBefore()` where the
+// browser has it, so focus survives (#3997). Other nodes take plain
+// `insertBefore()`: `moveBefore()` for every node cost whole-list reorders
+// 4–8% once layout ran. Both ends must be connected or `moveBefore()` throws;
+// `node.isConnected` first also keeps new nodes off the focus check.
+const canMove = (parent: any, node: any) =>
+  parent.moveBefore &&
+  node.isConnected &&
+  parent.isConnected &&
+  node.contains(document.activeElement);
 
-const hasFocus = (node: any) => node.contains(document.activeElement);
+export const insertNode = (parent: any, node: any, ref: any) =>
+  canMove(parent, node) ? parent.moveBefore(node, ref) : parent.insertBefore(node, ref);
 
 export default function reconcileArrays(
   parentNode: Node,
@@ -175,7 +171,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
             // region's end instead: every node still to place is inserted
             // before a node that precedes it, or before `after` in order, so
             // it can't anchor an insert.
-            if (parentNode.moveBefore && hasFocus(parentNode)) {
+            if (canMove(parentNode, parentNode)) {
               insertNode(parentNode, newNode, node);
               insertNode(parentNode, node, after);
             } else parentNode.replaceChild(newNode, node);

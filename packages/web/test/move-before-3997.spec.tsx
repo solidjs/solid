@@ -129,7 +129,7 @@ test("with nothing focused in the list, moves take plain insertBefore", () => {
   button.remove();
 });
 
-test("falls back to insertBefore where moveBefore throws", () => {
+test("takes insertBefore where moveBefore would throw", () => {
   // A detached parent: moveBefore() throws, insertBefore() works.
   const parent = document.createElement("div");
   const a = rows(document.body, 3);
