@@ -148,6 +148,36 @@ describe("Error Boundary Hydration", () => {
     expect(read()).toBe("recovered content");
   });
 
+  test("createErrorBoundary hydrated in its error state recovers when its inputs change (#4273)", () => {
+    startHydration({ t0: new Error("item 4 not found") });
+
+    const [sel, setSel] = coreSignal(4);
+    let read!: () => unknown;
+    createRoot(
+      () => {
+        read = createErrorBoundary(
+          () => {
+            if (sel() === 4) throw new Error(`item ${sel()} not found`);
+            return `item ${sel()}`;
+          },
+          (err: any) => `fallback: ${err().message}`
+        );
+        read();
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(read()).toBe("fallback: item 4 not found");
+
+    stopHydration();
+    flush();
+    expect(read()).toBe("fallback: item 4 not found");
+
+    setSel(3);
+    flush();
+    expect(read()).toBe("item 3");
+  });
+
   test("createErrorBoundary handles non-Error serialized values", () => {
     // Server might serialize a string or other value as the error
     startHydration({ t0: "string error" });
@@ -439,7 +469,7 @@ describe("Error Boundary Hydration", () => {
     expect(read(result)).toBe("Test Item");
   });
 
-  test("Loading inner Errored reset recovers after hydrated server error", async () => {
+  test("Loading inner Errored hydrated with a server-only error renders client content once hydration ends", async () => {
     let resolveLoading!: () => void;
     const loading = new Promise<void>(r => {
       resolveLoading = r;
@@ -485,8 +515,12 @@ describe("Error Boundary Hydration", () => {
     await Promise.resolve();
     flush();
 
-    expect(read(result)).toBe("ItemError: Item bad-item not found");
+    // The resume ends hydration: the content runs once for real and, since
+    // the error was server-only, the client's answer replaces it (#4273).
+    expect(resetFn).toBeDefined();
+    expect(read(result)).toBe("Bad Item");
 
+    // The content is live: it tracks its inputs, and a reset is harmless.
     setId("1");
     resetFn!();
     flush();

@@ -1276,11 +1276,18 @@ function hydratedCreateErrorBoundary<T, U>(
   const expectedId = peekNextChildId(parent);
   if (sharedConfig.has!(expectedId)) {
     const err = sharedConfig.load!(expectedId);
+    // The server drew the fallback: the first pass throws its error to claim
+    // that markup. It tracks the end of hydration, where the content runs
+    // once for real so the boundary tracks its inputs and recovers when they
+    // change (D-39, #4273); failing again keeps the built fallback.
     if (err !== undefined) {
       let hydrated = true;
+      const [ended, setEnded] = coreSignal(false);
+      onHydrationEnd(() => setEnded(true));
       return coreErrorBoundary(() => {
         if (hydrated) {
           hydrated = false;
+          ended();
           throw err;
         }
         return fn();
