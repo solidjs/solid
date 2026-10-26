@@ -1,7 +1,11 @@
-//! Self-contained TSRX scoped-CSS semantics.
+//! Scoped-CSS semantics: TSRX's `<style>` engine, shared by any frontend.
 //!
-//! This module deliberately has no dependency on the TSRX/Oxc frontend.  The
-//! frontend only needs to translate its template into [`Element`] values.
+//! This module deliberately has no dependency on the TSRX/Oxc frontend or on
+//! the `tsrx` feature. A frontend describes the elements a `<style>` block
+//! governs as [`Element`] values; [`compile_style`] returns the scoped
+//! stylesheet, its hash, the class map, and which elements to annotate with
+//! the hash: the same bytes a `.tsrx` file with that stylesheet at that
+//! [`StyleLocation`] gets.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;

@@ -1,16 +1,16 @@
 //! TSRX's scoped-CSS engine through the public `style` module, as a frontend
 //! other than TSRX drives it.
 //!
-//! Like `tsrx_frontend.rs`, this compiles only without the `node` feature
-//! (integration-test binaries have no N-API host to link against):
-//! `cargo test --no-default-features --features tsrx`.
-#![cfg(all(feature = "tsrx", not(feature = "node")))]
+//! The engine needs no `tsrx` feature; only the parity check against a
+//! compiled `.tsrx` module does. Like `host_independent_interface.rs`, this
+//! compiles only without the `node` feature (integration-test binaries have no
+//! N-API host to link against).
+#![cfg(not(feature = "node"))]
 
 use solidjs_compiler::style::{
     Attribute, AttributeValue, Element, ElementChild, ElementKind, StyleInput, StyleKind,
     StyleLocation, compile_style, compile_style_with_class_map_selectors,
 };
-use solidjs_compiler::{CompileOptions, Syntax, compile};
 
 const CSS: &str = ".used { color:red } .unused { color:blue } span { color:green }";
 
@@ -54,8 +54,11 @@ fn input<'a>(elements: &'a [Element], kind: StyleKind) -> StyleInput<'a> {
     }
 }
 
+#[cfg(feature = "tsrx")]
 #[test]
 fn produces_the_stylesheet_a_tsrx_file_gets() {
+    use solidjs_compiler::{CompileOptions, Syntax, compile};
+
     let tsrx = compile(
         &format!(
             "export function View() @{{\n  <>\n    <style>{CSS}</style>\n    <div class=\"used\"><span /></div>\n  </>\n}}"

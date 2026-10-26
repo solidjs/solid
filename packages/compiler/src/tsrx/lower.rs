@@ -19,13 +19,13 @@ use super::{
         AuthoredSpan, CodeBlock, ControlFlow, ForLoop, IfChain, SolidTsrxModule, TemplateBlock,
         TemplateSite, Try as SemanticTry,
     },
-    style::ClassMapEntry,
     style_projection::{
         RefSetup, StyleAction, StyleProjection, decode_json_string, is_callback_ref,
         is_direct_ref_target,
     },
     tape::Node,
 };
+use crate::style::ClassMapEntry;
 use crate::{error::CompileError, shared::ast_builder::AstBuilder};
 
 pub(crate) struct DirectLowered<'a> {

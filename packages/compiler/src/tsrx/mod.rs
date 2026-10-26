@@ -16,7 +16,6 @@ mod project;
 mod semantic;
 mod source_map;
 mod spans;
-pub(crate) mod style;
 mod style_projection;
 mod tape;
 mod tooling;

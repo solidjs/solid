@@ -201,7 +201,7 @@ let virtual_tsx =
 
 `CompileOptions::default()` uses `module_name: "@solidjs/web"` and the same control-flow `built_ins` as the Babel plugin. Build with `--no-default-features` when embedding without the Node-API adapter.
 
-TSRX's scoped-CSS engine is exported as `solidjs_compiler::style` (with the default `tsrx` feature) for other frontends. It has no dependency on TSRX syntax or Oxc: describe the elements a `<style>` block governs as `Element` values, and `compile_style` returns the scoped stylesheet, its hash, the class map and the ids of the elements to annotate, the same bytes a `.tsrx` file with that stylesheet at that `StyleLocation` gets.
+TSRX's scoped-CSS engine is exported as `solidjs_compiler::style` for other frontends, in every build (it does not need the `tsrx` feature). It has no dependency on TSRX syntax or Oxc: describe the elements a `<style>` block governs as `Element` values, and `compile_style` returns the scoped stylesheet, its hash, the class map and the ids of the elements to annotate, the same bytes a `.tsrx` file with that stylesheet at that `StyleLocation` gets.
 
 ```rust
 use solidjs_compiler::style::{compile_style, Element, ElementKind, StyleInput, StyleKind, StyleLocation};
