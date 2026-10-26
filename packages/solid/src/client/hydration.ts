@@ -295,6 +295,8 @@ function hydrationDevPeekNextContextId(): string | undefined {
   return o && o.id != null ? peekNextChildId(o) : undefined;
 }
 
+const noop = () => {};
+
 // === Hydration phase API ===
 
 let _hydrationEndCallbacks: (() => void)[] | null = null;
@@ -304,18 +306,14 @@ let _snapshotRootOwner: Owner | null = null;
 // The boundary owner whose resume window is open (null during a root pass,
 // which claims everything). Reached as `sharedConfig.isClaiming`.
 let _claimOwner: Owner | null = null;
-// Set once a hydrated `<Errored>` runs content the server drew no markup
-// for: that content's owner (`_uc`) claims nothing.
-let _unclaimed = false;
 function isClaiming(): boolean {
-  if (!_claimOwner && !_unclaimed) return true;
+  if (!_claimOwner) return true;
   let owner: Owner | null = getOwner();
   while (owner) {
-    if ((owner as any)._uc) return false;
     if (owner === _claimOwner) return true;
     owner = owner._parent;
   }
-  return !_claimOwner;
+  return false;
 }
 
 /** @internal — shared with the store adapter module (store-hydration.ts). */
@@ -425,7 +423,6 @@ export function onHydrationEnd(callback: () => void): void {
 function drainHydrationCallbacks() {
   if (_hydrationDone) return;
   _hydrationDone = true;
-  _unclaimed = false;
   _doneValue = true;
   clearSnapshots();
   setSnapshotCapture(false);
@@ -563,7 +560,7 @@ export function subFetch<T>(fn: (prev?: T) => any, prev?: T) {
     // the MockPromise swap can't intercept it), so a rejecting compute
     // (#2997: server-rejected async adopted on the client) must be observed
     // here or it surfaces as an unhandled rejection.
-    if (result && typeof result.then === "function") result.then(undefined, () => {});
+    if (result && typeof result.then === "function") result.then(undefined, noop);
     return result;
   } finally {
     window.fetch = ogFetch;
@@ -608,7 +605,7 @@ export function readHydratedValue(initP: any, refresh: () => void, options?: any
       // The stamp is the consumption: nothing ever `.then`s the serialized
       // promise itself, so observe its rejection here or the deserialized
       // record surfaces as an unhandled rejection (#2997).
-      if (typeof initP.then === "function") initP.then(undefined, () => {});
+      if (typeof initP.then === "function") initP.then(undefined, noop);
       throw initP.v;
     }
     if (initP.s === 1) return initP.v;
@@ -1289,31 +1286,30 @@ function hydratedCreateErrorBoundary<T, U>(
     // throwing the server's error until reset(), disposed with the content
     // when it re-runs (#4273).
     if (err !== undefined) {
-      _unclaimed = true;
-      let o: any, held: any;
+      // The content's owner, until a fallback is built.
+      let o: any;
       const read = coreErrorBoundary(
         () => {
-          (o = getOwner() as any)._uc = 1;
-          return fn();
+          const prev = _claimOwner;
+          o = getOwner();
+          // A claim window over no owner: nothing under it claims.
+          _claimOwner = {} as Owner;
+          try {
+            return fn();
+          } finally {
+            _claimOwner = prev;
+          }
         },
-        (e, reset) =>
-          fallback(
-            e,
-            (held = () => {
-              held = 0;
-              reset();
-            })
-          )
+        (e, reset) => ((o = 0), fallback(e, reset))
       );
-      // No fallback yet: the content ran clean.
-      if (!held && (held = 1))
+      // No fallback yet: the content ran clean. Hold the server's fallback
+      // behind a render effect throwing its error once — until reset()
+      // re-runs it, or the content re-runs and disposes it.
+      if (o)
         runWithOwner(o, () =>
-          coreRenderEffect(
-            () => {
-              if (held) throw err;
-            },
-            () => {}
-          )
+          coreRenderEffect(() => {
+            if (o) throw ((o = 0), err);
+          }, noop)
         );
       return read;
     }
@@ -2640,7 +2636,7 @@ function rejectTruncatedRefs(hy: any) {
     entry.p.v = err;
     // Guard the harness itself against an unhandled-rejection report; the
     // consumer observes the rejection through its own chain.
-    entry.p.then(undefined, () => {});
+    entry.p.then(undefined, noop);
   };
   for (const key in R) {
     const value = R[key];
@@ -2909,7 +2905,7 @@ function hydratedCreateLoadingBoundary<T, U>(
           // branch takes over — swallow it so a rejected fragment (error
           // finalize or a client-hole handoff) doesn't surface as an
           // unhandled rejection.
-          (fr as Promise<never>).catch?.(() => {});
+          (fr as Promise<never>).catch?.(noop);
           // Observe: the fresh render is a "recovery" record; prod folds the
           // branch and `recover` with it.
           const resumeRejected = IS_OBSERVE
