@@ -706,11 +706,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // confirm is a landing too — the lane's end commits it) and notifies
     // only a correction: an equal truth re-runs nothing (lanes.ts). (As the
     // lane's own work the lane judged it — `laneStage`.)
+    // (The hook first: a build without lanes folds the arm away.)
     if (
+      laneOutcomeHook &&
       !create &&
       lane === null &&
       el._config & CONFIG_GUESS &&
-      laneOutcomeHook!(el, value, errored)
+      laneOutcomeHook(el, value, errored)
     ) {
       // The truth, staged under the lane's parent.
     } else if (errored) {

@@ -690,8 +690,8 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
   // An optimistic edit composes on the view the user saw and becomes
   // guesses at the setter's exit: nothing is staged, nothing folds
   // (optimistic.ts).
-  if (userWrite && target.fam?.opt === true && !pendingNotify.has(target))
-    return (target.pb = optHooks!.draft(target));
+  if (optHooks && userWrite && target.fam?.opt === true && !pendingNotify.has(target))
+    return (target.pb = optHooks.draft(target));
   if (pb !== null && !isOwned(pb)) {
     // An adopted object awaiting its fold is the user's: the draft writes a
     // clone of it. The clone is the batch's staging — unless the adoption is
@@ -1142,12 +1142,12 @@ function notifyWrites(t: StoreTarget): void {
   // Optimistic channel: a user's writes on an optimistic family become
   // guesses on the nodes (lanes); the draft is discarded, the committed
   // backing never touched.
-  if (userWrite && t.fam?.opt === true) {
+  if (optHooks && userWrite && t.fam?.opt === true) {
     // The draft is discarded first: the diff reads the target (its nodes
     // are born from the committed frame, not the draft).
     t.pb = null;
     t.wk = null;
-    t.pb = optHooks!.writes(t, pb);
+    t.pb = optHooks.writes(t, pb);
     return;
   }
   const old = t.v;
@@ -1888,10 +1888,10 @@ function enumerationSource(target: StoreTarget): Record<PropertyKey, any> {
     // A container's arrangement guess is not a backing: the view composes
     // over the base it is shown over.
     const base = asBacking(readNode(getContainerNode(target)));
-    return target.fam?.opt === true ? optHooks!.view(target, base) : base;
+    return optHooks && target.fam?.opt === true ? optHooks.view(target, base) : base;
   }
   const src = readSource(target);
-  return optRead(target) ? optHooks!.view(target, src) : src;
+  return optHooks && optRead(target) ? optHooks.view(target, src) : src;
 }
 
 /** A read on an optimistic family that composes the lanes' values: not the
@@ -2165,8 +2165,8 @@ const traps: ProxyHandler<StoreTarget> = {
         node._value = present; // the link follows the inner store (S4)
         if (node._config & CONFIG_OVERRIDE) return !!nv;
         return present;
-      } else if (optRead(target)) {
-        const guessed = optHooks!.has(target, key);
+      } else if (optHooks && optRead(target)) {
+        const guessed = optHooks.has(target, key);
         if (guessed !== undefined) return guessed;
       }
     }
@@ -2207,8 +2207,8 @@ const traps: ProxyHandler<StoreTarget> = {
         return undefined;
     } else src = readSource(target, key, true);
     let desc: PropertyDescriptor | undefined;
-    if (!enumerating && optRead(target)) {
-      const guessed = optHooks!.descriptor(target, key);
+    if (optHooks && !enumerating && optRead(target)) {
+      const guessed = optHooks.descriptor(target, key);
       if (guessed === null) return undefined;
       desc = guessed;
     }
@@ -2412,8 +2412,8 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
     // A returned replacement: on an optimistic family a user's is itself an
     // optimistic edit — diffed against the view as guesses (`next` parity);
     // otherwise it is adopted as the incoming truth.
-    if (guard && target.fam?.opt === true && !writeOverride)
-      optHooks!.writes(target, unwrapValue(result));
+    if (optHooks && guard && target.fam?.opt === true && !writeOverride)
+      optHooks.writes(target, unwrapValue(result));
     else adoptPB(target, unwrapValue(result));
   }
   // A34 (3), #3612 — the derived store's twin of `setMemo`: a user write to
@@ -2614,7 +2614,7 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | nul
       if (t.ovl) materializePB(t);
       backing = t.pb!;
     }
-    if (optRead(t)) backing = optHooks!.view(t, backing);
+    if (optHooks && optRead(t)) backing = optHooks.view(t, backing);
     if (backing === src) break;
     src = backing;
   }

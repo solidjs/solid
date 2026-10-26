@@ -726,12 +726,14 @@ export function schedule() {
  */
 export const ROOT_ERROR_HOOK: unique symbol = Symbol.for("solid-js/root-error-hook") as any;
 
+const HALTED = "[REACTIVITY_HALTED]";
+
 export function haltReactivity(cause?: unknown): void {
   if (halted) return;
   halted = true;
   // A cleanup error collected before the halt is dropped (owner.ts).
   rethrowCleanupError(true);
-  let message = "[REACTIVITY_HALTED]";
+  let message = HALTED;
   if (__DEV__) {
     message +=
       " An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.";
@@ -785,7 +787,7 @@ function notifyHalted(): void {
     __DEV__
       ? "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error." +
           haltedAt
-      : "[REACTIVITY_HALTED]"
+      : HALTED
   );
 }
 
@@ -1016,11 +1018,12 @@ export class GlobalQueue implements IQueue {
     // This flush's own runs, the lanes' reveals, and the landings' held runs
     // are collected apart and ordered below.
     const own = this._queues;
-    const lanes: [QueueCallback[], QueueCallback[]] = (this._queues = [[], []]);
+    const lanes: [QueueCallback[], QueueCallback[]] = [[], []];
     // The passes that read this frame's stagings as the screen read held
     // writes if it parked: the lane seam re-derives them on the committed
     // world (a lane's runs wait this round).
     if (laneSeamsHook) {
+      this._queues = lanes;
       laneSeamsHook(t !== null ? stagedReaders : null);
       if (stagedReaders.length) stagedReaders.length = 0;
     }
@@ -1179,7 +1182,7 @@ function land(u: Transaction): void {
   // (`_nodes` still lists them).
   if (__OBSERVE__ && attrHooks !== null) attrHooks.transitionSettled(u);
   const frame = reruns(u);
-  if (u._marks !== null) releaseMarksHook!(u._marks);
+  if (releaseMarksHook && u._marks !== null) releaseMarksHook(u._marks);
   // Old children die in the commits (cleanups first), then the stashed
   // effects run ahead of this flush's own. A node a lane took over since
   // (a guess written over the staged truth) is the lane's to land.

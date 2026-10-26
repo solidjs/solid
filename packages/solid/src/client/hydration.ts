@@ -1272,12 +1272,10 @@ function hydratedCreateErrorBoundary<T, U>(
   fn: () => T,
   fallback: (error: () => unknown, reset: () => void) => U
 ): Accessor<T | U> {
-  if (!sharedConfig.hydrating || noHydrationId()) return coreErrorBoundary(fn, fallback);
-  markTopLevelSnapshotScope();
-  const parent = getOwner()!;
-  const expectedId = peekNextChildId(parent);
-  if (sharedConfig.has!(expectedId)) {
-    const err = sharedConfig.load!(expectedId);
+  if (sharedConfig.hydrating && !noHydrationId()) {
+    markTopLevelSnapshotScope();
+    const expectedId = peekNextChildId(getOwner()!);
+    let err: unknown;
     // The server drew the fallback; the client's own run decides. The
     // content runs now with its data adopted by id but claiming no DOM —
     // the markup is the fallback's — so what it throws is the client's
@@ -1285,21 +1283,19 @@ function hydratedCreateErrorBoundary<T, U>(
     // the server's fallback up behind a hold: a render effect in the content
     // throwing the server's error until reset(), disposed with the content
     // when it re-runs (#4273).
-    if (err !== undefined) {
+    if (sharedConfig.has!(expectedId) && (err = sharedConfig.load!(expectedId)) !== undefined) {
       // The content's owner, until a fallback is built.
       let o: any;
       const read = coreErrorBoundary(
-        () => {
-          const prev = _claimOwner;
-          o = getOwner();
-          // A claim window over no owner: nothing under it claims.
-          _claimOwner = {} as Owner;
-          try {
-            return fn();
-          } finally {
-            _claimOwner = prev;
-          }
-        },
+        // While hydrating, a claim window over no owner: nothing under it
+        // claims. (`hydrateWindow` with no id or scope, hydration already on
+        // and the snapshot root marked above, only swaps the claim owner.)
+        // A later run claims nothing either way: claims are read only while
+        // hydrating.
+        () =>
+          _hydratingValue
+            ? hydrateWindow("", fn, undefined, ((o = getOwner()), {} as Owner))
+            : fn(),
         (e, reset) => ((o = 0), fallback(e, reset))
       );
       // No fallback yet: the content ran clean. Hold the server's fallback

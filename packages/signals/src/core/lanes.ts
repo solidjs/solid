@@ -568,6 +568,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   // An errored member's lane value predates its error; the error is the answer (#4106).
   if (!guess && status & STATUS_ERROR) return NOT_PENDING;
   if (c === null) return laneValueOf(el);
+  const pending = !guess && status & STATUS_PENDING;
   if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) {
     // An untracked read inside lane work derives from the lane like a
     // tracked one, minus the subscription — `untrack` is about
@@ -576,51 +577,41 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // lanes read by one pass link, as for tracked reads). Outside lane
     // work, the screen.
     if (passLane === null || c._config & CONFIG_CHILDREN_FORBIDDEN) return display(el);
-    enterLane(l, c);
-    if (!guess && status & STATUS_PENDING) return NOT_PENDING;
-    return laneValueOf(el);
-  }
-  // D-28: a leaf a verdict read moved into the lane still throws on a flight
-  // that has never shown — the pass leaves the lane, and its frame holds as
-  // if the read had come first (S-39, #4275).
-  if (
-    (c as any)._type === EFFECT_RENDER &&
-    passLane?._parent!._verdict === passLane &&
-    !guess &&
-    status & STATUS_PENDING &&
-    el._x!._lane === NOT_PENDING
-  )
-    setPassLane(null);
-  if ((c as any)._type === EFFECT_RENDER && (passLane === null || !sameLane(passLane, l))) {
-    if (!guess) {
-      // A flight whose value has never shown: nothing to show — the leaf
-      // waits on it, and its own frame holds (A15, #3334), not the lane's
-      // parent. The landing lands the frame: its own pass (the flush
-      // joined its transaction) reads the answer it waited on — the lane's
-      // staging, revealed at this seam.
-      if (status & STATUS_PENDING && el._x!._lane === NOT_PENDING) return NOT_PENDING;
+  } else if ((c as any)._type === EFFECT_RENDER) {
+    // A flight whose value has never shown: nothing to show — the leaf
+    // waits on it, and its own frame holds (A15, #3334), not the lane's
+    // parent. The landing lands the frame: its own pass (the flush joined
+    // its transaction) reads the answer it waited on — the lane's staging,
+    // revealed at this seam.
+    const never = pending && el._x!._lane === NOT_PENDING;
+    // D-28: a leaf a verdict read moved into the lane still throws on such
+    // a flight — the pass leaves the lane, and its frame holds as if the
+    // read had come first (S-39, #4275).
+    if (never && passLane?._parent!._verdict === passLane) setPassLane(null);
+    if (passLane === null || !sameLane(passLane, l)) {
+      if (never) return NOT_PENDING;
       if (
+        !guess &&
         el._pendingValue !== NOT_PENDING &&
         c._config & CONFIG_HELD &&
         flushTransaction !== null &&
         resolveTx(flushTransaction) === txOf(c)
       )
         return el._pendingValue;
-    }
-    if (l._held || (!guess && status & STATUS_PENDING)) {
-      if (!guess && !l._shown && status & STATUS_UNINITIALIZED) throw new NotReadyError(null);
-      // Re-derived at the reveal; once per pass (the pass may also be a stale
-      // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
-      if (!(c._flags & REACTIVE_SCREEN_READ)) {
-        c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
-        l._reruns.push(c);
+      if (l._held || pending) {
+        if (!guess && !l._shown && status & STATUS_UNINITIALIZED) throw new NotReadyError(null);
+        // Re-derived at the reveal; once per pass (the pass may also be a stale
+        // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
+        if (!(c._flags & REACTIVE_SCREEN_READ)) {
+          c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
+          l._reruns.push(c);
+        }
+        return display(el);
       }
-      return display(el);
     }
   }
   enterLane(l, c);
-  if (!guess && status & STATUS_PENDING) return NOT_PENDING;
-  return laneValueOf(el);
+  return pending ? NOT_PENDING : laneValueOf(el);
 }
 
 /** The value a guess covered: the node's committed value — a store slot's
