@@ -1285,9 +1285,10 @@ function hydratedCreateErrorBoundary<T, U>(
     // content runs now with its data adopted by id but claiming no DOM —
     // the markup is the fallback's — so what it throws is the client's
     // error, held and tracked like any other. Content that runs clean keeps
-    // the server's fallback up behind a hold: a render effect in the content
-    // throwing the server's error until reset(), disposed with the content
-    // when it re-runs (#4273).
+    // the server's fallback up through the hydration pass behind a hold: a
+    // render effect in the content throwing the server's error until
+    // hydration ends or reset(), disposed with the content when it re-runs
+    // (#4273).
     if (err !== undefined) {
       _unclaimed = true;
       let o: any, held: any;
@@ -1306,15 +1307,18 @@ function hydratedCreateErrorBoundary<T, U>(
           )
       );
       // No fallback yet: the content ran clean.
-      if (!held && (held = 1))
+      if (!held && (held = 1)) {
+        const [g, end] = coreSignal(true);
+        onHydrationEnd(() => end(false));
         runWithOwner(o, () =>
           coreRenderEffect(
             () => {
-              if (held) throw err;
+              if (g() && held) throw err;
             },
             () => {}
           )
         );
+      }
       return read;
     }
   }
