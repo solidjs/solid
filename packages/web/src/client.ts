@@ -2751,6 +2751,8 @@ export function runHydrationEvents() {
           for (let i = 0; i < matches.length; i++)
             eventHandler(e, matches[i].container, matches[i].state);
         } else if (matchContainer) eventHandler(e, matchContainer, matchState);
+        // Each replayed event is its own instant, as live (#4285).
+        flush();
       }
       if (sharedConfig.done) {
         sharedConfig.events = _$HY.events = null;

@@ -207,6 +207,15 @@ export const CONFIG_SUPERSEDES = 1 << 27;
  * (`{...(on() ? { a } : {})}`), and the advice (`equals`) cannot be applied
  * (#4256). Set through `_extraConfig` by observe builds only. */
 export const CONFIG_KEY_BAG = 1 << 28;
+/** The frame (rule 3, D-3): a render effect (set at creation, as
+ * `EFFECT_RENDER << 23` — keep the two in step), and a boundary's tree and
+ * output (boundaries.ts) — structure between the content and the render
+ * effect that shows it, not a user derivation of the content. Outside a
+ * hold's own flush it reads that hold's values as committed and is
+ * re-derived at its landing, and a re-pass of it publishes mainline: it
+ * joins nothing, so two mounts under one boundary made in separate flushes
+ * keep their holds apart (D-4, S-5 rows 1′–3′, #4283). */
+export const CONFIG_FRAME = 1 << 23;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
