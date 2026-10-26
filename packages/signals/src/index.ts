@@ -100,6 +100,7 @@ export {
   resolve,
   until,
   onSettled,
+  onFlush,
   onCleanup
 } from "./signals.js";
 export type {

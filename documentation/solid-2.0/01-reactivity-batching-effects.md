@@ -105,6 +105,36 @@ flush(() => {
 
 Use `flush(fn)` at imperative boundaries where the writes themselves should run in a synchronous flush scope. Writes inside the callback do not schedule the normal microtask flush; they are drained before `flush(fn)` returns, so you can update state and immediately read reactive values or DOM without leaving a queued flush behind. The callback's return value is preserved, and nested `flush(fn)` calls drain at each level.
 
+### Keeping a write out of another update's hold: `onFlush`
+
+Writes made in the same synchronous frame are applied together. When one of them starts async work (a route change, a refetch), the others are held with it until it resolves. Usually that is what you want. It is not when a component writes its own state and then calls code it doesn't control:
+
+```tsx
+function Menu(props) {
+  const select = (id: string) => {
+    setOpen(false); // held if onSelect starts async work: the menu stays open
+    props.onSelect?.(id);
+  };
+  // ...
+}
+```
+
+`onFlush(fn)` runs `fn` once, right after the pending flush and before the browser paints, so its writes are their own update:
+
+```tsx
+const select = (id: string) => {
+  onFlush(() => setOpen(false)); // closes now, whatever onSelect does
+  props.onSelect?.(id);
+};
+```
+
+The write follows the normal rules from there: it commits on its own unless something it changes also derives from the held work (a memo or `createEffect` reading both), in which case it joins that hold like any later write. A render effect reading both shows the new value beside the committed one, as usual.
+
+- Call it from event handlers and effect callbacks. In a component body or computation it warns in dev (`ON_FLUSH_IN_OWNED_SCOPE`); use `onSettled` there.
+- Its write lands after any write made inline in the same frame. Don't write the same signal both inside and outside it.
+- `queueMicrotask` is not a substitute: called before the frame's first write it runs before that flush, so its write joins it. `flush()` applies the write now, but also runs every pending effect early, which can make them run twice.
+- Unlike `onSettled`, it never waits on async work.
+
 ### Split tracking from effect
 
 Effects have two phases: **compute** (reactive reads only; dependencies recorded) and **effect** (side effects; runs after all compute phases in the batch). This gives a clear dependency picture before any side effects run and is required for async and boundaries.

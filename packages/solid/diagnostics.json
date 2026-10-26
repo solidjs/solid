@@ -297,6 +297,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/no-owner-effect"
   },
   {
+    "code": "ON_FLUSH_IN_OWNED_SCOPE",
+    "kind": ["lifecycle"],
+    "severity": ["warn"],
+    "category": "lifecycle",
+    "trigger": "`onFlush` called in a component body or computation (meant for event handlers and effect callbacks)",
+    "repair": "`onFlush` was called in a component body or a computation; it is meant for event handlers and effect callbacks.",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/on-flush-in-owned-scope"
+  },
+  {
     "code": "OPTIMISTIC_REVERTED",
     "kind": ["responsiveness"],
     "severity": ["info"],
