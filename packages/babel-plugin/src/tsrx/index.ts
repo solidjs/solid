@@ -72,7 +72,7 @@ export function isTsrxSource(syntax: SyntaxOption | undefined, filename: unknown
 
 /** Parse TSRX source text into a Babel `File` with all TSRX constructs
  * lowered to Solid builtIn JSX. */
-export function parseTsrx(code: string, filename?: string): TsrxBabelFile {
+export function parseTsrx(code: string, filename?: string, babelMajor = 7): TsrxBabelFile {
   const tsrx = loadTsrxCore();
   const program = tsrx.parseModule(code, filename ?? "module.tsrx");
   rejectAuthoredLazyDestructuring(program);
@@ -82,7 +82,7 @@ export function parseTsrx(code: string, filename?: string): TsrxBabelFile {
 
   desugarProgram(program);
 
-  const file = toBabelFile(program) as TsrxBabelFile;
+  const file = toBabelFile(program, babelMajor) as TsrxBabelFile;
   // Babel's default AST clone preserves enumerable string keys. Program.enter
   // lifts this temporary payload into transform metadata and removes it from
   // the AST, avoiding mutable plugin-factory state (and concurrent-run races).

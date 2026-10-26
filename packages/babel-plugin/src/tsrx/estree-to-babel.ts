@@ -31,6 +31,16 @@ const STRIP_KEYS = new Set([
   "directive"
 ]);
 
+/** Which Babel AST shape to emit. Babel 8 keeps `typeArguments`,
+ * `ImportExpression`, Identifier type-parameter names and `TSEnumBody`;
+ * Babel 7 wants the older forms. Set for the length of one `toBabelFile`. */
+let babel8 = false;
+
+/** The key Babel expects for a node's type arguments. */
+function typeArgsKey(): string {
+  return babel8 ? "typeArguments" : "typeParameters";
+}
+
 function isNode(value: unknown): value is EsNode {
   return (
     typeof value === "object" &&
@@ -57,16 +67,29 @@ function convertValue(value: unknown): unknown {
 }
 
 /** Shallow-map every kept key, renaming typescript-eslint's `typeArguments`
- * to Babel 7's `typeParameters` along the way. */
+ * to Babel 7's `typeParameters` along the way (Babel 8 keeps the name). */
 function convertGeneric(node: EsNode, overrideType?: string): EsNode {
   const out: Record<string, unknown> = { type: overrideType ?? node.type };
   copyLoc(node, out);
   for (const key of Object.keys(node)) {
     if (STRIP_KEYS.has(key)) continue;
     const outKey =
-      key === "typeArguments" && node.typeParameters === undefined ? "typeParameters" : key;
+      !babel8 && key === "typeArguments" && node.typeParameters === undefined
+        ? "typeParameters"
+        : key;
     out[outKey] = convertValue(node[key]);
   }
+  return out as EsNode;
+}
+
+/** Convert a node whose type arguments typescript-eslint spells
+ * `typeParameters`, moving them to the key the target Babel expects. */
+function convertTypeArgsHolder(node: EsNode, type: string): EsNode {
+  const out = convertGeneric(node, type) as Record<string, unknown>;
+  const args = out.typeParameters ?? out.typeArguments;
+  delete out.typeParameters;
+  delete out.typeArguments;
+  if (args !== undefined) out[typeArgsKey()] = args;
   return out as EsNode;
 }
 
@@ -162,7 +185,7 @@ function convertChainLink(node: EsNode): EsNode {
       };
       copyLoc(node, out);
       if (node.typeParameters !== undefined || node.typeArguments !== undefined) {
-        out.typeParameters = convertValue(node.typeParameters ?? node.typeArguments);
+        out[typeArgsKey()] = convertValue(node.typeParameters ?? node.typeArguments);
       }
       return out as EsNode;
     }
@@ -245,6 +268,9 @@ function convertNode(node: EsNode): EsNode {
       };
       copyLoc(node, out);
       convertFunctionParts(fn, out);
+      if (node.typeParameters != null && out.typeParameters === undefined) {
+        out.typeParameters = convertValue(node.typeParameters);
+      }
       if (node.accessibility !== undefined) out.accessibility = node.accessibility;
       if (node.override !== undefined) out.override = node.override;
       if (node.optional !== undefined) out.optional = node.optional;
@@ -287,10 +313,22 @@ function convertNode(node: EsNode): EsNode {
       return convertChainLink(node.expression as EsNode);
 
     case "ImportExpression": {
+      // `@tsrx/core` puts the options object in `arguments[0]`; acorn uses `options`.
+      const options = node.options ?? (node.arguments as EsNode[] | undefined)?.[0];
+      if (babel8) {
+        const out: Record<string, unknown> = {
+          type: "ImportExpression",
+          source: convertValue(node.source),
+          options: options != null ? convertValue(options) : null
+        };
+        if (node.phase != null) out.phase = node.phase;
+        copyLoc(node, out);
+        return out as EsNode;
+      }
       const importCallee: Record<string, unknown> = { type: "Import" };
       copyLoc(node, importCallee);
       const args: unknown[] = [convertValue(node.source)];
-      if (node.options != null) args.push(convertValue(node.options));
+      if (options != null) args.push(convertValue(options));
       const out: Record<string, unknown> = {
         type: "CallExpression",
         callee: importCallee,
@@ -308,13 +346,72 @@ function convertNode(node: EsNode): EsNode {
     }
 
     case "TSTypeParameter": {
-      const out = convertGeneric(node);
-      if (isNode(out.name)) out.name = (out.name as unknown as { name: string }).name;
-      return out;
+      const out = convertGeneric(node) as Record<string, unknown>;
+      if (babel8) {
+        if (typeof out.name === "string") {
+          const id: Record<string, unknown> = { type: "Identifier", name: out.name };
+          copyLoc(node, id);
+          out.name = id;
+        }
+      } else if (isNode(out.name)) out.name = (out.name as unknown as { name: string }).name;
+      return out as EsNode;
     }
 
     case "TSInterfaceHeritage":
-      return convertGeneric(node, "TSExpressionWithTypeArguments");
+      return convertTypeArgsHolder(
+        node,
+        babel8 ? "TSInterfaceHeritage" : "TSExpressionWithTypeArguments"
+      );
+
+    // `implements` entries arrive in the pre-split typescript-eslint shape.
+    case "TSExpressionWithTypeArguments":
+    case "TSClassImplements":
+      return convertTypeArgsHolder(
+        node,
+        babel8 ? "TSClassImplements" : "TSExpressionWithTypeArguments"
+      );
+
+    case "ClassDeclaration":
+    case "ClassExpression": {
+      const out = convertGeneric(node) as Record<string, unknown>;
+      const superArgs = out.superTypeParameters ?? out.superTypeArguments;
+      delete out.superTypeParameters;
+      delete out.superTypeArguments;
+      if (superArgs !== undefined) {
+        out[babel8 ? "superTypeArguments" : "superTypeParameters"] = superArgs;
+      }
+      return out as EsNode;
+    }
+
+    case "TSInterfaceDeclaration": {
+      const out = convertGeneric(node) as Record<string, unknown>;
+      // Interface heritage can arrive in the class-implements shape.
+      if (babel8 && Array.isArray(out.extends)) {
+        for (const heritage of out.extends as Record<string, unknown>[]) {
+          heritage.type = "TSInterfaceHeritage";
+        }
+      }
+      return out as EsNode;
+    }
+
+    case "TSImportType": {
+      const out = convertGeneric(node) as Record<string, unknown>;
+      if (babel8 && out.argument !== undefined) {
+        out.source = out.argument;
+        delete out.argument;
+      }
+      return out as EsNode;
+    }
+
+    case "TSEnumDeclaration": {
+      const out = convertGeneric(node) as Record<string, unknown>;
+      if (babel8 && out.body === undefined) {
+        const body: Record<string, unknown> = { type: "TSEnumBody", members: out.members };
+        delete out.members;
+        out.body = body;
+      }
+      return out as EsNode;
+    }
 
     case "TSAbstractMethodDefinition":
     case "TSAbstractPropertyDefinition":
@@ -337,13 +434,18 @@ function convertNode(node: EsNode): EsNode {
   }
 }
 
-export function toBabelFile(program: EsNode): t.File {
-  const file: Record<string, unknown> = {
-    type: "File",
-    program: convertNode(program),
-    comments: [],
-    tokens: []
-  };
-  copyLoc(program, file);
-  return file as unknown as t.File;
+export function toBabelFile(program: EsNode, babelMajor = 7): t.File {
+  babel8 = babelMajor >= 8;
+  try {
+    const file: Record<string, unknown> = {
+      type: "File",
+      program: convertNode(program),
+      comments: [],
+      tokens: []
+    };
+    copyLoc(program, file);
+    return file as unknown as t.File;
+  } finally {
+    babel8 = false;
+  }
 }

@@ -20,7 +20,8 @@ import {
   inlineCallExpression,
   canChildSlotAllocateIds,
   isFunctionShapedHole,
-  isEventName
+  isEventName,
+  isImportExpression
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
 import { decodedAttrValue } from "../universal/element";
@@ -1309,7 +1310,8 @@ function callsOutsideFunctions(node: babelTypes.Node): boolean {
     t.isCallExpression(node) ||
     t.isOptionalCallExpression(node) ||
     t.isNewExpression(node) ||
-    t.isTaggedTemplateExpression(node)
+    t.isTaggedTemplateExpression(node) ||
+    isImportExpression(node)
   )
     return true;
   if (t.isFunction(node)) return false;
