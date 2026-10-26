@@ -35,6 +35,8 @@ export interface StoreFamily {
    * their readers (A9) — the family's enumerable index, in place of a
    * per-leaf chain; a target leaves it with its last node. */
   live: Set<StoreTarget>;
+  /** A source's status reaching the derive by propagation (`familyStatus`). */
+  st?: (status: number, error: unknown) => void;
   shallow?: boolean;
   /** Derive run counter (proj R37): the run whose draft is live. */
   run?: number;
