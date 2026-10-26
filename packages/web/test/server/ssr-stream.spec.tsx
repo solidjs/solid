@@ -453,11 +453,9 @@ describe("SSR Streaming — Basic Rendering", () => {
     // render memo throwing NotReadyError forever (the stream never completes)
     // and leaked a process-level unhandledRejection. The render now completes:
     // the fragment channel carries the error (`_fr` rejects with the payload)
-    // and the client re-renders the subtree fresh — re-importing the module
-    // and routing a repeat failure to its own Errored. The boundary id must
-    // NOT carry an error record (#2997): the server rendered no fallback DOM,
-    // so a record would derail the hydrating Errored into claiming markup
-    // that does not exist.
+    // and, the Loading being all of the Errored's content, the fragment is
+    // the Errored's fallback with the error recorded at the Errored id, for
+    // the hydrating client to adopt (#4287).
     const html = await renderComplete(
       () => (
         <Errored fallback={(e: any) => <span>err: {String(e()?.message || e())}</span>}>
@@ -472,11 +470,12 @@ describe("SSR Streaming — Basic Rendering", () => {
     // Error captured (it rides the rejected fragment), the streamed fragment
     // settled, and the shell did not get stuck on the placeholder.
     expect(html).toContain("lazy failed");
-    expect(rKeys).not.toContain("0");
+    expect(html).toMatch(/<span _hk=\d+>err: /);
+    expect(rKeys).toContain("0");
     expect(rKeys).toContain("000_fr");
   });
 
-  test("pre-flush rejection under Errored > Loading rejects the fragment without a boundary error record (#2997)", async () => {
+  test("pre-flush rejection under Errored > Loading rejects the fragment and draws the Errored fallback (#2997, #4287)", async () => {
     // Rejects before its first await — the rejection lands before the shell
     // can flush.
     function Child() {
@@ -498,17 +497,15 @@ describe("SSR Streaming — Basic Rendering", () => {
     ));
 
     const rKeys = hydrationRecordKeys(html);
-    // The fragment channel owns the error: `_fr` rejects (the client
-    // re-renders the subtree fresh and its Errored catches), and the memo's
-    // rejected flight is serialized for adoption. The Errored boundary id
-    // must NOT carry an error record — the server never rendered fallback
-    // DOM for it, so a record would make the hydrating client claim against
-    // markup that does not exist and derail hydration into a blank page.
+    // `_fr` rejects and the memo's rejected flight is serialized for
+    // adoption. The Loading is all of the Errored's content, so the server
+    // draws the Errored fallback at its position and records the error at
+    // the Errored id: the hydrating client adopts that fallback (#4287).
     expect(html).toContain("tail");
     expect(html).toContain("boom");
-    expect(rKeys.sort()).toEqual(["100000", "100_fr"]);
-    // The static sibling survives; neither fallback is server-rendered.
-    expect(html).not.toContain("caught");
+    expect(rKeys.sort()).toEqual(["1", "100000", "100_fr"]);
+    expect(html).toContain("caught");
+    expect(html).not.toContain("loading");
   });
 
   test("async memo — shell contains fallback, final has resolved value", async () => {

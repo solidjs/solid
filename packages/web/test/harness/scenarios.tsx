@@ -62,10 +62,8 @@ export type Scenario = {
   expectedText: string;
   /**
    * Override for the "streamed" replay mode. Needed where the two modes
-   * legitimately settle to different text — e.g. a live $df swap of a
-   * REJECTED fragment splices in the rejection template's single-space
-   * text node (@solidjs/web's rejection channel), which full-page-loaded
-   * hydration never renders.
+   * legitimately settle to different text. (A live $df swap of a REJECTED
+   * fragment no longer leaves its markup beside the fresh render, #4287.)
    */
   expectedTextStreamed?: string;
   /**
@@ -1506,6 +1504,98 @@ function PreflushRejection() {
 }
 
 // ---------------------------------------------------------------------------
+// #4287: the same order with the read failing AFTER the shell flushed, the
+// async memo outside both boundaries. The server draws the Errored fallback
+// into the fragment and serializes the error at the Errored id; the client
+// adopts that fallback (no client ask, no loading flash) and, as for any
+// hydrated failure (#4273), recovers once the memo's input changes.
+let setPostflushKey!: (v: string) => void;
+let postflushClientAsks = 0;
+// The hydration dry run computes under a mock Promise: count real asks only.
+const RealPromise = Promise;
+export const postflushClientAskCount = () => postflushClientAsks;
+function PostflushRejection() {
+  const [key, setKey] = createSignal("u7");
+  setPostflushKey = setKey;
+  const user = createMemo(async (): Promise<string> => {
+    const k = key();
+    if (!isServer && Promise === RealPromise) postflushClientAsks++;
+    await sleep(5);
+    if (k === "u7") throw new Error("no user 7");
+    return k;
+  });
+  return (
+    <div>
+      <Errored fallback={(e: any) => <p>failed: {e().message}</p>}>
+        <Loading fallback={<i>loading</i>}>
+          <span>user:{user()}</span>
+        </Loading>
+      </Errored>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// The same failure with markup between the Errored and the Loading: the
+// Loading's position is not the Errored's, so the server draws nothing there
+// (the client twin's fallback replaces the whole <section>) and the client
+// renders the failure fresh, then recovers.
+let setNestedKey!: (v: string) => void;
+function PostflushRejectionNested() {
+  const [key, setKey] = createSignal("u7");
+  setNestedKey = setKey;
+  const user = createMemo(async (): Promise<string> => {
+    const k = key();
+    await sleep(5);
+    if (k === "u7") throw new Error("no user 7");
+    return k;
+  });
+  return (
+    <div>
+      <Errored fallback={(e: any) => <p>failed: {e().message}</p>}>
+        <section>
+          <h1>title</h1>
+          <Loading fallback={<i>loading</i>}>
+            <span>user:{user()}</span>
+          </Loading>
+        </section>
+      </Errored>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// The failure inside an outer <Loading> still pending when it lands: the
+// inner fragment parks in the outer one, which settles later carrying the
+// Errored fallback the server drew.
+function PostflushRejectionParked() {
+  const [key] = createSignal("u7");
+  const outer = createMemo(async () => {
+    await sleep(15);
+    return "outer";
+  });
+  const user = createMemo(async (): Promise<string> => {
+    const k = key();
+    await sleep(5);
+    if (k === "u7") throw new Error("no user 7");
+    return k;
+  });
+  return (
+    <div>
+      <Loading fallback={<i>outer loading</i>}>
+        <b>{outer()}</b>
+        <Errored fallback={(e: any) => <p>failed: {e().message}</p>}>
+          <Loading fallback={<i>loading</i>}>
+            <span>user:{user()}</span>
+          </Loading>
+        </Errored>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
 // used to return the thunk unresolved for the enclosing boundary to unwrap —
@@ -2817,9 +2907,6 @@ export const scenarios: Scenario[] = [
     App: BareClientLateFinal,
     async: true,
     expectedText: "widgettail",
-    // The live rejected swap splices the rejection template's single-space
-    // text node into the range (see expectedTextStreamed).
-    expectedTextStreamed: " widgettail",
     serverText: "wait"
   },
   {
@@ -2827,9 +2914,39 @@ export const scenarios: Scenario[] = [
     App: PreflushRejection,
     async: true,
     expectedText: "caughttail",
-    // Pre-flush the rejected boundary inlines to an empty region: neither
-    // fallback reaches the server HTML — only the static sibling.
-    serverText: "tail"
+    // Pre-flush the rejected boundary inlines the Errored fallback the
+    // server drew for it (#4287).
+    serverText: "caught tail"
+  },
+  {
+    name: "errored-section-loading-postflush-rejection-4287",
+    App: PostflushRejectionNested,
+    async: true,
+    expectedText: "failed: no user 7tail",
+    serverText: "title loading tail",
+    update: () => setNestedKey("u8"),
+    expectedTextAfterUpdate: "titleuser:u8tail"
+  },
+  {
+    name: "errored-loading-parked-rejection-4287",
+    App: PostflushRejectionParked,
+    async: true,
+    expectedText: "outerfailed: no user 7tail",
+    serverText: "outer loading tail failed: no user 7"
+    // No update pass: hydrated mid-stream, the memo re-asks on the outer
+    // boundary's resume (as it does on `next`), so the Errored holds the
+    // server's fallback until reset() rather than tracking the memo.
+  },
+  {
+    name: "errored-loading-postflush-rejection-4287",
+    App: PostflushRejection,
+    async: true,
+    expectedText: "failed: no user 7tail",
+    // Shell: the loading fallback; the fragment: the Errored fallback.
+    serverText: "loading tail failed: no user 7",
+    update: () => setPostflushKey("u8"),
+    expectedTextAfterUpdate: "user:u8tail",
+    stableSelector: "div"
   },
   {
     name: "errored-thunk-fallback-under-errored",

@@ -306,6 +306,9 @@ let _snapshotRootOwner: Owner | null = null;
 // The boundary owner whose resume window is open (null during a root pass,
 // which claims everything). Reached as `sharedConfig.isClaiming`.
 let _claimOwner: Owner | null = null;
+// The claim window over no owner: a hydrated `<Errored>`'s content run,
+// where nothing claims (hydratedCreateErrorBoundary).
+const NO_CLAIM = {} as Owner;
 function isClaiming(): boolean {
   if (!_claimOwner) return true;
   let owner: Owner | null = getOwner();
@@ -1293,9 +1296,7 @@ function hydratedCreateErrorBoundary<T, U>(
         // A later run claims nothing either way: claims are read only while
         // hydrating.
         () =>
-          _hydratingValue
-            ? hydrateWindow("", fn, undefined, ((o = getOwner()), {} as Owner))
-            : fn(),
+          _hydratingValue ? hydrateWindow("", fn, undefined, ((o = getOwner()), NO_CLAIM)) : fn(),
         (e, reset) => ((o = 0), fallback(e, reset))
       );
       // No fallback yet: the content ran clean. Hold the server's fallback
@@ -2853,7 +2854,18 @@ function hydratedCreateLoadingBoundary<T, U>(
       // A parked fragment has settled but not swapped: it waits like a pending one.
       const s = fr && typeof fr === "object" ? (fr.s === 1 && fragmentParked(id) ? 0 : fr.s) : 0;
 
-      if (s === 1 && !assetPromise && !fragmentSuperseded(id)) {
+      // Inside a hydrated `<Errored>`'s content run, which claims no DOM (the
+      // markup is the server's fallback for the failure, #4287), the
+      // fragment is never claimed: the content runs now with its data
+      // adopted, so the Errored holds the client's own error and tracks its
+      // inputs (#4273).
+      const unclaimed = _claimOwner === NO_CLAIM;
+      // Nothing else consumes a rejected `_fr` promise then — swallow it so
+      // a rejected fragment (error finalize or a client-hole handoff) doesn't
+      // surface as an unhandled rejection.
+      if (s === 2 || unclaimed) (fr as Promise<never>).catch?.(noop);
+
+      if (unclaimed || (s === 1 && !assetPromise && !fragmentSuperseded(id))) {
         // Fragment already settled and swapped in ($df ran before hydration):
         // the content is in the DOM, so hydrate straight through. The fallback
         // only hydrates when it is actually showing — rendering it here would
@@ -2895,13 +2907,9 @@ function hydratedCreateLoadingBoundary<T, U>(
 
       if (s === 1 || s === 2) {
         if (s === 2) {
-          // Rejected stream fragments swap to an empty template; any outer error fallback
-          // has to be created as fresh client DOM, not claimed from server markup.
-          // Nothing else consumes the settled-rejected `_fr` promise once this
-          // branch takes over — swallow it so a rejected fragment (error
-          // finalize or a client-hole handoff) doesn't surface as an
-          // unhandled rejection.
-          (fr as Promise<never>).catch?.(noop);
+          // Rejected stream fragments swap to an empty template (or, under a
+          // hydrated `<Errored>`, the fallback it claims — above); any outer
+          // error fallback here is created as fresh client DOM.
           // Observe: the fresh render is a "recovery" record; prod folds the
           // branch and `recover` with it.
           const resumeRejected = IS_OBSERVE
@@ -2930,6 +2938,12 @@ function hydratedCreateLoadingBoundary<T, U>(
       // for this resume to claim instead of holding it; if the swap already
       // arrived and was held awaiting a claimant, replay it now.
       claimFragment(id);
+      const hy = (globalThis as any)._$HY;
+      // Revealed ahead of its `_fr` settlement (two scripts on the wire; an
+      // async entry can run between them, #4074): the fallback is gone and
+      // the content is in the DOM, so render nothing until the resume
+      // adopts it.
+      const revealed = hy.v?.[id];
       waitAndResume(
         fr,
         shouldHydrate =>
@@ -2944,18 +2958,18 @@ function hydratedCreateLoadingBoundary<T, U>(
                 const assets = boundaryAssets(id);
                 assets ? waitAndResume(true, resume, assets) : resume(true);
               })
-            : IS_OBSERVE
-              ? recover(id, registeredAt, resume)
-              : resume(false),
+            : // Rendered fresh. A rejected fragment swapped in over the
+              // claimed fallback left its nodes — the server's outcome for
+              // the failure, which `$dfr` lists in the reveal record
+              // (#4287) — beside the range the fresh render takes: clear
+              // them first.
+              (revealed || hy.v?.[id]?.forEach?.((n: ChildNode) => n.remove()),
+              IS_OBSERVE ? recover(id, registeredAt, resume) : resume(false)),
         assetPromise,
         false,
         fragmentAbort(id)
       );
-      // Revealed ahead of its `_fr` settlement (two scripts on the wire; an
-      // async entry can run between them, #4074): the fallback is gone and
-      // the content is in the DOM, so render nothing until the resume
-      // adopts it.
-      return (globalThis as any)._$HY.v?.[id] ? undefined : fallback();
+      return revealed ? undefined : fallback();
     }
 
     if (assetPromise && !sharedConfig.has!(id)) {

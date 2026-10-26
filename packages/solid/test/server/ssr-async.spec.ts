@@ -1050,7 +1050,7 @@ describe("Loading SSR Async", () => {
       ).toBe(true);
     });
 
-    test("pre-flush Loading rejection rides the fragment channel, not the outer Errored (#2997)", async () => {
+    test("pre-flush Loading rejection rides the fragment channel with the outer Errored's fallback (#2997, #4287)", async () => {
       const { context, fragmentResults, fragmentErrors, fragmentSettles, serialized } =
         createMockSSRContext({
           fragmentFlushed: false
@@ -1093,30 +1093,27 @@ describe("Loading SSR Async", () => {
       await tick();
 
       // The fragment channel owns the error once the boundary registered:
-      // done(undefined, err) settles the fragment (pre-flush the renderer
-      // inlines the placeholder away and rejects `<key>_fr`; the client
-      // re-renders the subtree fresh and its Errored catches). The outer
-      // Errored's handler must NOT run at async time — its rendered fallback
-      // would have no consumer (the accessor pull is long gone), and the
-      // serialized error record it leaves at the boundary id sends the
-      // hydrating client claiming fallback DOM that was never emitted — the
-      // #2997 blank page.
-      expect(fallbackCalls).toBe(0);
-      expect(fragmentSettles).toEqual([{ key: "t000", value: undefined, error: fetchError }]);
+      // done(value, err) settles the fragment (pre-flush the renderer
+      // inlines the placeholder and rejects `<key>_fr`). The Loading is all
+      // of the outer Errored's content, so it is asked for its outcome: its
+      // fallback is the fragment's markup, and the error it serializes at
+      // its id is what the hydrating client adopts that markup with (#4287).
+      expect(fallbackCalls).toBe(1);
+      expect(fragmentSettles).toEqual([
+        { key: "t000", value: "OuterError: Async fetch failed", error: fetchError }
+      ]);
       expect(fragmentResults.size).toBe(0);
       expect(fragmentErrors.size).toBe(0);
       expect(
         [...serialized.values()].some(v => v instanceof Error && v.message === "Async fetch failed")
-      ).toBe(false);
+      ).toBe(true);
 
-      // A later re-creation of the Errored (re-pull) still claims the settled
-      // rejection synchronously — the pull is on the stack, so the fallback
-      // render has a consumer.
+      // A later re-pull of the Errored hands back that same fallback.
       expect(read(result)).toBe("OuterError: Async fetch failed");
       expect(fallbackCalls).toBe(1);
     });
 
-    test("outer Errored stays out of post-flush Loading rejection ownership", async () => {
+    test("outer Errored draws its fallback for a post-flush Loading rejection it is filled by (#4287)", async () => {
       const { context, fragmentResults, fragmentErrors, serialized } = createMockSSRContext({
         fragmentFlushed: true
       });
@@ -1157,14 +1154,14 @@ describe("Loading SSR Async", () => {
       d.reject(fetchError);
       await tick();
 
-      expect(fallbackCalls).toBe(0);
+      expect(fallbackCalls).toBe(1);
       expect(fragmentResults.size).toBe(1);
-      expect([...fragmentResults.values()][0]).toBeUndefined();
+      expect([...fragmentResults.values()][0]).toBe("OuterError: Async fetch failed");
       expect(fragmentErrors.size).toBe(1);
       expect([...fragmentErrors.values()][0]).toBe(fetchError);
       expect(
         [...serialized.values()].some(v => v instanceof Error && v.message === "Async fetch failed")
-      ).toBe(false);
+      ).toBe(true);
     });
 
     test("Loading with nested Errored resolves mixed success and error content", async () => {

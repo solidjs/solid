@@ -3704,9 +3704,11 @@ export function repeat<T>(
  * rendered, never a blank): the nearest server `<Errored>` answers with
  * its fallback as markup; a `<Loading>` passes the question up; a handler
  * that belongs to no server `<Errored>` answers `undefined` — the error
- * escapes the component.
+ * escapes the component. Outside a server component `outcome` is the
+ * asking `<Loading>`'s id, and an `<Errored>` answers only when that
+ * Loading is all of its content (#4287).
  */
-export type BoundaryErrorHandler = (err: any, outcome?: true) => string | undefined | void;
+export type BoundaryErrorHandler = (err: any, outcome?: true | string) => string | undefined | void;
 
 const ErrorContext: Context<BoundaryErrorHandler | null> = {
   id: Symbol("ErrorContext"),
@@ -3758,7 +3760,7 @@ export function runWithBoundaryErrorContext<T>(
   onError: (
     err: any,
     parentHandler: BoundaryErrorHandler | null,
-    outcome?: true
+    outcome?: true | string
   ) => string | undefined | void,
   context?: NonNullable<typeof sharedConfig.context>,
   boundaryId?: string
@@ -4108,6 +4110,8 @@ export function createErrorBoundary<T, U>(
   // children — re-running would recreate the async work from scratch, which
   // is pending again on every pass and can never settle (#2809 SSR loop).
   let pending: { t: string[]; h: Function[]; p: Promise<any>[] } | undefined;
+  // The content's last resolved markup (see renderOutcome).
+  let shown: any;
   // The client boundary is two computeds under `owner`: one runs `fn`, the
   // next flattens its result. A zero-arg function `fn` hands back — a nested
   // boundary's accessor, a function child — is unwrapped inside that second
@@ -4152,6 +4156,7 @@ export function createErrorBoundary<T, U>(
       resolved = resolveIn(() => ctx!.resolve(ctx!.escape(value)));
     }
     pending = resolved?.p?.length ? resolved : undefined;
+    shown = resolved;
     if (pending) {
       // Propagate the FINAL classification through the aggregate: with a
       // client hole in the set, the combined promise can never settle, and
@@ -4260,8 +4265,23 @@ export function createErrorBoundary<T, U>(
   // the error escapes the component as the frame's own error (the outward
   // face). A fallback still resolving (an async hole in it) has no finished
   // markup to answer with and escapes the same way.
-  const renderOutcome = (err: any): string | undefined => {
-    if (!ctx || !inServerComponentScope(owner as unknown as SSROwner)) return undefined;
+  // Outside a server component (`outcome` is the asking `<Loading>`'s id,
+  // #4287) this boundary answers only when that Loading's placeholder is
+  // all of its content: the fallback then lands where the client twin draws
+  // it, and the error serialized here lets it adopt that markup. Deeper in
+  // the content it answers nothing — the client renders the failure fresh.
+  const renderOutcome = (err: any, outcome: true | string): string | undefined => {
+    let t = shown && shown.t;
+    if (Array.isArray(t)) t = t[0];
+    if (
+      !ctx ||
+      (outcome === true
+        ? !inServerComponentScope(owner as unknown as SSROwner)
+        : typeof t !== "string" ||
+          !t.startsWith(`<template id="pl-${outcome}"`) ||
+          !t.endsWith(`<!--pl-${outcome}-->`))
+    )
+      return undefined;
     // Rendered from a resume loop, where the render context the compiled
     // template reads has long moved past this boundary's: restore it.
     const prevCtx = sharedConfig.context;
@@ -4294,7 +4314,7 @@ export function createErrorBoundary<T, U>(
         result = ctx
           ? runWithBoundaryErrorContext(owner, resolve, (err, _parent, outcome) => {
               if (err instanceof NotReadyError) throw err;
-              if (outcome) return renderOutcome(err);
+              if (outcome !== undefined) return renderOutcome(err, outcome);
               handled = true;
               result = handleError(err);
               throw err;

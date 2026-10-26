@@ -18,8 +18,10 @@
  *    the position keeps the boundary's own markup, its fallback.
  *
  * `_fr` still rejects (the client's dev diagnostic, c1), the keyed error
- * chunk still rides. Outside a server component nothing changes: the blank
- * the client twin renders fresh over.
+ * chunk still rides. Outside a server component an `<Errored>` answers only
+ * for a `<Loading>` that is all of its content (#4287): its fallback is
+ * drawn there and the error serialized at its id, for the client twin to
+ * adopt; deeper in its content the blank the client renders fresh over.
  */
 import { describe, expect, it } from "vitest";
 import vm from "node:vm";
@@ -64,7 +66,8 @@ const collectDocument = (code: () => any) =>
 /** Every `<template id=K>…</template>` of a document, by key. */
 function templates(html: string) {
   const out: Record<string, string> = {};
-  for (const m of html.matchAll(/<template id="([^"]+)">([\s\S]*?)<\/template>/g)) out[m[1]] = m[2];
+  for (const m of html.matchAll(/<template id="([^"]+)"(?: e)?>([\s\S]*?)<\/template>/g))
+    out[m[1]] = m[2];
   return out;
 }
 
@@ -251,7 +254,7 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
       ]);
     });
 
-    it("outside a server component nothing changes: the blank the client twin renders fresh over", async () => {
+    it("outside a server component: the fallback of an <Errored> the <Loading> fills, for the client twin to adopt (#4287)", async () => {
       const App = () => {
         const value = lateReject("plain");
         return (
@@ -259,6 +262,27 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
             <Loading fallback={<i>loading</i>}>
               <b>{value()}</b>
             </Loading>
+          </Errored>
+        );
+      };
+      const html = await collectDocument(() => <App />);
+      const tpls = templates(html);
+      const key = Object.keys(tpls).find(k => !k.startsWith("pl-"))!;
+      expect(tpls[key]).toContain("app-fallback");
+      // The error the client twin adopts the fallback with, at the Errored id.
+      expect(html).toContain(`_$HY.r["1"]=`);
+    });
+
+    it("outside a server component, deeper in the <Errored>'s content: the blank the client twin renders fresh over", async () => {
+      const App = () => {
+        const value = lateReject("plain");
+        return (
+          <Errored fallback={<em>app-fallback</em>}>
+            <section>
+              <Loading fallback={<i>loading</i>}>
+                <b>{value()}</b>
+              </Loading>
+            </section>
           </Errored>
         );
       };
