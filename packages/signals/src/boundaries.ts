@@ -138,6 +138,8 @@ const BOUNDARY = Symbol(__DEV__ ? "boundary" : "");
  * slot of (reveal.ts); a boundary clears it for its content — only direct
  * children are slots. */
 export const REVEAL = Symbol(__DEV__ ? "reveal" : "");
+/** Context key: the boundary whose fallback a node was created in. */
+const FALLBACK = Symbol(__DEV__ ? "fallback" : "");
 
 /** Reveal order (reveal.ts), installed when something imports
  * `createRevealOrder`: a Loading boundary registers as a slot of the
@@ -268,6 +270,21 @@ function hiddenBy(r: Computed<any>): Boundary | undefined {
   for (let b: Boundary | null | undefined = boundaryOf(r); b; b = b._parent)
     if (b._fallback) return b;
   return undefined;
+}
+
+/** `hiddenHook`: behind a fallback, or in a fallback that is not the display
+ * — its boundary's last pass chose the content, staged with the frame whose
+ * commit disposes it. A pending read there is not on screen and holds
+ * nothing: the content that replaced it reveals when it lands (S-22 row 3′,
+ * #4268). */
+function offScreen(r: Computed<any>): Boundary | undefined {
+  for (
+    let f = r._context[FALLBACK] as Boundary | undefined;
+    f;
+    f = f._owner._context[FALLBACK] as any
+  )
+    if (!f._fallback) return f;
+  return hiddenBy(r);
 }
 
 /** `heldRunHook` (scheduler.ts): a queued run behind a fallback waits for the reveal
@@ -762,7 +779,17 @@ function fallback<T>(b: Boundary): T {
   // ids a build under the output would; disposed once content is on screen.
   if (b._fb === null) {
     const out = getOwner() as Computed<any>;
-    b._fb = runWithOwner(out._parent, () => computed(() => b._show(b), { id: out.id }))!;
+    b._fb = runWithOwner(out._parent, () =>
+      computed(
+        () => {
+          // What it builds is marked as `b`'s fallback (`offScreen`).
+          const fb = getOwner()!;
+          if (fb._context[FALLBACK] !== b) fb._context = { ...fb._context, [FALLBACK]: b };
+          return b._show(b);
+        },
+        { id: out.id }
+      )
+    )!;
   }
   return read(b._fb) as T;
 }
@@ -858,7 +885,7 @@ installBoundaryHooks(
     (node._statusFlags & STATUS_UNINITIALIZED
       ? catchStatus(node, STATUS_PENDING)
       : armedOver(node)),
-  hiddenBy,
+  offScreen,
   boundarySeam,
   heldRun
 );
