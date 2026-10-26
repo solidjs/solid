@@ -11,7 +11,14 @@
  * Server markup captured from renderToStream of the identical components.
  */
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
-import { createMemo, createSignal, flush, enableHydration } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  flush,
+  enableHydration,
+  onSettled
+} from "solid-js";
 import { Errored, hydrate } from "@solidjs/web";
 
 enableHydration();
@@ -120,11 +127,9 @@ describe("#4273: Errored hydrated in its error state", () => {
     expect(container.textContent).toBe("pear");
   });
 
-  // OPEN in the prototype: the content's fresh nodes reach the parent's
-  // insert during the claim pass, which keeps the server's nodes for a
-  // render that never entered the DOM (insertExpression's phantom rule), so
-  // the server's fallback stays on screen over live, detached content.
-  test.fails("content that succeeds on the client replaces the server's fallback", async () => {
+  test("content that runs clean on the client keeps the server's fallback until it changes", async () => {
+    let setLabel!: (v: string) => void;
+    let resetFn!: () => void;
     (globalThis as any)._$HY = {
       events: [],
       completed: new WeakSet(),
@@ -132,10 +137,53 @@ describe("#4273: Errored hydrated in its error state", () => {
     };
     container.innerHTML = "<main _hk=0><p _hk=20>server only</p></main>";
     const main = container.querySelector("main");
+    const p = container.querySelector("p");
+    dispose = hydrate(() => {
+      const [label, _setLabel] = createSignal("client");
+      setLabel = _setLabel;
+      return (
+        <main>
+          <Errored
+            fallback={(e: any, reset) => {
+              resetFn = reset;
+              return <p>{e().message}</p>;
+            }}
+          >
+            <p>{label()}</p>
+          </Errored>
+        </main>
+      );
+    }, container);
+    await drain();
+    // Hydration is over: the claimed fallback stays up, with the server's error.
+    expect(container.querySelector("main")).toBe(main);
+    expect(container.querySelector("p")).toBe(p);
+    expect(container.textContent).toBe("server only");
+
+    // An input of the content changes: the content shows.
+    setLabel("changed");
+    await drain();
+    expect(container.innerHTML).toBe('<main _hk="0"><p>changed</p></main>');
+    expect(resetFn).toBeDefined();
+  });
+
+  test("reset() shows content that ran clean on the client", async () => {
+    let resetFn!: () => void;
+    (globalThis as any)._$HY = {
+      events: [],
+      completed: new WeakSet(),
+      r: { "1": new Error("server only") }
+    };
+    container.innerHTML = "<main _hk=0><p _hk=20>server only</p></main>";
     dispose = hydrate(
       () => (
         <main>
-          <Errored fallback={(e: any) => <p>{e().message}</p>}>
+          <Errored
+            fallback={(e: any, reset) => {
+              resetFn = reset;
+              return <p>{e().message}</p>;
+            }}
+          >
             <p>client</p>
           </Errored>
         </main>
@@ -143,7 +191,44 @@ describe("#4273: Errored hydrated in its error state", () => {
       container
     );
     await drain();
-    expect(container.querySelector("main")).toBe(main);
+    expect(container.textContent).toBe("server only");
+    resetFn();
+    await drain();
     expect(container.innerHTML).toBe('<main _hk="0"><p>client</p></main>');
+  });
+
+  test("user effects of content held behind the fallback wait for its reveal", async () => {
+    const log: string[] = [];
+    let setLabel!: (v: string) => void;
+    (globalThis as any)._$HY = {
+      events: [],
+      completed: new WeakSet(),
+      r: { "1": new Error("server only") }
+    };
+    container.innerHTML = "<main _hk=0><p _hk=20>server only</p></main>";
+    dispose = hydrate(() => {
+      const [label, _setLabel] = createSignal("client");
+      setLabel = _setLabel;
+      function Content() {
+        createEffect(label, v => void log.push(`effect ${v}`));
+        onSettled(() => void log.push("settled"));
+        return <p>{label()}</p>;
+      }
+      return (
+        <main>
+          <Errored fallback={(e: any) => <p>{e().message}</p>}>
+            <Content />
+          </Errored>
+        </main>
+      );
+    }, container);
+    await drain();
+    expect(container.textContent).toBe("server only");
+    expect(log).toEqual([]);
+
+    setLabel("changed");
+    await drain();
+    expect(container.textContent).toBe("changed");
+    expect(log).toEqual(["effect changed", "settled"]);
   });
 });

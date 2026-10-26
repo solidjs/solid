@@ -118,6 +118,9 @@ interface Boundary {
   /** User effects whose run came due behind the fallback: re-queued at the
    * reveal (`heldRun`). */
   _runs: Set<Computed<any>> | null;
+  /** Hydration: the content ran clean behind the fallback the server drew,
+   * which stays up until the content changes (`holdFallback`). */
+  _held?: boolean;
   /** Reveal order (reveal.ts): the controller that owns this slot until it
    * has shown content, and the state it forces — the fallback (`_gated`),
    * or nothing at all (`_collapsed`). */
@@ -284,6 +287,12 @@ function hiddenBy(r: Computed<any>): Boundary | undefined {
 function heldRun(node: Computed<any>): boolean {
   const b = hiddenBy(node);
   if (b === undefined) return false;
+  // A render update behind a held fallback: an input of the content
+  // changed, and the hold ends as `reset()` ends it.
+  if (b._held && (node as any)._type === EFFECT_RENDER) {
+    b._held = false;
+    reset(b);
+  }
   (b._runs ??= new Set()).add(node);
   return true;
 }
@@ -691,7 +700,7 @@ function createBoundary<T>(
       // it never displayed — the engine knows the swap it was staged with).
       if (__OBSERVE__ && b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
         attrHooks.boundaryFallback(b, b._tree, false);
-      b._fallback = false;
+      b._fallback = b._held = false;
       // The fallback dies when the content that replaces it is on screen —
       // with this flush's commits when the pass is the frame's, at the
       // landing when the frame parks (the run is held with it, as the old
@@ -842,6 +851,30 @@ export function createLoadingBoundary<T, U>(
  * }
  * ```
  */
+/**
+ * @internal Hydration: called from the content's run of an error boundary
+ * the server rendered in its fallback, once the content ran clean on the
+ * client. The claimed fallback stays up, showing the server's `error`,
+ * until a render update under it (an input of the content changed), the
+ * content re-running, or `reset()`. A content that already failed on the
+ * client holds its own error instead.
+ */
+export function holdFallback(error: unknown): void {
+  const b = boundaryOf(getOwner()!)!;
+  if (b._readers.size) return;
+  let held = (b._held = true);
+  caught(
+    b,
+    computed(() => {
+      if (held) {
+        held = false;
+        throw error;
+      }
+    }),
+    error
+  );
+}
+
 export function createErrorBoundary<T, U>(
   fn: () => T,
   fallback: (error: Accessor<unknown>, reset: () => void) => U

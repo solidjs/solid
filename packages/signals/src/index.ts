@@ -123,5 +123,5 @@ export { affects } from "./affects.js";
 export { createDeferred } from "./deferred.js";
 export { from, type FromSource } from "./from.js";
 export { flatten } from "./flatten.js";
-export { createLoadingBoundary, createErrorBoundary } from "./boundaries.js";
+export { createLoadingBoundary, createErrorBoundary, holdFallback } from "./boundaries.js";
 export { createRevealOrder, type RevealOrder } from "./reveal.js";

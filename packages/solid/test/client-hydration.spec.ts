@@ -178,7 +178,7 @@ describe("Error Boundary Hydration", () => {
     expect(read()).toBe("item 3");
   });
 
-  test("createErrorBoundary hydrated from a server error holds the client's own error once hydration ends (#4273)", () => {
+  test("createErrorBoundary hydrated from a server error holds the client's own error (#4273)", () => {
     startHydration({ t0: new Error("server error") });
 
     let fails = true;
@@ -203,20 +203,44 @@ describe("Error Boundary Hydration", () => {
       { id: "t" }
     );
     flush();
-    expect(read()).toBe("fallback: server error");
-
-    // At hydration end the content's own run throws: the boundary holds the
-    // client error, and the fallback receives it.
-    stopHydration();
-    flush();
+    // The content's own run in the hydration pass throws: the boundary holds
+    // the client error, and the fallback receives it.
     expect(read()).toBe("fallback: client error");
     expect((seen[seen.length - 1] as Error).message).toBe("client error");
 
     // reset() clears the client error.
+    stopHydration();
     fails = false;
     resetFn();
     flush();
     expect(read()).toBe("recovered");
+  });
+
+  test("createErrorBoundary content that runs clean keeps the server's fallback until an input changes (#4273)", () => {
+    startHydration({ t0: new Error("server error") });
+
+    const [label, setLabel] = coreSignal("client");
+    let read!: () => unknown;
+    createRoot(
+      () => {
+        read = createErrorBoundary(
+          () => label(),
+          (err: any) => `fallback: ${err().message}`
+        );
+        read();
+      },
+      { id: "t" }
+    );
+    flush();
+    expect(read()).toBe("fallback: server error");
+
+    stopHydration();
+    flush();
+    expect(read()).toBe("fallback: server error");
+
+    setLabel("changed");
+    flush();
+    expect(read()).toBe("changed");
   });
 
   test("createErrorBoundary handles non-Error serialized values", () => {
@@ -510,7 +534,7 @@ describe("Error Boundary Hydration", () => {
     expect(read(result)).toBe("Test Item");
   });
 
-  test("Loading inner Errored hydrated with a server-only error renders client content once hydration ends", async () => {
+  test("Loading inner Errored reset recovers after hydrated server error", async () => {
     let resolveLoading!: () => void;
     const loading = new Promise<void>(r => {
       resolveLoading = r;
@@ -556,12 +580,8 @@ describe("Error Boundary Hydration", () => {
     await Promise.resolve();
     flush();
 
-    // The resume ends hydration: the content runs once for real and, since
-    // the error was server-only, the client's answer replaces it (#4273).
-    expect(resetFn).toBeDefined();
-    expect(read(result)).toBe("Bad Item");
+    expect(read(result)).toBe("ItemError: Item bad-item not found");
 
-    // The content is live: it tracks its inputs, and a reset is harmless.
     setId("1");
     resetFn!();
     flush();

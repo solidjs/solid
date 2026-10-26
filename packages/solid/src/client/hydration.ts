@@ -3,6 +3,7 @@ import {
   NotReadyError,
   createLoadingBoundary as coreLoadingBoundary,
   createErrorBoundary as coreErrorBoundary,
+  holdFallback,
   flush,
   runWithOwner,
   onCleanup,
@@ -1284,12 +1285,18 @@ function hydratedCreateErrorBoundary<T, U>(
     // The server drew the fallback; the client's own run decides. The
     // content runs now with its data adopted by id but claiming no DOM —
     // the markup is the fallback's — so what it throws is the client's
-    // error, held and tracked like any other (#4273).
+    // error, held and tracked like any other. Content that runs clean keeps
+    // the server's fallback up until it changes (#4273).
     if (err !== undefined) {
       _unclaimed = true;
+      let first = true;
       return coreErrorBoundary(() => {
+        const hold = first;
+        first = false;
         (getOwner() as any)._uc = 1;
-        return fn();
+        const v = fn();
+        if (hold) holdFallback(err);
+        return v;
       }, fallback);
     }
   }
