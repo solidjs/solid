@@ -18,7 +18,8 @@
  * the boundary catches first and the fragment resolves clean (that shape is
  * the serialized-race case in the sibling spec). An `<Errored>` OUTSIDE the
  * boundary does not help pre-shell: once the fragment is registered its
- * channel owns error routing (#2997), so `_fr` rejects all the same.
+ * channel owns error routing (#2997), so `_fr` rejects all the same (the
+ * region inlines the Errored's fallback, #4287).
  *
  * Detection as in the sibling spec: each test owns the process's
  * `unhandledRejection` listeners for its duration, so a leak fails THIS test.
@@ -116,7 +117,7 @@ describe("a fragment whose <key>_fr rejects while it waits in the pre-shell batc
     expectRoutedToClient(value, errors, "refused");
   });
 
-  test("the same read with an <Errored> OUTSIDE the <Loading> — the fragment channel still owns the error", async () => {
+  test("the same read with an <Errored> OUTSIDE the <Loading> — `_fr` still rejects, the Errored's fallback inlines", async () => {
     const { run, errors } = renderHeld(() => {
       const data = createMemo(async (): Promise<string> => {
         throw new Error("refused");
@@ -131,7 +132,11 @@ describe("a fragment whose <key>_fr rejects while it waits in the pre-shell batc
     });
     const { escaped, value } = await watchRejections(run);
     expect(messages(escaped)).toEqual([]);
-    expectRoutedToClient(value, errors, "refused");
+    const markup = stripScripts(value);
+    expect(markup).toMatch(/<span[^>]*>slow<\/span>/);
+    expect(markup).toMatch(/<!--\$--><p[^>]*>Error: refused<\/p><!--\/--><\/div>/);
+    expect(value).toContain(`new Error("refused")`);
+    expect(errors).toEqual(["refused"]);
   });
 
   test("a component body throwing synchronously on the retry pass, after its read resolved", async () => {

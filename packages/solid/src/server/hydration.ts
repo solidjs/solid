@@ -361,8 +361,12 @@ function ssrLoadingBoundary(
 
   // What the fragment carries for a failure once it is registered (its
   // channel owns the routing — see runLoadingPhase). Outside a server
-  // component: nothing — the blank the client twin renders fresh over, as
-  // always (`hydratedCreateLoadingBoundary`'s rejected arm). Inside one
+  // component (asked with this boundary's id, #4287): the fallback of an
+  // `<Errored>` this boundary is all the content of — drawn where the client
+  // twin draws it, its error serialized at the Errored id so the hydrating
+  // client adopts that markup; otherwise nothing — the blank the client
+  // twin renders fresh over (`hydratedCreateLoadingBoundary`'s rejected
+  // arm). Inside one
   // (frames-rulings 3.3, A0 corollary 4 inward — the position shows what the
   // SERVER rendered for the outcome, never a blank, never a client-invented
   // state; there is no twin): the nearest server `<Errored>`'s fallback for
@@ -375,10 +379,10 @@ function ssrLoadingBoundary(
   // hydration-free scope's; its head and asset registrations drop with the
   // error, as the error path drops them today.
   function errorOutcome(err: any): { value?: string; escaped?: { frame?: string } } | undefined {
-    if (!inServerComponentScope(o as any)) return undefined;
-    const rendered = parentHandler ? parentHandler(err, true) : undefined;
+    const scoped = inServerComponentScope(o as any);
+    const rendered = parentHandler ? parentHandler(err, scoped || id) : undefined;
     if (typeof rendered === "string") return { value: rendered };
-    return { value: plainFallback(), escaped: { frame: ctx.frameId } };
+    if (scoped) return { value: plainFallback(), escaped: { frame: ctx.frameId } };
   }
   // Settle the fragment with the failure. The server error hook hears of it
   // first (the `_fr` rejection and a transport sink's error chunk read the
@@ -412,7 +416,7 @@ function ssrLoadingBoundary(
       (err: any, handler, outcome) => {
         // The outcome question (see errorOutcome) is a `<Loading>`'s to pass
         // up: it owns no fallback for an error.
-        if (outcome) return handler ? handler(err, true) : undefined;
+        if (outcome !== undefined) return handler ? handler(err, outcome) : undefined;
         handledRenderError = err;
         if (done) {
           // Once the fragment is registered, its channel owns error routing:

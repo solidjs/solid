@@ -261,7 +261,7 @@ describe("#3569 (a) a bare child's rejection routes like a template hole's", () 
     expect(heard.map(h => h.context.handling)).toEqual(["client"]);
   });
 
-  test("await: under <Errored>, the bare shape still rejects the fragment without a boundary error record (#2997)", async () => {
+  test("await: under <Errored>, the bare shape rejects the fragment with the Errored's fallback drawn (#2997, #4287)", async () => {
     const { heard, onError } = recorder();
     const App = () => {
       const data = useLateReject();
@@ -282,14 +282,15 @@ describe("#3569 (a) a bare child's rejection routes like a template hole's", () 
     const html = (value as { value: string }).value;
     expect(bare(html)).toContain("<span>tail</span>");
     expect(html).toContain("fetch failed");
-    expect(bare(html)).not.toContain("caught");
-    // The memo's rejected flight ("0", created in App) + the fragment's
-    // `_fr` — and nothing else: the Errored carries no record, the server
-    // rendered no fallback DOM for it. (Unfixed, a third record "2" carried
-    // the error: the bare throw escalated to the parent handler, which
-    // serialized a fallback record for DOM that was never emitted.)
-    expect(hydrationRecordKeys(html).sort()).toEqual(["0", "200_fr"]);
-    expect(heard.map(h => h.context.handling)).toEqual(["client"]);
+    // The Loading is all of the Errored's content: its fallback is drawn
+    // at the Loading's position (#4287).
+    expect(bare(html)).toContain("caught");
+    // The memo's rejected flight ("0", created in App), the fragment's
+    // `_fr`, and the error at the Errored id ("2") for the fallback the
+    // server drew — the record the hydrating client adopts it with. The
+    // bare throw is routed once (#2997): the Errored reports it.
+    expect(hydrationRecordKeys(html).sort()).toEqual(["0", "2", "200_fr"]);
+    expect(heard.map(h => h.context.handling)).toEqual(["fallback"]);
   });
 
   test("the synchronous first pass is unchanged: a sync throw under <Loading> in <Errored> renders the parent's fallback", async () => {
