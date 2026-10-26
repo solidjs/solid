@@ -201,6 +201,17 @@ let virtual_tsx =
 
 `CompileOptions::default()` uses `module_name: "@solidjs/web"` and the same control-flow `built_ins` as the Babel plugin. Build with `--no-default-features` when embedding without the Node-API adapter.
 
+A frontend that builds its own Oxc AST instead of source text hands the program to `compile_program`, which runs the same back ends `compile` reaches after parsing. The program must be allocated in the allocator passed beside it, and `source` must be its `source_text`: the authored text its spans index, so source maps and diagnostics land on authored positions (keep authored spans on carried-over nodes and leave synthesized nodes at `SPAN`). The caller must build against the same Oxc release as this crate.
+
+```rust
+use oxc_allocator::Allocator;
+use solidjs_compiler::{compile_program, CompileOptions};
+
+let allocator = Allocator::default();
+let program = my_frontend::lower(&allocator, authored_source)?; // oxc_ast::ast::Program
+let output = compile_program(&allocator, program, authored_source, &CompileOptions::default())?;
+```
+
 TSRX's scoped-CSS engine is exported as `solidjs_compiler::style` for other frontends, in every build (it does not need the `tsrx` feature). It has no dependency on TSRX syntax or Oxc: describe the elements a `<style>` block governs as `Element` values, and `compile_style` returns the scoped stylesheet, its hash, the class map and the ids of the elements to annotate, the same bytes a `.tsrx` file with that stylesheet at that `StyleLocation` gets.
 
 ```rust
