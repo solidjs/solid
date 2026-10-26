@@ -4564,6 +4564,9 @@ export function onSettled(callback: () => void | (() => void)): void {
   if (o?.id != null) getNextChildId(o);
 }
 
+/** No-op on the server: there is no client flush to run after. */
+export function onFlush(_callback: () => void): void {}
+
 // NoInfer utility type (also re-exported from signals, but define for local use)
 type NoInfer<T extends any> = [T][T extends any ? 0 : never];
 

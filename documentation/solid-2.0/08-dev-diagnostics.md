@@ -206,6 +206,12 @@ const handleClick = () => {
 };
 ```
 
+#### `ON_FLUSH_IN_OWNED_SCOPE`
+
+**Message:** "onFlush called in an owned scope (a component body or a computation). It is meant for event handlers and effect callbacks; to run work after this scope's first stable render, use onSettled."
+
+`onFlush` schedules one callback right after the pending flush, without waiting on async work. That is for imperative code: event handlers and effect callbacks (including `createTrackedEffect` and `onSettled` bodies). In a component body or a computation it still runs, but it is almost always the wrong tool there: setup after the first stable render belongs in `onSettled`, and a computation should not schedule side effects at all.
+
 #### `PRIMITIVE_IN_FORBIDDEN_SCOPE`
 
 **Message:** "Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled"
@@ -946,6 +952,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`   | warn       | async          | Async computation outside Loading boundary (non-halting; root mount is deferred)                                                                                  |
 | `CLEANUP_IN_FORBIDDEN_SCOPE`       | error      | lifecycle      | `onCleanup` inside trackedEffect/onSettled                                                                                                                        |
 | `SETTLED_CLEANUP_UNOWNED`          | error      | lifecycle      | `onSettled` returned a cleanup in an unowned (out-of-band) scope                                                                                                  |
+| `ON_FLUSH_IN_OWNED_SCOPE`          | warn       | lifecycle      | `onFlush` called in a component body or computation (meant for event handlers and effect callbacks)                                                               |
 | `PRIMITIVE_IN_FORBIDDEN_SCOPE`     | error      | lifecycle      | Reactive primitive created inside trackedEffect/onSettled                                                                                                         |
 | `PRIMITIVE_IN_EFFECT_CALLBACK`     | error      | lifecycle      | Memo, effect, or root created inside an effect callback or its cleanup, where there is no ambient owner (throws)                                                  |
 | `ACTION_CALLED_IN_OWNED_SCOPE`     | error      | write          | `action()` invoked from a component body or computation                                                                                                           |

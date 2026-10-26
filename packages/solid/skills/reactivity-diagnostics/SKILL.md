@@ -189,6 +189,12 @@ dropped. Call the setup helper from an owned scope (the
 component body), not from an event handler, tracked effect, or another
 `onSettled`.
 
+### ON_FLUSH_IN_OWNED_SCOPE
+
+`onFlush` was called in a component body or a computation; it is meant for
+event handlers and effect callbacks. Use `onSettled` for work after a
+component's first stable render, and keep side effects out of computations.
+
 ### RUN_WITH_DISPOSED_OWNER
 
 `runWithOwner` received an owner that was already disposed; anything created
