@@ -6,10 +6,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+/// Where the `<style>` element starts in its module. Part of the scope hash,
+/// so the same stylesheet at the same position hashes the same everywhere.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StyleLocation<'a> {
     pub filename: &'a str,
+    /// 1-based line of the `<style` opening tag.
     pub line: u32,
+    /// 0-based column of the `<style` opening tag, in UTF-16 code units.
     pub column: u32,
 }
 

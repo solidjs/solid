@@ -201,6 +201,28 @@ let virtual_tsx =
 
 `CompileOptions::default()` uses `module_name: "@solidjs/web"` and the same control-flow `built_ins` as the Babel plugin. Build with `--no-default-features` when embedding without the Node-API adapter.
 
+TSRX's scoped-CSS engine is exported as `solidjs_compiler::style` (with the default `tsrx` feature) for other frontends. It has no dependency on TSRX syntax or Oxc: describe the elements a `<style>` block governs as `Element` values, and `compile_style` returns the scoped stylesheet, its hash, the class map and the ids of the elements to annotate, the same bytes a `.tsrx` file with that stylesheet at that `StyleLocation` gets.
+
+```rust
+use solidjs_compiler::style::{compile_style, Element, ElementKind, StyleInput, StyleKind, StyleLocation};
+
+let elements = [Element {
+    id: 1,
+    kind: ElementKind::Native("div".into()),
+    attributes: Vec::new(),
+    has_spread: false,
+    children: Vec::new(),
+}];
+let output = compile_style(StyleInput {
+    css: "div { color: red }",
+    location: StyleLocation { filename: "view.rx", line: 3, column: 4 },
+    elements: &elements,
+    kind: StyleKind::Block,
+    minify: false,
+})?;
+// output.css, output.hash, output.class_map, output.scoped_elements
+```
+
 The unstable Rust typecheck projection reports embedded ranges in authored UTF-8 bytes. The N-API adapter converts those ranges to UTF-16 code units for JavaScript tooling.
 
 > **Stability:** the Rust API is unstable while the compiler is pre-1.0. Options, output, and error types may change in any release — pin an exact revision when embedding it.
