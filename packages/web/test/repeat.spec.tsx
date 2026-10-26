@@ -480,3 +480,26 @@ describe("Testing each without callback", () => {
 
   test("dispose", () => disposer());
 });
+
+// #4296: the element child form must build its JSX once per row, not once
+// for the function check and again for the value.
+test("element children run once per row", () => {
+  let runs = 0;
+  let div!: HTMLDivElement;
+  const [count, setCount] = createSignal(1);
+  const dispose = createRoot(dispose => {
+    <div ref={div}>
+      <Repeat count={count()}>
+        <span ref={() => runs++}>x</span>
+      </Repeat>
+    </div>;
+    return dispose;
+  });
+  expect(runs).toBe(1);
+  expect(div.innerHTML).toBe("<span>x</span>");
+  setCount(3);
+  flush();
+  expect(runs).toBe(3);
+  expect(div.innerHTML).toBe("<span>x</span><span>x</span><span>x</span>");
+  dispose();
+});
