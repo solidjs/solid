@@ -3008,39 +3008,36 @@ function eventHandler(e, container, state) {
       return node || owner;
     }
   });
-  try {
-    if (resumeNode) {
-      // If the boundary was the target, the inner walk already fired it.
-      // Resume above it so boundary handlers do not run twice.
-      if (resumeNode === e.target)
-        node = resumeNode._$host || resumeNode.parentNode || resumeNode.host;
-      if (node && node !== owner) walkUpTree();
-    } else if (e.composedPath) {
-      const path = e.composedPath();
-      if (path.length) {
-        retarget(path[0]);
-        for (let i = 0; i < path.length; i++) {
-          node = path[i];
-          if (!handleNode()) break;
-          if (node._$host) {
-            node = node._$host;
-            // bubble up from portal mount instead of composedPath
-            walkUpTree();
-            break;
-          }
-          if (node === owner || node.parentNode === owner) {
-            break; // don't bubble above root of event delegation
-          }
+  if (resumeNode) {
+    // If the boundary was the target, the inner walk already fired it.
+    // Resume above it so boundary handlers do not run twice.
+    if (resumeNode === e.target)
+      node = resumeNode._$host || resumeNode.parentNode || resumeNode.host;
+    if (node && node !== owner) walkUpTree();
+  } else if (e.composedPath) {
+    const path = e.composedPath();
+    if (path.length) {
+      retarget(path[0]);
+      for (let i = 0; i < path.length; i++) {
+        node = path[i];
+        if (!handleNode()) break;
+        if (node._$host) {
+          node = node._$host;
+          // bubble up from portal mount instead of composedPath
+          walkUpTree();
+          break;
         }
-      } else walkUpTree();
-    }
-    // fallback for browsers that don't support composedPath
-    else walkUpTree();
-  } finally {
-    // Later native listeners (document, window, outer roots) see the real getters.
-    delete e.target;
-    delete e.currentTarget;
+        if (node === owner || node.parentNode === owner) {
+          break; // don't bubble above root of event delegation
+        }
+      }
+    } else walkUpTree();
   }
+  // fallback for browsers that don't support composedPath
+  else walkUpTree();
+  // Later native listeners (document, window, outer roots) see the real getters.
+  delete e.target;
+  delete e.currentTarget;
 }
 
 function insertExpression(parent, value, current, marker) {
