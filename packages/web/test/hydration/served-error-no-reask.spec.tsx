@@ -13,9 +13,11 @@
  *   error, thrown to the nearest client boundary, the shell's Errored. No
  *   ask. reset() asks, and the recreated graph is live.
  * - `served-error-reread`: mid-hydration (a slow boundary still pending)
- *   the served error stands with no ask; the Errored's reset() is a real
- *   retry, and asks and recovers right away, hydration still running.
- *
+ *   the served error stands with no ask, also when an unrelated client
+ *   write re-runs its reader (a later tracked read that retries the errored
+ *   memo, PJ-R35, with none of its sources changed). A write to its own
+ *   source is a real change, and the Errored's reset() a real retry: each
+ *   asks and recovers right away, hydration still running.
  * - `abandoned-sibling-computes`: a fragment fails on the server (a render
  *   error, no record) while a nested read is still pending; the server
  *   abandons that read. The fresh render takes the served values for the
@@ -181,7 +183,51 @@ describe("a served error mid-hydration", () => {
       expect(servedErrorAskCount()).toBe(asks + 1);
     }));
 
-  test("loaded: the server's error, no ask", () =>
+  test("mid-hydration: a write re-running its reader keeps the server's error; a source write asks", () =>
+    withPage(name, async (container, rest) => {
+      const { scenario } = load(name);
+      const asks = servedErrorAskCount();
+      start(container, scenario.App);
+      await settle();
+      const all = pieces(rest);
+      let i = 0;
+      while (!container.textContent!.includes("failed")) {
+        applyChunk(container, all[i++], false);
+        await settle();
+      }
+      applyChunk(container, all[i++], false);
+      await settle();
+      expect(container.textContent).toBe("failed: no user 7slow loading");
+      expect((globalThis as any)._$HY.done).toBeFalsy();
+      expect(servedErrorAskCount()).toBe(asks);
+
+      // An unrelated write re-runs the reader, which retries the errored
+      // memo: none of its sources changed, so the server's error stands.
+      servedErrorControl.setN!(1);
+      await settle();
+      expect(container.textContent).toBe("failed: no user 7slow loading");
+      expect(servedErrorAskCount()).toBe(asks);
+      servedErrorControl.setN!(2);
+      await settle();
+      expect(servedErrorAskCount()).toBe(asks);
+
+      // A write to its own source is a real change: it asks, and recovers.
+      servedErrorControl.setUid!(8);
+      await settle();
+      expect(servedErrorAskCount()).toBe(asks + 1);
+      expect(container.textContent).toBe("2:u8slow loading");
+      expect((globalThis as any)._$HY.done).toBeFalsy();
+
+      for (; i < all.length; i++) {
+        applyChunk(container, all[i], false);
+        await settle();
+      }
+      await settle();
+      expect(container.textContent).toBe("2:u8slow");
+      expect(servedErrorAskCount()).toBe(asks + 1);
+    }));
+
+  test("loaded: the server's error, no ask; a write re-running its reader keeps it", () =>
     withPage(name, async (container, rest) => {
       const { scenario } = load(name);
       const asks = servedErrorAskCount();
@@ -191,6 +237,12 @@ describe("a served error mid-hydration", () => {
       await settle();
       expect(container.textContent).toBe("failed: no user 7slow");
       expect(servedErrorAskCount()).toBe(asks);
+      // Hydration is over: a later tracked read retries, as on any client.
+      expect((globalThis as any)._$HY.done).toBe(true);
+      servedErrorControl.setN!(1);
+      await settle();
+      expect(servedErrorAskCount()).toBe(asks + 1);
+      expect(container.textContent).toBe("1:u7slow");
     }));
 });
 

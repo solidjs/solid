@@ -668,6 +668,16 @@ export function readHydratedValue(initP: any, refresh: () => void, options?: any
  */
 const latchedOnce = new WeakSet<object>();
 
+/**
+ * A served async node's dry run, in a node of its own (see
+ * readSerializedOrCompute): it re-runs only when one of the node's sources
+ * changed, so a retry of a served error with nothing changed is told from a
+ * source change. `v` is the box the node last read.
+ */
+const dryRuns = new WeakMap<Owner, any>();
+/** A boundary's reset() is running: its recomputes ask. */
+let _asking: any;
+
 /** Shared “serialized init or run compute” path for memo/signal/optimistic/effect under hydration.
  *
  * @internal — shared with the store adapter module (store-hydration.ts). */
@@ -716,31 +726,53 @@ export function readSerializedOrCompute(compute: (prev: any) => any, prev: any, 
   // would clobber the adopted value — the refetch the hybrid wrappers' rule 6
   // rules out), and the hybrid wrappers re-enter this path for every later
   // run of such a node, not only on divergence.
+  const initP = sharedConfig.load!(o.id!);
+  let dry = dryRuns.get(o);
   if (latchedOnce.has(o)) {
-    // A rerun outside the claim in progress by a node no pending boundary
-    // holds: its section's hydration is over, so the rerun answers a client
-    // write and computes, rather than re-adopting the server value until the
-    // page's last boundary resumes. Never in hydration's own pass over
-    // served answers (`_claimOwner` is `~clock`): a source's server answer
-    // arriving, or a hydrated failure's content reading the node — a later
-    // tracked read retries an errored async node (PJ-R35) with nothing
-    // changed. No client write diverged it there: it re-serves its own
-    // answer, an error included, and arms nothing — no ask, no loading flash
-    // (#4287, #4306). A served pass covers the round its answer lands in
-    // (`servedPass`): a later round of that flush is an effect's write
-    // re-running the node, which computes.
-    if (options?.ssrSource !== "hybrid" && _claimOwner !== ~clock) {
+    // A served error re-entered with none of its sources changed is a retry
+    // (PJ-R35: a later tracked read retries an errored async node, at the
+    // read or in the pull): the server's answer stands, re-served below, in
+    // or out of a served pass. A source change computes, as for any node.
+    if (
+      !(initP?.s === 2 && !_asking && dry && dry.v === dry()) &&
+      options?.ssrSource !== "hybrid" &&
+      _claimOwner !== ~clock
+    ) {
+      // Past the server's answer: a later retry is the client's own.
+      dryRuns.delete(o);
+      // A rerun outside the claim in progress by a node no pending boundary
+      // holds: its section's hydration is over, so the rerun answers a client
+      // write and computes, rather than re-adopting the server value until the
+      // page's last boundary resumes. Never in hydration's own pass over
+      // served answers (`_claimOwner` is `~clock`): a source's server answer
+      // arriving, or a hydrated failure's content reading the node — a later
+      // tracked read retries an errored async node (PJ-R35) with nothing
+      // changed. No client write diverged it there: it re-serves its own
+      // answer, an error included, and arms nothing — no ask, no loading flash
+      // (#4287, #4306). A served pass covers the round its answer lands in
+      // (`servedPass`): a later round of that flush is an effect's write
+      // re-running the node, which computes.
       let p: Owner | null = o;
       while (p && !(p as any)._hp) p = p._parent;
       if (!p && !(sharedConfig.hydrating && isClaiming())) return compute(prev);
       armLiveTakeover(o);
     }
-  } else latchedOnce.add(o);
-  const initP = sharedConfig.load!(o.id!);
+  } else if ((latchedOnce.add(o), initP?.then && initP.s !== 1))
+    // An answer still to land, or an error: its dry run gets a node of its
+    // own, which the node reads: beside it, under its id (the same child
+    // ids, consuming none). That node re-runs only when one of the node's
+    // sources changed, so its value is a new box exactly then. Once
+    // hydration is over it tracks nothing.
+    dryRuns.set(
+      o,
+      (dry = runWithOwner(o._parent, () =>
+        coreMemo(() => [sharedConfig.done || subFetch(compute, prev)], { id: o.id })
+      ))
+    );
   return readHydratedValue(
     initP,
     () => {
-      const traced = subFetch(compute, prev);
+      const traced = dry ? (dry.v = dry())[0] : subFetch(compute, prev);
       if (options?.ssrSource !== "hybrid" && traced != null && traced[LIVE_SOURCE])
         armLiveTakeover(o, !hasLoadingWindow(options) && initP?.then && !initP.s);
       return traced;
@@ -1323,6 +1355,10 @@ function hydratedCreateErrorBoundary<T, U>(
   fallback: (error: () => unknown, reset: () => void) => U
 ): Accessor<T | U> {
   if (sharedConfig.hydrating && !noHydrationId()) {
+    // reset() is a real retry: what it recomputes asks, a served error with
+    // none of its sources changed included (readSerializedOrCompute).
+    const f = fallback;
+    fallback = (e, reset) => f(e, () => ((_asking = 1), reset(), (_asking = 0)));
     markTopLevelSnapshotScope();
     const expectedId = peekNextChildId(getOwner()!);
     let err: unknown;

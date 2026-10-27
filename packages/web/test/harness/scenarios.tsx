@@ -1739,19 +1739,30 @@ function ServedSourceLanding() {
 // A shell memo `user` fails on the server after the shell flushed; an
 // <Errored> over a <Loading> reads it beside an unrelated signal `n`, and a
 // slow second <Loading> keeps hydration open after the failure shows. On
-// the client `user` resolves, so only a real ask recovers: the Errored's
-// reset() is one, mid-hydration too. A write to `n` re-runs the reader.
+// the client `user` resolves, so only a real ask recovers. A write to `n`
+// mid-hydration re-runs the reader, a later tracked read that retries the
+// errored memo (PJ-R35) with none of its sources changed: it keeps the
+// server's error, asking nothing. A write to its own source `uid` is a real
+// change: it asks, and the answer recovers the Errored. Its reset() is a
+// real retry too, mid-hydration as well.
 let servedErrorAsks = 0;
 export const servedErrorAskCount = () => servedErrorAsks;
-export const servedErrorControl: { setN?: (v: number) => void; reset?: () => void } = {};
+export const servedErrorControl: {
+  setN?: (v: number) => void;
+  setUid?: (v: number) => void;
+  reset?: () => void;
+} = {};
 function ServedErrorReread() {
   const [n, setN] = createSignal(0);
+  const [uid, setUid] = createSignal(7);
   servedErrorControl.setN = setN;
+  servedErrorControl.setUid = setUid;
   const user = createMemo(async (): Promise<string> => {
+    const id = uid();
     if (!isServer && Promise === RealPromise) servedErrorAsks++;
     await sleep(5);
-    if (isServer) throw new Error("no user 7");
-    return "u7";
+    if (isServer) throw new Error("no user " + id);
+    return "u" + id;
   });
   const slow = createMemo(async () => {
     await sleep(isServer ? 60 : 1);
