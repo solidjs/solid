@@ -2975,7 +2975,6 @@ function eventHandler(e, container, state) {
 
   let node = resumeNode || e.target;
   const key = EVENT_KEY + e.type;
-  const oriTarget = e.target;
   const retarget = value =>
     Object.defineProperty(e, "target", {
       configurable: true,
@@ -3040,8 +3039,9 @@ function eventHandler(e, container, state) {
   }
   // fallback for browsers that don't support composedPath
   else walkUpTree();
-  // Mixing portals and shadow dom can lead to a nonstandard target, so reset here.
-  retarget(oriTarget);
+  // Later native listeners (document, window, outer roots) see the real getters.
+  delete e.target;
+  delete e.currentTarget;
 }
 
 function insertExpression(parent, value, current, marker) {
