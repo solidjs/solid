@@ -3136,7 +3136,7 @@ function insertExpression(parent, value, current, marker) {
     } else {
       parent.appendChild(value);
     }
-    if (marker) value[$$SLOT] = marker;
+    if (marker || value[$$SLOT]) value[$$SLOT] = marker || parent;
   } else if (Array.isArray(value)) {
     const currentArray = Array.isArray(current);
     // Commit-time text materialization (normalize left primitives raw): a
@@ -3324,14 +3324,14 @@ function cleanChildren(parent, current, marker, replacement) {
       const el = current[i];
       if (replacement !== el) {
         const tag = el[$$SLOT];
-        const owns = el.parentNode === parent && (!tag || tag === marker);
+        const owns = el.parentNode === parent && (!tag || tag === (marker || parent));
         if (replacement && !inserted && !i)
           owns ? parent.replaceChild(replacement, el) : parent.insertBefore(replacement, marker);
         else if (owns) el.remove();
       } else inserted = true;
     }
   } else if (replacement) parent.insertBefore(replacement, marker);
-  if (replacement && marker) replacement[$$SLOT] = marker;
+  if (replacement && (marker || replacement[$$SLOT])) replacement[$$SLOT] = marker || parent;
 }
 
 function gatherHydratable(element, root) {
