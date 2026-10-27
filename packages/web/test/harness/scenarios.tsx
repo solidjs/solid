@@ -1735,6 +1735,110 @@ function ServedSourceLanding() {
 }
 
 // ---------------------------------------------------------------------------
+// Never refetch: a served error is the server's answer while hydration runs.
+// A shell memo `user` fails on the server after the shell flushed; an
+// <Errored> over a <Loading> reads it beside an unrelated signal `n`, and a
+// slow second <Loading> keeps hydration open after the failure shows. On
+// the client `user` resolves, so only a real ask recovers: the Errored's
+// reset() is one, mid-hydration too. A write to `n` re-runs the reader.
+let servedErrorAsks = 0;
+export const servedErrorAskCount = () => servedErrorAsks;
+export const servedErrorControl: { setN?: (v: number) => void; reset?: () => void } = {};
+function ServedErrorReread() {
+  const [n, setN] = createSignal(0);
+  servedErrorControl.setN = setN;
+  const user = createMemo(async (): Promise<string> => {
+    if (!isServer && Promise === RealPromise) servedErrorAsks++;
+    await sleep(5);
+    if (isServer) throw new Error("no user 7");
+    return "u7";
+  });
+  const slow = createMemo(async () => {
+    await sleep(isServer ? 60 : 1);
+    return "slow";
+  });
+  return (
+    <div>
+      <Errored
+        fallback={(e: any, reset: () => void) => (
+          (servedErrorControl.reset = reset),
+          (<p>failed: {e().message}</p>)
+        )}
+      >
+        <Loading fallback={<i>loading</i>}>
+          <span>{n() + ":" + user()}</span>
+        </Loading>
+      </Errored>
+      <Loading fallback={<i>slow loading</i>}>
+        <b>{slow()}</b>
+      </Loading>
+    </div>
+  );
+}
+
+// An uncontained failure the server cannot draw: an <Errored> in the shell
+// over a <Loading> that streamed its content (a resolved read `a`, a
+// counter), with a nested <Loading> whose read `user` fails after that,
+// beside a read `b` the server resolved. The Errored and the outer fragment
+// are already on the wire, so the inner fragment rejects with no outcome.
+// The client renders that fragment fresh, so its graph is created, but
+// every read claims what the server sent: `b` its value, `user` its error,
+// thrown to the nearest client boundary, the shell's Errored. No ask.
+// reset() asks, and the recreated graph is live.
+let nestedRejectionAsks = 0;
+let nestedRejectionSiblingAsks = 0;
+export const nestedRejectionAskCount = () => nestedRejectionAsks;
+export const nestedRejectionSiblingAskCount = () => nestedRejectionSiblingAsks;
+export const nestedRejectionControl: { reset?: () => void } = {};
+function NestedRejectionUser() {
+  const b = createMemo(async (): Promise<string> => {
+    if (!isServer && Promise === RealPromise) nestedRejectionSiblingAsks++;
+    await sleep(10);
+    return "b";
+  });
+  const user = createMemo(async (): Promise<string> => {
+    if (!isServer && Promise === RealPromise) nestedRejectionAsks++;
+    await sleep(20);
+    if (isServer) throw new Error("no user 7");
+    return "u7";
+  });
+  return (
+    <b>
+      {b()}
+      {user()}
+    </b>
+  );
+}
+function NestedRejection() {
+  const a = createMemo(async () => {
+    await sleep(5);
+    return "a";
+  });
+  const [count, setCount] = createSignal(0);
+  return (
+    <div>
+      <Errored
+        fallback={(e: any, reset: () => void) => (
+          (nestedRejectionControl.reset = reset),
+          (<p>failed: {e().message}</p>)
+        )}
+      >
+        <Loading fallback={<i>outer loading</i>}>
+          <span>{a()}</span>
+          <button id="nested-rejection-count" onClick={() => setCount(c => c + 1)}>
+            {"c" + count()}
+          </button>
+          <Loading fallback={<i>inner loading</i>}>
+            <NestedRejectionUser />
+          </Loading>
+        </Loading>
+      </Errored>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
 // used to return the thunk unresolved for the enclosing boundary to unwrap —
@@ -3109,6 +3213,20 @@ export const scenarios: Scenario[] = [
     update: () => setPostflushKey("u8"),
     expectedTextAfterUpdate: "user:u8tail",
     stableSelector: "div"
+  },
+  {
+    name: "served-error-reread",
+    App: ServedErrorReread,
+    async: true,
+    expectedText: "failed: no user 7slow",
+    serverText: "loading slow loading failed: no user 7 slow"
+  },
+  {
+    name: "nested-rejection-no-outcome",
+    App: NestedRejection,
+    async: true,
+    expectedText: "failed: no user 7tail",
+    serverText: "outer loading tail a c0 inner loading"
   },
   {
     name: "served-source-landing",

@@ -119,8 +119,8 @@ describe.skipIf(OBSERVE === undefined)("recovery record", () => {
     rejectFr(new Error("stream error"));
     await new Promise<void>(r => setTimeout(r, 20));
     flush();
-    // Fresh client DOM: the serialized 7 was never adopted.
-    expect(b.memo()).toBe(0);
+    // Fresh client DOM, the serialized 7 adopted: hydration never refetches.
+    expect(b.memo()).toBe(7);
     expect(records).toEqual([{ id: "t0", at: T0, waitedMs: 30, renderMs: RENDER_MS }]);
   });
 
@@ -133,7 +133,7 @@ describe.skipIf(OBSERVE === undefined)("recovery record", () => {
     const b = boundary();
     await new Promise<void>(r => setTimeout(r, 10));
     flush();
-    expect(b.memo()).toBe(0);
+    expect(b.memo()).toBe(7);
     // The rejection had already arrived when the boundary registered: the
     // clock did not move between registration and the recovery, so the
     // person saw no fallback — `waitedMs` is exactly 0.
@@ -163,7 +163,7 @@ describe.skipIf(OBSERVE === undefined)("recovery record", () => {
     const b = boundary();
     await new Promise<void>(r => setTimeout(r, 10));
     flush();
-    expect(b.memo()).toBe(0);
+    expect(b.memo()).toBe(7);
     // The runtime never read the clock: `registeredAt` is -1 with no listener.
     expect(performance.now).not.toHaveBeenCalled();
   });

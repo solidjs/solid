@@ -13,7 +13,10 @@
  *  - inside an `<Errored>`, the client hydrates the fallback the server
  *    rendered for the refusal and hydration completes;
  *  - uncontained, the client does exactly what it does for any other
- *    server render error at that position (the `-reference` twin);
+ *    server render error at that position (the `-reference` twin): the
+ *    rejected fragment's fresh render adopts the server's error instead of
+ *    asking again, and with no client boundary to catch it, it is an
+ *    uncaught error;
  *  - ordinary data lands, is adopted without the client recomputing it, and
  *    the page is interactive.
  */
@@ -207,15 +210,26 @@ describe("async memo resolving to rendered output (#4242) — hydration", () => 
           rejections: o.rejections.length
         });
         expect(comparable(outcome)).toEqual(comparable(reference));
-        if (mode === "loaded") {
-          // The fragment rejected and the client rendered the subtree
-          // itself: the element on screen, live.
-          expect(outcome.halted).toBe(false);
-          expect(outcome.done).toBe(true);
-          if (variant.shape === "jsx") {
-            expect(outcome.text).toBe("jsx-41Count: 1");
-            expect(outcome.afterClick).toBe("Count: 1");
-          } else expect(outcome.text).toBe("nested-41");
+        // The fragment rejected with no outcome: the client renders it
+        // fresh, adopting what the server sent — the memo's error, never
+        // asked for again (hydration never refetches). Nothing on the client
+        // catches it (a <Loading> does not), so it is an uncaught error, as
+        // on any client render: the reactive system halts, the element
+        // never renders (no counter to click), and the halted resume never
+        // completes hydration. Recovery is a real input change or a reset()
+        // of a client boundary, as for any hydrated failure (#4273).
+        for (const o of [outcome, reference]) {
+          // `outer` adopted the server's answer. The issue shape's `inner`
+          // run is the fixture's own: the hydration dry run of `outer` only
+          // subscribes, but its continuation waits on a real timer (the
+          // fixture's wait escapes the dry run's mock Promise) and builds
+          // the inner slot, whose memo has no owner id to hydrate by.
+          expect(o.runs).toEqual(variant.shape === "jsx" ? [] : ["inner"]);
+          expect(o.halted).toBe(true);
+          expect(o.done).toBe(false);
+          expect(o.text).toBe("");
+          expect(o.afterClick).toBe(undefined);
+          expect(o.shown).toEqual(mode === "streamed" ? ["outer", ""] : [""]);
         }
       });
     }
