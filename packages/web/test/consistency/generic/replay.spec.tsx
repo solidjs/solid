@@ -93,21 +93,20 @@ describe("GH1 — a derived source with no snapshot is read live by the resume's
 describe("GH2 — a shell async memo adopted pending, re-run by a write before a later boundary resumes (C19)", () => {
   // `shared` is pending when the shell flushes (read only under the
   // boundaries): the client adopts it with no creation-time snapshot. It
-  // lands `shared:/a` with the first fragment; a write re-runs it to
-  // `shared:/b` (the shell and the resumed boundary update); the second
-  // boundary then resumes reading `shared:/b` and claims the server text
-  // `shared:/a` — stale until the memo changes again.
-  test.fails("C19 claim-shows-async-memo: [ab] :: H C0 C1 t W t C2 t", async () => {
+  // lands `shared:/a` with the first fragment — the server's answer, which
+  // becomes its snapshot; a write re-runs it to `shared:/b` (the shell and
+  // the resumed boundary update); the second boundary then resumes reading
+  // the snapshot `shared:/a` its markup shows, and catches up to `shared:/b`
+  // at its release. (Was red: the claim read `shared:/b` live and kept the
+  // server text `shared:/a` until the memo changed again.)
+  test("C19 claim-shows-async-memo: [ab] :: H C0 C1 t W t C2 t", async () => {
     const r = await runScenario(schedule("ab", "H C0 C1 t W t C2 t"));
     expect(only(r.findings, "C19", "claim-shows-async-memo")).toEqual([]);
   });
-  test.fails(
-    "C19 claim-shows-async-memo: the other fragment order — [ba] :: H C0 C1 t W t C2 t",
-    async () => {
-      const r = await runScenario(schedule("ba", "H C0 C1 t W t C2 t"));
-      expect(only(r.findings, "C19", "claim-shows-async-memo")).toEqual([]);
-    }
-  );
+  test("C19 claim-shows-async-memo: the other fragment order — [ba] :: H C0 C1 t W t C2 t", async () => {
+    const r = await runScenario(schedule("ba", "H C0 C1 t W t C2 t"));
+    expect(only(r.findings, "C19", "claim-shows-async-memo")).toEqual([]);
+  });
   test("control: write after both resumed — both boundaries catch up", async () => {
     const r = await runScenario(schedule("ab", "H C0 C1 C2 t W t"));
     expect(only(r.findings, "C19", "claim-shows-async-memo")).toEqual([]);
@@ -147,45 +146,34 @@ describe("GH3 — a store write to a leaf no reader has materialized is not snap
   });
 });
 
-describe("GH4 — a boundary resuming while a shell async source is in flight shows its fallback over the settled content (C9 / C12 / events)", () => {
+describe("GH4 — a boundary resuming while a shell async source is in flight keeps the settled content (C9 / C12 / events)", () => {
   // The write re-runs `shared` (the server's pending answer is superseded;
-  // the client flight takes 15ms). The boundary's resume renders its
-  // content, reads `shared` pending, and — never having revealed on the
-  // client — falls back: the fallback is claimed in the window (a key miss
-  // for `<p class="fb a">`, a phantom), then the snapshot release re-runs
-  // the insert outside the window and COMMITS it: the server `<section>` is
-  // detached and a fresh client fallback stands in its place until `shared`
-  // lands, when the same server nodes are re-attached. Expected: the
-  // settled server content is the boundary's revealed value; a pending
-  // read holds it (async-holds-latest), no fallback, no detach.
-  test.fails("C9 no-fallback-over-settled: [ab] :: H W C0 C1 m t", async () => {
+  // the client flight takes 15ms). The server's answer still lands with the
+  // fragment and is `shared`'s snapshot, so the boundary's resume reads it,
+  // claims the settled server content and reveals; at the snapshot release
+  // the insert replays, reads the flight pending, and the revealed boundary
+  // holds its content (async-holds-latest) until `shared` lands. No
+  // fallback, no detach, the queued click replays. (Was red: the resume read
+  // `shared` pending, the never-revealed boundary fell back — a phantom
+  // fallback claimed in the window, then committed over the detached server
+  // `<section>` until the flight landed.)
+  test("C9 no-fallback-over-settled: [ab] :: H W C0 C1 m t", async () => {
     const r = await runScenario(schedule("ab", "H W C0 C1 m t"));
     expect(only(r.findings, "C9")).toEqual([]);
   });
-  test.fails(
-    "C9 no-fallback-over-settled: the other fragment order — [ba] :: H W C0 C1 m t",
-    async () => {
-      const r = await runScenario(schedule("ba", "H W C0 C1 m t"));
-      expect(only(r.findings, "C9")).toEqual([]);
-    }
-  );
-  test.fails(
-    "C1 no-key-miss: the fallback is claimed in the resume window — [ab] :: H W C0 C1 m t",
-    async () => {
-      const r = await runScenario(schedule("ab", "H W C0 C1 m t"));
-      expect(only(r.findings, "C1", "no-key-miss").filter(m => m.includes("fb a"))).toEqual([]);
-    }
-  );
-  // A click queued on the server section while it is detached replays into
-  // nothing (the walk from the detached button never reaches the delegated
-  // container) and is consumed.
-  test.fails(
-    "E queued-click-replays-once: a click queued at the reveal is lost — [ab] :: H W m C0 C1 C2 Eb",
-    async () => {
-      const r = await runScenario(schedule("ab", "H W m C0 C1 C2 Eb"));
-      expect(only(r.findings, "E")).toEqual([]);
-    }
-  );
+  test("C9 no-fallback-over-settled: the other fragment order — [ba] :: H W C0 C1 m t", async () => {
+    const r = await runScenario(schedule("ba", "H W C0 C1 m t"));
+    expect(only(r.findings, "C9")).toEqual([]);
+  });
+  test("C1 no-key-miss: no fallback is claimed in the resume window — [ab] :: H W C0 C1 m t", async () => {
+    const r = await runScenario(schedule("ab", "H W C0 C1 m t"));
+    expect(only(r.findings, "C1", "no-key-miss").filter(m => m.includes("fb a"))).toEqual([]);
+  });
+  // A click queued on the server section at its reveal replays into it once.
+  test("E queued-click-replays-once: a click queued at the reveal replays — [ab] :: H W m C0 C1 C2 Eb", async () => {
+    const r = await runScenario(schedule("ab", "H W m C0 C1 C2 Eb"));
+    expect(only(r.findings, "E")).toEqual([]);
+  });
   test("control: the server nodes come back once the flight lands (node identity, parity at the settle point)", async () => {
     const r = await runScenario(schedule("ab", "H W C0 C1 m t"));
     expect(only(r.findings, "C1", "node-identity")).toEqual([]);
