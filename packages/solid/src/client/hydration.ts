@@ -305,15 +305,14 @@ let _pendingBoundaries = 0;
 let _hydrationDone = false;
 let _snapshotRootOwner: Owner | null = null;
 // The boundary owner whose resume window is open (null during a root pass,
-// which claims everything). Reached as `sharedConfig.isClaiming`.
-let _claimOwner: Owner | null = null;
-// The claim window over no owner: hydration's own pass over served answers,
-// where nothing claims and a latched node re-serves its server answer
-// (readSerializedOrCompute) — a hydrated failure's content run (a hydrated
-// `<Errored>`'s, hydratedCreateErrorBoundary; a rejected fragment's fresh
-// render over the outcome the server drew for it, resumeBoundaryHydration),
-// and a served answer's arrival (`servedPass`).
-const NO_CLAIM = {} as Owner;
+// which claims everything). Reached as `sharedConfig.isClaiming`. Or no
+// owner, so nothing claims: `~clock`, a window over the flush round it
+// opened in, where a latched node re-serves its server answer
+// (readSerializedOrCompute) — hydration's own pass over served answers: a
+// hydrated `<Errored>`'s content run (hydratedCreateErrorBoundary) and the
+// round a served answer lands in (`servedPass`). Never 0: `~` maps every
+// round to a truthy number.
+let _claimOwner: Owner | number | null = null;
 function isClaiming(): boolean {
   if (!_claimOwner) return true;
   let owner: Owner | null = getOwner();
@@ -586,29 +585,27 @@ export function syncThenable(value: any) {
   };
 }
 
-// The flush round a served pass's served answer lands in.
-let _servedAt: number | undefined;
 /**
  * A served pass: `write(x)` lands a served answer — the server's answer for a
  * node arriving (the async runtime writes it and flushes, synchronously),
  * or a rejected fragment's fresh render over the outcome the server drew
  * (the boundary's trigger) — and the flush round that carries it is
- * hydration's own pass (NO_CLAIM). A node that adopted its own server answer
- * re-runs there because the server's answer for something it reads arrived,
- * not because a client write diverged it, and re-serves that answer
- * (readSerializedOrCompute). No client write is swallowed: the ones already
- * made flush first, outside the pass, and one made during it (an effect's)
- * runs in a later round of the flush, past `_servedAt`, where a node it
- * reaches computes. Runs from a settled promise, outside any claim window.
+ * hydration's own pass over served answers (`_claimOwner`, that round). A
+ * node that adopted its own server answer re-runs there because the
+ * server's answer for something it reads arrived, not because a client
+ * write diverged it, and re-serves that answer (readSerializedOrCompute).
+ * No client write is swallowed: the ones already made flush first, outside
+ * the pass, and one made during it (an effect's) runs in a later round of
+ * the flush, where a node it reaches computes. Runs from a settled promise,
+ * outside any claim window.
  */
-function servedPass(write: (x?: any) => void, x?: any) {
+const servedPass = (write: (x?: any) => void) => (x?: any) => {
   flush();
-  _claimOwner = NO_CLAIM;
-  _servedAt = clock;
+  _claimOwner = ~clock;
   write(x);
   flush();
-  _claimOwner = _servedAt = undefined as any;
-}
+  _claimOwner = null;
+};
 
 /**
  * Unwrap a serialized hydration map entry. Only call when the map HAS an
@@ -643,10 +640,8 @@ export function readHydratedValue(initP: any, refresh: () => void, options?: any
     }
     // Still in flight (or a loading window's): the runtime lands it, in a
     // served pass for the node it lands.
-    if (typeof initP.then === "function") {
-      const arrive = (f: any) => (x: any) => servedPass(f, x);
-      return { then: (a: any, b: any) => initP.then(arrive(a), arrive(b)) };
-    }
+    if (typeof initP.then === "function")
+      return { then: (a: any, b: any) => initP.then(servedPass(a), servedPass(b)) };
   }
   return initP;
 }
@@ -719,14 +714,15 @@ export function readSerializedOrCompute(compute: (prev: any) => any, prev: any, 
     // holds: its section's hydration is over, so the rerun answers a client
     // write and computes, rather than re-adopting the server value until the
     // page's last boundary resumes. Never in hydration's own pass over
-    // served answers (NO_CLAIM): a source's server answer arriving, or a
-    // hydrated failure's content reading the node — a later tracked read
-    // retries an errored async node (PJ-R35) with nothing changed. No client
-    // write diverged it there: it re-serves its own answer, an error
-    // included, and arms nothing — no ask, no loading flash (#4287, #4306).
-    // A later round of an arrival's flush is past that pass (`servedPass`):
-    // an effect's write re-ran the node there.
-    if (options?.ssrSource !== "hybrid" && (_claimOwner !== NO_CLAIM || clock > _servedAt!)) {
+    // served answers (`_claimOwner` is `~clock`): a source's server answer
+    // arriving, or a hydrated failure's content reading the node — a later
+    // tracked read retries an errored async node (PJ-R35) with nothing
+    // changed. No client write diverged it there: it re-serves its own
+    // answer, an error included, and arms nothing — no ask, no loading flash
+    // (#4287, #4306). A served pass covers the round its answer lands in
+    // (`servedPass`): a later round of that flush is an effect's write
+    // re-running the node, which computes.
+    if (options?.ssrSource !== "hybrid" && _claimOwner !== ~clock) {
       let p: Owner | null = o;
       while (p && !(p as any)._hp) p = p._parent;
       if (!p && !(sharedConfig.hydrating && isClaiming())) return compute(prev);
@@ -1334,13 +1330,15 @@ function hydratedCreateErrorBoundary<T, U>(
       // The content's owner, until a fallback is built.
       let o: any;
       const read = coreErrorBoundary(
-        // While hydrating, a claim window over no owner: nothing under it
-        // claims. (`hydrateWindow` with no id or scope, hydration already on
+        // While hydrating, a claim window over no owner (`~clock`): nothing
+        // under it claims. (`hydrateWindow` with no id or scope, hydration already on
         // and the snapshot root marked above, only swaps the claim owner.)
         // A later run claims nothing either way: claims are read only while
         // hydrating.
         () =>
-          _hydratingValue ? hydrateWindow("", fn, undefined, ((o = getOwner()), NO_CLAIM)) : fn(),
+          _hydratingValue
+            ? hydrateWindow("", fn, undefined, ((o = getOwner()), ~clock as any))
+            : fn(),
         (e, reset) => ((o = 0), fallback(e, reset))
       );
       // No fallback yet: the content ran clean. Hold the server's fallback
@@ -2300,31 +2298,29 @@ function resumeBoundaryHydration(
     checkHydrationComplete();
     return;
   }
-  if (shouldHydrate) {
-    // A late resume claims against the root this boundary registered under
-    // (the captured `scope`), its subtree the snapshot and live scope for
-    // the window; the trigger re-runs the boundary's compute inside it.
-    hydrateWindow(
-      id,
-      () => {
-        set();
-        flush();
-      },
-      scope,
-      o
-    );
-  } else {
-    // The client renders the boundary fresh (recover): no claim. Over the
-    // outcome the server drew for the failure (an `<Errored>` fallback the
-    // swap brought, listed in the reveal record, #4287) it is that
-    // failure's content run, as a hydrated `<Errored>`'s is: a served pass.
-    _hydratingValue = false;
-    (globalThis as any)._$HY?.v?.[id]?.length ? servedPass(set) : (set(), flush());
-  }
   // Hydration mode is off once a boundary has resumed — whatever the flag
   // read before (a resume never runs inside a root's synchronous pass; the
-  // client-gated nodes the resume created compute in the flush below).
+  // client-gated nodes the resume created compute in the flush below). A
+  // claiming resume turns it on for its window alone.
   _hydratingValue = false;
+  shouldHydrate
+    ? // A late resume claims against the root this boundary registered under
+      // (the captured `scope`), its subtree the snapshot and live scope for
+      // the window; the trigger re-runs the boundary's compute inside it.
+      hydrateWindow(
+        id,
+        () => {
+          set();
+          flush();
+        },
+        scope,
+        o
+      )
+    : // The client renders the boundary fresh (recover): no claim. Over the
+      // outcome the server drew for the failure (an `<Errored>` fallback the
+      // swap brought, listed in the reveal record, #4287) it is that
+      // failure's content run, as a hydrated `<Errored>`'s is: a served pass.
+      ((globalThis as any)._$HY?.v?.[id]?.[0] ? servedPass(set) : set)();
   flush();
   checkHydrationComplete();
 }
@@ -2906,12 +2902,13 @@ function hydratedCreateLoadingBoundary<T, U>(
       // A parked fragment has settled but not swapped: it waits like a pending one.
       const s = fr && typeof fr === "object" ? (fr.s === 1 && fragmentParked(id) ? 0 : fr.s) : 0;
 
-      // Inside a hydrated `<Errored>`'s content run, which claims no DOM (the
+      // Inside a hydrated `<Errored>`'s content run (`~clock`, a window
+      // over no owner), which claims no DOM (the
       // markup is the server's fallback for the failure, #4287), the
       // fragment is never claimed: the content runs now with its data
       // adopted, so the Errored holds the client's own error and tracks its
       // inputs (#4273).
-      const unclaimed = _claimOwner === NO_CLAIM;
+      const unclaimed = _claimOwner === ~clock;
       // Nothing else consumes a rejected `_fr` promise then — swallow it so
       // a rejected fragment (error finalize or a client-hole handoff) doesn't
       // surface as an unhandled rejection.
