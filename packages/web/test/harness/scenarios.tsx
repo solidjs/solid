@@ -37,7 +37,8 @@ import {
   For,
   Loading,
   Errored,
-  Repeat
+  Repeat,
+  NoHydration
 } from "solid-js";
 import {
   Portal,
@@ -1969,6 +1970,301 @@ export const shellFallbackFailures: ShellFallbackFailure[] = (["async", "sync"] 
 );
 
 // ---------------------------------------------------------------------------
+// Never refetch: a served error is the server's answer while hydration runs.
+// A shell memo `user` fails on the server after the shell flushed; an
+// <Errored> over a <Loading> reads it beside an unrelated signal `n`, and a
+// slow second <Loading> keeps hydration open after the failure shows. On
+// the client `user` resolves, so only a real ask recovers: the Errored's
+// reset() is one, mid-hydration too. A write to `n` re-runs the reader.
+let servedErrorAsks = 0;
+export const servedErrorAskCount = () => servedErrorAsks;
+export const servedErrorControl: { setN?: (v: number) => void; reset?: () => void } = {};
+function ServedErrorReread() {
+  const [n, setN] = createSignal(0);
+  servedErrorControl.setN = setN;
+  const user = createMemo(async (): Promise<string> => {
+    if (!isServer && Promise === RealPromise) servedErrorAsks++;
+    await sleep(5);
+    if (isServer) throw new Error("no user 7");
+    return "u7";
+  });
+  const slow = createMemo(async () => {
+    await sleep(isServer ? 60 : 1);
+    return "slow";
+  });
+  return (
+    <div>
+      <Errored
+        fallback={(e: any, reset: () => void) => (
+          (servedErrorControl.reset = reset),
+          (<p>failed: {e().message}</p>)
+        )}
+      >
+        <Loading fallback={<i>loading</i>}>
+          <span>{n() + ":" + user()}</span>
+        </Loading>
+      </Errored>
+      <Loading fallback={<i>slow loading</i>}>
+        <b>{slow()}</b>
+      </Loading>
+    </div>
+  );
+}
+
+// An uncontained failure the server cannot draw: an <Errored> in the shell
+// over a <Loading> that streamed its content (a resolved read `a`, a
+// counter), with a nested <Loading> whose read `user` fails after that,
+// beside a read `b` the server resolved. The Errored and the outer fragment
+// are already on the wire, so the inner fragment rejects with no outcome.
+// The client renders that fragment fresh, so its graph is created, but
+// every read claims what the server sent: `b` its value, `user` its error,
+// thrown to the nearest client boundary, the shell's Errored. No ask.
+// reset() asks, and the recreated graph is live.
+let nestedRejectionAsks = 0;
+let nestedRejectionSiblingAsks = 0;
+export const nestedRejectionAskCount = () => nestedRejectionAsks;
+export const nestedRejectionSiblingAskCount = () => nestedRejectionSiblingAsks;
+export const nestedRejectionControl: { reset?: () => void } = {};
+function NestedRejectionUser() {
+  const b = createMemo(async (): Promise<string> => {
+    if (!isServer && Promise === RealPromise) nestedRejectionSiblingAsks++;
+    await sleep(10);
+    return "b";
+  });
+  const user = createMemo(async (): Promise<string> => {
+    if (!isServer && Promise === RealPromise) nestedRejectionAsks++;
+    await sleep(20);
+    if (isServer) throw new Error("no user 7");
+    return "u7";
+  });
+  return (
+    <b>
+      {b()}
+      {user()}
+    </b>
+  );
+}
+function NestedRejection() {
+  const a = createMemo(async () => {
+    await sleep(5);
+    return "a";
+  });
+  const [count, setCount] = createSignal(0);
+  return (
+    <div>
+      <Errored
+        fallback={(e: any, reset: () => void) => (
+          (nestedRejectionControl.reset = reset),
+          (<p>failed: {e().message}</p>)
+        )}
+      >
+        <Loading fallback={<i>outer loading</i>}>
+          <span>{a()}</span>
+          <button id="nested-rejection-count" onClick={() => setCount(c => c + 1)}>
+            {"c" + count()}
+          </button>
+          <Loading fallback={<i>inner loading</i>}>
+            <NestedRejectionUser />
+          </Loading>
+        </Loading>
+      </Errored>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// A sibling the server never finished: a <Loading> streams `a` (resolved at
+// 5ms) and `c` (50ms on the server), and its content throws on the server
+// once `a` lands, a render error no record carries. The fragment rejects
+// with `c` still pending, so the server abandons it. The client renders the
+// fragment fresh: `a` and `d` take the server's values (`d` sits after an
+// element, whose hydration key the server spent an id on: the fresh
+// render's ids must line up), and `c`, which has no answer from the
+// server, computes (an abandoned record is not the value `undefined`).
+// Nothing throws on the client, so the graph is live.
+const abandonedAsks = { a: 0, c: 0, d: 0 };
+export const abandonedSiblingAsks = () => ({ ...abandonedAsks });
+function AbandonedSiblingC() {
+  const c = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) abandonedAsks.c++;
+    await sleep(isServer ? 50 : 1);
+    return "c";
+  });
+  return <b>{c()}</b>;
+}
+function AbandonedSiblingD() {
+  const d = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) abandonedAsks.d++;
+    await sleep(2);
+    return "d";
+  });
+  return <u>{d()}</u>;
+}
+function AbandonedSiblingContent() {
+  const a = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) abandonedAsks.a++;
+    await sleep(5);
+    return "a";
+  });
+  const [count, setCount] = createSignal(0);
+  return (
+    <>
+      <span>{a()}</span>
+      <AbandonedSiblingD />
+      <Loading fallback={<i>c loading</i>}>
+        <AbandonedSiblingC />
+      </Loading>
+      <em>
+        {(() => {
+          const v = a();
+          if (isServer) throw new Error("server render");
+          return "!" + v;
+        })()}
+      </em>
+      <button id="abandoned-sibling-count" onClick={() => setCount(n => n + 1)}>
+        {"n" + count()}
+      </button>
+    </>
+  );
+}
+function AbandonedSibling() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <AbandonedSiblingContent />
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// A fragment whose server render threw (no record carries it) is rendered
+// fresh on the client with hydration on, adopting by id and claiming
+// nothing. Element runtimes that pick claim-or-create on that flag alone
+// must create here: `<Dynamic component="p">` (staticElement) and a
+// `<Portal>` (its client-only gate) inside such a fragment.
+function ServerRenderThrows(props: { children: JSX.Element }) {
+  const a = createMemo(async () => {
+    await sleep(5);
+    return "a";
+  });
+  return (
+    <>
+      <span>{a()}</span>
+      {props.children}
+      <em>
+        {(() => {
+          const v = a();
+          if (isServer) throw new Error("server render");
+          return "!" + v;
+        })()}
+      </em>
+    </>
+  );
+}
+function RejectedDynamic() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <Dynamic component="p">dyn</Dynamic>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedPortal() {
+  const [host, setHost] = createSignal<HTMLElement>();
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <Portal mount={host()}>
+            <b>portal</b>
+          </Portal>
+        </ServerRenderThrows>
+      </Loading>
+      <section ref={setHost} />
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedNoHydration() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <NoHydration>
+            <b>nh</b>
+          </NoHydration>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+const RejectedClientOnlyWidget = clientOnly(() => Promise.resolve({ default: () => <u>co</u> }));
+function RejectedClientOnly() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <RejectedClientOnlyWidget fallback={<s>cf</s>} />
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedFor() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <For each={["x", "y"]}>{v => <b>{v}</b>}</For>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedSheetRoute() {
+  useHead({ tag: "link", props: { rel: "stylesheet", href: "/rejected-sheet.css" } });
+  return <b>css</b>;
+}
+function RejectedStylesheet() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <RejectedSheetRoute />
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedNestedLoading() {
+  const n = createMemo(async () => {
+    await sleep(10);
+    return "n";
+  });
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <Loading fallback={<i>inner</i>}>
+            <b>{n()}</b>
+          </Loading>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
 // used to return the thunk unresolved for the enclosing boundary to unwrap —
@@ -3343,6 +3639,78 @@ export const scenarios: Scenario[] = [
     update: () => setPostflushKey("u8"),
     expectedTextAfterUpdate: "user:u8tail",
     stableSelector: "div"
+  },
+  {
+    name: "served-error-reread",
+    App: ServedErrorReread,
+    async: true,
+    expectedText: "failed: no user 7slow",
+    serverText: "loading slow loading failed: no user 7 slow"
+  },
+  {
+    name: "rejected-fragment-dynamic",
+    App: RejectedDynamic,
+    async: true,
+    expectedText: "adyn!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-portal",
+    App: RejectedPortal,
+    async: true,
+    expectedText: "a!aportaltail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-nohydration",
+    App: RejectedNoHydration,
+    async: true,
+    expectedText: "anh!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-client-only",
+    App: RejectedClientOnly,
+    async: true,
+    expectedText: "aco!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-for",
+    App: RejectedFor,
+    async: true,
+    expectedText: "axy!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-stylesheet",
+    App: RejectedStylesheet,
+    async: true,
+    // The fresh content waits for its sheet, which jsdom never loads here;
+    // served-error-no-reask.spec.tsx dispatches the load.
+    expectedText: "loadingtail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-nested-loading",
+    App: RejectedNestedLoading,
+    async: true,
+    expectedText: "an!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "abandoned-sibling-computes",
+    App: AbandonedSibling,
+    async: true,
+    expectedText: "adc!an0tail",
+    serverText: "loading tail"
+  },
+  {
+    name: "nested-rejection-no-outcome",
+    App: NestedRejection,
+    async: true,
+    expectedText: "failed: no user 7tail",
+    serverText: "outer loading tail a c0 inner loading"
   },
   {
     name: "served-source-landing",

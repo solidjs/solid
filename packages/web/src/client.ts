@@ -2234,10 +2234,12 @@ function gateHeadResource(props) {
       // errored) sheet must acquire synchronously — cached sheets add zero
       // wait, adopted server-emitted sheets never stall — and even a
       // settled promise costs a microtask through the async machinery.
-      // Hydrating content is already visible; the server gated its reveal.
+      // Claimed content is already visible; the server gated its reveal. A
+      // fresh render under hydration (a rejected fragment's) gates like any
+      // client render.
       if (
         gateable &&
-        !sharedConfig.hydrating &&
+        !isHydrating() &&
         entry.loadState === "pending" &&
         typeof waitAsset === "function"
       )
@@ -2580,20 +2582,22 @@ export function hydrate(code, element, options = {}) {
 export function getNextElement(template?: () => Element): Element;
 
 export function getNextElement(template) {
-  let node,
-    key,
-    hydrating = isHydrating();
-  if (!hydrating || !(node = sharedConfig.registry.get((key = getHydrationKey())))) {
+  // The key is consumed whenever hydration is on, claiming or not: a
+  // rejected fragment's fresh render adopts its server answers by id, and
+  // the server spent one on this element, so ids after it line up.
+  let key = sharedConfig.hydrating && getHydrationKey(),
+    node = isHydrating() && sharedConfig.registry.get(key);
+  if (!node) {
     if (!template) {
       throw new Error(`Hydration Mismatch. Unable to find DOM nodes for hydration key: ${key}`);
     }
     // A key miss during the hydration walk is a real mismatch: fresh renders
-    // (portals, rejected fragments, post-hydration content) all run with the
-    // hydrating flag off, so there is no legitimate way to get here. The
+    // (portals, rejected fragments, post-hydration content) all run outside
+    // the claim, so there is no legitimate way to get here. The
     // detached element returned below keeps the render alive but never lands
     // in the document — without a report that reads as a silently frozen
     // page (solidjs/solid#3000).
-    if ("_SOLID_DEV_" && hydrating) {
+    if ("_SOLID_DEV_" && isHydrating()) {
       hydrationKeyMisses++;
       console.warn(
         `Hydration key miss for "${key}": no server-rendered element carries this key` +
