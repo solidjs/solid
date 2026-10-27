@@ -664,9 +664,16 @@ export function readHydratedValue(initP: any, refresh: () => void, options?: any
 const latchedOnce = new WeakSet<object>();
 
 /** Shared “serialized init or run compute” path for memo/signal/optimistic/effect under hydration.
+ * `value`: the node's readers read its value (memo/signal/optimistic), so its
+ * server answer is its snapshot.
  *
  * @internal — shared with the store adapter module (store-hydration.ts). */
-export function readSerializedOrCompute(compute: (prev: any) => any, prev: any, options?: any) {
+export function readSerializedOrCompute(
+  compute: (prev: any) => any,
+  prev: any,
+  options?: any,
+  value?: boolean
+) {
   const o = getOwner()!;
   // A node armed for takeover computes once its gate is open — its own
   // section's hydration is over even if the page's is not (#D8: a live
@@ -711,6 +718,7 @@ export function readSerializedOrCompute(compute: (prev: any) => any, prev: any, 
   // would clobber the adopted value — the refetch the hybrid wrappers' rule 6
   // rules out), and the hybrid wrappers re-enter this path for every later
   // run of such a node, not only on divergence.
+  const initP = sharedConfig.load!(o.id!);
   if (latchedOnce.has(o)) {
     // A rerun outside the claim in progress by a node no pending boundary
     // holds: its section's hydration is over, so the rerun answers a client
@@ -730,8 +738,16 @@ export function readSerializedOrCompute(compute: (prev: any) => any, prev: any, 
       if (!p && !(sharedConfig.hydrating && isClaiming())) return compute(prev);
       armLiveTakeover(o);
     }
-  } else latchedOnce.add(o);
-  const initP = sharedConfig.load!(o.id!);
+  } else {
+    latchedOnce.add(o);
+    // A server answer still streaming is what a pending boundary reading the
+    // node was rendered with: when it lands it is the node's snapshot, as a
+    // settled one is from creation. A client write that takes the compute
+    // over first (above) drops the landing, not the snapshot — the boundary
+    // claims what its markup shows, then replays the client's value at its
+    // release.
+    if (value && initP?.then) initP.then((v: any) => markSnapshotScope(o, v), noop);
+  }
   return readHydratedValue(
     initP,
     () => {
@@ -1300,7 +1316,7 @@ function hydrateSignalLike(coreFn: Function, fn: any, options?: any) {
   const aiResult = hydrateSignalFromAsyncIterable(coreFn, fn, options);
   if (aiResult !== null) return aiResult;
 
-  return coreFn((prev: any) => readSerializedOrCompute(fn, prev, options), options);
+  return coreFn((prev: any) => readSerializedOrCompute(fn, prev, options, true), options);
 }
 
 function hydratedCreateMemo(compute: any, options?: any) {
