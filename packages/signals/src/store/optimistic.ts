@@ -52,6 +52,7 @@ import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { runProjectionComputed } from "./projection.js";
 import {
+  adoptPB,
   cloneRaw,
   committed,
   getContainerNode,
@@ -67,7 +68,7 @@ import {
   wrap
 } from "./store.js";
 import { installOptHooks } from "./hooks.js";
-import { $OWNER, type StoreFamily, type StoreTarget } from "./target.js";
+import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
   $TRACK,
@@ -462,7 +463,40 @@ function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf
   }
 }
 
+/** D-34 for a per-key guess (#4329): the derive's draft wrote new objects
+ * over a target holding guessed rows (`d.length = 0; d.push(...rows)`, or
+ * `d.issues = rows`). Each container on the way down to a guessed row
+ * adopts the new object at its slot — in a keyed list, the one with its
+ * key — as a reconcile landing pairs them: the row keeps its target, its
+ * leaves take the truth beneath their guesses, and the screen keeps the
+ * guess until its hold commits. Rows nothing guessed are left as the
+ * draft wrote them. */
+function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
+  const fam = t.fam!;
+  const keyFn = fam.key;
+  if (fam.overlaid)
+    for (const ot of fam.overlaid) {
+      let c: StoreTarget | null = ot;
+      while (c !== null && c.u !== t) c = c.u;
+      if (c === null) continue;
+      const k = keyFn?.(c.v);
+      const nv = Array.isArray(pb)
+        ? k !== undefined && pb.find(r => isWrappable(r) && sameKey(keyFn!(r), k))
+        : pb[c.pk!];
+      if (
+        nv !== c.v &&
+        isWrappable(nv) &&
+        Array.isArray(nv) === Array.isArray(c.v) &&
+        lookupTarget(nv, fam) === undefined
+      ) {
+        if (c !== ot) pairRows(c, nv);
+        adoptPB(c, nv);
+      }
+    }
+}
+
 installOptHooks({
+  pair: pairRows,
   draft: optimisticDraft,
   writes: notifyOptimisticWrites,
   arrangement,

@@ -34,6 +34,9 @@ export interface OptHooks {
   /** A user's `reconcile` on an optimistic family: the keyed diff written
    * into the draft. */
   reconcile(draft: any, incoming: any, keyFn: ((item: any) => any) | null): void;
+  /** The derive's draft wrote `pb` on `t`: the new object at a guessed
+   * row's slot (by key in a keyed list) is adopted by that row's target. */
+  pair(t: StoreTarget, pb: Record<PropertyKey, any>): void;
 }
 // Set before any family is optimistic (`fam.opt`): a call site checks the
 // hooks first, so a build that does not import optimistic.ts folds the arm
