@@ -995,9 +995,9 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
                 else delete (v as any)[key];
               }
           } else {
-            for (const key of Reflect.ownKeys(pb)) copyOwn(v, pb, key);
+            for (const key of Reflect.ownKeys(pb)) if (key !== $OWNER) copyOwn(v, pb, key);
             for (const key of Reflect.ownKeys(old)) {
-              if (!hasOwn.call(pb, key)) delete (v as any)[key];
+              if (key !== $OWNER && !hasOwn.call(pb, key)) delete (v as any)[key];
             }
           }
         } else {
