@@ -130,6 +130,13 @@ export function hasStaticMarker(
     return hasStaticMarker(object.expression as StaticMarkerNode, path);
 }
 
+/** `import()`: an `ImportExpression` on Babel 8 (and 7 with
+ * `createImportExpressions`), a `CallExpression` with an `Import` callee
+ * otherwise. Checked by type so older `@babel/types` builds still match. */
+export function isImportExpression(node: t.Node): boolean {
+  return node.type === ("ImportExpression" as t.Node["type"]);
+}
+
 export function isDynamic(
   path: NodePath,
   { checkMember, checkTags, checkCallExpressions = true }: DynamicOptions
@@ -149,7 +156,8 @@ export function isDynamic(
     checkCallExpressions &&
     (t.isCallExpression(expr) ||
       t.isOptionalCallExpression(expr) ||
-      t.isTaggedTemplateExpression(expr))
+      t.isTaggedTemplateExpression(expr) ||
+      isImportExpression(expr))
   ) {
     return true;
   }
@@ -192,6 +200,11 @@ export function isDynamic(
 
   let dynamic: boolean | undefined;
   const visitor: Visitor = {
+    // `ImportExpression` is matched by type rather than visitor key: a Babel
+    // core older than 7.23 rejects visitors for node types it doesn't know.
+    enter(p) {
+      checkCallExpressions && isImportExpression(p.node) && (dynamic = true) && p.stop();
+    },
     Function(p) {
       if (t.isObjectMethod(p.node) && p.node.computed) {
         dynamic = isDynamic(p.get("key"), { checkMember, checkTags, checkCallExpressions });
@@ -773,7 +786,7 @@ export function evaluateAndInline(
       if (typeof r.value === "string") {
         valueNode.replaceWith(t.stringLiteral(r.value));
       } else if (typeof r.value === "number") {
-        valueNode.replaceWith(t.numericLiteral(r.value));
+        valueNode.replaceWith(t.valueToNode(r.value));
       } else if (typeof r.value === "boolean") {
         valueNode.replaceWith(t.booleanLiteral(r.value));
       }
