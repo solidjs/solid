@@ -15,7 +15,8 @@ import {
   ownerId,
   onCleanup,
   inServerComponentScope,
-  edgeHooks
+  edgeHooks,
+  MAX_RESUME_PASSES
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
@@ -717,15 +718,15 @@ function ssrLoadingBoundary(
     };
     (async () => {
       try {
-        // Convergence budget: each pass should retire at least one async
-        // slot, so passes are bounded by the boundary's async-slot count in
-        // any converging render — real trees sit far below this. A shape
+        // Convergence budget (`MAX_RESUME_PASSES`): each pass should retire
+        // at least one async slot, so passes are bounded by the boundary's
+        // async-slot count in any converging render. A shape
         // that plants a fresh pending source every pass (an async read whose
         // answer is never adoptable at the re-created slot) would otherwise
         // loop at microtask speed, serializing a new deferred per pass until
         // the process OOMs (#3003). Fail the boundary loudly instead.
         const checkBudget = () => {
-          if (passes <= 10000) return;
+          if (passes <= MAX_RESUME_PASSES) return;
           throw new Error(
             `<Loading> boundary discovery did not converge after ${passes} passes — ` +
               `an async source produces a new pending answer on every retry. Ensure repeated ` +

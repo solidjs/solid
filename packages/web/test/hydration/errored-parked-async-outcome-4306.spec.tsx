@@ -15,15 +15,29 @@
  * The client claims that markup in both replay orders, without warnings;
  * hydrated after the stream it asks nothing again.
  *
+ * #4316: the same shapes (parked or not, an outer `<Errored>` or none) with
+ * the fallback's own hole failing — rejecting while the failure waits for
+ * it. The failure is the next boundary up's, as when the fallback throws
+ * synchronously: the async variant ends exactly as its sync-throw twin,
+ * the server's markup and the client's outcome alike; caught, the client
+ * claims the outer `<Errored>`'s fallback the server drew.
+ *
  * Replays the parity harness artifacts (test/server/hydration-harness.spec.tsx).
  */
 import { describe, expect, test, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { flush } from "solid-js";
+import { flush, resetErrorHalt } from "solid-js";
 import { hydrate } from "@solidjs/web";
-import { scenarios, parkedHoleAskCount } from "../harness/scenarios.jsx";
+import {
+  scenarios,
+  parkedHoleAskCount,
+  fallbackHoleFailures,
+  fallbackHoleFailure,
+  fallbackHoleFailureName,
+  type FallbackHoleFailure
+} from "../harness/scenarios.jsx";
 
 const artifact = (name: string) =>
   resolve(dirname(fileURLToPath(import.meta.url)), `../harness/__artifacts__/${name}.json`);
@@ -92,4 +106,117 @@ describe("#4306: parked failure, Errored fallback with an async hole", () => {
   test("hole settles after the outer Loading, hydrated after the stream", () =>
     run(late, "loaded"));
   test("hole settles after the outer Loading, hydrated mid-stream", () => run(late, "streamed"));
+});
+
+type Outcome = {
+  /** The page the server's stream builds, before anything hydrates (loaded). */
+  server: string | undefined;
+  text: string;
+  halted: boolean;
+  done: boolean;
+  warnings: number;
+  /** What reached the page's uncaught-error channel (`reportError`). */
+  uncaught: string[];
+  /** In loaded mode: the client kept the server's outer-fallback node. */
+  claimed: boolean;
+};
+
+async function outcomeOf(o: FallbackHoleFailure, mode: "loaded" | "streamed"): Promise<Outcome> {
+  const name = fallbackHoleFailureName(o);
+  const file = artifact(name);
+  expect(existsSync(file)).toBe(true);
+  const { shell, rest } = JSON.parse(readFileSync(file, "utf-8"));
+  const App = fallbackHoleFailure(o);
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const errors: string[] = [];
+  const error = vi
+    .spyOn(console, "error")
+    .mockImplementation((...a: unknown[]) => void errors.push(a.map(String).join(" ")));
+  // An uncontained failure halts the page: own its uncaught channels (the
+  // platform's `reportError`, and the process's for the rethrow out of a
+  // scheduled flush) so what escapes is part of the outcome.
+  const uncaught: string[] = [];
+  const report = (e: unknown) => void uncaught.push(e instanceof Error ? e.message : String(e));
+  vi.stubGlobal("reportError", report);
+  const events = ["uncaughtException", "unhandledRejection"] as const;
+  const previous = events.map(e => process.listeners(e));
+  events.forEach(e => (process.removeAllListeners(e), process.on(e, report)));
+  resetErrorHalt();
+  const textOf = () => {
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("template").forEach(t => t.remove());
+    return clone.textContent!;
+  };
+  let dispose: (() => void) | undefined;
+  try {
+    applyChunk(container, shell, true);
+    if (mode === "loaded") applyChunk(container, rest, false);
+    const server = mode === "loaded" ? container.innerHTML : undefined;
+    const serverH2 = container.querySelector("h2");
+    try {
+      dispose = hydrate(() => <App />, container);
+    } catch {}
+    flush();
+    await sleep(10);
+    flush();
+    if (mode === "streamed") applyChunk(container, rest, false);
+    await sleep(50);
+    flush();
+    await sleep(10);
+    return {
+      server,
+      text: textOf(),
+      halted: errors.some(m => m.includes("[REACTIVITY_HALTED]")),
+      done: !!(globalThis as any)._$HY.done,
+      warnings: warn.mock.calls.length,
+      uncaught,
+      claimed: !!serverH2 && container.querySelector("h2") === serverH2
+    };
+  } finally {
+    try {
+      dispose?.();
+    } catch {}
+    await sleep(0);
+    container.remove();
+    events.forEach((e, i) => {
+      process.off(e, report);
+      for (const listener of previous[i]) process.on(e, listener as any);
+    });
+    vi.unstubAllGlobals();
+    warn.mockRestore();
+    error.mockRestore();
+    resetErrorHalt();
+  }
+}
+
+describe("#4316: the Errored fallback's own hole fails", () => {
+  for (const o of fallbackHoleFailures) {
+    if (o.hole !== "async") continue;
+    for (const mode of ["loaded", "streamed"] as const) {
+      test(`${fallbackHoleFailureName(o)} [${mode}] ends as its sync-throw twin`, async () => {
+        const outcome = await outcomeOf(o, mode);
+        const twin = await outcomeOf({ ...o, hole: "sync" }, mode);
+        // A halted page's later notices (how often the halt is reported,
+        // what it refuses after) are the halt's, not the outcome's: the
+        // comparison takes which errors escaped, and warnings while live.
+        const comparable = (r: Outcome) => ({
+          ...r,
+          uncaught: [...new Set(r.uncaught)],
+          warnings: r.halted ? undefined : r.warnings
+        });
+        expect(comparable(outcome)).toEqual(comparable(twin));
+        if (o.caught) {
+          // The outer Errored caught it on the server: the client claims
+          // its fallback and the page stays live.
+          expect(outcome.text).toBe("caught: no hinttail");
+          expect(outcome.halted).toBe(false);
+          expect(outcome.warnings).toBe(0);
+          if (mode === "loaded") expect(outcome.claimed).toBe(true);
+        }
+      });
+    }
+  }
 });

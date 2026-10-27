@@ -1685,6 +1685,81 @@ function parkedRejectionAsyncFallback(late: boolean) {
 }
 
 // ---------------------------------------------------------------------------
+// #4316: the #4287/#4306 failure with the Errored fallback's own hole
+// failing. `hole: "async"` reads an async memo that rejects at 10ms (after
+// the inner Loading failed at 5ms, before the outer one settles at 15ms);
+// `hole: "sync"` is its twin, a fallback that throws synchronously. The
+// fallback's failure belongs to the next boundary up, so the async variant
+// must end exactly as its twin does — server markup and client outcome.
+// `parked`: inside an outer <Loading> still pending when it fails;
+// `caught`: an outer <Errored> around everything catches it.
+export type FallbackHoleFailure = { hole: "async" | "sync"; parked: boolean; caught: boolean };
+export const fallbackHoleFailureName = (o: FallbackHoleFailure) =>
+  `errored-fallback-hole-${o.hole}-failure${o.parked ? "-parked" : ""}${o.caught ? "-caught" : ""}-4316`;
+export function fallbackHoleFailure(o: FallbackHoleFailure) {
+  return function ErroredFallbackHoleFailure() {
+    const outer = createMemo(async () => {
+      await sleep(15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    // The twin takes the async memo's owner slot too, so both variants'
+    // hydration keys line up.
+    const slot = createMemo(async (): Promise<string> => {
+      if (o.hole === "sync") return "";
+      await sleep(10);
+      throw new Error("no hint");
+    });
+    const hint =
+      o.hole === "async"
+        ? slot
+        : (): string => {
+            throw new Error("no hint");
+          };
+    const Inner = () => (
+      <Errored
+        fallback={(e: any) => (
+          <p>
+            failed: {e().message} {hint()}
+          </p>
+        )}
+      >
+        <Loading fallback={<i>loading</i>}>
+          <span>user:{user()}</span>
+        </Loading>
+      </Errored>
+    );
+    const Body = o.parked
+      ? () => (
+          <Loading fallback={<i>outer loading</i>}>
+            <b>{outer()}</b>
+            <Inner />
+          </Loading>
+        )
+      : Inner;
+    return o.caught ? (
+      <div>
+        <Errored fallback={(e: any) => <h2>caught: {e().message}</h2>}>
+          <Body />
+        </Errored>
+        <span>tail</span>
+      </div>
+    ) : (
+      <div>
+        <Body />
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+export const fallbackHoleFailures: FallbackHoleFailure[] = (["async", "sync"] as const).flatMap(
+  hole => [false, true].flatMap(parked => [false, true].map(caught => ({ hole, parked, caught })))
+);
+
+// ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
 // used to return the thunk unresolved for the enclosing boundary to unwrap —

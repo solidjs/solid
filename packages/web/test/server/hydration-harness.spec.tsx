@@ -17,7 +17,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, test } from "vitest";
 import type { RequestEvent, ResponseStub } from "@solidjs/web";
-import { scenarios } from "../harness/scenarios.jsx";
+import {
+  scenarios,
+  fallbackHoleFailures,
+  fallbackHoleFailure,
+  fallbackHoleFailureName
+} from "../harness/scenarios.jsx";
 import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
 // Render every scenario under a request event so the http-primitives
@@ -59,4 +64,41 @@ describe("hydration parity harness — server render", () => {
       writeArtifact(scenario.name, { name: scenario.name, shell, rest });
     });
   }
+});
+
+// #4316: an Errored fallback whose own hole fails, async (rejects while the
+// failure waits for it) and its sync-throw twin. Recorded for
+// test/hydration/errored-parked-async-outcome-4306.spec.tsx, which holds
+// the async variant to the twin's outcome on the client. Here: the same
+// markup reaches the page, and the fallback's failure is the next boundary
+// up's (the outer <Errored>'s fallback is drawn), never a blank region.
+describe("hydration parity harness — Errored fallback hole failure (#4316)", () => {
+  const visible = (full: string) =>
+    full
+      .replace(/<script[\s\S]*?<\/script>/g, "")
+      .replace(/<[^>]*>/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .join(" ");
+  const recorded = new Map<string, string>();
+  for (const o of fallbackHoleFailures) {
+    const name = fallbackHoleFailureName(o);
+    test(name, async () => {
+      const App = fallbackHoleFailure(o);
+      const { shell, rest } = await storage.run(makeEvent(), () => recordStream(() => <App />));
+      writeArtifact(name, { name, shell, rest });
+      recorded.set(name, visible(shell + rest));
+      if (o.caught) expect(rest).toContain("caught: <!--$-->no hint<!--/--></h2>");
+      else expect(rest).not.toContain("caught:");
+      expect(rest).not.toContain("failed:");
+    });
+  }
+  test("the async variant sends what its sync-throw twin sends", () => {
+    for (const o of fallbackHoleFailures) {
+      if (o.hole !== "async") continue;
+      const name = fallbackHoleFailureName(o);
+      const twin = fallbackHoleFailureName({ ...o, hole: "sync" });
+      expect(recorded.get(name), name).toBe(recorded.get(twin));
+    }
+  });
 });
