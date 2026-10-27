@@ -215,9 +215,10 @@ describe("async memo resolving to rendered output (#4242) — hydration", () => 
         // asked for again (hydration never refetches). Nothing on the client
         // catches it (a <Loading> does not), so it is an uncaught error, as
         // on any client render: the reactive system halts, the element
-        // never renders (no counter to click), and the halted resume never
-        // completes hydration. Recovery is a real input change or a reset()
-        // of a client boundary, as for any hydrated failure (#4273).
+        // never renders (no counter to click). The boundary has resumed all
+        // the same, so hydration completes. Recovery is a real input change
+        // or a reset() of a client boundary, as for any hydrated failure
+        // (#4273).
         for (const o of [outcome, reference]) {
           // `outer` adopted the server's answer. The issue shape's `inner`
           // run is the fixture's own: the hydration dry run of `outer` only
@@ -226,7 +227,7 @@ describe("async memo resolving to rendered output (#4242) — hydration", () => 
           // the inner slot, whose memo has no owner id to hydrate by.
           expect(o.runs).toEqual(variant.shape === "jsx" ? [] : ["inner"]);
           expect(o.halted).toBe(true);
-          expect(o.done).toBe(false);
+          expect(o.done).toBe(true);
           expect(o.text).toBe("");
           expect(o.afterClick).toBe(undefined);
           expect(o.shown).toEqual(mode === "streamed" ? ["outer", ""] : [""]);

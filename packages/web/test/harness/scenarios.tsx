@@ -2137,6 +2137,59 @@ function AbandonedSibling() {
   );
 }
 
+// A fragment whose server render threw (no record carries it) is rendered
+// fresh on the client with hydration on, adopting by id and claiming
+// nothing. Element runtimes that pick claim-or-create on that flag alone
+// must create here: `<Dynamic component="p">` (staticElement) and a
+// `<Portal>` (its client-only gate) inside such a fragment.
+function ServerRenderThrows(props: { children: JSX.Element }) {
+  const a = createMemo(async () => {
+    await sleep(5);
+    return "a";
+  });
+  return (
+    <>
+      <span>{a()}</span>
+      {props.children}
+      <em>
+        {(() => {
+          const v = a();
+          if (isServer) throw new Error("server render");
+          return "!" + v;
+        })()}
+      </em>
+    </>
+  );
+}
+function RejectedDynamic() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <Dynamic component="p">dyn</Dynamic>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedPortal() {
+  const [host, setHost] = createSignal<HTMLElement>();
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <Portal mount={host()}>
+            <b>portal</b>
+          </Portal>
+        </ServerRenderThrows>
+      </Loading>
+      <section ref={setHost} />
+      <span>tail</span>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
@@ -3519,6 +3572,20 @@ export const scenarios: Scenario[] = [
     async: true,
     expectedText: "failed: no user 7slow",
     serverText: "loading slow loading failed: no user 7 slow"
+  },
+  {
+    name: "rejected-fragment-dynamic",
+    App: RejectedDynamic,
+    async: true,
+    expectedText: "adyn!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-portal",
+    App: RejectedPortal,
+    async: true,
+    expectedText: "a!aportaltail",
+    serverText: "loading tail"
   },
   {
     name: "abandoned-sibling-computes",

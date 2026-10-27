@@ -317,11 +317,11 @@ describe("#4316: a fragment failing while parked in a pending fragment", () => {
         } else {
           // Nothing on the client catches it: the fresh render adopts the
           // server's error (no ask) and it is uncaught, as on the server, so
-          // reactivity halts and hydration never completes (as #4242's
-          // uncontained variants).
+          // reactivity halts; the boundary has resumed all the same, so
+          // hydration completes (as #4242's uncontained variants).
           expect(outcome.uncaught).toContain("no user 7");
           expect(outcome.halted).toBe(true);
-          expect(outcome.done).toBe(false);
+          expect(outcome.done).toBe(true);
         }
       });
     }

@@ -2584,9 +2584,9 @@ export function getNextElement(template) {
   // rejected fragment's fresh render adopts its server answers by id, and
   // the server spent one on this element, so ids after it line up.
   let key = sharedConfig.hydrating && getHydrationKey(),
-    node,
-    hydrating = isHydrating();
-  if (!hydrating || !(node = sharedConfig.registry.get(key))) {
+    hydrating = isHydrating(),
+    node = hydrating && sharedConfig.registry.get(key);
+  if (!node) {
     if (!template) {
       throw new Error(`Hydration Mismatch. Unable to find DOM nodes for hydration key: ${key}`);
     }

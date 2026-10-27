@@ -22,6 +22,10 @@
  *   reads the server finished (one after an element: the render's ids line
  *   up with the server's) and computes only the abandoned one, which the
  *   server never answered: one ask, its own value, a live graph.
+ * - `rejected-fragment-dynamic` / `rejected-fragment-portal`: the fresh
+ *   render runs with hydration on but claims nothing, so a `<Dynamic>` tag
+ *   and a `<Portal>` in it create their DOM (a `<Dynamic>` used to throw a
+ *   hydration mismatch there, a `<Portal>` never mounted).
  *
  * Replays the parity harness artifacts (test/server/hydration-harness.spec.tsx).
  */
@@ -222,4 +226,33 @@ describe("a read the server abandoned computes; served reads are adopted", () =>
         flush();
         expect(container.textContent).toBe("adc!an1tail");
       }));
+});
+
+describe("element runtimes in a fresh render create, they claim nothing", () => {
+  for (const [name, text] of [
+    ["rejected-fragment-dynamic", "adyn!atail"],
+    ["rejected-fragment-portal", "a!aportaltail"]
+  ] as const)
+    for (const mode of ["loaded", "streamed"] as const)
+      test(`${name} [${mode}]`, () =>
+        withPage(name, async (container, rest) => {
+          const { scenario } = load(name);
+          const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+          try {
+            if (mode === "loaded") applyChunk(container, rest, false);
+            start(container, scenario.App);
+            await settle();
+            if (mode === "streamed")
+              for (const piece of pieces(rest)) {
+                applyChunk(container, piece, false);
+                await settle();
+              }
+            await settle();
+            expect(container.textContent).toBe(text);
+            expect((globalThis as any)._$HY.done).toBe(true);
+            expect(errors).not.toHaveBeenCalled();
+          } finally {
+            errors.mockRestore();
+          }
+        }));
 });
