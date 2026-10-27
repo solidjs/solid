@@ -9,8 +9,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { bench } from "vitest";
 import { createRequestEvent } from "@solidjs/web";
-// the bench config aliases only the core server build; this is the built bundle
-import { createServerReference } from "../../server-functions/dist/server.js";
+import { createServerReference } from "@solidjs/web/server-functions/server";
 
 const RequestContext = Symbol.for("solid.RequestContext");
 const requestContext = new AsyncLocalStorage<any>();
