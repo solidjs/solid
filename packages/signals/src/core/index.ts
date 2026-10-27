@@ -56,7 +56,7 @@ export {
   type QueueCallback
 } from "./scheduler.js";
 export type { InteractionRef, NavigationRef } from "./attribution-hooks.js";
-export { ROOT_ERROR_HOOK } from "./scheduler.js";
+export { ROOT_ERROR_HOOK, clock } from "./scheduler.js";
 export {
   configureClientErrors,
   type ClientErrorContext,

@@ -70,7 +70,7 @@ describe("#4317: the wait for an Errored fallback's async holes", () => {
     const html = chunks.join("");
     // No finished fallback: the fragment rejects with nothing drawn, and no
     // error record claims a fallback that was never sent.
-    expect(html).toMatch(/<template id="[^"]+" e> <\/template>/);
+    expect(html).toMatch(/<template id="[^"]+" e><\/template>/);
     expect(html).not.toContain("failed:");
     expect(html).toContain('new Error("no user 7")');
   }, 20000);

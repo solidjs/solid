@@ -3037,14 +3037,20 @@ export function renderToStream(code, options = {}) {
               // outcome — a server <Errored>'s fallback or the boundary's own
               // markup inside a server component (frames-rulings 3.3) — and
               // nothing outside one, where the client twin renders fresh over
-              // the blank.
-              sink.fragment(key, resolveSSRSelectValues(value !== undefined ? value : " "), {
-                styles,
-                revealGroup,
-                error: error
-                  ? ssrSanitizeError(error, null, undefined, undefined, errorScope)
-                  : error
-              });
+              // the blank: an empty template, so what its swap lists is the
+              // outcome alone (the client reads a listed outcome as the
+              // server's answer for the failure, #4287).
+              sink.fragment(
+                key,
+                resolveSSRSelectValues(value !== undefined ? value : error ? "" : " "),
+                {
+                  styles,
+                  revealGroup,
+                  error: error
+                    ? ssrSanitizeError(error, null, undefined, undefined, errorScope)
+                    : error
+                }
+              );
               item.resolve(error);
             }
           }

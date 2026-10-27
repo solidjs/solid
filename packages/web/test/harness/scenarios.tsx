@@ -1609,15 +1609,23 @@ function PostflushRejectionNested() {
 
 // The failure inside an outer <Loading> still pending when it lands: the
 // inner fragment parks in the outer one, which settles later carrying the
-// Errored fallback the server drew.
+// Errored fallback the server drew. Hydrated mid-stream, the outer resume
+// reads the memo a cycle after its error landed; the resume is hydration,
+// so that read re-serves the server's error instead of asking again, and
+// the Errored tracks the memo like any hydrated failure (#4273).
+let setParkedKey!: (v: string) => void;
+let parkedAsks = 0;
+export const parkedAskCount = () => parkedAsks;
 function PostflushRejectionParked() {
-  const [key] = createSignal("u7");
+  const [key, setKey] = createSignal("u7");
+  setParkedKey = setKey;
   const outer = createMemo(async () => {
     await sleep(15);
     return "outer";
   });
   const user = createMemo(async (): Promise<string> => {
     const k = key();
+    if (!isServer && Promise === RealPromise) parkedAsks++;
     await sleep(5);
     if (k === "u7") throw new Error("no user 7");
     return k;
@@ -1643,8 +1651,7 @@ function PostflushRejectionParked() {
 // Loading, the outer fragment carries the finished fallback; settled after
 // it (`late`), the outer fragment carries the inner placeholder and the
 // inner fragment streams the fallback once the hole lands. Either way the
-// client claims it. (No update pass, as for the plain-fallback parked
-// scenario above.)
+// client claims it, asking for nothing again.
 let parkedHoleAsks = 0;
 export const parkedHoleAskCount = () => parkedHoleAsks;
 function parkedRejectionAsyncFallback(late: boolean) {
@@ -1685,6 +1692,48 @@ function parkedRejectionAsyncFallback(late: boolean) {
 }
 
 // ---------------------------------------------------------------------------
+// An async shell memo `b` reading another, `a`, both read only inside a
+// streamed <Loading>: hydrated mid-stream, `a`'s server answer arrives
+// first and re-runs `b`. Nothing on the client changed — the server's `b`
+// was computed from that same `a` — so `b` re-serves its own server answer
+// instead of asking again; a client write to their input still recomputes
+// both. `servedSourceControl.write` makes an effect on `a` write `extra`,
+// which `b` also reads, when `a` lands on the client: a client write in the
+// landing's own flush, which `b` must compute for. `servedSourceControl.b`
+// is `b`'s value as the client last committed it.
+let setServedSourceKey!: (v: string) => void;
+let servedSourceAsks = 0;
+export const servedSourceAskCount = () => servedSourceAsks;
+export const servedSourceControl = { write: false, b: "" };
+function ServedSourceLanding() {
+  const [key, setKey] = createSignal("k");
+  const [extra, setExtra] = createSignal("");
+  setServedSourceKey = setKey;
+  const a = createMemo(async () => {
+    const k = key();
+    await sleep(5);
+    return k + "1";
+  });
+  createEffect(a, () => {
+    if (servedSourceControl.write) setExtra("x");
+  });
+  const b = createMemo(async () => {
+    const x = a() + extra();
+    if (!isServer && Promise === RealPromise) servedSourceAsks++;
+    await sleep(5);
+    return x + "2";
+  });
+  createEffect(b, v => void (servedSourceControl.b = v));
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <span>b:{b()}</span>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+
 // #4316: the #4287/#4306 failure with the Errored fallback's own hole
 // failing. `hole: "async"` reads an async memo that rejects at 10ms (after
 // the inner Loading failed at 5ms, before the outer one settles at 15ms);
@@ -3256,10 +3305,9 @@ export const scenarios: Scenario[] = [
     App: PostflushRejectionParked,
     async: true,
     expectedText: "outerfailed: no user 7tail",
-    serverText: "outer loading tail failed: no user 7"
-    // No update pass: hydrated mid-stream, the memo re-asks on the outer
-    // boundary's resume (as it does on `next`), so the Errored holds the
-    // server's fallback until reset() rather than tracking the memo.
+    serverText: "outer loading tail failed: no user 7",
+    update: () => setParkedKey("u8"),
+    expectedTextAfterUpdate: "outeruser:u8tail"
   },
   {
     name: "errored-loading-parked-rejection-async-fallback-4306",
@@ -3295,6 +3343,15 @@ export const scenarios: Scenario[] = [
     update: () => setPostflushKey("u8"),
     expectedTextAfterUpdate: "user:u8tail",
     stableSelector: "div"
+  },
+  {
+    name: "served-source-landing",
+    App: ServedSourceLanding,
+    async: true,
+    expectedText: "b:k12tail",
+    serverText: "loading tail k12",
+    update: () => setServedSourceKey("j"),
+    expectedTextAfterUpdate: "b:j12tail"
   },
   {
     name: "errored-thunk-fallback-under-errored",
