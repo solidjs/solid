@@ -22,7 +22,7 @@ use oxc_allocator::Allocator;
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_parser::{ParseOptions, Parser};
 
-use crate::config::source_type_for_filename;
+use crate::config::secondary_source_type;
 use transform::{DirectivesTransform, Env, ImportDef, ImportKind, Mode, UnsupportedExport};
 
 const DEFAULT_RUNTIME: &str = "@solidjs/web/server-functions";
@@ -118,7 +118,7 @@ pub fn transform_directives(
         .clone()
         .unwrap_or_else(|| "use server".to_string());
 
-    let source_type = source_type_for_filename(Some(filename))?;
+    let source_type = secondary_source_type(Some(filename));
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &code, source_type)
         .with_options(ParseOptions {

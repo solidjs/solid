@@ -51,7 +51,7 @@ use oxc_semantic::{Scoping, SemanticBuilder, SymbolId};
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
 
-use crate::config::{TransformResult, source_type_for_filename};
+use crate::config::{TransformResult, secondary_source_type};
 use crate::shared::ast::object_property;
 use crate::shared::ast_builder::AstBuilder;
 
@@ -93,7 +93,7 @@ pub fn transform_source_names(
         return Ok(untouched(code));
     }
 
-    let source_type = source_type_for_filename(filename)?;
+    let source_type = secondary_source_type(filename);
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &code, source_type)
         .with_options(ParseOptions {
