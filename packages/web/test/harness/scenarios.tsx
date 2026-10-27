@@ -37,7 +37,8 @@ import {
   For,
   Loading,
   Errored,
-  Repeat
+  Repeat,
+  NoHydration
 } from "solid-js";
 import {
   Portal,
@@ -2189,6 +2190,79 @@ function RejectedPortal() {
     </div>
   );
 }
+function RejectedNoHydration() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <NoHydration>
+            <b>nh</b>
+          </NoHydration>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+const RejectedClientOnlyWidget = clientOnly(() => Promise.resolve({ default: () => <u>co</u> }));
+function RejectedClientOnly() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <RejectedClientOnlyWidget fallback={<s>cf</s>} />
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedFor() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <For each={["x", "y"]}>{v => <b>{v}</b>}</For>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedSheetRoute() {
+  useHead({ tag: "link", props: { rel: "stylesheet", href: "/rejected-sheet.css" } });
+  return <b>css</b>;
+}
+function RejectedStylesheet() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <RejectedSheetRoute />
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedNestedLoading() {
+  const n = createMemo(async () => {
+    await sleep(10);
+    return "n";
+  });
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <Loading fallback={<i>inner</i>}>
+            <b>{n()}</b>
+          </Loading>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
@@ -3585,6 +3659,43 @@ export const scenarios: Scenario[] = [
     App: RejectedPortal,
     async: true,
     expectedText: "a!aportaltail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-nohydration",
+    App: RejectedNoHydration,
+    async: true,
+    expectedText: "anh!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-client-only",
+    App: RejectedClientOnly,
+    async: true,
+    expectedText: "aco!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-for",
+    App: RejectedFor,
+    async: true,
+    expectedText: "axy!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-stylesheet",
+    App: RejectedStylesheet,
+    async: true,
+    // The fresh content waits for its sheet, which jsdom never loads here;
+    // served-error-no-reask.spec.tsx dispatches the load.
+    expectedText: "loadingtail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-nested-loading",
+    App: RejectedNestedLoading,
+    async: true,
+    expectedText: "an!atail",
     serverText: "loading tail"
   },
   {

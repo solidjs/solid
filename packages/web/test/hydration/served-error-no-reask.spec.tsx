@@ -22,10 +22,14 @@
  *   reads the server finished (one after an element: the render's ids line
  *   up with the server's) and computes only the abandoned one, which the
  *   server never answered: one ask, its own value, a live graph.
- * - `rejected-fragment-dynamic` / `rejected-fragment-portal`: the fresh
- *   render runs with hydration on but claims nothing, so a `<Dynamic>` tag
- *   and a `<Portal>` in it create their DOM (a `<Dynamic>` used to throw a
- *   hydration mismatch there, a `<Portal>` never mounted).
+ * - `rejected-fragment-dynamic` / `rejected-fragment-portal` /
+ *   `rejected-fragment-nohydration`: the fresh render runs with hydration on
+ *   but claims nothing, so a `<Dynamic>` tag, a `<Portal>` and a
+ *   `<NoHydration>` in it render their DOM (a `<Dynamic>` used to throw a
+ *   hydration mismatch there, a `<Portal>` never mounted, `<NoHydration>`
+ *   rendered nothing). `clientOnly`, `<For>` and a nested `<Loading>` pin
+ *   the same. `rejected-fragment-stylesheet`: its stylesheet gates the
+ *   reveal, as in any client render.
  *
  * Replays the parity harness artifacts (test/server/hydration-harness.spec.tsx).
  */
@@ -231,7 +235,11 @@ describe("a read the server abandoned computes; served reads are adopted", () =>
 describe("element runtimes in a fresh render create, they claim nothing", () => {
   for (const [name, text] of [
     ["rejected-fragment-dynamic", "adyn!atail"],
-    ["rejected-fragment-portal", "a!aportaltail"]
+    ["rejected-fragment-portal", "a!aportaltail"],
+    ["rejected-fragment-nohydration", "anh!atail"],
+    ["rejected-fragment-client-only", "aco!atail"],
+    ["rejected-fragment-for", "axy!atail"],
+    ["rejected-fragment-nested-loading", "an!atail"]
   ] as const)
     for (const mode of ["loaded", "streamed"] as const)
       test(`${name} [${mode}]`, () =>
@@ -255,4 +263,37 @@ describe("element runtimes in a fresh render create, they claim nothing", () => 
             errors.mockRestore();
           }
         }));
+});
+
+describe("a fresh render's stylesheet gates its reveal, like any client render", () => {
+  const name = "rejected-fragment-stylesheet";
+  const href = "/rejected-sheet.css";
+  for (const mode of ["loaded", "streamed"] as const)
+    test(`[${mode}] the content waits for its sheet`, () =>
+      withPage(name, async (container, rest) => {
+        const { scenario } = load(name);
+        if (mode === "loaded") applyChunk(container, rest, false);
+        start(container, scenario.App);
+        await settle();
+        if (mode === "streamed")
+          for (const piece of pieces(rest)) {
+            applyChunk(container, piece, false);
+            await settle();
+          }
+        await settle();
+        // The server never drew this content, so nothing gated it there: the
+        // fresh render holds the reveal until the sheet loads (it revealed
+        // unstyled content when the gate read the bare hydration flag).
+        const link = document.head.querySelector(`link[href="${href}"]`) as HTMLLinkElement;
+        try {
+          expect(link.getAttribute("rel")).toBe("preload");
+          expect(container.textContent).toBe("loadingtail");
+          link.dispatchEvent(new Event("load"));
+          await settle();
+          expect(link.getAttribute("rel")).toBe("stylesheet");
+          expect(container.textContent).toBe("acss!atail");
+        } finally {
+          link.remove();
+        }
+      }));
 });

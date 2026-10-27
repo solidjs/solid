@@ -3078,7 +3078,10 @@ export function NoHydration(props: { children: SolidElement }): SolidElement {
   const o = createOwner();
   return runWithOwner(o, () => {
     setContext(NoHydrateContext, true);
-    if (sharedConfig.hydrating) return undefined as unknown as SolidElement;
+    // Claiming, not the bare flag: a rejected fragment's fresh render
+    // (adopting by id, claiming nothing) renders the children like any
+    // client render.
+    if (isHydrating()) return undefined as unknown as SolidElement;
     return props.children;
   }) as unknown as SolidElement;
 }

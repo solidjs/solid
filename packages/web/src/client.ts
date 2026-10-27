@@ -2234,10 +2234,12 @@ function gateHeadResource(props) {
       // errored) sheet must acquire synchronously — cached sheets add zero
       // wait, adopted server-emitted sheets never stall — and even a
       // settled promise costs a microtask through the async machinery.
-      // Hydrating content is already visible; the server gated its reveal.
+      // Claimed content is already visible; the server gated its reveal. A
+      // fresh render under hydration (a rejected fragment's) gates like any
+      // client render.
       if (
         gateable &&
-        !sharedConfig.hydrating &&
+        !isHydrating() &&
         entry.loadState === "pending" &&
         typeof waitAsset === "function"
       )
