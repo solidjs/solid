@@ -2580,16 +2580,19 @@ export function hydrate(code, element, options = {}) {
 export function getNextElement(template?: () => Element): Element;
 
 export function getNextElement(template) {
-  let node,
-    key,
+  // The key is consumed whenever hydration is on, claiming or not: a
+  // rejected fragment's fresh render adopts its server answers by id, and
+  // the server spent one on this element, so ids after it line up.
+  let key = sharedConfig.hydrating && getHydrationKey(),
+    node,
     hydrating = isHydrating();
-  if (!hydrating || !(node = sharedConfig.registry.get((key = getHydrationKey())))) {
+  if (!hydrating || !(node = sharedConfig.registry.get(key))) {
     if (!template) {
       throw new Error(`Hydration Mismatch. Unable to find DOM nodes for hydration key: ${key}`);
     }
     // A key miss during the hydration walk is a real mismatch: fresh renders
-    // (portals, rejected fragments, post-hydration content) all run with the
-    // hydrating flag off, so there is no legitimate way to get here. The
+    // (portals, rejected fragments, post-hydration content) all run outside
+    // the claim, so there is no legitimate way to get here. The
     // detached element returned below keeps the render alive but never lands
     // in the document — without a report that reads as a silently frozen
     // page (solidjs/solid#3000).

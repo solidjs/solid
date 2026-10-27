@@ -16,6 +16,13 @@
  *   the served error stands with no ask; the Errored's reset() is a real
  *   retry, and asks and recovers right away, hydration still running.
  *
+ * - `abandoned-sibling-computes`: a fragment fails on the server (a render
+ *   error, no record) while a nested read is still pending; the server
+ *   abandons that read. The fresh render takes the served values for the
+ *   reads the server finished (one after an element: the render's ids line
+ *   up with the server's) and computes only the abandoned one, which the
+ *   server never answered: one ask, its own value, a live graph.
+ *
  * Replays the parity harness artifacts (test/server/hydration-harness.spec.tsx).
  */
 import { describe, expect, test, vi } from "vitest";
@@ -26,6 +33,7 @@ import { flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import {
   scenarios,
+  abandonedSiblingAsks,
   nestedRejectionAskCount,
   nestedRejectionControl,
   nestedRejectionSiblingAskCount,
@@ -184,4 +192,34 @@ describe("a served error mid-hydration", () => {
       expect(container.textContent).toBe("failed: no user 7slow");
       expect(servedErrorAskCount()).toBe(asks);
     }));
+});
+
+describe("a read the server abandoned computes; served reads are adopted", () => {
+  const name = "abandoned-sibling-computes";
+  for (const mode of ["loaded", "streamed"] as const)
+    test(`[${mode}] one ask, for the abandoned read only`, () =>
+      withPage(name, async (container, rest) => {
+        const { scenario } = load(name);
+        const asks = abandonedSiblingAsks();
+        if (mode === "loaded") applyChunk(container, rest, false);
+        start(container, scenario.App);
+        await settle();
+        if (mode === "streamed")
+          for (const piece of pieces(rest)) {
+            applyChunk(container, piece, false);
+            await settle();
+          }
+        await settle();
+        expect(container.textContent).toBe("adc!an0tail");
+        const now = abandonedSiblingAsks();
+        // `a` and `d` are the server's answers (`d`'s id, after an element,
+        // lines up with the server's); `c` never got one, so it computes.
+        expect(now.a - asks.a).toBe(0);
+        expect(now.d - asks.d).toBe(0);
+        expect(now.c - asks.c).toBe(1);
+        expect((globalThis as any)._$HY.done).toBe(true);
+        container.querySelector<HTMLButtonElement>("#abandoned-sibling-count")!.click();
+        flush();
+        expect(container.textContent).toBe("adc!an1tail");
+      }));
 });

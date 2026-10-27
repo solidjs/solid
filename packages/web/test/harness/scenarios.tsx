@@ -1838,6 +1838,71 @@ function NestedRejection() {
   );
 }
 
+// A sibling the server never finished: a <Loading> streams `a` (resolved at
+// 5ms) and `c` (50ms on the server), and its content throws on the server
+// once `a` lands, a render error no record carries. The fragment rejects
+// with `c` still pending, so the server abandons it. The client renders the
+// fragment fresh: `a` and `d` take the server's values (`d` sits after an
+// element, whose hydration key the server spent an id on: the fresh
+// render's ids must line up), and `c`, which has no answer from the
+// server, computes (an abandoned record is not the value `undefined`).
+// Nothing throws on the client, so the graph is live.
+const abandonedAsks = { a: 0, c: 0, d: 0 };
+export const abandonedSiblingAsks = () => ({ ...abandonedAsks });
+function AbandonedSiblingC() {
+  const c = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) abandonedAsks.c++;
+    await sleep(isServer ? 50 : 1);
+    return "c";
+  });
+  return <b>{c()}</b>;
+}
+function AbandonedSiblingD() {
+  const d = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) abandonedAsks.d++;
+    await sleep(2);
+    return "d";
+  });
+  return <u>{d()}</u>;
+}
+function AbandonedSiblingContent() {
+  const a = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) abandonedAsks.a++;
+    await sleep(5);
+    return "a";
+  });
+  const [count, setCount] = createSignal(0);
+  return (
+    <>
+      <span>{a()}</span>
+      <AbandonedSiblingD />
+      <Loading fallback={<i>c loading</i>}>
+        <AbandonedSiblingC />
+      </Loading>
+      <em>
+        {(() => {
+          const v = a();
+          if (isServer) throw new Error("server render");
+          return "!" + v;
+        })()}
+      </em>
+      <button id="abandoned-sibling-count" onClick={() => setCount(n => n + 1)}>
+        {"n" + count()}
+      </button>
+    </>
+  );
+}
+function AbandonedSibling() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <AbandonedSiblingContent />
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
@@ -3220,6 +3285,13 @@ export const scenarios: Scenario[] = [
     async: true,
     expectedText: "failed: no user 7slow",
     serverText: "loading slow loading failed: no user 7 slow"
+  },
+  {
+    name: "abandoned-sibling-computes",
+    App: AbandonedSibling,
+    async: true,
+    expectedText: "adc!an0tail",
+    serverText: "loading tail"
   },
   {
     name: "nested-rejection-no-outcome",
