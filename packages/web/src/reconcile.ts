@@ -18,6 +18,8 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
   // detached parent, hence the `isConnected` check on the parent.
   let active = parentNode.moveBefore && parentNode.isConnected && document.activeElement;
   if (active === document.body) active = null;
+  // A markerless hole retags with its parent, so a tag from another slot never sticks.
+  const slot = marker || parentNode;
   const insert = (n, ref) =>
     active && n.isConnected && n.contains(active)
       ? parentNode.moveBefore(n, ref)
@@ -26,7 +28,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
   if (!a.length) {
     for (const n of b) {
       insert(n, marker);
-      if (marker) n[$$SLOT] = marker;
+      if (marker || n[$$SLOT]) n[$$SLOT] = slot;
     }
     return;
   }
@@ -37,7 +39,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
   const isLive = n => {
     if (!n) return false;
     const tag = n[$$SLOT];
-    return n.parentNode === parentNode && (!tag || tag === marker);
+    return n.parentNode === parentNode && (!tag || tag === slot);
   };
   let bLength = b.length,
     aEnd = a.length,
@@ -83,7 +85,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
       while (bStart < bEnd) {
         const n = b[bStart++];
         insert(n, node);
-        if (marker) n[$$SLOT] = marker;
+        if (marker || n[$$SLOT]) n[$$SLOT] = slot;
       }
       // remove
     } else if (bEnd === bStart) {
@@ -104,7 +106,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
       (anchor = a[aStart]) === b[bEnd - 1] &&
       b[bStart] === a[aEnd - 1] &&
       anchor.parentNode === parentNode &&
-      (!(anchorTag = anchor[$$SLOT]) || anchorTag === marker)
+      (!(anchorTag = anchor[$$SLOT]) || anchorTag === slot)
     ) {
       // Tightest inner loop in the file; one `insertBefore` per iter plus an
       // end-condition probe. Splitting on `marker` avoids a per-iter branch in
@@ -159,7 +161,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
             while (bStart < index) {
               const n = b[bStart++];
               insert(n, node);
-              if (marker) n[$$SLOT] = marker;
+              if (marker || n[$$SLOT]) n[$$SLOT] = slot;
             }
           } else {
             // `replaceChild` detaches the old node, which is placed again
@@ -170,7 +172,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
             active && parentNode.contains(active)
               ? insert(newNode, node)
               : parentNode.replaceChild(newNode, node);
-            if (marker) newNode[$$SLOT] = marker;
+            if (marker || newNode[$$SLOT]) newNode[$$SLOT] = slot;
           }
         } else aStart++;
       } else a[aStart++].remove();
