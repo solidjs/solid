@@ -1,0 +1,5 @@
+{
+  "name": "errored-shell-fallback-hole-async-failure-A",
+  "shell": "<div _hk=3><!--$--><h2 _hk=410>caught: <!--$-->no hint<!--/--></h2><!--/--><b>outer</b><span>tail</span></div><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"1\"]=$R[3]=($R[4]=$R[2]()).p;_$HY.r[\"2\"]=$R[5]=($R[6]=$R[2]()).p;($R[7]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],\"outer\");($R[9]=(resolver, data) => {\n\tresolver.f(data);\n\tresolver.p.s = 2;\n\tresolver.p.v = data;\n})($R[4],$R[8]=new Error(\"no user 7\"));$R[9]($R[6],$R[10]=new Error(\"no hint\"));_$HY.r[\"40010\"]=$R[8];_$HY.r[\"40\"]=$R[10];</script>",
+  "rest": ""
+}
