@@ -14,7 +14,8 @@ import {
   Match,
   Errored,
   dynamic,
-  Dynamic
+  Dynamic,
+  useHead
 } from "@solidjs/web";
 import {
   NoHydration,
@@ -1759,6 +1760,41 @@ describe("SSR Streaming — Asset Discovery", () => {
     expect(late).toContain('<link rel="modulepreload" href="/assets/late.js" fetchpriority="low">');
   });
 
+  test("lowPriorityPreloads: false streams a late module hint at default priority", async () => {
+    const manifest = { "./Late.tsx": { file: "assets/late.js" } };
+    const LazyLate = lazy(
+      () => asyncValue({ default: () => <span>Late</span> }, 5),
+      undefined,
+      "./Late.tsx"
+    );
+    function Gate() {
+      const ready = createMemo(async () => asyncValue(true, 40));
+      return (
+        <Show when={ready()}>
+          <LazyLate />
+        </Show>
+      );
+    }
+
+    const { chunks, shell } = await collectChunks(
+      () => (
+        <html>
+          <head>
+            <title>Test</title>
+          </head>
+          <body>
+            <Loading fallback={<span>Loading...</span>}>
+              <Gate />
+            </Loading>
+          </body>
+        </html>
+      ),
+      { manifest, lowPriorityPreloads: false }
+    );
+    const late = chunks.join("").slice(shell.length);
+    expect(late).toContain('<link rel="modulepreload" href="/assets/late.js">');
+  });
+
   test("nested fragment folding serializes inner boundary module map", async () => {
     const manifest = {
       "./Inner.tsx": { file: "assets/inner.js" }
@@ -2283,6 +2319,80 @@ describe("Entry CSS Auto-Discovery", () => {
       { manifest }
     );
     expect(html).toContain('<link rel="stylesheet" href="/assets/shared.css">');
+  });
+
+  test("the entry's static imports preload at default priority, lazy chunks at low", async () => {
+    const manifest = {
+      "src/index.tsx": { file: "assets/index.js", isEntry: true, imports: ["src/shared.tsx"] },
+      "src/shared.tsx": { file: "assets/shared.js" },
+      "./Page.tsx": { file: "assets/page.js" }
+    };
+    const LazyPage = lazy(
+      () => asyncValue({ default: () => <span>Page</span> }),
+      undefined,
+      "./Page.tsx"
+    );
+    await LazyPage.preload!();
+
+    const html = renderToString(
+      () => (
+        <html>
+          <head>
+            <title>Test</title>
+          </head>
+          <body>
+            <LazyPage />
+          </body>
+        </html>
+      ),
+      { manifest }
+    );
+    expect(html).toContain('<link rel="modulepreload" href="/assets/shared.js">');
+    expect(html).toContain('<link rel="modulepreload" href="/assets/page.js" fetchpriority="low">');
+  });
+
+  test("an authored modulepreload link comes out as written", () => {
+    function Hint() {
+      useHead({ tag: "link", props: { rel: "modulepreload", href: "/assets/authored.js" } });
+      return null;
+    }
+
+    const html = renderToString(() => (
+      <html>
+        <head>
+          <title>Test</title>
+        </head>
+        <body>
+          <Hint />
+        </body>
+      </html>
+    ));
+    expect(html).toContain('<link rel="modulepreload" href="/assets/authored.js">');
+  });
+
+  test("lowPriorityPreloads: false keeps lazy chunk hints at default priority", async () => {
+    const manifest = { "./Page.tsx": { file: "assets/page.js" } };
+    const LazyPage = lazy(
+      () => asyncValue({ default: () => <span>Page</span> }),
+      undefined,
+      "./Page.tsx"
+    );
+    await LazyPage.preload!();
+
+    const html = renderToString(
+      () => (
+        <html>
+          <head>
+            <title>Test</title>
+          </head>
+          <body>
+            <LazyPage />
+          </body>
+        </html>
+      ),
+      { manifest, lowPriorityPreloads: false }
+    );
+    expect(html).toContain('<link rel="modulepreload" href="/assets/page.js">');
   });
 
   test("no entry in manifest — no CSS injected, no crash", () => {
