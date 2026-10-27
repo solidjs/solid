@@ -1,5 +1,24 @@
 # @solidjs/h
 
+## 2.0.0-rc.19
+
+### Patch Changes
+
+- Updated dependencies [2c9fdd9]
+- Updated dependencies [2a0da2f]
+- Updated dependencies [76e9094]
+- Updated dependencies [f5cf675]
+- Updated dependencies [542ff6f]
+- Updated dependencies [2f7dc84]
+- Updated dependencies [2c9fdd9]
+- Updated dependencies [e0e4224]
+- Updated dependencies [b1b0667]
+- Updated dependencies [5601848]
+- Updated dependencies [88ea86c]
+- Updated dependencies [4eb570e]
+- Updated dependencies [e8b0b15]
+  - @solidjs/web@2.0.0-rc.19
+
 ## 2.0.0-rc.18
 
 ### Patch Changes
