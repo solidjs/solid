@@ -54,8 +54,6 @@ import { IS_DEV, IS_OBSERVE } from "./core.js";
 // enableHydration().
 import { hydrateStoreLike } from "./store-hydration.js";
 
-declare const _$HY: any;
-
 type HydrationSsrFields = {
   /**
    * Defer the SSR stream flush until this primitive's first value is
@@ -590,8 +588,9 @@ export function syncThenable(value: any) {
 /**
  * A served pass: `write(x)` lands a served answer — the server's answer for a
  * node arriving (the async runtime writes it and flushes, synchronously),
- * or a rejected fragment's fresh render over the outcome the server drew
- * (the boundary's trigger) — and the flush round that carries it is
+ * or a boundary's fresh render (its trigger; `adopt`: hydrating, so what it
+ * creates adopts its server answer by id, claiming nothing) — and the
+ * flush round that carries it is
  * hydration's own pass over served answers (`_claimOwner`, that round). A
  * node that adopted its own server answer re-runs there because the
  * server's answer for something it reads arrived, not because a client
@@ -601,12 +600,27 @@ export function syncThenable(value: any) {
  * the flush, where a node it reaches computes. Runs from a settled promise,
  * outside any claim window.
  */
-const servedPass = (write: (x?: any) => void) => (x?: any) => {
+const servedPass = (write: (x?: any) => void, adopt?: boolean) => (x?: any) => {
   flush();
+  // Adopting, hydration is on but nothing claims: the render is a client
+  // render, so it opens no snapshot scope either (the `hydrating` setter,
+  // which would release one, is bypassed here). A scope left open would hold
+  // every write made in it — a client-only node's gate (a <Portal>) never
+  // opening.
+  _hydratingValue = _snapshotRootOwner = adopt as any;
   _claimOwner = ~clock;
-  write(x);
-  flush();
-  _claimOwner = null;
+  // An uncaught error (no client boundary for a served error) leaves the
+  // flush by throwing: the pass still ends, and hydration still completes
+  // — a boundary's fresh render is its resume, done all the same. (Outside
+  // a resume the check is a no-op: hydration is done, or boundaries are
+  // pending.)
+  try {
+    write(x);
+    flush();
+  } finally {
+    _claimOwner = _hydratingValue = _snapshotRootOwner = null as any;
+    checkHydrationComplete();
+  }
 };
 
 /**
@@ -2306,7 +2320,7 @@ function resumeBoundaryHydration(
   id: string,
   set: () => void,
   release: () => boolean,
-  shouldHydrate = true
+  shouldHydrate: boolean | 0 = true
 ) {
   // Read before release(): releasing removes the boundaryScopes entry.
   const scope = sharedConfig.boundaryScopes?.get(id);
@@ -2334,12 +2348,15 @@ function resumeBoundaryHydration(
         scope,
         o
       )
-    : // The client renders the boundary fresh (recover): no claim. Over the
-      // outcome the server drew for the failure (an `<Errored>` fallback the
-      // swap brought, listed in the reveal record, #4287) it is that
-      // failure's content run, as a hydrated `<Errored>`'s is: a served pass.
-      // A recover only runs while hydrating, so the page's `_$HY` exists.
-      (_$HY.v?.[id]?.[0] ? servedPass(set) : set)();
+    : // The client renders the boundary fresh (recover): no claim, a served
+      // pass. After a rejection (0: the server's, or the stream cut short)
+      // the render adopts what the server sent by id, as a hydrated
+      // `<Errored>`'s content run does: the failing read's error included,
+      // thrown to the nearest client boundary — the outcome the server drew
+      // for it, if any (#4287), or an uncaught error — instead of asking
+      // again. What the server never sent (a truncated ref is dropped from
+      // the registry) computes.
+      servedPass(set, shouldHydrate === 0)();
   flush();
   checkHydrationComplete();
 }
@@ -2355,7 +2372,7 @@ function resumeBoundaryHydration(
 function recover(
   id: string,
   registeredAt: number,
-  resume: (shouldHydrate?: boolean) => void
+  resume: (shouldHydrate?: boolean | 0) => void
 ): void {
   if (registeredAt < 0 || !OBSERVE!.records.observed("recovery")) {
     resume(false);
@@ -2373,7 +2390,7 @@ function recover(
 function initBoundaryResume(
   o: Owner,
   id: string
-): [trigger: () => void, resume: (shouldHydrate?: boolean) => void, release: () => boolean] {
+): [trigger: () => void, resume: (shouldHydrate?: boolean | 0) => void, release: () => boolean] {
   _pendingBoundaries++;
   (o as any)._hp = 1;
   // Capture the current root's registry/gather pair for this boundary's
@@ -2733,9 +2750,9 @@ function fragmentAbort(id: string): Promise<never> {
 
 function waitAndResume(
   p: any,
-  resume: (shouldHydrate?: boolean) => void,
+  resume: (shouldHydrate?: boolean | 0) => void,
   assetPromise?: Promise<void>,
-  hydrateRejected = true,
+  hydrateRejected: boolean | 0 = true,
   abort?: Promise<never>
 ) {
   // Settle data and assets independently: an asset error must not be written
@@ -2743,7 +2760,7 @@ function waitAndResume(
   // its own hydrate semantics. (`p` may be an exotic thenable — coerce first.)
   // An abort promise (fragment truncation) races the data: its rejection
   // flows through the same rejected-state write as a server-sent rejection.
-  const data: Promise<boolean> = (
+  const data: Promise<boolean | 0> = (
     abort ? Promise.race([Promise.resolve(p), abort]) : Promise.resolve(p)
   ).then(
     () => {
@@ -2786,7 +2803,7 @@ function reportAssetFailure(err: any) {
 
 function scheduleResumeAfterAssets(
   id: string,
-  resume: (shouldHydrate?: boolean) => void,
+  resume: (shouldHydrate?: boolean | 0) => void,
   assetPromise?: Promise<void>
 ): boolean {
   sharedConfig.gather?.(id);
@@ -2973,7 +2990,7 @@ function hydratedCreateLoadingBoundary<T, U>(
           // branch and `recover` with it.
           waitAndResume(
             1,
-            IS_OBSERVE ? () => recover(id, registeredAt, resume) : () => resume(false),
+            IS_OBSERVE ? () => recover(id, registeredAt, () => resume(0)) : () => resume(0),
             assetPromise
           );
           return undefined;
@@ -3016,9 +3033,13 @@ function hydratedCreateLoadingBoundary<T, U>(
               // (#4287) — beside the range the fresh render takes: clear
               // them first.
               (revealed || hy.v?.[id]?.forEach?.((n: ChildNode) => n.remove()),
-              IS_OBSERVE ? recover(id, registeredAt, resume) : resume(false)),
+              IS_OBSERVE
+                ? recover(id, registeredAt, () => resume(shouldHydrate))
+                : resume(shouldHydrate)),
         assetPromise,
-        false,
+        // A rejection (the server's, or the stream cut short) resumes with 0:
+        // the fresh render adopts what the server sent (resumeBoundaryHydration).
+        0,
         fragmentAbort(id)
       );
       return revealed ? undefined : fallback();
@@ -3057,7 +3078,10 @@ export function NoHydration(props: { children: SolidElement }): SolidElement {
   const o = createOwner();
   return runWithOwner(o, () => {
     setContext(NoHydrateContext, true);
-    if (sharedConfig.hydrating) return undefined as unknown as SolidElement;
+    // Claiming, not the bare flag: a rejected fragment's fresh render
+    // (adopting by id, claiming nothing) renders the children like any
+    // client render.
+    if (isHydrating()) return undefined as unknown as SolidElement;
     return props.children;
   }) as unknown as SolidElement;
 }

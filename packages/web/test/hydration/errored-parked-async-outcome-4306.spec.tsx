@@ -270,19 +270,17 @@ describe("#4316: the Errored fallback's own hole fails", () => {
 // the server's page is compared as text. Uncontained, the page halts on
 // the client's own rejection: the text it froze at is the client tree's
 // (the inner `<Loading>` shows its fallback, the twin's the outer's), so
-// what is compared is that it halted and on what. Warnings are this
-// variant's alone: the streamed twin with an `<Errored>` around a pending
-// read misses its fallback key while it hydrates the pending fragment —
-// the core's retry of the errored read, once the fragment releases, is
-// taken for a client write by readSerializedOrCompute's latched branch,
-// which refetches; #4319's served pass is what keeps that read latched.
+// what is compared is that it halted and on what. Warnings are compared
+// too: the streamed twin with an `<Errored>` around a pending read used to
+// miss its fallback key while it hydrated the pending fragment (the core's
+// retry of the errored read, once the fragment released, was taken for a
+// client write and refetched); the served pass keeps that read latched.
 describe("#4316: a fragment failing while parked in a pending fragment", () => {
   const comparable = (r: Outcome) => ({
     ...r,
     server: r.server === undefined ? undefined : textOfHtml(r.server),
     text: r.halted ? undefined : r.text,
-    uncaught: [...new Set(r.uncaught)],
-    warnings: undefined
+    uncaught: [...new Set(r.uncaught)]
   });
   for (const o of parkedFailures) {
     if (o.variant !== "inner") continue;
@@ -315,8 +313,16 @@ describe("#4316: a fragment failing while parked in a pending fragment", () => {
           expect(outcome.text).toBe("outercaught: no user 7tail");
           expect(outcome.halted).toBe(false);
           expect(outcome.uncaught).toEqual([]);
-        } else expect(outcome.uncaught).toContain("no user 7");
-        expect(outcome.done).toBe(true);
+          expect(outcome.done).toBe(true);
+        } else {
+          // Nothing on the client catches it: the fresh render adopts the
+          // server's error (no ask) and it is uncaught, as on the server, so
+          // reactivity halts; the boundary has resumed all the same, so
+          // hydration completes (as #4242's uncontained variants).
+          expect(outcome.uncaught).toContain("no user 7");
+          expect(outcome.halted).toBe(true);
+          expect(outcome.done).toBe(true);
+        }
       });
     }
   }

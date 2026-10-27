@@ -4697,7 +4697,7 @@ describe("Loading boundary: fragment registration channel (_fr)", () => {
     expect(memo()).toBe(99);
   });
 
-  test("rejected _fr resumes without hydrating serialized children", async () => {
+  test("rejected _fr resumes fresh, adopting serialized children", async () => {
     let rejectFr!: (e: any) => void;
     const frPromise: any = new Promise<boolean>((_, rej) => (rejectFr = rej));
     frPromise.s = 0;
@@ -4739,7 +4739,8 @@ describe("Loading boundary: fragment registration channel (_fr)", () => {
     await new Promise<void>(r => setTimeout(r, 50));
     flush();
 
-    expect(memo()).toBe(0);
+    // Fresh DOM, but the server's answer is used: hydration never refetches.
+    expect(memo()).toBe(7);
   });
 
   test("_fr with assets waits for both fragment and assets", async () => {
