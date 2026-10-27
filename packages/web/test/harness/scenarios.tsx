@@ -1734,6 +1734,240 @@ function ServedSourceLanding() {
   );
 }
 
+// #4316: the #4287/#4306 failure with the Errored fallback's own hole
+// failing. `hole: "async"` reads an async memo that rejects at 10ms (after
+// the inner Loading failed at 5ms, before the outer one settles at 15ms);
+// `hole: "sync"` is its twin, a fallback that throws synchronously. The
+// fallback's failure belongs to the next boundary up, so the async variant
+// must end exactly as its twin does — server markup and client outcome.
+// `parked`: inside an outer <Loading> still pending when it fails;
+// `caught`: an outer <Errored> around everything catches it.
+export type FallbackHoleFailure = { hole: "async" | "sync"; parked: boolean; caught: boolean };
+export const fallbackHoleFailureName = (o: FallbackHoleFailure) =>
+  `errored-fallback-hole-${o.hole}-failure${o.parked ? "-parked" : ""}${o.caught ? "-caught" : ""}-4316`;
+export function fallbackHoleFailure(o: FallbackHoleFailure) {
+  return function ErroredFallbackHoleFailure() {
+    const outer = createMemo(async () => {
+      await sleep(15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    // The twin takes the async memo's owner slot too, so both variants'
+    // hydration keys line up.
+    const slot = createMemo(async (): Promise<string> => {
+      if (o.hole === "sync") return "";
+      await sleep(10);
+      throw new Error("no hint");
+    });
+    const hint =
+      o.hole === "async"
+        ? slot
+        : (): string => {
+            throw new Error("no hint");
+          };
+    const Inner = () => (
+      <Errored
+        fallback={(e: any) => (
+          <p>
+            failed: {e().message} {hint()}
+          </p>
+        )}
+      >
+        <Loading fallback={<i>loading</i>}>
+          <span>user:{user()}</span>
+        </Loading>
+      </Errored>
+    );
+    const Body = o.parked
+      ? () => (
+          <Loading fallback={<i>outer loading</i>}>
+            <b>{outer()}</b>
+            <Inner />
+          </Loading>
+        )
+      : Inner;
+    return o.caught ? (
+      <div>
+        <Errored fallback={(e: any) => <h2>caught: {e().message}</h2>}>
+          <Body />
+        </Errored>
+        <span>tail</span>
+      </div>
+    ) : (
+      <div>
+        <Body />
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+export const fallbackHoleFailures: FallbackHoleFailure[] = (["async", "sync"] as const).flatMap(
+  hole => [false, true].flatMap(parked => [false, true].map(caught => ({ hole, parked, caught })))
+);
+
+// ---------------------------------------------------------------------------
+// #4316 follow-up: a `<Loading>` fragment that fails while parked in an
+// enclosing `<Loading>` still pending (`<b>{outer()}</b>`, 15ms; the inner
+// read rejects at 5ms). Its failure is the enclosing fragment's content's:
+// with an `<Errored>` between (`A`, markup around the position) that
+// Errored's fallback is drawn in the enclosing fragment; with none the
+// enclosing fragment fails (met, with `caught`, by the outermost Errored
+// that is all of its content). `B`: an Errored right around the inner
+// Loading whose fallback itself fails (`hint`, 10ms) — its failure is
+// A's. The `twin` variant has no inner Loading: the read is a hole of the
+// enclosing fragment's own pass, the failure met in that pass — what the
+// parked failure must end as. `late`: the enclosing fragment settles first
+// (2ms), so the inner one streams on its own (no twin).
+export type ParkedFailure = {
+  variant: "inner" | "twin";
+  A: boolean;
+  B: boolean;
+  caught: boolean;
+  late?: boolean;
+};
+export const parkedFailureName = (o: ParkedFailure) =>
+  `parked-fragment-failure-${o.variant}${o.A ? "-A" : ""}${o.B ? "-B" : ""}` +
+  `${o.caught ? "-caught" : ""}${o.late ? "-late" : ""}-4316`;
+export function parkedFailure(o: ParkedFailure) {
+  return function ParkedFragmentFailure() {
+    const outer = createMemo(async () => {
+      await sleep(o.late ? 2 : 15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    const hint = createMemo(async (): Promise<string> => {
+      await sleep(10);
+      throw new Error("no hint");
+    });
+    const read = () => <span>user:{user()}</span>;
+    const failing = () =>
+      o.variant === "inner" ? <Loading fallback={<i>loading</i>}>{read()}</Loading> : read();
+    const mid = () =>
+      o.B ? (
+        <Errored
+          fallback={(e: any) => (
+            <p>
+              failed: {e().message} {hint()}
+            </p>
+          )}
+        >
+          {failing()}
+        </Errored>
+      ) : (
+        failing()
+      );
+    const region = () =>
+      o.A ? (
+        <Errored fallback={(e: any) => <h2>caught: {e().message}</h2>}>
+          <section>{mid()}</section>
+        </Errored>
+      ) : (
+        <section>{mid()}</section>
+      );
+    const body = () => (
+      <Loading fallback={<i>outer loading</i>}>
+        <b>{outer()}</b>
+        {region()}
+      </Loading>
+    );
+    return (
+      <div>
+        {o.caught ? (
+          <Errored fallback={(e: any) => <h3>outermost: {e().message}</h3>}>{body()}</Errored>
+        ) : (
+          body()
+        )}
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+export const parkedFailures: ParkedFailure[] = (["inner", "twin"] as const).flatMap(variant =>
+  [false, true].flatMap(A =>
+    [false, true].flatMap(B => [false, true].map(caught => ({ variant, A, B, caught })))
+  )
+);
+export const lateParkedFailures: ParkedFailure[] = [false, true].map(A => ({
+  variant: "inner" as const,
+  A,
+  B: false,
+  caught: false,
+  late: true
+}));
+
+// ---------------------------------------------------------------------------
+// The #4316 failure at shell level, no `<Loading>` anywhere: `B`, an
+// `<Errored>` around a read that rejects (5ms), whose fallback's own hole
+// fails too — `hole: "async"` rejects at 10ms, `hole: "sync"` is its twin,
+// a fallback that throws synchronously. The shell waits for both (and for
+// `<b>{outer()}</b>`, 15ms). B's fallback's failure is the next boundary's:
+// with `A`, an `<Errored>` around B (`section`: markup between), A's
+// fallback is drawn in the shell; with none, the request fails — both as
+// the twin does, never a blank region with B's and A's errors recorded and
+// no markup for either.
+export type ShellFallbackFailure = { hole: "async" | "sync"; A: boolean; section: boolean };
+export const shellFallbackFailureName = (o: ShellFallbackFailure) =>
+  `errored-shell-fallback-hole-${o.hole}-failure${o.A ? "-A" : ""}${o.section ? "" : "-bare"}`;
+export function shellFallbackFailure(o: ShellFallbackFailure) {
+  return function ShellFallbackFailure() {
+    const outer = createMemo(async () => {
+      await sleep(15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    // The twin takes the async memo's owner slot too, so both variants'
+    // hydration keys line up.
+    const slot = createMemo(async (): Promise<string> => {
+      if (o.hole === "sync") return "";
+      await sleep(10);
+      throw new Error("no hint");
+    });
+    const hint =
+      o.hole === "async"
+        ? slot
+        : (): string => {
+            throw new Error("no hint");
+          };
+    const B = () => (
+      <Errored
+        fallback={(e: any) => (
+          <p>
+            failed: {e().message} {hint()}
+          </p>
+        )}
+      >
+        <span>user:{user()}</span>
+      </Errored>
+    );
+    const mid = () => (o.section ? <section>{B()}</section> : B());
+    const region = () =>
+      o.A ? (
+        <Errored fallback={(e: any) => <h2>caught: {e().message}</h2>}>{mid()}</Errored>
+      ) : (
+        mid()
+      );
+    return (
+      <div>
+        {region()}
+        <b>{outer()}</b>
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+export const shellFallbackFailures: ShellFallbackFailure[] = (["async", "sync"] as const).flatMap(
+  hole => [false, true].flatMap(A => [false, true].map(section => ({ hole, A, section })))
+);
+
 // ---------------------------------------------------------------------------
 // Never refetch: a served error is the server's answer while hydration runs.
 // A shell memo `user` fails on the server after the shell flushed; an
