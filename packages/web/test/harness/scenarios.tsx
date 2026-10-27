@@ -1609,15 +1609,23 @@ function PostflushRejectionNested() {
 
 // The failure inside an outer <Loading> still pending when it lands: the
 // inner fragment parks in the outer one, which settles later carrying the
-// Errored fallback the server drew.
+// Errored fallback the server drew. Hydrated mid-stream, the outer resume
+// reads the memo a cycle after its error landed; the resume is hydration,
+// so that read re-serves the server's error instead of asking again, and
+// the Errored tracks the memo like any hydrated failure (#4273).
+let setParkedKey!: (v: string) => void;
+let parkedAsks = 0;
+export const parkedAskCount = () => parkedAsks;
 function PostflushRejectionParked() {
-  const [key] = createSignal("u7");
+  const [key, setKey] = createSignal("u7");
+  setParkedKey = setKey;
   const outer = createMemo(async () => {
     await sleep(15);
     return "outer";
   });
   const user = createMemo(async (): Promise<string> => {
     const k = key();
+    if (!isServer && Promise === RealPromise) parkedAsks++;
     await sleep(5);
     if (k === "u7") throw new Error("no user 7");
     return k;
@@ -1643,8 +1651,7 @@ function PostflushRejectionParked() {
 // Loading, the outer fragment carries the finished fallback; settled after
 // it (`late`), the outer fragment carries the inner placeholder and the
 // inner fragment streams the fallback once the hole lands. Either way the
-// client claims it. (No update pass, as for the plain-fallback parked
-// scenario above.)
+// client claims it, asking for nothing again.
 let parkedHoleAsks = 0;
 export const parkedHoleAskCount = () => parkedHoleAsks;
 function parkedRejectionAsyncFallback(late: boolean) {
@@ -3021,10 +3028,9 @@ export const scenarios: Scenario[] = [
     App: PostflushRejectionParked,
     async: true,
     expectedText: "outerfailed: no user 7tail",
-    serverText: "outer loading tail failed: no user 7"
-    // No update pass: hydrated mid-stream, the memo re-asks on the outer
-    // boundary's resume (as it does on `next`), so the Errored holds the
-    // server's fallback until reset() rather than tracking the memo.
+    serverText: "outer loading tail failed: no user 7",
+    update: () => setParkedKey("u8"),
+    expectedTextAfterUpdate: "outeruser:u8tail"
   },
   {
     name: "errored-loading-parked-rejection-async-fallback-4306",

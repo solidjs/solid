@@ -306,8 +306,11 @@ let _snapshotRootOwner: Owner | null = null;
 // The boundary owner whose resume window is open (null during a root pass,
 // which claims everything). Reached as `sharedConfig.isClaiming`.
 let _claimOwner: Owner | null = null;
-// The claim window over no owner: a hydrated `<Errored>`'s content run,
-// where nothing claims (hydratedCreateErrorBoundary).
+// The claim window over no owner: a hydrated failure's content run — a
+// hydrated `<Errored>`'s (hydratedCreateErrorBoundary), or a rejected
+// fragment's fresh render over the outcome the server drew for it
+// (resumeBoundaryHydration) — where nothing claims and what the content
+// reads is the server's failure (readSerializedOrCompute).
 const NO_CLAIM = {} as Owner;
 function isClaiming(): boolean {
   if (!_claimOwner) return true;
@@ -625,7 +628,9 @@ export function readHydratedValue(initP: any, refresh: () => void, options?: any
  * not deferred. Arming the takeover gate on that re-entry re-runs exactly
  * the diverged nodes against their live sources when hydration ends.
  * (Async settles commit through the adopted thenable without re-entering
- * the wrapper, so re-entry here is always invalidation-driven.)
+ * the wrapper, so re-entry here is invalidation-driven — save one: a later
+ * tracked read retries an errored async node (PJ-R35) with nothing changed.
+ * A hydrated failure's content run re-serves that one, below.)
  */
 const latchedOnce = new WeakSet<object>();
 
@@ -681,12 +686,17 @@ export function readSerializedOrCompute(compute: (prev: any) => any, prev: any, 
     // A rerun outside the claim in progress by a node no pending boundary
     // holds: its section's hydration is over, so the rerun answers a client
     // write and computes, rather than re-adopting the server value until the
-    // page's last boundary resumes.
+    // page's last boundary resumes. Not inside a hydrated failure's content
+    // run (NO_CLAIM): a read there re-runs a node with nothing changed — a
+    // later tracked read retries an errored async node (PJ-R35) — and the
+    // server's answer, its error, is what the content shows. It re-serves
+    // that answer and arms nothing: no ask, no loading flash (#4287, #4306).
     if (options?.ssrSource !== "hybrid") {
       let p: Owner | null = o;
       while (p && !(p as any)._hp) p = p._parent;
-      if (!p && !(sharedConfig.hydrating && isClaiming())) return compute(prev);
-      armLiveTakeover(o);
+      if (!p && !(sharedConfig.hydrating && isClaiming())) {
+        if (_claimOwner !== NO_CLAIM) return compute(prev);
+      } else armLiveTakeover(o);
     }
   } else latchedOnce.add(o);
   const initP = sharedConfig.load!(o.id!);
@@ -2270,10 +2280,17 @@ function resumeBoundaryHydration(
       o
     );
   } else {
-    // The client renders the boundary fresh (recover): no claim.
+    // The client renders the boundary fresh (recover): no claim. Over the
+    // outcome the server drew for the failure (an `<Errored>` fallback the
+    // swap brought, listed in the reveal record, #4287) it is that
+    // failure's content run, as a hydrated `<Errored>`'s is (NO_CLAIM). A
+    // resume runs from a settled promise, never inside a claim window, so
+    // there is no claim owner to restore.
+    if ((globalThis as any)._$HY?.v?.[id]?.length) _claimOwner = NO_CLAIM;
     _hydratingValue = false;
     set();
     flush();
+    _claimOwner = null;
   }
   // Hydration mode is off once a boundary has resumed — whatever the flag
   // read before (a resume never runs inside a root's synchronous pass; the

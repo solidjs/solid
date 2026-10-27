@@ -12,8 +12,10 @@
  * - hole settled after it: the outer fragment carries the inner
  *   placeholder, and the inner fragment streams the fallback.
  *
- * The client claims that markup in both replay orders, without warnings;
- * hydrated after the stream it asks nothing again.
+ * The client claims that markup in both replay orders, without warnings,
+ * and asks nothing again: hydrated mid-stream, the outer resume reads the
+ * memo a cycle after its error landed, and a resume re-serves the server's
+ * answer — no ask, no flash back to a loading fallback.
  *
  * Replays the parity harness artifacts (test/server/hydration-harness.spec.tsx).
  */
@@ -21,7 +23,7 @@ import { describe, expect, test, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { flush } from "solid-js";
+import { createRenderEffect, createRoot, createSignal, flush } from "solid-js";
 import { hydrate } from "@solidjs/web";
 import { scenarios, parkedHoleAskCount } from "../harness/scenarios.jsx";
 
@@ -38,7 +40,13 @@ function applyChunk(container: HTMLDivElement, chunk: string, first: boolean) {
   for (const s of scripts) (0, eval)(s);
 }
 
-async function run(name: string, mode: "loaded" | "streamed") {
+// An unrelated client write after each stream piece moves the reactive
+// clock on, as on any live page.
+const [tick, setTick] = createSignal(0);
+createRoot(() => createRenderEffect(tick, () => {}));
+const pieces = (rest: string) => rest.match(/[\s\S]*?<\/script>/g) ?? [rest];
+
+async function run(name: string, mode: "loaded" | "streamed", before: string[]) {
   const file = artifact(name);
   const scenario = scenarios.find(s => s.name === name)!;
   expect(existsSync(file)).toBe(true);
@@ -61,18 +69,33 @@ async function run(name: string, mode: "loaded" | "streamed") {
     await sleep(10);
     flush();
     if (mode === "streamed") {
-      expect(container.textContent).toBe("outer loadingtail");
-      applyChunk(container, rest, false);
+      const seen: string[] = [container.textContent!];
+      for (const piece of pieces(rest)) {
+        applyChunk(container, piece, false);
+        flush();
+        await sleep(5);
+        setTick(tick() + 1);
+        flush();
+        seen.push(container.textContent!);
+      }
+      for (let i = 0; i < 10; i++) {
+        await sleep(5);
+        flush();
+        seen.push(container.textContent!);
+      }
+      // Placeholders until the fallback shows, and it stays once it shows.
+      const at = seen.indexOf("outerfailed: no user 7 HINTtail");
+      expect(at).toBeGreaterThan(0);
+      expect(new Set(seen.slice(0, at))).toEqual(new Set(before));
+      expect(new Set(seen.slice(at))).toEqual(new Set(["outerfailed: no user 7 HINTtail"]));
     }
     await sleep(50);
     flush();
     expect(container.textContent).toBe("outerfailed: no user 7 HINTtail");
     expect(container.querySelectorAll("p").length).toBe(1);
     if (mode === "loaded") expect(container.querySelector("p")).toBe(serverP);
-    // The server's answer is used: nothing is asked again. (Hydrated
-    // mid-stream, the memo re-asks on the outer boundary's resume, as for
-    // the parked failure with a plain fallback — see the scenario notes.)
-    expect(parkedHoleAskCount()).toBe(asksBefore + (mode === "streamed" ? 1 : 0));
+    // The server's answer is used: nothing is asked again.
+    expect(parkedHoleAskCount()).toBe(asksBefore);
     expect(warn).not.toHaveBeenCalled();
   } finally {
     warn.mockRestore();
@@ -86,10 +109,14 @@ const early = "errored-loading-parked-rejection-async-fallback-4306";
 const late = "errored-loading-parked-rejection-late-async-fallback-4306";
 
 describe("#4306: parked failure, Errored fallback with an async hole", () => {
+  const outerLoading = ["outer loadingtail"];
   test("hole settles before the outer Loading, hydrated after the stream", () =>
-    run(early, "loaded"));
-  test("hole settles before the outer Loading, hydrated mid-stream", () => run(early, "streamed"));
+    run(early, "loaded", outerLoading));
+  test("hole settles before the outer Loading, hydrated mid-stream", () =>
+    run(early, "streamed", outerLoading));
   test("hole settles after the outer Loading, hydrated after the stream", () =>
-    run(late, "loaded"));
-  test("hole settles after the outer Loading, hydrated mid-stream", () => run(late, "streamed"));
+    run(late, "loaded", outerLoading));
+  // The outer fragment carries the inner placeholder until the hole lands.
+  test("hole settles after the outer Loading, hydrated mid-stream", () =>
+    run(late, "streamed", [...outerLoading, "outerloadingtail"]));
 });
