@@ -37,7 +37,8 @@ import {
   For,
   Loading,
   Errored,
-  Repeat
+  Repeat,
+  NoHydration
 } from "solid-js";
 import {
   Portal,
@@ -1537,21 +1538,26 @@ function PostflushRejection() {
 }
 
 // The same failure with an async hole in the Errored fallback, still
-// pending when the Loading fails: the server has no finished fallback markup
-// to draw, so it serializes no error either (a record with no markup behind
-// it would make the client claim a fallback that is not there). The client
-// renders the failure itself, as it does on `next`.
+// pending when the Loading fails: the failure waits for the fallback to be
+// ready (RULES-DERIVED D-18, #4306) — the loading placeholder stays until
+// the fragment swaps in the finished fallback, its error serialized with it
+// (serializing it before would make the client claim a fallback that is not
+// there). The client claims it, asking for neither read again.
 let setPostflushHoleKey!: (v: string) => void;
+let postflushHoleAsks = 0;
+export const postflushHoleAskCount = () => postflushHoleAsks;
 function PostflushRejectionAsyncFallback() {
   const [key, setKey] = createSignal("u7");
   setPostflushHoleKey = setKey;
   const user = createMemo(async (): Promise<string> => {
     const k = key();
+    if (!isServer && Promise === RealPromise) postflushHoleAsks++;
     await sleep(5);
     if (k === "u7") throw new Error("no user 7");
     return k;
   });
   const hint = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) postflushHoleAsks++;
     await sleep(20);
     return "HINT";
   });
@@ -1604,15 +1610,23 @@ function PostflushRejectionNested() {
 
 // The failure inside an outer <Loading> still pending when it lands: the
 // inner fragment parks in the outer one, which settles later carrying the
-// Errored fallback the server drew.
+// Errored fallback the server drew. Hydrated mid-stream, the outer resume
+// reads the memo a cycle after its error landed; the resume is hydration,
+// so that read re-serves the server's error instead of asking again, and
+// the Errored tracks the memo like any hydrated failure (#4273).
+let setParkedKey!: (v: string) => void;
+let parkedAsks = 0;
+export const parkedAskCount = () => parkedAsks;
 function PostflushRejectionParked() {
-  const [key] = createSignal("u7");
+  const [key, setKey] = createSignal("u7");
+  setParkedKey = setKey;
   const outer = createMemo(async () => {
     await sleep(15);
     return "outer";
   });
   const user = createMemo(async (): Promise<string> => {
     const k = key();
+    if (!isServer && Promise === RealPromise) parkedAsks++;
     await sleep(5);
     if (k === "u7") throw new Error("no user 7");
     return k;
@@ -1626,6 +1640,624 @@ function PostflushRejectionParked() {
             <span>user:{user()}</span>
           </Loading>
         </Errored>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// #4306: the parked failure with an async hole in the Errored fallback,
+// still pending when the inner Loading fails. The failure waits out the
+// hole (as unparked, above): settled before the outer
+// Loading, the outer fragment carries the finished fallback; settled after
+// it (`late`), the outer fragment carries the inner placeholder and the
+// inner fragment streams the fallback once the hole lands. Either way the
+// client claims it, asking for nothing again.
+let parkedHoleAsks = 0;
+export const parkedHoleAskCount = () => parkedHoleAsks;
+function parkedRejectionAsyncFallback(late: boolean) {
+  return function PostflushRejectionParkedAsyncFallback() {
+    const outer = createMemo(async () => {
+      await sleep(15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      if (!isServer && Promise === RealPromise) parkedHoleAsks++;
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    const hint = createMemo(async () => {
+      await sleep(late ? 25 : 10);
+      return "HINT";
+    });
+    return (
+      <div>
+        <Loading fallback={<i>outer loading</i>}>
+          <b>{outer()}</b>
+          <Errored
+            fallback={(e: any) => (
+              <p>
+                failed: {e().message} {hint()}
+              </p>
+            )}
+          >
+            <Loading fallback={<i>loading</i>}>
+              <span>user:{user()}</span>
+            </Loading>
+          </Errored>
+        </Loading>
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+
+// ---------------------------------------------------------------------------
+// An async shell memo `b` reading another, `a`, both read only inside a
+// streamed <Loading>: hydrated mid-stream, `a`'s server answer arrives
+// first and re-runs `b`. Nothing on the client changed — the server's `b`
+// was computed from that same `a` — so `b` re-serves its own server answer
+// instead of asking again; a client write to their input still recomputes
+// both. `servedSourceControl.write` makes an effect on `a` write `extra`,
+// which `b` also reads, when `a` lands on the client: a client write in the
+// landing's own flush, which `b` must compute for. `servedSourceControl.b`
+// is `b`'s value as the client last committed it.
+let setServedSourceKey!: (v: string) => void;
+let servedSourceAsks = 0;
+export const servedSourceAskCount = () => servedSourceAsks;
+export const servedSourceControl = { write: false, b: "" };
+function ServedSourceLanding() {
+  const [key, setKey] = createSignal("k");
+  const [extra, setExtra] = createSignal("");
+  setServedSourceKey = setKey;
+  const a = createMemo(async () => {
+    const k = key();
+    await sleep(5);
+    return k + "1";
+  });
+  createEffect(a, () => {
+    if (servedSourceControl.write) setExtra("x");
+  });
+  const b = createMemo(async () => {
+    const x = a() + extra();
+    if (!isServer && Promise === RealPromise) servedSourceAsks++;
+    await sleep(5);
+    return x + "2";
+  });
+  createEffect(b, v => void (servedSourceControl.b = v));
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <span>b:{b()}</span>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// #4316: the #4287/#4306 failure with the Errored fallback's own hole
+// failing. `hole: "async"` reads an async memo that rejects at 10ms (after
+// the inner Loading failed at 5ms, before the outer one settles at 15ms);
+// `hole: "sync"` is its twin, a fallback that throws synchronously. The
+// fallback's failure belongs to the next boundary up, so the async variant
+// must end exactly as its twin does — server markup and client outcome.
+// `parked`: inside an outer <Loading> still pending when it fails;
+// `caught`: an outer <Errored> around everything catches it.
+export type FallbackHoleFailure = { hole: "async" | "sync"; parked: boolean; caught: boolean };
+export const fallbackHoleFailureName = (o: FallbackHoleFailure) =>
+  `errored-fallback-hole-${o.hole}-failure${o.parked ? "-parked" : ""}${o.caught ? "-caught" : ""}-4316`;
+export function fallbackHoleFailure(o: FallbackHoleFailure) {
+  return function ErroredFallbackHoleFailure() {
+    const outer = createMemo(async () => {
+      await sleep(15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    // The twin takes the async memo's owner slot too, so both variants'
+    // hydration keys line up.
+    const slot = createMemo(async (): Promise<string> => {
+      if (o.hole === "sync") return "";
+      await sleep(10);
+      throw new Error("no hint");
+    });
+    const hint =
+      o.hole === "async"
+        ? slot
+        : (): string => {
+            throw new Error("no hint");
+          };
+    const Inner = () => (
+      <Errored
+        fallback={(e: any) => (
+          <p>
+            failed: {e().message} {hint()}
+          </p>
+        )}
+      >
+        <Loading fallback={<i>loading</i>}>
+          <span>user:{user()}</span>
+        </Loading>
+      </Errored>
+    );
+    const Body = o.parked
+      ? () => (
+          <Loading fallback={<i>outer loading</i>}>
+            <b>{outer()}</b>
+            <Inner />
+          </Loading>
+        )
+      : Inner;
+    return o.caught ? (
+      <div>
+        <Errored fallback={(e: any) => <h2>caught: {e().message}</h2>}>
+          <Body />
+        </Errored>
+        <span>tail</span>
+      </div>
+    ) : (
+      <div>
+        <Body />
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+export const fallbackHoleFailures: FallbackHoleFailure[] = (["async", "sync"] as const).flatMap(
+  hole => [false, true].flatMap(parked => [false, true].map(caught => ({ hole, parked, caught })))
+);
+
+// ---------------------------------------------------------------------------
+// #4316 follow-up: a `<Loading>` fragment that fails while parked in an
+// enclosing `<Loading>` still pending (`<b>{outer()}</b>`, 15ms; the inner
+// read rejects at 5ms). Its failure is the enclosing fragment's content's:
+// with an `<Errored>` between (`A`, markup around the position) that
+// Errored's fallback is drawn in the enclosing fragment; with none the
+// enclosing fragment fails (met, with `caught`, by the outermost Errored
+// that is all of its content). `B`: an Errored right around the inner
+// Loading whose fallback itself fails (`hint`, 10ms) — its failure is
+// A's. The `twin` variant has no inner Loading: the read is a hole of the
+// enclosing fragment's own pass, the failure met in that pass — what the
+// parked failure must end as. `late`: the enclosing fragment settles first
+// (2ms), so the inner one streams on its own (no twin).
+export type ParkedFailure = {
+  variant: "inner" | "twin";
+  A: boolean;
+  B: boolean;
+  caught: boolean;
+  late?: boolean;
+};
+export const parkedFailureName = (o: ParkedFailure) =>
+  `parked-fragment-failure-${o.variant}${o.A ? "-A" : ""}${o.B ? "-B" : ""}` +
+  `${o.caught ? "-caught" : ""}${o.late ? "-late" : ""}-4316`;
+export function parkedFailure(o: ParkedFailure) {
+  return function ParkedFragmentFailure() {
+    const outer = createMemo(async () => {
+      await sleep(o.late ? 2 : 15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    const hint = createMemo(async (): Promise<string> => {
+      await sleep(10);
+      throw new Error("no hint");
+    });
+    const read = () => <span>user:{user()}</span>;
+    const failing = () =>
+      o.variant === "inner" ? <Loading fallback={<i>loading</i>}>{read()}</Loading> : read();
+    const mid = () =>
+      o.B ? (
+        <Errored
+          fallback={(e: any) => (
+            <p>
+              failed: {e().message} {hint()}
+            </p>
+          )}
+        >
+          {failing()}
+        </Errored>
+      ) : (
+        failing()
+      );
+    const region = () =>
+      o.A ? (
+        <Errored fallback={(e: any) => <h2>caught: {e().message}</h2>}>
+          <section>{mid()}</section>
+        </Errored>
+      ) : (
+        <section>{mid()}</section>
+      );
+    const body = () => (
+      <Loading fallback={<i>outer loading</i>}>
+        <b>{outer()}</b>
+        {region()}
+      </Loading>
+    );
+    return (
+      <div>
+        {o.caught ? (
+          <Errored fallback={(e: any) => <h3>outermost: {e().message}</h3>}>{body()}</Errored>
+        ) : (
+          body()
+        )}
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+export const parkedFailures: ParkedFailure[] = (["inner", "twin"] as const).flatMap(variant =>
+  [false, true].flatMap(A =>
+    [false, true].flatMap(B => [false, true].map(caught => ({ variant, A, B, caught })))
+  )
+);
+export const lateParkedFailures: ParkedFailure[] = [false, true].map(A => ({
+  variant: "inner" as const,
+  A,
+  B: false,
+  caught: false,
+  late: true
+}));
+
+// ---------------------------------------------------------------------------
+// The #4316 failure at shell level, no `<Loading>` anywhere: `B`, an
+// `<Errored>` around a read that rejects (5ms), whose fallback's own hole
+// fails too — `hole: "async"` rejects at 10ms, `hole: "sync"` is its twin,
+// a fallback that throws synchronously. The shell waits for both (and for
+// `<b>{outer()}</b>`, 15ms). B's fallback's failure is the next boundary's:
+// with `A`, an `<Errored>` around B (`section`: markup between), A's
+// fallback is drawn in the shell; with none, the request fails — both as
+// the twin does, never a blank region with B's and A's errors recorded and
+// no markup for either.
+export type ShellFallbackFailure = { hole: "async" | "sync"; A: boolean; section: boolean };
+export const shellFallbackFailureName = (o: ShellFallbackFailure) =>
+  `errored-shell-fallback-hole-${o.hole}-failure${o.A ? "-A" : ""}${o.section ? "" : "-bare"}`;
+export function shellFallbackFailure(o: ShellFallbackFailure) {
+  return function ShellFallbackFailure() {
+    const outer = createMemo(async () => {
+      await sleep(15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    // The twin takes the async memo's owner slot too, so both variants'
+    // hydration keys line up.
+    const slot = createMemo(async (): Promise<string> => {
+      if (o.hole === "sync") return "";
+      await sleep(10);
+      throw new Error("no hint");
+    });
+    const hint =
+      o.hole === "async"
+        ? slot
+        : (): string => {
+            throw new Error("no hint");
+          };
+    const B = () => (
+      <Errored
+        fallback={(e: any) => (
+          <p>
+            failed: {e().message} {hint()}
+          </p>
+        )}
+      >
+        <span>user:{user()}</span>
+      </Errored>
+    );
+    const mid = () => (o.section ? <section>{B()}</section> : B());
+    const region = () =>
+      o.A ? (
+        <Errored fallback={(e: any) => <h2>caught: {e().message}</h2>}>{mid()}</Errored>
+      ) : (
+        mid()
+      );
+    return (
+      <div>
+        {region()}
+        <b>{outer()}</b>
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+export const shellFallbackFailures: ShellFallbackFailure[] = (["async", "sync"] as const).flatMap(
+  hole => [false, true].flatMap(A => [false, true].map(section => ({ hole, A, section })))
+);
+
+// ---------------------------------------------------------------------------
+// Never refetch: a served error is the server's answer while hydration runs.
+// A shell memo `user` fails on the server after the shell flushed; an
+// <Errored> over a <Loading> reads it beside an unrelated signal `n`, and a
+// slow second <Loading> keeps hydration open after the failure shows. On
+// the client `user` resolves, so only a real ask recovers: the Errored's
+// reset() is one, mid-hydration too. A write to `n` re-runs the reader.
+let servedErrorAsks = 0;
+export const servedErrorAskCount = () => servedErrorAsks;
+export const servedErrorControl: { setN?: (v: number) => void; reset?: () => void } = {};
+function ServedErrorReread() {
+  const [n, setN] = createSignal(0);
+  servedErrorControl.setN = setN;
+  const user = createMemo(async (): Promise<string> => {
+    if (!isServer && Promise === RealPromise) servedErrorAsks++;
+    await sleep(5);
+    if (isServer) throw new Error("no user 7");
+    return "u7";
+  });
+  const slow = createMemo(async () => {
+    await sleep(isServer ? 60 : 1);
+    return "slow";
+  });
+  return (
+    <div>
+      <Errored
+        fallback={(e: any, reset: () => void) => (
+          (servedErrorControl.reset = reset),
+          (<p>failed: {e().message}</p>)
+        )}
+      >
+        <Loading fallback={<i>loading</i>}>
+          <span>{n() + ":" + user()}</span>
+        </Loading>
+      </Errored>
+      <Loading fallback={<i>slow loading</i>}>
+        <b>{slow()}</b>
+      </Loading>
+    </div>
+  );
+}
+
+// An uncontained failure the server cannot draw: an <Errored> in the shell
+// over a <Loading> that streamed its content (a resolved read `a`, a
+// counter), with a nested <Loading> whose read `user` fails after that,
+// beside a read `b` the server resolved. The Errored and the outer fragment
+// are already on the wire, so the inner fragment rejects with no outcome.
+// The client renders that fragment fresh, so its graph is created, but
+// every read claims what the server sent: `b` its value, `user` its error,
+// thrown to the nearest client boundary, the shell's Errored. No ask.
+// reset() asks, and the recreated graph is live.
+let nestedRejectionAsks = 0;
+let nestedRejectionSiblingAsks = 0;
+export const nestedRejectionAskCount = () => nestedRejectionAsks;
+export const nestedRejectionSiblingAskCount = () => nestedRejectionSiblingAsks;
+export const nestedRejectionControl: { reset?: () => void } = {};
+function NestedRejectionUser() {
+  const b = createMemo(async (): Promise<string> => {
+    if (!isServer && Promise === RealPromise) nestedRejectionSiblingAsks++;
+    await sleep(10);
+    return "b";
+  });
+  const user = createMemo(async (): Promise<string> => {
+    if (!isServer && Promise === RealPromise) nestedRejectionAsks++;
+    await sleep(20);
+    if (isServer) throw new Error("no user 7");
+    return "u7";
+  });
+  return (
+    <b>
+      {b()}
+      {user()}
+    </b>
+  );
+}
+function NestedRejection() {
+  const a = createMemo(async () => {
+    await sleep(5);
+    return "a";
+  });
+  const [count, setCount] = createSignal(0);
+  return (
+    <div>
+      <Errored
+        fallback={(e: any, reset: () => void) => (
+          (nestedRejectionControl.reset = reset),
+          (<p>failed: {e().message}</p>)
+        )}
+      >
+        <Loading fallback={<i>outer loading</i>}>
+          <span>{a()}</span>
+          <button id="nested-rejection-count" onClick={() => setCount(c => c + 1)}>
+            {"c" + count()}
+          </button>
+          <Loading fallback={<i>inner loading</i>}>
+            <NestedRejectionUser />
+          </Loading>
+        </Loading>
+      </Errored>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// A sibling the server never finished: a <Loading> streams `a` (resolved at
+// 5ms) and `c` (50ms on the server), and its content throws on the server
+// once `a` lands, a render error no record carries. The fragment rejects
+// with `c` still pending, so the server abandons it. The client renders the
+// fragment fresh: `a` and `d` take the server's values (`d` sits after an
+// element, whose hydration key the server spent an id on: the fresh
+// render's ids must line up), and `c`, which has no answer from the
+// server, computes (an abandoned record is not the value `undefined`).
+// Nothing throws on the client, so the graph is live.
+const abandonedAsks = { a: 0, c: 0, d: 0 };
+export const abandonedSiblingAsks = () => ({ ...abandonedAsks });
+function AbandonedSiblingC() {
+  const c = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) abandonedAsks.c++;
+    await sleep(isServer ? 50 : 1);
+    return "c";
+  });
+  return <b>{c()}</b>;
+}
+function AbandonedSiblingD() {
+  const d = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) abandonedAsks.d++;
+    await sleep(2);
+    return "d";
+  });
+  return <u>{d()}</u>;
+}
+function AbandonedSiblingContent() {
+  const a = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) abandonedAsks.a++;
+    await sleep(5);
+    return "a";
+  });
+  const [count, setCount] = createSignal(0);
+  return (
+    <>
+      <span>{a()}</span>
+      <AbandonedSiblingD />
+      <Loading fallback={<i>c loading</i>}>
+        <AbandonedSiblingC />
+      </Loading>
+      <em>
+        {(() => {
+          const v = a();
+          if (isServer) throw new Error("server render");
+          return "!" + v;
+        })()}
+      </em>
+      <button id="abandoned-sibling-count" onClick={() => setCount(n => n + 1)}>
+        {"n" + count()}
+      </button>
+    </>
+  );
+}
+function AbandonedSibling() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <AbandonedSiblingContent />
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// A fragment whose server render threw (no record carries it) is rendered
+// fresh on the client with hydration on, adopting by id and claiming
+// nothing. Element runtimes that pick claim-or-create on that flag alone
+// must create here: `<Dynamic component="p">` (staticElement) and a
+// `<Portal>` (its client-only gate) inside such a fragment.
+function ServerRenderThrows(props: { children: JSX.Element }) {
+  const a = createMemo(async () => {
+    await sleep(5);
+    return "a";
+  });
+  return (
+    <>
+      <span>{a()}</span>
+      {props.children}
+      <em>
+        {(() => {
+          const v = a();
+          if (isServer) throw new Error("server render");
+          return "!" + v;
+        })()}
+      </em>
+    </>
+  );
+}
+function RejectedDynamic() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <Dynamic component="p">dyn</Dynamic>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedPortal() {
+  const [host, setHost] = createSignal<HTMLElement>();
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <Portal mount={host()}>
+            <b>portal</b>
+          </Portal>
+        </ServerRenderThrows>
+      </Loading>
+      <section ref={setHost} />
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedNoHydration() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <NoHydration>
+            <b>nh</b>
+          </NoHydration>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+const RejectedClientOnlyWidget = clientOnly(() => Promise.resolve({ default: () => <u>co</u> }));
+function RejectedClientOnly() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <RejectedClientOnlyWidget fallback={<s>cf</s>} />
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedFor() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <For each={["x", "y"]}>{v => <b>{v}</b>}</For>
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedSheetRoute() {
+  useHead({ tag: "link", props: { rel: "stylesheet", href: "/rejected-sheet.css" } });
+  return <b>css</b>;
+}
+function RejectedStylesheet() {
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <RejectedSheetRoute />
+        </ServerRenderThrows>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+function RejectedNestedLoading() {
+  const n = createMemo(async () => {
+    await sleep(10);
+    return "n";
+  });
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <ServerRenderThrows>
+          <Loading fallback={<i>inner</i>}>
+            <b>{n()}</b>
+          </Loading>
+        </ServerRenderThrows>
       </Loading>
       <span>tail</span>
     </div>
@@ -2969,17 +3601,31 @@ export const scenarios: Scenario[] = [
     App: PostflushRejectionParked,
     async: true,
     expectedText: "outerfailed: no user 7tail",
-    serverText: "outer loading tail failed: no user 7"
-    // No update pass: hydrated mid-stream, the memo re-asks on the outer
-    // boundary's resume (as it does on `next`), so the Errored holds the
-    // server's fallback until reset() rather than tracking the memo.
+    serverText: "outer loading tail failed: no user 7",
+    update: () => setParkedKey("u8"),
+    expectedTextAfterUpdate: "outeruser:u8tail"
+  },
+  {
+    name: "errored-loading-parked-rejection-async-fallback-4306",
+    App: parkedRejectionAsyncFallback(false),
+    async: true,
+    expectedText: "outerfailed: no user 7 HINTtail",
+    serverText: "outer loading tail failed: no user 7 HINT"
+  },
+  {
+    name: "errored-loading-parked-rejection-late-async-fallback-4306",
+    App: parkedRejectionAsyncFallback(true),
+    async: true,
+    expectedText: "outerfailed: no user 7 HINTtail",
+    serverText: "outer loading tail loading failed: no user 7 HINT"
   },
   {
     name: "errored-loading-postflush-rejection-async-fallback-4287",
     App: PostflushRejectionAsyncFallback,
     async: true,
     expectedText: "failed: no user 7 HINTtail",
-    serverText: "loading tail",
+    // Shell: the loading fallback; the fragment: the finished fallback.
+    serverText: "loading tail failed: no user 7 HINT",
     update: () => setPostflushHoleKey("u8"),
     expectedTextAfterUpdate: "user:u8tail"
   },
@@ -2993,6 +3639,87 @@ export const scenarios: Scenario[] = [
     update: () => setPostflushKey("u8"),
     expectedTextAfterUpdate: "user:u8tail",
     stableSelector: "div"
+  },
+  {
+    name: "served-error-reread",
+    App: ServedErrorReread,
+    async: true,
+    expectedText: "failed: no user 7slow",
+    serverText: "loading slow loading failed: no user 7 slow"
+  },
+  {
+    name: "rejected-fragment-dynamic",
+    App: RejectedDynamic,
+    async: true,
+    expectedText: "adyn!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-portal",
+    App: RejectedPortal,
+    async: true,
+    expectedText: "a!aportaltail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-nohydration",
+    App: RejectedNoHydration,
+    async: true,
+    expectedText: "anh!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-client-only",
+    App: RejectedClientOnly,
+    async: true,
+    expectedText: "aco!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-for",
+    App: RejectedFor,
+    async: true,
+    expectedText: "axy!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-stylesheet",
+    App: RejectedStylesheet,
+    async: true,
+    // The fresh content waits for its sheet, which jsdom never loads here;
+    // served-error-no-reask.spec.tsx dispatches the load.
+    expectedText: "loadingtail",
+    serverText: "loading tail"
+  },
+  {
+    name: "rejected-fragment-nested-loading",
+    App: RejectedNestedLoading,
+    async: true,
+    expectedText: "an!atail",
+    serverText: "loading tail"
+  },
+  {
+    name: "abandoned-sibling-computes",
+    App: AbandonedSibling,
+    async: true,
+    expectedText: "adc!an0tail",
+    serverText: "loading tail"
+  },
+  {
+    name: "nested-rejection-no-outcome",
+    App: NestedRejection,
+    async: true,
+    expectedText: "failed: no user 7tail",
+    serverText: "outer loading tail a c0 inner loading"
+  },
+  {
+    name: "served-source-landing",
+    App: ServedSourceLanding,
+    async: true,
+    expectedText: "b:k12tail",
+    serverText: "loading tail k12",
+    update: () => setServedSourceKey("j"),
+    expectedTextAfterUpdate: "b:j12tail"
   },
   {
     name: "errored-thunk-fallback-under-errored",

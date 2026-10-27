@@ -325,14 +325,16 @@ function staticElement(tag: string, props: any): JSX.Element {
   // CREATED (customized built-in / namespace), so they are read once here,
   // untracked — the DOM can't change either after creation — and then flow
   // through spread() like any attribute. Hydration claims the
-  // parser-namespaced node, so neither applies.
-  const el = hydrating
-    ? getNextElement()
-    : createElement(
-        tag,
-        untrack(() => props.is),
-        untrack(() => props.xmlns)
-      );
+  // parser-namespaced node, so neither applies — when it claims: a fresh
+  // render under hydration (a rejected fragment's, adopting by id) spends
+  // the key and creates, like a compiled template.
+  const create = () =>
+    createElement(
+      tag,
+      untrack(() => props.is),
+      untrack(() => props.xmlns)
+    );
+  const el = hydrating ? getNextElement(create) : create();
   spread(el, props);
   // Compiled JSX emits runHydrationEvents() after an element that carries
   // event handlers. Handlers bound through spread() here need the same call,
