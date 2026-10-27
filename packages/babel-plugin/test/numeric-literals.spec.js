@@ -26,3 +26,32 @@ describe("evaluated numeric literals", () => {
     }
   });
 });
+
+describe("evaluated numeric attributes stay static", () => {
+  const attrs = `const a = <div c={-1} d={0 / 0} e={-0} />;
+const b = <input prop:value={-1} />;`;
+  const compile = generate =>
+    babel.transformSync(attrs, {
+      plugins: [[plugin, { generate, moduleName: "r-dom" }]],
+      configFile: false,
+      babelrc: false,
+      filename: "numeric.jsx"
+    }).code;
+
+  test("dom", () => {
+    const code = compile("dom");
+    expect(code).toContain("<div c=-1 d=NaN e=0>");
+    expect(code).toContain("_el$2.value = -1;");
+  });
+
+  test("ssr", () => {
+    expect(compile("ssr")).toContain('c=\\"-1\\" d=\\"NaN\\" e=\\"0\\"');
+  });
+
+  test("universal", () => {
+    const code = compile("universal");
+    expect(code).toContain("c: -1");
+    expect(code).toContain("d: NaN");
+    expect(code).toContain("e: -0");
+  });
+});

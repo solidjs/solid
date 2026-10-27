@@ -114,6 +114,19 @@ pub struct TransformResult {
     pub css_hash: Option<String>,
 }
 
+/// The dialect a secondary pass (`transformDirectives`, `transformLazy`,
+/// `transformRefresh`, `transformSourceNames`) parses its input in. Those
+/// passes run on what a JSX transform — this crate's, or another front end's —
+/// already produced, and keep the authored filename only for path-derived
+/// metadata (server-function ids hash it). So a filename Oxc knows picks its
+/// dialect, and any other (`.tsrx`, another front end's `.rx`) is ordinary
+/// code, parsed as TSX.
+pub(crate) fn secondary_source_type(filename: Option<&str>) -> SourceType {
+    filename
+        .and_then(|filename| SourceType::from_path(filename).ok())
+        .unwrap_or_else(SourceType::tsx)
+}
+
 pub(crate) fn source_type_for_filename(filename: Option<&str>) -> Result<SourceType> {
     if filename.is_some_and(|filename| filename.ends_with(".tsrx")) {
         // Secondary passes receive already-projected ordinary code but retain

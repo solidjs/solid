@@ -11,6 +11,7 @@ import {
   VoidElements
 } from "../../../web/src/constants.js";
 import {
+  numberLiteral,
   evaluateAndInline,
   getAttributeNamed,
   getTagName,
@@ -997,7 +998,7 @@ function transformAttributes(
           ((type = typeof evaluated) === "string" || type === "number" || type === "boolean")
         ) {
           if (type === "number" && key.startsWith("prop:")) {
-            value = t.jsxExpressionContainer(t.valueToNode(evaluated) as babelTypes.Expression);
+            value = t.jsxExpressionContainer(numberLiteral(evaluated));
           } else if (type === "boolean") {
             value = t.jsxExpressionContainer(t.booleanLiteral(evaluated));
           } else value = t.stringLiteral(String(evaluated));

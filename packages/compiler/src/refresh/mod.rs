@@ -25,7 +25,7 @@ use oxc_allocator::Allocator;
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_parser::{ParseOptions, Parser};
 
-use crate::config::{TransformResult, source_type_for_filename};
+use crate::config::{TransformResult, secondary_source_type};
 use transform::{Bundler, RefreshConfig, RefreshTransform};
 
 pub const DEFAULT_IMPORT_SOURCE: &str = "solid-refresh";
@@ -90,7 +90,7 @@ pub fn transform_refresh(
             .unwrap_or_else(|| DEFAULT_IMPORT_SOURCE.to_string()),
     };
 
-    let source_type = source_type_for_filename(options.filename.as_deref())?;
+    let source_type = secondary_source_type(options.filename.as_deref());
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &code, source_type)
         .with_options(ParseOptions {
