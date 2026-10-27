@@ -306,11 +306,12 @@ let _snapshotRootOwner: Owner | null = null;
 // The boundary owner whose resume window is open (null during a root pass,
 // which claims everything). Reached as `sharedConfig.isClaiming`.
 let _claimOwner: Owner | null = null;
-// The claim window over no owner: a hydrated failure's content run — a
-// hydrated `<Errored>`'s (hydratedCreateErrorBoundary), or a rejected
-// fragment's fresh render over the outcome the server drew for it
-// (resumeBoundaryHydration) — where nothing claims and what the content
-// reads is the server's failure (readSerializedOrCompute).
+// The claim window over no owner: hydration's own pass over served answers,
+// where nothing claims and a latched node re-serves its server answer
+// (readSerializedOrCompute) — a hydrated failure's content run (a hydrated
+// `<Errored>`'s, hydratedCreateErrorBoundary; a rejected fragment's fresh
+// render over the outcome the server drew for it, resumeBoundaryHydration),
+// and a served answer's arrival (`arrive`).
 const NO_CLAIM = {} as Owner;
 function isClaiming(): boolean {
   if (!_claimOwner) return true;
@@ -585,6 +586,22 @@ export function syncThenable(value: any) {
 }
 
 /**
+ * The async runtime's landing of a served answer that was still in flight
+ * (readHydratedValue). The arrival and the flush that carries it, run here
+ * at once, are hydration's own pass (NO_CLAIM):
+ * a dependent that adopted its own server answer re-runs there because the
+ * server's answer for a source arrived, not because a client write diverged
+ * it, and re-serves its answer (readSerializedOrCompute). The landing runs
+ * from a settled promise, outside any claim window.
+ */
+const arrive = (f: any) => (x: any) => {
+  _claimOwner = NO_CLAIM;
+  f(x);
+  flush();
+  _claimOwner = null;
+};
+
+/**
  * Unwrap a serialized hydration map entry. Only call when the map HAS an
  * entry for this id — presence is the caller's decision (`sharedConfig.has`),
  * because the serialized value itself may be null/undefined (#2914).
@@ -605,16 +622,20 @@ export function readHydratedValue(initP: any, refresh: () => void, options?: any
     // claim against placeholder DOM). Hand the async runtime a clean thenable
     // (the settled refs are stamped `s`/`v`, which the core would also
     // fast-adopt): the landing applies on the microtask after the walk.
-    if (hasLoadingWindow(options) && typeof initP.then === "function")
-      return { then: initP.then.bind(initP) };
-    if (initP.s === 2) {
-      // The stamp is the consumption: nothing ever `.then`s the serialized
-      // promise itself, so observe its rejection here or the deserialized
-      // record surfaces as an unhandled rejection (#2997).
-      if (typeof initP.then === "function") initP.then(undefined, noop);
-      throw initP.v;
+    if (!hasLoadingWindow(options)) {
+      if (initP.s === 2) {
+        // The stamp is the consumption: nothing ever `.then`s the serialized
+        // promise itself, so observe its rejection here or the deserialized
+        // record surfaces as an unhandled rejection (#2997).
+        initP.then?.(undefined, noop);
+        throw initP.v;
+      }
+      if (initP.s === 1) return initP.v;
     }
-    if (initP.s === 1) return initP.v;
+    // Still in flight (or a loading window's): the runtime lands it, its
+    // arrival marked (`arrive`).
+    if (typeof initP.then === "function")
+      return { then: (a: any, b: any) => initP.then(arrive(a), arrive(b)) };
   }
   return initP;
 }
@@ -686,17 +707,17 @@ export function readSerializedOrCompute(compute: (prev: any) => any, prev: any, 
     // A rerun outside the claim in progress by a node no pending boundary
     // holds: its section's hydration is over, so the rerun answers a client
     // write and computes, rather than re-adopting the server value until the
-    // page's last boundary resumes. Not inside a hydrated failure's content
-    // run (NO_CLAIM): a read there re-runs a node with nothing changed — a
-    // later tracked read retries an errored async node (PJ-R35) — and the
-    // server's answer, its error, is what the content shows. It re-serves
-    // that answer and arms nothing: no ask, no loading flash (#4287, #4306).
-    if (options?.ssrSource !== "hybrid") {
+    // page's last boundary resumes. Never in hydration's own pass over
+    // served answers (NO_CLAIM): a source's server answer arriving, or a
+    // hydrated failure's content reading the node — a later tracked read
+    // retries an errored async node (PJ-R35) with nothing changed. No client
+    // write diverged it there: it re-serves its own answer, an error
+    // included, and arms nothing — no ask, no loading flash (#4287, #4306).
+    if (options?.ssrSource !== "hybrid" && _claimOwner !== NO_CLAIM) {
       let p: Owner | null = o;
       while (p && !(p as any)._hp) p = p._parent;
-      if (!p && !(sharedConfig.hydrating && isClaiming())) {
-        if (_claimOwner !== NO_CLAIM) return compute(prev);
-      } else armLiveTakeover(o);
+      if (!p && !(sharedConfig.hydrating && isClaiming())) return compute(prev);
+      armLiveTakeover(o);
     }
   } else latchedOnce.add(o);
   const initP = sharedConfig.load!(o.id!);
@@ -2285,8 +2306,9 @@ function resumeBoundaryHydration(
     // swap brought, listed in the reveal record, #4287) it is that
     // failure's content run, as a hydrated `<Errored>`'s is (NO_CLAIM). A
     // resume runs from a settled promise, never inside a claim window, so
-    // there is no claim owner to restore.
-    if ((globalThis as any)._$HY?.v?.[id]?.length) _claimOwner = NO_CLAIM;
+    // there is no claim owner to restore — an arrival's pass (`arrive`)
+    // that is still marked has had its flush, and does not cover this one.
+    _claimOwner = (globalThis as any)._$HY?.v?.[id]?.length ? NO_CLAIM : null;
     _hydratingValue = false;
     set();
     flush();

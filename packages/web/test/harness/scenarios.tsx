@@ -1692,6 +1692,40 @@ function parkedRejectionAsyncFallback(late: boolean) {
 }
 
 // ---------------------------------------------------------------------------
+// An async shell memo `b` reading another, `a`, both read only inside a
+// streamed <Loading>: hydrated mid-stream, `a`'s server answer arrives
+// first and re-runs `b`. Nothing on the client changed — the server's `b`
+// was computed from that same `a` — so `b` re-serves its own server answer
+// instead of asking again; a client write to their input still recomputes
+// both.
+let setServedSourceKey!: (v: string) => void;
+let servedSourceAsks = 0;
+export const servedSourceAskCount = () => servedSourceAsks;
+function ServedSourceLanding() {
+  const [key, setKey] = createSignal("k");
+  setServedSourceKey = setKey;
+  const a = createMemo(async () => {
+    const k = key();
+    await sleep(5);
+    return k + "1";
+  });
+  const b = createMemo(async () => {
+    const x = a();
+    if (!isServer && Promise === RealPromise) servedSourceAsks++;
+    await sleep(5);
+    return x + "2";
+  });
+  return (
+    <div>
+      <Loading fallback={<i>loading</i>}>
+        <span>b:{b()}</span>
+      </Loading>
+      <span>tail</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
 // used to return the thunk unresolved for the enclosing boundary to unwrap —
@@ -3066,6 +3100,15 @@ export const scenarios: Scenario[] = [
     update: () => setPostflushKey("u8"),
     expectedTextAfterUpdate: "user:u8tail",
     stableSelector: "div"
+  },
+  {
+    name: "served-source-landing",
+    App: ServedSourceLanding,
+    async: true,
+    expectedText: "b:k12tail",
+    serverText: "loading tail k12",
+    update: () => setServedSourceKey("j"),
+    expectedTextAfterUpdate: "b:j12tail"
   },
   {
     name: "errored-thunk-fallback-under-errored",
