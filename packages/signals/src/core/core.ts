@@ -273,11 +273,7 @@ export function setSnapshotCapture(active: boolean): void {
  */
 export function markSnapshotScope(owner: Owner, served?: unknown): void {
   if (arguments.length < 2) owner._snapshotScope = true;
-  else if (
-    snapshotCaptureActive &&
-    !((owner as Computed<any>)._config & CONFIG_NO_SNAPSHOT) &&
-    (owner as Computed<any>)._x?._snapshotValue === undefined
-  )
+  else if (snapshotCaptureActive && (owner as Computed<any>)._x?._snapshotValue === undefined)
     takeSnapshot(owner as Computed<any>, served);
 }
 

@@ -746,7 +746,7 @@ export function readSerializedOrCompute(
     // over first (above) drops the landing, not the snapshot — the boundary
     // claims what its markup shows, then replays the client's value at its
     // release.
-    if (value && initP?.then && !initP.s) initP.then((v: any) => markSnapshotScope(o, v), noop);
+    if (value && initP?.then) initP.then((v: any) => markSnapshotScope(o, v), noop);
   }
   return readHydratedValue(
     initP,
