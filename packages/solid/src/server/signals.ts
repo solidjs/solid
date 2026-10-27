@@ -3708,7 +3708,9 @@ export function repeat<T>(
  * asking `<Loading>`'s id, and an `<Errored>` answers only when that
  * Loading is all of its content (#4287).
  */
-export type BoundaryErrorHandler = (err: any, outcome?: true | string) => string | undefined | void;
+export type BoundaryErrorHandler = (err: any, outcome?: true | string) => BoundaryOutcome;
+/** A rendered outcome; a function where it is still resolving (see renderOutcome). */
+export type BoundaryOutcome = string | (() => Promise<string | undefined>) | undefined | void;
 
 const ErrorContext: Context<BoundaryErrorHandler | null> = {
   id: Symbol("ErrorContext"),
@@ -3761,7 +3763,7 @@ export function runWithBoundaryErrorContext<T>(
     err: any,
     parentHandler: BoundaryErrorHandler | null,
     outcome?: true | string
-  ) => string | undefined | void,
+  ) => BoundaryOutcome,
   context?: NonNullable<typeof sharedConfig.context>,
   boundaryId?: string
 ): T {
@@ -4275,7 +4277,12 @@ export function createErrorBoundary<T, U>(
   // all of its content: the fallback then lands where the client twin draws
   // it, and the error serialized here lets it adopt that markup. Deeper in
   // the content it answers nothing — the client renders the failure fresh.
-  const renderOutcome = (err: any, outcome: true | string): string | undefined => {
+  // Asked by a `<Loading>` (outside a server component), a fallback still
+  // resolving answers with a function instead: called, it waits out the
+  // fallback's holes and answers with the finished markup (or `undefined`,
+  // a client hole or a failure in it), serializing the error only then
+  // (#4306).
+  const renderOutcome = (err: any, outcome: true | string): BoundaryOutcome => {
     let t = shown && shown.t;
     if (Array.isArray(t)) t = t[0];
     if (
@@ -4289,19 +4296,32 @@ export function createErrorBoundary<T, U>(
       return undefined;
     // Rendered from a resume loop, where the render context the compiled
     // template reads has long moved past this boundary's: restore it.
-    const prevCtx = sharedConfig.context;
-    sharedConfig.context = ctx;
-    try {
-      const resolved: any = ctx.resolve(ctx.escape(handleError(err, true)));
-      if (!resolved || (resolved.h && resolved.h.length)) return undefined;
+    const inCtx = (run: () => any) => {
+      const prevCtx = sharedConfig.context;
+      sharedConfig.context = ctx;
+      try {
+        return run();
+      } catch {
+      } finally {
+        sharedConfig.context = prevCtx;
+      }
+    };
+    const finish = (resolved: any) => {
+      if (!resolved || (resolved.h && resolved.h.length)) return;
       if (deferredWire) (serializeError(deferredWire), (deferredWire = undefined));
       const t = resolved.t;
       return Array.isArray(t) ? t[0] : t;
-    } catch {
-      return undefined;
-    } finally {
-      sharedConfig.context = prevCtx;
-    }
+    };
+    let resolved: any = inCtx(() => ctx.resolve(ctx.escape(handleError(err, true))));
+    if (outcome === true || !resolved || !resolved.h || !resolved.h.length) return finish(resolved);
+    return async () => {
+      while (resolved && resolved.p && resolved.p.length) {
+        if (resolved.p.some((p: any) => p.$clientHole)) return;
+        await Promise.all(resolved.p).catch(() => {});
+        resolved = inCtx(() => ctx.ssr(resolved.t, ...resolved.h));
+      }
+      return finish(resolved);
+    };
   };
   // `$lhSkip`: boundary machinery owns this position (see ssrLoadingBoundary)
   // — a live binding over the boundary's output would re-run resolve(),

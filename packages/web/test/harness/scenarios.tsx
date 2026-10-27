@@ -1537,21 +1537,26 @@ function PostflushRejection() {
 }
 
 // The same failure with an async hole in the Errored fallback, still
-// pending when the Loading fails: the server has no finished fallback markup
-// to draw, so it serializes no error either (a record with no markup behind
-// it would make the client claim a fallback that is not there). The client
-// renders the failure itself, as it does on `next`.
+// pending when the Loading fails: the failure waits for the fallback to be
+// ready (RULES-DERIVED D-18, #4306) — the loading placeholder stays until
+// the fragment swaps in the finished fallback, its error serialized with it
+// (serializing it before would make the client claim a fallback that is not
+// there). The client claims it, asking for neither read again.
 let setPostflushHoleKey!: (v: string) => void;
+let postflushHoleAsks = 0;
+export const postflushHoleAskCount = () => postflushHoleAsks;
 function PostflushRejectionAsyncFallback() {
   const [key, setKey] = createSignal("u7");
   setPostflushHoleKey = setKey;
   const user = createMemo(async (): Promise<string> => {
     const k = key();
+    if (!isServer && Promise === RealPromise) postflushHoleAsks++;
     await sleep(5);
     if (k === "u7") throw new Error("no user 7");
     return k;
   });
   const hint = createMemo(async () => {
+    if (!isServer && Promise === RealPromise) postflushHoleAsks++;
     await sleep(20);
     return "HINT";
   });
@@ -1630,6 +1635,53 @@ function PostflushRejectionParked() {
       <span>tail</span>
     </div>
   );
+}
+
+// #4306: the parked failure with an async hole in the Errored fallback,
+// still pending when the inner Loading fails. The failure waits out the
+// hole (as unparked, above): settled before the outer
+// Loading, the outer fragment carries the finished fallback; settled after
+// it (`late`), the outer fragment carries the inner placeholder and the
+// inner fragment streams the fallback once the hole lands. Either way the
+// client claims it. (No update pass, as for the plain-fallback parked
+// scenario above.)
+let parkedHoleAsks = 0;
+export const parkedHoleAskCount = () => parkedHoleAsks;
+function parkedRejectionAsyncFallback(late: boolean) {
+  return function PostflushRejectionParkedAsyncFallback() {
+    const outer = createMemo(async () => {
+      await sleep(15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      if (!isServer && Promise === RealPromise) parkedHoleAsks++;
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    const hint = createMemo(async () => {
+      await sleep(late ? 25 : 10);
+      return "HINT";
+    });
+    return (
+      <div>
+        <Loading fallback={<i>outer loading</i>}>
+          <b>{outer()}</b>
+          <Errored
+            fallback={(e: any) => (
+              <p>
+                failed: {e().message} {hint()}
+              </p>
+            )}
+          >
+            <Loading fallback={<i>loading</i>}>
+              <span>user:{user()}</span>
+            </Loading>
+          </Errored>
+        </Loading>
+        <span>tail</span>
+      </div>
+    );
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -2975,11 +3027,26 @@ export const scenarios: Scenario[] = [
     // server's fallback until reset() rather than tracking the memo.
   },
   {
+    name: "errored-loading-parked-rejection-async-fallback-4306",
+    App: parkedRejectionAsyncFallback(false),
+    async: true,
+    expectedText: "outerfailed: no user 7 HINTtail",
+    serverText: "outer loading tail failed: no user 7 HINT"
+  },
+  {
+    name: "errored-loading-parked-rejection-late-async-fallback-4306",
+    App: parkedRejectionAsyncFallback(true),
+    async: true,
+    expectedText: "outerfailed: no user 7 HINTtail",
+    serverText: "outer loading tail loading failed: no user 7 HINT"
+  },
+  {
     name: "errored-loading-postflush-rejection-async-fallback-4287",
     App: PostflushRejectionAsyncFallback,
     async: true,
     expectedText: "failed: no user 7 HINTtail",
-    serverText: "loading tail",
+    // Shell: the loading fallback; the fragment: the finished fallback.
+    serverText: "loading tail failed: no user 7 HINT",
     update: () => setPostflushHoleKey("u8"),
     expectedTextAfterUpdate: "user:u8tail"
   },

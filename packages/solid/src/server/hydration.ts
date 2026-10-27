@@ -179,7 +179,7 @@ function ssrLoadingBoundary(
   const timed = IS_DEV || observed;
   const discoveredAt = timed ? performance.now() : 0;
   let recorded = false;
-  let streamedOnError = false;
+  let streamedOnError: boolean | Promise<boolean> = false;
   let pendingRecord: (() => void) | undefined;
   const record = (outcome: BoundaryEvent["outcome"], streamed: boolean, error?: unknown) => {
     if (recorded) return;
@@ -378,10 +378,18 @@ function ssrLoadingBoundary(
   // Hydration ids inside the rendered fallback are the component's own
   // hydration-free scope's; its head and asset registrations drop with the
   // error, as the error path drops them today.
-  function errorOutcome(err: any): { value?: string; escaped?: { frame?: string } } | undefined {
+  // An `<Errored>` fallback still resolving answers with a function (see
+  // `renderOutcome`): the failure waits for it, as a client swap to a
+  // fallback waits for the fallback to be ready (RULES-DERIVED D-18) — the
+  // placeholder stays until the finished fallback replaces it, or, parked
+  // in an enclosing pending fragment, that fragment carries it (#4306).
+  type Outcome = { value?: string; escaped?: { frame?: string } } | undefined;
+  function errorOutcome(err: any, wait?: boolean): Outcome | Promise<Outcome> {
     const scoped = inServerComponentScope(o as any);
     const rendered = parentHandler ? parentHandler(err, scoped || id) : undefined;
     if (typeof rendered === "string") return { value: rendered };
+    if (typeof rendered === "function" && wait)
+      return rendered().then(value => (value === undefined ? undefined : { value }));
     if (scoped) return { value: plainFallback(), escaped: { frame: ctx.frameId } };
   }
   // Settle the fragment with the failure. The server error hook hears of it
@@ -393,19 +401,24 @@ function ssrLoadingBoundary(
   // Whether the last failure's outcome was rendered by a server <Errored>
   // (its own finding names it; the "client re-renders" one would be wrong).
   let outcomeRendered = false;
-  function failFragment(err: any, report: boolean): boolean {
-    const outcome = errorOutcome(err);
-    outcomeRendered = !!outcome && outcome.value !== undefined && !outcome.escaped;
-    if (report && !outcomeRendered) {
-      reportServerError(
-        err,
-        { kind: "render", handling: "client", boundary: id },
-        o,
-        ctx.errorPolicy,
-        ctx._errorScope
-      );
-    }
-    return done!(outcome && outcome.value, err, outcome && outcome.escaped);
+  // With `wait`, answers a promise where the outcome is still resolving (see
+  // errorOutcome): the fragment settles when it lands.
+  function failFragment(err: any, report: boolean, wait?: boolean): boolean | Promise<boolean> {
+    const settle = (outcome: Outcome) => {
+      outcomeRendered = !!outcome && outcome.value !== undefined && !outcome.escaped;
+      if (report && !outcomeRendered) {
+        reportServerError(
+          err,
+          { kind: "render", handling: "client", boundary: id },
+          o,
+          ctx.errorPolicy,
+          ctx._errorScope
+        );
+      }
+      return done!(outcome && outcome.value, err, outcome && outcome.escaped);
+    };
+    const outcome = errorOutcome(err, wait);
+    return outcome instanceof Promise ? outcome.then(settle) : settle(outcome);
   }
 
   function runLoadingPhase<T>(render: () => T): T {
@@ -431,8 +444,9 @@ function ssrLoadingBoundary(
           // hydration before the fragment channel can engage. (Inside a
           // server component the nearest server `<Errored>` IS asked — for
           // its rendered outcome, not to route; see errorOutcome.)
-          streamedOnError = failFragment(err, true);
-          if (!outcomeRendered) reportRouted(err, "client");
+          streamedOnError = failFragment(err, true, true);
+          if (!(streamedOnError instanceof Promise) && !outcomeRendered)
+            reportRouted(err, "client");
           throw err;
         }
         // Synchronous discovery (no fragment yet): the enclosing Errored's
@@ -460,10 +474,16 @@ function ssrLoadingBoundary(
   // flushed — for that pre-shell case, and for a parent handler that itself
   // throws, route through the renderer's containment channel instead: the
   // request fails (onError + wind-down), the process survives.
-  function finalizeError(err: any) {
+  function finalizeError(err: any): void | Promise<void> {
     if (handledRenderError === err) {
       handledRenderError = undefined;
-      record("error", streamedOnError, err);
+      const settling = streamedOnError;
+      if (settling instanceof Promise)
+        return settling.then(streamed => {
+          if (!outcomeRendered) reportRouted(err, "client");
+          record("error", streamed, err);
+        });
+      record("error", settling, err);
       return;
     }
     if (done) {
@@ -737,7 +757,9 @@ function ssrLoadingBoundary(
         const streamed = done!(ret && Array.isArray(ret.t) ? ret.t[0] : ((ret && ret.t) as any));
         record("settled", streamed);
       } catch (err) {
-        finalizeError(err);
+        // A failure whose outcome is still resolving settles when it lands.
+        const settling = finalizeError(err);
+        if (settling) await settling;
       } finally {
         // The slot settles either way: on error, `done(undefined, err)` wrote
         // the fragment template and rejects `key_fr`, so the client error path
