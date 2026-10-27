@@ -108,4 +108,32 @@ describe("slot ownership in a markerless hole", () => {
     expect(n1.parentNode).toBe(null);
     dispose();
   });
+
+  test("a markerless swap retags a node a sibling slot claimed and dropped", () => {
+    const [n1, n2, n3] = ["1", "2", "3"].map(t =>
+      Object.assign(document.createElement("i"), { textContent: t })
+    );
+    const parent = document.createElement("div");
+    const markerA = parent.appendChild(document.createTextNode(""));
+    const [aVal, setAVal] = createSignal<any>([]);
+    const [bVal, setBVal] = createSignal<any>([n1, n2, n3]);
+    const dispose = render(() => {
+      insert(parent, aVal, markerA);
+      insert(parent, bVal, null);
+      return parent;
+    }, document.createElement("div"));
+    setAVal([n3]);
+    flush();
+    // The marker slot drops n3 while the markerless slot reverses, which moves
+    // n3 back in through the swap loop.
+    setAVal([]);
+    setBVal([n3, n2, n1]);
+    flush();
+    expect([...parent.children].map(n => n.textContent)).toEqual(["3", "2", "1"]);
+    setBVal([n2, n1]);
+    flush();
+    expect([...parent.children].map(n => n.textContent)).toEqual(["2", "1"]);
+    expect(n3.parentNode).toBe(null);
+    dispose();
+  });
 });

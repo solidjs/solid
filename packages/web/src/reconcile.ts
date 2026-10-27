@@ -20,16 +20,15 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
   if (active === document.body) active = null;
   // A markerless hole retags with its parent, so a tag from another slot never sticks.
   const slot = marker || parentNode;
-  const insert = (n, ref) =>
+  const insert = (n, ref) => {
     active && n.isConnected && n.contains(active)
       ? parentNode.moveBefore(n, ref)
       : parentNode.insertBefore(n, ref);
+    if (marker || n[$$SLOT]) n[$$SLOT] = slot;
+  };
   // First mount: skip the diff's setup, which cost spa-navigation mounts ~8%.
   if (!a.length) {
-    for (const n of b) {
-      insert(n, marker);
-      if (marker || n[$$SLOT]) n[$$SLOT] = slot;
-    }
+    for (const n of b) insert(n, marker);
     return;
   }
   // Ownership: an unclaimed node (no `$$SLOT`) is fair game; a tagged node
@@ -82,11 +81,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
       while (k < bLength && !isLive(b[k])) k++;
       const node = k < bLength ? b[k] : after;
 
-      while (bStart < bEnd) {
-        const n = b[bStart++];
-        insert(n, node);
-        if (marker || n[$$SLOT]) n[$$SLOT] = slot;
-      }
+      while (bStart < bEnd) insert(b[bStart++], node);
       // remove
     } else if (bEnd === bStart) {
       while (aStart < aEnd) {
@@ -109,24 +104,16 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
       (!(anchorTag = anchor[$$SLOT]) || anchorTag === slot)
     ) {
       // Tightest inner loop in the file; one `insertBefore` per iter plus an
-      // end-condition probe. Splitting on `marker` avoids a per-iter branch in
-      // the hot path — js-framework-benchmark `05_swap1k` regresses ~6.5% when
-      // this is collapsed (validated 2026-05-16 on Chrome headless).
-      if (marker) {
-        do {
-          const n = a[--aEnd];
-          insert(n, anchor);
-          n[$$SLOT] = marker;
-          bStart++;
-          if (aStart >= aEnd - 1 || bStart >= bEnd) break;
-        } while (a[aStart] === b[bEnd - 1] && b[bStart] === a[aEnd - 1]);
-      } else {
-        do {
-          insert(a[--aEnd], anchor);
-          bStart++;
-          if (aStart >= aEnd - 1 || bStart >= bEnd) break;
-        } while (a[aStart] === b[bEnd - 1] && b[bStart] === a[aEnd - 1]);
-      }
+      // end-condition probe. One loop for both kinds of hole: `insert` tags, and
+      // a markerless hole must retag here too. Splitting on `marker` once kept
+      // the tag write out of the markerless loop for ~6.5% on js-framework-
+      // benchmark `05_swap1k` (2026-05-16, Chrome headless), when that loop
+      // didn't retag.
+      do {
+        insert(a[--aEnd], anchor);
+        bStart++;
+        if (aStart >= aEnd - 1 || bStart >= bEnd) break;
+      } while (a[aStart] === b[bEnd - 1] && b[bStart] === a[aEnd - 1]);
       // fallback to map
     } else {
       // An old node that is no longer ours holds no position in this region:
@@ -158,11 +145,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
 
           if (sequence > index - bStart) {
             const node = a[aStart];
-            while (bStart < index) {
-              const n = b[bStart++];
-              insert(n, node);
-              if (marker || n[$$SLOT]) n[$$SLOT] = slot;
-            }
+            while (bStart < index) insert(b[bStart++], node);
           } else {
             // `replaceChild` detaches the old node, which is placed again
             // later in this pass. While focus is in the list, insert instead
