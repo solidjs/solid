@@ -1488,6 +1488,10 @@ function nonceDestination(tag, props) {
   }
 }
 
+// Module preloads yield bandwidth to the entry script (default priority), which
+// hydration needs first; the import that needs a preloaded module reuses it.
+const MODULEPRELOAD_PRIORITY = ' fetchpriority="low"';
+
 function nonceAttr(nonce, destination) {
   if (!nonce || !destination) return "";
   return destination === "script" ? nonce.scriptAttr : nonce.styleAttr;
@@ -2434,7 +2438,9 @@ export function renderToStream(code, options = {}) {
     // already-rendered markup and write through eagerly.
     asset(type, value) {
       if (type === "module") {
-        buffer.write(`<link rel="modulepreload" href="${value}"${nonceAttr(nonce, "script")}>`);
+        buffer.write(
+          `<link rel="modulepreload" href="${value}"${MODULEPRELOAD_PRIORITY}${nonceAttr(nonce, "script")}>`
+        );
       } else if (type === "preload") {
         buffer.write(`<link${value.attrHtml}>`);
       } else if (type === "inline-style") {
@@ -5894,7 +5900,7 @@ function renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce) {
     for (const url of emittedAssets) {
       head += isCssUrl(url)
         ? `<link rel="stylesheet" href="${url}"${styleAttr}>`
-        : `<link rel="modulepreload" href="${url}"${scriptAttr}>`;
+        : `<link rel="modulepreload" href="${url}"${MODULEPRELOAD_PRIORITY}${scriptAttr}>`;
     }
   }
   if (preloadLinks) {
