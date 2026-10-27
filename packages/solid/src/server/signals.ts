@@ -4512,6 +4512,7 @@ export function createErrorBoundary<T, U>(
     () => {
       let result: any;
       let handled = false;
+      let fallbackThrew: { e: any } | undefined;
       // Already showing the fallback for this request. Re-running would
       // allocate new fallback ids and serialize the error again (#3920).
       if (fallbackSettled) return fallbackResult;
@@ -4526,7 +4527,14 @@ export function createErrorBoundary<T, U>(
               if (outcome === ESCALATE) return escalated(err, _parent);
               if (outcome !== undefined) return renderOutcome(err, outcome, _parent);
               handled = true;
-              result = handleError(err);
+              // Kept apart: a failure rendering the fallback is not this
+              // boundary's to handle (see the catch).
+              try {
+                result = handleError(err);
+              } catch (e) {
+                fallbackThrew = { e };
+                throw e;
+              }
               throw err;
             })
           : runWithOwner(owner, fn);
@@ -4535,6 +4543,12 @@ export function createErrorBoundary<T, U>(
         pulling = false;
         if (err instanceof NotReadyError) throw err;
         pending = undefined;
+        // The fallback failed rendering for the content's error: that
+        // failure is the enclosing boundary's, met in its own pull (an outer
+        // `<Errored>` draws its fallback; none, and the request fails), as
+        // when the fallback below throws. Never a blank in this boundary's
+        // place with the failure dropped.
+        if (fallbackThrew) throw fallbackThrew.e;
         result = handled ? result : handleError(err);
       }
       return result;

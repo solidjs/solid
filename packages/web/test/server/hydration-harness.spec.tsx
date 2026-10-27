@@ -25,7 +25,10 @@ import {
   parkedFailures,
   lateParkedFailures,
   parkedFailure,
-  parkedFailureName
+  parkedFailureName,
+  shellFallbackFailures,
+  shellFallbackFailure,
+  shellFallbackFailureName
 } from "../harness/scenarios.jsx";
 import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
@@ -148,6 +151,57 @@ describe("hydration parity harness — fragment failure parked in a pending frag
       const name = parkedFailureName(o);
       const twin = parkedFailureName({ ...o, variant: "twin" });
       expect(recorded.get(name), name).toBe(recorded.get(twin));
+    }
+  });
+});
+
+// The #4316 failure at shell level, no <Loading>: an Errored fallback whose
+// own hole fails, async and its sync-throw twin. Recorded (caught by an
+// outer <Errored>) for test/hydration/errored-parked-async-outcome-4306
+// .spec.tsx. Here: the shell carries what the twin's does — the outer
+// Errored's fallback, never a blank region with the errors recorded and no
+// markup for them — and with no outer Errored the request fails, as the
+// twin's does.
+describe("hydration parity harness — Errored fallback hole failure in the shell", () => {
+  const visible = (full: string) =>
+    full
+      .replace(/<script[\s\S]*?<\/script>/g, "")
+      .replace(/<[^>]*>/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .join(" ");
+  const recorded = new Map<string, { text: string; errors: string[] }>();
+  for (const o of shellFallbackFailures) {
+    const name = shellFallbackFailureName(o);
+    test(name, async () => {
+      const App = shellFallbackFailure(o);
+      const errors: string[] = [];
+      const { shell, rest } = await storage.run(makeEvent(), () =>
+        recordStream(() => <App />, {
+          onError: (e: unknown) => void errors.push(e instanceof Error ? e.message : String(e))
+        })
+      );
+      recorded.set(name, { text: visible(shell + rest), errors });
+      expect(rest).toBe("");
+      expect(errors).toContain("no hint");
+      if (o.A) {
+        writeArtifact(name, { name, shell, rest });
+        expect(shell).toContain("caught: <!--$-->no hint<!--/--></h2>");
+        expect(shell).toContain("<b>outer</b>");
+        expect(shell).not.toContain("<section");
+        expect(shell).not.toContain("failed:");
+      } else {
+        // B's fallback failed with nothing above it: the request fails.
+        expect(shell).toBe("");
+      }
+    });
+  }
+  test("the async variant sends what its sync-throw twin sends", () => {
+    for (const o of shellFallbackFailures) {
+      if (o.hole !== "async") continue;
+      const name = shellFallbackFailureName(o);
+      const twin = shellFallbackFailureName({ ...o, hole: "sync" });
+      expect(recorded.get(name), name).toEqual(recorded.get(twin));
     }
   });
 });

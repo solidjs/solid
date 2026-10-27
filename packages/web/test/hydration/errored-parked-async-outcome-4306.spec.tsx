@@ -40,6 +40,9 @@ import {
   lateParkedFailures,
   parkedFailure,
   parkedFailureName,
+  shellFallbackFailures,
+  shellFallbackFailure,
+  shellFallbackFailureName,
   type FallbackHoleFailure
 } from "../harness/scenarios.jsx";
 
@@ -242,8 +245,10 @@ describe("#4316: the Errored fallback's own hole fails", () => {
 // (the inner `<Loading>` shows its fallback, the twin's the outer's), so
 // what is compared is that it halted and on what. Warnings are this
 // variant's alone: the streamed twin with an `<Errored>` around a pending
-// read misses its fallback key while it hydrates the pending fragment (a
-// client id misalignment of that shape, not of the parked failure).
+// read misses its fallback key while it hydrates the pending fragment —
+// the core's retry of the errored read, once the fragment releases, is
+// taken for a client write by readSerializedOrCompute's latched branch,
+// which refetches; #4319's served pass is what keeps that read latched.
 describe("#4316: a fragment failing while parked in a pending fragment", () => {
   const comparable = (r: Outcome) => ({
     ...r,
@@ -285,6 +290,38 @@ describe("#4316: a fragment failing while parked in a pending fragment", () => {
           expect(outcome.uncaught).toEqual([]);
         } else expect(outcome.uncaught).toContain("no user 7");
         expect(outcome.done).toBe(true);
+      });
+    }
+  }
+});
+
+// The same failure at shell level, no `<Loading>`: the outer `<Errored>`
+// caught B's fallback's failure on the server; the client claims its
+// fallback, ending as the sync-throw twin.
+describe("#4316: the Errored fallback's own hole fails in the shell", () => {
+  for (const o of shellFallbackFailures) {
+    if (o.hole !== "async" || !o.A) continue;
+    for (const mode of ["loaded", "streamed"] as const) {
+      test(`${shellFallbackFailureName(o)} [${mode}] ends as its sync-throw twin`, async () => {
+        const twinOf = { ...o, hole: "sync" as const };
+        const outcome = await replay(
+          shellFallbackFailureName(o),
+          shellFallbackFailure(o),
+          mode,
+          "h2"
+        );
+        const twin = await replay(
+          shellFallbackFailureName(twinOf),
+          shellFallbackFailure(twinOf),
+          mode,
+          "h2"
+        );
+        expect(outcome).toEqual(twin);
+        expect(outcome.text).toBe("caught: no hintoutertail");
+        expect(outcome.halted).toBe(false);
+        expect(outcome.warnings).toBe(0);
+        expect(outcome.uncaught).toEqual([]);
+        expect(outcome.claimed).toBe(true);
       });
     }
   }

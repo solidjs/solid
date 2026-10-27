@@ -1853,6 +1853,73 @@ export const lateParkedFailures: ParkedFailure[] = [false, true].map(A => ({
 }));
 
 // ---------------------------------------------------------------------------
+// The #4316 failure at shell level, no `<Loading>` anywhere: `B`, an
+// `<Errored>` around a read that rejects (5ms), whose fallback's own hole
+// fails too — `hole: "async"` rejects at 10ms, `hole: "sync"` is its twin,
+// a fallback that throws synchronously. The shell waits for both (and for
+// `<b>{outer()}</b>`, 15ms). B's fallback's failure is the next boundary's:
+// with `A`, an `<Errored>` around B (`section`: markup between), A's
+// fallback is drawn in the shell; with none, the request fails — both as
+// the twin does, never a blank region with B's and A's errors recorded and
+// no markup for either.
+export type ShellFallbackFailure = { hole: "async" | "sync"; A: boolean; section: boolean };
+export const shellFallbackFailureName = (o: ShellFallbackFailure) =>
+  `errored-shell-fallback-hole-${o.hole}-failure${o.A ? "-A" : ""}${o.section ? "" : "-bare"}`;
+export function shellFallbackFailure(o: ShellFallbackFailure) {
+  return function ShellFallbackFailure() {
+    const outer = createMemo(async () => {
+      await sleep(15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    // The twin takes the async memo's owner slot too, so both variants'
+    // hydration keys line up.
+    const slot = createMemo(async (): Promise<string> => {
+      if (o.hole === "sync") return "";
+      await sleep(10);
+      throw new Error("no hint");
+    });
+    const hint =
+      o.hole === "async"
+        ? slot
+        : (): string => {
+            throw new Error("no hint");
+          };
+    const B = () => (
+      <Errored
+        fallback={(e: any) => (
+          <p>
+            failed: {e().message} {hint()}
+          </p>
+        )}
+      >
+        <span>user:{user()}</span>
+      </Errored>
+    );
+    const mid = () => (o.section ? <section>{B()}</section> : B());
+    const region = () =>
+      o.A ? (
+        <Errored fallback={(e: any) => <h2>caught: {e().message}</h2>}>{mid()}</Errored>
+      ) : (
+        mid()
+      );
+    return (
+      <div>
+        {region()}
+        <b>{outer()}</b>
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+export const shellFallbackFailures: ShellFallbackFailure[] = (["async", "sync"] as const).flatMap(
+  hole => [false, true].flatMap(A => [false, true].map(section => ({ hole, A, section })))
+);
+
+// ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
 // used to return the thunk unresolved for the enclosing boundary to unwrap —
