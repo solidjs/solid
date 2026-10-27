@@ -20,6 +20,7 @@ import {
   createRenderEffect as coreRenderEffect,
   createEffect as coreEffect,
   setSnapshotCapture,
+  clock,
   markSnapshotScope,
   releaseSnapshotScope,
   clearSnapshots,
@@ -311,7 +312,7 @@ let _claimOwner: Owner | null = null;
 // (readSerializedOrCompute) — a hydrated failure's content run (a hydrated
 // `<Errored>`'s, hydratedCreateErrorBoundary; a rejected fragment's fresh
 // render over the outcome the server drew for it, resumeBoundaryHydration),
-// and a served answer's arrival (`arrive`).
+// and a served answer's arrival (`servedPass`).
 const NO_CLAIM = {} as Owner;
 function isClaiming(): boolean {
   if (!_claimOwner) return true;
@@ -585,21 +586,29 @@ export function syncThenable(value: any) {
   };
 }
 
+// The flush round a served pass's served answer lands in.
+let _servedAt: number | undefined;
 /**
- * The async runtime's landing of a served answer that was still in flight
- * (readHydratedValue). The arrival and the flush that carries it, run here
- * at once, are hydration's own pass (NO_CLAIM):
- * a dependent that adopted its own server answer re-runs there because the
- * server's answer for a source arrived, not because a client write diverged
- * it, and re-serves its answer (readSerializedOrCompute). The landing runs
- * from a settled promise, outside any claim window.
+ * A served pass: `write(x)` lands a served answer — the server's answer for a
+ * node arriving (the async runtime writes it and flushes, synchronously),
+ * or a rejected fragment's fresh render over the outcome the server drew
+ * (the boundary's trigger) — and the flush round that carries it is
+ * hydration's own pass (NO_CLAIM). A node that adopted its own server answer
+ * re-runs there because the server's answer for something it reads arrived,
+ * not because a client write diverged it, and re-serves that answer
+ * (readSerializedOrCompute). No client write is swallowed: the ones already
+ * made flush first, outside the pass, and one made during it (an effect's)
+ * runs in a later round of the flush, past `_servedAt`, where a node it
+ * reaches computes. Runs from a settled promise, outside any claim window.
  */
-const arrive = (f: any) => (x: any) => {
-  _claimOwner = NO_CLAIM;
-  f(x);
+function servedPass(write: (x?: any) => void, x?: any) {
   flush();
-  _claimOwner = null;
-};
+  _claimOwner = NO_CLAIM;
+  _servedAt = clock;
+  write(x);
+  flush();
+  _claimOwner = _servedAt = undefined as any;
+}
 
 /**
  * Unwrap a serialized hydration map entry. Only call when the map HAS an
@@ -632,10 +641,12 @@ export function readHydratedValue(initP: any, refresh: () => void, options?: any
       }
       if (initP.s === 1) return initP.v;
     }
-    // Still in flight (or a loading window's): the runtime lands it, its
-    // arrival marked (`arrive`).
-    if (typeof initP.then === "function")
+    // Still in flight (or a loading window's): the runtime lands it, in a
+    // served pass for the node it lands.
+    if (typeof initP.then === "function") {
+      const arrive = (f: any) => (x: any) => servedPass(f, x);
       return { then: (a: any, b: any) => initP.then(arrive(a), arrive(b)) };
+    }
   }
   return initP;
 }
@@ -713,7 +724,9 @@ export function readSerializedOrCompute(compute: (prev: any) => any, prev: any, 
     // retries an errored async node (PJ-R35) with nothing changed. No client
     // write diverged it there: it re-serves its own answer, an error
     // included, and arms nothing — no ask, no loading flash (#4287, #4306).
-    if (options?.ssrSource !== "hybrid" && _claimOwner !== NO_CLAIM) {
+    // A later round of an arrival's flush is past that pass (`servedPass`):
+    // an effect's write re-ran the node there.
+    if (options?.ssrSource !== "hybrid" && (_claimOwner !== NO_CLAIM || clock > _servedAt!)) {
       let p: Owner | null = o;
       while (p && !(p as any)._hp) p = p._parent;
       if (!p && !(sharedConfig.hydrating && isClaiming())) return compute(prev);
@@ -2304,15 +2317,9 @@ function resumeBoundaryHydration(
     // The client renders the boundary fresh (recover): no claim. Over the
     // outcome the server drew for the failure (an `<Errored>` fallback the
     // swap brought, listed in the reveal record, #4287) it is that
-    // failure's content run, as a hydrated `<Errored>`'s is (NO_CLAIM). A
-    // resume runs from a settled promise, never inside a claim window, so
-    // there is no claim owner to restore — an arrival's pass (`arrive`)
-    // that is still marked has had its flush, and does not cover this one.
-    _claimOwner = (globalThis as any)._$HY?.v?.[id]?.length ? NO_CLAIM : null;
+    // failure's content run, as a hydrated `<Errored>`'s is: a served pass.
     _hydratingValue = false;
-    set();
-    flush();
-    _claimOwner = null;
+    (globalThis as any)._$HY?.v?.[id]?.length ? servedPass(set) : (set(), flush());
   }
   // Hydration mode is off once a boundary has resumed — whatever the flag
   // read before (a resume never runs inside a root's synchronous pass; the

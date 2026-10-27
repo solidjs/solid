@@ -1697,24 +1697,33 @@ function parkedRejectionAsyncFallback(late: boolean) {
 // first and re-runs `b`. Nothing on the client changed — the server's `b`
 // was computed from that same `a` — so `b` re-serves its own server answer
 // instead of asking again; a client write to their input still recomputes
-// both.
+// both. `servedSourceControl.write` makes an effect on `a` write `extra`,
+// which `b` also reads, when `a` lands on the client: a client write in the
+// landing's own flush, which `b` must compute for. `servedSourceControl.b`
+// is `b`'s value as the client last committed it.
 let setServedSourceKey!: (v: string) => void;
 let servedSourceAsks = 0;
 export const servedSourceAskCount = () => servedSourceAsks;
+export const servedSourceControl = { write: false, b: "" };
 function ServedSourceLanding() {
   const [key, setKey] = createSignal("k");
+  const [extra, setExtra] = createSignal("");
   setServedSourceKey = setKey;
   const a = createMemo(async () => {
     const k = key();
     await sleep(5);
     return k + "1";
   });
+  createEffect(a, () => {
+    if (servedSourceControl.write) setExtra("x");
+  });
   const b = createMemo(async () => {
-    const x = a();
+    const x = a() + extra();
     if (!isServer && Promise === RealPromise) servedSourceAsks++;
     await sleep(5);
     return x + "2";
   });
+  createEffect(b, v => void (servedSourceControl.b = v));
   return (
     <div>
       <Loading fallback={<i>loading</i>}>
