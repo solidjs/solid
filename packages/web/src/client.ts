@@ -2584,8 +2584,7 @@ export function getNextElement(template) {
   // rejected fragment's fresh render adopts its server answers by id, and
   // the server spent one on this element, so ids after it line up.
   let key = sharedConfig.hydrating && getHydrationKey(),
-    hydrating = isHydrating(),
-    node = hydrating && sharedConfig.registry.get(key);
+    node = isHydrating() && sharedConfig.registry.get(key);
   if (!node) {
     if (!template) {
       throw new Error(`Hydration Mismatch. Unable to find DOM nodes for hydration key: ${key}`);
@@ -2596,7 +2595,7 @@ export function getNextElement(template) {
     // detached element returned below keeps the render alive but never lands
     // in the document — without a report that reads as a silently frozen
     // page (solidjs/solid#3000).
-    if ("_SOLID_DEV_" && hydrating) {
+    if ("_SOLID_DEV_" && isHydrating()) {
       hydrationKeyMisses++;
       console.warn(
         `Hydration key miss for "${key}": no server-rendered element carries this key` +

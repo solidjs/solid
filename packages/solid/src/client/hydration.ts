@@ -610,12 +610,16 @@ const servedPass = (write: (x?: any) => void, adopt?: boolean) => (x?: any) => {
   _hydratingValue = _snapshotRootOwner = adopt as any;
   _claimOwner = ~clock;
   // An uncaught error (no client boundary for a served error) leaves the
-  // flush by throwing: the pass still ends.
+  // flush by throwing: the pass still ends, and hydration still completes
+  // — a boundary's fresh render is its resume, done all the same. (Outside
+  // a resume the check is a no-op: hydration is done, or boundaries are
+  // pending.)
   try {
     write(x);
     flush();
   } finally {
     _claimOwner = _hydratingValue = _snapshotRootOwner = null as any;
+    checkHydrationComplete();
   }
 };
 
@@ -2315,36 +2319,30 @@ function resumeBoundaryHydration(
   // client-gated nodes the resume created compute in the flush below). A
   // claiming resume turns it on for its window alone.
   _hydratingValue = false;
-  // An adopted error with no client boundary leaves the render by throwing
-  // (uncaught, as on any client render): this boundary has resumed all the
-  // same, so hydration still completes.
-  try {
-    shouldHydrate
-      ? // A late resume claims against the root this boundary registered under
-        // (the captured `scope`), its subtree the snapshot and live scope for
-        // the window; the trigger re-runs the boundary's compute inside it.
-        hydrateWindow(
-          id,
-          () => {
-            set();
-            flush();
-          },
-          scope,
-          o
-        )
-      : // The client renders the boundary fresh (recover): no claim, a served
-        // pass. After a rejection (0: the server's, or the stream cut short)
-        // the render adopts what the server sent by id, as a hydrated
-        // `<Errored>`'s content run does: the failing read's error included,
-        // thrown to the nearest client boundary — the outcome the server drew
-        // for it, if any (#4287), or an uncaught error — instead of asking
-        // again. What the server never sent (a truncated ref is dropped from
-        // the registry) computes.
-        servedPass(set, shouldHydrate === 0)();
-    flush();
-  } finally {
-    checkHydrationComplete();
-  }
+  shouldHydrate
+    ? // A late resume claims against the root this boundary registered under
+      // (the captured `scope`), its subtree the snapshot and live scope for
+      // the window; the trigger re-runs the boundary's compute inside it.
+      hydrateWindow(
+        id,
+        () => {
+          set();
+          flush();
+        },
+        scope,
+        o
+      )
+    : // The client renders the boundary fresh (recover): no claim, a served
+      // pass. After a rejection (0: the server's, or the stream cut short)
+      // the render adopts what the server sent by id, as a hydrated
+      // `<Errored>`'s content run does: the failing read's error included,
+      // thrown to the nearest client boundary — the outcome the server drew
+      // for it, if any (#4287), or an uncaught error — instead of asking
+      // again. What the server never sent (a truncated ref is dropped from
+      // the registry) computes.
+      servedPass(set, shouldHydrate === 0)();
+  flush();
+  checkHydrationComplete();
 }
 
 /**
