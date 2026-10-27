@@ -105,10 +105,7 @@ export default function reconcileArrays(parentNode: any, a: any[], b: any[], mar
     ) {
       // Tightest inner loop in the file; one `insertBefore` per iter plus an
       // end-condition probe. One loop for both kinds of hole: `insert` tags, and
-      // a markerless hole must retag here too. Splitting on `marker` once kept
-      // the tag write out of the markerless loop for ~6.5% on js-framework-
-      // benchmark `05_swap1k` (2026-05-16, Chrome headless), when that loop
-      // didn't retag.
+      // a markerless hole must retag here too.
       do {
         insert(a[--aEnd], anchor);
         bStart++;
