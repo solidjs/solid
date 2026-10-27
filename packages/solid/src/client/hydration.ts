@@ -54,6 +54,8 @@ import { IS_DEV, IS_OBSERVE } from "./core.js";
 // enableHydration().
 import { hydrateStoreLike } from "./store-hydration.js";
 
+declare const _$HY: any;
+
 type HydrationSsrFields = {
   /**
    * Defer the SSR stream flush until this primitive's first value is
@@ -2320,7 +2322,8 @@ function resumeBoundaryHydration(
       // outcome the server drew for the failure (an `<Errored>` fallback the
       // swap brought, listed in the reveal record, #4287) it is that
       // failure's content run, as a hydrated `<Errored>`'s is: a served pass.
-      ((globalThis as any)._$HY?.v?.[id]?.[0] ? servedPass(set) : set)();
+      // A recover only runs while hydrating, so the page's `_$HY` exists.
+      (_$HY.v?.[id]?.[0] ? servedPass(set) : set)();
   flush();
   checkHydrationComplete();
 }
