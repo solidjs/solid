@@ -226,6 +226,19 @@ fn static_binary_expression(
                 right.into_template_value()
             ))),
         },
+        // The arithmetic the attribute evaluator (`evaluate_confident`) folds
+        // too, so `{1 / 0}` is static in a child just as it is in an
+        // attribute (Babel's `path.evaluate()` folds both).
+        BinaryOperator::Subtraction | BinaryOperator::Multiplication | BinaryOperator::Division => {
+            let (StaticValue::Number(left), StaticValue::Number(right)) = (left, right) else {
+                return None;
+            };
+            Some(StaticValue::Number(match operator {
+                BinaryOperator::Subtraction => left - right,
+                BinaryOperator::Multiplication => left * right,
+                _ => left / right,
+            }))
+        }
         _ => None,
     }
 }
@@ -371,19 +384,52 @@ fn can_omit_attribute_quotes(value: &str) -> bool {
         })
 }
 
+/// Port of JS `Number::toString` (ECMA-262 §6.1.6.1.20), i.e. what
+/// `String(number)` gives: the shortest digits that round-trip (Rust's
+/// float formatting finds the same ones), laid out with JS's rules —
+/// plain decimal when the decimal exponent is in `-7 < e < 21`, otherwise
+/// exponent form with an explicit sign (`1e+21`, `1.5e-7`).
 pub(crate) fn format_number(value: f64) -> String {
-    // JS `String(number)` spellings for the non-finite values (Rust would
-    // print `NaN`/`inf`).
     if value.is_nan() {
         return "NaN".to_string();
     }
-    if value.is_infinite() {
-        return if value > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+    if value == 0.0 {
+        // Covers -0, which JS prints as "0".
+        return "0".to_string();
     }
-    if value.fract() == 0.0 {
-        format!("{}", value as i64)
+    if value < 0.0 {
+        return format!("-{}", format_number(-value));
+    }
+    if value.is_infinite() {
+        return "Infinity".to_string();
+    }
+
+    // `{:e}` gives `d[.ddd]e[-]x` with the shortest round-trip digits.
+    let scientific = format!("{value:e}");
+    let (mantissa, exponent) = scientific
+        .split_once('e')
+        .expect("LowerExp output always has an exponent");
+    let exponent: i32 = exponent.parse().expect("LowerExp exponent is an integer");
+    let digits: String = mantissa.chars().filter(|char| *char != '.').collect();
+    let k = digits.len() as i32;
+    // JS's `n`: the value is `0.<digits> * 10^n`.
+    let n = exponent + 1;
+
+    if k <= n && n <= 21 {
+        format!("{digits}{}", "0".repeat((n - k) as usize))
+    } else if 0 < n && n <= 21 {
+        let (integer, fraction) = digits.split_at(n as usize);
+        format!("{integer}.{fraction}")
+    } else if -6 < n && n <= 0 {
+        format!("0.{}{digits}", "0".repeat((-n) as usize))
     } else {
-        value.to_string()
+        let sign = if exponent < 0 { '-' } else { '+' };
+        let (first, rest) = digits.split_at(1);
+        if rest.is_empty() {
+            format!("{first}e{sign}{}", exponent.abs())
+        } else {
+            format!("{first}.{rest}e{sign}{}", exponent.abs())
+        }
     }
 }
 
@@ -672,5 +718,46 @@ pub(crate) fn jsx_child_is_function_hole(child: &JSXChild<'_>) -> bool {
             None => false,
         },
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_number;
+
+    /// Each pair is `String(value)` as Node prints it.
+    #[test]
+    fn format_number_matches_js_number_to_string() {
+        let cases: &[(f64, &str)] = &[
+            (0.0, "0"),
+            (-0.0, "0"),
+            (1.0, "1"),
+            (-1.0, "-1"),
+            (1.5, "1.5"),
+            (0.1, "0.1"),
+            (0.1 + 0.2, "0.30000000000000004"),
+            (123.456, "123.456"),
+            (1e-6, "0.000001"),
+            (1.5e-6, "0.0000015"),
+            (1e-7, "1e-7"),
+            (1.5e-7, "1.5e-7"),
+            (-1e-7, "-1e-7"),
+            (5e-324, "5e-324"),
+            (9007199254740993.0, "9007199254740992"),
+            (2f64.powi(63), "9223372036854776000"),
+            (1e19, "10000000000000000000"),
+            (1e20, "100000000000000000000"),
+            (123456789012345680000.0, "123456789012345680000"),
+            (1e21, "1e+21"),
+            (-1e21, "-1e+21"),
+            (1.5e21, "1.5e+21"),
+            (1.7976931348623157e308, "1.7976931348623157e+308"),
+            (f64::NAN, "NaN"),
+            (f64::INFINITY, "Infinity"),
+            (f64::NEG_INFINITY, "-Infinity"),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(format_number(*value), *expected, "String({value:e})");
+        }
     }
 }
