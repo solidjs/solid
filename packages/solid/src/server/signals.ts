@@ -3707,10 +3707,70 @@ export function repeat<T>(
  * escapes the component. Outside a server component `outcome` is the
  * asking `<Loading>`'s id, and an `<Errored>` answers only when that
  * Loading is all of its content (#4287).
+ * Called with `ESCALATE` it is handed a failure that surfaced after the
+ * render passed this boundary (no pull of it on the stack), to meet if it
+ * still can: it answers `true` once the failure is met (see `ESCALATE`).
  */
-export type BoundaryErrorHandler = (err: any, outcome?: true | string) => BoundaryOutcome;
-/** A rendered outcome; a function where it is still resolving (see renderOutcome). */
-export type BoundaryOutcome = string | (() => Promise<string | undefined>) | undefined | void;
+export type BoundaryErrorHandler = (
+  err: any,
+  outcome?: true | string | typeof ESCALATE
+) => BoundaryOutcome;
+/**
+ * A rendered outcome; a function where it is still resolving (see
+ * renderOutcome); `true` where an escalated failure was met.
+ */
+export type BoundaryOutcome =
+  | string
+  | (() => Promise<string | undefined>)
+  | true
+  | undefined
+  | void;
+
+/**
+ * The escalation mode of a boundary error handler (#4316): a failure that
+ * surfaced after the render passed the boundaries above it — a `<Loading>`
+ * fragment failing while parked in an enclosing pending fragment, or an
+ * `<Errored>` fallback failing while the server waits for it. Each handler
+ * meets it if its region can still change, else passes it up: a `<Loading>`
+ * whose fragment is still pending fails it (as a failure in its own pass
+ * does); an `<Errored>` whose markup sits raw in such a fragment draws its
+ * fallback there (`FragmentContainer.region`), or, still pending itself,
+ * on its next pull. A boundary whose subtree is already discarded absorbs
+ * it. Answered `undefined` from the root: nothing could meet it. Not part
+ * of the public API (the server entry does not export it).
+ */
+export const ESCALATE: unique symbol = Symbol("escalate") as any;
+
+/**
+ * A pending `<Loading>` fragment, as the `<Errored>` boundaries rendered
+ * raw into it see it: still `open` until it settles, and taking a
+ * descendant `<Errored>`'s fallback (`to`, possibly still resolving) in
+ * place of its markup (`from`) when it does. Failing that — the markup is
+ * not found, or the fallback never finishes — the fragment fails with `err`.
+ * @internal
+ */
+export type FragmentContainer = {
+  open: boolean;
+  region(from: string, to: string | (() => Promise<string | undefined>), err: any): void;
+};
+const containers = /* @__PURE__ */ new WeakMap<object, FragmentContainer>();
+/** @internal A registered `<Loading>`'s content owner and its fragment. */
+export function setFragmentContainer(owner: Owner, container: FragmentContainer | null): void {
+  container ? containers.set(owner, container) : containers.delete(owner);
+}
+/**
+ * @internal The fragment `owner`'s markup is rendered into: the nearest
+ * registered `<Loading>` above it, while still open (`null` once settled —
+ * the markup is out). With `any`, any open one above it: a fragment
+ * settling there is parked in it.
+ */
+export function fragmentContainer(owner: Owner | null, any?: boolean): FragmentContainer | null {
+  for (let n = owner as unknown as SSROwner | null; n; n = n._parent) {
+    const c = containers.get(n);
+    if (c && (c.open || !any)) return c.open ? c : null;
+  }
+  return null;
+}
 
 /**
  * Convergence budget of a boundary's resume loop: each pass should retire at
@@ -3721,12 +3781,6 @@ export type BoundaryOutcome = string | (() => Promise<string | undefined>) | und
  * @internal
  */
 export const MAX_RESUME_PASSES = 10000;
-
-// Set while an `<Errored>` hands a failure of its own fallback up the
-// handler chain as a content failure (see renderOutcome's `escalate`): an
-// enclosing `<Errored>` reached that way while it is not being pulled has
-// no consumer for a fallback, so it lets the failure pass.
-let escalating = 0;
 
 const ErrorContext: Context<BoundaryErrorHandler | null> = {
   id: Symbol("ErrorContext"),
@@ -3778,7 +3832,7 @@ export function runWithBoundaryErrorContext<T>(
   onError: (
     err: any,
     parentHandler: BoundaryErrorHandler | null,
-    outcome?: true | string
+    outcome?: true | string | typeof ESCALATE
   ) => BoundaryOutcome,
   context?: NonNullable<typeof sharedConfig.context>,
   boundaryId?: string
@@ -4311,7 +4365,15 @@ export function createErrorBoundary<T, U>(
   let interceptor = false;
   let pulling = false;
   let torn = false;
+  let fallbackFailed = false;
   let disposed: Promise<void> | undefined;
+  // This boundary's markup as it went into the enclosing output, where it
+  // is finished markup (no hole of it still resolving).
+  const markup = (): string | undefined => {
+    if (!shown || (shown.h && shown.h.length)) return;
+    const t = Array.isArray(shown.t) ? (shown.t.length === 1 ? shown.t[0] : undefined) : shown.t;
+    return typeof t === "string" ? t : undefined;
+  };
   const renderOutcome = (
     err: any,
     outcome: true | string,
@@ -4321,6 +4383,7 @@ export function createErrorBoundary<T, U>(
     if (Array.isArray(t)) t = t[0];
     if (
       !ctx ||
+      fallbackFailed ||
       (outcome === true
         ? !inServerComponentScope(owner as unknown as SSROwner)
         : typeof t !== "string" ||
@@ -4328,6 +4391,39 @@ export function createErrorBoundary<T, U>(
           !t.endsWith(`<!--pl-${outcome}-->`))
     )
       return undefined;
+    return drawFallback(err, outcome, parentHandler);
+  };
+  // A failure handed up after the render passed this boundary (`ESCALATE`,
+  // #4316), met as the boundary's own pull would meet it: the fallback in
+  // place of this boundary's markup. Still pending itself, the boundary is
+  // pulled again and shows it then; finished, rendered raw into a fragment
+  // still pending, the fallback takes its markup's place in that fragment
+  // (drawn as an outcome is: waited for, its error serialized once it is
+  // finished, its own failure the next boundary's). Already showing the
+  // fallback, it absorbs the failure. Otherwise — the markup is out, or its
+  // fallback failed — the next boundary up meets it.
+  const escalated = (err: any, up: BoundaryErrorHandler | null): BoundaryOutcome => {
+    if (ctx && !fallbackFailed) {
+      if (fallbackSettled) return true;
+      if (pending || pulling) return (handleError(err), true);
+      const from = markup();
+      const container = from !== undefined && fragmentContainer(parent);
+      if (container) {
+        const to = drawFallback(err, undefined, up);
+        if (fallbackFailed) return to;
+        container.region(from!, to as string | (() => Promise<string | undefined>), err);
+        return true;
+      }
+    }
+    return up ? up(err, ESCALATE) : undefined;
+  };
+  // Renders the fallback for `err` as an outcome (`outcome`: the asking
+  // position) or in place of this boundary's markup (`undefined`).
+  const drawFallback = (
+    err: any,
+    outcome: true | string | undefined,
+    parentHandler: BoundaryErrorHandler | null
+  ): BoundaryOutcome => {
     // A hole of the fallback that throws while it renders reaches the
     // fallback owner's handler first: hold it for `escalate` instead of
     // letting the parent handler route it from here.
@@ -4335,7 +4431,7 @@ export function createErrorBoundary<T, U>(
       interceptor = true;
       setContext(
         ErrorContext,
-        (e: any, o?: true | string) => {
+        (e: any, o?: true | string | typeof ESCALATE) => {
           if (o === undefined && answering) throw e;
           return parentHandler(e, o);
         },
@@ -4364,21 +4460,23 @@ export function createErrorBoundary<T, U>(
       const t = resolved.t;
       return Array.isArray(t) ? t[0] : t;
     };
+    // The fallback's failure, the next boundary's: asked to draw at the same
+    // position first (an outcome), then handed it as a failure of its
+    // content (`ESCALATE`, whose answer is this one's in place of a
+    // position's: met or not).
     const escalate = (): BoundaryOutcome => {
       const e = failed!.e;
+      fallbackFailed = true;
       deferredWire = undefined;
       if (!parentHandler) return;
-      const answer = parentHandler(e, outcome);
-      if (answer !== undefined) return answer;
-      escalating++;
-      try {
-        parentHandler(e);
-      } catch {
-      } finally {
-        escalating--;
+      if (outcome !== undefined) {
+        const answer = parentHandler(e, outcome);
+        if (answer !== undefined) return answer;
       }
+      const met = parentHandler(e, ESCALATE);
+      if (outcome === undefined) return met;
     };
-    let resolved: any = inCtx(() => ctx.resolve(ctx.escape(handleError(err, true))));
+    let resolved: any = inCtx(() => ctx!.resolve(ctx!.escape(handleError(err, true))));
     if (failed) return escalate();
     if (outcome === true || !resolved || !resolved.h || !resolved.h.length) return finish(resolved);
     disposed ||= new Promise<void>(r =>
@@ -4393,11 +4491,15 @@ export function createErrorBoundary<T, U>(
         // Under the fallback's owner, as it rendered: a hole failing now
         // meets the handler a sync throw did.
         resolved = inCtx(() =>
-          runWithOwner(outputOwner!, () => ctx.ssr(resolved.t, ...resolved.h))
+          runWithOwner(outputOwner!, () => ctx!.ssr(resolved.t, ...resolved.h))
         );
         if (failed) {
           const answer = escalate();
-          return typeof answer === "function" ? answer() : answer;
+          return typeof answer === "function"
+            ? answer()
+            : typeof answer === "string"
+              ? answer
+              : undefined;
         }
       }
       return finish(resolved);
@@ -4421,10 +4523,8 @@ export function createErrorBoundary<T, U>(
         result = ctx
           ? runWithBoundaryErrorContext(owner, resolve, (err, _parent, outcome) => {
               if (err instanceof NotReadyError) throw err;
+              if (outcome === ESCALATE) return escalated(err, _parent);
               if (outcome !== undefined) return renderOutcome(err, outcome, _parent);
-              // Escalated to while not pulled: no consumer for a fallback
-              // (see `escalating`).
-              if (escalating && !pulling) throw err;
               handled = true;
               result = handleError(err);
               throw err;

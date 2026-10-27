@@ -16,7 +16,11 @@ import {
   onCleanup,
   inServerComponentScope,
   edgeHooks,
-  MAX_RESUME_PASSES
+  MAX_RESUME_PASSES,
+  ESCALATE,
+  fragmentContainer,
+  setFragmentContainer,
+  type FragmentContainer
 } from "./signals.js";
 import { OBSERVE } from "@solidjs/signals";
 import { sharedConfig, NoHydrateContext, callerRenderContext } from "./shared.js";
@@ -155,6 +159,21 @@ function ssrLoadingBoundary(
   (o as any).id = contentId;
 
   let done: ReturnType<HydrationContext["registerFragment"]> | undefined;
+  // This boundary's fragment as the boundaries rendered into it see it
+  // (`FragmentContainer`): open from registration until it settles, and
+  // the descendant `<Errored>` fallbacks to draw in place of their markup
+  // when it does (#4316). `discarded` once it settled with a failure: a
+  // later failure from inside it has nothing left to fail.
+  const container: FragmentContainer = {
+    open: false,
+    region: (from, to, err) => void regions.push({ from, to, err })
+  };
+  let regions: {
+    from: string;
+    to: string | undefined | (() => Promise<string | undefined>);
+    err: any;
+  }[] = [];
+  let discarded = false;
   let handledRenderError: any;
   let retryPromise: Promise<any> | undefined;
 
@@ -406,7 +425,21 @@ function ssrLoadingBoundary(
   // errorOutcome): the fragment settles when it lands.
   function failFragment(err: any, report: boolean, wait?: boolean): boolean | Promise<boolean> {
     const settle = (outcome: Outcome) => {
+      discarded = true;
       outcomeRendered = !!outcome && outcome.value !== undefined && !outcome.escaped;
+      // Parked in an enclosing fragment still pending, with nothing drawn at
+      // this position: the failure is that fragment's content's, as a
+      // failure in its own pass would be (#4316) — the nearest boundary up
+      // meets it there (an `<Errored>` draws its fallback in place of its
+      // markup; else the enclosing fragment fails). Settled first, so this
+      // fragment parks before the enclosing one settles; the boundary that
+      // meets it reports it.
+      if (!outcome && parentHandler && fragmentContainer(parent, true)) {
+        done!(undefined, err);
+        parentHandler(err, ESCALATE);
+        outcomeRendered = true;
+        return true;
+      }
       if (report && !outcomeRendered) {
         reportServerError(
           err,
@@ -428,6 +461,15 @@ function ssrLoadingBoundary(
       o,
       render,
       (err: any, handler, outcome) => {
+        // A failure from inside this boundary's content that surfaced after
+        // its pass (see `ESCALATE`): still pending, the fragment fails with
+        // it; already failed, there is nothing left to fail; otherwise its
+        // content is out or rendered into the enclosing output — up.
+        if (outcome === ESCALATE) {
+          if (container.open) return failOpen(err);
+          if (discarded) return true;
+          return handler ? handler(err, ESCALATE) : undefined;
+        }
         // The outcome question (see errorOutcome) is a `<Loading>`'s to pass
         // up: it owns no fallback for an error.
         if (outcome !== undefined) return handler ? handler(err, outcome) : undefined;
@@ -462,6 +504,44 @@ function ssrLoadingBoundary(
       bufferedCtx,
       id
     );
+  }
+
+  // An escalated failure fails the fragment while it is still pending, as a
+  // failure in its own pass does (the hole path above); the resume loop
+  // stops at its next wake.
+  function failOpen(err: any): true {
+    container.open = false;
+    discarded = true;
+    const settling = failFragment(err, true, true);
+    const settled = (streamed: boolean) => {
+      if (!outcomeRendered) reportRouted(err, "client");
+      record("error", streamed, err);
+    };
+    settling instanceof Promise ? settling.then(settled) : settled(settling);
+    return true;
+  }
+
+  // The settled markup with each descendant `<Errored>` fallback drawn in
+  // place of its markup (`container.region`), waited for until finished.
+  // Outermost first: a region inside one already replaced has gone with it.
+  // A region not found, or a fallback that never finished, fails the
+  // fragment with the region's error instead (thrown to the caller).
+  async function drawRegions(value: string): Promise<string> {
+    for (let i = 0; i < regions.length; i++) {
+      const r = regions[i];
+      if (typeof r.to === "function") r.to = await r.to();
+      if (!container.open) return value;
+    }
+    const drawn: string[] = [];
+    for (let i = regions.length - 1; i >= 0; i--) {
+      const { from, to, err } = regions[i];
+      const at = value.indexOf(from);
+      if (at < 0 && drawn.some(d => d.includes(from))) continue;
+      if (at < 0 || to === undefined) throw err;
+      value = value.slice(0, at) + to + value.slice(at + from.length);
+      drawn.push(from);
+    }
+    return value;
   }
 
   // Only ever called from the async resume loop below — there is nothing on
@@ -561,6 +641,7 @@ function ssrLoadingBoundary(
   function runDiscovery(): SSRTemplateObject | undefined {
     disposeOwner(o, false);
     serializeBuffer = [];
+    regions = [];
     retryPromise = undefined;
     resolveCount = 0;
     passes++;
@@ -672,7 +753,10 @@ function ssrLoadingBoundary(
 
   if (ctx.async) {
     const regOpts = revealGroup ? { revealGroup: revealGroup.id } : undefined;
-    done = ctx.registerFragment(id, regOpts);
+    const settle = ctx.registerFragment(id, regOpts);
+    done = (value, error, escaped) => ((container.open = false), settle(value, error, escaped));
+    container.open = true;
+    setFragmentContainer(o, container);
     let owners = fragmentOwners.get(ctx.registerFragment);
     if (!owners) fragmentOwners.set(ctx.registerFragment, (owners = {}));
     owners[id] = done;
@@ -683,7 +767,11 @@ function ssrLoadingBoundary(
     // registered in the same re-run owns the entry and its reveal slot.
     let disposed = false;
     let superseded = false;
-    onCleanup(() => (disposed = true));
+    onCleanup(() => {
+      disposed = true;
+      container.open = false;
+      setFragmentContainer(o, null);
+    });
     const abandon = () => {
       if (owners![id] !== done) return (superseded = true);
       delete owners![id];
@@ -739,6 +827,7 @@ function ssrLoadingBoundary(
           if (IS_DEV) waits!.start([retryPromise]);
           await retryPromise.catch(() => {});
           if (disposed) return abandon();
+          if (discarded) return;
           if (IS_DEV) waits!.landed();
           ret = runDiscovery();
         }
@@ -750,12 +839,19 @@ function ssrLoadingBoundary(
           if (IS_DEV) waits!.start(pending.p);
           await Promise.all(pending.p).catch(() => {});
           if (disposed) return abandon();
+          if (discarded) return;
           if (IS_DEV) waits!.landed();
           passes++;
           ret = runLoadingPhase(() => resolveIn(() => ctx.ssr(pending.t, ...pending.h))) as any;
         }
         flushSerializeBuffer();
-        const streamed = done!(ret && Array.isArray(ret.t) ? ret.t[0] : ((ret && ret.t) as any));
+        let value = ret && Array.isArray(ret.t) ? ret.t[0] : ((ret && ret.t) as any);
+        if (regions.length) {
+          value = await drawRegions(value);
+          if (disposed) return abandon();
+          if (discarded) return;
+        }
+        const streamed = done!(value);
         record("settled", streamed);
       } catch (err) {
         // A failure whose outcome is still resolving settles when it lands.

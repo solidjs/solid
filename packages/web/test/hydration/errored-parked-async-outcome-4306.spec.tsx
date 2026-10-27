@@ -36,6 +36,10 @@ import {
   fallbackHoleFailures,
   fallbackHoleFailure,
   fallbackHoleFailureName,
+  parkedFailures,
+  lateParkedFailures,
+  parkedFailure,
+  parkedFailureName,
   type FallbackHoleFailure
 } from "../harness/scenarios.jsx";
 
@@ -121,12 +125,18 @@ type Outcome = {
   claimed: boolean;
 };
 
-async function outcomeOf(o: FallbackHoleFailure, mode: "loaded" | "streamed"): Promise<Outcome> {
-  const name = fallbackHoleFailureName(o);
+const outcomeOf = (o: FallbackHoleFailure, mode: "loaded" | "streamed") =>
+  replay(fallbackHoleFailureName(o), fallbackHoleFailure(o), mode, "h2");
+
+async function replay(
+  name: string,
+  App: () => any,
+  mode: "loaded" | "streamed",
+  claim: string
+): Promise<Outcome> {
   const file = artifact(name);
   expect(existsSync(file)).toBe(true);
   const { shell, rest } = JSON.parse(readFileSync(file, "utf-8"));
-  const App = fallbackHoleFailure(o);
   const container = document.createElement("div");
   document.body.appendChild(container);
   (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
@@ -155,7 +165,7 @@ async function outcomeOf(o: FallbackHoleFailure, mode: "loaded" | "streamed"): P
     applyChunk(container, shell, true);
     if (mode === "loaded") applyChunk(container, rest, false);
     const server = mode === "loaded" ? container.innerHTML : undefined;
-    const serverH2 = container.querySelector("h2");
+    const serverH2 = container.querySelector(claim);
     try {
       dispose = hydrate(() => <App />, container);
     } catch {}
@@ -173,7 +183,7 @@ async function outcomeOf(o: FallbackHoleFailure, mode: "loaded" | "streamed"): P
       done: !!(globalThis as any)._$HY.done,
       warnings: warn.mock.calls.length,
       uncaught,
-      claimed: !!serverH2 && container.querySelector("h2") === serverH2
+      claimed: !!serverH2 && container.querySelector(claim) === serverH2
     };
   } finally {
     try {
@@ -220,3 +230,69 @@ describe("#4316: the Errored fallback's own hole fails", () => {
     }
   }
 });
+
+// The #4316 follow-up: a fragment failing while parked in a pending
+// enclosing fragment ends as its twin, the same failure met in the
+// enclosing fragment's own pass: the client claims the fallback the
+// server drew there (an `<Errored>` between, else the outermost one the
+// failed enclosing fragment is all of), or, with none, renders the failed
+// fragment fresh. Hydration ids differ (the twin has no inner Loading), so
+// the server's page is compared as text. Uncontained, the page halts on
+// the client's own rejection: the text it froze at is the client tree's
+// (the inner `<Loading>` shows its fallback, the twin's the outer's), so
+// what is compared is that it halted and on what. Warnings are this
+// variant's alone: the streamed twin with an `<Errored>` around a pending
+// read misses its fallback key while it hydrates the pending fragment (a
+// client id misalignment of that shape, not of the parked failure).
+describe("#4316: a fragment failing while parked in a pending fragment", () => {
+  const comparable = (r: Outcome) => ({
+    ...r,
+    server: r.server === undefined ? undefined : textOfHtml(r.server),
+    text: r.halted ? undefined : r.text,
+    uncaught: [...new Set(r.uncaught)],
+    warnings: undefined
+  });
+  for (const o of parkedFailures) {
+    if (o.variant !== "inner") continue;
+    const claim = o.A ? "h2" : "h3";
+    for (const mode of ["loaded", "streamed"] as const) {
+      test(`${parkedFailureName(o)} [${mode}] ends as its twin`, async () => {
+        const twinOf = { ...o, variant: "twin" as const };
+        const outcome = await replay(parkedFailureName(o), parkedFailure(o), mode, claim);
+        const twin = await replay(parkedFailureName(twinOf), parkedFailure(twinOf), mode, claim);
+        expect(comparable(outcome)).toEqual(comparable(twin));
+        if (o.A || o.caught) {
+          const message = o.B ? "no hint" : "no user 7";
+          expect(outcome.text).toBe(`${o.A ? "outercaught" : "outermost"}: ${message}tail`);
+          expect(outcome.halted).toBe(false);
+          expect(outcome.warnings).toBe(0);
+          expect(outcome.uncaught).toEqual([]);
+          if (mode === "loaded") expect(outcome.claimed).toBe(true);
+        }
+      });
+    }
+  }
+  // Settled first, the enclosing fragment's markup was out before the inner
+  // read failed: its fragment rejects on its own and the client renders it,
+  // where its own `<Errored>` meets the failure.
+  for (const o of lateParkedFailures) {
+    for (const mode of ["loaded", "streamed"] as const) {
+      test(`${parkedFailureName(o)} [${mode}] is the client's to render`, async () => {
+        const outcome = await replay(parkedFailureName(o), parkedFailure(o), mode, "h2");
+        if (o.A) {
+          expect(outcome.text).toBe("outercaught: no user 7tail");
+          expect(outcome.halted).toBe(false);
+          expect(outcome.uncaught).toEqual([]);
+        } else expect(outcome.uncaught).toContain("no user 7");
+        expect(outcome.done).toBe(true);
+      });
+    }
+  }
+});
+
+function textOfHtml(html: string) {
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  el.querySelectorAll("template").forEach(t => t.remove());
+  return el.textContent;
+}

@@ -1760,6 +1760,99 @@ export const fallbackHoleFailures: FallbackHoleFailure[] = (["async", "sync"] as
 );
 
 // ---------------------------------------------------------------------------
+// #4316 follow-up: a `<Loading>` fragment that fails while parked in an
+// enclosing `<Loading>` still pending (`<b>{outer()}</b>`, 15ms; the inner
+// read rejects at 5ms). Its failure is the enclosing fragment's content's:
+// with an `<Errored>` between (`A`, markup around the position) that
+// Errored's fallback is drawn in the enclosing fragment; with none the
+// enclosing fragment fails (met, with `caught`, by the outermost Errored
+// that is all of its content). `B`: an Errored right around the inner
+// Loading whose fallback itself fails (`hint`, 10ms) — its failure is
+// A's. The `twin` variant has no inner Loading: the read is a hole of the
+// enclosing fragment's own pass, the failure met in that pass — what the
+// parked failure must end as. `late`: the enclosing fragment settles first
+// (2ms), so the inner one streams on its own (no twin).
+export type ParkedFailure = {
+  variant: "inner" | "twin";
+  A: boolean;
+  B: boolean;
+  caught: boolean;
+  late?: boolean;
+};
+export const parkedFailureName = (o: ParkedFailure) =>
+  `parked-fragment-failure-${o.variant}${o.A ? "-A" : ""}${o.B ? "-B" : ""}` +
+  `${o.caught ? "-caught" : ""}${o.late ? "-late" : ""}-4316`;
+export function parkedFailure(o: ParkedFailure) {
+  return function ParkedFragmentFailure() {
+    const outer = createMemo(async () => {
+      await sleep(o.late ? 2 : 15);
+      return "outer";
+    });
+    const user = createMemo(async (): Promise<string> => {
+      await sleep(5);
+      throw new Error("no user 7");
+    });
+    const hint = createMemo(async (): Promise<string> => {
+      await sleep(10);
+      throw new Error("no hint");
+    });
+    const read = () => <span>user:{user()}</span>;
+    const failing = () =>
+      o.variant === "inner" ? <Loading fallback={<i>loading</i>}>{read()}</Loading> : read();
+    const mid = () =>
+      o.B ? (
+        <Errored
+          fallback={(e: any) => (
+            <p>
+              failed: {e().message} {hint()}
+            </p>
+          )}
+        >
+          {failing()}
+        </Errored>
+      ) : (
+        failing()
+      );
+    const region = () =>
+      o.A ? (
+        <Errored fallback={(e: any) => <h2>caught: {e().message}</h2>}>
+          <section>{mid()}</section>
+        </Errored>
+      ) : (
+        <section>{mid()}</section>
+      );
+    const body = () => (
+      <Loading fallback={<i>outer loading</i>}>
+        <b>{outer()}</b>
+        {region()}
+      </Loading>
+    );
+    return (
+      <div>
+        {o.caught ? (
+          <Errored fallback={(e: any) => <h3>outermost: {e().message}</h3>}>{body()}</Errored>
+        ) : (
+          body()
+        )}
+        <span>tail</span>
+      </div>
+    );
+  };
+}
+export const parkedFailures: ParkedFailure[] = (["inner", "twin"] as const).flatMap(variant =>
+  [false, true].flatMap(A =>
+    [false, true].flatMap(B => [false, true].map(caught => ({ variant, A, B, caught })))
+  )
+);
+export const lateParkedFailures: ParkedFailure[] = [false, true].map(A => ({
+  variant: "inner" as const,
+  A,
+  B: false,
+  caught: false,
+  late: true
+}));
+
+// ---------------------------------------------------------------------------
 // #3414: a sync throw the SERVER catches, with a zero-arg fallback thunk
 // (`fallback={() => <Fallback />}`), inside an enclosing boundary. Errored
 // used to return the thunk unresolved for the enclosing boundary to unwrap —

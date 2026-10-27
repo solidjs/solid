@@ -21,7 +21,11 @@ import {
   scenarios,
   fallbackHoleFailures,
   fallbackHoleFailure,
-  fallbackHoleFailureName
+  fallbackHoleFailureName,
+  parkedFailures,
+  lateParkedFailures,
+  parkedFailure,
+  parkedFailureName
 } from "../harness/scenarios.jsx";
 import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
@@ -98,6 +102,51 @@ describe("hydration parity harness — Errored fallback hole failure (#4316)", (
       if (o.hole !== "async") continue;
       const name = fallbackHoleFailureName(o);
       const twin = fallbackHoleFailureName({ ...o, hole: "sync" });
+      expect(recorded.get(name), name).toBe(recorded.get(twin));
+    }
+  });
+});
+
+// #4316 follow-up: a fragment failing while parked in a pending enclosing
+// fragment. Recorded for test/hydration/errored-parked-async-outcome-4306
+// .spec.tsx. Here: the stream carries what the twin's does (the failure
+// met in the enclosing fragment's own pass), never the region blank.
+describe("hydration parity harness — fragment failure parked in a pending fragment (#4316)", () => {
+  const visible = (full: string) =>
+    full
+      .replace(/<script[\s\S]*?<\/script>/g, "")
+      .replace(/<[^>]*>/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+      .join(" ");
+  const recorded = new Map<string, string>();
+  for (const o of [...parkedFailures, ...lateParkedFailures]) {
+    const name = parkedFailureName(o);
+    test(name, async () => {
+      const App = parkedFailure(o);
+      const { shell, rest } = await storage.run(makeEvent(), () => recordStream(() => <App />));
+      writeArtifact(name, { name, shell, rest });
+      recorded.set(name, visible(shell + rest));
+      if (o.late) {
+        // Settled first, the enclosing fragment's markup is out: the inner
+        // fragment rejects on its own, for the client to render.
+        expect(rest).toMatch(/<template id="[^"]+" e> <\/template>/);
+        return;
+      }
+      // Never the blank region a parked failure used to settle as.
+      expect(rest).not.toMatch(/<section[^>]*><\/section>/);
+      if (o.A)
+        expect(rest).toContain(`caught: <!--$-->${o.B ? "no hint" : "no user 7"}<!--/--></h2>`);
+      else if (o.caught)
+        expect(rest).toContain(`outermost: <!--$-->${o.B ? "no hint" : "no user 7"}<!--/--></h3>`);
+      else expect(rest).toMatch(/<template id="[^"]+" e> <\/template>/);
+    });
+  }
+  test("a parked failure sends what its twin sends", () => {
+    for (const o of parkedFailures) {
+      if (o.variant !== "inner") continue;
+      const name = parkedFailureName(o);
+      const twin = parkedFailureName({ ...o, variant: "twin" });
       expect(recorded.get(name), name).toBe(recorded.get(twin));
     }
   });
