@@ -18,6 +18,7 @@ import {
   createRenderEffect,
   createRoot,
   flush,
+  latest,
   refresh,
   type Refreshable
 } from "../src/index.js";
@@ -38,7 +39,7 @@ const defer = <T = void>() => {
 
 type Issue = { id: number; assignee: string | null };
 
-function setup() {
+function setup(mode: "draft" | "return" = "draft") {
   const fetches: ReturnType<typeof defer<Issue[]>>[] = [];
   const fetchIssues = () => {
     const d = defer<Issue[]>();
@@ -51,6 +52,7 @@ function setup() {
   createRoot(() => {
     [store, setStore] = createOptimisticStore<Issue[]>(async d => {
       const r = await fetchIssues();
+      if (mode === "return") return r;
       d.length = 0;
       d.push(...r);
     }, []);
@@ -342,3 +344,89 @@ describe("#4329 per-key optimistic guess across a re-ask (D-34)", () => {
     expect(frames.at(-1)).toBe("3:null");
   });
 });
+
+const LIST = (a: string | null = null, b: string | null = null): Issue[] => [
+  { id: 1, assignee: a },
+  { id: 3, assignee: b }
+];
+
+async function primed(mode: "draft" | "return") {
+  const h = setup(mode);
+  await tick();
+  h.fetches[0].res(LIST());
+  await tick();
+  return h;
+}
+
+function assign(h: ReturnType<typeof setup>, i: number, who: string) {
+  const save = defer();
+  action(function* () {
+    h.setStore(d => {
+      d[i].assignee = who;
+    });
+    yield save.p;
+  })();
+  return save;
+}
+
+async function reask(h: ReturnType<typeof setup>, rows: Issue[]) {
+  refresh(h.store);
+  await tick();
+  h.fetches.at(-1)!.res(rows);
+  await tick();
+}
+
+for (const mode of ["draft", "return"] as const) {
+  describe(`#4329 follow-ups, ${mode === "draft" ? "draft-write" : "returned-rows"} derive`, () => {
+    for (const truth of [null, "carl"]) {
+      it(`latest() answers the truth under a shown guess (truth ${truth === null ? "equal to the committed value" : "differs"}) (D-34)`, async () => {
+        const h = await primed(mode);
+        const save = assign(h, 1, "ann");
+        await tick();
+        await reask(h, LIST(null, truth));
+        expect(h.screen()).toBe("1:null 3:ann");
+        expect(h.store[1].assignee).toBe("ann");
+        expect(latest(() => h.store[1].assignee)).toBe(truth);
+        expect(latest(() => h.store.map(i => `${i.id}:${i.assignee}`).join(" "))).toBe(
+          `1:null 3:${truth}`
+        );
+        save.res();
+        await tick();
+        expect(h.screen()).toBe(`1:null 3:${truth}`);
+        expect(latest(() => h.store[1].assignee)).toBe(truth);
+      });
+    }
+
+    for (const [a, b] of [
+      ["x", "y"],
+      [null, null]
+    ]) {
+      it(`a re-ask landing ${a === null ? "the committed values" : "different truths"} on two rows does not tie their actions together (D-33)`, async () => {
+        const h = await primed(mode);
+        const saveA = assign(h, 0, "bob");
+        await tick();
+        const saveB = assign(h, 1, "ann");
+        await tick();
+        await reask(h, LIST(a, b));
+        expect(h.screen()).toBe("1:bob 3:ann");
+        saveA.res();
+        await tick();
+        expect(h.screen()).toBe(`1:${a} 3:ann`);
+        saveB.res();
+        await tick();
+        expect(h.screen()).toBe(`1:${a} 3:${b}`);
+      });
+    }
+
+    it("a row with no guess shows its new truth at the landing beside a corrected guess (D-33)", async () => {
+      const h = await primed(mode);
+      const save = assign(h, 1, "ann");
+      await tick();
+      await reask(h, LIST("bob", "carl"));
+      expect(h.screen()).toBe("1:bob 3:ann");
+      save.res();
+      await tick();
+      expect(h.screen()).toBe("1:bob 3:carl");
+    });
+  });
+}

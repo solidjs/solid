@@ -51,8 +51,8 @@ import {
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { runProjectionComputed } from "./projection.js";
+import { reconcileState } from "./reconcile.js";
 import {
-  adoptPB,
   cloneRaw,
   committed,
   getContainerNode,
@@ -465,34 +465,25 @@ function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf
 
 /** D-34 for a per-key guess (#4329): the derive's draft wrote new objects
  * over a target holding guessed rows (`d.length = 0; d.push(...rows)`, or
- * `d.issues = rows`). Each container on the way down to a guessed row
- * adopts the new object at its slot — in a keyed list, the one with its
- * key — as a reconcile landing pairs them: the row keeps its target, its
- * leaves take the truth beneath their guesses, and the screen keeps the
- * guess until its hold commits. Rows nothing guessed are left as the
- * draft wrote them. */
+ * `d.issues = rows`). The container on the way down to each guessed row
+ * reconciles the new object at its slot — in a keyed list, the one with
+ * the row's key — exactly as a returned landing would: rows match by key,
+ * a guessed row keeps its target, and its leaves are judged against their
+ * guesses. Rows nothing guessed are left as the draft wrote them. */
 function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
-  const fam = t.fam!;
-  const keyFn = fam.key;
-  if (fam.overlaid)
-    for (const ot of fam.overlaid) {
-      let c: StoreTarget | null = ot;
-      while (c !== null && c.u !== t) c = c.u;
-      if (c === null) continue;
-      const k = keyFn?.(c.v);
-      const nv = Array.isArray(pb)
-        ? k !== undefined && pb.find(r => isWrappable(r) && sameKey(keyFn!(r), k))
-        : pb[c.pk!];
-      if (
-        nv !== c.v &&
-        isWrappable(nv) &&
-        Array.isArray(nv) === Array.isArray(c.v) &&
-        lookupTarget(nv, fam) === undefined
-      ) {
-        if (c !== ot) pairRows(c, nv);
-        adoptPB(c, nv);
-      }
-    }
+  const keyFn = t.fam!.key;
+  for (let c of t.fam!.overlaid ?? []) {
+    // The guessed row, or its ancestor directly under `t` (none: skip).
+    while (c.u !== t) if ((c = c.u!) === null) break;
+    if (c === null) continue;
+    const k = keyFn?.(c.v);
+    const nv = Array.isArray(pb)
+      ? k !== undefined && pb.find(r => isWrappable(r) && sameKey(keyFn!(r), k))
+      : pb[c.pk!];
+    // A new object only: not `c`'s own, nor one another row serves
+    // (pairing it would alias the two).
+    if (isWrappable(nv) && !lookupTarget(nv, t.fam)) reconcileState(nv, c.px, keyFn, true);
+  }
 }
 
 installOptHooks({

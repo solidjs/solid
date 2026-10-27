@@ -380,7 +380,11 @@ export function laneStage(
  * at the parent's landing — while the display keeps what it shows until
  * then. A confirmation is silent (A17): the truth stays staged beneath the
  * guess for the parent's commit, the guess stays the value; only a reader
- * of the truth (CONFIG_AUTHORITATIVE) is told its view changed. */
+ * of the truth (CONFIG_AUTHORITATIVE) is told its view changed. Either way
+ * the parent takes this node, not the tick that carried the truth (D-33):
+ * one landing answering two actions' guesses (a store re-ask over two
+ * rows) must not tie them together; a pass that derives from the held
+ * truth joins the parent on its own (`joinPass`). */
 /** Observe: the correction round is replacing a guess with the value it
  * covered (no landing beneath it) — `optimisticReverted`'s "reverted". */
 let reverting = false;
@@ -416,7 +420,6 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     GlobalQueue._confirmed?.(l);
   }
   n._pendingValue = value;
-  joinFuture(parent);
 }
 
 /** A lane's end, two ways. `into === null`: the parent landed — the lane's
