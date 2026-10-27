@@ -258,8 +258,27 @@ export function setSnapshotCapture(active: boolean): void {
   if (active && !snapshotSources) snapshotSources = new NewSet();
 }
 
-export function markSnapshotScope(owner: Owner): void {
-  owner._snapshotScope = true;
+/**
+ * Marks `owner` a snapshot scope: while capture is on, the readers created
+ * under it serve each source's snapshot (the value it had when hydration
+ * began) and replay at `releaseSnapshotScope`.
+ *
+ * With `served` (hydration), `owner` is instead a hydrated computed and
+ * `served` its server answer — what the server rendered every reader of the
+ * node with — landing after the node was created pending (so the creation
+ * arm skipped it). It becomes the node's snapshot when it has none, whether
+ * the node committed the answer or a client write had already taken its
+ * compute over. A claim made later reads the value its markup shows, and
+ * replays the node's own value at its release, as for a written signal.
+ */
+export function markSnapshotScope(owner: Owner, served?: unknown): void {
+  if (arguments.length < 2) owner._snapshotScope = true;
+  else if (
+    snapshotCaptureActive &&
+    !((owner as Computed<any>)._config & CONFIG_NO_SNAPSHOT) &&
+    (owner as Computed<any>)._x?._snapshotValue === undefined
+  )
+    takeSnapshot(owner as Computed<any>, served);
 }
 
 export function releaseSnapshotScope(owner: Owner): void {
@@ -1382,11 +1401,8 @@ function setupComputedNode<T>(self: Computed<T>, options: NodeOptions<T> | undef
   wireExternalSourceHook?.(self);
   !options?.lazy && recompute(self, true);
   if (snapshotCaptureActive && !options?.lazy) {
-    if (!(self._statusFlags & STATUS_PENDING) && !(self._config & CONFIG_NO_SNAPSHOT)) {
-      ext(self)._snapshotValue = self._value === undefined ? NO_SNAPSHOT : self._value;
-      self._config |= CONFIG_HAS_SNAPSHOT;
-      snapshotSources!.add(self);
-    }
+    if (!(self._statusFlags & STATUS_PENDING) && !(self._config & CONFIG_NO_SNAPSHOT))
+      takeSnapshot(self, self._value);
   }
 }
 
@@ -1432,11 +1448,7 @@ export function signal<T>(v: T, options?: NodeOptions<T>): Signal<T> {
       };
   if (__DEV__) (s as any)._internal = false;
   if (options?.unobserved) ext(s as any)._unobserved = options.unobserved;
-  if (snapshotCaptureActive && !(s._config & CONFIG_NO_SNAPSHOT)) {
-    ext(s as any)._snapshotValue = v === undefined ? NO_SNAPSHOT : v;
-    (s as any)._config |= CONFIG_HAS_SNAPSHOT;
-    snapshotSources!.add(s);
-  }
+  if (snapshotCaptureActive && !(s._config & CONFIG_NO_SNAPSHOT)) takeSnapshot(s as Signal<T>, v);
   return s as Signal<T>;
 }
 
@@ -1920,6 +1932,30 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (v !== NOT_PENDING) return v as T;
   }
 
+  // Ahead of the snapshot serve below: a component body's direct read is
+  // wrong in the same way whether the pass is hydrating or not, and the
+  // hydration pass is the console nobody is watching (#3675).
+  if (__DEV__ && strictRead && strictReadActive())
+    warnStrictReadUntracked(strictRead, {
+      ownerId: c?.id,
+      ownerName: (c as any)?._name,
+      nodeName: (owner as any)?._name
+    });
+
+  // A reader in a snapshot scope (a hydration claim) is served the value the
+  // server rendered with: a client write's recompute still in flight does
+  // not pull the claim off the markup it adopts — the reader replays at the
+  // scope's release. An errored node throws below as for any reader.
+  if (snapshotCaptureActive && c && (c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) {
+    const sv = el._x?._snapshotValue;
+    if (sv !== undefined && !(owner._statusFlags & STATUS_ERROR)) {
+      const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
+      const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+      if (current !== snapshot) (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
+      return snapshot as T;
+    }
+  }
+
   // A stale reader of a held flight (rule 3, A15's reveal corollary) is served
   // the committed value — coherent with the frame, whose inputs are the
   // committed ones too — and does not go pending on it. So is lane work
@@ -1999,26 +2035,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       recompute(owner as Computed<unknown>);
       return read(el);
     } else throw (owner as Computed<any>)._x?._error;
-  }
-
-  // Ahead of the snapshot serve below: a component body's direct read is
-  // wrong in the same way whether the pass is hydrating or not, and the
-  // hydration pass is the console nobody is watching (#3675).
-  if (__DEV__ && strictRead && strictReadActive())
-    warnStrictReadUntracked(strictRead, {
-      ownerId: c?.id,
-      ownerName: (c as any)?._name,
-      nodeName: (owner as any)?._name
-    });
-
-  if (snapshotCaptureActive && c && (c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) {
-    const sv = el._x?._snapshotValue;
-    if (sv !== undefined) {
-      const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
-      const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
-      if (current !== snapshot) (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
-      return snapshot as T;
-    }
   }
 
   if (committed) return el._value as T;
@@ -2153,7 +2169,11 @@ export function captureWriteSnapshot<T>(el: Signal<T> | Computed<T>, current: T)
     el._x?._snapshotValue !== undefined
   )
     return;
-  ext(el)._snapshotValue = current === undefined ? NO_SNAPSHOT : current;
+  takeSnapshot(el, current);
+}
+
+function takeSnapshot<T>(el: Signal<T> | Computed<T>, value: T): void {
+  ext(el)._snapshotValue = value === undefined ? NO_SNAPSHOT : value;
   el._config |= CONFIG_HAS_SNAPSHOT;
   snapshotSources!.add(el);
 }

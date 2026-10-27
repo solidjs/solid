@@ -3,6 +3,7 @@ import {
   createErrorBoundary,
   createMemo,
   createProjection,
+  createRenderEffect,
   createRoot,
   createSignal,
   createStore,
@@ -435,6 +436,120 @@ describe("insertSubs optimization", () => {
     expect(computeCount).toBe(2);
     expect($derived()).toBe(101);
 
+    clearSnapshots();
+  });
+});
+
+describe("markSnapshotScope(node, served) — a served answer as a computed's snapshot", () => {
+  // Hydration's arm: a memo adopted with its server answer still in flight
+  // has no creation snapshot; when the answer lands, it becomes one — even
+  // after a client write took the compute over. A scope created after that
+  // (a late boundary resume) reads the served answer, then catches up.
+  it("a pending-at-creation memo: scoped readers read the served answer, replay at release", async () => {
+    let resolveFirst!: (v: string) => void;
+    let resolveSecond!: (v: string) => void;
+    let setKey!: (v: string) => void;
+    let memoNode!: any;
+    let $memo!: () => string;
+    createRoot(() => {
+      setSnapshotCapture(true);
+      const [$key, _setKey] = createSignal("k");
+      setKey = _setKey;
+      let first = true;
+      $memo = createMemo(() => {
+        memoNode = getOwner();
+        const k = $key();
+        if (first) {
+          first = false;
+          return new Promise<string>(r => (resolveFirst = r));
+        }
+        return new Promise<string>(r => (resolveSecond = r)).then(v => v + k);
+      });
+    });
+    flush();
+
+    // A client write supersedes the served flight; its own flight is open.
+    setKey("j");
+    flush();
+    markSnapshotScope(memoNode, "served:k");
+
+    let scope!: any;
+    const seen: string[] = [];
+    createRoot(() => {
+      scope = getOwner()!;
+      markSnapshotScope(scope);
+      createRenderEffect(
+        () => $memo(),
+        v => void seen.push(v)
+      );
+    });
+    flush();
+    // Pending flight, yet the scoped reader is served the snapshot.
+    expect(seen).toEqual(["served:k"]);
+
+    releaseSnapshotScope(scope);
+    flush();
+    resolveSecond("client:");
+    await Promise.resolve();
+    await Promise.resolve();
+    flush();
+    expect(seen).toEqual(["served:k", "client:j"]);
+    resolveFirst("late");
+    clearSnapshots();
+  });
+
+  it("keeps a snapshot the node already has", () => {
+    let node!: any;
+    let $memo!: () => number;
+    createRoot(() => {
+      setSnapshotCapture(true);
+      $memo = createMemo(() => {
+        node = getOwner();
+        return 1;
+      });
+      expect($memo()).toBe(1);
+    });
+    markSnapshotScope(node, 2);
+    let scope!: any;
+    let read!: number;
+    createRoot(() => {
+      scope = getOwner()!;
+      markSnapshotScope(scope);
+      createRenderEffect(
+        () => $memo(),
+        v => void (read = v)
+      );
+    });
+    flush();
+    expect(read).toBe(1);
+    releaseSnapshotScope(scope);
+    clearSnapshots();
+  });
+
+  it("does nothing outside capture", () => {
+    let node!: any;
+    let $memo!: () => number;
+    createRoot(() => {
+      $memo = createMemo(() => {
+        node = getOwner();
+        return 1;
+      });
+    });
+    markSnapshotScope(node, 2);
+    setSnapshotCapture(true);
+    let scope!: any;
+    let read!: number;
+    createRoot(() => {
+      scope = getOwner()!;
+      markSnapshotScope(scope);
+      createRenderEffect(
+        () => $memo(),
+        v => void (read = v)
+      );
+    });
+    flush();
+    expect(read).toBe(1);
+    releaseSnapshotScope(scope);
     clearSnapshots();
   });
 });
