@@ -693,16 +693,26 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     /// by content, and returns the `_tmpl$N` local (Babel's `templates`
     /// program-scope data).
     fn register_template(&mut self, parts: &[String]) -> String {
+        let parts = crate::shared::utils::ascii_template_parts(parts);
+        self.register_template_parts(parts)
+    }
+
+    /// `register_template` for a spread raw-text element's child, left as written.
+    fn register_raw_template(&mut self, parts: &[String]) -> String {
+        self.register_template_parts(std::borrow::Cow::Borrowed(parts))
+    }
+
+    fn register_template_parts(&mut self, parts: std::borrow::Cow<'_, [String]>) -> String {
         if let Some((_, name)) = self
             .templates
             .iter()
-            .find(|(existing, _)| existing == parts)
+            .find(|(existing, _)| existing[..] == parts[..])
         {
             return name.clone();
         }
         let name =
             crate::shared::utils::next_unique_template_id(&mut self.template_index, &self.bindings);
-        self.templates.push((parts.to_vec(), name.clone()));
+        self.templates.push((parts.into_owned(), name.clone()));
         name
     }
 
@@ -1936,7 +1946,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         if text.is_empty() {
                             continue;
                         }
-                        let local = self.register_template(std::slice::from_ref(&text));
+                        let local = if crate::shared::utils::raw_text_close(tag_name).is_some() {
+                            self.register_raw_template(std::slice::from_ref(&text))
+                        } else {
+                            self.register_template(std::slice::from_ref(&text))
+                        };
                         self.uses_ssr = true;
                         nodes.push(self.ssr_call(container.span, &local, 1, std::vec::Vec::new()));
                         continue;
@@ -3868,7 +3882,9 @@ impl<'a> AstSsrTransform<'a, '_> {
             }
             Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => return None,
         }
-        Some(TailPart::Text(markup))
+        Some(TailPart::Text(
+            crate::shared::utils::ascii_attribute_markup(markup),
+        ))
     }
 
     /// The attribute-string argument for a tail: a string literal when every

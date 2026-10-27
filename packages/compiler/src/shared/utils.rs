@@ -761,3 +761,272 @@ mod tests {
         }
     }
 }
+
+/// Characters above U+00FF outside tags, comments and raw text become `&#N;`, keeping SSR output one-byte in V8.
+pub(crate) fn ascii_template_parts(parts: &[String]) -> std::borrow::Cow<'_, [String]> {
+    if parts.iter().all(|part| is_one_byte(part)) {
+        return std::borrow::Cow::Borrowed(parts);
+    }
+    std::borrow::Cow::Owned(ascii_parts(parts, AsciiState::Text))
+}
+
+/// `ascii_template_parts` for a spread element's static attribute markup.
+pub(crate) fn ascii_attribute_markup(markup: String) -> String {
+    if is_one_byte(&markup) {
+        return markup;
+    }
+    ascii_parts(&[markup], AsciiState::Tag { raw: None })
+        .pop()
+        .unwrap_or_default()
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum AsciiState {
+    Text,
+    Tag {
+        raw: Option<&'static str>,
+    },
+    Quoted {
+        quote: char,
+        raw: Option<&'static str>,
+    },
+    // Comments, CDATA and bogus comments, kept as written up to `end`.
+    Preserve(&'static str),
+    Raw {
+        close: &'static str,
+        // `<!--` in a script can start the double-escaped state, where `</script>` does not close it.
+        escaped: bool,
+    },
+}
+
+// Browsers do not decode references in raw-text bodies, so those keep their characters.
+pub(crate) fn raw_text_close(name: &str) -> Option<&'static str> {
+    match name {
+        "script" => Some("</script"),
+        "style" => Some("</style"),
+        "noscript" => Some("</noscript"),
+        "iframe" => Some("</iframe"),
+        "noembed" => Some("</noembed"),
+        "noframes" => Some("</noframes"),
+        "xmp" => Some("</xmp"),
+        _ => None,
+    }
+}
+
+fn ends_tag_name(next: Option<char>) -> bool {
+    next.is_none_or(|c| c.is_ascii_whitespace() || c == '/' || c == '>')
+}
+
+// State carries across parts because holes can split a tag or a raw-text body.
+fn ascii_parts(parts: &[String], mut state: AsciiState) -> std::vec::Vec<String> {
+    parts
+        .iter()
+        .map(|part| {
+            let mut out = String::with_capacity(part.len());
+            let mut i = 0;
+            while i < part.len() {
+                let rest = &part[i..];
+                let ch = rest.chars().next().unwrap();
+                let mut len = ch.len_utf8();
+                match state {
+                    AsciiState::Text => {
+                        let open = [
+                            ("<!--", "-->"),
+                            ("<![CDATA[", "]]>"),
+                            ("<!", ">"),
+                            ("<?", ">"),
+                        ]
+                        .into_iter()
+                        .find(|(open, _)| rest.starts_with(open));
+                        if let Some((open, end)) = open {
+                            state = AsciiState::Preserve(end);
+                            len = open.len();
+                        } else if ch == '<' {
+                            let after = &rest[1..];
+                            let closing = after.starts_with('/');
+                            let name = if closing { &after[1..] } else { after };
+                            if name.starts_with(|c: char| c.is_ascii_alphabetic()) {
+                                let name = name
+                                    .split(|c: char| {
+                                        c.is_ascii_whitespace() || c == '/' || c == '>'
+                                    })
+                                    .next()
+                                    .unwrap_or_default()
+                                    .to_ascii_lowercase();
+                                state = AsciiState::Tag {
+                                    raw: if closing { None } else { raw_text_close(&name) },
+                                };
+                            } else if closing {
+                                state = AsciiState::Preserve(">");
+                                len = 2;
+                            }
+                        }
+                        if len == ch.len_utf8() {
+                            push_ascii(&mut out, ch);
+                        } else {
+                            out.push_str(&rest[..len]);
+                        }
+                    }
+                    AsciiState::Tag { raw } => {
+                        if ch == '"' || ch == '\'' {
+                            state = AsciiState::Quoted { quote: ch, raw };
+                        } else if ch == '>' {
+                            state = raw.map_or(AsciiState::Text, |close| AsciiState::Raw {
+                                close,
+                                escaped: false,
+                            });
+                        }
+                        out.push(ch);
+                    }
+                    AsciiState::Quoted { quote, raw } => {
+                        if ch == quote {
+                            state = AsciiState::Tag { raw };
+                        }
+                        push_ascii(&mut out, ch);
+                    }
+                    AsciiState::Preserve(end) => {
+                        if rest.starts_with(end) {
+                            state = AsciiState::Text;
+                            len = end.len();
+                        }
+                        out.push_str(&rest[..len]);
+                    }
+                    AsciiState::Raw { close, escaped } => {
+                        if close == "</script" && rest.starts_with("<!--") {
+                            state = AsciiState::Raw {
+                                close,
+                                escaped: true,
+                            };
+                        } else if !escaped
+                            && rest.len() >= close.len()
+                            && rest.as_bytes()[..close.len()].eq_ignore_ascii_case(close.as_bytes())
+                            && ends_tag_name(rest[close.len()..].chars().next())
+                        {
+                            state = AsciiState::Tag { raw: None };
+                        }
+                        out.push(ch);
+                    }
+                }
+                i += len;
+            }
+            out
+        })
+        .collect()
+}
+
+// Latin-1 already keeps a V8 string one-byte, and `&#128;`-`&#159;` decode to other characters.
+fn is_one_byte(text: &str) -> bool {
+    text.chars().all(|ch| (ch as u32) <= 0xff)
+}
+
+fn push_ascii(out: &mut String, ch: char) {
+    if (ch as u32) <= 0xff {
+        out.push(ch);
+    } else {
+        out.push_str(&format!("&#{};", ch as u32));
+    }
+}
+
+#[cfg(test)]
+mod ascii_template_tests {
+    use super::ascii_template_parts;
+
+    fn run(parts: &[&str]) -> std::vec::Vec<String> {
+        ascii_template_parts(
+            &parts
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<std::vec::Vec<_>>(),
+        )
+        .into_owned()
+    }
+
+    #[test]
+    fn converts_text_and_quoted_attributes() {
+        assert_eq!(
+            run(&["<a href=\"/café→\" title='→'>View →</a>"]),
+            ["<a href=\"/café&#8594;\" title='&#8594;'>View &#8594;</a>"]
+        );
+    }
+
+    #[test]
+    fn leaves_latin1_and_c1_characters() {
+        assert_eq!(
+            run(&["<p>café \u{80}\u{91}</p>"]),
+            ["<p>café \u{80}\u{91}</p>"]
+        );
+    }
+
+    #[test]
+    fn leaves_raw_text_and_comments() {
+        assert_eq!(
+            run(&["<style>.a::after{content:'→'}</style><!--→--><p>→</p><script>x='→'</script>"]),
+            ["<style>.a::after{content:'→'}</style><!--→--><p>&#8594;</p><script>x='→'</script>"]
+        );
+    }
+
+    #[test]
+    fn raw_text_ends_only_at_its_own_close_tag() {
+        assert_eq!(
+            run(&["<script>x=\"</scripture>→\"</script >→"]),
+            ["<script>x=\"</scripture>→\"</script >&#8594;"]
+        );
+    }
+
+    #[test]
+    fn script_with_comment_open_stays_raw() {
+        assert_eq!(
+            run(&["<script>h=\"<!--<script></script>→\"</script>→"]),
+            ["<script>h=\"<!--<script></script>→\"</script>→"]
+        );
+    }
+
+    #[test]
+    fn preserves_cdata_and_bogus_comments() {
+        assert_eq!(
+            run(&["<svg><text><![CDATA[→]]></text></svg><!DOCTYPE →></ →><?→>→"]),
+            ["<svg><text><![CDATA[→]]></text></svg><!DOCTYPE →></ →><?→>&#8594;"]
+        );
+    }
+
+    #[test]
+    fn carries_state_across_holes() {
+        assert_eq!(
+            run(&["<script>a='→", "→'</script>→"]),
+            ["<script>a='→", "→'</script>&#8594;"]
+        );
+        assert_eq!(
+            run(&["<p title=\"→", "→\">→"]),
+            ["<p title=\"&#8594;", "&#8594;\">&#8594;"]
+        );
+    }
+
+    #[test]
+    fn leaves_other_raw_text_elements() {
+        assert_eq!(
+            run(&["<noscript>→</noscript><textarea>→</textarea><title>→</title>"]),
+            ["<noscript>→</noscript><textarea>&#8594;</textarea><title>&#8594;</title>"]
+        );
+    }
+
+    #[test]
+    fn custom_elements_are_not_raw_text() {
+        assert_eq!(
+            run(&["<style-guide>→</style-guide><script-x>→</script-x>"]),
+            ["<style-guide>&#8594;</style-guide><script-x>&#8594;</script-x>"]
+        );
+    }
+
+    #[test]
+    fn attribute_markup_converts_only_quoted_values() {
+        assert_eq!(
+            super::ascii_attribute_markup(" title=\"→\" data-x=\"é\"".to_string()),
+            " title=\"&#8594;\" data-x=\"é\""
+        );
+    }
+
+    #[test]
+    fn astral_characters_use_one_reference() {
+        assert_eq!(run(&["<p>😀</p>"]), ["<p>&#128512;</p>"]);
+    }
+}

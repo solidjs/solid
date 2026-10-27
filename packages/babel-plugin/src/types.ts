@@ -102,6 +102,7 @@ export interface TransformResult {
   text?: boolean;
   dynamic?: boolean;
   wontEscape?: boolean;
+  rawText?: boolean;
   tagName?: string;
   renderer?: RendererName;
   isImportNode?: boolean;

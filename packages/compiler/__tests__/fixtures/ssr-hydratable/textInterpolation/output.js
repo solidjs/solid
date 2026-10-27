@@ -2,6 +2,7 @@ import { scope as _$scope } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
+import { ssrElement as _$ssrElement } from "r-server";
 var _tmpl$ = ["<span", ">Hello </span>"];
 var _tmpl$2 = ["<span", "> John</span>"];
 var _tmpl$3 = ["<span", ">Hello John</span>"];
@@ -58,12 +59,21 @@ var _tmpl$17 = [
 	"><!--$-->",
 	"<!--/--> </span>"
 ];
-var _tmpl$18 = ["<div", " normal=\"Search…\" title=\"Search&amp;hellip;\"></div>"];
+var _tmpl$18 = ["<div", " normal=\"Search&#8230;\" title=\"Search&amp;hellip;\"></div>"];
 var _tmpl$19 = [
 	"<div",
 	"><div></div><!--$-->",
 	"<!--/--></div>"
 ];
+var _tmpl$20 = ["<p", " title=\"Next &#8594;\">Next &#8594; <style>.a::after{content:\"→\"}</style></p>"];
+var _tmpl$21 = ["<style-guide", ">Next &#8594;</style-guide>"];
+var _tmpl$22 = ".a::after{content:\"→\"}";
+var _tmpl$23 = ["<script", ">x = \"<\/scripture>→\";<\/script>"];
+var _tmpl$24 = ["<p", " title=\"café\">café </p>"];
+var _tmpl$25 = "→";
+var _tmpl$26 = ["<script", ">h = \"<!--<script><\/script>→\";<\/script>"];
+var _tmpl$27 = ["<svg", "><text><![CDATA[→]]></text></svg>"];
+var _sk$ = (k) => k === "title" || k === "data-static";
 var _v$ = _$ssrHydrationKey();
 const trailing = _$ssr(_tmpl$, _v$);
 var _v$2 = _$ssrHydrationKey();
@@ -136,3 +146,22 @@ var _v$33 = _$ssrHydrationKey(), _v$34 = _$scope(() => {
 	return _$escape(expr());
 });
 const lastElementExpression = _$ssr(_tmpl$19, _v$33, _v$34);
+var _v$35 = _$ssrHydrationKey();
+const nonAsciiText = _$ssr(_tmpl$20, _v$35);
+const nonAsciiSpreadTail = _$ssrElement("a", spread, undefined, true, _sk$, " title=\"Next &#8594;\" data-static=\"é\"");
+var _v$36 = _$ssrHydrationKey();
+const nonAsciiCustomElement = _$ssr(_tmpl$21, _v$36);
+const nonAsciiSpreadStyle = _$ssrElement("style", spread, () => {
+	return _$ssr(_tmpl$22);
+}, true);
+var _v$37 = _$ssrHydrationKey();
+const nonAsciiScriptture = _$ssr(_tmpl$23, _v$37);
+var _v$38 = _$ssrHydrationKey();
+const latin1AndC1 = _$ssr(_tmpl$24, _v$38);
+const nonAsciiSpreadXmp = _$ssrElement("xmp", spread, () => {
+	return _$ssr(_tmpl$25);
+}, true);
+var _v$39 = _$ssrHydrationKey();
+const nonAsciiEscapedScript = _$ssr(_tmpl$26, _v$39);
+var _v$40 = _$ssrHydrationKey();
+const nonAsciiCdata = _$ssr(_tmpl$27, _v$40);
