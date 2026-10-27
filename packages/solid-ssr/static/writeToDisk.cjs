@@ -1,6 +1,10 @@
 const fs = require("fs");
 const path = require("path");
-const server = require(process.argv[2]);
+const entryPath = path.resolve(process.argv[2]);
+if (!fs.existsSync(entryPath)) {
+  throw new Error(`Entry file not found: ${entryPath}`);
+}
+const server = require(entryPath);
 
 async function write() {
   const res = await server({ url: process.argv[4] });
