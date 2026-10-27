@@ -143,8 +143,14 @@ function cloneState<T extends object>(v: T, shallow: boolean): T {
  * pending derivatively on the derive (its readers hold; it re-runs at the
  * landing). The leaves do not subscribe to the derive, so the family does
  * the walk. */
-function wakeFamily(fam: StoreFamily, error: unknown): void {
+function wakeFamily(fam: StoreFamily): void {
   const fw = fam.node!;
+  // Pending on the derive itself, whatever source took it there (an upstream
+  // memo's flight reaches it as a NotReady of that memo, #4271): the leaves
+  // are not that source's dependents, so only the family's settle — which
+  // retires the derive (`settleFamily`) — reaches the readers parked here. A
+  // reader the landing leaves unchanged does not re-run to clear it (#4305).
+  const error = new NotReadyError(fw);
   fam.woke = true;
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
@@ -188,8 +194,8 @@ function settleFamily(fam: StoreFamily): void {
 /** A source's status reached the derive by propagation (core
  * `propagateStatus`), its pass not re-run: the family learns it as from the
  * pass's own throw. */
-function familyStatus(this: StoreFamily, status: number, error: unknown): void {
-  if (status & STATUS_PENDING) wakeFamily(this, error);
+function familyStatus(this: StoreFamily, status: number): void {
+  if (status & STATUS_PENDING) wakeFamily(this);
   else if (status & STATUS_ERROR) errorFamily(this);
 }
 
@@ -287,7 +293,7 @@ export function runProjectionComputed<T extends object>(
           // #2897) — and the flush that runs them advances the clock, so a
           // later tracked re-read may retry (core `read`).
           if (first && owner._statusFlags & STATUS_UNINITIALIZED) return;
-          if (pending) wakeFamily(fam, error);
+          if (pending) wakeFamily(fam);
           else errorFamily(fam);
         });
         if (!owner._loading) commit(sync as void | T);
@@ -302,7 +308,7 @@ export function runProjectionComputed<T extends object>(
     // they do not subscribe to the derive.
     // A synchronous error the same way (#3956: a rerun that finds the
     // entry failed throws): every live reader re-derives and meets it.
-    if (!first) e instanceof NotReadyError ? wakeFamily(fam, e) : errorFamily(fam);
+    if (!first) e instanceof NotReadyError ? wakeFamily(fam) : errorFamily(fam);
     throw e;
   }
   // A pass that returned with a flight up (an iterator's sync first yield):
@@ -315,7 +321,7 @@ export function runProjectionComputed<T extends object>(
     !owner._loading &&
     !first
   )
-    wakeFamily(fam, owner._x?._error);
+    wakeFamily(fam);
   return owner;
 }
 
