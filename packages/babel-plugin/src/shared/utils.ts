@@ -764,9 +764,11 @@ const templateEscapes = new Map([
 // non-finite values (`t.valueToNode` builds `-1` / `0 / 0` expressions
 // instead), so those are built as plain nodes; generators print them as
 // `-1` / `NaN` / `Infinity`, as Babel 7's builder did.
-function numberLiteral(value: number): t.NumericLiteral {
+export function numberLiteral(value: number): t.NumericLiteral {
   if (value >= 0 && Number.isFinite(value) && !Object.is(value, -0)) return t.numericLiteral(value);
-  return { type: "NumericLiteral", value } as t.NumericLiteral;
+  const node = { type: "NumericLiteral", value } as t.NumericLiteral;
+  if (Object.is(value, -0)) node.extra = { raw: "-0", rawValue: -0 };
+  return node;
 }
 
 export function evaluateAndInline(
