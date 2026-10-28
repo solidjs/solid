@@ -2674,7 +2674,8 @@ module.exports = [
     // A derived store's landing wakes a reader parked on its error; its first landing is loading, not pending (async-gen campaign 1, E3 store twin, #4388, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 96,989 -> 97,009 B (+20 B minified over next's record), measured locally (linux) at 31,745 B brotli. Recorded minified = measured; CI re-bases.
     // A frame node re-run outside its hold re-derives the readers of the staging it replaces (#4378, 2026-10-28, over next @ b68942ca): cap unchanged, recorded minified 96,978 B unchanged, measured locally (linux) at 31,763 B brotli / 96,976 B minified (+15 B minified over next). A held boundary output, and the boundary trees and outputs above it, re-run outside the hold published the committed fallback back unchanged, so their readers kept the hold's stale run of the content and the landing applied it: an empty hole. The re-derive sits in recompute's mainline-publish arm, the one place every frame node drops a staging. Correctness.
     limit: "31.80 KB",
-    capMinified: 97009,
+    // A frame node re-run outside its hold re-derives the readers of the staging it replaces (#4378, #4390, 2026-10-28, re-recorded over next @ 178605cf): recorded minified 97,009 -> 97,024 B (+15 B minified over next's record), measured locally (linux) at 31,774 B brotli. Recorded minified = measured; CI re-bases.
+    capMinified: 97024,
     alias
   },
   {
