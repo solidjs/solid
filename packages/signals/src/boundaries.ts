@@ -374,8 +374,12 @@ function boundarySeam(): void {
     if (flags & REACTIVE_ZOMBIE) continue;
     prune(b, false);
     const o = b._output!;
+    // A fallback staged into the very hold its readers landed in folds back
+    // (D-16, U-9): the content is ready when that hold commits (D-15). Not
+    // only at the re-arm's own seam: readers pending then land, held, a
+    // flush later (#4379 — the staged fallback otherwise commits with the
+    // hold, and a quiet refresh then caught keeps it up, F-9).
     if (
-      b._armed &&
       !b._initialized &&
       o._config & CONFIG_HELD &&
       [...b._readers].every(
