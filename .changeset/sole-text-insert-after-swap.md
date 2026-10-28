@@ -1,5 +1,5 @@
 ---
-"@solidjs/web": patch
+"solid-js": patch
 ---
 
-Hydration no longer crashes when a streamed `<Loading>` fragment rejects with an error that an `<Errored>` outside it catches, once the client has started hydrating before the fragment arrives. The swap took the claimed fallback's text, and a sole text child's update wrote to a node that was no longer there (`Cannot set properties of null (setting 'data')`, then `REACTIVITY_HALTED`). With no node left, the new text is inserted like a first one, so the page shows the server's error without asking again (#4372).
+Hydration no longer crashes when a streamed `<Loading>` fragment rejects after the client started hydrating and the region it stood in holds only text: an error an `<Errored>` outside it catches, or text content the client renders fresh. The swap took the claimed fallback's text node, and clearing the rejected fragment emptied the region, so the next text write found no node (`Cannot set properties of null (setting 'data')`, then `REACTIVITY_HALTED`). A region left empty by the clear now gets its text node back, so the page shows the outcome without asking again (#4372).

@@ -81,7 +81,12 @@ async function run(shape: ErroredOutsideLoadingShape, mode: "loaded" | "streamed
       }
     }
     expect(container.querySelector("main")).toBe(main);
-    expect(main.textContent).toBe(shape === "sibling" ? "[ERR]tail" : "[ERR]");
+    expect(main.textContent).toBe(
+      shape === "sibling" ? "[ERR]tail" : shape === "text" ? "!a" : "[ERR]"
+    );
+    // One node for the outcome: nothing of the swap or the clear is left
+    // beside it.
+    if (shape !== "sibling") expect(main.childNodes.length).toBe(1);
     expect(sharedConfig.isHydrationInProgress!()).toBe(false);
     // The client claimed the server's error: it never asked again.
     expect(erroredOutsideLoadingAskCount()).toBe(asksBefore);

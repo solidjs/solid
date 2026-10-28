@@ -3027,6 +3027,9 @@ function hydratedCreateLoadingBoundary<T, U>(
       // the content is in the DOM, so render nothing until the resume
       // adopts it.
       const revealed = hy.v?.[id];
+      // The region the claimed fallback stands in, read before a swap takes
+      // the placeholder range.
+      const region = revealed ? null : document.getElementById("pl-" + id)?.parentNode;
       waitAndResume(
         fr,
         shouldHydrate =>
@@ -3045,8 +3048,12 @@ function hydratedCreateLoadingBoundary<T, U>(
               // claimed fallback left its nodes — the server's outcome for
               // the failure, which `$dfr` lists in the reveal record
               // (#4287) — beside the range the fresh render takes: clear
-              // them first.
+              // them first. The swap took the claimed fallback with its
+              // range, so a region left empty gets back an empty text node:
+              // an insert that claimed a text fallback as its sole child
+              // writes its next text there (#4372).
               (revealed || hy.v?.[id]?.forEach?.((n: ChildNode) => n.remove()),
+              region && !region.firstChild && region.append(""),
               IS_OBSERVE
                 ? recover(id, registeredAt, () => resume(shouldHydrate))
                 : resume(shouldHydrate)),

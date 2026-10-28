@@ -6,11 +6,14 @@ import { expect, test } from "vitest";
 import { createSignal, createRoot, flush } from "solid-js";
 
 // #4372: a sole text child is updated with a `.data` write on the parent's
-// first child. When the document removed that node since (a streamed
-// fragment's swap took the claimed fallback's text, and a rejected
-// fragment's fresh render cleared what the swap put in), the next text value
-// is inserted like a first one instead of writing to a missing node.
-test("a sole text child removed from the document: the next text value is inserted", () => {
+// first child — the hot text path every app ships, which trusts that the node
+// is still there. Only a streamed fragment's swap removed it from under
+// Solid (the swap takes the claimed fallback's text, a rejected fragment's
+// fresh render clears what the swap put in); that cold path now leaves the
+// region its text node back (solid's hydration, #4372), and the fast path
+// stays as it is. Code outside Solid removing the node (here by hand) still
+// breaks the next write: pinned as a known failure, not a contract.
+test.fails("a sole text child removed by hand: the next text write has no node", () => {
   const [text, setText] = createSignal("a");
   let div!: HTMLDivElement;
   const dispose = createRoot(d => {
