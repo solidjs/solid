@@ -33,7 +33,7 @@ These are the only words the fundamentals use. Internal names (transaction, stag
 - **Question / re-ask.** A source's inputs are its question. An input changing asks a new question; `refresh()`, polling, an action's confirming refetch re-ask the same one.
 - **Display-ahead reader.** `latest(x)`, `isPending(x)`, an optimistic value: a reader that shows a held change (or the verdict about it) before the hold reveals it.
 - **Declared lag.** `createDeferred(fn)`: a source whose author has declared that its previous answer is an acceptable answer while the next one loads. After its first answer, its own re-asks hold nothing and its readers keep the answer they show until the new one lands (D-40). It is the counterpart of a display-ahead reader: that one shows a held change early, this one shows a change's consequence late, and neither is a hold.
-- **Lane.** The world a display-ahead read opens: the screen plus what it shows ahead. What is rendered from a display-ahead read lives in its lane, and the lane holds _itself_ on its own async — a hold of its own, separate from the hold it reads ahead of (F-6).
+- **Lane.** The world a display-ahead read opens: the screen plus what it shows ahead. What is rendered from a display-ahead read — derived from its value — lives in its lane, and the lane holds _itself_ on its own async — a hold of its own, separate from the hold it reads ahead of (F-6). A branch a display-ahead read merely _gates_ is not derived from it: it is a mainline mount whose plain reads are the screen's (D-27).
 - **Flush.** The unit of visibility. Writes become visible at the flush that carries them; a manual `flush()` ends a tick.
 
 ---
