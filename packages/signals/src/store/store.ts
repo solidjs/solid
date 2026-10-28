@@ -119,6 +119,7 @@ import {
   $TARGET,
   $TRACK,
   writeOverride,
+  installShallowView,
   isRawValue,
   isWrappable,
   markRawIngest,
@@ -2485,6 +2486,18 @@ export function createStore<T extends Record<PropertyKey, any>>(
   const setter: SetStoreFunction<T> = fn => storeSetter(proxy, fn);
   return [proxy, setter];
 }
+
+/** The list driver's slot view of a shallow store (types.ts `shallowView`):
+ * one `readSource` for the container instead of a trap per slot. A shallow
+ * store's slots hold raw records, so the backing the container read serves
+ * is what each slot read would — except where a slot's own leaf can answer
+ * differently: an optimistic family's guesses, a chained backing, accessor
+ * keys, or a read inside a draft or write scope. Those keep the trap. */
+installShallowView(t => {
+  // Any open write scope keeps the trap (it covers `inDraft`).
+  if (t?.s && !(t.ch || t.a || writeScopes || writeOverride || t.fam?.opt))
+    return (t.fam && pullFamily(t), readSource(t) as any[]);
+});
 
 /** True when `proxy` is a SHALLOW store (children served verbatim, slots
  * replaced by reference — #2932). The list driver uses this to choose the
