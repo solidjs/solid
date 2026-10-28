@@ -9,6 +9,8 @@
 import { describe, expect, test } from "vitest";
 import { createMemo, createSignal, Errored, flush, latest, Loading, Show } from "solid-js";
 import { render } from "../src/index.js";
+import { runScenario } from "./async-gen/run.js";
+import type { Scenario } from "./async-gen/scenario.js";
 
 const tick = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
@@ -60,4 +62,46 @@ describe("a reader born in the flush that clears an upstream error (#4378)", () 
       expect(div.innerHTML).toBe("[ERR]");
       dispose();
     });
+});
+
+// The generator's E8 case at next @ 40cde2cd: the staging the hold built is
+// superseded at every frame node up the chain (the inner Errored, the root
+// Loading and Errored), each re-run from the heap outside its hold and back
+// to its committed fallback.
+test("the generator's E8 case: recreated readers under nested boundaries (#4378)", async () => {
+  const sc: Scenario = {
+    signals: [2, 3],
+    memos: [
+      { async: false, deps: [{ src: { k: "s", i: 1 }, how: "latest" }], poison: 0 },
+      { async: true, deps: [{ src: { k: "m", i: 0 }, how: "plain" }], poison: 0 }
+    ],
+    tree: {
+      t: "errored",
+      child: {
+        t: "leaf",
+        text: [],
+        attrs: [
+          { how: "plain", src: { k: "s", i: 1 } },
+          { how: "plain", src: { k: "m", i: 1 } }
+        ],
+        grouped: false
+      }
+    },
+    steps: [
+      { t: "settle", pick: 0 },
+      { t: "task" },
+      { t: "action", s: 1, v: 0 },
+      { t: "write", s: 1, v: 1 },
+      { t: "flush" },
+      { t: "action", s: 1, v: 0 },
+      { t: "write", s: 1, v: 2 },
+      { t: "settle", pick: 3 }
+    ]
+  } as Scenario;
+  const kept = await runScenario(sc);
+  const recreated = await runScenario(sc, { remount: true });
+  // Where nothing is in flight (the last step settles the last request).
+  expect(recreated.screens.at(-1)).toBe("[E]");
+  expect(recreated.final).toBe(kept.final);
+  expect(recreated.final).toBe("[E]");
 });
