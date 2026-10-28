@@ -12,7 +12,9 @@
 //
 // Frames (F-9; optimistic-lanes R12): a bare refresh is a quiet re-ask —
 // `v41` stays until `v42` lands; a declared reload (`affects`) shows
-// `pending`, then `v42`.
+// `pending`, then `v42` — also when the action ends before the re-ask lands:
+// its mark stays on the node until that flight lands, in the inline and the
+// memo form alike.
 import { describe, expect, it } from "vitest";
 import {
   action,
@@ -142,22 +144,23 @@ describe("refresh(memo) inside an action with an isPending reader settles (#4349
       expect(r.frames).toEqual(["v41", "pending", "v42"]);
     });
 
-    it(`affects and refresh with no step settles${via}`, async () => {
-      // The mark is the transaction's, released at its landing in the same
-      // flush (affects.ts); whether that flush's `pending` frame shows is the
-      // mark's lifetime, not this loop.
+    it(`affects and refresh with no step — pending, then v42${via}`, async () => {
+      // The action's transaction lands in its own flush, beneath the re-ask:
+      // its mark stays on the node until that flight lands (as an ambient
+      // mark does), so the inline and the memo form show the same frames.
       const r = await likeButton({ affects: true, order: "refresh", conditionMemo });
       expect(r.errors).toEqual([]);
-      expect(r.steps.at(-1)).toBe("v42");
-      expect(r.frames.at(-1)).toBe("v42");
+      expect(r.steps).toEqual(["v41", "pending", "v42"]);
+      expect(r.frames).toEqual(["v41", "pending", "v42"]);
     });
   }
 
-  it("the same refresh outside an action (control)", async () => {
-    const r = await likeButton({ order: "refresh", outside: true });
-    expect(r.errors).toEqual([]);
-    expect(r.frames).toEqual(["v41", "v42"]);
-  });
+  for (const declared of [false, true])
+    it(`the same ${declared ? "declared reload" : "refresh"} outside an action (control)`, async () => {
+      const r = await likeButton({ affects: declared, order: "refresh", outside: true });
+      expect(r.errors).toEqual([]);
+      expect(r.frames).toEqual(declared ? ["v41", "pending", "v42"] : ["v41", "v42"]);
+    });
 
   it("`[isPending(x), x()]` after an action's write holds like `x()` alone (D-23), once", async () => {
     // The same loop without a refresh: the action's write lands beneath its
