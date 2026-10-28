@@ -346,7 +346,13 @@ export function laneStage(
     // of the lane from here (its value the lane's, its fate the lane's), no
     // longer a written guess. A pass with no answer (pending, errored)
     // leaves the guess.
-    if (!errored) el._config &= ~CONFIG_GUESS;
+    // Nor a pass of another action's guess: the re-ask is this lane's new
+    // question, which the guess (over the old one) does not answer — the
+    // lane waits for its own answer (F-1, F-6, #4336). (A guess of the
+    // lane's own action, D-33's entangled slot, still stands in.)
+    const g = el._x!._transaction;
+    if (!errored || (g?._lane && resolveTx(g._parent!) !== resolveTx(l._parent!)))
+      el._config &= ~CONFIG_GUESS;
   }
   // A leaf has no lane value to seat it (`recompute`): one left waiting on
   // the lane's flight runs its next pass as the lane's — the landing that
@@ -749,7 +755,9 @@ function nestedBlocked(t: Transaction): boolean {
  * latest: its staging once the lane has shown (promoted at the next
  * reveal), its slot before; the lane's members re-derive as its work. */
 function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
-  if (el._config & CONFIG_GUESS) {
+  // (A store slot's guess its derive's re-ask in another action's lane
+  // writes is that lane's derivation from here — store `_slotTake`, #4336.)
+  if (el._config & CONFIG_GUESS && !GlobalQueue._slotTake?.(el)) {
     // Provenance (A18, #3331; Q-D, plan sec. 39): a write asking an OLDER
     // question than the guess's — another action's landing beneath it —
     // is not its answer: held beneath (the truth for the commit; the

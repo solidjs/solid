@@ -66,22 +66,25 @@ type Form = "signal" | "store-draft" | "store-return";
 /** The issue's graph. `form` picks the optimistic primitive; `reader` the
  * screen: one render effect reading both, a user effect (the issue's), or
  * two render effects (`#sel` and the comments, recorded as one frame each
- * time either applies). `optimisticSel`: `sel` is itself a
- * `createOptimistic`, set inside its own action. */
+ * time either applies). `optimisticSel`: `sel` is a `createOptimistic` over
+ * the saved selection (`setSelTruth`), guessed inside its own action. */
 function setup(form: Form, reader: "render" | "user" | "split" = "render", optimisticSel = false) {
   const asks: Ask[] = [];
   const frames: string[] = [];
   let server!: ReturnType<typeof defer<unknown>>;
   let setSel!: (v: number) => void;
+  let setSelTruth!: (v: number) => void;
   let post!: (text: string) => Promise<void>;
   let comments!: any;
   let sel!: () => number;
   let view!: () => string;
   let guess!: (text: string) => void;
   createRoot(() => {
-    const [s, ss] = optimisticSel ? createOptimistic(3) : createSignal(3);
+    const [saved, setSaved] = createSignal(3);
+    const [s, ss] = optimisticSel ? createOptimistic(() => saved()) : [saved, setSaved];
     sel = s;
     setSel = ss;
+    setSelTruth = setSaved;
     const ask = () => {
       const id = sel();
       const d = defer<any>();
@@ -147,6 +150,7 @@ function setup(form: Form, reader: "render" | "user" | "split" = "render", optim
     asks,
     frames,
     setSel,
+    setSelTruth,
     post,
     get comments() {
       return comments;
@@ -255,39 +259,88 @@ for (const form of forms) {
       expect(h.screen()).toBe("#1: mine");
     });
 
-    // OPEN (fails on next and with the #4336 fix): the input's guess opens
-    // a lane whose own work re-asks the comments; the post's guess on the
-    // comments node stands in for that flight in the input's lane
-    // (`laneStage` lists the guessed node in the re-asking lane), so the lane
-    // shows `#1:` beside issue 3's comments and the post's guess at once.
-    // A node carries one lane value; the input's lane has no slot of its own
-    // for the new question's answer.
-    it.fails(
-      "an input set through its own optimistic write shows without waiting for the post (F-6, F-11)",
+    // The input's own action: `sel`'s guess opens a lane whose work re-asks
+    // the comments. The post's guess was made over issue 3's answer, so it
+    // does not stand in for issue 1's (F-1): the lane waits for its answer
+    // (F-6), shows it, and the post's guess is not on screen beside `#1:`.
+    it("an input set through its own optimistic write shows without waiting for the post (F-6, F-11)", async () => {
+      const h = await primed(form, "render", true);
+      const go = defer();
+      action(function* () {
+        h.setSel(1);
+        yield go.p;
+        h.setSelTruth(1);
+      })();
+      await tick();
+      expect(h.asks.at(-1)!.id).toBe(1);
+      // The guess's own lane waits on the comments it derives (F-6).
+      expect(h.screen()).toBe("#3: dana | mine (sending)");
+      h.asks.at(-1)!.d.res([]);
+      await tick();
+      expect(h.screen()).toBe("#1: ");
+      go.res();
+      await tick();
+      for (const a of h.asks) if (a.id === 1) a.d.res([]);
+      await tick();
+      expect(h.screen()).toBe("#1: ");
+      h.server.res({});
+      await tick();
+      h.asks.at(-1)!.d.res(["mine"]);
+      await tick();
+      expect(h.screen()).toBe("#1: mine");
+      expect(torn(h.frames)).toEqual([]);
+    });
+
+    // The input's guess reverts (its action ends without writing the
+    // truth). Its lane took the comments node over for issue 1's answer, so
+    // the revert re-asks issue 3 and the screen waits for that answer; no
+    // frame shows one issue's comments under the other's number.
+    const pureRevert = async () => {
+      const h = await primed(form, "render", true);
+      const go = defer();
+      action(function* () {
+        h.setSel(1);
+        yield go.p;
+      })();
+      await tick();
+      h.asks.at(-1)!.d.res([]);
+      await tick();
+      expect(h.screen()).toBe("#1: ");
+      go.res();
+      await tick();
+      expect(h.asks.at(-1)!.id).toBe(3);
+      h.asks.at(-1)!.d.res(["dana"]);
+      await tick();
+      return h;
+    };
+    const mixed = (frames: string[]) =>
+      frames.filter(f => f === "#3: " || (f.startsWith("#1:") && f.includes("dana")));
+    // OPEN (store-return): the revert's re-ask of issue 3 shows the lane's
+    // committed answer for issue 1 (`#3: `) for one frame — the returned rows
+    // leave the post's container guess on the list, so it still stands in.
+    (form === "store-return" ? it.fails : it)(
+      "an optimistic input that reverts: never torn",
       async () => {
-        const h = await primed(form, "render", true);
-        const go = defer();
-        action(function* () {
-          h.setSel(1);
-          yield go.p;
-        })();
-        await tick();
-        expect(h.asks.at(-1)!.id).toBe(1);
-        // The guess's own lane waits on the comments it derives (F-6).
-        h.asks.at(-1)!.d.res([]);
-        await tick();
-        expect(h.screen()).toBe("#1: ");
-        go.res();
-        await tick();
-        expect(h.screen()).toBe("#1: ");
+        const h = await pureRevert();
         h.server.res({});
         await tick();
-        h.asks.at(-1)!.d.res(["mine"]);
+        h.asks.at(-1)!.d.res(["dana", "mine"]);
         await tick();
-        expect(h.screen()).toBe("#1: mine");
+        expect(h.screen()).toBe("#3: dana | mine");
+        expect(mixed(h.frames)).toEqual([]);
         expect(torn(h.frames)).toEqual([]);
       }
     );
+    // OPEN (one slot): the comments node carries one lane value. The input's
+    // lane took it over for issue 1's answer, and nothing keeps the post's
+    // guess beneath it: whether the post's guess applies again depends on
+    // the input returning to the question the guess was made over, which
+    // the engine cannot compare. Expected after the revert: the post's guess
+    // until the post settles.
+    it.fails("an optimistic input that reverts shows the post's guess again (F-11)", async () => {
+      const h = await pureRevert();
+      expect(h.screen()).toBe("#3: dana | mine (sending)");
+    });
 
     it("control: a refresh() re-ask of the same question keeps the guess until the commit (D-34, #4329)", async () => {
       const h = await primed(form);
@@ -342,12 +395,11 @@ for (const form of forms) {
 }
 
 describe("#4336 keyed store: a new question that writes another key", () => {
-  // Passes on next. OPEN with the #4336 fix: a store's derive is one node
-  // asking one question for every key, so an input change outside the post
-  // re-asks the node the post's guess (on key 3) lies over, and the change
-  // is held with the post — `#1:` shows when the post settles. Which keys
-  // the new answer writes is known only when it lands.
-  it.fails("does not wait for the post; switching back shows the guess", async () => {
+  // A store's derive is one node asking one question for every key; what
+  // holds is a frame still reading a guess at the seam. Key 1 carries none,
+  // so `sel` waits for issue 1's answer (F-2), not for the post; back on key
+  // 3 the guess shows once issue 3's answer is in.
+  it("does not wait for the post; switching back shows the guess", async () => {
     const asks: Ask[] = [];
     const frames: string[] = [];
     let server!: ReturnType<typeof defer<unknown>>;

@@ -26,6 +26,10 @@ export interface StoreFamily {
   /** Targets carrying a lane value on one of their nodes (reads compose the
    * view over the truth — optimistic.ts); dropped lazily once none is. */
   overlaid?: Set<StoreTarget>;
+  /** The derive asks a new question over a guess an earlier frame opened,
+   * this flush (#4336, optimistic.ts `ask`): 1 from mainline, 2 as a lane's
+   * work over no guess of its own, 3 with no live guess left. */
+  asked?: 1 | 2;
   /** Normalized row-key fn (`options.key`, "id" default, null = unkeyed). */
   key?: ((item: any) => any) | null;
   map: WeakMap<object, StoreTarget>;

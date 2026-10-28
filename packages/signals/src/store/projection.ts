@@ -153,9 +153,8 @@ function wakeFamily(fam: StoreFamily): void {
   // reader the landing leaves unchanged does not re-run to clear it (#4305).
   const error = new NotReadyError(fw);
   fam.woke = true;
+  optHooks?.ask(fam, fw);
   forEachFamilyNode(fam, n => {
-    // An optimistic family's guess: the re-ask's frame joins its hold (#4336).
-    optHooks?.ask(n, fw);
     if (n._subs === null) return;
     // The leaf carries the derive's pending as a propagated copy, as a memo
     // between them would: a dependent recovering one branch stays pending
