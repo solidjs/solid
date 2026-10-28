@@ -29,7 +29,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | INV | 11 | 4 | 7 | 4 |
 | RUL | 13 | 3 | 6 | 6 |
 | R (CS) | 59 | 15 | 16 | 32 |
-| R (OL) | 37 | 1 | 0 | 36 |
+| R (OL) | 37 | 1 | 1 | 35 |
 | R (OS) | 46 | 0 | 0 | 46 |
 | R (PJ) | 37 | 2 | 5 | 32 |
 | R (RS) | 38 | 0 | 2 | 36 |
@@ -215,7 +215,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | OL-R9 | live | `docs/rules-mining/optimistic-lanes.md:44` | — | — | Regular signals written in the same action are held (transition semantics) while optimistic writes display immediately; downstream memos and chained optimistic computeds see optimistic values and reve… |
 | OL-R10 | live | `docs/rules-mining/optimistic-lanes.md:48` | — | — | `refresh()` of an optimistic accessor inside an action clears the override when the refetch settles; calling `refresh()` while the upstream source is still pending must not throw. |
 | OL-R11 | live | `docs/rules-mining/optimistic-lanes.md:52` | — | — | Verdict channels: an optimistic override **is the value** on every channel — plain read and `latest()` both return it (including literal `undefined`); the override itself is **verdict-inert** — it nev… |
-| OL-R12 | live | `docs/rules-mining/optimistic-lanes.md:56` | — | — | A bare `refresh()` is a quiet re-ask — never pending; a **declared** reload (`affects(x)` + `refresh(x)` inside an action) pends the slot for the whole reload window, even when the sole consumer is a … |
+| OL-R12 | live | `docs/rules-mining/optimistic-lanes.md:56` | — | action-refresh-ispending-loop-4349.test.ts×1 | A bare `refresh()` is a quiet re-ask — never pending; a **declared** reload (`affects(x)` + `refresh(x)` inside an action) pends the slot for the whole reload window, even when the sole consumer is a … |
 | OL-R13 | live | `docs/rules-mining/optimistic-lanes.md:60` | — | — | During the pending window, a source recompute that reveals a value **different** from the current override corrects the override in place (before the action settles), triggering downstream refetch; a … |
 | OL-R14 | live | `docs/rules-mining/optimistic-lanes.md:67` | — | — | Independent optimistic writes to unrelated signals form independent lanes: notifications scoped to each signal's own subscribers; each action's overrides revert when _that_ action settles, regardless … |
 | OL-R15 | live | `docs/rules-mining/optimistic-lanes.md:71` | — | — | A shared subscriber reading multiple optimistic sources merges lanes **for scheduling only**; it must not transfer transaction ownership of overrides. Disjoint-key work settles with its owning action … |
