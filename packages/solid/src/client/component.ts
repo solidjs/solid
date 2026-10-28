@@ -1,11 +1,10 @@
-import { untrack, createMemo } from "@solidjs/signals";
+import { untrack, createMemo, runAsSolidCopy } from "@solidjs/signals";
 import {
   IS_DEV,
   IS_OBSERVE,
   checkForeignCopy,
   markFlight,
-  observedComponent,
-  runAsSolidCopy
+  observedComponent
 } from "../client/core.js";
 import { _lazyHydrationLookup, sharedConfig, tracing } from "./hydration.js";
 import type { Element as SolidElement } from "../types.js";

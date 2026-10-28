@@ -10,7 +10,7 @@ async function loadCopy(): Promise<Solid> {
   return import("../src/index.js");
 }
 
-function duplicateWarnings(warn: ReturnType<typeof vi.spyOn>) {
+function duplicateWarnings(warn: { mock: { calls: unknown[][] } }) {
   return warn.mock.calls.filter(args => String(args[0]).includes(MESSAGE));
 }
 
@@ -83,6 +83,80 @@ describe("multiple instance check", () => {
     const a = await loadCopy();
     a.createRoot(dispose => {
       a.createComponent(() => a.createComponent(() => null as any, {}), {});
+      dispose();
+    });
+    expect(duplicateWarnings(warn)).toHaveLength(0);
+    expect(globalThis.Solid$$running).toBeUndefined();
+  });
+
+  test("precompiled JSX on another copy reading this copy's signal warns", async () => {
+    // The library's render effect runs on copy B (which never renders by
+    // itself); the prop getter reads the app's signal on copy A.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const app = await loadCopy();
+    const lib = await loadCopy();
+    app.createRoot(dispose => {
+      const [count] = app.createSignal(0);
+      const props = {
+        get count() {
+          return count();
+        }
+      };
+      app.createComponent(() => {
+        lib.createRenderEffect(
+          () => props.count,
+          () => {}
+        );
+        return null as any;
+      }, {});
+      dispose();
+    });
+    expect(duplicateWarnings(warn)).toHaveLength(1);
+  });
+
+  test("a runtime that bundled its own copy reading the app's store warns", async () => {
+    // The runtime copy renders (it owns the root); the app's copy never does.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const app = await loadCopy();
+    const runtime = await loadCopy();
+    const [state] = app.createStore({ n: 1 });
+    runtime.createRoot(dispose => {
+      runtime.createRenderEffect(
+        () => state.n,
+        () => {}
+      );
+      dispose();
+    });
+    expect(duplicateWarnings(warn)).toHaveLength(1);
+  });
+
+  test("an app computation calling into an isolated, rooted copy's API stays quiet", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const app = await loadCopy();
+    const panel = await loadCopy();
+    const [panelState] = panel.createRoot(() => panel.createSignal("idle"));
+    const panelApi = { status: () => panel.untrack(panelState) };
+    app.createRoot(dispose => {
+      const [count] = app.createSignal(0);
+      app.createRenderEffect(
+        () => (count(), panelApi.status()),
+        () => {}
+      );
+      dispose();
+    });
+    expect(duplicateWarnings(warn)).toHaveLength(0);
+  });
+
+  test("untracked reads inside one copy's own computation never warn", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const a = await loadCopy();
+    a.createRoot(dispose => {
+      const [x] = a.createSignal(1);
+      const [y] = a.createSignal(2);
+      a.createRenderEffect(
+        () => x() + a.untrack(y),
+        () => {}
+      );
       dispose();
     });
     expect(duplicateWarnings(warn)).toHaveLength(0);

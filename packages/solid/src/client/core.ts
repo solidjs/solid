@@ -1,6 +1,7 @@
 import {
   createMemo,
   createRoot,
+  checkForeignOwnerless,
   getOwner,
   untrack,
   setContext,
@@ -19,42 +20,9 @@ import { FlowComponent, FlowProps } from "./component.js";
 // prod neither. IS_DEV implies IS_OBSERVE.
 export const IS_DEV = "_SOLID_DEV_" as string | boolean;
 
-// Duplicate-copy check (dev). Two copies of Solid on a page are only a
-// problem when they meet: a component or `useContext` from copy B runs inside
-// a component copy A is rendering, finds no owner (A's owner lives in A's
-// module state) and so neither reacts nor sees A's providers. Copies that
-// never meet (a devtools panel in its own root, an isolated widget) are fine
-// at any version, so nothing is checked at load time. Every copy from 2.0 on
-// shares the one `Solid$$running` slot: the copy whose component is running
-// right now. v1 keeps its own load-time `Solid$$` check, which this never
-// sets.
-declare global {
-  var Solid$$running: object | undefined;
-}
-
-const SOLID_COPY = {};
-let warnedForeignCopy = false;
-
-/** @internal Dev: warns once when this copy runs ownerless inside another copy's component. */
+/** @internal Dev: an ownerless component or context read while another copy of Solid is running (see @solidjs/signals core/copies.ts). */
 export function checkForeignCopy(): void {
-  const running = globalThis.Solid$$running;
-  if (running && running !== SOLID_COPY && !warnedForeignCopy && !getOwner()) {
-    warnedForeignCopy = true;
-    console.warn(
-      "You appear to have multiple instances of Solid: a component or useContext() from one copy ran inside a component rendered by another, so it has no owner and will not react or find its providers. Make sure every package resolves the same solid-js (e.g. `resolve.dedupe` in Vite)."
-    );
-  }
-}
-
-/** @internal Dev: runs `fn` with this copy marked as the one rendering. */
-export function runAsSolidCopy<T>(fn: () => T): T {
-  const prev = globalThis.Solid$$running;
-  globalThis.Solid$$running = SOLID_COPY;
-  try {
-    return fn();
-  } finally {
-    globalThis.Solid$$running = prev;
-  }
+  if (!getOwner()) checkForeignOwnerless();
 }
 export const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
 /**
