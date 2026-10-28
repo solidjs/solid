@@ -217,18 +217,9 @@ export function Show<T>(props: {
             }
           : { equals: (a, b) => !a === !b, sync: true }
       );
-  // Truthiness that selected the child. The accessor runs from a binding:
-  // `untrack(condition)` there serves the committed frame (undefined on the
-  // first mount of `when={latest(x)}`, #3948), and an ownerless read serves
-  // that same frame for a value staged this flush, so a live branch looks
-  // stale and halts. The flag is the selecting read, updated when selection
-  // re-runs — not a second read, and not a `latest()` import (that pulls the
-  // lane engine into every Show bundle).
-  let shown: T | undefined | null | boolean = false;
   return createMemo(
     () => {
       const c = condition();
-      shown = c;
       if (c) {
         const child = props.children;
         const fn = typeof child === "function" && child.length > 0;
@@ -238,7 +229,13 @@ export function Show<T>(props: {
             : untrack(
                 () =>
                   (child as any)(() => {
-                    if (!shown) throw narrowedError("Show");
+                    // A tracked read, as Match's guard: the binding that reads
+                    // is a frame reader, so it sees the screen's truthiness —
+                    // held-closing branch still on screen (#4354), a
+                    // `latest()`-selected first mount (#3948) — while a read
+                    // after unmount sees the committed falsy and throws.
+                    // `untrack(condition)` serves neither.
+                    if (!condition()) throw narrowedError("Show");
                     return conditionValue();
                   }),
                 IS_DEV && "<Show>"
