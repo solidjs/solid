@@ -42,6 +42,7 @@
 import {
   CAUGHT_REARMED,
   CONFIG_REDERIVE,
+  CONFIG_STAGED_ERROR,
   CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_OVERRIDE,
@@ -232,16 +233,20 @@ function catchStatus(
 ): boolean | typeof CAUGHT_REARMED {
   if (flags === 0) {
     // A status cleared. Judged by the node's status now, against each
-    // boundary's own rule (`unsettled`) — the error path clears pending
+    // boundary's own rule (`prune`'s mask) — the error path clears pending
     // first and the node is still errored then. The last reader a fallback
     // waited on settling re-derives the output now, in the same heap (a
     // held reader's landing has joined its transaction, so the content
     // lands with its run, not a round after). Others still waiting: nothing
-    // on screen changes, the fallback stays as it is.
+    // on screen changes, the fallback stays as it is. `node` here is an
+    // effect reporting its own status. An error boundary records an effect
+    // only while it is errored, and a staged error keeps STATUS_ERROR on a
+    // node that had it (`stageError`), so `prune`'s CONFIG_STAGED_ERROR case
+    // cannot reach this path (#4364).
     if (collecting.size !== 0)
       for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent)
         if (
-          !(node._statusFlags & unsettled(b)) &&
+          !(node._statusFlags & (b._type | STATUS_PENDING)) &&
           b._readers.delete(node) &&
           b._readers.size === 0
         ) {
@@ -316,15 +321,18 @@ function release(b: Boundary): void {
  * that landed but is held (its value staged in a transaction) is not: the
  * content reveals at the commit, with its run. The tree is: the output reads
  * it and enters the transaction itself (its committed value shows until the
- * landing). */
-const unsettled = (b: Boundary): number =>
-  b._type === STATUS_ERROR ? STATUS_ERROR | STATUS_PENDING : STATUS_PENDING;
-
+ * landing). The statuses that keep a reader: pending — and its error, for an
+ * error boundary (`_type` is the status it catches). */
 export function prune(b: Boundary, pass: boolean): number {
-  const mask = unsettled(b);
+  const mask = b._type | STATUS_PENDING;
   for (const r of b._readers) {
-    if (r._flags & REACTIVE_DISPOSED) b._readers.delete(r);
-    else if (!(r._statusFlags & mask)) {
+    if (!(r._flags & REACTIVE_DISPOSED)) {
+      // An error staged on its source (D-41, `stageError`) is not settled:
+      // it publishes with the commit. A reader that threw it now (a lane
+      // pass, a reader of a node born staged) reached the boundary first
+      // (#4364).
+      if (r._statusFlags & mask || (mask & STATUS_ERROR && r._config & CONFIG_STAGED_ERROR))
+        continue;
       if (
         (r !== b._tree || b._armed) &&
         (r._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
@@ -339,8 +347,8 @@ export function prune(b: Boundary, pass: boolean): number {
         if (!pass || !b._initialized) continue;
         joinFuture(txOf(r));
       }
-      b._readers.delete(r);
     }
+    b._readers.delete(r);
   }
   return b._readers.size;
 }
