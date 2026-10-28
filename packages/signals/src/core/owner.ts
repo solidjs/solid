@@ -1,3 +1,4 @@
+import { markCopyRooted } from "./copies.js";
 import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
@@ -483,6 +484,7 @@ export function createRoot<T>(
   options?: { id?: string; transparent?: boolean }
 ): T {
   const owner = createOwner(options);
+  if (__DEV__) markCopyRooted();
   // A bound function, not an arrow: an arrow would share this scope, which
   // holds `init`, so keeping `dispose` would keep `init` and all it closes
   // over alive (#4095).

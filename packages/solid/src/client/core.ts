@@ -1,6 +1,7 @@
 import {
   createMemo,
   createRoot,
+  checkForeignOwnerless,
   getOwner,
   untrack,
   setContext,
@@ -18,6 +19,11 @@ import { FlowComponent, FlowProps } from "./component.js";
 // attribution). Dev builds set both; observe builds set only IS_OBSERVE;
 // prod neither. IS_DEV implies IS_OBSERVE.
 export const IS_DEV = "_SOLID_DEV_" as string | boolean;
+
+/** @internal Dev: an ownerless component or context read while another copy of Solid is running (see @solidjs/signals core/copies.ts). */
+export function checkForeignCopy(): void {
+  if (!getOwner()) checkForeignOwnerless();
+}
 export const IS_OBSERVE = "_SOLID_OBSERVE_" as string | boolean;
 /**
  * Brand symbol marking dev-built components for `solid-devtools` /
@@ -172,6 +178,7 @@ export function createContext<T>(defaultValue?: T, options?: EffectOptions): Con
  * @description https://v2.solidjs.com/reference/solid-js/components-context/use-context
  */
 export function useContext<T>(context: Context<T>): T {
+  if (IS_DEV) checkForeignCopy();
   return getContext(context);
 }
 
