@@ -84,7 +84,7 @@ function watchVerdict(c: Computed<any>, unanswered = false): void {
  * does not rescue it: its result shows at the landing, re-derived). A lane
  * read, for `recompute`'s tail (REACTIVE_LANE_READ). */
 function route(c: Computed<any>, t: Transaction): void {
-  if (passLane === null && !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)))
+  if (!passLane && !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)))
     setPassLane(verdictLane(t));
   c._flags |= REACTIVE_LANE_READ;
 }
@@ -170,7 +170,7 @@ function provisionalVerdict(c: Computed<any>, notFinal: boolean): void {
     verdictRead(c, flushTransaction!);
     return;
   }
-  if (flushTransaction !== null) {
+  if (flushTransaction) {
     if (notFinal) probeFound = true;
     verdictRead(c, flushTransaction);
     if (c._flags & REACTIVE_STAGED_READ) watchVerdict(c);
@@ -225,7 +225,7 @@ function heldNotFinal(owner: Computed<any>): boolean {
 function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
   if (el._statusFlags & STATUS_UNINITIALIZED) return;
   if (probing && !quietPending(el)) probeFound = true;
-  if (c !== null && tracking) {
+  if (c && tracking) {
     if (el._config & CONFIG_HELD) verdictRead(c, txOf(el));
     else if (globalQueue._running) provisionalVerdict(c, false); // decided above
   }
@@ -345,7 +345,7 @@ function staged(el: Signal<any> | Computed<any>): unknown {
 function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const u = unflushedValue(el);
   if (u === NOT_PENDING) return staged(el);
-  if (c !== null) markLateLinker(c);
+  if (c) markLateLinker(c);
   return u;
 }
 /** The verdict windows' read — `latest(fn)` and `isPending(fn)` — in one
@@ -371,11 +371,11 @@ function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): u
  * - an errored derivation throws for every reader (#2897). */
 function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const owner = el as Computed<any>;
-  const owned = c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  const owned = !!c && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
   const tracked = owned && tracking;
-  if (c !== null && tracking) {
+  if (c && tracking) {
     link(el, c);
-    if (owner._fn !== undefined) {
+    if ((el as any)._fn) {
       // A31: the pulled memo's pass is its own, not the probe's — it reads
       // outside the window, and the probe's read below answers for what
       // the pass produced.
@@ -388,9 +388,9 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // final by declaration — the value itself is read as below. The verdict is
   // display-ahead like any: in a transaction's flush (the declaring action's
   // body) the reader is its verdict lane's, not a staging the frame parks.
-  if (probing && GlobalQueue._marked !== undefined && GlobalQueue._marked(owner)) {
+  if (probing && GlobalQueue._marked?.(owner)) {
     probeFound = true;
-    if (tracked && flushTransaction !== null) verdictRead(c!, flushTransaction);
+    if (tracked && flushTransaction) verdictRead(c!, flushTransaction);
   }
   if (
     el._config & CONFIG_OVERRIDE &&
@@ -438,9 +438,8 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         tracked &&
         !probing &&
         (c as any)._type === EFFECT_RENDER &&
-        passLane === null &&
-        t._verdict !== null &&
-        t._verdict._held &&
+        !passLane &&
+        t._verdict?._held &&
         flushTransaction !== t
       ) {
         staleReader(c!, t._verdict);
@@ -452,7 +451,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         // An action body reading another transaction's proposal derives
         // from it: the two settle as one (A15; posture C, 2026-09-15). An
         // untracked read elsewhere has no transaction to entangle.
-        if (!tracked && flushTransaction !== null && !globalQueue._running) joinFuture(txOf(el));
+        if (!tracked && flushTransaction && !globalQueue._running) joinFuture(txOf(el));
         return heldLatest(el, tracked ? c : null);
       }
       return el._value;
@@ -481,7 +480,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       // reader derived from the flushed world runs again in the carrying
       // flush.
       if (globalQueue._running) return staged(el);
-      if (c !== null) markLateLinker(c);
+      if (c) markLateLinker(c);
     }
     return el._value;
   }
@@ -493,10 +492,10 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // As `read()`: an untracked read of a pending node still re-runs its
     // reader when the node settles (a projection's pull reads its firewall
     // untracked, store/store.ts).
-    if (c !== null && !tracking && !spectating && el !== c) link(el, c);
+    if (c && !tracking && !spectating && el !== c) link(el, c);
     throw owner._x?._error;
   }
-  if (owner._fn !== undefined && owner._statusFlags & STATUS_ERROR) throw owner._x!._error;
+  if ((el as any)._fn && owner._statusFlags & STATUS_ERROR) throw owner._x!._error;
   return el._value;
 }
 
