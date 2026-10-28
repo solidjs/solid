@@ -25,6 +25,7 @@ import {
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
   REACTIVE_PROBE_UNANSWERED,
+  REACTIVE_PROVISIONAL,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
@@ -167,10 +168,16 @@ function verdictRead(c: Computed<any>, t: Transaction, plain?: boolean): void {
 function provisionalVerdict(c: Computed<any>, notFinal: boolean): void {
   if (!probing) {
     joinFuture(null);
+    // Seated by this read alone: a plain read of a staging later in the
+    // pass takes it back (lanes.ts `stagedScreen`, #4365).
+    if (!passLane) c._flags |= REACTIVE_PROVISIONAL;
     verdictRead(c, flushTransaction!);
     return;
   }
   if (flushTransaction) {
+    // A probe answers for the transaction: the pass is the verdict lane's,
+    // whatever seated it (#4365).
+    c._flags &= ~REACTIVE_PROVISIONAL;
     if (notFinal) probeFound = true;
     verdictRead(c, flushTransaction);
     if (c._flags & REACTIVE_STAGED_READ) watchVerdict(c);

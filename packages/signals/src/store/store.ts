@@ -60,7 +60,6 @@ import {
   slotSignal,
   snapshotCaptureActive,
   stagedRead,
-  stagedScreen,
   strictRead,
   strictReadActive,
   untrack,
@@ -84,6 +83,7 @@ import {
   dirtyQueue,
   flushTransaction,
   GlobalQueue,
+  stagedScreenHook,
   globalQueue,
   holdNode,
   insertSubs,
@@ -1611,7 +1611,7 @@ function readSource(
     // for this pass — a verdict reader sees the screen, any other derives
     // from the staging and is marked as having read it.
     if (k === null) {
-      if (c._config & CONFIG_VERDICT && stagedScreen(c)) return committed(target);
+      if (c._config & CONFIG_VERDICT && stagedScreenHook!(c)) return committed(target);
       stagedRead(c);
       return pb;
     }

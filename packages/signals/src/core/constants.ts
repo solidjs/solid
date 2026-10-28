@@ -68,6 +68,10 @@ export const REACTIVE_SCREEN_READ = 1 << 18;
  * later read of the same pass routed it into a verdict lane — that was not
  * the probe's answer (lanes.ts). Per pass. */
 export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
+/** A pass a `latest()` read moved into the verdict lane of the transaction
+ * its own read opened (verdict.ts `provisionalVerdict`): nothing holds that
+ * transaction yet (#4365). Per pass. (1 << 20 is lanes.ts's LEFT_SHOWN.) */
+export const REACTIVE_PROVISIONAL = 1 << 21;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;

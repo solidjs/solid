@@ -53,13 +53,14 @@ import {
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_SCREEN_READ,
+  REACTIVE_PROVISIONAL,
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { ext, stagedRead, tracking } from "./core.js";
+import { bornInto, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
@@ -77,6 +78,7 @@ import {
   staleReader,
   merge,
   newTransaction,
+  stagedReaders,
   nextQuestion,
   ownFlights,
   passLane,
@@ -898,6 +900,32 @@ function answered(el: Computed<any>): number {
   return q;
 }
 
+/** A10 for a staged node: a verdict reader (the pass entered a window) that
+ * also reads a frame's proposal plainly sees the screen — `[latest(q), q()]`
+ * is `[b, a]` — once the frame has a transaction, and re-derives when it
+ * lands: at this very seam if nothing holds it (the stale run is void,
+ * #3322 — one run, on the committed world), or with the hold. Before any
+ * transaction the answer is the seam's and the reader watches it
+ * (verdict.ts). A node born into the future has no screen: its staging is
+ * its only value (A29). Nor has a reader born into the flush's transaction
+ * (`bornInto`, #4010): its branch exists only there. Nor a pass a `latest()`
+ * read of a staging seated in the verdict lane of the transaction that read
+ * opened (REACTIVE_PROVISIONAL, #4365): nothing held that transaction then,
+ * and taking it for a hold tore a plain write's frame — `[latest(a), b()]`
+ * paired a's staging with b's committed value, and showed it. The pass reads
+ * the staging like a pass with no transaction yet: the screen if the frame
+ * commits (one pass); if it parks, the lane seam re-derives it (lanes.ts). */
+function stagedScreen(c: Computed<any>): boolean {
+  if (flushTransaction === null || bornInto(c, flushTransaction)) return false;
+  if (c._flags & REACTIVE_PROVISIONAL) {
+    setPassLane(null);
+    stagedReaders.push(c);
+    return false;
+  }
+  staleReader(c, flushTransaction);
+  return true;
+}
+
 /** The lanes alive before this seam's guesses opened theirs (a prefix of
  * `lanes`; nothing dissolves one between here and the seam loop): a lane
  * born at the seam has no work to judge yet (its passes run next round) —
@@ -907,16 +935,17 @@ const applyGuessesAt = (parent: Transaction | null): void => {
   judged = lanes.length;
   if (pendingGuesses.length !== 0) applyGuesses(parent);
 };
-const laneSeams = (leaks: Computed<any>[] | null): void => {
+const laneSeams = (t: Transaction | null): void => {
   // Passes that read a write the parked frame holds as the screen
   // (`stagedReaders`: lane work, a verdict reader before the verdict): they
   // re-derive on the committed world next round (and register as stale
   // readers of the transaction there); a lane's runs wait that round — a
-  // lane sees the screen plus its own guesses.
+  // lane sees the screen plus its own guesses. (`t`: the transaction the
+  // flush joined, if any.)
   const leaked: Transaction[] = [];
-  if (leaks !== null)
-    for (let i = 0; i < leaks.length; i++) {
-      const r = leaks[i];
+  if (t !== null)
+    for (let i = 0; i < stagedReaders.length; i++) {
+      const r = stagedReaders[i];
       const l = r._x?._transaction;
       // A verdict reader a later read of the same pass routed into a verdict
       // lane answered for itself: it re-derives at the holder's landing, not
@@ -927,7 +956,10 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
       // flight, held as the frame's pending observer or its staged
       // derivation) has nothing to re-derive: its re-run re-enters that
       // transaction and parks it again, every round — it runs at the
-      // landing (#4349).
+      // landing (#4349). One that read a staging as the screen re-derives
+      // only if the frame stays parked: landing, it made the staging the
+      // screen (one pass — #4365: a pass a `latest()` read had seated in the
+      // verdict lane, `stagedScreen`).
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
@@ -935,7 +967,8 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
             (r._config & CONFIG_VERDICT
               ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
               : !blocked(l._parent))
-          : l && !(r._flags & (REACTIVE_STAGED_READ | REACTIVE_PROBE_UNANSWERED)))
+          : !(r._flags & REACTIVE_PROBE_UNANSWERED) &&
+            (r._flags & REACTIVE_STAGED_READ ? !blocked(t) : l))
       )
         continue;
       // A leaked effect re-derives seated in its lane from its first read: it
@@ -970,7 +1003,8 @@ installLaneHooks(
   laneSeams,
   () => lanes.length !== 0 && laneCorrections(),
   endLanes,
-  lanesBlocked
+  lanesBlocked,
+  stagedScreen
 );
 if (__OBSERVE__)
   GlobalQueue._laneGuesses = t => {
