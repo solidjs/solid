@@ -673,6 +673,25 @@ _Ruled 2026-10-09, from the read-order brief's sibling case (416). Not D-28: thi
 | ✗   |                          | sibling `0`, slot `(empty)` | neither the fallback nor `1` — the boundary waited on `n0`, which it did not read |
 | ✗   |                          | sibling `0 \| loading`      | the same wait, shown as a fallback                                                |
 
+### S-45. A first answer landing in the same tick as an action that writes its input: `latest` shows it, the plain read waits — D-22, F-9 (async generator E9)
+
+_Ruled 2026-10-28. The leaf form and the through-a-memo form show the same screen; today the leaf keeps the fallback up until the action ends — that is the ✗ row._
+
+```tsx
+const m0 = createMemo(() => fetch(s0()));              // first load, no committed value
+<p>{s0()}</p>
+<Loading fallback="loading">{latest(m0)}</Loading>     // or: {L()} with L = createMemo(() => latest(m0))
+const save = action(function* () { setS0(1); yield gate; });
+```
+
+| #   | Action                                                       | Screen                  | Notes                                                                                                                    |
+| --- | ------------------------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 0   | mount                                                        | `0 \| loading`          | first load                                                                                                               |
+| 1   | `save()` and `m0`'s first answer `2` land in one tick; flush | `0 \| 2`                | the answer is the action's (D-4) and `latest` returns it (D-22): the committed `s0 = 0` beside its own answer, one frame |
+| 2   | `gate`, body returns; `m0(1)` lands                          | `1 \| m0(1)`            |                                                                                                                          |
+| ✗   |                                                              | after 1: `0 \| loading` | the leaf waited on the action it did not read; a `Loading` reading only `latest` shows what it has (S-40)                |
+| —   | the same with `{m0()}` in place of `latest(m0)`              | `0 \| loading` until 2  | a plain read of a first load is loading (F-9); the fallback is right there                                               |
+
 ---
 
 ## D. Writes and optimistic values (D-32–D-37)
