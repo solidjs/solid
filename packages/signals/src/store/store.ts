@@ -1356,7 +1356,10 @@ export function notifyKeyDiff(
   } else {
     const ov = old[key as any];
     const nv = neu[key as any];
-    if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
+    // A live chained `old` (a store proxy, §7b) already reads the inner
+    // store's next frame, not what the node was last told: written, the
+    // node's own equality judging it (#4361).
+    if (old[$TARGET] || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
       setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
   }
 }
@@ -1392,7 +1395,8 @@ export function notifyKeyValue(
  * unrelated `a.value` stayed stale until the action settled). A real
  * change still writes, and on a held node still proposes. A live chained
  * `old` (a store proxy, §7b) reflects the inner store, not what the node
- * was last told — written unconditionally, as before.
+ * was last told — written unconditionally, as before; its container too
+ * (#4361).
  *
  * The container is told of an arrangement change when it has structural
  * subscribers OR carries an arrangement guess (S4): for a guessed
@@ -1408,17 +1412,18 @@ export function notifyFoldTail(
   neu: Record<PropertyKey, any>
 ): void {
   const has = t.h;
+  const live: StoreTarget | undefined = (old as any)[$TARGET];
   if (has !== null) {
-    const live: StoreTarget | undefined = (old as any)[$TARGET];
     for (const key of Reflect.ownKeys(has))
       if (live || key in old !== key in neu) setSignal(has[key as any], key in neu);
   }
   const k = t.k;
   if (k !== null && (k._subs !== null || k._config & CONFIG_OVERRIDE)) {
     const changed =
-      Array.isArray(neu) && Array.isArray(old)
+      live ||
+      (Array.isArray(neu) && Array.isArray(old)
         ? arrayStructureChanged(old as any[], neu as any[])
-        : membershipChanged(old, neu);
+        : membershipChanged(old, neu));
     if (changed) notifyContainer(k, neu);
   }
 }
