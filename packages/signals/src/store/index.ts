@@ -26,14 +26,15 @@ export type {
   ArrayFilterFn
 } from "./storePath.js";
 
-import { createOptimisticStore } from "./optimistic.js";
-import { createProjection, createStoreDerived } from "./projection.js";
-import { reconcileState } from "./reconcile.js";
+// SPIKE: record-granularity engine in place of the deep one.
 import {
-  createStore as createPlainStore,
+  createOptimisticStore,
+  createProjection,
+  createStore as createRecordStore,
   deep as deepStore,
+  reconcile as reconcileRecord,
   snapshot as snapshotStore
-} from "./store.js";
+} from "../record/record.js";
 import type {
   NoArray,
   NoFn,
@@ -101,8 +102,7 @@ export function createStore<T extends object = {}>(
   options?: ProjectionOptions
 ): ProjectionStoreReturn<T>;
 export function createStore(first: any, second?: any, third?: any): any {
-  if (typeof first === "function") return createStoreDerived(first, second, third);
-  return createPlainStore(first, second) as [Store<any>, StoreSetter<any>];
+  return createRecordStore(first, second, third);
 }
 
 /**
@@ -114,7 +114,7 @@ export function reconcile<T extends U, U>(
   value: T,
   key: string | ((item: NonNullable<any>) => any) | null = "id"
 ): (state: U) => T {
-  return (state: U): T => reconcileState(value, state, key) as any;
+  return reconcileRecord(value, key);
 }
 
 /** Non-tracking snapshot of a store's current value (source identity for
