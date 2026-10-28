@@ -72,7 +72,6 @@ import {
   haltReactivity,
   haltReactivityAt,
   heldUnder,
-  insertSubs,
   joinFuture,
   passLane,
   passTx,
@@ -217,16 +216,8 @@ function flip(b: Boundary): void {
 }
 
 export function redraw(b: Boundary): void {
-  const o = b._output;
-  if (o !== null && !(o._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE))) {
-    // A held output's pass replaces what it staged. Outside the hold, the
-    // pass publishes mainline (`recompute`, #3404), and it may be the
-    // committed value back (a held swap to content, then the fallback
-    // again): no change, so nothing tells the readers that ran on the
-    // staging, and the landing applies their held runs of the superseded
-    // frame. They re-derive with the output (#4378).
-    if (o._config & CONFIG_HELD) insertSubs(o);
-    enqueueSub(o);
+  if (b._output !== null && !(b._output._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE))) {
+    enqueueSub(b._output);
     schedule();
   }
 }
