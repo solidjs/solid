@@ -135,7 +135,11 @@ describe("Loading `on` beside a keyed Show around the boundary; a boundary is ne
   // A again there: the lane's mount is the one shown (the early fallback),
   // and the held frame's is discarded at the lane's reveal. (Before R-5 the
   // read opened the flush's transaction and seated the pass in the lane at
-  // once: one mount.)
+  // once: one mount.) Why 3: the parked flush re-derives the pass that read
+  // `latest(count)` once, as a verdict reader (D-2, A10), and a keyed `Show`
+  // whose condition is that read mounts its branch on that re-derive. That is
+  // the cost of keying a mount on a `latest()` read at a park, not a bug
+  // (maintainer ruling on #4365).
   // (A zero-arg function child is an accessor — evaluated once, not remounted
   // per key — and is deliberately not pinned here.)
   const matrix: Array<[Variant, string, [number, number, number], string[]]> = [

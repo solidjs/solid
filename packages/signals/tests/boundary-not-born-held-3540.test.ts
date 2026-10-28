@@ -360,7 +360,12 @@ describe("Loading `on` beside a keyed Show around the boundary (#3540)", () => {
       // Show mounts A again there: the lane's mount is the one shown (the
       // early fallback), the held frame's is discarded at the lane's reveal.
       // (Before R-5 the read opened the flush's transaction and seated the
-      // pass in the lane at once: one mount, #3540 web.) `on` never remounts.
+      // pass in the lane at once: one mount, #3540 web.) Why 3: the parked
+      // flush re-derives the pass that read `latest(count)` once, as a
+      // verdict reader (D-2, A10), and a keyed Show whose condition is that
+      // read mounts its branch on that re-derive. That is the cost of keying
+      // a mount on a `latest()` read at a park, not a bug (maintainer ruling
+      // on #4365). `on` never remounts.
       expect(seen).toEqual(form === "on" ? [0, 0, 0] : key === "latest" ? [1, 3, 3] : [1, 2, 2]);
       t.dispose();
       expect(warn).toHaveBeenCalledTimes(form === "on" && key === "committed" ? 1 : 0);
