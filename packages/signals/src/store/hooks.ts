@@ -5,8 +5,9 @@
  * from `affects()`, and an app without stores carries none of the engine.
  * A slot no installer reaches stays `null`, and a bundler folds its sites.
  */
-import type { Signal } from "../core/types.js";
-import type { StoreTarget } from "./target.js";
+import type { Transaction } from "../core/scheduler.js";
+import type { Computed, Signal } from "../core/types.js";
+import type { StoreFamily, StoreTarget } from "./target.js";
 
 /** The optimistic machinery (optimistic.ts, S4), installed when it loads
  * — a plain store pays nothing for it (#2883): the plain paths reach it
@@ -37,6 +38,16 @@ export interface OptHooks {
   /** The derive's draft wrote `pb` on `t`: the new object at a guessed
    * row's slot (by key in a keyed list) is adopted by that row's target. */
   pair(t: StoreTarget, pb: Record<PropertyKey, any>): void;
+  /** The derive of `fam` went in flight (#4336): a new question asked over
+   * the family's guesses is judged by its reads (`stands`) and at the seam
+   * (`park`). */
+  ask(fam: StoreFamily): void;
+  /** The flush parks with `t`: a guess a frame still reads, over a family
+   * asked a new question this flush, holds `t` with its action (D-34). */
+  park(t: Transaction): void;
+  /** A read of `t` while its family's derive is in flight: the family's
+   * guesses stand in for the flight (no suspension). */
+  stands(t: StoreTarget): boolean;
 }
 // Set before any family is optimistic (`fam.opt`): a call site checks the
 // hooks first, so a build that does not import optimistic.ts folds the arm

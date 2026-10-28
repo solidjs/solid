@@ -74,6 +74,7 @@ import {
   joinFuture,
   laneDirty,
   list,
+  staleReader,
   merge,
   newTransaction,
   nextQuestion,
@@ -89,7 +90,8 @@ import {
   setPassLane,
   txOf,
   type Transaction,
-  installLaneHooks
+  installLaneHooks,
+  armGuessing
 } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -133,6 +135,33 @@ export function pendingGuessOf(n: Signal<any> | Computed<any>): unknown {
     if (pendingGuesses[i] === n) return pendingGuesses[i + 1];
   return NOT_PENDING;
 }
+/** This module's copy of scheduler.ts `guessing`: its readers here stay
+ * foldable when a bundler splits lanes.ts from scheduler.ts into separate
+ * chunks (a cross-chunk binding is not folded; the compiled live page). */
+let guessed = false;
+/** Guesses another action's lane took over (#4336): the node, its guess,
+ * the guess's lane, its question, the lane that took it. */
+const kept: any[] = [];
+/** Lanes a revert dissolved: the guesses they took come back at their
+ * parent's landing (`endLanes`). */
+const reverted = /* @__PURE__ */ new WeakSet<Transaction>();
+/** Lane `l` takes `n`'s guess (another action's), kept to come back if `l`
+ * reverts. Its readers saw the guess: they re-derive at the lane's reveal
+ * (and, a flight's, hold the lane while they would show it). `d`: a guess
+ * `l` takes without writing it (a store target's other slots) — the node
+ * shows its truth in `l`'s world until the guess comes back. */
+export function take(n: Signal<any>, l: Transaction, d?: boolean): void {
+  const x = n._x!;
+  kept.push(n, x._lane, x._transaction, x._q, l);
+  rerun(n, l);
+  n._config &= d ? ~(CONFIG_GUESS | CONFIG_OVERRIDE) : ~CONFIG_GUESS;
+  if (d) ((x._transaction = null), (x._lane = NOT_PENDING));
+  else list(n, l);
+}
+/** `n`'s readers are stale readers of `t` (re-derived at its landing). */
+function rerun(n: Signal<any>, t: Transaction): void {
+  for (let s = n._subs; s !== null; s = s._nextSub) staleReader(s._sub, t);
+}
 export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   // What the user sees: an unflushed guess to the same node, else the lane's
   // value or the committed one. The updater composes on it; guessing it
@@ -143,6 +172,8 @@ export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T)
   if (typeof v === "function") v = (v as (prev: T) => T)(prev);
   if (n._equals && n._equals(prev, v) && !(n._config & CONFIG_GUESS)) return v;
   pendingGuesses.push(n, v, question || nextQuestion());
+  armGuessing();
+  guessed = true;
   schedule();
   return v;
 }
@@ -240,7 +271,8 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // the park's repair), as it does a lane pass that read a staging. Not a
     // pass whose held reads were all of nodes born held (no staged read,
     // `stagedRead`): it has no committed world to re-derive on (#3969).
-    if (c._flags & REACTIVE_JOINED && c._flags & REACTIVE_STAGED_READ) stagedRead(c);
+    // (A pass not joined: a held write beside a guess, #4336.)
+    if (c._flags & REACTIVE_STAGED_READ && (guessed || c._flags & REACTIVE_JOINED)) stagedRead(c);
     return;
   }
   if (sameLane(p, l)) return setPassLane(l);
@@ -346,7 +378,19 @@ export function laneStage(
     // of the lane from here (its value the lane's, its fate the lane's), no
     // longer a written guess. A pass with no answer (pending, errored)
     // leaves the guess.
-    if (!errored) el._config &= ~CONFIG_GUESS;
+    // Nor a pass of another action's guess: the re-ask is this lane's new
+    // question, which the guess (over the old one) does not answer — the
+    // lane waits for its own answer (F-1, F-6, #4336). (A guess of the
+    // lane's own action, D-33's entangled slot, still stands in.)
+    const g = el._x!._transaction;
+    if (
+      guessed &&
+      el._config & CONFIG_GUESS &&
+      g?._lane &&
+      resolveTx(g._parent!) !== resolveTx(l._parent!)
+    )
+      take(el, l);
+    else if (!errored) el._config &= ~CONFIG_GUESS;
   }
   // A leaf has no lane value to seat it (`recompute`): one left waiting on
   // the lane's flight runs its next pass as the lane's — the landing that
@@ -385,8 +429,9 @@ export function laneStage(
  * one landing answering two actions' guesses (a store re-ask over two
  * rows) must not tie them together; a pass that derives from the held
  * truth joins the parent on its own (`joinPass`). */
-/** Observe: the correction round is replacing a guess with the value it
- * covered (no landing beneath it) — `optimisticReverted`'s "reverted". */
+/** The correction round is replacing a guess with the value it covered (no
+ * landing beneath it): observe's "reverted"; the lane gives back the
+ * guesses it took (#4336, `endLanes`). */
 let reverting = false;
 
 export function supersede(n: Signal<any> | Computed<any>, value: unknown, changed: boolean): void {
@@ -407,6 +452,7 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     if (__OBSERVE__ && l._shown && attrHooks !== null)
       attrHooks.optimisticReverted(n, n._x!._lane, value, reverting ? "reverted" : "superseded");
     dissolveLane(l, parent, n);
+    if (guessed && reverting) reverted.add(l);
     // What the screen showed stays the screen until the parent lands (A18
     // (c): display and untracked reads keep the override until the commit).
     if (l._shown) n._value = n._x!._lane;
@@ -677,9 +723,9 @@ function laneCorrections(): boolean {
       const n = l._nodes[i];
       if (n._config & CONFIG_GUESS && n._x!._transaction === l) {
         const truth = n._pendingValue !== NOT_PENDING ? n._pendingValue : covered(n);
-        if (__OBSERVE__) reverting = n._pendingValue === NOT_PENDING;
+        if (__OBSERVE__ || guessed) reverting = n._pendingValue === NOT_PENDING;
         supersede(n, truth, !n._equals || !n._equals(n._x!._lane, truth));
-        if (__OBSERVE__) reverting = false;
+        if (__OBSERVE__ || guessed) reverting = false;
       }
     }
   }
@@ -720,6 +766,31 @@ function laneSeam(l: Transaction, leaked: boolean): void {
 /** The parent landed: its lanes end, nested first. (None is blocked: a
  * blocked lane blocks its parent.) */
 function endLanes(u: Transaction): void {
+  // A revert landing (#4336): the guesses its lane took from another action
+  // that is still out come back in this frame, over the truth it lands —
+  // its readers re-derive with the landing (one frame, no bare truth
+  // between). Taken by a later lane since, a node stays that lane's.
+  if (guessed)
+    for (let i = kept.length - 5; i >= 0; i -= 5)
+      if (resolveTx(kept[i + 4]._parent) === u) {
+        let [n, v, g, q, t] = kept.splice(i, 5);
+        // (A store slot's node now: the one taken, or a read's since.)
+        if (
+          reverted.has(t) &&
+          lanes.includes(g) &&
+          (!(n._config & CONFIG_SLOT_NODE) || (n = GlobalQueue._slotTake!(n, true)))
+        ) {
+          const x = ext(n);
+          if (x._transaction === null || txOf(n) === u) {
+            commitPendingNode(n);
+            x._lane = v;
+            x._q = q;
+            n._config |= CONFIG_OVERRIDE | CONFIG_GUESS;
+            list(n, g);
+            rerun(n, u);
+          }
+        }
+      }
   for (let k = lanes.length - 1; k >= 0; k--) {
     const l = lanes[k];
     if (resolveTx(l._parent!) !== u) continue;
@@ -752,7 +823,9 @@ function nestedBlocked(t: Transaction): boolean {
  * latest: its staging once the lane has shown (promoted at the next
  * reveal), its slot before; the lane's members re-derive as its work. */
 function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
-  if (el._config & CONFIG_GUESS) {
+  // (A store slot's guess its derive's re-ask in another action's lane
+  // writes is that lane's derivation from here — store `_slotTake`, #4336.)
+  if (el._config & CONFIG_GUESS && !(guessed && GlobalQueue._slotTake?.(el))) {
     // Provenance (A18, #3331; Q-D, plan sec. 39): a write asking an OLDER
     // question than the guess's — another action's landing beneath it —
     // is not its answer: held beneath (the truth for the commit; the

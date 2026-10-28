@@ -107,7 +107,10 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   if (shallow) markRawIngest(incoming);
   // The deep witness is bumped once per adoption (none to bump: done).
   let bumped = t.dk === null;
-  if (Array.isArray(prevView) !== nextArr) {
+  // A live chained base (a store proxy, §7b) reads the inner store's
+  // current frame, not what the nodes were last told — nothing to diff
+  // against: the fold writes every node (#4361).
+  if (Array.isArray(prevView) !== nextArr || old[$TARGET]) {
     notifyFold(t, old, incoming);
     return;
   }

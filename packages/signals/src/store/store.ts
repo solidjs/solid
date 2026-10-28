@@ -504,6 +504,7 @@ const storePark = (t: Transaction): void => {
     const target = foldList[i];
     if (target.k === null && target.pb !== null) holdNode(getContainerNode(target), t);
   }
+  optHooks?.park(t);
 };
 
 function getDeepNode(target: StoreTarget): Signal<number> {
@@ -1355,7 +1356,10 @@ export function notifyKeyDiff(
   } else {
     const ov = old[key as any];
     const nv = neu[key as any];
-    if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
+    // A live chained `old` (a store proxy, §7b) already reads the inner
+    // store's next frame, not what the node was last told: written, the
+    // node's own equality judging it (#4361).
+    if (old[$TARGET] || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
       setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
   }
 }
@@ -1391,7 +1395,8 @@ export function notifyKeyValue(
  * unrelated `a.value` stayed stale until the action settled). A real
  * change still writes, and on a held node still proposes. A live chained
  * `old` (a store proxy, §7b) reflects the inner store, not what the node
- * was last told — written unconditionally, as before.
+ * was last told — written unconditionally, as before; its container too
+ * (#4361).
  *
  * The container is told of an arrangement change when it has structural
  * subscribers OR carries an arrangement guess (S4): for a guessed
@@ -1407,17 +1412,18 @@ export function notifyFoldTail(
   neu: Record<PropertyKey, any>
 ): void {
   const has = t.h;
+  const live: StoreTarget | undefined = (old as any)[$TARGET];
   if (has !== null) {
-    const live: StoreTarget | undefined = (old as any)[$TARGET];
     for (const key of Reflect.ownKeys(has))
       if (live || key in old !== key in neu) setSignal(has[key as any], key in neu);
   }
   const k = t.k;
   if (k !== null && (k._subs !== null || k._config & CONFIG_OVERRIDE)) {
     const changed =
-      Array.isArray(neu) && Array.isArray(old)
+      live ||
+      (Array.isArray(neu) && Array.isArray(old)
         ? arrayStructureChanged(old as any[], neu as any[])
-        : membershipChanged(old, neu);
+        : membershipChanged(old, neu));
     if (changed) notifyContainer(k, neu);
   }
 }
@@ -1841,15 +1847,9 @@ function pullFamily(target: StoreTarget): void {
     // (committed plus the guesses) and does not suspend on the derive; a
     // verdict window still asks it (`isPending` is true while the flight is
     // up). The family's, not the target's: the edit stands in for the one
-    // flight the family has.
-    const overlaid = target.fam!.overlaid;
-    if (
-      verdict === null &&
-      fw._statusFlags & STATUS_PENDING &&
-      overlaid !== undefined &&
-      overlaid.size !== 0
-    )
-      return;
+    // flight the family has — not over a new question they do not answer
+    // (optimistic.ts `stands`, #4336).
+    if (verdict === null && fw._statusFlags & STATUS_PENDING && optHooks?.stands(target)) return;
     readNode(fw);
   } else untrack(() => readNode(fw));
 }

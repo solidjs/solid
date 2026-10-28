@@ -80,6 +80,13 @@ export let laneSeamsHook: ((leaks: Computed<any>[] | null) => void) | null = nul
 export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
+/** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
+ * reaches (CONFIG_GUESS) — a build without `createOptimistic` or
+ * `createOptimisticStore` never sets it, and its bundler folds them. */
+export let guessing = false;
+export function armGuessing(): void {
+  guessing = true;
+}
 export function installLaneHooks(
   read: NonNullable<typeof laneReadHook>,
   stage: NonNullable<typeof laneStageHook>,
@@ -817,6 +824,11 @@ export class GlobalQueue implements IQueue {
   declare static _runEffect: (el: Computed<unknown>) => void;
   /** A slot node's truth is in flight (its family's derive — store/store.ts). */
   declare static _slotFlight: ((n: Signal<any>) => boolean) | undefined;
+  /** A write to a slot node's guess (lanes.ts `laneWrite`): true when the
+   * store made the slot its derive's lane's derivation (optimistic.ts);
+   * `back`: the slot's node now, for a guess that comes back (lanes.ts
+   * `endLanes`). */
+  declare static _slotTake: ((n: Signal<any>, back?: boolean) => any) | undefined;
   /** The value a slot node's guess covered: its committed value — a chained
    * link's refreshed from the inner store, whose commits it never learned
    * while the guess served the reads (store/store.ts, §7b). */
