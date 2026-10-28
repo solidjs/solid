@@ -1,3 +1,4 @@
+import { ssrElement as _$ssrElement } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 var _tmpl$ = "<span>Hello </span>",
@@ -17,9 +18,21 @@ var _tmpl$ = "<span>Hello </span>",
   _tmpl$13 = ["<div>", "</div>"],
   _tmpl$14 = ["<span> ", "</span>"],
   _tmpl$15 = ["<span>", " </span>"],
-  _tmpl$16 = '<div normal="Search\u2026" title="Search&amp;hellip;"></div>',
+  _tmpl$16 = '<div normal="Search&#8230;" title="Search&amp;hellip;"></div>',
   _tmpl$17 = ["<div><div></div>", "</div>"],
-  _tmpl$18 = "<p>${blah}</p>";
+  _tmpl$18 = "<p>${blah}</p>",
+  _tmpl$19 = '<p title="Next &#8594;">Next &#8594; <style>.a::after{content:"\u2192"}</style></p>',
+  _tmpl$20 = "<style-guide>Next &#8594;</style-guide>",
+  _tmpl$21 = '.a::after{content:"\u2192"}',
+  _tmpl$22 = '<script>x = "</scripture>\u2192";</script>',
+  _tmpl$23 = '<p title="caf\xE9">caf\xE9 \x80\x91</p>',
+  _tmpl$24 = "\u2192",
+  _tmpl$25 = '<script>h = "<!--<script></script>\u2192";</script>',
+  _tmpl$26 = "<svg><text><![CDATA[\u2192]]></text></svg>",
+  _tmpl$27 = "<span>\u2192</span>",
+  _tmpl$28 = '<div><style data-x=a\'b>.a::after{content:"\u2192"}</style></div>',
+  _tmpl$29 = "<div><plaintext><p>\u2192</p></div>";
+var _sk$ = k => k === "title" || k === "data-static";
 const trailing = _$ssr(_tmpl$);
 const leading = _$ssr(_tmpl$2);
 
@@ -101,3 +114,23 @@ const escapeCompAttribute = Div({
 var _v$11 = () => _$escape(expr());
 const lastElementExpression = _$ssr(_tmpl$17, _v$11);
 const messwithTemplates = _$ssr(_tmpl$18);
+const nonAsciiText = _$ssr(_tmpl$19);
+const nonAsciiSpreadTail = _$ssrElement(
+  "a",
+  spread,
+  undefined,
+  false,
+  _sk$,
+  ' title="Next &#8594;" data-static="\xE9"'
+);
+const nonAsciiCustomElement = _$ssr(_tmpl$20);
+const nonAsciiSpreadStyle = _$ssrElement("style", spread, _$ssr(_tmpl$21), false);
+const nonAsciiScriptture = _$ssr(_tmpl$22);
+const latin1AndC1 = _$ssr(_tmpl$23);
+const nonAsciiSpreadXmp = _$ssrElement("xmp", spread, _$ssr(_tmpl$24), false);
+const nonAsciiEscapedScript = _$ssr(_tmpl$25);
+const nonAsciiCdata = _$ssr(_tmpl$26);
+const nonAsciiSpreadXmpElement = _$ssrElement("xmp", spread, _$ssr(_tmpl$27), false);
+const nonAsciiSpreadScriptElement = _$ssrElement("script", spread, _$ssr(_tmpl$27), false);
+const nonAsciiUnquotedQuote = _$ssr(_tmpl$28);
+const nonAsciiPlaintext = _$ssr(_tmpl$29);

@@ -20,10 +20,10 @@ describe("async dynamic() inside Loading (#3666) — server render", () => {
       console.log(`${variant.name} SHELL:\n${shell}\n\nREST:\n${rest}`);
 
       if (variant.streams) {
-        expect(visibleText(shell)).toContain("Loading…");
+        expect(visibleText(shell)).toContain("Loading&#8230;");
         expect(rest).toContain("<article");
       } else {
-        expect(visibleText(shell)).not.toContain("Loading…");
+        expect(visibleText(shell)).not.toContain("Loading&#8230;");
         expect(shell).toContain("<article");
         expect(rest).toBe("");
       }

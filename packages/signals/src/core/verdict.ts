@@ -38,6 +38,7 @@ import {
   creatorPass,
   joinPass,
   markLateLinker,
+  prepareComputed,
   pullComputed,
   setVerdict,
   spectating,
@@ -380,17 +381,19 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   const owner = el as Computed<any>;
   const owned = !!c && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
   const tracked = owned && tracking;
+  // A31: the pulled memo's pass is its own, not the probe's — it reads
+  // outside the window, and the probe's read below answers for what the pass
+  // produced. So is a lazy or dormant memo's wake (an unowned memo with no
+  // reader left, #4366): woken inside the window, it read its sources as the
+  // probe does, the committed value under a landing. (A signal has no
+  // `_flags`: the wake is a no-op for it.)
+  setVerdict(null);
+  prepareComputed(owner, false);
   if (c && tracking) {
     link(el, c);
-    if ((el as any)._fn) {
-      // A31: the pulled memo's pass is its own, not the probe's — it reads
-      // outside the window, and the probe's read below answers for what
-      // the pass produced.
-      setVerdict(null);
-      pullComputed(owner, c);
-      setVerdict(verdictValue);
-    }
+    if ((el as any)._fn) pullComputed(owner, c);
   }
+  setVerdict(verdictValue);
   // A live `affects()` mark on the node or a dependency (affects.ts): not
   // final by declaration — the value itself is read as below. The verdict is
   // display-ahead like any: in a transaction's flush (the declaring action's

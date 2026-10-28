@@ -1,5 +1,11 @@
-import { untrack, createMemo } from "@solidjs/signals";
-import { IS_DEV, IS_OBSERVE, markFlight, observedComponent } from "../client/core.js";
+import { untrack, createMemo, runAsSolidCopy } from "@solidjs/signals";
+import {
+  IS_DEV,
+  IS_OBSERVE,
+  checkForeignCopy,
+  markFlight,
+  observedComponent
+} from "../client/core.js";
 import { _lazyHydrationLookup, sharedConfig, tracing } from "./hydration.js";
 import type { Element as SolidElement } from "../types.js";
 
@@ -89,6 +95,10 @@ export function createComponent<T extends Record<string, any>>(
   name?: string,
   loc?: string
 ): SolidElement {
+  if (IS_DEV) {
+    checkForeignCopy();
+    return runAsSolidCopy(() => observedComponent(Comp, props || ({} as T), name, loc));
+  }
   if (IS_OBSERVE) return observedComponent(Comp, props || ({} as T), name, loc);
   return untrack(() => Comp(props || ({} as T)));
 }

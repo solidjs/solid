@@ -96,8 +96,8 @@ describe("concurrent promise-backed dynamics under Loading", () => {
     // its enclosing boundary, not gate the shell: if it gates, both resolve
     // before the flush, neither fallback is ever emitted, and the fragment
     // assertions below pass vacuously against a document that never streamed.
-    expect(html).toContain(">f…</span>");
-    expect(html).toContain(">s…</span>");
+    expect(html).toContain(">f&#8230;</span>");
+    expect(html).toContain(">s&#8230;</span>");
     const status = await fragmentPatches(html);
     expect(Object.keys(status).length).toBeGreaterThanOrEqual(2);
     expect(status).toEqual(Object.fromEntries(Object.keys(status).map(k => [k, true])));

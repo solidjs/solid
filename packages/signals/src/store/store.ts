@@ -44,7 +44,8 @@ import {
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
-  STATUS_PENDING
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED
 } from "../core/constants.js";
 import {
   captureWriteSnapshot,
@@ -78,6 +79,7 @@ import {
 import { signalHook } from "../core/identities.js";
 import { setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
+import { checkForeignRead } from "../core/copies.js";
 import { insertIntoHeap } from "../core/heap.js";
 import {
   dirtyQueue,
@@ -1741,14 +1743,18 @@ function changedBetween(
 
 /** Value of a key with a leaf: core's — `read()` links a tracked reader and,
  * tracked or not, applies the hold and A28 rules a signal's read does. A
- * projection's unheld staging is ahead for a handler (`familyAhead`). */
+ * projection's unheld staging is ahead for a handler (`familyAhead`), and is
+ * the only value while its derive has never committed: the committed side
+ * is the seed, never observable (A25) — a reader core serves the screen (a
+ * verdict reader, #4355) is served the staging, as for a memo born staged
+ * (core `serve`). */
 function nodeValue(node: Signal<any>, backing: any, target: StoreTarget): any {
   let v = readNode(node);
   if (
     node._pendingValue !== NOT_PENDING &&
     !(node._config & CONFIG_HELD) &&
-    context === null &&
-    target.fam !== null
+    target.fam !== null &&
+    (context === null || target.fam.node?._statusFlags! & STATUS_UNINITIALIZED)
   )
     v = node._pendingValue;
   return v === (FORCE as any) ? backing : v;
@@ -1990,6 +1996,7 @@ function warnWriteOutsideSetter(
 
 const traps: ProxyHandler<StoreTarget> = {
   get(target, key, receiver) {
+    if (__DEV__ && getObserver() === null) checkForeignRead();
     // One typeof gates every brand-symbol compare off the hot string path.
     if (typeof key !== "string") {
       if (key === $TARGET) return target;

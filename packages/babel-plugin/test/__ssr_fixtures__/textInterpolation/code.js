@@ -95,3 +95,35 @@ const lastElementExpression = (
 );
 
 const messwithTemplates = <p>{"${blah}"}</p>;
+
+const nonAsciiText = (
+  <p title="Next →">
+    Next → <style>{'.a::after{content:"→"}'}</style>
+  </p>
+);
+const nonAsciiSpreadTail = <a {...spread} title="Next →" data-static="é" />;
+const nonAsciiCustomElement = <style-guide>Next →</style-guide>;
+const nonAsciiSpreadStyle = <style {...spread}>{'.a::after{content:"→"}'}</style>;
+const nonAsciiScriptture = <script>{'x = "</scripture>→";'}</script>;
+const latin1AndC1 = <p title="café">{"café \u0080\u0091"}</p>;
+const nonAsciiSpreadXmp = <xmp {...spread}>{"→"}</xmp>;
+const nonAsciiEscapedScript = <script>{'h = "<!--<script></script>→";'}</script>;
+const nonAsciiCdata = (
+  <svg>
+    <text innerHTML={"<![CDATA[→]]>"} />
+  </svg>
+);
+const nonAsciiSpreadXmpElement = (
+  <xmp {...spread}>
+    <span>→</span>
+  </xmp>
+);
+const nonAsciiSpreadScriptElement = (
+  <script {...spread}>
+    <span>→</span>
+  </script>
+);
+const nonAsciiUnquotedQuote = (
+  <div innerHTML={`<style data-x=a'b>.a::after{content:"→"}</style>`} />
+);
+const nonAsciiPlaintext = <div innerHTML={"<plaintext><p>→</p>"} />;
