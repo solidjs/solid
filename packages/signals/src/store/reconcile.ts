@@ -225,7 +225,10 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   let nodesHit = 0;
   for (const k in incoming) {
     const nv = (incoming as any)[k];
-    const ov = (old as any)[k];
+    let ov = (old as any)[k];
+    // A key under a guess is judged against the guess too (D-34): a truth
+    // equal to the value the guess covered still answers it.
+    if (optHooks && ov === nv && prevView !== old) ov = (prevView as any)[k];
     const isObj = nv !== null && typeof nv === "object";
     if (
       ov === nv &&

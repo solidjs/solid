@@ -51,6 +51,7 @@ import {
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { runProjectionComputed } from "./projection.js";
+import { reconcileState } from "./reconcile.js";
 import {
   cloneRaw,
   committed,
@@ -67,7 +68,7 @@ import {
   wrap
 } from "./store.js";
 import { installOptHooks } from "./hooks.js";
-import { $OWNER, type StoreFamily, type StoreTarget } from "./target.js";
+import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
   $TRACK,
@@ -462,7 +463,31 @@ function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf
   }
 }
 
+/** D-34 for a per-key guess (#4329): the derive's draft wrote new objects
+ * over a target holding guessed rows (`d.length = 0; d.push(...rows)`, or
+ * `d.issues = rows`). The container on the way down to each guessed row
+ * reconciles the new object at its slot — in a keyed list, the one with
+ * the row's key — exactly as a returned landing would: rows match by key,
+ * a guessed row keeps its target, and its leaves are judged against their
+ * guesses. Rows nothing guessed are left as the draft wrote them. */
+function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
+  const keyFn = t.fam!.key;
+  for (let c of t.fam!.overlaid ?? []) {
+    // The guessed row, or its ancestor directly under `t` (none: skip).
+    while (c.u !== t) if ((c = c.u!) === null) break;
+    if (c === null) continue;
+    const k = keyFn?.(c.v);
+    const nv = Array.isArray(pb)
+      ? k !== undefined && pb.find(r => isWrappable(r) && sameKey(keyFn!(r), k))
+      : pb[c.pk!];
+    // A new object only: not `c`'s own, nor one another row serves
+    // (pairing it would alias the two).
+    if (isWrappable(nv) && !lookupTarget(nv, t.fam)) reconcileState(nv, c.px, keyFn, true);
+  }
+}
+
 installOptHooks({
+  pair: pairRows,
   draft: optimisticDraft,
   writes: notifyOptimisticWrites,
   arrangement,
