@@ -394,8 +394,8 @@ function boundarySeam(): void {
       !b._initialized &&
       o._config & CONFIG_HELD &&
       [...b._readers].every(
-        ([r]) =>
-          !(r._statusFlags & STATUS_PENDING) && r._config & CONFIG_HELD && txOf(r) === txOf(o)
+        ([, s]) =>
+          !(s._statusFlags & STATUS_PENDING) && s._config & CONFIG_HELD && txOf(s) === txOf(o)
       )
     ) {
       b._readers.clear();
@@ -521,7 +521,9 @@ function arm(b: Boundary): void {
       // It is this boundary's alone now (B5, the nearest catcher): an outer
       // re-armed by the same tick does not wait for it (D-14, U-4).
       for (let a = b._parent; a !== null; a = a._parent)
-        for (const [o] of b._readers) a._readers.delete(o);
+        // An outer error boundary keys its readers too, but waits on their
+        // sources: a re-armed Loading taking the pending does not settle it.
+        if (a._type & STATUS_PENDING) for (const [o] of b._readers) a._readers.delete(o);
       flip(b);
       redraw(b);
       return;

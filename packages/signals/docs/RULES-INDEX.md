@@ -96,7 +96,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | B2 | live | `docs/SPEC-ASYNC-SEMANTICS.md:213` | — | createRevealOrder.test.ts×16 derived-write-then-derivation-3733.test.ts×1 onCleanup.test.ts×2 spec-async-semantics.test.ts×2 | PROMOTED → A14 (A14's section carries the ruling). |
 | B3 | live | `docs/SPEC-ASYNC-SEMANTICS.md:249` | — | spec-async-semantics.test.ts×2 | PROMOTED → A15 (A15's section carries the ruling). |
 | B4 | live | `docs/SPEC-ASYNC-SEMANTICS.md:81` | — | derived-write-then-derivation-3733.test.ts×1 spec-async-semantics.test.ts×2 | PROMOTED → A18 (A18's section carries the ruling). |
-| B5 | live | `docs/SPEC-ASYNC-SEMANTICS.md:221` | boundaries.ts×2 | derived-write-then-derivation-3733.test.ts×1 fuzz-findings-l2.test.ts×3 spec-async-semantics.test.ts×2 | PROMOTED → A16 (A16's section carries the ruling). |
+| B5 | live | `docs/SPEC-ASYNC-SEMANTICS.md:221` | boundaries.ts×2 | derived-write-then-derivation-3733.test.ts×1 errored-over-rearmed-loading-4384.test.ts×1 fuzz-findings-l2.test.ts×3 spec-async-semantics.test.ts×2 | PROMOTED → A16 (A16's section carries the ruling). |
 ## C — tier C
 
 | id | status | defined | cited in src | cited in tests | statement (at definition) |
