@@ -775,9 +775,15 @@ pub(crate) fn ascii_attribute_markup(markup: String) -> String {
     if is_one_byte(&markup) {
         return markup;
     }
-    ascii_parts(&[markup], AsciiState::Tag { raw: None })
-        .pop()
-        .unwrap_or_default()
+    ascii_parts(
+        &[markup],
+        AsciiState::Tag {
+            raw: None,
+            value: false,
+        },
+    )
+    .pop()
+    .unwrap_or_default()
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -785,6 +791,8 @@ enum AsciiState {
     Text,
     Tag {
         raw: Option<&'static str>,
+        // Only a quote right after `=` opens a quoted value.
+        value: bool,
     },
     Quoted {
         quote: char,
@@ -809,6 +817,8 @@ pub(crate) fn raw_text_close(name: &str) -> Option<&'static str> {
         "noembed" => Some("</noembed"),
         "noframes" => Some("</noframes"),
         "xmp" => Some("</xmp"),
+        // `<plaintext>` has no end tag.
+        "plaintext" => Some(""),
         _ => None,
     }
 }
@@ -855,6 +865,7 @@ fn ascii_parts(parts: &[String], mut state: AsciiState) -> std::vec::Vec<String>
                                     .to_ascii_lowercase();
                                 state = AsciiState::Tag {
                                     raw: if closing { None } else { raw_text_close(&name) },
+                                    value: false,
                                 };
                             } else if closing {
                                 state = AsciiState::Preserve(">");
@@ -867,20 +878,24 @@ fn ascii_parts(parts: &[String], mut state: AsciiState) -> std::vec::Vec<String>
                             out.push_str(&rest[..len]);
                         }
                     }
-                    AsciiState::Tag { raw } => {
-                        if ch == '"' || ch == '\'' {
+                    AsciiState::Tag { raw, value } => {
+                        if value && (ch == '"' || ch == '\'') {
                             state = AsciiState::Quoted { quote: ch, raw };
                         } else if ch == '>' {
                             state = raw.map_or(AsciiState::Text, |close| AsciiState::Raw {
                                 close,
                                 escaped: false,
                             });
+                        } else if ch == '=' || (value && ch.is_ascii_whitespace()) {
+                            state = AsciiState::Tag { raw, value: true };
+                        } else {
+                            state = AsciiState::Tag { raw, value: false };
                         }
                         out.push(ch);
                     }
                     AsciiState::Quoted { quote, raw } => {
                         if ch == quote {
-                            state = AsciiState::Tag { raw };
+                            state = AsciiState::Tag { raw, value: false };
                         }
                         push_ascii(&mut out, ch);
                     }
@@ -898,11 +913,15 @@ fn ascii_parts(parts: &[String], mut state: AsciiState) -> std::vec::Vec<String>
                                 escaped: true,
                             };
                         } else if !escaped
+                            && !close.is_empty()
                             && rest.len() >= close.len()
                             && rest.as_bytes()[..close.len()].eq_ignore_ascii_case(close.as_bytes())
                             && ends_tag_name(rest[close.len()..].chars().next())
                         {
-                            state = AsciiState::Tag { raw: None };
+                            state = AsciiState::Tag {
+                                raw: None,
+                                value: false,
+                            };
                         }
                         out.push(ch);
                     }
@@ -1022,6 +1041,22 @@ mod ascii_template_tests {
         assert_eq!(
             super::ascii_attribute_markup(" title=\"→\" data-x=\"é\"".to_string()),
             " title=\"&#8594;\" data-x=\"é\""
+        );
+    }
+
+    #[test]
+    fn quote_opens_a_value_only_after_equals() {
+        assert_eq!(
+            run(&["<style data-x=a'b>.a::after{content:\"→\"}</style><p title = '→'>→"]),
+            ["<style data-x=a'b>.a::after{content:\"→\"}</style><p title = '&#8594;'>&#8594;"]
+        );
+    }
+
+    #[test]
+    fn plaintext_stays_raw_to_the_end() {
+        assert_eq!(
+            run(&["<p>→</p><plaintext><p>→</p></plaintext>→"]),
+            ["<p>&#8594;</p><plaintext><p>→</p></plaintext>→"]
         );
     }
 

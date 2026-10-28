@@ -32,7 +32,10 @@ var _tmpl$ = ["<span", ">Hello </span>"],
   _tmpl$22 = ["<p", ' title="caf\xE9">caf\xE9 \x80\x91</p>'],
   _tmpl$23 = "\u2192",
   _tmpl$24 = ["<script", '>h = "<!--<script></script>\u2192";</script>'],
-  _tmpl$25 = ["<svg", "><text><![CDATA[\u2192]]></text></svg>"];
+  _tmpl$25 = ["<svg", "><text><![CDATA[\u2192]]></text></svg>"],
+  _tmpl$26 = "<span>\u2192</span>",
+  _tmpl$27 = ["<div", '><style data-x=a\'b>.a::after{content:"\u2192"}</style></div>'],
+  _tmpl$28 = ["<div", "><plaintext><p>\u2192</p></div>"];
 var _sk$ = k => k === "title" || k === "data-static";
 var _v$ = _$ssrHydrationKey();
 const trailing = _$ssr(_tmpl$, _v$);
@@ -157,3 +160,9 @@ var _v$37 = _$ssrHydrationKey();
 const nonAsciiEscapedScript = _$ssr(_tmpl$24, _v$37);
 var _v$38 = _$ssrHydrationKey();
 const nonAsciiCdata = _$ssr(_tmpl$25, _v$38);
+const nonAsciiSpreadXmpElement = _$ssrElement("xmp", spread, () => _$ssr(_tmpl$26), true);
+const nonAsciiSpreadScriptElement = _$ssrElement("script", spread, () => _$ssr(_tmpl$26), true);
+var _v$39 = _$ssrHydrationKey();
+const nonAsciiUnquotedQuote = _$ssr(_tmpl$27, _v$39);
+var _v$40 = _$ssrHydrationKey();
+const nonAsciiPlaintext = _$ssr(_tmpl$28, _v$40);

@@ -73,6 +73,9 @@ var _tmpl$24 = ["<p", " title=\"café\">café </p>"];
 var _tmpl$25 = "→";
 var _tmpl$26 = ["<script", ">h = \"<!--<script><\/script>→\";<\/script>"];
 var _tmpl$27 = ["<svg", "><text><![CDATA[→]]></text></svg>"];
+var _tmpl$28 = "<span>→</span>";
+var _tmpl$29 = ["<div", "><style data-x=a'b>.a::after{content:\"→\"}</style></div>"];
+var _tmpl$30 = ["<div", "><plaintext><p>→</p></div>"];
 var _sk$ = (k) => k === "title" || k === "data-static";
 var _v$ = _$ssrHydrationKey();
 const trailing = _$ssr(_tmpl$, _v$);
@@ -165,3 +168,13 @@ var _v$39 = _$ssrHydrationKey();
 const nonAsciiEscapedScript = _$ssr(_tmpl$26, _v$39);
 var _v$40 = _$ssrHydrationKey();
 const nonAsciiCdata = _$ssr(_tmpl$27, _v$40);
+const nonAsciiSpreadXmpElement = _$ssrElement("xmp", spread, () => {
+	return _$ssr(_tmpl$28);
+}, true);
+const nonAsciiSpreadScriptElement = _$ssrElement("script", spread, () => {
+	return _$ssr(_tmpl$28);
+}, true);
+var _v$41 = _$ssrHydrationKey();
+const nonAsciiUnquotedQuote = _$ssr(_tmpl$29, _v$41);
+var _v$42 = _$ssrHydrationKey();
+const nonAsciiPlaintext = _$ssr(_tmpl$30, _v$42);

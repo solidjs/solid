@@ -152,7 +152,8 @@ export function createTemplate(
 
 type AsciiState =
   | { kind: "text" }
-  | { kind: "tag"; raw?: string }
+  // Only a quote right after `=` opens a quoted value.
+  | { kind: "tag"; raw?: string; value?: boolean }
   | { kind: "quoted"; quote: string; raw?: string }
   // Comments, CDATA and bogus comments, kept as written up to `end`.
   | { kind: "preserve"; end: string }
@@ -167,7 +168,9 @@ export const rawTextElements = new Set([
   "iframe",
   "noembed",
   "noframes",
-  "xmp"
+  "xmp",
+  // `<plaintext>` has no end tag.
+  "plaintext"
 ]);
 // Latin-1 already keeps a V8 string one-byte, and `&#128;`-`&#159;` decode to other characters.
 const nonLatin1 = /[^\x00-\xff]/;
@@ -212,7 +215,13 @@ function asciiParts(parts: string[], state: AsciiState): string[] {
             const name = tagName.exec(part)![0].toLowerCase();
             state = {
               kind: "tag",
-              raw: !closing && rawTextElements.has(name) ? `</${name}` : undefined
+              raw:
+                closing || !rawTextElements.has(name)
+                  ? undefined
+                  : name === "plaintext"
+                    ? ""
+                    : `</${name}`,
+              value: false
             };
           } else if (closing) {
             state = { kind: "preserve", end: ">" };
@@ -221,9 +230,19 @@ function asciiParts(parts: string[], state: AsciiState): string[] {
         }
         out += len === ch.length ? toAscii(ch) : part.slice(i, i + len);
       } else if (state.kind === "tag") {
-        if (ch === '"' || ch === "'") state = { kind: "quoted", quote: ch, raw: state.raw };
+        if (state.value && (ch === '"' || ch === "'"))
+          state = { kind: "quoted", quote: ch, raw: state.raw };
         else if (ch === ">")
-          state = state.raw ? { kind: "raw", close: state.raw, escaped: false } : { kind: "text" };
+          state =
+            state.raw !== undefined
+              ? { kind: "raw", close: state.raw, escaped: false }
+              : { kind: "text" };
+        else
+          state = {
+            kind: "tag",
+            raw: state.raw,
+            value: ch === "=" || (!!state.value && /[\t\n\f\r ]/.test(ch))
+          };
         out += ch;
       } else if (state.kind === "quoted") {
         if (ch === state.quote) state = { kind: "tag", raw: state.raw };
@@ -240,6 +259,7 @@ function asciiParts(parts: string[], state: AsciiState): string[] {
           state = { ...state, escaped: true };
         else if (
           !state.escaped &&
+          state.close !== "" &&
           part.slice(i, end).toLowerCase() === state.close &&
           endsTagName(part[end])
         )

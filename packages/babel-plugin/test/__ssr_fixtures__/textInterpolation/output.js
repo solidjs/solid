@@ -28,7 +28,10 @@ var _tmpl$ = "<span>Hello </span>",
   _tmpl$23 = '<p title="caf\xE9">caf\xE9 \x80\x91</p>',
   _tmpl$24 = "\u2192",
   _tmpl$25 = '<script>h = "<!--<script></script>\u2192";</script>',
-  _tmpl$26 = "<svg><text><![CDATA[\u2192]]></text></svg>";
+  _tmpl$26 = "<svg><text><![CDATA[\u2192]]></text></svg>",
+  _tmpl$27 = "<span>\u2192</span>",
+  _tmpl$28 = '<div><style data-x=a\'b>.a::after{content:"\u2192"}</style></div>',
+  _tmpl$29 = "<div><plaintext><p>\u2192</p></div>";
 var _sk$ = k => k === "title" || k === "data-static";
 const trailing = _$ssr(_tmpl$);
 const leading = _$ssr(_tmpl$2);
@@ -127,3 +130,7 @@ const latin1AndC1 = _$ssr(_tmpl$23);
 const nonAsciiSpreadXmp = _$ssrElement("xmp", spread, _$ssr(_tmpl$24), false);
 const nonAsciiEscapedScript = _$ssr(_tmpl$25);
 const nonAsciiCdata = _$ssr(_tmpl$26);
+const nonAsciiSpreadXmpElement = _$ssrElement("xmp", spread, _$ssr(_tmpl$27), false);
+const nonAsciiSpreadScriptElement = _$ssrElement("script", spread, _$ssr(_tmpl$27), false);
+const nonAsciiUnquotedQuote = _$ssr(_tmpl$28);
+const nonAsciiPlaintext = _$ssr(_tmpl$29);

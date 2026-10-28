@@ -111,3 +111,17 @@ const nonAsciiCdata = (
     <text innerHTML={"<![CDATA[→]]>"} />
   </svg>
 );
+const nonAsciiSpreadXmpElement = (
+  <xmp {...spread}>
+    <span>→</span>
+  </xmp>
+);
+const nonAsciiSpreadScriptElement = (
+  <script {...spread}>
+    <span>→</span>
+  </script>
+);
+const nonAsciiUnquotedQuote = (
+  <div innerHTML={`<style data-x=a'b>.a::after{content:"→"}</style>`} />
+);
+const nonAsciiPlaintext = <div innerHTML={"<plaintext><p>→</p>"} />;

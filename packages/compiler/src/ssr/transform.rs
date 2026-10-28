@@ -139,6 +139,8 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// Native elements marked pass-through by `escapeExpression` (Babel's
     /// `wontEscape`), identified by span.
     wont_escape_spans: std::vec::Vec<Span>,
+    /// Native children of a spread raw-text element, whose templates keep their characters.
+    raw_text_spans: std::vec::Vec<Span>,
     /// Span of the JSX root currently being lowered via the visitor entry.
     /// Babel keeps a raw `this` in the tag callee of the root element of each
     /// `transformJSX` call; only descendants use the `_self$` capture.
@@ -298,6 +300,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             component_child_depth: 0,
             var_scope_stack: std::vec::Vec::new(),
             wont_escape_spans: std::vec::Vec::new(),
+            raw_text_spans: std::vec::Vec::new(),
             jsx_root_span: None,
             deferring: false,
             iife_callee_addrs: std::vec::Vec::new(),
@@ -922,7 +925,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 )));
             }
         }
-        let template_local = self.register_template(&template.parts);
+        let template_local = if self.raw_text_spans.contains(&element.span) {
+            self.register_raw_template(&template.parts)
+        } else {
+            self.register_template(&template.parts)
+        };
         // A pass-through element (already inside `_$escape`) with a static
         // template needs no `ssr()` wrapper — the raw HTML template reference
         // suffices (Babel returns the `_tmpl$` id directly).
@@ -1929,6 +1936,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     // Nested natives render their own template/ssrElement —
                     // no escaping or markers (Babel: `child.exprs` is empty
                     // for templates, `spreadElement` skips both).
+                    if crate::shared::utils::raw_text_close(tag_name).is_some() {
+                        self.raw_text_spans.push(child_element.span);
+                    }
                     nodes.push(self.lower_element_impl(child_element, false)?);
                 }
                 JSXChild::ExpressionContainer(container) => {
