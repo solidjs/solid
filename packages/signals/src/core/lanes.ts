@@ -609,13 +609,16 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
       )
         return el._pendingValue;
       if (l._held || pending) {
-        if (!guess && !l._shown && status & STATUS_UNINITIALIZED) throw new NotReadyError(null);
         // Re-derived at the reveal; once per pass (the pass may also be a stale
         // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
+        // Before the throw below: a leaf that waits on a lane that has never
+        // shown has no flight to settle it — only the reveal re-derives it,
+        // and its pending holds its frame until then (#4338).
         if (!(c._flags & REACTIVE_SCREEN_READ)) {
           c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
           l._reruns.push(c);
         }
+        if (!guess && !l._shown && status & STATUS_UNINITIALIZED) throw new NotReadyError(null);
         return display(el);
       }
       // A verdict reader reads ahead of the seam's verdict: re-derived on the
