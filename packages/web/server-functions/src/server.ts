@@ -919,9 +919,10 @@ function scopeDeferredResult(value, scope) {
 /** One carrier mid-walk on the direct road's descent. Module-private, so a
  * user value can never satisfy the driver's `instanceof` dispatch. */
 class ScopeFrame {
-  constructor(value, next, keys, descriptors) {
+  constructor(value, prototype, keys, descriptors) {
     this.value = value;
-    this.next = next;
+    this.prototype = prototype;
+    this.next = null;
     this.keys = keys;
     this.descriptors = descriptors;
     this.i = 0;
@@ -929,15 +930,24 @@ class ScopeFrame {
   }
 }
 
+/** The frame's shallow-rebuilt shell, built on first need: most carriers
+ * hold nothing to bind and hand the author's container back unbuilt. */
+function frameShell(frame) {
+  return (frame.next ??= frame.keys
+    ? Object.create(frame.prototype, frame.descriptors)
+    : frame.value.slice());
+}
+
 /** Resolve one nested value for the direct road's carrier descent: leaves,
  * already-walked entries and deferred bodies answer immediately; a plain
- * object or array answers a frame for the driver, its shallow-rebuilt shell
- * pre-registered so cycles resolve to the shell being built. */
+ * object or array answers a frame for the driver, pre-registered so a cycle
+ * builds and resolves to its shell. */
 function enterScopeCarrier(value, state) {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return value;
   if (state.seen.has(value)) {
     state.cyclic.add(value);
-    return state.seen.get(value);
+    const seen = state.seen.get(value);
+    return seen instanceof ScopeFrame ? frameShell(seen) : seen;
   }
   const bound = bindDeferredBody(value, state.scope);
   if (bound !== value) {
@@ -952,9 +962,9 @@ function enterScopeCarrier(value, state) {
       state.seen.set(value, value);
       return value;
     }
-    const next = value.slice();
-    state.seen.set(value, next);
-    return new ScopeFrame(value, next, null, null);
+    const frame = new ScopeFrame(value, null, null, null);
+    state.seen.set(value, frame);
+    return frame;
   }
   const prototype = Object.getPrototypeOf(value);
   if ((prototype !== Object.prototype && prototype !== null) || Object.isFrozen(value)) {
@@ -965,10 +975,14 @@ function enterScopeCarrier(value, state) {
   // accessors and non-writable data stay exactly as authored (accessors are
   // the caller's to invoke, non-writable slots are out of the carrier set);
   // only writable enumerable data slots are candidates for binding.
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  const next = Object.create(prototype, descriptors);
-  state.seen.set(value, next);
-  return new ScopeFrame(value, next, Object.keys(value), descriptors);
+  const frame = new ScopeFrame(
+    value,
+    prototype,
+    Object.keys(value),
+    Object.getOwnPropertyDescriptors(value)
+  );
+  state.seen.set(value, frame);
+  return frame;
 }
 
 // The descent is ITERATIVE for the same reason the codec road's walk is
@@ -1014,8 +1028,8 @@ function scopeDeferredContents(root, scope) {
         }
       }
       if (bound !== original) {
-        if (top.keys) top.next[top.keys[i]] = bound;
-        else top.next[i] = bound;
+        if (top.keys) frameShell(top)[top.keys[i]] = bound;
+        else frameShell(top)[i] = bound;
         top.changed = true;
       }
       top.i++;
@@ -1029,7 +1043,8 @@ function scopeDeferredContents(root, scope) {
     // took the shell; otherwise the caller keeps the author's container
     let out;
     if (top.changed || state.cyclic.has(top.value)) {
-      out = top.next;
+      out = frameShell(top);
+      state.seen.set(top.value, out);
     } else {
       state.seen.set(top.value, top.value);
       out = top.value;

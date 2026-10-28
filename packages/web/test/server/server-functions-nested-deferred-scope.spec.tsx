@@ -219,6 +219,59 @@ describe("nested deferred work on the direct SSR road (#3241)", () => {
     expect(result).toBe(marker);
   });
 
+  it("resolves cycles within one carrier when nothing deferred is inside", async () => {
+    const marker: any = { rows: [{ id: 1 }], meta: { total: 1 } };
+    marker.self = marker;
+    marker.rows.push(marker.rows);
+    const reference = createServerReference({
+      id: "nested-direct-cyclic-plain",
+      fn: () => marker
+    } as any) as () => typeof marker;
+
+    const result = await requestContext.run(eventFor("RENDER"), async () => reference());
+
+    // a cycle rebuilds the containers it passes through; the cycles then
+    // point into the rebuilt graph, and untouched leaves keep identity
+    expect(result.self).toBe(result);
+    expect(result.rows[1]).toBe(result.rows);
+    expect(result.rows[0]).toBe(marker.rows[0]);
+    expect(result.meta).toBe(marker.meta);
+  });
+
+  it("resolves a cycle to the rebuilt carrier when a body below is bound", async () => {
+    const seen: string[] = [];
+    let returned: any;
+    const reference = createServerReference({
+      id: "nested-direct-cyclic-bound",
+      fn: () => {
+        async function* rows() {
+          seen.push(`resume:${(getRequestEvent() as any)?.derived === true ? "call" : "ambient"}`);
+          yield "one";
+        }
+        (getRequestEvent() as any).derived = true;
+        returned = { rows: rows(), list: [] as any[] };
+        returned.self = returned;
+        returned.list.push(returned.list, returned);
+        return returned;
+      }
+    } as any) as () => any;
+
+    const result = await requestContext.run(eventFor("RENDER"), async () => {
+      const value = reference();
+      await drain(value.rows);
+      return value;
+    });
+
+    expect(seen).toEqual(["resume:call"]);
+    // the carrier was rebuilt around the bound body, and every cycle in it
+    // resolves to the rebuilt shells, never back to the author's containers
+    expect(result).not.toBe(returned);
+    expect(result.self).toBe(result);
+    expect(result.list[1]).toBe(result);
+    expect(result.list[0]).toBe(result.list);
+    expect(returned.self).toBe(returned);
+  });
+
   it("pins Set members and frozen slots as out of the carrier set", async () => {
     // RULED OUT OF SCOPE (#3241): the supported carriers are plain objects
     // and arrays only. A generator reached through a Set member or a
