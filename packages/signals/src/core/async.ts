@@ -15,6 +15,7 @@ import {
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
   REACTIVE_RECOMPUTING_DEPS,
+  REACTIVE_REASK,
   REACTIVE_STAGED_READ,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
@@ -940,9 +941,14 @@ export function notifyStatus(el: Computed<any>, status: number, error: any): voi
   // status, not its readers': they read the guess. The flight is the parent
   // transition's to wait on — the frame it was asked in holds (A17: "a
   // transition whose optimistic node is still pending on its own fetch is
-  // not complete"), through the node itself (`blocked`).
-  if (status === STATUS_PENDING && el._config & CONFIG_GUESS) {
-    if (passLane === null) joinFuture(null);
+  // not complete"), through the node itself (`blocked`). An input changed
+  // from outside the guess's hold asks a new question: the frame that
+  // changed it is held with that hold (D-34, #4336) — it shows beside the
+  // guess's truth, which reveals at that hold's commit (F-1). A `refresh()`
+  // re-asks the same question: its frame is its own.
+  // (CONFIG_GUESS is the lane engine's: no engine, no arm.)
+  if (laneStageHook && status === STATUS_PENDING && el._config & CONFIG_GUESS) {
+    if (passLane === null) joinFuture(el._flags & REACTIVE_REASK ? null : txOf(el)._parent);
     return;
   }
 

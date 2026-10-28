@@ -240,7 +240,7 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // the park's repair), as it does a lane pass that read a staging. Not a
     // pass whose held reads were all of nodes born held (no staged read,
     // `stagedRead`): it has no committed world to re-derive on (#3969).
-    if (c._flags & REACTIVE_JOINED && c._flags & REACTIVE_STAGED_READ) stagedRead(c);
+    if (c._flags & REACTIVE_STAGED_READ) stagedRead(c);
     return;
   }
   if (sameLane(p, l)) return setPassLane(l);

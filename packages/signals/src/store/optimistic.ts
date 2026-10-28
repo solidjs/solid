@@ -31,6 +31,7 @@ import {
   CONFIG_SLOT_NODE,
   EFFECT_RENDER,
   NOT_PENDING,
+  REACTIVE_REASK,
   STATUS_PENDING
 } from "../core/constants.js";
 import { computed, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
@@ -496,7 +497,15 @@ installOptHooks({
     writer ? optimisticView(t, src, laneValueOf, true) : optimisticView(t, src),
   has: optimisticHas,
   descriptor: optimisticOwnDescriptor,
-  sweep: sweepOverlaid
+  sweep: sweepOverlaid,
+  // The derive re-asks over a guess: a new question (not a `refresh()`, not
+  // lane work) holds the frame that asked it with the guess's hold (D-34,
+  // #4336), as a guessed `createOptimistic`'s re-ask does (core
+  // `notifyStatus`).
+  ask: (n, fw) => {
+    if (n._config & CONFIG_GUESS && passLane === null && !(fw._flags & REACTIVE_REASK))
+      joinFuture(txOf(n)._parent!);
+  }
 });
 
 function shallowKeys(o: Record<PropertyKey, any>): Record<PropertyKey, any> {

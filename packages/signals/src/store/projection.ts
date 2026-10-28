@@ -37,6 +37,7 @@ import { getOwner, isDisposed } from "../core/owner.js";
 import { insertSubs, question, schedule, setQuestion } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
+import { optHooks } from "./hooks.js";
 import { reconcileState } from "./reconcile.js";
 import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
 import { setLookup, storeOwners, type StoreFamily, type StoreTarget } from "./target.js";
@@ -153,6 +154,8 @@ function wakeFamily(fam: StoreFamily): void {
   const error = new NotReadyError(fw);
   fam.woke = true;
   forEachFamilyNode(fam, n => {
+    // An optimistic family's guess: the re-ask's frame joins its hold (#4336).
+    optHooks?.ask(n, fw);
     if (n._subs === null) return;
     // The leaf carries the derive's pending as a propagated copy, as a memo
     // between them would: a dependent recovering one branch stays pending

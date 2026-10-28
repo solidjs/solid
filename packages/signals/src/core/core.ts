@@ -470,9 +470,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // A19 exc. 2: a `refresh()` re-asks the question already answered — quiet
   // for the verdict — unless the question in flight is a new one, which the
   // re-ask does not launder (a poll during a quiet confirm stays quiet).
+  // Nor a new question's answer still held (#4336: an action's refresh after
+  // an outside input change has not committed the new question).
   const reask =
     (el._flags & REACTIVE_REASK) !== 0 &&
-    !(el._statusFlags & STATUS_PENDING && el._x !== null && !el._x._reask);
+    !(
+      (el._statusFlags & STATUS_PENDING || el._pendingValue !== NOT_PENDING) &&
+      el._x !== null &&
+      !el._x._reask
+    );
 
   const oldcontext = context;
   context = el;
