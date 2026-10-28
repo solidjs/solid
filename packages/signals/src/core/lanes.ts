@@ -89,7 +89,9 @@ import {
   setPassLane,
   txOf,
   type Transaction,
-  installLaneHooks
+  installLaneHooks,
+  armGuessing,
+  guessing
 } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -143,6 +145,7 @@ export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T)
   if (typeof v === "function") v = (v as (prev: T) => T)(prev);
   if (n._equals && n._equals(prev, v) && !(n._config & CONFIG_GUESS)) return v;
   pendingGuesses.push(n, v, question || nextQuestion());
+  armGuessing();
   schedule();
   return v;
 }
@@ -240,7 +243,8 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // the park's repair), as it does a lane pass that read a staging. Not a
     // pass whose held reads were all of nodes born held (no staged read,
     // `stagedRead`): it has no committed world to re-derive on (#3969).
-    if (c._flags & REACTIVE_STAGED_READ) stagedRead(c);
+    // (A pass not joined: a held write beside a guess, #4336.)
+    if (c._flags & REACTIVE_STAGED_READ && (guessing || c._flags & REACTIVE_JOINED)) stagedRead(c);
     return;
   }
   if (sameLane(p, l)) return setPassLane(l);
@@ -351,7 +355,7 @@ export function laneStage(
     // lane waits for its own answer (F-1, F-6, #4336). (A guess of the
     // lane's own action, D-33's entangled slot, still stands in.)
     const g = el._x!._transaction;
-    if (!errored || (g?._lane && resolveTx(g._parent!) !== resolveTx(l._parent!)))
+    if (!errored || (guessing && g?._lane && resolveTx(g._parent!) !== resolveTx(l._parent!)))
       el._config &= ~CONFIG_GUESS;
   }
   // A leaf has no lane value to seat it (`recompute`): one left waiting on
@@ -757,7 +761,7 @@ function nestedBlocked(t: Transaction): boolean {
 function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
   // (A store slot's guess its derive's re-ask in another action's lane
   // writes is that lane's derivation from here — store `_slotTake`, #4336.)
-  if (el._config & CONFIG_GUESS && !GlobalQueue._slotTake?.(el)) {
+  if (el._config & CONFIG_GUESS && !(guessing && GlobalQueue._slotTake?.(el))) {
     // Provenance (A18, #3331; Q-D, plan sec. 39): a write asking an OLDER
     // question than the guess's — another action's landing beneath it —
     // is not its answer: held beneath (the truth for the commit; the

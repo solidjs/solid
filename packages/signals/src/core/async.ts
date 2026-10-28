@@ -44,6 +44,7 @@ import {
   schedule,
   txOf,
   freshHook,
+  guessing,
   laneStageHook
 } from "./scheduler.js";
 import type { Computed, Link, Owner } from "./types.js";
@@ -946,8 +947,8 @@ export function notifyStatus(el: Computed<any>, status: number, error: any): voi
   // changed it is held with that hold (D-34, #4336) — it shows beside the
   // guess's truth, which reveals at that hold's commit (F-1). A `refresh()`
   // re-asks the same question: its frame is its own.
-  // (CONFIG_GUESS is the lane engine's: no engine, no arm.)
-  if (laneStageHook && status === STATUS_PENDING && el._config & CONFIG_GUESS) {
+  // (No guess written, no arm.)
+  if (guessing && status === STATUS_PENDING && el._config & CONFIG_GUESS) {
     if (passLane === null) joinFuture(el._flags & REACTIVE_REASK ? null : txOf(el)._parent);
     return;
   }

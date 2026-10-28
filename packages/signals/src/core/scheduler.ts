@@ -80,6 +80,13 @@ export let laneSeamsHook: ((leaks: Computed<any>[] | null) => void) | null = nul
 export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
+/** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
+ * reaches (CONFIG_GUESS) — a build without `createOptimistic` or
+ * `createOptimisticStore` never sets it, and its bundler folds them. */
+export let guessing = false;
+export function armGuessing(): void {
+  guessing = true;
+}
 export function installLaneHooks(
   read: NonNullable<typeof laneReadHook>,
   stage: NonNullable<typeof laneStageHook>,

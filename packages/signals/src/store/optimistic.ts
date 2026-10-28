@@ -38,6 +38,7 @@ import { computed, ext, isEqual, joinPassAt, read as readNode, untrack } from ".
 import { laneValueOf, optimisticWrite, pendingGuessOf } from "../core/lanes.js";
 import { getOwner } from "../core/owner.js";
 import {
+  clock,
   GlobalQueue,
   insertSubs,
   joinFuture,
@@ -48,7 +49,8 @@ import {
   passLane,
   resolveTx,
   schedule,
-  txOf
+  txOf,
+  type Transaction
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
@@ -324,7 +326,7 @@ function reconcileDraft(draft: any, incoming: any, keyFn: KeyFn | null): void {
  * `laneStage` for a node's own pass). */
 GlobalQueue._slotTake = n => {
   const d = ((n as any)._host as StoreTarget | undefined)?.fam?.node?._x?._transaction;
-  if (!d?._lane || resolveTx(d._parent!) === resolveTx(txOf(n)._parent!)) return false;
+  if (!d?._lane || sameAction(d, txOf(n))) return false;
   n._config &= ~CONFIG_GUESS;
   list(n, d);
   return true;
@@ -512,26 +514,26 @@ installOptHooks({
   descriptor: optimisticOwnDescriptor,
   sweep: sweepOverlaid,
   // A new question (not a `refresh()`) asked over guesses an earlier frame
-  // opened, which answer the old one (D-34, #4336). Mainline (1): a frame
-  // still reading a guess at the seam shows it beside the new input, so the
-  // flush holds with the guess's action; a reader that moved off it (a keyed
-  // store's other key) holds nothing. A lane's work (2) over no guess of its
-  // own: the lane waits for its answer (F-6), as for a guessed
-  // `createOptimistic` (lanes `laneStage`). No live guess left (3: a lane
-  // took them over): nothing stands in.
-  ask: (fam, fw) => {
-    if (fw._flags & REACTIVE_REASK || !fam.overlaid?.size) return;
-    let a: 1 | 2 = 2;
+  // opened, which answer the old one (D-34, #4336). Stamped on `fam.asked`
+  // with this flush's `clock`, so it lapses when the flush ends: `clock + 1`
+  // from mainline over a live guess — a frame still reading a guess at the
+  // seam shows it beside the new input, so the flush holds with the guess's
+  // action (`park`); `~clock` from a lane with no guess of its own, or with
+  // no live guess left — the lane waits for its answer (F-6), as for a
+  // guessed `createOptimistic` (lanes `laneStage`). The guess's own lane
+  // asks nothing new and stamps nothing.
+  ask: fam => {
+    if (fam.node!._flags & REACTIVE_REASK || !fam.overlaid?.size) return;
+    // Stamped with the flush (`clock`): it lapses when the flush ends.
+    let a = ~clock;
     for (const g of fam.overlaid) {
       const n = laneNodeOf(g);
       if (n) {
-        if (passLane === null) a = 1;
-        else if (resolveTx(txOf(n)._parent!) === resolveTx(passLane._parent!)) return;
+        if (passLane === null) a = clock + 1;
+        else if (sameAction(txOf(n), passLane)) return;
       }
     }
-    fam.asked = a;
-    asked.push(fam);
-    if (a === 1) joinFuture(null);
+    if ((fam.asked = a) > 0) joinFuture(null);
   },
   // Over a new question the guesses do not answer (`asked`): from mainline
   // only a target carrying a guess stands in — a read of one with none is an
@@ -541,17 +543,25 @@ installOptHooks({
   stands: t => {
     const o = t.fam!.overlaid;
     const a = t.fam!.asked;
-    return !!o?.size && (!a || (a === 1 && (passLane !== null || o.has(t))));
+    return !!o?.size && (a !== clock + 1 || passLane !== null || o.has(t)) && a !== ~clock;
   },
+  // Mainline hold (`clock + 1`): the flush joins the action of each guess a
+  // reader still reads at the seam; a reader that moved off it (a keyed
+  // store's other key) holds nothing.
   park: t => {
-    for (const fam of asked)
-      if (fam.asked === 1)
+    for (const fam of overlaidFamilies)
+      if (fam.asked === clock + 1)
         for (const g of fam.overlaid!) {
           const n = laneNodeOf(g, true);
           if (n) merge(txOf(n)._parent!, t);
         }
   }
 });
+
+/** Two lanes of one action (their parents resolved through merges). */
+function sameAction(a: Transaction, b: Transaction): boolean {
+  return resolveTx(a._parent!) === resolveTx(b._parent!);
+}
 
 function shallowKeys(o: Record<PropertyKey, any>): Record<PropertyKey, any> {
   const out: Record<PropertyKey, any> = {};
@@ -573,7 +583,6 @@ function markOverlaid(t: StoreTarget): void {
 }
 
 export function sweepOverlaid(): void {
-  for (let f; (f = asked.pop()); ) f.asked = undefined;
   if (overlaidFamilies.size === 0) return;
   for (const fam of overlaidFamilies) {
     const set = fam.overlaid!;
@@ -645,21 +654,15 @@ function rebaseChained(t: StoreTarget): void {
 /** A node of `t` carrying a lane value, if any (`read`: one a reader's
  * last pass read). */
 function laneNodeOf(t: StoreTarget, read?: boolean): Signal<any> | undefined {
-  const on = (n: Signal<any> | null) => {
-    if (n === null || !(n._config & CONFIG_OVERRIDE)) return false;
-    if (!read) return true;
-    for (let s = n._subs; s !== null; s = s._nextSub) if (s._gen === s._sub._depGen) return true;
-    return false;
-  };
-  if (on(t.k)) return t.k!;
-  if (on(t.dk)) return t.dk!;
-  for (const nodes of [t.n, t.h])
-    if (nodes !== null)
-      for (const key of Reflect.ownKeys(nodes)) if (on(nodes[key as any])) return nodes[key as any];
+  const all: (Signal<any> | null)[] = [t.k, t.dk];
+  for (const r of [t.n, t.h])
+    if (r !== null) for (const k of Reflect.ownKeys(r)) all.push(r[k as any]);
+  for (const n of all)
+    if (n !== null && n._config & CONFIG_OVERRIDE) {
+      if (!read) return n;
+      for (let s = n._subs; s !== null; s = s._nextSub) if (s._gen === s._sub._depGen) return n;
+    }
 }
-
-/** Families asked a new question over their guesses this flush (`park`). */
-const asked: StoreFamily[] = [];
 
 function overlaid(t: StoreTarget): boolean {
   const fam = t.fam;

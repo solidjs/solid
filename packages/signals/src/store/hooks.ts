@@ -38,9 +38,10 @@ export interface OptHooks {
   /** The derive's draft wrote `pb` on `t`: the new object at a guessed
    * row's slot (by key in a keyed list) is adopted by that row's target. */
   pair(t: StoreTarget, pb: Record<PropertyKey, any>): void;
-  /** The derive `fw` of `fam` went in flight (#4336): a new question asked
-   * over the family's guesses is judged at the seam (`park`). */
-  ask(fam: StoreFamily, fw: Computed<any>): void;
+  /** The derive of `fam` went in flight (#4336): a new question asked over
+   * the family's guesses is judged by its reads (`stands`) and at the seam
+   * (`park`). */
+  ask(fam: StoreFamily): void;
   /** The flush parks with `t`: a guess a frame still reads, over a family
    * asked a new question this flush, holds `t` with its action (D-34). */
   park(t: Transaction): void;
