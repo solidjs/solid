@@ -421,14 +421,15 @@ _Pinned: `loading-on-frame-following-3540.test.ts` §3. Ruled 2026-10-09._
 
 ### S-20. The action outlasts the data: a race the fallback lost, not reported — D-16
 
-_Pinned: `loading-on-frame-following-3540.test.ts` §5._
+_Pinned: `loading-on-frame-following-3540.test.ts` §5; `loading-on-latest-fallback-4337.test.ts` (the fallback reads `latest`)._
 
-| #   | Action                                                        | Screen                                               | Notes                                                     |
-| --- | ------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------- |
-| 1   | `action(function* () { setId(2); yield longer; })(); flush()` | `A` (held)                                           | entered: the fallback is the display, and it is not shown |
-| 2   | `comments(2)` lands                                           | — (the action is still open)                         |                                                           |
-| 3   | the action ends                                               | `B \| comments-B` — the fallback was never displayed | legitimate; nothing reported                              |
-| 1′  | the action ends _before_ `comments(2)` lands                  | `B \| spinner` with the commit, then `comments-B`    | the race the fallback won                                 |
+| #   | Action                                                        | Screen                                               | Notes                                                        |
+| --- | ------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------ |
+| 1   | `action(function* () { setId(2); yield longer; })(); flush()` | `A` (held)                                           | entered: the fallback is the display, and it is not shown    |
+| 2   | `comments(2)` lands                                           | — (the action is still open)                         |                                                              |
+| 3   | the action ends                                               | `B \| comments-B` — the fallback was never displayed | legitimate; nothing reported                                 |
+| 1′  | the action ends _before_ `comments(2)` lands                  | `B \| spinner` with the commit, then `comments-B`    | the race the fallback won                                    |
+| 1″  | the fallback reads `latest(id)`                               | as 1–3: `A` held, then `B \| comments-B`             | the fallback's `latest` does not pull the swap ahead (#4337) |
 
 ### S-21. A display-ahead read in `on` shows the fallback now, beside the held frame — D-17
 
@@ -754,6 +755,38 @@ _Pinned: `tests/optimistic-lane-release.test.ts`, `tests/body-end-supersession-v
 | 1   | `action(function* () { setGuess(5); yield api.unrelated(); })()` — the guess's own source is not re-asked | `5`                                      | `isPending(guess)` false                                                   |                                                                 |
 | 2   | the body returns                                                                                          | `5` (display unchanged until the commit) | `latest(guess)` = committed truth · `isPending(guess)` true iff it differs | the correction starts now, not after an obsolete derived flight |
 | 3   | the hold commits                                                                                          | the truth                                | false                                                                      |                                                                 |
+
+### S-44. An outside input change under a guess is held with the guess's action — D-34, F-1 (#4336)
+
+_Pinned: `tests/optimistic-question-change-4336.test.ts`, `tests/optimistic-layered-filter-4336.test.ts`, `tests/optimistic-held-write-leak.test.ts`, `tests/loading-on-latest-fallback-4337.test.ts`._
+
+```tsx
+const [sel, setSel] = createSignal(3);
+const [comments, setComments] = createOptimistic(() => fetchComments(sel())); // or createOptimisticStore
+<p>
+  #{sel()}: {comments().join(" | ")}
+</p>;
+const post = action(function* (text) {
+  setComments(c => [...c, `${text} (sending)`]);
+  yield api.post(text);
+  refresh(comments);
+});
+```
+
+| #   | Action                                                                                          | Screen                                                                                                             | `latest` / `isPending`                                 | Notes                                                       |
+| --- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | ----------------------------------------------------------- |
+| 0   | primed; `post("mine")`                                                                          | `#3: dana \| mine (sending)`                                                                                       | `isPending(comments)` false (verdict-inert)            |                                                             |
+| 1   | outside: `setSel(1)`; `flush()`                                                                 | `#3: dana \| mine (sending)` — the change is held with the post                                                    | `latest(sel)` 1 · `isPending(comments)` true           | a new question, not the guess's source answering            |
+| 2   | issue 1's answer `[]` lands                                                                     | `#3: dana \| mine (sending)`                                                                                       | `latest(comments)` `[]` · true · untracked: the screen |                                                             |
+| 3   | the post settles; its `refresh` re-asks 1                                                       | `#3: dana \| mine (sending)`                                                                                       | true                                                   | the action's refresh after the change stays pending (F-9)   |
+| 4   | issue 1's answer `["mine"]` lands                                                               | `#1: mine` — one frame                                                                                             | false                                                  |                                                             |
+| 1′  | `refresh(comments)` instead of `setSel(1)`                                                      | `#3: dana \| mine (sending)` until the post commits                                                                | `isPending(comments)` false                            | the same question: nothing new is held (#4329)              |
+| 1″  | `sel` a `createOptimistic` over the saved selection; `action { setSel(1); yield; setSaved(1) }` | `#3: dana \| mine (sending)` until issue 1's answer, then `#1: ` — the input's lane waits for its own answer (F-6) |                                                        | the post's guess does not answer issue 1                    |
+| 1⁗  | as 1″, but the action ends without `setSaved` (a pure revert)                                   | `#1: ` until issue 3's re-ask lands, then `#3: dana \| mine (sending)` — one frame; the post lands later as usual  |                                                        | the displaced guess comes back with the revert (D-33)       |
+| 1‴  | keyed: `comments[id] = rows`, the post guessed on `comments[3]`; `setSel(1)`                    | `#1: ` once issue 1's answer lands, not waiting for the post; back on 3: `#3: dana \| mine (sending)`              |                                                        | a key with no guess is an ordinary pending read (F-2)       |
+| ✗   |                                                                                                 | any `#1:` frame before 4, e.g. `#1: dana \| mine (sending)`                                                        |                                                        | the same with `#{sel()}` and the list in two render effects |
+
+Layered: action A guesses `milk`, action B sets a filter optimistically over it. The filter shows at once in both settle orders, `milk` stays until A commits, and when B settles first nothing on screen changes (D-33, D-35). A held write read before the action's first lane read (`setG("b"); yield go; setOther(1)`) shows only at the commit. Boundary (#4337): a keyed list under `<Loading on={filter()}>` whose fallback reads `latest(filter)`, an action that guesses a row and refreshes, and `filter` set outside: the change is held with the action (row 3's guess is still read) and the boundary never leaves its content for it — no `loading` frame beside the held `filter`, toggled back or not; without the hold the fallback shows with the change and clears at its answer (S-20, D-17). Pinned by `tests/loading-on-latest-fallback-4337.test.ts`.
 
 ---
 
