@@ -824,9 +824,13 @@ export class GlobalQueue implements IQueue {
   declare static _runEffect: (el: Computed<unknown>) => void;
   /** A slot node's truth is in flight (its family's derive — store/store.ts). */
   declare static _slotFlight: ((n: Signal<any>) => boolean) | undefined;
-  /** A write to a slot node's guess (lanes.ts `laneWrite`): true when the
-   * store made the slot its derive's lane's derivation (optimistic.ts). */
-  declare static _slotTake: ((n: Signal<any>) => boolean) | undefined;
+  /** A write to a slot node's guess (lanes.ts `laneWrite`): the lane that
+   * takes the slot as its derivation, when its derive re-asks in another
+   * action's lane (optimistic.ts); `back`: the slot's node now, for a guess
+   * that comes back (lanes.ts `endLanes`). */
+  declare static _slotTake:
+    | ((n: Signal<any>, back?: boolean) => Transaction | Signal<any> | null | undefined)
+    | undefined;
   /** The value a slot node's guess covered: its committed value — a chained
    * link's refreshed from the inner store, whose commits it never learned
    * while the guess served the reads (store/store.ts, §7b). */

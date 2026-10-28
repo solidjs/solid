@@ -35,7 +35,7 @@ import {
   STATUS_PENDING
 } from "../core/constants.js";
 import { computed, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
-import { laneValueOf, optimisticWrite, pendingGuessOf } from "../core/lanes.js";
+import { displace, laneValueOf, optimisticWrite, pendingGuessOf } from "../core/lanes.js";
 import { getOwner } from "../core/owner.js";
 import {
   clock,
@@ -324,12 +324,26 @@ function reconcileDraft(draft: any, incoming: any, keyFn: KeyFn | null): void {
  * lane's new question, which the guess (over the old one) does not answer:
  * the slot is the lane's derivation from here (F-6, #4336; lanes
  * `laneStage` for a node's own pass). */
-GlobalQueue._slotTake = n => {
-  const d = ((n as any)._host as StoreTarget | undefined)?.fam?.node?._x?._transaction;
-  if (!d?._lane || sameAction(d, txOf(n))) return false;
-  n._config &= ~CONFIG_GUESS;
-  list(n, d);
-  return true;
+GlobalQueue._slotTake = (n, back) => {
+  const t = (n as any)._host as StoreTarget | undefined;
+  if (back) {
+    // The guess comes back (lanes `endLanes`): on the slot's node now — the
+    // node itself, or the one a read made after it was released.
+    const k = (n as any)._key;
+    markOverlaid(t!);
+    return k === $TRACK
+      ? getContainerNode(t!)
+      : n._equals === isEqual
+        ? getHasNode(t!, k)
+        : getNode(t!, k);
+  }
+  const d = t?.fam?.node?._x?._transaction;
+  if (!d?._lane || sameAction(d, txOf(n))) return null;
+  // The re-ask takes the target's guess whole: its other guessed slots show
+  // their truth in the lane's world, the guess kept (lanes `displace`).
+  for (const m of nodesOf(t!))
+    if (m !== n && m._config & CONFIG_GUESS && txOf(m) === txOf(n)) displace(m, d);
+  return d;
 };
 /** Q-D (plan sec. 39): an OLDER question's truth landed beneath an arrangement
  * guess (`laneWrite` held it — another action's landing is not this guess's
@@ -653,12 +667,15 @@ function rebaseChained(t: StoreTarget): void {
 
 /** A node of `t` carrying a lane value, if any (`read`: one a reader's
  * last pass read). */
-function laneNodeOf(t: StoreTarget, read?: boolean): Signal<any> | undefined {
-  const all: (Signal<any> | null)[] = [t.k, t.dk];
+function nodesOf(t: StoreTarget): Signal<any>[] {
+  const all: Signal<any>[] = [t.k!, t.dk!];
   for (const r of [t.n, t.h])
     if (r !== null) for (const k of Reflect.ownKeys(r)) all.push(r[k as any]);
-  for (const n of all)
-    if (n !== null && n._config & CONFIG_OVERRIDE) {
+  return all.filter(n => n);
+}
+function laneNodeOf(t: StoreTarget, read?: boolean): Signal<any> | undefined {
+  for (const n of nodesOf(t))
+    if (n._config & CONFIG_OVERRIDE) {
       if (!read) return n;
       for (let s = n._subs; s !== null; s = s._nextSub) if (s._gen === s._sub._depGen) return n;
     }
