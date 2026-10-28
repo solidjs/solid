@@ -313,6 +313,8 @@ let _snapshotRootOwner: Owner | null = null;
 // round a served answer lands in (`servedPass`). Never 0: `~` maps every
 // round to a truthy number.
 let _claimOwner: Owner | number | null = null;
+// The flush round the last claim window opened in (`clock`).
+let _claimRound: number | undefined;
 // Under a hydrated `<Errored>` that shows the server's fallback the markup
 // is the fallback's: nothing its content creates claims — in the content's
 // own run (the `~clock` window) or later, wherever its children are created
@@ -749,8 +751,17 @@ export function readSerializedOrCompute(
     // answer, an error included, and arms nothing — no ask, no loading flash
     // (#4287, #4306). A served pass covers the round its answer lands in
     // (`servedPass`): a later round of that flush is an effect's write
-    // re-running the node, which computes.
-    if (options?.ssrSource !== "hybrid" && _claimOwner !== ~clock) {
+    // re-running the node, which computes. A served rejection re-serves in a
+    // claim window's own round too (`_claimRound`): a reader the resume
+    // creates there, on a later round than the one the rejection landed in,
+    // retries it with nothing changed — an `isPending` of a memo over it,
+    // outside the claim, re-asked it (#4375). A write an effect makes there
+    // runs in a later round, which computes.
+    if (
+      options?.ssrSource !== "hybrid" &&
+      _claimOwner !== ~clock &&
+      !(initP?.s === 2 && _claimRound === clock)
+    ) {
       let p: Owner | null = o;
       while (p && !(p as any)._hp) p = p._parent;
       if (!p && !(sharedConfig.hydrating && isClaiming(1))) return compute(prev);
@@ -2303,6 +2314,7 @@ function hydrateWindow<T>(
     if (id) sharedConfig.gather?.(id);
     _hydratingValue = true;
     _claimOwner = o;
+    _claimRound = clock;
     if (own) {
       if (capture) setSnapshotCapture(true);
       markSnapshotScope(own);
