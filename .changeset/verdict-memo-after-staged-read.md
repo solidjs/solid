@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+A memo of a verdict (`createMemo(() => latest(s))` or `createMemo(() => isPending(s))`) no longer shows a held change early. Before, a pass that read an action's staged write and then read that memo moved into the verdict lane, and the lane showed what the pass had read while the action was still open. For example, `<Errored>` showed the branch that the action's write recovers in place of its error, and `[s(), L()]` in one render effect showed `v:1 l:1`. Now a derivation in that position belongs to the frame, as it does when it calls `latest()` inline, so its result appears when the action lands. A render effect in that position re-derives on the committed world when the flush parks, so it shows `v:0 l:1`, the same as the inline `[s(), latest(s)]` (D-26). The async-app generator found this through its E9 pair (seed 3289).

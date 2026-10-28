@@ -264,6 +264,12 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
   c._flags |= REACTIVE_LANE_READ;
   const p = passLane;
   if (p === null) {
+    const verdict = l._parent!._verdict === l;
+    // A derivation reading a verdict lane's value (a memo of `latest` /
+    // `isPending`, F-6) after it read the frame's staging or joined its
+    // hold: the verdict read does not break it out — it stays the frame's,
+    // as the same read inline does (verdict.ts `route`; D-25, D-26).
+    if (verdict && !(c as any)._type && c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)) return;
     setPassLane(l);
     // The pass read a held write before its first lane read (it joined the
     // frame's future as mainline would): lane work sees the screen — the
@@ -271,8 +277,10 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // the park's repair), as it does a lane pass that read a staging. Not a
     // pass whose held reads were all of nodes born held (no staged read,
     // `stagedRead`): it has no committed world to re-derive on (#3969).
-    // (A pass not joined: a held write beside a guess, #4336.)
-    if (c._flags & REACTIVE_STAGED_READ && (guessed || c._flags & REACTIVE_JOINED)) stagedRead(c);
+    // (A pass not joined: a held write beside a guess, #4336; a leaf of a
+    // verdict lane — its plain reads are the screen's, D-26 `[s(), L()]`.)
+    if (c._flags & REACTIVE_STAGED_READ && (guessed || verdict || c._flags & REACTIVE_JOINED))
+      stagedRead(c);
     return;
   }
   if (sameLane(p, l)) return setPassLane(l);
