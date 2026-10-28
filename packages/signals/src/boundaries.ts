@@ -238,7 +238,11 @@ function catchStatus(
     // waited on settling re-derives the output now, in the same heap (a
     // held reader's landing has joined its transaction, so the content
     // lands with its run, not a round after). Others still waiting: nothing
-    // on screen changes, the fallback stays as it is.
+    // on screen changes, the fallback stays as it is. `node` here is an
+    // effect reporting its own status. An error boundary records an effect
+    // only while it is errored, and a staged error keeps STATUS_ERROR on a
+    // node that had it (`stageError`), so `prune`'s CONFIG_STAGED_ERROR case
+    // cannot reach this path (#4364).
     if (collecting.size !== 0)
       for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent)
         if (
