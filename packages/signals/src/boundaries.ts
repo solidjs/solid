@@ -98,8 +98,9 @@ interface Boundary {
   /** Null during the output's first pass (its post-check decides then). */
   _output: Computed<any> | null;
   /** Frame readers under it carrying its status: caught, or (loading,
-   * showing content) forwarded — the `on` re-arm collects those. */
-  _readers: Set<Computed<any>>;
+   * showing content) forwarded — the `on` re-arm collects those. Each maps
+   * to what it waits on: itself, or (error) the source that threw. */
+  _readers: Map<Computed<any>, Computed<any>>;
   /** Loading: has shown content. Fresh again after an `on` re-arm found
    * something pending. */
   _initialized: boolean;
@@ -171,8 +172,8 @@ const isCollecting = (b: Boundary): boolean =>
   b._type === STATUS_ERROR || !b._initialized || b._armed;
 
 /** A reader `b` waits on: recorded for its `on`, and `b` visited at the seam. */
-function record(b: Boundary, node: Computed<any>): void {
-  b._readers.add(node);
+function record(b: Boundary, node: Computed<any>, source = node): void {
+  b._readers.set(node, source);
   collecting.add(b);
 }
 
@@ -180,19 +181,21 @@ function record(b: Boundary, node: Computed<any>): void {
  * (a no-op while the output's own pass is running — its post-check
  * decides). */
 function caught(b: Boundary, node: Computed<any>, error: unknown): void {
+  let source = node;
   if (b._type === STATUS_ERROR) {
     // An error boundary waits on what THREW (`StatusError.source`), not on
     // the reader that saw it: the reader recovers the moment a refetch
     // starts (its boundary catches the pending), while the error is settled
-    // only when its source is neither errored nor in flight. `reset` re-runs
-    // the same node.
+    // only when its source is neither errored nor in flight — or when the
+    // reader is disposed: a source no live reader holds holds nothing
+    // (#4373). `reset` re-runs the source.
     error ??= node._x?._error;
-    node = (error as { source?: Computed<any> })?.source ?? node;
+    source = (error as { source?: Computed<any> })?.source ?? node;
     const caught = unwrapStatusError(error);
     setSignal(b._error!, caught);
-    reportClientError(caught, b._owner, node);
+    reportClientError(caught, b._owner, source);
   }
-  record(b, node);
+  record(b, node, source);
   if (b._armed) flip(b);
   // Already showing the fallback: one more reader to wait on changes
   // nothing on screen. The fallback is instantiated once per show — a later
@@ -241,7 +244,7 @@ function catchStatus(
     if (collecting.size !== 0)
       for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent)
         if (
-          !(node._statusFlags & unsettled(b)) &&
+          !((b._readers.get(node)?._statusFlags as number) & unsettled(b)) &&
           b._readers.delete(node) &&
           b._readers.size === 0
         ) {
@@ -322,12 +325,12 @@ const unsettled = (b: Boundary): number =>
 
 export function prune(b: Boundary, pass: boolean): number {
   const mask = unsettled(b);
-  for (const r of b._readers) {
-    if (r._flags & REACTIVE_DISPOSED) b._readers.delete(r);
-    else if (!(r._statusFlags & mask)) {
+  for (const [r, s] of b._readers) {
+    if ((r._flags | s._flags) & REACTIVE_DISPOSED) b._readers.delete(r);
+    else if (!(s._statusFlags & mask)) {
       if (
-        (r !== b._tree || b._armed) &&
-        (r._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
+        (s !== b._tree || b._armed) &&
+        (s._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
       ) {
         // Landed, held: the content is that transaction's — the output's
         // pass enters it and the reveal lands with the reader's run. The
@@ -337,7 +340,7 @@ export function prune(b: Boundary, pass: boolean): number {
         // the reader is committed (#3540: what a fresh boundary catches holds
         // nothing outside it).
         if (!pass || !b._initialized) continue;
-        joinFuture(txOf(r));
+        joinFuture(txOf(s));
       }
       b._readers.delete(r);
     }
@@ -379,7 +382,8 @@ function boundarySeam(): void {
       !b._initialized &&
       o._config & CONFIG_HELD &&
       [...b._readers].every(
-        r => !(r._statusFlags & STATUS_PENDING) && r._config & CONFIG_HELD && txOf(r) === txOf(o)
+        ([r]) =>
+          !(r._statusFlags & STATUS_PENDING) && r._config & CONFIG_HELD && txOf(r) === txOf(o)
       )
     ) {
       b._readers.clear();
@@ -417,7 +421,7 @@ function reportOutsideHold(b: Boundary): void {
       if (o === b) return false;
     return true;
   };
-  for (const r of b._readers) {
+  for (const r of b._readers.keys()) {
     const sources = r._x?._pendingSources;
     if (sources === undefined) continue;
     for (const source of sources) {
@@ -495,7 +499,7 @@ function arm(b: Boundary): void {
   collecting.add(b);
   const n = b._readers.size;
   heldUnder(b._owner, flushTransaction, r => record(b, r));
-  for (const r of b._readers) {
+  for (const [r] of b._readers) {
     if (
       b._readers.size !== n ||
       (r._statusFlags & STATUS_PENDING && !(r._flags & REACTIVE_DISPOSED))
@@ -505,7 +509,7 @@ function arm(b: Boundary): void {
       // It is this boundary's alone now (B5, the nearest catcher): an outer
       // re-armed by the same tick does not wait for it (D-14, U-4).
       for (let a = b._parent; a !== null; a = a._parent)
-        for (const o of b._readers) a._readers.delete(o);
+        for (const [o] of b._readers) a._readers.delete(o);
       flip(b);
       redraw(b);
       return;
@@ -517,7 +521,7 @@ function arm(b: Boundary): void {
  * names a signal — nothing to re-run). */
 function reset(b: Boundary): void {
   // A snapshot: a source failing again is caught — and re-added — mid-walk.
-  for (const r of [...b._readers])
+  for (const r of new Set(b._readers.values()))
     if (r._fn !== undefined && !(r._flags & REACTIVE_DISPOSED)) recompute(r);
   schedule();
 }
@@ -571,7 +575,7 @@ function createBoundary<T>(
     _owner: owner,
     _tree: null!,
     _output: null,
-    _readers: new Set(),
+    _readers: new Map(),
     _initialized: false,
     _armed: false,
     _armLane: null,
