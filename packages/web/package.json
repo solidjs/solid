@@ -368,6 +368,7 @@
     "test:server": "vitest run --config vite.config.server.mjs",
     "consistency:fuzz": "CONSISTENCY_FUZZ=1 vitest run --config vite.config.hydrate.mjs test/consistency/harness",
     "async-gen": "ASYNC_GEN=1 vitest run test/async-gen",
+    "async-gen:hydrate": "ASYNC_GEN_HY=1 vitest run --config vite.config.server.mjs test/server/async-gen.gen.spec.tsx && ASYNC_GEN_HY=1 vitest run --config vite.config.hydrate.mjs test/consistency/async-gen",
     "coverage": "vitest run --coverage",
     "bench": "vitest bench --run",
     "bench:server": "vitest bench --run --config vite.config.server-bench.mjs",

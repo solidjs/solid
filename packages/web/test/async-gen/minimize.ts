@@ -75,7 +75,7 @@ function treeEdits(n: Node): Node[] {
   return out;
 }
 
-function edits(sc: Scenario): Scenario[] {
+export function edits(sc: Scenario): Scenario[] {
   const out: Scenario[] = [];
   // Script: drop one step; collapse task/micro/flush runs.
   sc.steps.forEach(
