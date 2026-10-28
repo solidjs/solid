@@ -76,9 +76,7 @@ export let laneOutcomeHook:
   | null = null;
 export let laneWriteHook: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | null = null;
 export let applyGuessesHook: ((parent: Transaction | null) => void) | null = null;
-export let laneSeamsHook: ((t: Transaction | null) => void) | null = null;
-/** A verdict reader's plain read of a staging (lanes.ts `stagedScreen`). */
-export let stagedScreenHook: ((c: Computed<any>) => boolean) | null = null;
+export let laneSeamsHook: ((leaks: Computed<any>[] | null) => void) | null = null;
 export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
@@ -98,8 +96,7 @@ export function installLaneHooks(
   seams: NonNullable<typeof laneSeamsHook>,
   corrections: NonNullable<typeof laneCorrectionsHook>,
   end: NonNullable<typeof endLanesHook>,
-  blocked: NonNullable<typeof lanesBlockedHook>,
-  screen: NonNullable<typeof stagedScreenHook>
+  blocked: NonNullable<typeof lanesBlockedHook>
 ): void {
   laneReadHook = read;
   laneStageHook = stage;
@@ -110,7 +107,6 @@ export function installLaneHooks(
   laneCorrectionsHook = corrections;
   endLanesHook = end;
   lanesBlockedHook = blocked;
-  stagedScreenHook = screen;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary
@@ -1040,7 +1036,7 @@ export class GlobalQueue implements IQueue {
     // world (a lane's runs wait this round).
     if (laneSeamsHook) {
       this._queues = lanes;
-      laneSeamsHook(t);
+      laneSeamsHook(t !== null ? stagedReaders : null);
       if (stagedReaders.length) stagedReaders.length = 0;
     }
     this._queues = [[], []];
@@ -1174,13 +1170,8 @@ export function reruns(u: Transaction): unknown {
     const r = u._reruns[i];
     // An errored reader's display is its error (D-39): the landing gives it
     // nothing to re-derive, and a re-run would be a read that retries the
-    // errored source (#3945). Not an error its own stale pass threw: that
-    // pass read the world the landing replaces (#4365).
-    if (
-      r._flags & REACTIVE_DISPOSED ||
-      (r._statusFlags & STATUS_ERROR && (r._x!._error as any).source !== r)
-    )
-      continue;
+    // errored source (#3945).
+    if (r._flags & REACTIVE_DISPOSED || r._statusFlags & STATUS_ERROR) continue;
     if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
       frame ||= (r as any)._type;
       r._flags &= ~REACTIVE_FRAME_READ;

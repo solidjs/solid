@@ -1,16 +1,14 @@
-// #4365 (F-1, F-10, D-41): a pass reads `latest(a)` beside `b()` in a
+// #4365 (F-1, F-6, D-41): a pass reads `latest(a)` beside `b()` in a
 // flush that carries both writes, with nothing held. The `latest()` read of
 // a's staging opened the flush's transaction for its verdict (verdict.ts
-// `provisionalVerdict`). The plain read after it then took that transaction
-// for a hold: it served b's committed value (`stagedScreen`) and left the
-// reader to re-derive at the landing. Nothing held the flush, so the torn
-// pass was one of its frames: its runs reached render effects through a
-// memo (`[2,1]` before `[2,2]`). A throw from it stuck, because the landing
-// skips an errored reader. Now the plain read reads the frame's own staging,
-// as it does when it comes first: the pass is the frame's, one pass on the
-// frame's world. If the flush parks, the seam re-derives the pass as
-// display-ahead work, as before. The landing also re-derives a reader whose
-// own stale pass threw.
+// `provisionalVerdict`, `joinFuture(null)`). The plain read after it then
+// took that transaction for a hold: it served b's committed value
+// (`stagedScreen`) and left the reader to re-derive at the landing. Nothing
+// held the flush, so the torn pass was one of its frames: its runs reached
+// render effects through a memo (`[2,1]` before `[2,2]`), and a throw from
+// it stuck. `latest()` now opens no transaction: its reader watches the
+// seam, its pass is the frame's (one pass on the frame's world), and it
+// re-derives in the verdict lane if the flush parks (display-ahead).
 import { describe, expect, it } from "vitest";
 import {
   createErrorBoundary,

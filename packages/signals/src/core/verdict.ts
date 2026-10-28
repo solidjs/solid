@@ -25,7 +25,6 @@ import {
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
   REACTIVE_PROBE_UNANSWERED,
-  REACTIVE_PROVISIONAL,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
@@ -157,38 +156,33 @@ function verdictRead(c: Computed<any>, t: Transaction, plain?: boolean): void {
  * watches the seam and runs again if the flush parks (a plain sync write
  * never glitches it true).
  *
- * `latest` has its answer either way — the proposal — and only the reader's
- * membership was open, so it is settled now: the frame gets its transaction
- * (`joinFuture(null)`; nothing holds it at the seam and it lands there, the
- * lane dissolving into it — a plain commit) and the reader is its verdict
- * lane's. One pass: a provisional pass re-derived at the seam ran everything
- * downstream of it twice (#3540 web). A pass that also read the frame's own
- * stagings plainly (REACTIVE_STAGED_READ) stays the frame's (`route` does
- * not move it); a verdict reader's plain read AFTER the window sees the
- * screen (`read`: `stagedScreen`). */
+ * `latest` has its answer either way — the proposal — but its reader's
+ * membership is the seam's too: the frame opens no transaction for it
+ * (#4365 — one opened for the read alone made a plain read after the window
+ * take it for a hold, `stagedScreen`, and serve the screen beside the
+ * staging in a frame nothing held). The reader watches the seam like a
+ * probe before anything joined: its pass is the frame's, and runs again in
+ * the verdict lane if the flush parks. Once the flush has joined a
+ * transaction, the reader is its verdict lane's at once; a pass that also
+ * read the frame's own stagings plainly (REACTIVE_STAGED_READ) stays the
+ * frame's (`route` does not move it). */
 function provisionalVerdict(c: Computed<any>, notFinal: boolean): void {
-  if (!probing) {
-    joinFuture(null);
-    // Seated by this read alone: a plain read of a staging later in the
-    // pass takes it back (lanes.ts `stagedScreen`, #4365).
-    if (!passLane) c._flags |= REACTIVE_PROVISIONAL;
-    verdictRead(c, flushTransaction!);
-    return;
-  }
   if (flushTransaction) {
-    // A probe answers for the transaction: the pass is the verdict lane's,
-    // whatever seated it (#4365).
-    c._flags &= ~REACTIVE_PROVISIONAL;
-    if (notFinal) probeFound = true;
+    if (probing && notFinal) probeFound = true;
     verdictRead(c, flushTransaction);
-    if (c._flags & REACTIVE_STAGED_READ) watchVerdict(c);
+    if (probing && c._flags & REACTIVE_STAGED_READ) watchVerdict(c);
     return;
   }
   // Before anything joined, a staging that would not be final held has no
   // answer yet: whatever the seam decides, the pass runs again — a later
   // plain read of the same pass may route it into the verdict lane
   // (`observeFlight`), which the seam must not take as this probe's answer.
-  watchVerdict(c, notFinal);
+  // `latest` opens no transaction for its answer either (#4365): the plain
+  // read of a staging after it took one opened for it for a hold and paired
+  // the staging with the screen, in a frame nothing held. Its pass is the
+  // frame's — whole — and re-derives once if the flush parks (unanswered:
+  // its membership is the seam's, not the transaction it joins).
+  watchVerdict(c, !probing || notFinal);
 }
 
 /** A19 exc. 2 / A24: a flight that re-asks the question already answered

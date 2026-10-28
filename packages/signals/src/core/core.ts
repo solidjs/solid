@@ -135,7 +135,6 @@ import {
   laneReadHook,
   laneStageHook,
   laneSeamsHook,
-  stagedScreenHook,
   laneWriteHook,
   observeFlightHook,
   wireExternalSourceHook
@@ -1895,7 +1894,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // transaction, reads the screen too.
     if (
       ((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
-      stagedScreenHook!(c as Computed<any>)
+      stagedScreen(c as Computed<any>)
     )
       return el._value as T;
     stagedRead(c as Computed<any>);
@@ -2107,7 +2106,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     observeFlightHook &&
     c!._config & CONFIG_VERDICT &&
     !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
-    stagedScreenHook!(c!)
+    stagedScreen(c!)
   )
     return el._value;
   stagedRead(c!, el);
@@ -2136,6 +2135,21 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
     c._flags |= REACTIVE_STAGED_READ;
     if (laneSeamsHook && passLane !== null) stagedReaders.push(c);
   }
+}
+
+/** A10 for a staged node: a verdict reader (the pass entered a window) that
+ * also reads a frame's proposal plainly sees the screen — `[latest(q), q()]`
+ * is `[b, a]` — once the frame has a transaction, and re-derives when it
+ * lands: at this very seam if nothing holds it (the stale run is void,
+ * #3322 — one run, on the committed world), or with the hold. Before any
+ * transaction the answer is the seam's and the reader watches it
+ * (verdict.ts). A node born into the future has no screen: its staging is
+ * its only value (A29). Nor has a reader born into the flush's transaction
+ * (`bornInto`, #4010): its branch exists only there. */
+export function stagedScreen(c: Computed<any>): boolean {
+  if (flushTransaction === null || bornInto(c, flushTransaction)) return false;
+  staleReader(c, flushTransaction);
+  return true;
 }
 
 export function ownedScopeWriteMessage(owner: Owner): string {
