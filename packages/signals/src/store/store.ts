@@ -50,6 +50,7 @@ import {
 import {
   captureWriteSnapshot,
   context,
+  devRead,
   disposalDepth,
   isEqual,
   notePromotedWrite,
@@ -1761,6 +1762,7 @@ function nodeValue(node: Signal<any>, backing: any, target: StoreTarget): any {
     // first answer, not a change — linked and served with no verdict (a
     // first landing is loading, not pending: A19 exc. 1, F-9, as for a memo
     // born staged; core's verdict would call the leaf's staging pending).
+    if (__DEV__) devRead(node); // read()'s dev diagnostics, which this read skips
     if (context !== null && tracking) link(node, context as Computed<any>);
     v = node._pendingValue;
   } else v = readNode(node);
