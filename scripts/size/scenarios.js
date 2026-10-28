@@ -1415,7 +1415,8 @@ module.exports = [
     // An isPending() probe wakes a dormant memo outside its window (#4366, 2026-10-28, over next @ 5f60713a): cap 10.38 KB unchanged, recorded minified 28,817 -> 28,680 B (+4 B minified over next), measured locally (linux) at 10,380 B brotli. A lazy or dormant memo (an unowned memo left with no reader) woken by a read inside `isPending`/`latest` recomputed inside the probe's window, so it derived from its sources' committed values; the wake now runs outside it, as a pull does (A31). Correctness. Recorded minified = measured; CI re-bases.
     // A verdict memo read after a staged read stays the frame's (E9, seed 3289, no issue; 2026-10-28, over next @ 9bd9c347): cap 10.38 KB unchanged, recorded minified 28,680 -> 28,735 B (+57 B minified over next, measured locally), measured locally (linux) at 10,396 B brotli. A memo of a verdict (`createMemo(() => latest(s))`, F-6) read by a pass that had already read the action's staging moved the pass into the holder's verdict lane, which showed the held change at once (the async-app generator's E9 pair, seed 3289: an `<Errored>` showed the action's recovered branch while the action was open); `enterLane` now keeps such a derivation the frame's, as the inline read does (`route`), and has the seam re-derive a leaf in that position on the committed world (D-26 `[s(), L()]` shows `v:0 l:1`). Lanes engine only. Correctness. Recorded minified = measured; CI re-bases.
     limit: "10.38 KB",
-    capMinified: 28680,
+    // A verdict memo read after a staged read stays the frame's (E9) (#4394, 2026-10-28, re-recorded over next @ 178605cf): recorded minified 28,680 -> 28,731 B (+51 B minified over next's record), measured locally (linux) at 10,393 B brotli. Recorded minified = measured; CI re-bases.
+    capMinified: 28731,
     alias
   },
   {
@@ -2669,7 +2670,8 @@ module.exports = [
     // A derived store's landing wakes a reader parked on its error; its first landing is loading, not pending (async-gen campaign 1, E3 store twin, #4388, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 96,989 -> 97,009 B (+20 B minified over next's record), measured locally (linux) at 31,745 B brotli. Recorded minified = measured; CI re-bases.
     // A verdict memo read after a staged read stays the frame's (E9, seed 3289, no issue; 2026-10-28, over next @ 9bd9c347): cap 31.80 KB unchanged, recorded minified 96,978 -> 97,016 B (+55 B minified over next, measured locally), measured locally (linux) at 31,789 B brotli. A memo of a verdict (`createMemo(() => latest(s))`, F-6) read by a pass that had already read the action's staging moved the pass into the holder's verdict lane, which showed the held change at once (the async-app generator's E9 pair, seed 3289: an `<Errored>` showed the action's recovered branch while the action was open); `enterLane` now keeps such a derivation the frame's, as the inline read does (`route`), and has the seam re-derive a leaf in that position on the committed world (D-26 `[s(), L()]` shows `v:0 l:1`). Lanes engine only. Correctness. Recorded minified = measured; CI re-bases.
     limit: "31.80 KB",
-    capMinified: 97009,
+    // A verdict memo read after a staged read stays the frame's (E9) (#4394, 2026-10-28, re-recorded over next @ 178605cf): recorded minified 97,009 -> 97,064 B (+55 B minified over next's record), measured locally (linux) at 31,797 B brotli. Recorded minified = measured; CI re-bases.
+    capMinified: 97064,
     alias
   },
   {
@@ -5756,7 +5758,8 @@ module.exports = [
     // A served rejection re-serves in its claim window's round (#4375, 2026-10-28, over next @ b68942ca): cap 41.56 KB unchanged, recorded minified 123,182 -> 123,191 B (+9 B minified over next), measured locally (linux) at 41,874 B brotli. A reader the hydration resume creates in the claim window's own round, on a later round than the one a served rejection landed in, re-served the rejection instead of re-asking it (an `isPending` of a memo over it, outside the claim, re-asked). The `ssrSource` check stays inline at its three sites (hoisting it to a local saved 12 B minified but cost up to +92 B brotli on the server-component pages; the maintainer chose inline, 2026-10-28). Correctness; Size-Exception accepted by the maintainer 2026-10-28. Recorded minified = measured; CI re-bases.
     // A verdict memo read after a staged read stays the frame's (E9, seed 3289, no issue; 2026-10-28, over next @ 9bd9c347): cap 41.56 KB unchanged, recorded minified 123,182 -> 123,223 B (+57 B minified over next, measured locally), measured locally (linux) at 41,861 B brotli. A memo of a verdict (`createMemo(() => latest(s))`, F-6) read by a pass that had already read the action's staging moved the pass into the holder's verdict lane, which showed the held change at once (the async-app generator's E9 pair, seed 3289: an `<Errored>` showed the action's recovered branch while the action was open); `enterLane` now keeps such a derivation the frame's, as the inline read does (`route`), and has the seam re-derive a leaf in that position on the committed world (D-26 `[s(), L()]` shows `v:0 l:1`). Lanes engine only. Correctness. Recorded minified = measured; CI re-bases.
     limit: "41.56 KB",
-    capMinified: 123191,
+    // A verdict memo read after a staged read stays the frame's (E9) (#4394, 2026-10-28, re-recorded over next @ 178605cf): recorded minified 123,191 -> 123,244 B (+53 B minified over next's record), measured locally (linux) at 41,884 B brotli. Recorded minified = measured; CI re-bases.
+    capMinified: 123244,
     alias: pageAlias
   },
   {
@@ -6140,7 +6143,8 @@ module.exports = [
     // A served rejection re-serves in its claim window's round (#4375, 2026-10-28, over next @ b68942ca): cap 47.16 KB unchanged, recorded minified 140,442 -> 140,451 B (+9 B minified over next), measured locally (linux) at 47,479 B brotli. A reader the hydration resume creates in the claim window's own round, on a later round than the one a served rejection landed in, re-served the rejection instead of re-asking it (an `isPending` of a memo over it, outside the claim, re-asked). The `ssrSource` check stays inline at its three sites (hoisting it to a local saved 12 B minified but cost up to +92 B brotli on the server-component pages; the maintainer chose inline, 2026-10-28). Correctness; Size-Exception accepted by the maintainer 2026-10-28. Recorded minified = measured; CI re-bases.
     // A verdict memo read after a staged read stays the frame's (E9, seed 3289, no issue; 2026-10-28, over next @ 9bd9c347): cap 47.16 KB unchanged, recorded minified 140,442 -> 140,480 B (+57 B minified over next, measured locally), measured locally (linux) at 47,472 B brotli. A memo of a verdict (`createMemo(() => latest(s))`, F-6) read by a pass that had already read the action's staging moved the pass into the holder's verdict lane, which showed the held change at once (the async-app generator's E9 pair, seed 3289: an `<Errored>` showed the action's recovered branch while the action was open); `enterLane` now keeps such a derivation the frame's, as the inline read does (`route`), and has the seam re-derive a leaf in that position on the committed world (D-26 `[s(), L()]` shows `v:0 l:1`). Lanes engine only. Correctness. Recorded minified = measured; CI re-bases.
     limit: "47.16 KB",
-    capMinified: 140451,
+    // A verdict memo read after a staged read stays the frame's (E9) (#4394, 2026-10-28, re-recorded over next @ 178605cf): recorded minified 140,451 -> 140,504 B (+53 B minified over next's record), measured locally (linux) at 47,505 B brotli. Recorded minified = measured; CI re-bases.
+    capMinified: 140504,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
