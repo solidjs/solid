@@ -1,3 +1,4 @@
+import { checkForeignRead, enterCopy, exitCopy } from "./copies.js";
 import {
   clearStatus,
   handleAsync,
@@ -514,6 +515,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     prevStrictRead = strictRead;
     strictRead = false;
   }
+  const prevCopy = __DEV__ ? enterCopy() : undefined;
   tracking = true;
   const isStaleEffect = isEffect && isEffect !== EFFECT_USER;
   const prevStale = stale;
@@ -583,7 +585,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   } finally {
     tracking = prevTracking;
     if (laneStageHook) laneRoot = prevMount;
-    if (__DEV__) strictRead = prevStrictRead;
+    if (__DEV__) {
+      strictRead = prevStrictRead;
+      exitCopy(prevCopy);
+    }
     if (isStaleEffect) stale = prevStale;
     // Consume the missed-wake latch (#3037, set by insertSubs): a dep write
     // landed beneath this pass on a link it had already validated. The wipe
@@ -1833,6 +1838,7 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
 
 export function read<T>(el: Signal<T> | Computed<T>): T {
   if (__DEV__) DEV.hooks.onRead?.(el);
+  if (__DEV__ && !tracking) checkForeignRead();
   if (__DEV__ && asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
     checkPostAwaitRead(
       el,
@@ -1852,11 +1858,12 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // undefined and mask to 0 on every site below.)
   const owner = el as Computed<any>;
 
-  if (typeof computed._fn === "function") prepareComputed(el as Computed<unknown>, false);
-
   // The verdict windows (`latest`, `isPending`; verdict.ts): one cold path,
-  // off this one, present only while a window is open.
+  // off this one, present only while a window is open. It wakes a lazy or
+  // dormant memo itself, outside the window (#4366).
   if (verdict !== null) return verdict(el, c as Computed<any> | null) as T;
+
+  if (typeof computed._fn === "function") prepareComputed(el as Computed<unknown>, false);
 
   if (
     !computed._fn &&

@@ -80,6 +80,7 @@ import {
 import { signalHook } from "../core/identities.js";
 import { setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
+import { checkForeignRead } from "../core/copies.js";
 import { insertIntoHeap } from "../core/heap.js";
 import {
   dirtyQueue,
@@ -1995,6 +1996,7 @@ function warnWriteOutsideSetter(
 
 const traps: ProxyHandler<StoreTarget> = {
   get(target, key, receiver) {
+    if (__DEV__ && getObserver() === null) checkForeignRead();
     // One typeof gates every brand-symbol compare off the hot string path.
     if (typeof key !== "string") {
       if (key === $TARGET) return target;
