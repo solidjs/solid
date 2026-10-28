@@ -443,7 +443,11 @@ raw object. Mechanics:
   channel backing swap; subscribers re-read, re-subscribe to the new backing,
   and the old chain drops via dependency rebuild. The displaced backing's
   `storeLookup` registration is superseded at swap (proj R10 — proxy keeps
-  its backing; the *raw→proxy* entry moves).
+  its backing; the *raw→proxy* entry moves). The swap's diff base is the
+  live inner proxy, which already reads the inner store's next frame — a
+  landing in the same flush would diff as unchanged — so a severing writes
+  every node of the target and its container, each node's equality judging
+  it against what it was last told (#4361).
 - **Snapshot through a chain** unwraps backing pointers to the base raw.
   Snapshot identity rule (resolves proj R22 + recon-snap R24/R25 jointly):
   **source identity for unowned subtrees; cached copy for owned subtrees**
