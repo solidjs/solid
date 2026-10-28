@@ -124,19 +124,19 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 
 | id | status | defined | cited in src | cited in tests | statement (at definition) |
 |---|---|---|---|---|---|
-| RUL-1 | resolved | `docs/INTERNALS-STORE-STATE.md:543` | store.ts×2 | next-smoke.test.ts×1 | - **RUL-1 — RESOLVED (2026-08-16, verified per "mirror signals if verified" — |
-| RUL-2 | ruled | `docs/INTERNALS-STORE-STATE.md:552` | — | createOptimisticStore.test.ts×1 | - **RUL-2 — RULED (Ryan, 2026-08-17): no landing matrix. Two orthogonal |
-| RUL-3 | resolved | `docs/INTERNALS-STORE-STATE.md:651` | optimistic.ts×1 | — | - **RUL-3 — RESOLVED (verified 2026-08-16).** Ownership already lives |
-| RUL-4 | resolved | `docs/INTERNALS-STORE-STATE.md:658` | — | optimistic-signal-refetch-hold.test.ts×1 | - **RUL-4 — RESOLVED (2026-08-17, signal parity — verified empirically).** |
-| RUL-5 | live | `docs/INTERNALS-STORE-STATE.md:671` | — | adoption-lane-rollback.test.ts×1 | - **RUL-5 — SPEC'D (2026-08-17): §6b.** Lane backing + lane-view/committed- |
-| RUL-6 | live | `docs/INTERNALS-STORE-STATE.md:675` | — | — | - **RUL-6 — reclassified: SPEC WORK, not a ruling.** Live chaining (#2941 — |
-| RUL-7 | live | `docs/INTERNALS-STORE-STATE.md:684` | — | — | - **RUL-7 — SPEC'D (2026-08-17): §6c.** One status field on the root target, |
-| RUL-8 | live | `docs/INTERNALS-STORE-STATE.md:687` | — | adoption-lane-rollback.test.ts×1 | - **RUL-8 — SPEC'D (2026-08-17): §6 rewrite, resolves O2.** Per-transaction |
-| RUL-9 | resolved | `docs/INTERNALS-STORE-STATE.md:690` | — | — | - **RUL-9 — RESOLVED (2026-08-17, parity by construction).** Every piece of |
-| RUL-10 | live | `docs/INTERNALS-STORE-STATE.md:695` | — | — | - **RUL-10 — The equality trio.** One precise rule needed spanning: no-op |
-| RUL-11 | live | `docs/INTERNALS-STORE-STATE.md:701` | — | — | - **RUL-11 — SPEC'D (2026-08-17): §6d.** Sticky descendants flag ported from |
-| RUL-12 | live | `docs/INTERNALS-STORE-STATE.md:703` | store.ts×1 types.ts×1 | createProjection.async.test.ts×1 shared-child-multiparent.test.ts×1 | - **RUL-12 — Smaller rulings, each with a proposed default** (proceeding on |
-| RUL-13 | resolved | `docs/INTERNALS-STORE-STATE.md:749` | — | — | - **RUL-13 — RESOLVED (verified 2026-08-16)**: `optimistic-lane-transaction- |
+| RUL-1 | resolved | `docs/INTERNALS-STORE-STATE.md:547` | store.ts×2 | next-smoke.test.ts×1 | - **RUL-1 — RESOLVED (2026-08-16, verified per "mirror signals if verified" — |
+| RUL-2 | ruled | `docs/INTERNALS-STORE-STATE.md:556` | — | createOptimisticStore.test.ts×1 | - **RUL-2 — RULED (Ryan, 2026-08-17): no landing matrix. Two orthogonal |
+| RUL-3 | resolved | `docs/INTERNALS-STORE-STATE.md:655` | optimistic.ts×1 | — | - **RUL-3 — RESOLVED (verified 2026-08-16).** Ownership already lives |
+| RUL-4 | resolved | `docs/INTERNALS-STORE-STATE.md:662` | — | optimistic-signal-refetch-hold.test.ts×1 | - **RUL-4 — RESOLVED (2026-08-17, signal parity — verified empirically).** |
+| RUL-5 | live | `docs/INTERNALS-STORE-STATE.md:675` | — | adoption-lane-rollback.test.ts×1 | - **RUL-5 — SPEC'D (2026-08-17): §6b.** Lane backing + lane-view/committed- |
+| RUL-6 | live | `docs/INTERNALS-STORE-STATE.md:679` | — | — | - **RUL-6 — reclassified: SPEC WORK, not a ruling.** Live chaining (#2941 — |
+| RUL-7 | live | `docs/INTERNALS-STORE-STATE.md:688` | — | — | - **RUL-7 — SPEC'D (2026-08-17): §6c.** One status field on the root target, |
+| RUL-8 | live | `docs/INTERNALS-STORE-STATE.md:691` | — | adoption-lane-rollback.test.ts×1 | - **RUL-8 — SPEC'D (2026-08-17): §6 rewrite, resolves O2.** Per-transaction |
+| RUL-9 | resolved | `docs/INTERNALS-STORE-STATE.md:694` | — | — | - **RUL-9 — RESOLVED (2026-08-17, parity by construction).** Every piece of |
+| RUL-10 | live | `docs/INTERNALS-STORE-STATE.md:699` | — | — | - **RUL-10 — The equality trio.** One precise rule needed spanning: no-op |
+| RUL-11 | live | `docs/INTERNALS-STORE-STATE.md:705` | — | — | - **RUL-11 — SPEC'D (2026-08-17): §6d.** Sticky descendants flag ported from |
+| RUL-12 | live | `docs/INTERNALS-STORE-STATE.md:707` | store.ts×1 types.ts×1 | createProjection.async.test.ts×1 shared-child-multiparent.test.ts×1 | - **RUL-12 — Smaller rulings, each with a proposed default** (proceeding on |
+| RUL-13 | resolved | `docs/INTERNALS-STORE-STATE.md:753` | — | — | - **RUL-13 — RESOLVED (verified 2026-08-16)**: `optimistic-lane-transaction- |
 ## R — core-store (`CS-R<n>`)
 
 | id | status | defined | cited in src | cited in tests | statement (at definition) |
@@ -390,10 +390,10 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | §6c | live | `docs/INTERNALS-STORE-STATE.md:356` | — | createProjection.async.test.ts×1 flight-owned-transaction.test.ts×1 | Store-wide status gating (RUL-7) |
 | §6d | live | `docs/INTERNALS-STORE-STATE.md:369` | reconcile.ts×2 target.ts×2 | — | Diff reachability (RUL-11) |
 | §7 | live | `docs/INTERNALS-STORE-STATE.md:381` | optimistic.ts×1 projection.ts×1 | — | Projections & optimism layering |
-| §7b | live | `docs/INTERNALS-STORE-STATE.md:391` | scheduler.ts×1 affects.ts×1 optimistic.ts×2 projection.ts×1 reconcile.ts×1 store.ts×8 target.ts×4 | optimistic-chained-revert-3672-memo.test.ts×1 optimistic-removed-prop-3883.test.ts×1 | Chained backing (cross-store) — spec |
-| §8 | live | `docs/INTERNALS-STORE-STATE.md:462` | — | l2-contract.test.ts×1 reconcile-resend-identity.test.ts×1 | Assumptions / open questions |
-| §8b | live | `docs/INTERNALS-STORE-STATE.md:518` | — | — | Suite-mined rules (2026-08-16) — index & rulings needed |
-| §9 | live | `docs/INTERNALS-STORE-STATE.md:754` | — | — | Decision log |
+| §7b | live | `docs/INTERNALS-STORE-STATE.md:391` | scheduler.ts×1 affects.ts×1 optimistic.ts×2 projection.ts×1 reconcile.ts×2 store.ts×9 target.ts×4 | projection-proxy-then-array-4361.test.ts×1 optimistic-chained-revert-3672-memo.test.ts×1 optimistic-removed-prop-3883.test.ts×1 | Chained backing (cross-store) — spec |
+| §8 | live | `docs/INTERNALS-STORE-STATE.md:466` | — | l2-contract.test.ts×1 reconcile-resend-identity.test.ts×1 | Assumptions / open questions |
+| §8b | live | `docs/INTERNALS-STORE-STATE.md:522` | — | — | Suite-mined rules (2026-08-16) — index & rulings needed |
+| §9 | live | `docs/INTERNALS-STORE-STATE.md:758` | — | — | Decision log |
 | §11 | live | `docs/NODE-SHAPE.md:29` | — | — | Stage 3 opener: the core tax map (2026-08-21) |
 | §11b | live | `docs/NODE-SHAPE.md:53` | constants.ts×1 | rules-index.test.ts×1 treeshake.test.ts×1 | Presence bits — hot-path monomorphism |
 | §11c | live | `docs/NODE-SHAPE.md:72` | — | — | Stage-3 increment log |
