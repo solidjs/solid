@@ -60,7 +60,7 @@ import {
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { ext, stagedRead, tracking } from "./core.js";
-import { NotReadyError } from "./error.js";
+import { NotReadyError, type StatusError } from "./error.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
@@ -540,6 +540,17 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
         )
           n._config |= CONFIG_INPUTS_PUBLISHED;
         if (shown !== NOT_PENDING && (!n._equals || !n._equals(shown, n._value))) insertSubs(n);
+        // A stale reader's own error — its pass threw over the committed
+        // value of a flight the parent held (A10), served as the screen — is
+        // no answer of the world landing now: it re-derives on it (A15;
+        // D-39, the landing is the new answer). The landing's `reruns` skips
+        // an errored reader: its error is an errored source's (#3945).
+        if (
+          (n as Computed<any>)._flags & REACTIVE_FRAME_READ &&
+          (n as Computed<any>)._statusFlags & STATUS_ERROR &&
+          (x._error as StatusError).source === n
+        )
+          enqueueSub(n as Computed<any>);
       }
     } else if (guess) {
       // A guess of a dissolving lane: its truth — a landing held beneath it,
