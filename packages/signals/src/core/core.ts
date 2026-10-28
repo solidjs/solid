@@ -1214,7 +1214,7 @@ export function bornInto(c: Computed<any>, t: Transaction): unknown {
 
 /** The computed whose pass a creation under `owner` belongs to (a root's is
  * its nearest computed ancestor's), or null outside every pass. */
-function creatorPass(owner: Owner | null): Computed<any> | null {
+export function creatorPass(owner: Owner | null): Computed<any> | null {
   return owner !== null && (owner as Root)._root
     ? (owner as Root)._parentComputed
     : (owner as Computed<any> | null);
