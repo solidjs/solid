@@ -49,6 +49,8 @@ export interface Scenario {
   memos: MemoDef[]; // 0..3
   tree: Node; // rendered under a root Errored > Loading
   steps: Step[];
+  /** Memos created inside the root component instead of at module level. */
+  owned?: boolean;
 }
 
 const VALUES = 4;
@@ -213,5 +215,5 @@ export function describeScenario(s: Scenario): string {
                 : "t"
     )
     .join(" ");
-  return `[${s.signals.map((v, i) => `s${i}=${v}`).join(" ")}${memos ? " " + memos : ""}] ${describeNode(s.tree)} :: ${steps}`;
+  return `${s.owned ? "owned " : ""}[${s.signals.map((v, i) => `s${i}=${v}`).join(" ")}${memos ? " " + memos : ""}] ${describeNode(s.tree)} :: ${steps}`;
 }

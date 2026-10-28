@@ -113,6 +113,7 @@ function edits(sc: Scenario): Scenario[] {
         set({ ...m, deps: m.deps.map((x, j) => (j === k ? { ...x, how: "plain" } : x)) });
     });
   });
+  if (sc.owned) out.push({ ...sc, owned: undefined });
   // Signals: drop an unreferenced last signal.
   const last = sc.signals.length - 1;
   if (

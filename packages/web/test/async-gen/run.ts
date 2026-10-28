@@ -20,6 +20,7 @@ import {
   action,
   createMemo,
   createSignal,
+  createStore,
   flush,
   isPending,
   latest,
@@ -34,10 +35,30 @@ export type Finding = {
   step: number;
   detail: string;
 };
-export type Variant = { split?: boolean; grouped?: boolean };
+/**
+ * Rewrites that must not change any screen (the equivalence pairs):
+ * `split`/`grouped` force one effect per attribute or one per leaf (E1);
+ * `identity` reads every memo through an identity memo and `inertErrored`
+ * wraps the tree in an Errored that shows what the root one would (E2);
+ * `store` reads every memo through a derived store `{ v }` (E3);
+ * `autoFlush` flushes after every step (E6, final screen only);
+ * `owned` overrides where the memos are created.
+ */
+export type Variant = {
+  split?: boolean;
+  grouped?: boolean;
+  identity?: boolean;
+  inertErrored?: boolean;
+  store?: boolean;
+  autoFlush?: boolean;
+  owned?: boolean;
+};
 export interface Result {
   findings: Finding[];
   screens: string[];
+  /** Whether each screen is a settle point (after the first render, a task
+   * step, the end): where equivalence pairs are compared. */
+  settled: boolean[];
   final: string;
   expected: string;
   description: string;
@@ -88,42 +109,58 @@ function buildApp(
   const sigs = values.map(v => createSignal(v));
   const memos: (() => any)[] = [];
   const get = (r: SrcRef): (() => any) => (r.k === "s" ? sigs[r.i][0] : memos[r.i]);
-  sc.memos.forEach((m, i) => {
-    const input = () =>
-      m.deps.reduce(
-        (acc, d) => acc + Number(d.how === "latest" ? latest(get(d.src)) : get(d.src)()),
-        1
-      );
-    if (m.async && !fresh) {
-      memos.push(
-        createMemo(() => {
-          const v = input();
-          return new Promise<number>((resolve, reject) => {
-            flights.push({
-              label: `m${i}:${v}`,
-              value: v,
-              rejects: poisoned(m.poison, v),
-              resolve,
-              reject
+  // What the tree reads a memo through: the memo, an identity memo of it, or
+  // a derived store's `v`.
+  const views: (() => any)[] = [];
+  const view = (r: SrcRef): (() => any) => (r.k === "s" ? sigs[r.i][0] : views[r.i]);
+  const makeMemos = () =>
+    sc.memos.forEach((m, i) => {
+      const input = () =>
+        m.deps.reduce(
+          (acc, d) => acc + Number(d.how === "latest" ? latest(get(d.src)) : get(d.src)()),
+          1
+        );
+      if (m.async && !fresh) {
+        memos.push(
+          createMemo(() => {
+            const v = input();
+            return new Promise<number>((resolve, reject) => {
+              flights.push({
+                label: `m${i}:${v}`,
+                value: v,
+                rejects: poisoned(m.poison, v),
+                resolve,
+                reject
+              });
             });
-          });
-        })
-      );
-    } else {
-      memos.push(
-        createMemo(() => {
-          const v = input();
-          if (poisoned(m.poison, v)) throw new Error(`m${i}:${v}`);
-          return v;
-        })
-      );
-    }
-  });
+          })
+        );
+      } else {
+        memos.push(
+          createMemo(() => {
+            const v = input();
+            if (poisoned(m.poison, v)) throw new Error(`m${i}:${v}`);
+            return v;
+          })
+        );
+      }
+      const x = memos[i];
+      if (variant.identity) views.push(createMemo(() => x()));
+      else if (variant.store) {
+        const [store] = createStore<{ v?: number }>(d => {
+          d.v = x();
+        }, {});
+        views.push(() => store.v);
+      } else views.push(x);
+    });
+  const owned = variant.owned ?? !!sc.owned;
+  if (!owned) makeMemos();
   const read = (r: Read) => {
-    const x = get(r.src);
+    const x = view(r.src);
     return r.how === "plain" ? x() : r.how === "latest" ? latest(x) : isPending(x);
   };
-  const text = (r: Read) => `${r.how[0]}${r.src.k}${r.src.i}:${String(read(r))} `;
+  const prefix = { plain: "v", latest: "l", pending: "p" } as const;
+  const text = (r: Read) => `${prefix[r.how]}${r.src.k}${r.src.i}:${String(read(r))} `;
 
   function renderNode(n: Node): any {
     switch (n.t) {
@@ -181,16 +218,20 @@ function buildApp(
     }
   }
 
-  const app = () =>
+  const rootErrored = (children: () => any) =>
     createComponent(Errored, {
       fallback: (e: () => any) => (errors.push(errText(e)), "[ROOT-E]"),
       get children() {
-        return createComponent(Loading, {
-          fallback: "[ROOT-L]",
-          get children() {
-            return renderNode(sc.tree);
-          }
-        });
+        return children();
+      }
+    });
+  const app = () => rootErrored(() => (variant.inertErrored ? rootErrored(loading) : loading()));
+  const loading = () =>
+    createComponent(Loading, {
+      fallback: "[ROOT-L]",
+      get children() {
+        if (owned) makeMemos();
+        return renderNode(sc.tree);
       }
     });
   return { sigs, app };
@@ -218,6 +259,7 @@ function settleAt(flights: Flight[], index: number) {
 export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<Result> {
   const findings: Finding[] = [];
   const screens: string[] = [];
+  const settled: boolean[] = [];
   const flights: Flight[] = [];
   const values = [...sc.signals];
   const errors: string[] = [];
@@ -279,6 +321,7 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
       flush();
     });
     screens.push(serialize(el));
+    settled.push(true);
 
     for (step = 0; step < sc.steps.length; step++) {
       const st = sc.steps[step];
@@ -315,8 +358,10 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
           guard("throw", flush);
           break;
       }
+      if (variant.autoFlush) guard("throw", flush);
       const screen = serialize(el);
       screens.push(screen);
+      settled.push(st.t === "task");
       // A read of an async value is its value or a throw (NotReady, the
       // error) — never undefined. NaN is undefined + 1 in a memo.
       if (/NaN|undefined/.test(screen) && !findings.some(f => f.law === "undefined-value"))
@@ -369,5 +414,5 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
     console.error = origError;
     console.warn = origWarn;
   }
-  return { findings, screens, final, expected, description: describeScenario(sc) };
+  return { findings, screens, settled, final, expected, description: describeScenario(sc) };
 }
