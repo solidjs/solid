@@ -1,5 +1,5 @@
 /**
- * `mapArray` over a shallow store diffs the store's backing (hooks.ts
+ * `mapArray` over a shallow store diffs the store's backing (types.ts
  * `shallowView`) instead of reading every slot through the proxy. A shallow
  * store's slots are raw records, so the backing the container read serves is
  * what each slot read would serve; these pin that the list sees the same

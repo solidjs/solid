@@ -12,8 +12,7 @@ import {
 } from "./core/index.js";
 import { accessor, type Accessor } from "./signals.js";
 import { attrHooks } from "./core/attribution-hooks.js";
-import { $TARGET, $TRACK } from "./store/types.js";
-import { shallowView } from "./store/hooks.js";
+import { $TARGET, $TRACK, shallowView } from "./store/types.js";
 
 export type Maybe<T> = T | void | null | undefined | false;
 
@@ -408,7 +407,7 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
   (newItems as any)[$TRACK]; // top level tracking (a store array's container node)
   // A shallow store array diffs its backing: its slots are raw records, and
   // a trap per slot read was most of a one-row write on a 1k-row list.
-  if (shallowView !== null) newItems = shallowView((newItems as any)[$TARGET]) ?? newItems;
+  newItems = shallowView?.((newItems as any)[$TARGET]) ?? newItems;
   const newLen = newItems.length;
 
   runWithOwner(this._owner, () => {

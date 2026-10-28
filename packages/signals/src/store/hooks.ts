@@ -58,12 +58,3 @@ export let affectsHooks: AffectsHooks | null = null;
 export function installAffectsHooks(hooks: AffectsHooks): void {
   affectsHooks = hooks;
 }
-
-/** The list driver's view of a shallow store (map.ts): the backing a read of
- * every slot serves this reader, or `undefined` when the list is no shallow
- * store or a slot read could differ from it. Installed by store.ts's top
- * level, so a `<For>` in an app without stores carries none of it. */
-export let shallowView: ((t: StoreTarget | undefined) => any[] | undefined) | null = null;
-export function installShallowView(view: (t: StoreTarget | undefined) => any[] | undefined): void {
-  shallowView = view;
-}
