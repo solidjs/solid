@@ -3,7 +3,13 @@
 // retain the lane engine: its reads reach these only through `laneRead`,
 // which exists once something installs lanes (`createOptimistic`, verdicts).
 
-import { CONFIG_AUTHORITATIVE, CONFIG_GUESS, CONFIG_OVERRIDE, NOT_PENDING } from "./constants.js";
+import {
+  CONFIG_AUTHORITATIVE,
+  CONFIG_GUESS,
+  CONFIG_OVERRIDE,
+  NOT_PENDING,
+  STATUS_UNINITIALIZED
+} from "./constants.js";
 import { NotReadyError } from "./error.js";
 import { enqueueSub } from "./heap.js";
 import type { Transaction } from "./scheduler.js";
@@ -11,11 +17,15 @@ import type { Computed, Signal } from "./types.js";
 
 /** A lane node's current value: its guess, or the latest it derived — the
  * staging a shown lane holds for its next reveal, else its slot; the
- * committed value while it has none (its first lane pass in flight). */
+ * committed value while it has none (its first lane pass in flight) —
+ * NOT_PENDING for a node with no committed value either (born in the lane,
+ * uninitialized: its reads throw NotReady, A7; #4363). */
 export function laneValueOf(el: Signal<any> | Computed<any>): unknown {
   if (!(el._config & CONFIG_GUESS) && el._pendingValue !== NOT_PENDING) return el._pendingValue;
   const v = el._x!._lane;
-  return v !== NOT_PENDING ? v : el._value;
+  return v !== NOT_PENDING || (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
+    ? v
+    : el._value;
 }
 /** Truth readers (`until`, `refresh`; CONFIG_AUTHORITATIVE) — pay-for-use:
  * the first one installs these on GlobalQueue (signals.ts `watch`).
