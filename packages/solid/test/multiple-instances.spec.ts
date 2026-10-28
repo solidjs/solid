@@ -16,10 +16,47 @@ function duplicateWarnings(warn: { mock: { calls: unknown[][] } }) {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  globalThis.Solid$$running = undefined;
+  if (globalThis.Solid$$copies) globalThis.Solid$$copies.running = undefined;
 });
 
 describe("multiple instance check", () => {
+  test("a lone copy never writes the shared slot until a second copy loads", async () => {
+    delete globalThis.Solid$$copies;
+    const a = await loadCopy();
+    const seen: unknown[] = [];
+    const render = () =>
+      a.createRoot(dispose => {
+        a.createComponent(() => {
+          seen.push(globalThis.Solid$$copies?.running);
+          return null as any;
+        }, {});
+        dispose();
+      });
+    render();
+    expect(seen).toEqual([undefined]);
+    await loadCopy();
+    render();
+    expect(seen[1]).toBeDefined();
+    expect(globalThis.Solid$$copies?.running).toBeUndefined();
+  });
+
+  test("any copy that follows the shared record's contract is caught, whatever its version", async () => {
+    // A stand-in for a later Solid: it only counts itself in and names itself
+    // as running, as the contract in @solidjs/signals core/copies.ts says.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    delete globalThis.Solid$$copies;
+    const a = await loadCopy();
+    const [count] = a.createSignal(0);
+    const record = globalThis.Solid$$copies!;
+    record.copies++;
+    const prev = record.running;
+    record.running = { rooted: false };
+    count();
+    record.running = prev;
+    record.copies--;
+    expect(duplicateWarnings(warn)).toHaveLength(1);
+  });
+
   test("loading two copies does not warn by itself, and leaves v1's Solid$$ alone", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     delete (globalThis as any).Solid$$;
@@ -86,7 +123,7 @@ describe("multiple instance check", () => {
       dispose();
     });
     expect(duplicateWarnings(warn)).toHaveLength(0);
-    expect(globalThis.Solid$$running).toBeUndefined();
+    expect(globalThis.Solid$$copies?.running).toBeUndefined();
   });
 
   test("precompiled JSX on another copy reading this copy's signal warns", async () => {
@@ -160,6 +197,6 @@ describe("multiple instance check", () => {
       dispose();
     });
     expect(duplicateWarnings(warn)).toHaveLength(0);
-    expect(globalThis.Solid$$running).toBeUndefined();
+    expect(globalThis.Solid$$copies?.running).toBeUndefined();
   });
 });

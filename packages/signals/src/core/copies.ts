@@ -11,8 +11,16 @@
  * own root, an isolated widget) are fine at any version, so nothing is
  * checked when a copy loads.
  *
- * Every copy from 2.0 on shares one global slot naming the copy whose
- * computation or component is running. v1 keeps its own load-time `Solid$$`
+ * Every copy from 2.0 on shares one global record, `Solid$$copies`. It is a
+ * contract between all future versions of Solid, so its shape never changes:
+ *
+ * - `copies`: each copy adds 1 when it loads.
+ * - `running`: while `copies > 1`, each copy names itself here (an object
+ *   with a `rooted` boolean, compared by identity) around its computations
+ *   and components, and restores the previous value after.
+ *
+ * A copy that sees `copies < 2` skips the slot entirely, so a page with one
+ * copy pays one property read per check. v1 keeps its own load-time `Solid$$`
  * check, which this never sets, so neither side warns about the other.
  */
 interface SolidCopy {
@@ -20,12 +28,23 @@ interface SolidCopy {
   rooted: boolean;
 }
 
+interface SolidCopies {
+  copies: number;
+  running: SolidCopy | undefined;
+}
+
 declare global {
-  var Solid$$running: SolidCopy | undefined;
+  var Solid$$copies: SolidCopies | undefined;
 }
 
 const COPY: SolidCopy = { rooted: false };
 let warned = false;
+let shared: SolidCopies;
+
+if (__DEV__) {
+  shared = globalThis.Solid$$copies ||= { copies: 0, running: undefined };
+  shared.copies++;
+}
 
 function warnOnce(detail: string): void {
   if (warned) return;
@@ -44,17 +63,19 @@ export function markCopyRooted(): void {
  * nested run of the same copy (most runs inside a flush) only reads the slot.
  */
 export function enterCopy(): SolidCopy | undefined {
-  const prev = globalThis.Solid$$running;
-  if (prev !== COPY) globalThis.Solid$$running = COPY;
+  if (!__DEV__ || shared.copies < 2) return COPY;
+  const prev = shared.running;
+  if (prev !== COPY) shared.running = COPY;
   return prev;
 }
 
 export function exitCopy(prev: SolidCopy | undefined): void {
-  if (prev !== COPY) globalThis.Solid$$running = prev;
+  if (prev !== COPY) shared.running = prev;
 }
 
 /** @internal Runs `fn` with this copy marked as the one running. */
 export function runAsSolidCopy<T>(fn: () => T): T {
+  if (!__DEV__ || shared.copies < 2) return fn();
   const prev = enterCopy();
   try {
     return fn();
@@ -65,7 +86,8 @@ export function runAsSolidCopy<T>(fn: () => T): T {
 
 /** @internal An ownerless component or context read: warns if another copy is running. */
 export function checkForeignOwnerless(): void {
-  const running = globalThis.Solid$$running;
+  if (!__DEV__ || shared.copies < 2) return;
+  const running = shared.running;
   if (running && running !== COPY)
     warnOnce(
       "a component or useContext() from one copy ran inside a component rendered by another, so it has no owner and will not react or find its providers."
@@ -78,7 +100,8 @@ export function checkForeignOwnerless(): void {
  * isolated copy's API, which reads its own state untracked by design).
  */
 export function checkForeignRead(): void {
-  const running = globalThis.Solid$$running;
+  if (!__DEV__ || shared.copies < 2) return;
+  const running = shared.running;
   if (running && running !== COPY && !(running.rooted && COPY.rooted))
     warnOnce(
       "a signal or store from one copy was read inside a computation of another, so the read is not tracked and will not update."
