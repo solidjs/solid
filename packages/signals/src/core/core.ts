@@ -1836,10 +1836,16 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
   if (height >= c._height && owner._parent !== c) c._height = height + 1;
 }
 
-export function read<T>(el: Signal<T> | Computed<T>): T {
-  if (__DEV__) DEV.hooks.onRead?.(el);
-  if (__DEV__ && !tracking) checkForeignRead();
-  if (__DEV__ && asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
+/**
+ * Dev only: a read's diagnostics — the devtools read hook, the foreign-read
+ * check and the post-await untracked-read check. Every caller guards with
+ * `__DEV__`: `read` here, and a store leaf's read that is served without
+ * `read` (`nodeValue`'s first landing), so no read goes unseen in dev.
+ */
+export function devRead(el: Signal<any> | Computed<any>): void {
+  DEV.hooks.onRead?.(el);
+  if (!tracking) checkForeignRead();
+  if (asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
     checkPostAwaitRead(
       el,
       el,
@@ -1848,6 +1854,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       ((el as any)._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) ===
         (STATUS_PENDING | STATUS_UNINITIALIZED)
     );
+}
+
+export function read<T>(el: Signal<T> | Computed<T>): T {
+  if (__DEV__) devRead(el);
 
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
