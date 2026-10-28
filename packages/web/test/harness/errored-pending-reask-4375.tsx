@@ -21,7 +21,8 @@ const RealPromise = Promise;
  * `latest`: `m0` reads `latest(s)` beside `s()` (the issue; without it, the
  * control). `inside`: the memos are created in the Loading's content, not
  * the shell. `slow`: a second Loading, still streaming, keeps hydration open
- * past the first boundary's resume (the spec writes `s` then).
+ * past the first boundary's resume (the spec writes `s` then). `show`: the
+ * reader sits under a `<Show>` in the boundary's content.
  */
 export type PendingReaskShape = {
   latest: boolean;
