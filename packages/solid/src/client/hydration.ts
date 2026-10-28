@@ -2589,8 +2589,11 @@ function fragmentSuperseded(id: string): boolean {
   const hy = (globalThis as any)._$HY;
   if (hy && hy.v && hy.v[id]) return false;
   if (document.getElementById(id)) return false;
-  return !!document.getElementById("pl-" + id);
+  return !!placeholder(id);
 }
+
+/** A fragment's `pl-*` placeholder, while its range is still in the document. */
+const placeholder = (id: string) => document.getElementById("pl-" + id);
 
 /**
  * A settled declaration whose swap has not run yet: its content template and
@@ -2600,7 +2603,7 @@ function fragmentSuperseded(id: string): boolean {
 function fragmentParked(id: string): boolean {
   const hy = (globalThis as any)._$HY;
   if (hy && hy.v && hy.v[id]) return false;
-  return !!document.getElementById(id) && !!document.getElementById("pl-" + id);
+  return !!document.getElementById(id) && !!placeholder(id);
 }
 
 function whenRevealed(id: string, cb: () => void) {
@@ -3028,8 +3031,8 @@ function hydratedCreateLoadingBoundary<T, U>(
       // adopts it.
       const revealed = hy.v?.[id];
       // The region the claimed fallback stands in, read before a swap takes
-      // the placeholder range.
-      const region = revealed ? null : document.getElementById("pl-" + id)?.parentNode;
+      // the placeholder range (none once revealed).
+      const region = placeholder(id)?.parentNode;
       waitAndResume(
         fr,
         shouldHydrate =>
