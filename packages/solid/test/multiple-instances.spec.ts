@@ -10,6 +10,11 @@ async function loadCopy(): Promise<Solid> {
   return import("../src/index.js");
 }
 
+/** Starts from a page where no 2.x copy has loaded yet. */
+function forgetCopies(): void {
+  delete globalThis.Solid$$copies;
+}
+
 function duplicateWarnings(warn: { mock: { calls: unknown[][] } }) {
   return warn.mock.calls.filter(args => String(args[0]).includes(MESSAGE));
 }
@@ -21,7 +26,7 @@ afterEach(() => {
 
 describe("multiple instance check", () => {
   test("a lone copy never writes the shared slot until a second copy loads", async () => {
-    delete globalThis.Solid$$copies;
+    forgetCopies();
     const a = await loadCopy();
     const seen: unknown[] = [];
     const render = () =>
@@ -44,7 +49,7 @@ describe("multiple instance check", () => {
     // A stand-in for a later Solid: it only counts itself in and names itself
     // as running, as the contract in @solidjs/signals core/copies.ts says.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    delete globalThis.Solid$$copies;
+    forgetCopies();
     const a = await loadCopy();
     const [count] = a.createSignal(0);
     const record = globalThis.Solid$$copies!;
