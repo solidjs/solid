@@ -412,8 +412,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       if (latestActive && l.folded) return l.folded(null, el);
       return el._x!._lane;
     }
-    if (probing && flying) probeFound = true;
-    return latestActive && !flying ? laneValueOf(el) : display(el);
+    // NOT_PENDING: a node born in the lane with nothing in it yet has no
+    // value in either view — loading, not pending: NotReady below (A7, A19
+    // exc. 1; #4363).
+    const v = latestActive && !flying ? laneValueOf(el) : display(el);
+    if (v !== NOT_PENDING) {
+      if (probing && flying) probeFound = true;
+      return v;
+    }
   }
   // Dev strict-read scopes (a component body, an effect callback) warn on a
   // verdict read as on any untracked read; the pending throw they add for a

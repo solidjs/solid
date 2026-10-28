@@ -40,7 +40,8 @@ import {
   Repeat,
   NoHydration,
   createContext,
-  children
+  children,
+  latest
 } from "solid-js";
 import {
   Portal,
@@ -3196,6 +3197,37 @@ export const lazyErroredName = (shape: LazyErroredShape) => `errored-lazy-conten
 export const setLazyErroredKey = (shape: LazyErroredShape, v: string) =>
   lazyErroredKeys.get(shape)!(v);
 
+// #4376: a chain of async memos over `latest()` of the one before, under
+// Errored > Loading. The server streams all three answers; a client that
+// hydrates the shell before the chunks arrive adopts each by id and asks
+// nothing (no refetch before the first client write) — `latest(m1)` in
+// `m2`'s compute is NotReady until `m1`'s answer is adopted, never
+// `undefined` (A7).
+export const latestChainAsks: string[] = [];
+let setLatestChainSource!: (v: number) => void;
+export const setLatestChain = (v: number) => setLatestChainSource(v);
+function LatestChain4376() {
+  const [s, setS] = createSignal(3);
+  setLatestChainSource = setS;
+  const ask = async (name: string, v: number) => {
+    if (!isServer && Promise === RealPromise) latestChainAsks.push(`${name}:${v}`);
+    await sleep(5);
+    return v;
+  };
+  const m0 = createMemo(() => ask("a", 1 + s()));
+  const m1 = createMemo(() => ask("b", 1 + latest(m0)));
+  const m2 = createMemo(() => ask("c", 1 + latest(m1)));
+  return (
+    <main>
+      <Errored fallback={() => "[ROOT-E]"}>
+        <Loading fallback="[ROOT-L]">
+          <span data-a={String(m2())}>{m2()}</span>
+        </Loading>
+      </Errored>
+    </main>
+  );
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
@@ -4220,5 +4252,13 @@ export const scenarios: Scenario[] = [
     expectedTextAfterUpdate: "active",
     stableSelector: "button, span",
     adoptAll: true
+  },
+  {
+    name: "latest-chain-hydration-4376",
+    App: LatestChain4376,
+    expectedText: "6",
+    async: true,
+    update: () => setLatestChain(4),
+    expectedTextAfterUpdate: "7"
   }
 ];
