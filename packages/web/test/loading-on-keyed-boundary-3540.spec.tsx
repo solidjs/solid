@@ -127,11 +127,20 @@ describe("Loading `on` beside a keyed Show around the boundary; a boundary is ne
   // first landing, mid-flight, after the second landing]. Static and callback
   // children are re-evaluated by `Show` at the key change: one more mount,
   // mid-flight. `on` never remounts.
+  // Over `latest(count)` that is two mounts mid-flight (design ruling R-5,
+  // #4365): `latest()` opens no transaction for its verdict, so the
+  // condition's first pass is the frame's — `Show` mounts A for key 2 in the
+  // frame, and the frame parks on data, holding that mount. The parked flush
+  // re-runs the `latest()` reader once in the verdict lane, and `Show` mounts
+  // A again there: the lane's mount is the one shown (the early fallback),
+  // and the held frame's is discarded at the lane's reveal. (Before R-5 the
+  // read opened the flush's transaction and seated the pass in the lane at
+  // once: one mount.)
   // (A zero-arg function child is an accessor — evaluated once, not remounted
   // per key — and is deliberately not pinned here.)
   const matrix: Array<[Variant, string, [number, number, number], string[]]> = [
-    ["show-static-latest", EARLY, [1, 2, 2], []],
-    ["show-callback-latest", EARLY, [1, 2, 2], []],
+    ["show-static-latest", EARLY, [1, 3, 3], []],
+    ["show-callback-latest", EARLY, [1, 3, 3], []],
     ["show-static-committed", HELD, [1, 2, 2], []],
     ["show-callback-committed", HELD, [1, 2, 2], []],
     ["on-committed", HELD, [0, 0, 0], ["LOADING_ON_OUTSIDE_HOLD"]],

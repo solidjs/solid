@@ -351,13 +351,17 @@ describe("Loading `on` beside a keyed Show around the boundary (#3540)", () => {
       flush();
       expect(t.snapshot()).toBe("2|2|2");
       seen.push(t.mounts());
-      // A keyed Show remounts ONCE at the key change — over `latest(count)`
-      // mid-flight, over `count()` at the landing. One pass: `latest()` of
-      // the staged key settles the reader's membership at once (the frame's
-      // transaction opens; verdict-lane work), so no provisional pass is
-      // voided and re-derived — the child is not mounted twice (#3540 web,
-      // `mounts [1, 2, 2]`). `on` never remounts.
-      expect(seen).toEqual(form === "on" ? [0, 0, 0] : [1, 2, 2]);
+      // A keyed Show remounts at the key change — over `count()` once, at
+      // the landing. Over `latest(count)` twice, mid-flight (design ruling
+      // R-5, #4365): `latest()` opens no transaction for its verdict, so the
+      // condition's first pass is the frame's — Show mounts A for key 2 in
+      // the frame, which parks on data and holds that mount. The parked
+      // flush re-runs the `latest()` reader once in the verdict lane and
+      // Show mounts A again there: the lane's mount is the one shown (the
+      // early fallback), the held frame's is discarded at the lane's reveal.
+      // (Before R-5 the read opened the flush's transaction and seated the
+      // pass in the lane at once: one mount, #3540 web.) `on` never remounts.
+      expect(seen).toEqual(form === "on" ? [0, 0, 0] : key === "latest" ? [1, 3, 3] : [1, 2, 2]);
       t.dispose();
       expect(warn).toHaveBeenCalledTimes(form === "on" && key === "committed" ? 1 : 0);
       warn.mockRestore();
