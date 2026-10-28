@@ -424,11 +424,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // children die below (`disposeChildren`). The landing re-derives a
         // fresh held frame for the reveal (`_reruns`).
         // Not held any more, whichever frame reader it is: its readers read
-        // the value this pass publishes — those that read the staging it
-        // supersedes re-derive, even when it publishes the committed value
-        // back (no change to notify them by): their held runs carry the
-        // superseded frame, and the landing would apply them (#4378).
-        if (el._pendingValue !== NOT_PENDING) insertSubs(el);
+        // the value this pass publishes.
         el._pendingValue = NOT_PENDING;
         el._config &= ~CONFIG_HELD;
       }
