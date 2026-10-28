@@ -102,6 +102,27 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { devTrackHeldPending } from "./invariants.js";
 import { cleanup, disposeChildren, inheritId, linkChild, markDisposal } from "./owner.js";
+// The reader seat's shadow (S0): reachable only under `__TEST__`
+// (documentation/plans/reader-seat-rebuild.md §3).
+import {
+  RAISE_FL,
+  RAISE_H,
+  SLOT_C,
+  SLOT_E,
+  SLOT_NONE,
+  SLOT_NR,
+  SLOT_P,
+  SLOT_SNAPSHOT,
+  shadowActual,
+  shadowExternalRaise,
+  shadowConsumeBypass,
+  shadowEnter,
+  shadowExpect,
+  shadowLeave,
+  shadowSeatClose,
+  shadowSeatOpen,
+  shadowThrown
+} from "./seat.js";
 import {
   notifyEpoch,
   bumpNotifyEpoch,
@@ -350,6 +371,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // content creates is that mount's too (#4166). Lanes only, like the seat.
   const prevMount = laneRoot;
   const mount = laneStageHook && (laneRoot = create && (prevLane || prevMount));
+  // Shadow seat (S0): the node's own lane, as the seating below spells it.
+  const shadowOwnLane = __TEST__
+    ? (el._flags & REACTIVE_LANE_DIRTY ||
+        (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
+      el._x?._transaction?._lane
+      ? el._x._transaction
+      : null
+    : null;
   setPassLane(
     !laneStageHook
       ? null
@@ -482,6 +511,18 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       !el._x._reask
     );
 
+  // Shadow seat (S0): opened beside the seating at the head — after the
+  // held re-pass arm above, which is the pass's own hold work — and
+  // compared to it (documentation/plans/reader-seat-rebuild.md §3.2).
+  if (__TEST__)
+    shadowSeatOpen(
+      el,
+      create,
+      creatorPass(context),
+      shadowOwnLane,
+      mount,
+      !!((creatorPass(context)?._flags as number) & REACTIVE_JOINED)
+    );
   const oldcontext = context;
   context = el;
   el._depsTail = null;
@@ -605,6 +646,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           : 0
         : REACTIVE_JOINED)
     );
+    // Shadow seat (S0): the born-held decision beside the old one, then
+    // the seat is restored.
+    if (__TEST__)
+      shadowSeatClose(
+        el,
+        !!isEffect,
+        joined,
+        !!((creatorPass(oldcontext)?._flags as number) & REACTIVE_JOINED),
+        mount
+      );
     // A verdict reader is one for as long as it probes, or reads a memo
     // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
     // bit) is an ordinary derivation again.
@@ -1129,6 +1180,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * boundary's, not the tick's (A29's boundary exemption, #3540). */
 export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
   c._flags |= REACTIVE_JOINED;
+  if (__TEST__) shadowExternalRaise(c, RAISE_H);
   // A new memo's first pass is the hold's work (born held) but not the
   // tick's: a render effect that reads it decides — under a boundary that
   // catches it, the boundary's; otherwise the tick joins the hold (#3540:
@@ -1148,6 +1200,7 @@ export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): voi
  * `foldedRead`, D-34) — a reader is never a render effect there. */
 export function joinPassAt(c: Computed<any>, t: Transaction): void {
   c._flags |= REACTIVE_JOINED;
+  if (__TEST__) shadowExternalRaise(c, RAISE_H);
   joinPassTx(t, (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || freshHook?.(c));
 }
 
@@ -1833,6 +1886,10 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
 }
 
 export function read<T>(el: Signal<T> | Computed<T>): T {
+  // Shadow (S0): every read is run through `shadowRead`, which re-enters
+  // here once (the bypass) and compares the slot the table predicts with
+  // the one the deciders below chose.
+  if (__TEST__ && !shadowConsumeBypass()) return shadowRead(el);
   if (__DEV__) DEV.hooks.onRead?.(el);
   if (__DEV__ && !tracking) checkForeignRead();
   if (__DEV__ && asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
@@ -1869,6 +1926,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !(el._config & CONFIG_OVERRIDE) && // lanes: the slow path's one arm
     (!__DEV__ || !strictRead)
   ) {
+    if (__TEST__) shadowExpect(c as Computed<any> | null, el, tracking, 0, spectating, false);
     if (c) {
       if (tracking) link(el, c as Computed<any>);
       // L2: a pass that reads something already in the future joins it —
@@ -1882,22 +1940,30 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       // future (REACTIVE_JOINED): a first pass that did is born held (A29),
       // wherever it was created. Lane work sees the screen (`frameRead`).
       if (el._config & CONFIG_HELD && !(c._config & CONFIG_CHILDREN_FORBIDDEN)) {
-        if (frameRead(c as Computed<any>, el)) return el._value as T;
+        if (frameRead(c as Computed<any>, el)) {
+          if (__TEST__) shadowActual(SLOT_C);
+          return el._value as T;
+        }
         joinPass(c as Computed<any>, el);
       }
     }
     // Committed visibility for untracked and children-forbidden readers.
-    if (!c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN)
+    if (!c || el._pendingValue === NOT_PENDING || c._config & CONFIG_CHILDREN_FORBIDDEN) {
+      if (__TEST__) shadowActual(SLOT_C);
       return el._value as T;
+    }
     // (A plain signal is never uninitialized — the carve-out is `serve`'s.)
     // Lane work over a folded lane (D-34), once the frame has a
     // transaction, reads the screen too.
     if (
       ((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
       stagedScreen(c as Computed<any>)
-    )
+    ) {
+      if (__TEST__) shadowActual(SLOT_C);
       return el._value as T;
+    }
     stagedRead(c as Computed<any>);
+    if (__TEST__) shadowActual(SLOT_P);
     return el._pendingValue as T;
   }
 
@@ -1924,6 +1990,18 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         if (!(c as any)._type) (c as Computed<any>)._flags |= owner._config & CONFIG_VERDICT;
       }
     }
+    if (__TEST__)
+      shadowExpect(
+        c as Computed<any>,
+        el,
+        tracking,
+        0,
+        spectating,
+        snapshotCaptureActive &&
+          ((c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) !== 0 &&
+          el._x?._snapshotValue !== undefined &&
+          !(owner._statusFlags & STATUS_ERROR)
+      );
     // L2, as in the fast block above (tracked or not). A node born into the
     // future (uninitialized) has no committed value: every reader derives
     // from the future there, a render effect included (A29: a stale reader
@@ -1937,7 +2015,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         joinPass(c as Computed<any>, el);
       else committed = true;
     }
-  }
+  } else if (__TEST__) shadowExpect(null, el, tracking, 0, spectating, false);
   // Lanes: a lane's node (after the pull — the node is current). NOT_PENDING
   // falls through: lane work's read of a pending member throws like any.
   // (CONFIG_OVERRIDE is the lane engine's: no engine, no lane's node.)
@@ -1966,6 +2044,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
       const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
       if (current !== snapshot) (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
+      if (__TEST__) shadowActual(SLOT_SNAPSHOT);
       return snapshot as T;
     }
   }
@@ -2047,11 +2126,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // - owner._time < clock: only on a later cycle than the one the error was found
     if (tracking && (owner as Computed<any>)._time < clock) {
       recompute(owner as Computed<unknown>);
+      if (__TEST__) shadowActual(SLOT_E);
       return read(el);
     } else throw (owner as Computed<any>)._x?._error;
   }
 
-  if (committed) return el._value as T;
+  if (committed) {
+    if (__TEST__) shadowActual(SLOT_C);
+    return el._value as T;
+  }
   // D-41: an untracked read reads the screen, and a shown error is on it
   // until the answer that replaces it commits.
   if (!c && el._x?._shownError) throw el._x._shownError;
@@ -2099,20 +2182,45 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   const u = c && unflushedStaged ? unflushedValue(el) : NOT_PENDING;
   if (u !== NOT_PENDING) {
     markLateLinker(c!);
+    // (A held node's stash is its flushed staging: the staging's slot.)
+    if (__TEST__) shadowActual(el._config & CONFIG_HELD ? SLOT_P : SLOT_C);
     return u;
   }
-  if (readerSeesCommitted(el, c)) return el._value;
+  if (readerSeesCommitted(el, c)) {
+    if (__TEST__) shadowActual(SLOT_C);
+    return el._value;
+  }
   if (
     observeFlightHook &&
     c!._config & CONFIG_VERDICT &&
     !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
     stagedScreen(c!)
-  )
+  ) {
+    if (__TEST__) shadowActual(SLOT_C);
     return el._value;
+  }
   stagedRead(c!, el);
   // D-41: the staged answer is an error (`stageError`).
   if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
+  if (__TEST__) shadowActual(SLOT_P);
   return el._pendingValue;
+}
+
+/** Shadow (S0, `seat.ts`): run `read` once for real and compare the slot it
+ * served with the table's prediction recorded at the decision point. A
+ * throw is a slot too: NotReady is NR, anything else E. */
+function shadowRead<T>(el: Signal<T> | Computed<T>): T {
+  shadowEnter();
+  let thrown = SLOT_NONE;
+  try {
+    return read(el);
+  } catch (e) {
+    thrown = e instanceof NotReadyError ? SLOT_NR : SLOT_E;
+    shadowThrown(e);
+    throw e;
+  } finally {
+    shadowLeave(thrown);
+  }
 }
 
 /** A pass read a staging of this flush: it derives from what the flush may
@@ -2133,6 +2241,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
 export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): void {
   if (!((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)) {
     c._flags |= REACTIVE_STAGED_READ;
+    if (__TEST__) shadowExternalRaise(c, RAISE_FL);
     if (laneSeamsHook && passLane !== null) stagedReaders.push(c);
   }
 }

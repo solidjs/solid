@@ -60,6 +60,7 @@ import {
 } from "./core/constants.js";
 import { computed, read, recompute, runWithOwner, setSignal, signal } from "./core/core.js";
 import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
+import { shadowSwapSeat } from "./core/seat.js";
 import { NotReadyError, unwrapStatusError } from "./core/error.js";
 import { reportClientError } from "./core/error-hooks.js";
 import { link } from "./core/graph.js";
@@ -793,6 +794,7 @@ function fallback<T>(b: Boundary): T {
   // lane read by construction (REACTIVE_LANE_READ: `recompute`'s tail keeps
   // the pass in the lane).
   if (b._lane !== null) {
+    if (__TEST__) shadowSwapSeat(out, b._lane);
     setPassLane(b._lane);
     out._flags |= REACTIVE_LANE_READ;
     b._lane = null;

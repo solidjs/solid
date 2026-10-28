@@ -66,6 +66,7 @@ import {
   type Transaction,
   installVerdictHooks
 } from "./scheduler.js";
+import { SLOT_C, SLOT_DV, SLOT_LV, SLOT_P, shadowActual, shadowExpect } from "./seat.js";
 import type { Computed, Signal } from "./types.js";
 
 /** A verdict reader whose answer this flush could not give yet: the node it
@@ -387,6 +388,8 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     if ((el as any)._fn) pullComputed(owner, c);
   }
   setVerdict(verdictValue);
+  // Shadow (S0): the window's decision point — the rows Vl*/Vp*.
+  if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, false);
   // A live `affects()` mark on the node or a dependency (affects.ts): not
   // final by declaration — the value itself is read as below. The verdict is
   // display-ahead like any: in a transaction's flush (the declaring action's
@@ -412,10 +415,15 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         probeFound = true;
       // A lane a correction folded under (D-34): `latest()` shows the hold's
       // world whole — the truth beneath each guess, else what it covered.
-      if (latestActive && l.folded) return l.folded(null, el);
+      if (latestActive && l.folded) {
+        if (__TEST__) shadowActual(el._pendingValue !== NOT_PENDING ? SLOT_P : SLOT_C);
+        return l.folded(null, el);
+      }
+      if (__TEST__) shadowActual(SLOT_LV);
       return el._x!._lane;
     }
     if (probing && flying) probeFound = true;
+    if (__TEST__) shadowActual(latestActive && !flying ? SLOT_LV : SLOT_DV);
     return latestActive && !flying ? laneValueOf(el) : display(el);
   }
   // Dev strict-read scopes (a component body, an effect callback) warn on a
@@ -446,6 +454,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         flushTransaction !== t
       ) {
         staleReader(c!, t._verdict);
+        if (__TEST__) shadowActual(SLOT_C);
         return el._value;
       }
       if (tracked) verdictRead(c!, t);
@@ -455,8 +464,10 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         // from it: the two settle as one (A15; posture C, 2026-09-15). An
         // untracked read elsewhere has no transaction to entangle.
         if (!tracked && flushTransaction && !globalQueue._running) joinFuture(txOf(el));
+        if (__TEST__) shadowActual(SLOT_P);
         return heldLatest(el, tracked ? c : null);
       }
+      if (__TEST__) shadowActual(SLOT_C);
       return el._value;
     }
     // Born into the future: its staging is its only value. It has no
@@ -465,6 +476,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // has not shown content) and answers for the commit, where it is final.
     if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
       if (probing && owned) joinPass(c!, el);
+      if (__TEST__) shadowActual(SLOT_P);
       return staged(el);
     }
   } else if (el._pendingValue !== NOT_PENDING) {
@@ -482,14 +494,19 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       // A28: an unflushed write is not what `latest` serves; a tracked
       // reader derived from the flushed world runs again in the carrying
       // flush.
-      if (globalQueue._running) return staged(el);
+      if (globalQueue._running) {
+        if (__TEST__) shadowActual(SLOT_P);
+        return staged(el);
+      }
       if (c) markLateLinker(c);
     }
+    if (__TEST__) shadowActual(SLOT_C);
     return el._value;
   }
   if (owner._statusFlags & STATUS_PENDING) {
     if (!uninitialized) {
       pendingVerdict(tracked ? c : null, owner);
+      if (__TEST__) shadowActual(SLOT_C);
       return el._value;
     }
     // As `read()`: an untracked read of a pending node still re-runs its
@@ -499,6 +516,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     throw owner._x?._error;
   }
   if ((el as any)._fn && owner._statusFlags & STATUS_ERROR) throw owner._x!._error;
+  if (__TEST__) shadowActual(SLOT_C);
   return el._value;
 }
 
