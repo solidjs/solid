@@ -1848,11 +1848,12 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // undefined and mask to 0 on every site below.)
   const owner = el as Computed<any>;
 
-  if (typeof computed._fn === "function") prepareComputed(el as Computed<unknown>, false);
-
   // The verdict windows (`latest`, `isPending`; verdict.ts): one cold path,
-  // off this one, present only while a window is open.
+  // off this one, present only while a window is open. It wakes a lazy or
+  // dormant memo itself, outside the window (#4366).
   if (verdict !== null) return verdict(el, c as Computed<any> | null) as T;
+
+  if (typeof computed._fn === "function") prepareComputed(el as Computed<unknown>, false);
 
   if (
     !computed._fn &&
