@@ -110,7 +110,7 @@ async function loadModule(code) {
       }
     ]
   });
-  delete globalThis.Solid$$;
+  delete globalThis.Solid$$majors;
   const mod = { exports: {} };
   new Function("require", "module", "exports", result.outputFiles[0].text)(
     require,
@@ -129,7 +129,7 @@ function compile(compiler, hydratable) {
 
 afterEach(() => {
   document.body.textContent = "";
-  delete globalThis.Solid$$;
+  delete globalThis.Solid$$majors;
 });
 
 afterAll(() => {

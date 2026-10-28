@@ -158,7 +158,7 @@ for (const compiler of ["babel", "oxc"]) {
       "SVGElement",
       "MutationObserver",
       "_$HY",
-      "Solid$$"
+      "Solid$$majors"
     ];
     const descriptors = new Map(
       names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)])

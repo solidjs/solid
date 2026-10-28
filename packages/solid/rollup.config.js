@@ -2,6 +2,13 @@ import nodeResolve from "@rollup/plugin-node-resolve";
 import babel from "@rollup/plugin-babel";
 import cleanup from "rollup-plugin-cleanup";
 import replace from "@rollup/plugin-replace";
+import { readFileSync } from "fs";
+
+// The major the dev duplicate-instance check registers under (src/index.ts),
+// read from this package's version so a new major never touches the source.
+const major = Number(
+  JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version.split(".")[0]
+);
 
 const plugins = [
   nodeResolve({
@@ -32,6 +39,7 @@ const replaceFlags = (isDev, isObserve) =>
   replace({
     '"_SOLID_DEV_"': isDev,
     '"_SOLID_OBSERVE_"': isObserve,
+    '"_SOLID_MAJOR_"': major,
     preventAssignment: true,
     delimiters: ["", ""]
   });
