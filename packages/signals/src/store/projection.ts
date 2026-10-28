@@ -37,6 +37,7 @@ import { getOwner, isDisposed } from "../core/owner.js";
 import { insertSubs, question, schedule, setQuestion } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
+import { optHooks } from "./hooks.js";
 import { reconcileState } from "./reconcile.js";
 import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
 import { setLookup, storeOwners, type StoreFamily, type StoreTarget } from "./target.js";
@@ -152,6 +153,7 @@ function wakeFamily(fam: StoreFamily): void {
   // reader the landing leaves unchanged does not re-run to clear it (#4305).
   const error = new NotReadyError(fw);
   fam.woke = true;
+  optHooks?.ask(fam);
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
     // The leaf carries the derive's pending as a propagated copy, as a memo

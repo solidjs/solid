@@ -504,6 +504,7 @@ const storePark = (t: Transaction): void => {
     const target = foldList[i];
     if (target.k === null && target.pb !== null) holdNode(getContainerNode(target), t);
   }
+  optHooks?.park(t);
 };
 
 function getDeepNode(target: StoreTarget): Signal<number> {
@@ -1846,15 +1847,9 @@ function pullFamily(target: StoreTarget): void {
     // (committed plus the guesses) and does not suspend on the derive; a
     // verdict window still asks it (`isPending` is true while the flight is
     // up). The family's, not the target's: the edit stands in for the one
-    // flight the family has.
-    const overlaid = target.fam!.overlaid;
-    if (
-      verdict === null &&
-      fw._statusFlags & STATUS_PENDING &&
-      overlaid !== undefined &&
-      overlaid.size !== 0
-    )
-      return;
+    // flight the family has — not over a new question they do not answer
+    // (optimistic.ts `stands`, #4336).
+    if (verdict === null && fw._statusFlags & STATUS_PENDING && optHooks?.stands(target)) return;
     readNode(fw);
   } else untrack(() => readNode(fw));
 }

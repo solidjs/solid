@@ -51,6 +51,7 @@ import {
   EFFECT_USER,
   REACTIVE_DISPOSED,
   REACTIVE_LANE_READ,
+  REACTIVE_PROBED,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
@@ -774,12 +775,14 @@ function createBoundary<T>(
 }
 
 function fallback<T>(b: Boundary): T {
+  // (The output's pass.)
+  const out = getOwner() as Computed<any>;
   // The swap a display-ahead re-arm asked for: this pass is the lane's — a
   // lane read by construction (REACTIVE_LANE_READ: `recompute`'s tail keeps
   // the pass in the lane).
   if (b._lane !== null) {
     setPassLane(b._lane);
-    b._output!._flags |= REACTIVE_LANE_READ;
+    out._flags |= REACTIVE_LANE_READ;
     b._lane = null;
   }
   // Observe: a loading boundary starts showing its fallback — the swap lands
@@ -807,11 +810,18 @@ function fallback<T>(b: Boundary): T {
   // outside the boundary, as the output is: its errors and runs are the
   // enclosing boundary's — with the output's id, so what it builds gets the
   // ids a build under the output would; disposed once content is on screen.
-  if (b._fb === null) {
-    const out = getOwner() as Computed<any>;
+  if (b._fb === null)
     b._fb = runWithOwner(out._parent, () => computed(() => b._show(b), { id: out.id }))!;
-  }
-  return read(b._fb) as T;
+  // The swap is structure (#3540): what the fallback reads ahead — a
+  // verdict (`latest()`), a lane — is the fallback's display-ahead, not the
+  // swap's: the output's pass stays where it was (F-6 stays inside the
+  // fallback, #4337).
+  const p = passLane;
+  const f = out._flags;
+  const v = read(b._fb) as T;
+  setPassLane(p);
+  out._flags ^= (out._flags ^ f) & (REACTIVE_PROBED | REACTIVE_LANE_READ);
+  return v;
 }
 
 const ERROR_SIGNAL = { ownedWrite: true, _noSnapshot: true } as const;
