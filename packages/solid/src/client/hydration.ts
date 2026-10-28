@@ -695,7 +695,6 @@ export function readSerializedOrCompute(
   value?: boolean
 ) {
   const o = getOwner()!;
-  const notHybrid = options?.ssrSource !== "hybrid";
   // A node armed for takeover computes once its gate is open — its own
   // section's hydration is over even if the page's is not (#D8: a live
   // node in the shell must not wait for a slow boundary). Checked before
@@ -723,7 +722,7 @@ export function readSerializedOrCompute(
     // and the new iteration yields this value first, then connects (RFC 11
     // §9.5, Client face 3). The iterable itself is never started here.
     if (
-      notHybrid &&
+      options?.ssrSource !== "hybrid" &&
       result != null &&
       typeof result === "object" &&
       result[LIVE_SOURCE] &&
@@ -758,7 +757,11 @@ export function readSerializedOrCompute(
     // retries it with nothing changed — an `isPending` of a memo over it,
     // outside the claim, re-asked it (#4375). A write an effect makes there
     // runs in a later round, which computes.
-    if (notHybrid && _claimOwner !== ~clock && !(initP?.s === 2 && _claimRound === clock)) {
+    if (
+      options?.ssrSource !== "hybrid" &&
+      _claimOwner !== ~clock &&
+      !(initP?.s === 2 && _claimRound === clock)
+    ) {
       let p: Owner | null = o;
       while (p && !(p as any)._hp) p = p._parent;
       if (!p && !(sharedConfig.hydrating && isClaiming(1))) return compute(prev);
@@ -778,7 +781,7 @@ export function readSerializedOrCompute(
     initP,
     () => {
       const traced = subFetch(compute, prev);
-      if (notHybrid && traced != null && traced[LIVE_SOURCE])
+      if (options?.ssrSource !== "hybrid" && traced != null && traced[LIVE_SOURCE])
         armLiveTakeover(o, !hasLoadingWindow(options) && initP?.then && !initP.s);
       return traced;
     },
