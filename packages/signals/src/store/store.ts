@@ -590,17 +590,26 @@ export function cloneRaw(
     (clone as any)[$OWNER] = t;
     return clone;
   }
-  const descs = Object.getOwnPropertyDescriptors(source);
-  for (const key of Reflect.ownKeys(descs)) {
-    const d = (descs as any)[key];
-    if (key === "length" && Array.isArray(source)) continue;
-    d.configurable = true;
-    if (!d.get && !d.set) d.writable = true;
-    else t.a = true;
+  // A plain array with no accessors and no named keys beyond `length`
+  // (`kc` counts own keys) clones by `slice()`: the descriptor path
+  // allocates one descriptor per element, O(n) per first draft write (10k
+  // rows: ~10 ms per push).
+  let clone: any;
+  if (!t.a && t.kc <= source.length + 1 && Object.getPrototypeOf(source) === Array.prototype)
+    clone = source.slice();
+  else {
+    const descs = Object.getOwnPropertyDescriptors(source);
+    for (const key of Reflect.ownKeys(descs)) {
+      const d = (descs as any)[key];
+      if (key === "length" && Array.isArray(source)) continue;
+      d.configurable = true;
+      if (!d.get && !d.set) d.writable = true;
+      else t.a = true;
+    }
+    clone = Array.isArray(source)
+      ? Object.defineProperties([], descs)
+      : Object.create(Object.getPrototypeOf(source), descs);
   }
-  const clone = Array.isArray(source)
-    ? (Object.defineProperties([], descs) as any)
-    : Object.create(Object.getPrototypeOf(source), descs);
   clone[$OWNER] = t;
   return clone;
 }
