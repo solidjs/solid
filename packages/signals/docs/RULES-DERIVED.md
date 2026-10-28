@@ -162,7 +162,7 @@ On first load, a fallback that reads pending data is the parent's pending: the p
 
 Every _queued_ run behind a fallback — render-effect updates and user effects, `Portal`'s `schedule: true` render effect included — waits in the boundary and is released at the reveal, so nothing behind a fallback reaches `document.body` early. The synchronous first render on creation goes through.
 
-**Collapses:** §27 7g (2026-10-02, "we definitely shouldn't be showing portals early. Flip it."), B-QUEUED, recovery 9.5. **Status:** standing.
+**Collapses:** §27 7g (2026-10-02, "we definitely shouldn't be showing portals early. Flip it."), B-QUEUED, recovery 9.5. **Status:** standing. The first render goes through whichever boundary above is on its fallback when the effect is created — an outer one about to reveal in the same flush included, so a subtree opened by an async memo settling runs its render effects with the mount, as one opened by a signal does (#4343, `tests/render-effect-under-async-gate-4343.test.ts`).
 
 ### D-21. An armed boundary lets a lane reveal: the async under the fallback does not hold it
 

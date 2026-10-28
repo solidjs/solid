@@ -589,11 +589,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     missedWake = (el._flags & REACTIVE_MISSED_WAKE) !== 0;
     // A mount's staged read joins it — except a nested derivation left
     // pending: no render effect reaches it yet, so it holds nothing and
-    // reaches no boundary (Reader, #4203). A reader that does is caught.
+    // reaches no boundary (Reader, #4203), whatever it read — a memo the
+    // mount bore held over the staging included, at any depth (#4340). A
+    // reader that does is caught.
     joined = !!(
       el._flags &
-      (mount && (prevLane || isEffect || !(el._statusFlags & STATUS_PENDING))
-        ? REACTIVE_JOINED | REACTIVE_STAGED_READ
+      (mount
+        ? prevLane || isEffect || !(el._statusFlags & STATUS_PENDING)
+          ? REACTIVE_JOINED | REACTIVE_STAGED_READ
+          : 0
         : REACTIVE_JOINED)
     );
     // A verdict reader is one for as long as it probes, or reads a memo
@@ -1217,7 +1221,7 @@ export function bornInto(c: Computed<any>, t: Transaction): unknown {
 
 /** The computed whose pass a creation under `owner` belongs to (a root's is
  * its nearest computed ancestor's), or null outside every pass. */
-function creatorPass(owner: Owner | null): Computed<any> | null {
+export function creatorPass(owner: Owner | null): Computed<any> | null {
   return owner !== null && (owner as Root)._root
     ? (owner as Root)._parentComputed
     : (owner as Computed<any> | null);

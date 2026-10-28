@@ -655,13 +655,16 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
       )
         return el._pendingValue;
       if (l._held || pending) {
-        if (!guess && !l._shown && status & STATUS_UNINITIALIZED) throw new NotReadyError(null);
         // Re-derived at the reveal; once per pass (the pass may also be a stale
         // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
+        // Before the throw below: a leaf that waits on a lane that has never
+        // shown has no flight to settle it — only the reveal re-derives it,
+        // and its pending holds its frame until then (#4338).
         if (!(c._flags & REACTIVE_SCREEN_READ)) {
           c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
           l._reruns.push(c);
         }
+        if (!guess && !l._shown && status & STATUS_UNINITIALIZED) throw new NotReadyError(null);
         return display(el);
       }
       // A verdict reader reads ahead of the seam's verdict: re-derived on the
@@ -919,14 +922,20 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
       // lane answered for itself: it re-derives at the holder's landing, not
       // now (one run — #3322, #3540). Other verdict-lane work re-derives only
       // if the frame stays parked: a transaction landing at this seam makes
-      // what it read the screen (one run).
+      // what it read the screen (one run). A reader a transaction holds that
+      // read none of its stagings (a verdict reader that probed only a
+      // flight, held as the frame's pending observer or its staged
+      // derivation) has nothing to re-derive: its re-run re-enters that
+      // transaction and parks it again, every round — it runs at the
+      // landing (#4349).
       if (
         r._flags & REACTIVE_DISPOSED ||
-        (l != null &&
-          l._parent?._verdict === l &&
-          (r._config & CONFIG_VERDICT
-            ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
-            : !blocked(l._parent)))
+        (l?._lane
+          ? l._parent?._verdict === l &&
+            (r._config & CONFIG_VERDICT
+              ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
+              : !blocked(l._parent))
+          : l && !(r._flags & (REACTIVE_STAGED_READ | REACTIVE_PROBE_UNANSWERED)))
       )
         continue;
       // A leaked effect re-derives seated in its lane from its first read: it
@@ -935,9 +944,9 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
       // the staging, then re-enters the lane at its guess read and leaks
       // again — every round (#4014). A computed is already seated by its
       // override, and a written guess's own pass stays the frame's.
-      if (l != null && l._lane && (r as any)._type) r._flags |= REACTIVE_LANE_DIRTY;
+      if (l?._lane && (r as any)._type) r._flags |= REACTIVE_LANE_DIRTY;
       enqueueSub(r);
-      if (l != null && l._lane && leaked.indexOf(l) === -1) leaked.push(l);
+      if (l?._lane && leaked.indexOf(l) === -1) leaked.push(l);
     }
   for (let k = Math.min(judged, lanes.length) - 1; k >= 0; k--)
     laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);

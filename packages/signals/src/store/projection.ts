@@ -260,7 +260,7 @@ export function runProjectionComputed<T extends object>(
       draft,
       s => {
         result = fn((shadow ?? s) as T);
-        const commit = (v: void | T) => {
+        const commit = (v: void | T, wake: number = 1) => {
           // Shadow run: commit a detached snapshot, never the shadow itself
           // (adoption takes the value by identity — handing it the live
           // shadow would fuse the draft to the observable store).
@@ -284,8 +284,11 @@ export function runProjectionComputed<T extends object>(
           // A commit is the derive's change for the readers that observed its
           // flight (linked by `pullFamily`; a settled pull does not link), as
           // a memo's landing is for its readers: one that caught the NotReady
-          // (a fallback value, not pending) re-runs too (#4070).
-          insertSubs(owner);
+          // (a fallback value, not pending) re-runs too (#4070). A pass of a
+          // settled derive has none (`wake` 0): a link left is a stale one a
+          // held frame keeps (A30), from a reader that re-ran since. Woken by
+          // every pass, a reader feeding a key the pass peeks at looped (#4342).
+          if (wake) insertSubs(owner);
         };
         const sync = handleAsync(owner, result, commit, (error, pending) => {
           // The flight rejected: the leaves' readers learn it from here —
@@ -298,7 +301,9 @@ export function runProjectionComputed<T extends object>(
           if (pending) wakeFamily(fam);
           else errorFamily(fam);
         });
-        if (!owner._loading) commit(sync as void | T);
+        // (The status is the one before this pass: `recompute` sets it after.)
+        if (!owner._loading)
+          commit(sync as void | T, owner._statusFlags & (STATUS_PENDING | STATUS_ERROR));
       },
       false
     );

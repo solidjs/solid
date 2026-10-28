@@ -38,7 +38,9 @@ import {
   Loading,
   Errored,
   Repeat,
-  NoHydration
+  NoHydration,
+  createContext,
+  children
 } from "solid-js";
 import {
   Portal,
@@ -3066,6 +3068,133 @@ function DynamicConditionalPropBeforeChild() {
     </ConditionalTrigger>
   );
 }
+
+// ---------------------------------------------------------------------------
+// #4348: a hydrated `<Errored>` showing the server's fallback, its content
+// creating what it renders lazily — after the content's own run, when the
+// boundary flattens it: behind a context provider (the issue's dropdown
+// trigger), a component returning a function, a `children()` accessor, a
+// provider around a nested Loading, Errored, Show or For, or around a
+// component whose own async memo is created there. `direct` (created in the
+// content's own run) is the control. Nothing under the content claims server
+// DOM (the markup is the fallback's), its data is adopted (no client ask),
+// the fallback stays up, and the boundary recovers when the input changes.
+const Ctx4348 = createContext<number>();
+export const lazyErroredShapes = [
+  "direct",
+  "provider",
+  "function",
+  "children",
+  "loading",
+  "errored",
+  "show",
+  "for",
+  "insert",
+  "inner"
+] as const;
+export type LazyErroredShape = (typeof lazyErroredShapes)[number];
+const lazyErroredKeys = new Map<LazyErroredShape, (v: string) => void>();
+let lazyErroredAsks = 0;
+export const lazyErroredAskCount = () => lazyErroredAsks;
+function ResolvedChildren4348(props: { children: any }): any {
+  return children(() => props.children);
+}
+function Wrap4348(props: { children: any }) {
+  return <section>{props.children}</section>;
+}
+export function lazyErroredContent(shape: LazyErroredShape) {
+  return function LazyErroredContent() {
+    const [key, setKey] = createSignal("u7");
+    lazyErroredKeys.set(shape, setKey);
+    const user = createMemo(async (): Promise<string> => {
+      const k = key();
+      if (!isServer && Promise === RealPromise) lazyErroredAsks++;
+      await sleep(5);
+      if (k === "u7") throw new Error("no user 7");
+      return k;
+    });
+    const trigger = () => (
+      <button>
+        <span>user:{user()}</span>
+      </button>
+    );
+    // A nested Loading's own read, still pending when the content fails.
+    const slow =
+      shape === "loading" &&
+      createMemo(async () => {
+        if (!isServer && Promise === RealPromise) lazyErroredAsks++;
+        await sleep(15);
+        return "ok";
+      });
+    // The read inside the lazily created part, its own memo created there.
+    const Inner = () => {
+      const inner = createMemo(async (): Promise<string> => {
+        const k = key();
+        if (!isServer && Promise === RealPromise) lazyErroredAsks++;
+        await sleep(5);
+        if (k === "u7") throw new Error("no user 7");
+        return k;
+      });
+      return (
+        <button>
+          <span>user:{inner()}</span>
+        </button>
+      );
+    };
+    // Rendered inside the Errored: its content's own run creates it.
+    const Content = (): any =>
+      shape === "direct" ? (
+        trigger()
+      ) : shape === "provider" ? (
+        <Ctx4348 value={1}>{trigger()}</Ctx4348>
+      ) : shape === "function" ? (
+        trigger
+      ) : shape === "children" ? (
+        <ResolvedChildren4348>{trigger()}</ResolvedChildren4348>
+      ) : shape === "loading" ? (
+        <Ctx4348 value={1}>
+          <Loading fallback={<b>inner</b>}>
+            <em>{slow && slow()}</em>
+          </Loading>
+          {trigger()}
+        </Ctx4348>
+      ) : shape === "errored" ? (
+        <Ctx4348 value={1}>
+          <Errored fallback={<b>inner</b>}>
+            <em>ok</em>
+          </Errored>
+          {trigger()}
+        </Ctx4348>
+      ) : shape === "show" ? (
+        <Ctx4348 value={1}>
+          <Show when={key()}>{trigger()}</Show>
+        </Ctx4348>
+      ) : shape === "insert" ? (
+        <Wrap4348>{trigger()}</Wrap4348>
+      ) : shape === "for" ? (
+        <Ctx4348 value={1}>
+          <For each={["a"]}>{() => trigger()}</For>
+        </Ctx4348>
+      ) : (
+        <Ctx4348 value={1}>
+          <Inner />
+        </Ctx4348>
+      );
+    return (
+      <main>
+        <Loading fallback={<p>loading</p>}>
+          <Errored fallback={(e: any) => <p>failed: {e().message}</p>}>
+            <Content />
+          </Errored>
+        </Loading>
+        <span>tail</span>
+      </main>
+    );
+  };
+}
+export const lazyErroredName = (shape: LazyErroredShape) => `errored-lazy-content-4348-${shape}`;
+export const setLazyErroredKey = (shape: LazyErroredShape, v: string) =>
+  lazyErroredKeys.get(shape)!(v);
 
 export const scenarios: Scenario[] = [
   {

@@ -28,7 +28,10 @@ import {
   parkedFailureName,
   shellFallbackFailures,
   shellFallbackFailure,
-  shellFallbackFailureName
+  shellFallbackFailureName,
+  lazyErroredShapes,
+  lazyErroredContent,
+  lazyErroredName
 } from "../harness/scenarios.jsx";
 import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
@@ -79,6 +82,22 @@ describe("hydration parity harness — server render", () => {
 // the async variant to the twin's outcome on the client. Here: the same
 // markup reaches the page, and the fallback's failure is the next boundary
 // up's (the outer <Errored>'s fallback is drawn), never a blank region.
+describe("hydration parity harness — Errored fallback over lazy content (#4348)", () => {
+  for (const shape of lazyErroredShapes) {
+    const name = lazyErroredName(shape);
+    test(name, async () => {
+      const App = lazyErroredContent(shape);
+      const { shell, rest } = await storage.run(makeEvent(), () => recordStream(() => <App />));
+      writeArtifact(name, { name, shell, rest });
+      // Shell: the loading fallback; the fragment: the Errored fallback, the
+      // error serialized at the Errored id. None of the content's markup.
+      expect(shell).toMatch(/<p[^>]*>loading<\/p>/);
+      expect(rest).toContain("failed: <!--$-->no user 7<!--/--></p>");
+      expect(rest).not.toContain("<button");
+    });
+  }
+});
+
 describe("hydration parity harness — Errored fallback hole failure (#4316)", () => {
   const visible = (full: string) =>
     full

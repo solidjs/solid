@@ -207,22 +207,24 @@ function arrangement(t: StoreTarget, a: any, b: any): boolean {
   const av = a instanceof LaneView;
   const bv = b instanceof LaneView;
   if (!av && !bv) return false;
-  return arrangementEqual(av ? a.rows : a, bv ? b.rows : b, t.fam?.key ?? null);
+  return arrangementEqual(av ? a.rows : a, bv ? b.rows : b, t.fam!);
 }
 
-function rowSame(a: any, b: any, keyFn: ((item: any) => any) | null): boolean {
+function rowSame(a: any, b: any, fam: StoreFamily): boolean {
   if (isEqual(a, b) || targetsEqual(a, b)) return true;
-  if (keyFn === null || !isWrappable(a) || !isWrappable(b)) return false;
-  const ka = keyFn(unwrapValue(a));
-  const kb = keyFn(unwrapValue(b));
-  // Keyless rows are identified by position — reconcile's fallback when the
-  // key is missing. The caller already paired these by index, so two keyless
-  // rows are the same row and the landing confirms the arrangement instead of
-  // dissolving it. Dissolving held an external echo under the action, and a
-  // mainline `until` then timed out on a source that already contained it
-  // (#3898). Keyed rows still match only on the key.
-  if (ka === undefined && kb === undefined) return true;
-  return ka !== undefined && sameKey(ka, kb);
+  const keyFn = fam.key;
+  if (!keyFn || !isWrappable(a) || !isWrappable(b)) return false;
+  // A row the store already serves is its proxy's row: a reader (a list)
+  // holds that proxy, so another object at the index is another row, by key
+  // or contents alike — a guess's fresh object wraps a new proxy. A landing's
+  // object has been adopted by the row it pairs with, so it serves that
+  // row's proxy. Only rows no proxy serves yet pair by key, keyless rows by
+  // position — reconcile's fallback (#3898).
+  const ta = lookupTarget((a = unwrapValue(a)), fam);
+  const tb = lookupTarget((b = unwrapValue(b)), fam);
+  if (ta || tb) return ta === tb;
+  // (Two keyless rows: `undefined` is the same key.)
+  return sameKey(keyFn(a), keyFn(b));
 }
 
 /** Whether reconcile would write anything into `a` from `b`: wrappable
@@ -252,12 +254,12 @@ GlobalQueue._echoes = (a, b) => {
 function arrangementEqual(
   a: Record<PropertyKey, any>,
   b: Record<PropertyKey, any>,
-  keyFn: ((item: any) => any) | null
+  fam: StoreFamily
 ): boolean {
   if (Array.isArray(a) !== Array.isArray(b)) return false;
   if (Array.isArray(a)) {
     if (a.length !== (b as any[]).length) return false;
-    for (let i = 0; i < a.length; i++) if (!rowSame(a[i], (b as any[])[i], keyFn)) return false;
+    for (let i = 0; i < a.length; i++) if (!rowSame(a[i], (b as any[])[i], fam)) return false;
     return true;
   }
   const ak = Reflect.ownKeys(a).filter(k => k !== $OWNER);
@@ -658,7 +660,7 @@ function rebaseChained(t: StoreTarget): void {
     k._notifiedAt !== notifyEpoch
   ) {
     const rows = Array.isArray(inner) ? untrack(() => (inner as any[]).map(unwrapValue)) : inner;
-    if (!arrangementEqual(k._value.rows, rows, t.fam?.key ?? null)) {
+    if (!arrangementEqual(k._value.rows, rows, t.fam!)) {
       insertSubs(k);
       changed = true;
     }
