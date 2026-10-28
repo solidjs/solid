@@ -35,7 +35,7 @@ import {
   STATUS_PENDING
 } from "../core/constants.js";
 import { computed, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
-import { displace, laneValueOf, optimisticWrite, pendingGuessOf } from "../core/lanes.js";
+import { laneValueOf, optimisticWrite, pendingGuessOf, take } from "../core/lanes.js";
 import { getOwner } from "../core/owner.js";
 import {
   clock,
@@ -338,12 +338,13 @@ GlobalQueue._slotTake = (n, back) => {
         : getNode(t!, k);
   }
   const d = t?.fam?.node?._x?._transaction;
-  if (!d?._lane || sameAction(d, txOf(n))) return null;
-  // The re-ask takes the target's guess whole: its other guessed slots show
-  // their truth in the lane's world, the guess kept (lanes `displace`).
-  for (const m of nodesOf(t!))
-    if (m !== n && m._config & CONFIG_GUESS && txOf(m) === txOf(n)) displace(m, d);
-  return d;
+  const g = txOf(n);
+  if (!d?._lane || sameAction(d, g)) return false;
+  // The re-ask takes the target's guess whole: the slot is the lane's
+  // derivation; its other guessed slots show their truth in the lane's
+  // world (lanes `take`).
+  for (const m of nodesOf(t!)) if (m?._config & CONFIG_GUESS && txOf(m) === g) take(m, d, m !== n);
+  return true;
 };
 /** Q-D (plan sec. 39): an OLDER question's truth landed beneath an arrangement
  * guess (`laneWrite` held it — another action's landing is not this guess's
@@ -665,17 +666,18 @@ function rebaseChained(t: StoreTarget): void {
   if (changed) schedule();
 }
 
-/** A node of `t` carrying a lane value, if any (`read`: one a reader's
- * last pass read). */
-function nodesOf(t: StoreTarget): Signal<any>[] {
-  const all: Signal<any>[] = [t.k!, t.dk!];
+/** `t`'s nodes (a missing container or deep node: null). */
+function nodesOf(t: StoreTarget): any[] {
+  const all = [t.k, t.dk];
   for (const r of [t.n, t.h])
     if (r !== null) for (const k of Reflect.ownKeys(r)) all.push(r[k as any]);
-  return all.filter(n => n);
+  return all;
 }
+/** A node of `t` carrying a lane value, if any (`read`: one a reader's
+ * last pass read). */
 function laneNodeOf(t: StoreTarget, read?: boolean): Signal<any> | undefined {
   for (const n of nodesOf(t))
-    if (n._config & CONFIG_OVERRIDE) {
+    if (n?._config & CONFIG_OVERRIDE) {
       if (!read) return n;
       for (let s = n._subs; s !== null; s = s._nextSub) if (s._gen === s._sub._depGen) return n;
     }

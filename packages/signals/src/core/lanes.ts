@@ -139,26 +139,24 @@ export function pendingGuessOf(n: Signal<any> | Computed<any>): unknown {
  * foldable when a bundler splits lanes.ts from scheduler.ts into separate
  * chunks (a cross-chunk binding is not folded; the compiled live page). */
 let guessed = false;
-/** Guesses another action's lane took over (#4336), five per entry: the
- * node, its guess, the guess's lane, its question, the lane that took it. */
+/** Guesses another action's lane took over (#4336): the node, its guess,
+ * the guess's lane, its question, the lane that took it. */
 const kept: any[] = [];
-function take(n: Signal<any>, l: Transaction): true {
+/** Lanes a revert dissolved: the guesses they took come back at their
+ * parent's landing (`endLanes`). */
+const reverted = /* @__PURE__ */ new WeakSet<Transaction>();
+/** Lane `l` takes `n`'s guess (another action's), kept to come back if `l`
+ * reverts. Its readers saw the guess: they re-derive at the lane's reveal
+ * (and, a flight's, hold the lane while they would show it). `d`: a guess
+ * `l` takes without writing it (a store target's other slots) — the node
+ * shows its truth in `l`'s world until the guess comes back. */
+export function take(n: Signal<any>, l: Transaction, d?: boolean): void {
   const x = n._x!;
   kept.push(n, x._lane, x._transaction, x._q, l);
-  n._config &= ~CONFIG_GUESS;
-  list(n, l);
-  // Its readers saw the guess: they re-derive at the lane's reveal (and, a
-  // flight's, hold the lane while they would show it).
   rerun(n, l);
-  return true;
-}
-/** A guess `l` takes without writing it (a store target's other slots): the
- * node shows its truth in `l`'s world until the guess comes back. */
-export function displace(n: Signal<any>, l: Transaction): void {
-  take(n, l);
-  n._config &= ~CONFIG_OVERRIDE;
-  n._x!._transaction = null;
-  n._x!._lane = NOT_PENDING;
+  n._config &= d ? ~(CONFIG_GUESS | CONFIG_OVERRIDE) : ~CONFIG_GUESS;
+  if (d) ((x._transaction = null), (x._lane = NOT_PENDING));
+  else list(n, l);
 }
 /** `n`'s readers are stale readers of `t` (re-derived at its landing). */
 function rerun(n: Signal<any>, t: Transaction): void {
@@ -431,8 +429,9 @@ export function laneStage(
  * one landing answering two actions' guesses (a store re-ask over two
  * rows) must not tie them together; a pass that derives from the held
  * truth joins the parent on its own (`joinPass`). */
-/** Observe: the correction round is replacing a guess with the value it
- * covered (no landing beneath it) — `optimisticReverted`'s "reverted". */
+/** The correction round is replacing a guess with the value it covered (no
+ * landing beneath it): observe's "reverted"; the lane gives back the
+ * guesses it took (#4336, `endLanes`). */
 let reverting = false;
 
 export function supersede(n: Signal<any> | Computed<any>, value: unknown, changed: boolean): void {
@@ -453,6 +452,7 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     if (__OBSERVE__ && l._shown && attrHooks !== null)
       attrHooks.optimisticReverted(n, n._x!._lane, value, reverting ? "reverted" : "superseded");
     dissolveLane(l, parent, n);
+    if (guessed && reverting) reverted.add(l);
     // What the screen showed stays the screen until the parent lands (A18
     // (c): display and untracked reads keep the override until the commit).
     if (l._shown) n._value = n._x!._lane;
@@ -583,12 +583,6 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
   // that keep what the screen showed.
   if (into === null || (l._shown && !l._held)) releaseQueues(l);
   else l._queues[0].length = l._queues[1].length = 0;
-  // A guess this lane took from another action (#4336): its world thrown
-  // away by a revert, the guess comes back when the revert lands (`into`'s
-  // landing, `endLanes`); else it is gone.
-  if (guessed)
-    for (let i = kept.length - 5; i >= 0; i -= 5)
-      if (kept[i + 4] === l) into !== null && reverting ? (kept[i + 4] = into) : kept.splice(i, 5);
 }
 
 /** Lanes. A lane's node is read by its reader's kind: an authoritative
@@ -726,8 +720,6 @@ function laneCorrections(): boolean {
       const n = l._nodes[i];
       if (n._config & CONFIG_GUESS && n._x!._transaction === l) {
         const truth = n._pendingValue !== NOT_PENDING ? n._pendingValue : covered(n);
-        // (Read by `dissolveLane` too: a reverted lane gives back the guesses
-        // it took.)
         if (__OBSERVE__ || guessed) reverting = n._pendingValue === NOT_PENDING;
         supersede(n, truth, !n._equals || !n._equals(n._x!._lane, truth));
         if (__OBSERVE__ || guessed) reverting = false;
@@ -777,26 +769,24 @@ function endLanes(u: Transaction): void {
   // between). Taken by a later lane since, a node stays that lane's.
   if (guessed)
     for (let i = kept.length - 5; i >= 0; i -= 5)
-      if (!kept[i + 4]._lane && resolveTx(kept[i + 4]) === u) {
-        let n = kept[i] as Signal<any>;
-        const g = kept[i + 2] as Transaction;
+      if (resolveTx(kept[i + 4]._parent) === u) {
+        let [n, v, g, q, t] = kept.splice(i, 5);
         // (A store slot's node now: the one taken, or a read's since.)
         if (
-          lanes.indexOf(g) !== -1 &&
-          (!(n._config & CONFIG_SLOT_NODE) || (n = GlobalQueue._slotTake!(n, true) as Signal<any>))
+          reverted.has(t) &&
+          lanes.includes(g) &&
+          (!(n._config & CONFIG_SLOT_NODE) || (n = GlobalQueue._slotTake!(n, true)))
         ) {
           const x = ext(n);
           if (x._transaction === null || txOf(n) === u) {
-            x._transaction = null;
             commitPendingNode(n);
-            x._lane = kept[i + 1];
-            x._q = kept[i + 3];
+            x._lane = v;
+            x._q = q;
             n._config |= CONFIG_OVERRIDE | CONFIG_GUESS;
             list(n, g);
             rerun(n, u);
           }
         }
-        kept.splice(i, 5);
       }
   for (let k = lanes.length - 1; k >= 0; k--) {
     const l = lanes[k];
@@ -832,11 +822,7 @@ function nestedBlocked(t: Transaction): boolean {
 function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
   // (A store slot's guess its derive's re-ask in another action's lane
   // writes is that lane's derivation from here — store `_slotTake`, #4336.)
-  let d: Transaction | null | undefined;
-  if (
-    el._config & CONFIG_GUESS &&
-    !(guessed && (d = GlobalQueue._slotTake?.(el) as any) && take(el, d!))
-  ) {
+  if (el._config & CONFIG_GUESS && !(guessed && GlobalQueue._slotTake?.(el))) {
     // Provenance (A18, #3331; Q-D, plan sec. 39): a write asking an OLDER
     // question than the guess's — another action's landing beneath it —
     // is not its answer: held beneath (the truth for the commit; the
