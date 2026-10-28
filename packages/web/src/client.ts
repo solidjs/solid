@@ -3104,7 +3104,11 @@ function insertExpression(parent, value, current, marker) {
 
   if (t === "string" || t === "number") {
     const tc = typeof current;
-    if (tc === "string" || tc === "number") {
+    // A sole text child is the raw primitive — unless the document moved it
+    // since: a streamed fragment's swap replaces a claimed fallback's text,
+    // and a rejected fragment's fresh render clears what the swap put in
+    // (#4372). With no node left, the value is inserted like a first one.
+    if ((tc === "string" || tc === "number") && parent.firstChild) {
       parent.firstChild.data = value;
     } else {
       if (ownsAllChildren(parent, current)) parent.textContent = value;
