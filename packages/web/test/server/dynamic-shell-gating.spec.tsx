@@ -59,7 +59,7 @@ describe("promise-backed dynamic() under a boundary", () => {
     const shell = await r.shell;
     expect(r.settledAtShell.has(source)).toBe(false);
     // The boundary — not the renderer — owns the wait.
-    expect(shell).toContain(">waiting…</span>");
+    expect(shell).toContain(">waiting&#8230;</span>");
     // And the content still arrives, streamed in behind the placeholder.
     settle(source, () => <b>content</b>);
     const { html } = await r.done;
@@ -82,7 +82,7 @@ describe("promise-backed dynamic() under a boundary", () => {
     ).done;
 
     expect(html).toContain(">content</b>");
-    expect(html).not.toContain(">waiting…</span>");
+    expect(html).not.toContain(">waiting&#8230;</span>");
   });
 
   test("deferStream opts the source into holding the shell", async () => {
@@ -108,7 +108,7 @@ describe("promise-backed dynamic() under a boundary", () => {
     expect(r.settledAtShell.has(source)).toBe(true);
     expect(shell).toContain(">content</b>");
     const { html } = await r.done;
-    expect(html).not.toContain(">waiting…</span>");
+    expect(html).not.toContain(">waiting&#8230;</span>");
   });
 
   test("deferStream holds the shell for the source only; the resolved component's data still streams", async () => {
@@ -137,7 +137,7 @@ describe("promise-backed dynamic() under a boundary", () => {
     const shell = await r.shell;
     expect(r.settledAtShell.has(source)).toBe(true);
     expect(r.settledAtShell.has(data)).toBe(false);
-    expect(shell).toContain(">waiting…</span>");
+    expect(shell).toContain(">waiting&#8230;</span>");
     data.resolve("data");
     const { html } = await r.done;
     // The frame marks its text holes (`<!--lh:…-->`) around the value.
