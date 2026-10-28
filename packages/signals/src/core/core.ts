@@ -1,3 +1,4 @@
+import { checkForeignRead, enterCopy, exitCopy } from "./copies.js";
 import {
   clearStatus,
   handleAsync,
@@ -510,6 +511,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     prevStrictRead = strictRead;
     strictRead = false;
   }
+  const prevCopy = __DEV__ ? enterCopy() : undefined;
   tracking = true;
   const isStaleEffect = isEffect && isEffect !== EFFECT_USER;
   const prevStale = stale;
@@ -579,7 +581,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   } finally {
     tracking = prevTracking;
     if (laneStageHook) laneRoot = prevMount;
-    if (__DEV__) strictRead = prevStrictRead;
+    if (__DEV__) {
+      strictRead = prevStrictRead;
+      exitCopy(prevCopy);
+    }
     if (isStaleEffect) stale = prevStale;
     // Consume the missed-wake latch (#3037, set by insertSubs): a dep write
     // landed beneath this pass on a link it had already validated. The wipe
@@ -1829,6 +1834,7 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
 
 export function read<T>(el: Signal<T> | Computed<T>): T {
   if (__DEV__) DEV.hooks.onRead?.(el);
+  if (__DEV__ && !tracking) checkForeignRead();
   if (__DEV__ && asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
     checkPostAwaitRead(
       el,

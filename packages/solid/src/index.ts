@@ -300,19 +300,6 @@ export type {
 export type { RecoveryEvent, RecoveryLive, RecoveryListener } from "./recovery.js";
 export type { ChangeOrigin } from "@solidjs/signals/attribution";
 
-// handle multiple instance check
-declare global {
-  var Solid$$: boolean;
-}
-
-if (IS_DEV && globalThis) {
-  if (!globalThis.Solid$$) globalThis.Solid$$ = true;
-  else
-    console.warn(
-      "You appear to have multiple instances of Solid. This can lead to unexpected behavior."
-    );
-}
-
 // Point-of-pain discovery: the first console report of each diagnostic code
 // gains a footer naming the repair skill shipped with this package — see
 // console-footer.ts (shared with the server entry).
