@@ -359,14 +359,16 @@ export function laneStage(
       const tx = x._transaction;
       if (tx?._lane) {
         // Cleared before equality, so a return to the committed value
-        // notifies nobody. The seam wakes it (#3892) — unless the frame is
-        // still held: what the screen shows stays the screen until the
-        // landing, and `_value` takes it (as `dissolveLane` keeps a shown
+        // notifies nobody. The seam wakes it (#3892) — always for a pass
+        // outside any transaction's flush: its value is the screen's now
+        // (#4367). While a transaction's flush runs the pass and the lane's
+        // frame is still held, what the screen shows stays the screen until
+        // the landing, and `_value` takes it (as `dissolveLane` keeps a shown
         // lane's), so this pass's answer — the frame's — is a change against
         // what is seen and reaches the screen with the frame's commit. (Only
         // a lane is ever `_shown`.)
         if (tx._shown)
-          if (!blocked(resolveTx(tx._parent!))) el._flags |= LEFT_SHOWN;
+          if (!flushTransaction || !blocked(resolveTx(tx._parent!))) el._flags |= LEFT_SHOWN;
           else el._value = display(el);
         x._transaction = null;
       }
@@ -391,12 +393,12 @@ export function laneStage(
     // question, which the guess (over the old one) does not answer — the
     // lane waits for its own answer (F-1, F-6, #4336). (A guess of the
     // lane's own action, D-33's entangled slot, still stands in.)
-    const g = el._x!._transaction;
+    // (Read behind `guessed`: a bundle without optimism drops the reads.)
     if (
       guessed &&
       el._config & CONFIG_GUESS &&
-      g?._lane &&
-      resolveTx(g._parent!) !== resolveTx(l._parent!)
+      el._x!._transaction?._lane &&
+      resolveTx(el._x!._transaction!._parent!) !== resolveTx(l._parent!)
     )
       take(el, l);
     else if (!errored) el._config &= ~CONFIG_GUESS;
