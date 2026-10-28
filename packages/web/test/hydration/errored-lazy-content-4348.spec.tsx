@@ -32,6 +32,7 @@ import {
   setLazyErroredKey,
   type LazyErroredShape
 } from "../harness/scenarios.jsx";
+import { bootstrapHydrationGlobal } from "../harness/hydration-bootstrap.js";
 
 const artifact = (name: string) =>
   resolve(dirname(fileURLToPath(import.meta.url)), `../harness/__artifacts__/${name}.json`);
@@ -60,7 +61,7 @@ async function run(shape: LazyErroredShape, mode: "loaded" | "streamed") {
   const App = lazyErroredContent(shape);
   const container = document.createElement("div");
   document.body.appendChild(container);
-  (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
+  bootstrapHydrationGlobal();
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const asksBefore = lazyErroredAskCount();
   let dispose: (() => void) | undefined;
@@ -73,16 +74,18 @@ async function run(shape: LazyErroredShape, mode: "loaded" | "streamed") {
     await settle();
     if (mode === "streamed") {
       expect(container.textContent).toBe("loadingtail");
-      // The pieces: the fallback's swap with the error, the fragment's
-      // settle, then (`loading`) the nested Loading's own fragment, which
-      // the server still streams for the content it dropped.
-      const pieces = rest.match(/[\s\S]*?<\/script>/g)!;
+      // The pieces: the fallback's swap with the error (after, for `inner`,
+      // the rejection of the memo created under the content), the
+      // fragment's settle, then (`loading`) the nested Loading's own
+      // fragment, which the server still streams for the content it dropped.
+      const pieces: string[] = rest.match(/[\s\S]*?<\/script>/g)!;
+      const swap = pieces.findIndex(p => p.includes("<template id="));
       for (let i = 0; i < pieces.length; i++) {
         applyChunk(container, pieces[i], false);
         await settle();
         // Once the boundary's fragment settled, hydration is over: nothing
         // under the content waits to claim — that nested fragment included.
-        if (i > 0) expect(sharedConfig.isHydrationInProgress!()).toBe(false);
+        if (i > swap) expect(sharedConfig.isHydrationInProgress!()).toBe(false);
       }
       serverP = container.querySelector("p");
     }
@@ -126,11 +129,6 @@ async function run(shape: LazyErroredShape, mode: "loaded" | "streamed") {
 describe("#4348: a hydrated Errored fallback over lazily created content", () => {
   for (const shape of lazyErroredShapes) {
     test(`${shape}: hydrated after the failure arrived`, () => run(shape, "loaded"));
-    // (`inner` streamed: the memo created under the content asks for its
-    // serialized answer only once the fragment lands, after the stream
-    // rejected it — an unhandled rejection of its own, created in the
-    // content's run as much as lazily, so only hydrated after.)
-    if (shape !== "inner")
-      test(`${shape}: hydrated before the failure arrived`, () => run(shape, "streamed"));
+    test(`${shape}: hydrated before the failure arrived`, () => run(shape, "streamed"));
   }
 });
