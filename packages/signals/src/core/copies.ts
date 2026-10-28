@@ -39,15 +39,18 @@ export function markCopyRooted(): void {
   COPY.rooted = true;
 }
 
-/** Marks this copy as the one running; returns the slot's previous value. */
+/**
+ * Marks this copy as the one running; returns the slot's previous value. A
+ * nested run of the same copy (most runs inside a flush) only reads the slot.
+ */
 export function enterCopy(): SolidCopy | undefined {
   const prev = globalThis.Solid$$running;
-  globalThis.Solid$$running = COPY;
+  if (prev !== COPY) globalThis.Solid$$running = COPY;
   return prev;
 }
 
 export function exitCopy(prev: SolidCopy | undefined): void {
-  globalThis.Solid$$running = prev;
+  if (prev !== COPY) globalThis.Solid$$running = prev;
 }
 
 /** @internal Runs `fn` with this copy marked as the one running. */
