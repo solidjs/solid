@@ -25,6 +25,7 @@ import {
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
   REACTIVE_PROBE_UNANSWERED,
+  REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
   STATUS_PENDING,
@@ -33,6 +34,7 @@ import {
 import {
   bornInto,
   context,
+  creatorPass,
   joinPass,
   markLateLinker,
   pullComputed,
@@ -63,7 +65,7 @@ import {
   type Transaction,
   installVerdictHooks
 } from "./scheduler.js";
-import type { Computed, Root, Signal } from "./types.js";
+import type { Computed, Signal } from "./types.js";
 
 /** A verdict reader whose answer this flush could not give yet: the node it
  * asked about is staged and not held — whether it will be is the seam's
@@ -186,8 +188,8 @@ function provisionalVerdict(c: Computed<any>, notFinal: boolean): void {
  * when every flight it waits on is. */
 function quietPending(el: Computed<any>): boolean {
   const x = el._x;
-  if (x === null) return false;
-  if (x._pendingSources !== undefined) {
+  if (!x) return false;
+  if (x._pendingSources) {
     for (const source of x._pendingSources) if (!source._x?._reask) return false;
     return true;
   }
@@ -235,11 +237,21 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
  * a router's link claim probing inside the computation that creates the
  * anchor). A throw still reaches the pass through `untrack`. */
 function markVerdictReader(window: number): void {
-  let c = context;
-  if ((c as Root)?._root) c = (c as Root)._parentComputed;
-  if (c !== null && tracking) {
-    c._config |= CONFIG_VERDICT;
-    (c as Computed<any>)._flags |= REACTIVE_PROBED;
+  const c = creatorPass(context);
+  if (c && tracking) {
+    // A pass run inside passes still running — its creator's, theirs — one
+    // of which read the future or a staging (a branch a held or staged
+    // condition opened, and whatever that branch creates) has no screen: the
+    // branch exists only in that world. It reads that world as any
+    // derivation of it does (`bornInto` once held) and stays its pass
+    // (`route`); a verdict reader from its next pass. #4341: a memo born in
+    // a newly opened <Match> read the screen, where its branch was closed.
+    let p: Computed<any> | null = c,
+      born = 0;
+    while ((p = creatorPass(p!._parent))?._flags! & REACTIVE_RECOMPUTING_DEPS)
+      born |= p!._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ);
+    if (!born) c._config |= CONFIG_VERDICT;
+    c._flags |= REACTIVE_PROBED | born;
     // Observe tier: which windows this pass entered (1 `isPending`, 2
     // `latest`) — the hold census names the affordance (attribution.ts).
     if (__OBSERVE__) (c as any)._devWindows = ((c as any)._devWindows ?? 0) | window;
