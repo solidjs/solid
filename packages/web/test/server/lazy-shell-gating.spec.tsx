@@ -52,7 +52,7 @@ describe("lazy() under a boundary", () => {
     // …and not for the data: the fallback covers the fetch.
     expect(r.settledAtShell.has(module)).toBe(true);
     expect(r.settledAtShell.has(data)).toBe(false);
-    expect(shell).toContain(">waiting…</span>");
+    expect(shell).toContain(">waiting&#8230;</span>");
     expect(shell).not.toContain("async content");
     data.resolve("async content");
     const { html } = await r.done;
@@ -99,7 +99,7 @@ describe("lazy() under a boundary", () => {
       const { html, chunks } = await r.done;
       expect(chunks).toBe(1);
       expect(html).toMatch(/<h1[^>]*>async content<\/h1>/);
-      expect(html).not.toContain("waiting…");
+      expect(html).not.toContain("waiting&#8230;");
     }
   });
 
@@ -152,7 +152,7 @@ describe("lazy() under a boundary", () => {
     ).done;
 
     expect(html).toContain(">content</b>");
-    expect(html).not.toContain(">waiting…</span>");
+    expect(html).not.toContain(">waiting&#8230;</span>");
   });
 
   test("a module that fails to load releases the shell; the rejection ships to the client", async () => {
@@ -184,7 +184,7 @@ describe("lazy() under a boundary", () => {
     const shell = await r.shell;
     expect(shell).toContain('new Error("chunk 404")');
     const { html } = await r.done;
-    expect(html).not.toContain("waiting…");
+    expect(html).not.toContain("waiting&#8230;");
   });
 
   test("a lazy mounted by a post-shell fragment streams; the closed shell is never held", async () => {

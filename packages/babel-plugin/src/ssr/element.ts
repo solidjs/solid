@@ -25,7 +25,14 @@ import {
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
 import { decodedAttrValue } from "../universal/element";
-import { createTemplate, linkAttrsKey, registerLinkAttrs, registerSkip } from "./template";
+import {
+  asciiAttributeMarkup,
+  createTemplate,
+  rawTextElements,
+  linkAttrsKey,
+  registerLinkAttrs,
+  registerSkip
+} from "./template";
 import { markPropsLiteral } from "./props";
 import type {
   BabelPath,
@@ -1084,6 +1091,7 @@ function createElement(
         const allocatesIds = hydratable && canChildSlotAllocateIds(path);
         const child = transformNode(path, { doNotEscape });
         if (!child) return memo;
+        if (rawTextElements.has(tagName)) child.rawText = true;
         if (markers && child.exprs.length && !child.spreadElement)
           memo.push(t.stringLiteral("<!--$-->"));
         if (child.exprs.length && !doNotEscape && !child.spreadElement)
@@ -1362,7 +1370,7 @@ function tailAttribute(
       text = trimWhitespace(text);
       if (key === "style") text = text.replace(/; /g, ";").replace(/: /g, ":");
     }
-    return text === "" ? ` ${key}` : ` ${key}="${escapeHTML(text, true)}"`;
+    return text === "" ? ` ${key}` : asciiAttributeMarkup(` ${key}="${escapeHTML(text, true)}"`);
   }
   if (t.isJSXEmptyExpression(literal) || t.isJSXElement(literal) || t.isJSXFragment(literal))
     return undefined;
