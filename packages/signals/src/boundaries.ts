@@ -521,6 +521,29 @@ function reset(b: Boundary): void {
   schedule();
 }
 
+/**
+ * Dev CHECK: the `on` dependencies evaluated to a function — `<Loading
+ * on={route}>` or `on={() => route()}` passes the accessor itself, a stable
+ * value that is never called, so nothing is read and the boundary never
+ * re-arms. Checked on the first run only: the shape is static.
+ */
+function reportOnAccessor(b: Boundary): void {
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "LOADING_ON_ACCESSOR",
+        kind: "async",
+        severity: "warn",
+        message:
+          "[LOADING_ON_ACCESSOR] A Loading boundary's `on` received a function. `on` takes the " +
+          "dependency's value — `on={route()}`, or `on={[query(), page()]}` for several — and an " +
+          "accessor passed instead is never called, so nothing is read and the boundary never re-arms."
+      },
+      b._owner
+    )
+  );
+}
+
 function createBoundary<T>(
   type: number,
   fn: () => T,
@@ -577,7 +600,8 @@ function createBoundary<T>(
     runWithOwner(owner, () =>
       computed(() => {
         try {
-          onFn();
+          const deps = onFn();
+          if (__DEV__ && !mounted && typeof deps === "function") reportOnAccessor(b);
         } catch (e) {
           if (!(e instanceof NotReadyError)) {
             if (!globalQueue.notify(getOwner() as Computed<any>, STATUS_ERROR, STATUS_ERROR, e)) {

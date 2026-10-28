@@ -234,6 +234,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/lazy-asset-unmapped"
   },
   {
+    "code": "LOADING_ON_ACCESSOR",
+    "kind": ["async"],
+    "severity": ["warn"],
+    "category": "async",
+    "trigger": "`<Loading on>` received a function (an accessor) instead of the dependency's value; it is never called, so the boundary never re-arms",
+    "repair": "A Loading boundary's `on` received a function, such as `on={route}` or `on={() => route()}`.",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/loading-on-accessor"
+  },
+  {
     "code": "LOADING_ON_OUTSIDE_HOLD",
     "kind": ["async"],
     "severity": ["warn"],
