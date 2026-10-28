@@ -36,11 +36,17 @@ import prettier from "rollup-plugin-prettier";
 // `attribution.prod.ts`, an inert twin with the same surface — a prod build
 // has no hook sites to feed one.
 
+// `__TEST__` is false in every shipped build. `SIGNALS_TEST_DEFINE=true`
+// builds a dev dist with it on — the reader-seat shadow's differential
+// across solid/web/the generator consumes it
+// (documentation/plans/reader-seat-rebuild.md §3.4); never for measuring
+// or publishing.
+const testDefine = process.env.SIGNALS_TEST_DEFINE === "true";
 const flags = (dev, observe) =>
   replace({
     __DEV__: String(dev),
     __OBSERVE__: String(observe),
-    __TEST__: "false",
+    __TEST__: String(dev && testDefine),
     preventAssignment: true
   });
 
