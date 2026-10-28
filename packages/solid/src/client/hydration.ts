@@ -313,14 +313,18 @@ let _snapshotRootOwner: Owner | null = null;
 // round a served answer lands in (`servedPass`). Never 0: `~` maps every
 // round to a truthy number.
 let _claimOwner: Owner | number | null = null;
-function isClaiming(): boolean {
-  if (!_claimOwner) return true;
-  let owner: Owner | null = getOwner();
-  while (owner) {
-    if (owner === _claimOwner) return true;
-    owner = owner._parent;
-  }
-  return false;
+// Under a hydrated `<Errored>` that shows the server's fallback the markup
+// is the fallback's: nothing its content creates claims — in the content's
+// own run (the `~clock` window) or later, wherever its children are created
+// lazily (a context provider's, a function child's, a nested boundary's,
+// Show/For's: in the boundary's flatten, after that window closed, #4348).
+// The boundary's owner carries the mark (`_nc`), so the check walks the
+// owner chain in the root pass too. `served` (readSerializedOrCompute, a
+// rerun inside the claim re-serving its answer) asks about the window alone.
+function isClaiming(served?: 1): boolean {
+  for (let owner: Owner | null = getOwner(); owner; owner = owner._parent)
+    if (owner === _claimOwner || ((owner as any)._nc && !served)) return owner === _claimOwner;
+  return !_claimOwner;
 }
 
 /** @internal — shared with the store adapter module (store-hydration.ts). */
@@ -749,7 +753,7 @@ export function readSerializedOrCompute(
     if (options?.ssrSource !== "hybrid" && _claimOwner !== ~clock) {
       let p: Owner | null = o;
       while (p && !(p as any)._hp) p = p._parent;
-      if (!p && !(sharedConfig.hydrating && isClaiming())) return compute(prev);
+      if (!p && !(sharedConfig.hydrating && isClaiming(1))) return compute(prev);
       armLiveTakeover(o);
     }
   } else {
@@ -1363,13 +1367,22 @@ function hydratedCreateErrorBoundary<T, U>(
       let o: any;
       const read = coreErrorBoundary(
         // While hydrating, a claim window over no owner (`~clock`): nothing
-        // under it claims. (`hydrateWindow` with no id or scope, hydration already on
-        // and the snapshot root marked above, only swaps the claim owner.)
-        // A later run claims nothing either way: claims are read only while
-        // hydrating.
+        // under it claims. (`hydrateWindow` with no id or scope — 0, the
+        // shortest falsy — hydration already on and the snapshot root marked
+        // above, only swaps the claim owner.) A later run claims nothing
+        // either way: claims are read only while hydrating. The boundary's
+        // owner (the content run's parent) is marked too: what the content
+        // creates later under it — children it resolves lazily, in the
+        // boundary's flatten after this window closed — claims nothing
+        // either (#4348).
         () =>
           _hydratingValue
-            ? hydrateWindow("", fn, undefined, ((o = getOwner()), ~clock as any))
+            ? hydrateWindow(
+                0 as any,
+                fn,
+                0 as any,
+                ((o = getOwner()), (o._parent._nc = 1), ~clock as any)
+              )
             : fn(),
         (e, reset) => ((o = 0), fallback(e, reset))
       );
@@ -2938,13 +2951,14 @@ function hydratedCreateLoadingBoundary<T, U>(
       // A parked fragment has settled but not swapped: it waits like a pending one.
       const s = fr && typeof fr === "object" ? (fr.s === 1 && fragmentParked(id) ? 0 : fr.s) : 0;
 
-      // Inside a hydrated `<Errored>`'s content run (`~clock`, a window
-      // over no owner), which claims no DOM (the
-      // markup is the server's fallback for the failure, #4287), the
-      // fragment is never claimed: the content runs now with its data
+      // Where nothing claims — a hydrated `<Errored>`'s content (its run,
+      // `~clock`, a window over no owner; or created later under its marked
+      // owner, #4348), whose markup is the server's fallback for the failure
+      // (#4287), or a render a resume window forces outside its boundary —
+      // the fragment is never claimed: the content runs now with its data
       // adopted, so the Errored holds the client's own error and tracks its
       // inputs (#4273).
-      const unclaimed = _claimOwner === ~clock;
+      const unclaimed = !isClaiming();
       // Nothing else consumes a rejected `_fr` promise then — swallow it so
       // a rejected fragment (error finalize or a client-hole handoff) doesn't
       // surface as an unhandled rejection.
