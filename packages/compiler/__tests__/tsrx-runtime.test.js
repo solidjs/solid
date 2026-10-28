@@ -148,7 +148,7 @@ async function loadRuntimeModule(code, generate) {
   // Each generated module bundles an isolated runtime copy. Reset the dev
   // duplicate-instance sentinel so running Babel and Oxc side by side does
   // not produce a false warning.
-  delete globalThis.Solid$$majors;
+  delete globalThis.Solid$$;
   const runtimeModule = { exports: {} };
   new Function("require", "module", "exports", bundle)(
     require,
@@ -160,7 +160,7 @@ async function loadRuntimeModule(code, generate) {
 
 afterEach(() => {
   document.body.textContent = "";
-  delete globalThis.Solid$$majors;
+  delete globalThis.Solid$$;
 });
 
 afterAll(() => {

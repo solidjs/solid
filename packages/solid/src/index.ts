@@ -300,30 +300,6 @@ export type {
 export type { RecoveryEvent, RecoveryLive, RecoveryListener } from "./recovery.js";
 export type { ChangeOrigin } from "@solidjs/signals/attribution";
 
-// handle multiple instance check
-//
-// Two copies of the same major keep separate state and break each other; copies of
-// different majors (a Solid 1 devtools panel inside a Solid 2 app) can't share
-// anyway and are fine side by side. v1 owns `Solid$$` and warns whenever it is
-// already set, so v2 and every later major record themselves in one shared
-// registry keyed by major instead, and leave `Solid$$` alone. The build fills
-// in the major from package.json, so neither the key nor this code changes in
-// a later major (as with the `_$$` event key).
-declare global {
-  var Solid$$majors: Record<string | number, true> | undefined;
-}
-
-const SOLID_MAJOR = "_SOLID_MAJOR_" as string | number;
-
-if (IS_DEV && globalThis) {
-  const majors = globalThis.Solid$$majors || (globalThis.Solid$$majors = {});
-  if (!majors[SOLID_MAJOR]) majors[SOLID_MAJOR] = true;
-  else
-    console.warn(
-      "You appear to have multiple instances of Solid. This can lead to unexpected behavior."
-    );
-}
-
 // Point-of-pain discovery: the first console report of each diagnostic code
 // gains a footer naming the repair skill shipped with this package — see
 // console-footer.ts (shared with the server entry).
