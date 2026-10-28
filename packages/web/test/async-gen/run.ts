@@ -42,7 +42,10 @@ export type Finding = {
  * wraps the tree in an Errored that shows what the root one would (E2);
  * `store` reads every memo through a derived store `{ v }` (E3);
  * `autoFlush` flushes after every step (E6, final screen only);
- * `owned` overrides where the memos are created.
+ * `owned` overrides where the memos are created;
+ * `remount` re-creates the tree's readers in the flush that applies each
+ * write (E8, compared where nothing is in flight);
+ * `latestDerive` reads every `latest(x)` through a memo of it (E9).
  */
 export type Variant = {
   split?: boolean;
@@ -52,6 +55,8 @@ export type Variant = {
   store?: boolean;
   autoFlush?: boolean;
   owned?: boolean;
+  remount?: boolean;
+  latestDerive?: boolean;
 };
 export interface Result {
   findings: Finding[];
@@ -59,6 +64,8 @@ export interface Result {
   /** Whether each screen is a settle point (after the first render, a task
    * step, the end): where equivalence pairs are compared. */
   settled: boolean[];
+  /** Whether nothing was in flight at each screen. */
+  quiet: boolean[];
   final: string;
   expected: string;
   description: string;
@@ -153,12 +160,44 @@ function buildApp(
         views.push(() => store.v);
       } else views.push(x);
     });
+  // E9: `latest(x)` read in a derivation instead of at the leaf.
+  const latestViews = new Map<string, () => any>();
+  const makeLatestViews = () => {
+    if (!variant.latestDerive) return;
+    // Only the sources the tree reads with latest(): an extra observer of
+    // anything else would be a different app.
+    const srcs: SrcRef[] = [];
+    const walk = (n: Node) => {
+      if (n.t === "leaf")
+        [...n.text, ...n.attrs].forEach(r => r.how === "latest" && srcs.push(r.src));
+      else if (n.t === "group") n.kids.forEach(walk);
+      else {
+        if (n.t === "show" && n.when.how === "latest") srcs.push(n.when.src);
+        walk(n.child);
+      }
+    };
+    walk(sc.tree);
+    for (const r of srcs) {
+      if (latestViews.has(`${r.k}${r.i}`)) continue;
+      const x = view(r);
+      latestViews.set(
+        `${r.k}${r.i}`,
+        createMemo(() => latest(x))
+      );
+    }
+  };
   const owned = variant.owned ?? !!sc.owned;
-  if (!owned) makeMemos();
+  if (!owned) {
+    makeMemos();
+    makeLatestViews();
+  }
   const read = (r: Read) => {
     const x = view(r.src);
+    if (r.how === "latest" && variant.latestDerive)
+      return latestViews.get(`${r.src.k}${r.src.i}`)!();
     return r.how === "plain" ? x() : r.how === "latest" ? latest(x) : isPending(x);
   };
+  const [epoch, setEpoch] = createSignal(1);
   const prefix = { plain: "v", latest: "l", pending: "p" } as const;
   const text = (r: Read) => `${prefix[r.how]}${r.src.k}${r.src.i}:${String(read(r))} `;
 
@@ -230,11 +269,23 @@ function buildApp(
     createComponent(Loading, {
       fallback: "[ROOT-L]",
       get children() {
-        if (owned) makeMemos();
-        return renderNode(sc.tree);
+        if (owned) {
+          makeMemos();
+          makeLatestViews();
+        }
+        if (!variant.remount) return renderNode(sc.tree);
+        return createComponent(Show, {
+          get when() {
+            return epoch();
+          },
+          keyed: true,
+          get children() {
+            return renderNode(sc.tree);
+          }
+        } as any);
       }
     });
-  return { sigs, app };
+  return { sigs, app, remount: () => setEpoch(e => e + 1) };
 }
 
 // ── driving ─────────────────────────────────────────────────────────────────
@@ -260,6 +311,7 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
   const findings: Finding[] = [];
   const screens: string[] = [];
   const settled: boolean[] = [];
+  const quiet: boolean[] = [];
   const flights: Flight[] = [];
   const values = [...sc.signals];
   const errors: string[] = [];
@@ -303,7 +355,7 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
   let final = "";
   let expected = "";
   try {
-    const { sigs, app } = buildApp(sc, values, false, flights, variant, errors);
+    const { sigs, app, remount } = buildApp(sc, values, false, flights, variant, errors);
     const act = action(function* (s: number, v: number) {
       sigs[s][1](v);
       yield new Promise<number>(resolve => {
@@ -322,13 +374,17 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
     });
     screens.push(serialize(el));
     settled.push(true);
+    quiet.push(flights.length === 0);
 
     for (step = 0; step < sc.steps.length; step++) {
       const st = sc.steps[step];
       switch (st.t) {
         case "write":
           values[st.s] = st.v;
-          guard("throw", () => sigs[st.s][1](st.v));
+          guard("throw", () => {
+            sigs[st.s][1](st.v);
+            if (variant.remount) remount();
+          });
           break;
         case "settle":
           if (flights.length) settleAt(flights, st.pick % flights.length);
@@ -362,6 +418,7 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
       const screen = serialize(el);
       screens.push(screen);
       settled.push(st.t === "task");
+      quiet.push(flights.length === 0);
       // A read of an async value is its value or a throw (NotReady, the
       // error) — never undefined. NaN is undefined + 1 in a memo.
       if (/NaN|undefined/.test(screen) && !findings.some(f => f.law === "undefined-value"))
@@ -414,5 +471,5 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
     console.error = origError;
     console.warn = origWarn;
   }
-  return { findings, screens, settled, final, expected, description: describeScenario(sc) };
+  return { findings, screens, settled, quiet, final, expected, description: describeScenario(sc) };
 }

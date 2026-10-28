@@ -32,13 +32,22 @@ const out = (s: string) => process.stdout.write(s + "\n");
 
 /** The equivalence pairs: two runs of one scenario that must show the same
  * screen at every settle point (or, `finalOnly`, once everything settled). */
-const PAIR_DEFS: Record<string, { a: Variant; b: Variant; finalOnly?: boolean }> = {
+const PAIR_DEFS: Record<
+  string,
+  { a: Variant; b: Variant; finalOnly?: boolean; quietOnly?: boolean }
+> = {
   E1: { a: { grouped: true }, b: { split: true } },
   E2: { a: {}, b: { identity: true } },
   E2e: { a: {}, b: { inertErrored: true } },
   E3: { a: {}, b: { store: true } },
   E6: { a: {}, b: { autoFlush: true }, finalOnly: true },
-  E7: { a: { owned: false }, b: { owned: true } }
+  E7: { a: { owned: false }, b: { owned: true } },
+  // The reader seat (carve audit): a reader born before a write vs one born
+  // in the flush that applies it, compared where nothing is in flight (a
+  // fresh reader of a pending node may show a fallback the old one holds);
+  // `latest(x)` read in a derivation vs at the leaf.
+  E8: { a: {}, b: { remount: true }, quietOnly: true },
+  E9: { a: {}, b: { latestDerive: true } }
 };
 
 /** What a screen shows, coarsely: an error, a fallback, or content. */
@@ -77,7 +86,13 @@ async function runWithPairs(sc: Scenario): Promise<{ base: Result; findings: Fin
       ? a.final !== b.final
         ? a.screens.length - 1
         : -1
-      : a.screens.findIndex((x, i) => a.settled[i] && b.settled[i] && x !== b.screens[i]);
+      : a.screens.findIndex(
+          (x, i) =>
+            a.settled[i] &&
+            b.settled[i] &&
+            (!def.quietOnly || (a.quiet[i] && b.quiet[i])) &&
+            x !== b.screens[i]
+        );
     const at = diff >= 0 ? diff : a.final !== b.final ? a.screens.length : -1;
     if (at >= 0) {
       const x = at < a.screens.length ? a.screens[at] : a.final;
