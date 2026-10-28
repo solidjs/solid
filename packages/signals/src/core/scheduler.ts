@@ -49,6 +49,7 @@ import {
 } from "./dev.js";
 import { sweepDormant, trimStaleDeps } from "./graph.js";
 import { deleteFromHeap, enqueueSub, runHeap, type Heap } from "./heap.js";
+import type { StatusError } from "./error.js";
 import { devCheckQuiescent } from "./invariants.js";
 import { rethrowCleanupError } from "./owner.js";
 import type { Computed, Owner, Signal } from "./types.js";
@@ -1170,8 +1171,14 @@ export function reruns(u: Transaction): unknown {
     const r = u._reruns[i];
     // An errored reader's display is its error (D-39): the landing gives it
     // nothing to re-derive, and a re-run would be a read that retries the
-    // errored source (#3945).
-    if (r._flags & REACTIVE_DISPOSED || r._statusFlags & STATUS_ERROR) continue;
+    // errored source (#3945). Unless the error is its own — thrown by its
+    // pass over the committed value it was served: the landing is the new
+    // answer of that input, and the reader's own re-derives on it (A15).
+    if (
+      r._flags & REACTIVE_DISPOSED ||
+      (r._statusFlags & STATUS_ERROR && (r._x!._error as StatusError).source !== r)
+    )
+      continue;
     if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
       frame ||= (r as any)._type;
       r._flags &= ~REACTIVE_FRAME_READ;

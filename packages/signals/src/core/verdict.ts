@@ -396,27 +396,29 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     el._config & CONFIG_OVERRIDE &&
     !(owner._statusFlags & STATUS_ERROR && !(el._config & CONFIG_GUESS))
   ) {
-    const l = txOf(el);
-    if (tracked) verdictRead(c!, l._parent ?? l);
-    const flying = (owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner);
-    if (el._config & CONFIG_GUESS) {
-      if (
-        probing &&
-        (flying ||
-          (el._pendingValue !== NOT_PENDING &&
-            (!el._equals || !el._equals(el._x!._lane as any, el._pendingValue as any))))
-      )
-        probeFound = true;
-      // A lane a correction folded under (D-34): `latest()` shows the hold's
-      // world whole — the truth beneath each guess, else what it covered.
-      if (latestActive && l.folded) return l.folded(null, el);
-      return el._x!._lane;
-    }
-    // NOT_PENDING: a node born in the lane with nothing in it yet has no
-    // value in either view — loading, not pending: NotReady below (A7, A19
-    // exc. 1; #4363).
-    const v = latestActive && !flying ? laneValueOf(el) : display(el);
+    const l = txOf(el),
+      flying = (owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner),
+      guess = el._config & CONFIG_GUESS,
+      // NOT_PENDING: a node born in the lane with nothing in it yet has no
+      // value in either view — loading, not pending, and no verdict to read
+      // ahead: it is read as any uninitialized node, NotReady below (A7, A19
+      // exc. 1; #4363), its reader not moved into the verdict lane.
+      v = guess ? 0 : latestActive && !flying ? laneValueOf(el) : display(el);
     if (v !== NOT_PENDING) {
+      if (tracked) verdictRead(c!, l._parent ?? l);
+      if (guess) {
+        if (
+          probing &&
+          (flying ||
+            (el._pendingValue !== NOT_PENDING &&
+              (!el._equals || !el._equals(el._x!._lane as any, el._pendingValue as any))))
+        )
+          probeFound = true;
+        // A lane a correction folded under (D-34): `latest()` shows the hold's
+        // world whole — the truth beneath each guess, else what it covered.
+        if (latestActive && l.folded) return l.folded(null, el);
+        return el._x!._lane;
+      }
       if (probing && flying) probeFound = true;
       return v;
     }

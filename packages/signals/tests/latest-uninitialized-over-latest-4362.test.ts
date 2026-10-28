@@ -17,6 +17,8 @@
 // grouped into effects.
 import { describe, expect, it } from "vitest";
 import {
+  createErrorBoundary,
+  createLoadingBoundary,
   createMemo,
   createRenderEffect,
   createRoot,
@@ -227,5 +229,63 @@ describe("uninitialized async memo over latest(s) (#4362, #4363)", () => {
     for (const [k, v] of Object.entries(out)) expect([k, v]).toEqual([k, NR]);
     expect(Object.keys(out).length).toBe(9);
     expect(isPending(m)).toBe(false); // unowned: false (A16)
+  });
+
+  // A verdict reader of a flight is served its committed value (A10, a memo
+  // has no DOM) and re-derives at the landing (A15). A pass over that value
+  // that throws is the reader's own error, not an errored source's (#3945):
+  // the landing is a new answer of its input, and the reader re-derives on
+  // it (D-39: the error stays until a new answer replaces it). Async-gen
+  // case 119 reached this once #4363 stopped committing `undefined`.
+  it("a verdict reader's own error from the served value recovers at the landing", async () => {
+    const [s0, setS0] = createSignal(0);
+    const [s1, setS1] = createSignal(0);
+    const asks: [number, PromiseWithResolvers<number>][] = [];
+    let screen: unknown = "init";
+    createRoot(() => {
+      const m0 = createMemo(() => {
+        const d = Promise.withResolvers<number>();
+        asks.push([1 + s1() + s0(), d]);
+        return d.promise;
+      });
+      const m1 = createMemo(() => {
+        const v = 1 + latest(s1) + m0();
+        if (v === 8) throw new Error("m1:8");
+        return v;
+      });
+      const b = createErrorBoundary(
+        () =>
+          createLoadingBoundary(
+            () => m1(),
+            () => "loading"
+          ),
+        () => "error"
+      );
+      createRenderEffect(b, v => {
+        screen = v;
+      });
+    });
+    flush();
+    const answer = async (i: number) => {
+      asks[i][1].resolve(asks[i][0]);
+      await new Promise(r => setTimeout(r, 0));
+      flush();
+    };
+    const log: unknown[] = [];
+    await answer(0);
+    log.push(screen);
+    setS1(3);
+    flush();
+    log.push(screen);
+    await answer(1);
+    log.push(screen);
+    setS0(2);
+    flush();
+    log.push(screen);
+    await answer(2);
+    log.push(screen);
+    expect(asks.map(a => a[0])).toEqual([1, 4, 6]);
+    // 1+3+4 = 8 throws; m0 lands 6: 1+3+6.
+    expect(log).toEqual([2, 5, "error", "error", 10]);
   });
 });
