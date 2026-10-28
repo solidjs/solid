@@ -119,6 +119,7 @@ import {
   $TARGET,
   $TRACK,
   writeOverride,
+  installShallowView,
   isRawValue,
   isWrappable,
   markRawIngest,
@@ -589,17 +590,26 @@ export function cloneRaw(
     (clone as any)[$OWNER] = t;
     return clone;
   }
-  const descs = Object.getOwnPropertyDescriptors(source);
-  for (const key of Reflect.ownKeys(descs)) {
-    const d = (descs as any)[key];
-    if (key === "length" && Array.isArray(source)) continue;
-    d.configurable = true;
-    if (!d.get && !d.set) d.writable = true;
-    else t.a = true;
+  // A plain array with no accessors and no named keys beyond `length`
+  // (`kc` counts own keys) clones by `slice()`: the descriptor path
+  // allocates one descriptor per element, O(n) per first draft write (10k
+  // rows: ~10 ms per push).
+  let clone: any;
+  if (!t.a && t.kc <= source.length + 1 && Object.getPrototypeOf(source) === Array.prototype)
+    clone = source.slice();
+  else {
+    const descs = Object.getOwnPropertyDescriptors(source);
+    for (const key of Reflect.ownKeys(descs)) {
+      const d = (descs as any)[key];
+      if (key === "length" && Array.isArray(source)) continue;
+      d.configurable = true;
+      if (!d.get && !d.set) d.writable = true;
+      else t.a = true;
+    }
+    clone = Array.isArray(source)
+      ? Object.defineProperties([], descs)
+      : Object.create(Object.getPrototypeOf(source), descs);
   }
-  const clone = Array.isArray(source)
-    ? (Object.defineProperties([], descs) as any)
-    : Object.create(Object.getPrototypeOf(source), descs);
   clone[$OWNER] = t;
   return clone;
 }
@@ -2476,6 +2486,18 @@ export function createStore<T extends Record<PropertyKey, any>>(
   const setter: SetStoreFunction<T> = fn => storeSetter(proxy, fn);
   return [proxy, setter];
 }
+
+/** The list driver's slot view of a shallow store (types.ts `shallowView`):
+ * one `readSource` for the container instead of a trap per slot. A shallow
+ * store's slots hold raw records, so the backing the container read serves
+ * is what each slot read would — except where a slot's own leaf can answer
+ * differently: an optimistic family's guesses, a chained backing, accessor
+ * keys, or a read inside a draft or write scope. Those keep the trap. */
+installShallowView(t => {
+  // Any open write scope keeps the trap (it covers `inDraft`).
+  if (t?.s && !(t.ch || t.a || writeScopes || writeOverride || t.fam?.opt))
+    return (t.fam && pullFamily(t), readSource(t) as any[]);
+});
 
 /** True when `proxy` is a SHALLOW store (children served verbatim, slots
  * replaced by reference — #2932). The list driver uses this to choose the

@@ -182,3 +182,13 @@ export let writeOverride = false;
 export function setWriteOverride(value: boolean): void {
   writeOverride = value;
 }
+
+/** The list driver's view of a shallow store (map.ts): the backing a read of
+ * every slot serves this reader, or `undefined` when the list is no shallow
+ * store or a slot read could differ from it. Installed by store.ts's top
+ * level, so a `<For>` in an app without stores carries none of it; it lives
+ * beside `$TRACK` so map.ts reaches no other store module. */
+export let shallowView: ((t: any) => any[] | undefined) | null = null;
+export function installShallowView(view: (t: any) => any[] | undefined): void {
+  shallowView = view;
+}
