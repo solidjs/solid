@@ -13,8 +13,11 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { edits } from "./minimize.ts";
 import type { Scenario } from "./scenario.ts";
+
+// Node runs this file with type stripping, which needs the .ts path; the
+// computed specifier keeps tsc (no allowImportingTsExtensions) out of it.
+const { edits } = (await import("./minimize" + ".ts")) as typeof import("./minimize.js");
 
 const [file, law] = process.argv.slice(2);
 if (!file || !law) throw new Error("usage: minimize-hydration.mts <scenario.json> <law>");

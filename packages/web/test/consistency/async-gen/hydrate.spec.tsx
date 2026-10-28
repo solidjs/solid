@@ -18,6 +18,8 @@
  * - Then the scenario's steps run as in the client campaign, and LIVENESS:
  *   once every flight settles, the screen equals a fresh render of the
  *   final inputs.
+ *
+ * ASYNC_GEN_RECORD / ASYNC_GEN_DIFF: see test/async-gen/differential.ts.
  */
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -28,6 +30,7 @@ import { sharedConfig } from "solid-js/internal";
 import type { AppContext } from "../../async-gen/emit.js";
 import type { Node, Scenario, SrcRef } from "../../async-gen/scenario.js";
 import { describeScenario } from "../../async-gen/scenario.js";
+import { recordOrDiff, type Trace } from "../../async-gen/differential.js";
 import { serialize as serializeDom } from "../../async-gen/run.js";
 
 /** The screen, without hydration keys. */
@@ -104,7 +107,9 @@ function readMemos(sc: Scenario): Set<number> {
   return out;
 }
 
-async function runCase(i: number): Promise<{ sc: Scenario; findings: Finding[] }> {
+async function runCase(
+  i: number
+): Promise<{ sc: Scenario; findings: Finding[]; screens: string[]; final: string }> {
   const {
     scenario: sc,
     shell,
@@ -121,6 +126,8 @@ async function runCase(i: number): Promise<{ sc: Scenario; findings: Finding[] }
   const values = [...sc.signals];
   let step = -1;
   let hydrating = true;
+  const screens: string[] = [];
+  let final = "";
 
   const origError = console.error;
   const origWarn = console.warn;
@@ -205,6 +212,7 @@ async function runCase(i: number): Promise<{ sc: Scenario; findings: Finding[] }
     const refetched = asks.filter(a => read.has(Number(a.slice(1, a.indexOf(":")))));
     if (refetched.length) findings.push({ law: "refetch", step, detail: refetched.join(",") });
     const hydrated = serialize(container);
+    screens.push(hydrated);
     const csr = await freshScreen(createApp, [...sc.signals]);
     if (hydrated !== csr)
       findings.push({ law: "hydrated-vs-csr", step, detail: `${hydrated}  ≠  csr ${csr}` });
@@ -249,6 +257,7 @@ async function runCase(i: number): Promise<{ sc: Scenario; findings: Finding[] }
           guard("throw", flush);
           break;
       }
+      screens.push(serialize(container));
     }
     step = sc.steps.length;
     await drain();
@@ -261,7 +270,7 @@ async function runCase(i: number): Promise<{ sc: Scenario; findings: Finding[] }
     }
     if (flights.length)
       findings.push({ law: "endless-flights", step, detail: flights.map(f => f.label).join(",") });
-    const final = serialize(container);
+    final = serialize(container);
     const expected = await freshScreen(createApp, values);
     if (final !== expected)
       findings.push({ law: "final-screen", step, detail: `${final}  ≠  fresh ${expected}` });
@@ -278,7 +287,7 @@ async function runCase(i: number): Promise<{ sc: Scenario; findings: Finding[] }
     console.error = origError;
     console.warn = origWarn;
   }
-  return { sc, findings };
+  return { sc, findings, screens, final };
 }
 
 const signature = (f: Finding) =>
@@ -298,10 +307,12 @@ test.skipIf(!ON)("async-gen hydration campaign", { timeout: 0 }, async () => {
   let ran = 0;
   // Per-case laws, for minimize-hydration.mts.
   const results: { i: number; laws: string[] }[] = [];
+  const traces: Record<number, Trace> = {};
   for (const c of cases) {
     if (c.error || (ONLY && !ONLY.includes(c.i))) continue;
     ran++;
-    const { sc, findings } = await runCase(c.i);
+    const { sc, findings, screens, final } = await runCase(c.i);
+    traces[c.i] = { screens, final, laws: [...new Set(findings.map(f => f.law))].sort() };
     const fs = findings.filter(f => !MATCH || MATCH.test(`${f.law}: ${f.detail}`));
     if (fs.length) failing++;
     results.push({ i: c.i, laws: [...new Set(fs.map(f => f.law))] });
@@ -325,4 +336,8 @@ test.skipIf(!ON)("async-gen hydration campaign", { timeout: 0 }, async () => {
     out(`     #${t.first} ${describeScenario(t.sc)}`);
     out(`     ${t.detail.slice(0, 400)}`);
   }
+  const diffs = recordOrDiff("hydration", seed, cases.length, traces);
+  if (diffs.length)
+    out(`async-gen differential: ${diffs.length} cases differ\n  ${diffs.join("\n  ")}`);
+  expect(diffs, "cases that differ from ASYNC_GEN_DIFF's recording").toEqual([]);
 });

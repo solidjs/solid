@@ -7,12 +7,15 @@
  *   [ASYNC_GEN_IGNORE=final-screen,console-error] [ASYNC_GEN_MODE=survey|shrink]
  *   npx vitest run test/async-gen
  *
+ * ASYNC_GEN_RECORD / ASYNC_GEN_DIFF (survey mode): see differential.ts.
+ *
  * survey runs every case and tallies findings by law and signature; shrink
  * stops on the first finding outside ASYNC_GEN_IGNORE and prints the reduced
  * scenario as JSON for replay.spec.ts.
  */
 import { describe, expect, test } from "vitest";
 import fc from "fast-check";
+import { recordOrDiff, type Trace } from "./differential.js";
 import { minimize } from "./minimize.js";
 import { runScenario, type Finding, type Result, type Variant } from "./run.js";
 import { describeScenario, scenarioArb, type Scenario } from "./scenario.js";
@@ -142,8 +145,15 @@ describe.skipIf(!FUZZ)("async-gen campaign", () => {
     }
     const tally = new Map<string, { count: number; first: Scenario; detail: string }>();
     let failing = 0;
+    const traces: Record<number, Trace> = {};
+    let idx = 0;
     for (const sc of fc.sample(arb, { seed: SEED, numRuns: CASES })) {
       const r = await runWithPairs(sc);
+      traces[idx++] = {
+        screens: r.base.screens,
+        final: r.base.final,
+        laws: [...new Set(r.findings.map(f => `${f.oracle}/${f.law}`))].sort()
+      };
       const fs = real(r.findings);
       if (fs.length) failing++;
       const seen = new Set<string>();
@@ -156,6 +166,9 @@ describe.skipIf(!FUZZ)("async-gen campaign", () => {
         else tally.set(sig, { count: 1, first: sc, detail: `@${f.step} ${f.detail}` });
       }
     }
+    const diffs = recordOrDiff(`client${PAIRS.length ? `+${PAIRS}` : ""}`, SEED, CASES, traces);
+    if (diffs.length)
+      out(`async-gen differential: ${diffs.length} cases differ\n  ${diffs.join("\n  ")}`);
     out(
       `async-gen survey: seed ${SEED}, ${CASES} cases, ${failing} with findings, ${tally.size} signatures`
     );
@@ -175,5 +188,6 @@ describe.skipIf(!FUZZ)("async-gen campaign", () => {
       out(`     MIN @${f.step} ${f.detail.slice(0, 300)}`);
       out(`     MIN ${JSON.stringify(min)}`);
     }
+    expect(diffs, "cases that differ from ASYNC_GEN_DIFF's recording").toEqual([]);
   });
 });
