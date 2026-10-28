@@ -85,31 +85,40 @@ Each pin cites the rule by id in a comment and the scenario where one exists
 
 Baseline must be zero on E4/E5/E9 after §2 lands.
 
-## 4. The carve, with four changes to the design
+## 4. The carve: rebuild beside, then swap
 
-The model (§2 of the design) and the table (§2.5) stand. These change:
+The model and the table stand; the plan is no longer the nine-step fold.
+The design is `reader-seat-rebuild.md`: the seat and the slot table are
+built _beside_ the existing deciders as `core/seat.ts` (+ the display-ahead
+rows in `verdict.ts` and a `lanes.ts` core/layer split), reachable only
+under `__TEST__`, and asserted against every decider on every read and
+every pass; then one PR makes the seat live and deletes the deciders. Three
+to five PRs (`reader-seat-rebuild.md` §5):
 
-1. **Step 1 runs against the generator before step 2.** The shadow seat under
-   `__TEST__` computes the table's predicted slot beside every decider and
-   asserts agreement — on the suite _and_ on 50k generator cases per seed.
-   Every mismatch is a table error or a bug on `next`. The table is correct
-   before any behaviour moves. The two invariants — a leaf never raises its
-   world; posture is never inherited — are pinned as `INV-*` here, not at
-   step 9.
-2. **Step 4 is stated honestly.** `t._verdict` (today `newLane(t)`) stays as
-   the record; `_ahead` is a rename and the design says so. What goes is
-   seating verdict passes through `passLane` and the `_parent._verdict === l`
-   arms (`core.ts:361`, `lanes.ts:645`, `:672`, `:934`, `verdict.ts:442`,
-   `route`). Verdicts need no node set: `latest()` is read-level (D-27), so
-   the posture is the whole mechanism. The isPending-page byte figure is
-   re-derived from what actually becomes unreachable in `lanes.ts`, or
-   dropped. R7 is the semantic reason verdict work must not use the lane
-   read path: that path's visibility rule is the optimistic one.
-3. **Bytes are a tracked budget, not a per-step gate.** Steps 2–4 may be
-   transiently positive. The hard check is after P0 and at step 9: the floor
-   and compiled hello world do not grow. CodSpeed on every step as before.
-4. **Serial merges, isolated worktrees.** One PR lands at a time; each
-   rebases; no two agents share a git store (the #4366/#4373 incident).
+- **S0** — shadow under `__TEST__`, `INV-seat` pinned (a leaf never raises
+  its world; posture is never inherited; the shadow agrees), differential
+  on the suites, the oracle and 50k generator cases per seed (3289, 91501,
+  7; owned and unowned; every pair). Every mismatch is a table error (fix
+  the row, say so) or a bug on `next` (file it with rule id and row; do not
+  fix in S0). Dist byte-identical.
+- **S1** — the seat is live; `frameRead`, `bornInto`, `joinPass`,
+  `readerSeesCommitted`, `stagedScreen`, `stagedRead`, `route`,
+  `verdictValue`'s arms, `laneRead`'s arms and the duplicated hold arms of
+  `read`/`serve` go. `t._verdict` (today `newLane(t)`) stays as the record;
+  verdict passes are seated by posture, not `passLane`; verdicts have no
+  node set (`latest()` is read-level, D-27). R7 is the semantic reason
+  verdict work must not use the lane read path.
+- **S2** — `lanes.ts` split into a sub-hold core and the optimistic layer;
+  the isPending-only byte saving is **measured** (`scripts/size`), not
+  estimated.
+- **S3** — bits and hooks freed (`JOINED`, `STAGED_READ`, `LANE_READ`,
+  `PROBED`; `FRAME_READ`+`SCREEN_READ` → one STALE bit).
+- **S4** (deferred) — store shims replaced with the store twins (§6).
+
+Gates: S0 differential zero; S1 and S3 floor scenario and compiled hello
+world not above `next` post-P0; CodSpeed on every PR. Serial merges,
+isolated worktrees — one PR lands at a time, each rebases, no two agents
+share a git store (the #4366/#4373 incident).
 
 The byte case is not the justification. The justification is the drift in
 §1 and the bug concentration the audit measured. Say that in the PR bodies.
