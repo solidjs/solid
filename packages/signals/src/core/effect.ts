@@ -79,7 +79,8 @@ export function effect<T>(
     !node._x?._transaction?._lane &&
     (node._type === EFFECT_USER || options?.schedule
       ? globalQueue.enqueue(node._type, runEffect.bind(null, node))
-      : runEffect(node, node._type));
+      : // Type 0: the synchronous first render, not a queued run (D-19).
+        runEffect(node, 0));
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
@@ -176,10 +177,12 @@ function runEffect(node: Effect<any>, type: number): void {
   // effect's update too (maintainer, 2026-10-02: "we held the queue but let
   // the sync renders through… we definitely shouldn't be showing portals
   // early") — a Portal's or head-tag's render effect writes outside the
-  // hidden subtree. The synchronous first render on creation is not a queued
-  // run and goes through. `_modified` stays set; the boundary re-queues the
-  // run (`release`).
-  if (heldRunHook?.(node)) return;
+  // hidden subtree. The synchronous first render on creation (`type` 0) is
+  // not a queued run and goes through, whichever boundary above is on its
+  // fallback then — an outer one about to reveal in this flush included
+  // (#4343). `_modified` stays set; the boundary re-queues the run
+  // (`release`).
+  if (type && heldRunHook?.(node)) return;
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in
   // this same imperative, writable scope. Unwrap the StatusError used for
