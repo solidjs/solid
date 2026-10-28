@@ -34,13 +34,13 @@ export function createTemplate(
   }
 
   let template, id;
+  const raw = Array.isArray(result.template) ? result.template : [result.template as string];
+  const parts = result.rawText ? raw : asciiTemplateParts(raw);
 
-  if (!Array.isArray(result.template)) {
-    template = t.stringLiteral(result.template as string);
-  } else if (result.template.length === 1) {
-    template = t.stringLiteral(result.template[0]);
+  if (parts.length === 1) {
+    template = t.stringLiteral(parts[0]);
   } else {
-    const strings = result.template.map((tmpl: string) => t.stringLiteral(tmpl));
+    const strings = parts.map((tmpl: string) => t.stringLiteral(tmpl));
     template = t.arrayExpression(strings);
   }
 
@@ -148,6 +148,132 @@ export function createTemplate(
     ...declarators.map(d => t.assignmentExpression("=", d.id, d.init)),
     ssrCall
   ]);
+}
+
+type AsciiState =
+  | { kind: "text" }
+  // Only a quote right after `=` opens a quoted value.
+  | { kind: "tag"; raw?: string; value?: boolean }
+  | { kind: "quoted"; quote: string; raw?: string }
+  // Comments, CDATA and bogus comments, kept as written up to `end`.
+  | { kind: "preserve"; end: string }
+  // `<!--` in a script can start the double-escaped state, where `</script>` does not close it.
+  | { kind: "raw"; close: string; escaped: boolean };
+
+// Browsers do not decode references in raw-text bodies, so those keep their characters.
+export const rawTextElements = new Set([
+  "script",
+  "style",
+  "noscript",
+  "iframe",
+  "noembed",
+  "noframes",
+  "xmp",
+  // `<plaintext>` has no end tag.
+  "plaintext"
+]);
+// Latin-1 already keeps a V8 string one-byte, and `&#128;`-`&#159;` decode to other characters.
+const nonLatin1 = /[^\x00-\xff]/;
+const preservedOpens: [string, string][] = [
+  ["<!--", "-->"],
+  ["<![CDATA[", "]]>"],
+  ["<!", ">"],
+  ["<?", ">"]
+];
+const tagName = /[^\t\n\f\r />]*/y;
+const endsTagName = (next: string | undefined) => next === undefined || /[\t\n\f\r />]/.test(next);
+
+/** Characters above U+00FF outside tags, comments and raw text become `&#N;`, keeping SSR output one-byte in V8. */
+export function asciiTemplateParts(parts: string[]): string[] {
+  return asciiParts(parts, { kind: "text" });
+}
+
+/** `asciiTemplateParts` for a spread element's static attribute markup. */
+export function asciiAttributeMarkup(markup: string): string {
+  return nonLatin1.test(markup) ? asciiParts([markup], { kind: "tag" })[0] : markup;
+}
+
+// State carries across parts because holes can split a tag or a raw-text body.
+function asciiParts(parts: string[], state: AsciiState): string[] {
+  if (!parts.some(part => nonLatin1.test(part))) return parts;
+  return parts.map(part => {
+    let out = "";
+    let i = 0;
+    while (i < part.length) {
+      const ch = String.fromCodePoint(part.codePointAt(i)!);
+      let len = ch.length;
+      if (state.kind === "text") {
+        const open = preservedOpens.find(([open]) => part.startsWith(open, i));
+        if (open) {
+          state = { kind: "preserve", end: open[1] };
+          len = open[0].length;
+        } else if (ch === "<") {
+          const closing = part[i + 1] === "/";
+          const start = i + (closing ? 2 : 1);
+          if (/[a-z]/i.test(part[start] ?? "")) {
+            tagName.lastIndex = start;
+            const name = tagName.exec(part)![0].toLowerCase();
+            state = {
+              kind: "tag",
+              raw:
+                closing || !rawTextElements.has(name)
+                  ? undefined
+                  : name === "plaintext"
+                    ? ""
+                    : `</${name}`,
+              value: false
+            };
+          } else if (closing) {
+            state = { kind: "preserve", end: ">" };
+            len = 2;
+          }
+        }
+        out += len === ch.length ? toAscii(ch) : part.slice(i, i + len);
+      } else if (state.kind === "tag") {
+        if (state.value && (ch === '"' || ch === "'"))
+          state = { kind: "quoted", quote: ch, raw: state.raw };
+        else if (ch === ">")
+          state =
+            state.raw !== undefined
+              ? { kind: "raw", close: state.raw, escaped: false }
+              : { kind: "text" };
+        else
+          state = {
+            kind: "tag",
+            raw: state.raw,
+            value: ch === "=" || (!!state.value && /[\t\n\f\r ]/.test(ch))
+          };
+        out += ch;
+      } else if (state.kind === "quoted") {
+        if (ch === state.quote) state = { kind: "tag", raw: state.raw };
+        out += toAscii(ch);
+      } else if (state.kind === "preserve") {
+        if (part.startsWith(state.end, i)) {
+          len = state.end.length;
+          state = { kind: "text" };
+        }
+        out += part.slice(i, i + len);
+      } else {
+        const end = i + state.close.length;
+        if (state.close === "</script" && part.startsWith("<!--", i))
+          state = { ...state, escaped: true };
+        else if (
+          !state.escaped &&
+          state.close !== "" &&
+          part.slice(i, end).toLowerCase() === state.close &&
+          endsTagName(part[end])
+        )
+          state = { kind: "tag" };
+        out += ch;
+      }
+      i += len;
+    }
+    return out;
+  });
+}
+
+function toAscii(ch: string): string {
+  return ch.charCodeAt(0) <= 0xff ? ch : `&#${ch.codePointAt(0)};`;
 }
 
 export function appendTemplates(path: NodePath<t.Program>, templates: TemplateRecord[]) {
