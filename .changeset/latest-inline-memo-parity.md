@@ -1,0 +1,5 @@
+---
+"@solidjs/signals": patch
+---
+
+`latest(x)` read inline and the same read through a memo (`createMemo(() => latest(x))`) show the same screen. A render effect re-run by a verdict memo's change now tears beside a held optimistic lane through the memo as it does inline (`1 x1 / 5`, #4284). A plain write beside an async memo shows the screen beside the proposal (`v:0 l:1`) in either read order and either form. The committed frame's effect beside one a held pass created tears during the hold inline as through a memo. `latest()` of an async derivation's first load still in flight in a verdict lane is loading, never `undefined`, including after the lane dissolves. The same holds through an identity memo or a derived store, and `isPending()` of such a load is loading too. A plain synchronous write beside `latest()` computes once. An `<Errored>` keeps its error on screen while the async memo the error came through re-asks after the source that threw recovers, instead of revealing content whose holes are still loading.

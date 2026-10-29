@@ -127,6 +127,7 @@ import {
   passTx,
   joinPassTx,
   stagedReaders,
+  latestOpened,
   staleReader,
   laneDirty,
   externalUntrackHook,
@@ -385,10 +386,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // the committed screen, settle the flight and drop the hold — a
     // superseding write's verdict would depend on that probe. Cleared for
     // this pass, before the flight it judges by is superseded; a probe in
-    // the body re-stamps it after the plain reads.
+    // the body re-stamps it after the plain reads. Not an effect: it has no
+    // flight of its own (its pending is a source's), and a verdict memo's
+    // change may have just made it a verdict reader (`laneDirty`). Only a
+    // build with the lane engine (`laneStageHook`; verdict.ts imports it)
+    // ever sets CONFIG_VERDICT: without it the line folds away.
     if (
-      el._statusFlags & STATUS_PENDING ||
-      (el._config & (CONFIG_ASYNC | CONFIG_HELD)) === (CONFIG_ASYNC | CONFIG_HELD)
+      laneStageHook &&
+      !isEffect &&
+      (el._statusFlags & STATUS_PENDING ||
+        (el._config & (CONFIG_ASYNC | CONFIG_HELD)) === (CONFIG_ASYNC | CONFIG_HELD))
     )
       el._config &= ~CONFIG_VERDICT;
     if (el._x !== null) {
@@ -2203,6 +2210,21 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
  * (`bornInto`, #4010): its branch exists only there. */
 export function stagedScreen(c: Computed<any>): boolean {
   if (flushTransaction === null || bornInto(c, flushTransaction)) return false;
+  // A transaction only a `latest()` read opened holds nothing: the staging
+  // is the frame's read for a pass in the frame's seat, as it is before the
+  // frame has one, and the seam re-derives the pass once only if the flush
+  // parks (D-22, F-10). Lane work sees the screen (D-37). Not a pass with no
+  // value yet: its first answer is nobody's hold (D-6) and would commit the
+  // staging whether or not the frame parks — it reads the screen, and runs
+  // again at the landing.
+  if (
+    observeFlightHook &&
+    flushTransaction === latestOpened &&
+    passLane === null &&
+    c._config & CONFIG_VERDICT &&
+    !(c._statusFlags & STATUS_UNINITIALIZED)
+  )
+    return !stagedReaders.push(c);
   staleReader(c, flushTransaction);
   return true;
 }

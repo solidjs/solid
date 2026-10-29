@@ -2,65 +2,20 @@
   "seed": 3289,
   "cases": 1500,
   "failing": {
-    "112": [
-      "safety/undefined-value"
-    ],
-    "296": [
-      "safety/undefined-value"
-    ],
-    "310": [
-      "safety/undefined-value"
-    ],
-    "349": [
-      "safety/undefined-value"
-    ],
-    "465": [
-      "liveness/final-screen"
-    ],
     "662": [
       "liveness/final-screen"
-    ],
-    "752": [
-      "safety/undefined-value"
     ],
     "766": [
       "liveness/final-screen"
     ],
-    "858": [
-      "safety/unhandled-rejection"
-    ],
-    "864": [
-      "safety/undefined-value"
-    ],
     "1046": [
-      "liveness/final-screen"
-    ],
-    "1091": [
-      "liveness/final-screen"
-    ],
-    "1188": [
       "liveness/final-screen"
     ],
     "1222": [
       "liveness/final-screen"
     ],
-    "1237": [
-      "liveness/final-screen"
-    ],
     "1258": [
       "liveness/final-screen"
-    ],
-    "1270": [
-      "safety/undefined-value"
-    ],
-    "1307": [
-      "safety/undefined-value"
-    ],
-    "1383": [
-      "liveness/final-screen"
-    ],
-    "1455": [
-      "safety/undefined-value"
     ]
   }
 }

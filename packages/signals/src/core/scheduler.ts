@@ -76,7 +76,7 @@ export let laneOutcomeHook:
   | null = null;
 export let laneWriteHook: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | null = null;
 export let applyGuessesHook: ((parent: Transaction | null) => void) | null = null;
-export let laneSeamsHook: ((leaks: Computed<any>[] | null) => void) | null = null;
+export let laneSeamsHook: ((t: Transaction | null) => void) | null = null;
 export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
@@ -339,6 +339,13 @@ export function setPassLane(l: Transaction | null): void {
  * schedules the seam that consumes it: membership is the tick's — the same
  * synchronous frame — and the next tick's writes are not this one's. */
 export let flushTransaction: Transaction | null = null;
+/** The flush's transaction while only a `latest()` read of a staging opened
+ * it (verdict.ts `provisionalVerdict`): it holds nothing, and a verdict
+ * reader's plain read of a staging in it is the frame's read (D-22). */
+export let latestOpened: Transaction | null = null;
+export function openedByLatest(): void {
+  latestOpened = flushTransaction;
+}
 /** The transaction the passes running OUTSIDE a flush this tick derive from
  * (a mainline mount, a mainline re-pass): the passes' own (A29, creation-
  * time form — "the entry is the pass's alone"): their results are staged
@@ -930,7 +937,7 @@ export class GlobalQueue implements IQueue {
     // pure round — the parent's flights before the parent is judged below.
     if (laneCorrectionsHook?.()) runHeap(dirtyQueue, GlobalQueue._update);
     const joined = flushTransaction;
-    flushTransaction = null;
+    flushTransaction = latestOpened = null;
     // The frame's verdict is in: the guesses written since the last seam
     // open their lane under the frame's transaction (a lane's own flush
     // parents a nested lane to it), or are dropped — the frame commits, and
@@ -1049,7 +1056,7 @@ export class GlobalQueue implements IQueue {
     // world (a lane's runs wait this round).
     if (laneSeamsHook) {
       this._queues = lanes;
-      laneSeamsHook(t !== null ? stagedReaders : null);
+      laneSeamsHook(t);
       if (stagedReaders.length) stagedReaders.length = 0;
     }
     this._queues = [[], []];
@@ -1341,11 +1348,22 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
  * inert for its pass (`recompute` seats a lane only from its own `_x`), it
  * is a live write if the effect becomes a zombie later this flush — an
  * on-screen reader whose removal an adopted write stages follows the lane
- * (the lane-membership ruling, 2026-10-05; `_update`). */
+ * (the lane-membership ruling, 2026-10-05; `_update`).
+ *
+ * A render effect re-run by a verdict memo's change (`createMemo(() =>
+ * latest(x))`, CONFIG_VERDICT) is the verdict reader the same read inline
+ * makes it, for that pass (F-6; D-26 `[s(), L()]`, #4284): a frame reader
+ * of its other reads — a staging's screen, a flight's committed value. One
+ * an earlier propagation this flush seated in another lane leaves that
+ * seat: its pass starts from the frame's, as the inline effect's does, and
+ * `laneRead` re-derives it on the screen if that lane holds (`entered`). */
 export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): void {
   for (let s = node._subs; s !== null; s = s._nextSub) {
-    const t = s._sub._x?._transaction;
-    if (t?._lane ? sameLane(t, l) : (s._sub as any)._type) s._sub._flags |= REACTIVE_LANE_DIRTY;
+    const c = s._sub,
+      t = c._x?._transaction;
+    if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT)
+      ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
+    if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
   }
 }
 /** One lane, or two of one link group (#3335): one reveal unit. */
