@@ -120,11 +120,12 @@ function notifyEffectStatus(this: Effect<any>): void {
       return;
     }
     // Dev locates the halt at the node that threw: the StatusError's
-    // source, upstream of this effect when a computed failed.
+    // source, upstream of this effect when a computed failed. The rethrow is
+    // the user's error, not the wrapper: the wrapper's `source` is a node, and
+    // a reporter that serializes the throw walks the reactive graph.
     escalate(
       this,
       unwrapStatusError(actualError),
-      actualError,
       __DEV__ && actualError instanceof StatusError ? actualError.source : this
     );
   } else if (this._type === EFFECT_RENDER) {
@@ -157,16 +158,11 @@ function notifyEffectStatus(this: Effect<any>): void {
 }
 
 /** An effect's error no boundary takes halts the system (boundary-or-halt):
- * halted with `cause`, `thrown` rethrown; dev locates it at `subject`. */
-function escalate(
-  node: Effect<any>,
-  cause: unknown,
-  thrown: unknown = cause,
-  subject: DiagnosticSubject = node
-): void {
+ * halted with `cause` and rethrown; dev locates it at `subject`. */
+function escalate(node: Effect<any>, cause: unknown, subject: DiagnosticSubject = node): void {
   if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
     __DEV__ ? haltReactivityAt(cause, subject) : haltReactivity(cause);
-    throw thrown;
+    throw cause;
   }
 }
 
