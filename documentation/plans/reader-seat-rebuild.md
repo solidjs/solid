@@ -267,6 +267,37 @@ behaviour (Vl2's `watchVerdict` path, Vl4/L7's `NOT_PENDING` for an
 uninitialized lane node). When they merge, the allow-list entries for them
 go.
 
+### 4.2 Results (S0, 2026-10-28)
+
+Counts are the shadow's: reads compared / passes seated / mismatch
+classes / instances. Every mismatch is bucketed in §6 (table fixes,
+applied) or §7 (two readings, awaiting a ruling); no class was found where
+the new slot is right and today wrong by a rule, so no issue was filed.
+
+| run                                                 |      reads |     passes | classes | instances |
+| --------------------------------------------------- | ---------: | ---------: | ------: | --------: |
+| signals suite (375 files, green)                    |    965,402 |    238,364 |      40 |       137 |
+| visibility oracle (posture / oracle / store)        |     11,379 |      8,322 |       0 |         0 |
+| solid suite                                         |      2,389 |      1,546 |       0 |         0 |
+| web suite (the 27 `.spec.ts` files that load here¹) |    254,902 |    155,740 |      25 |        74 |
+| generator 2,000 × {3289, 91501, 7}, every pair      |  6,969,627 |  5,153,328 |     143 |     4,127 |
+| generator 50,000 × {3289, 91501, 7}, every pair²    | 67,328,944 | 43,755,988 |     133 |     8,821 |
+
+¹ The worktree has no `@solidjs/compiler` binary, so the 153 `.spec.tsx`
+files fail to load on `next` too; CI runs them.
+² All three seeds abort on `next` before 50,000 cases with `Potential
+Infinite Loop Detected. Kept alive by scheduled work` (seed 7 inside the
+first 2,000; 3289 at ~427 s, 91501 at ~638 s), identically on the plain
+build without the shadow — a generator finding on `next`, not a shadow
+finding, reported in the PR and not minimized here. Seeds 3289 and 91501
+also report one `equivalence/E7` signature each on both builds.
+
+The 50k run added two table rows to §6 (L4/L2/V1' staged error, V3 under
+published inputs) and no new two-readings item; by bucket (2k → 50k):
+F-ahead-posture 1,461 → 2,922; F-vlane 1,054 → 2,431; F-vworld 1,101 →
+2,308; F-transitive 301 → 684; B2 display-ahead residue 104 → 257; F-mount
+97 → 180.
+
 ## 5. Swap plan
 
 Three to five PRs, serial, each in its own worktree (brief §4 item 4):
@@ -355,6 +386,18 @@ a table gap or to a two-readings item (§7); no issue was filed.
   (`h`, pending when its flush parked) read by a derivation: today C with
   the join (H); the table's D2 said P. Fix: `staged ? P : C`, raise H
   either way.
+- **L4 / L2 / V1' · D-41** (50k only) — a leaf, or a frame reader born
+  into the hold, reading a held node whose staging is an error
+  (`stageError`): today `stagedRead` throws it; the table's L rows said P.
+  Same rule as the Vl1/Vl4 finding, on the plain-read rows. Fix: the
+  staged slot is `stagedError ? E : P` on every row that serves a
+  staging.
+- **V3 · F-9** (50k only) — a verdict reader's plain read of a node
+  staged **and** in flight with `INPUTS_PUBLISHED` (`s f ip`): the table's
+  V3 served the staging; today the flight decides (`V4'`, NR — #3305, the
+  committed value would tear against the published inputs). The D1/L1
+  finding above, on the V rows. Fix: the V2/V3 arm yields to the flight
+  rows when the node is in flight with published inputs.
 
 ## 7. Blocked / two readings
 
