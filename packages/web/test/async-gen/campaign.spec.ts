@@ -163,6 +163,7 @@ describe.skipIf(!FUZZ)("async-gen campaign", () => {
     const traces: Record<number, Trace> = {};
     let idx = 0;
     for (const sc of fc.sample(arb, { seed: SEED, numRuns: CASES })) {
+      (globalThis as any).__SEAT_SHADOW_CASE__ = `seed ${SEED} #${idx}`;
       const r = await runWithPairs(sc);
       traces[idx++] = {
         screens: r.base.screens,

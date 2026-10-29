@@ -69,7 +69,15 @@ import {
   type Transaction,
   installVerdictHooks
 } from "./scheduler.js";
-import { SLOT_C, SLOT_DV, SLOT_LV, SLOT_P, shadowActual, shadowExpect } from "./seat.js";
+import {
+  SLOT_C,
+  SLOT_DV,
+  SLOT_LV,
+  SLOT_P,
+  shadowActual,
+  shadowExpect,
+  shadowWindow
+} from "./seat.js";
 import type { Computed, Signal } from "./types.js";
 
 /** A verdict reader whose answer this flush could not give yet: the node it
@@ -266,6 +274,7 @@ function markVerdictReader(window: number): void {
       REACTIVE_PROBED |
       REACTIVE_WINDOW |
       (creatorReads(c, 0) || ((c._config |= CONFIG_VERDICT), 0));
+    if (__TEST__) shadowWindow(c);
     // Observe tier: which windows this pass entered (1 `isPending`, 2
     // `latest`) — the hold census names the affordance (attribution.ts).
     if (__OBSERVE__) (c as any)._devWindows = ((c as any)._devWindows ?? 0) | window;

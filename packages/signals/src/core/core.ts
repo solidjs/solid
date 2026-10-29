@@ -683,14 +683,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     );
     // Shadow seat (S0): the born-held decision beside the old one, then
     // the seat is restored.
-    if (__TEST__)
-      shadowSeatClose(
-        el,
-        !!isEffect,
-        joined,
-        !!((creatorPass(oldcontext)?._flags as number) & REACTIVE_JOINED),
-        mount
-      );
+    if (__TEST__) shadowSeatClose(el, !!isEffect, joined, creatorPass(oldcontext), mount);
     // A verdict reader is one for as long as it probes, or reads a memo
     // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
     // bit) is an ordinary derivation again. Its async posture is the

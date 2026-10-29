@@ -25,7 +25,10 @@ let reads = 0,
   orphans = 0;
 const rows = new Map();
 const mismatches = new Map();
+const known = new Map();
 for (const r of lines) {
+  for (const [issue, n] of Object.entries(r.known ?? {}))
+    known.set(issue, (known.get(issue) ?? 0) + n);
   reads += r.reads;
   passes += r.passes;
   orphans += r.orphanReads;
@@ -51,13 +54,17 @@ if (showRows) {
   for (const [row, n] of [...rows].sort((a, b) => b[1] - a[1]))
     console.log(`  ${row.padEnd(10)} ${n}`);
 }
+if (known.size) {
+  console.log("\nknown differences (filed; the swap fixes them by construction):");
+  for (const [issue, n] of [...known].sort((a, b) => b[1] - a[1])) console.log(`  #${issue} ×${n}`);
+}
 const list = [...mismatches.values()].sort((a, b) => b.count - a.count);
 console.log(`\nmismatch classes: ${list.length}`);
 for (const m of list) {
   console.log(
     `\n${m.kind} row ${m.row}: expected ${m.expected}, got ${m.actual} — ${m.detail} ×${m.count}`
   );
-  console.log(`  e.g. reader ${m.reader} node ${m.node}`);
+  console.log(`  e.g. reader ${m.reader} node ${m.node}${m.case ? ` (${m.case})` : ""}`);
   const fs = [...m.files].sort((a, b) => b[1] - a[1]).slice(0, filesN);
   for (const [f, n] of fs) console.log(`  ${f} ×${n}`);
   if (m.files.size > filesN) console.log(`  … ${m.files.size - filesN} more files`);

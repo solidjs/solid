@@ -319,6 +319,33 @@ the §6 fix did not touch) ×2 / 2; `V1'` P vs C ×2 / 2 and `Vl1` P vs C
 new 1 with equal slots (`Vl1` / `Vp1` / `Vl5`) ×7 / 3; `B2 born held (old
 true, new false; world 1, no mount, rows L8)` ×1 / 1.
 
+### 4.3 Results (S1 M1 re-baseline, 2026-10-29)
+
+The shadow merged onto `next` @ 5e68925cc (after #4401, #4397, #4383,
+#4393, #4406, #4412, #4419), the §6.1 table fixes applied, and every
+remaining class traced. "Known" are the filed `next` bugs the shadow
+carries by name (`shadowKnown`: #4426, #4427, #4428, #4429); the
+generator runs also diff every screen against a recording of the same
+cases on a plain `next` build (`ASYNC_GEN_DIFF`, zero differences).
+
+| run                                                     |     reads |    passes | classes | known                          |
+| ------------------------------------------------------- | --------: | --------: | ------: | ------------------------------ |
+| signals suite (393 files, green)                        |   965,383 |   242,322 |       0 | —                              |
+| visibility oracle (posture / oracle / store)            |    11,379 |     8,322 |       0 | —                              |
+| solid suite (54 files, green)                           |     2,388 |     1,546 |       0 | —                              |
+| web suite (194 files incl. compiled `.spec.tsx`, green) |    99,152 |    80,488 |       0 | #4426 ×1, #4427 ×1             |
+| generator 2,000 × seed 7, every pair                    |   856,775 |   856,072 |       0 | #4428 ×11, #4429 ×1            |
+| generator 2,000 × seed 3289, every pair                 | 1,066,134 |   965,603 |       0 | #4428 ×11, #4426 ×10, #4427 ×7 |
+| generator 2,000 × seed 91501, every pair                | 8,800,109 | 5,351,433 |       0 | #4428 ×9                       |
+
+Bytes: `pnpm build` (default `__TEST__` false) measured by `scripts/size`
+against `next` @ 5e68925cc built the same way — every scenario identical
+in brotli and minified bytes (`+ isPending/latest` 11,026 B brotli /
+30,408 B minified on both; rc.19 10.38 KB, L2 9.44 KB — the growth is
+#4393/#4397/#4383's, ledgered by #4412). `packages/signals/dist/prod` and
+`observe` differ from the base only in statement braces and import order
+left where `__TEST__` blocks were removed (the minifier erases both).
+
 ## 5. Swap plan
 
 Three to five PRs, serial, each in its own worktree (brief §4 item 4):
@@ -420,6 +447,134 @@ a table gap or to a two-readings item (§7); no issue was filed.
   finding above, on the V rows. Fix: the V2/V3 arm yields to the flight
   rows when the node is in flight with published inputs.
 
+### 6.1 S1 M1 re-baseline (2026-10-29) — the 43 untraced classes and the six rulings, traced
+
+The S0 residue (§4.2, 623 instances / 43 classes at 50k) and the classes
+the six S0 PRs (#4401, #4397, #4383, #4393, #4406, #4412) added were each
+traced to a mechanism. Every one is a table gap, a ruling now applied, or a
+bug on `next` (two, filed — the first of the second kind). The table fixes:
+
+- **V1'' · D-41** — a verdict reader born into the hold reading a held node
+  whose staging is an error: `stagedSlot` (E), as the L4/L2/V1' fix. The
+  owed S0 row.
+- **The three "today" rows (F-vlane, F-leaf, F-ahead-posture)** — modelled
+  as ruled: the verdict seat is the hold the pass's own node's verdict
+  lane names (`vhold`, resolved), persisting by posture; a leaf that read
+  a born node or the hold's own staging is in the hold's world
+  (INV-seat-1 amended, L2/L4 raise H); `ahead` comes from a lane seat or a
+  verdict seat, never from a verdict posture alone.
+- **F-mount (reading A) and F-transitive, as implemented** — the creator
+  is the running pass (seat stack top) for ahead-ness, lane (when the
+  owner's pass is running — a `runWithOwner` into an owner not running,
+  `fallback`'s `b._fb`, is not lane work by birth: "the swap is structure")
+  and the one-level world; the branch's world for the #4341 window rule
+  (`creatorsWorld`, today `creatorReads`) is the owner chain's running
+  passes — a lazy memo another owner made, first pulled inside a pass
+  that read a staging, is not that pass's branch (web `e1-3289-1831`,
+  `latestDerive`: ×13 world / ×12 verdict-seat classes before the fix).
+  World inheritance for born-held stays one level — the running pass's
+  own reads (`creatorWorld = p.ownWorld`). The two alternatives were each
+  run through the suites: transitive (`p.world`) — 14 born-held and 29
+  inherited-world differences (`optimistic-maparray-index-frame-f1` ×13,
+  `match-born-latest-4341` ×10, `loading-fallback-in-flush-3540` ×5,
+  `lazy-memo-rebuilt-reader-4142` ×2); born-into-the-hold counts as the
+  hold's world (`bornTx` → H, A29's letter) — 7 (`3540` ×5, `4142` ×2).
+  One level leaves only the `fallback` shape below (#4428). §7
+  F-transitive is reopened on it.
+- **F-vworld, as implemented** — verdict reads leave marks and do not
+  raise; the `D5` exception (join before re-throwing a held node's error)
+  is kept; the `D5`/`L8` E-vs-NR residue traced to the `_shownError`
+  screen slot (`screen`: an errored node's `_shownError` is thrown where
+  `read` serves `throwShown` — `committed || !c`, the CONFIG_VERDICT
+  `stagedScreen` arm — else the row's slot) and the D-41 retry
+  (`tracked && el._time < clock` recomputes and re-reads: the outer read
+  is `SLOT_SNAPSHOT`, the nested one compares).
+- **`seam` / `seamFlight` (Vl/Vp rows) · D-22, D-25** — `provisionalVerdict`
+  (a staging not held: `AH` once the flush has a hold, `W` before) and
+  `pendingVerdict` (a flight: `latest` opens the flush's transaction for
+  it — `AH`; `isPending` watches the seam — `W`) are marks of the window
+  rows; `latest()` of a flight with `joinFuture(null)` names the hold the
+  read left behind (`shadowLeave` fills the transaction at leave time).
+- **`laneNP` / `dispNP` · #4362, #4363** — a lane node with nothing in
+  either view (born in the lane, nothing produced) falls through the lane
+  rows to the plain rows (`laneValueOf`/`display` return `NOT_PENDING`); a
+  render leaf over it is NR, not the committed value (#4338).
+- **Lane rows for a boundary's structure · A15, #4283** — the D-28 leaf
+  treatment of a lane (L6/L7: a stale reader of the lane, re-derived at
+  the reveal) is a render effect's; a boundary's output and tree
+  (`CONFIG_FRAME`, posture L on the plain rows per #4283) read a lane as a
+  derivation does — they enter. The table had every posture-L reader take
+  the leaf rows. Checked by flipping `laneRead` to the table's reading: a
+  fallback-showing `<Loading>` whose `on` is `latest(b)` then holds
+  `latest(b)` (`lane-hold-on-observation` "a fallback-showing boundary
+  around the memo does not hold latest(b)"), and a boundary's content
+  serves a flight committed beneath its inputs — the tear A15's reveal
+  corollary forbids for every reader kind (`l2-fuzz-existing-rules`, seed
+  3289 #922). Today is right. Fix: `renderLeaf` is `_type === EFFECT_RENDER`.
+- **The swap is structure · #3540, #4337** — `fallback`'s `read(b._fb)` is
+  bracketed: what the fallback's build reads ahead (a verdict, a lane) is
+  the fallback's display-ahead, not the output's; the output's seat is
+  saved before and restored after (today `passLane` and the
+  PROBED/LANE_READ flags). Shadow: `shadowSeatSave`/`shadowSeatRestore`.
+- **D8 · F-2, D-37** — lane work with a value reading a flight that is not
+  the lane's own reads the screen — when the node has one; a first load
+  in flight (`u f`) is NR for every reader. The table's D8 had no
+  `!uninit`.
+- **Vl4' · D-22, #3376** — `latest()` of a node staged **and** in flight
+  (`s f`, initialized): the staging is newer than the screen, so `latest`
+  shows the proposal (`staged(el)`), the verdict is the flight's
+  (`pendingVerdict`); outside a flush the committed value (A28, as Vl3).
+  The table's Vl4 served C whenever the node was in flight. `isPending`
+  reads the screen (Vp1) either way. Generator seed 3289 #310.
+- **`_marked` (affects) · affects.ts** — a live `affects()` mark on the
+  node or a dependency makes an `isPending` reader the flush's verdict
+  reader (`AH`) when the flush has a hold; a mark of the window rows.
+- **A-as-V · F-6** — an authoritative reader (`until`/refresh waiter) that
+  also carries `CONFIG_VERDICT` (F-6's flag copy) reads a hold's node as a
+  verdict reader (`frameRead`); `truthRead` is for lane nodes only.
+- **`RAISE_VSEAT` links a lane seat · `enterLane`** — a pass in a lane
+  that reads a verdict lane's node is seated as the hold's verdict reader
+  (today `passLane` becomes the verdict lane; the lanes link).
+
+**Bugs on `next` (filed; the swap fixes them by construction, the shadow
+carries them as `shadowKnown` entries):**
+
+- **#4426 · V1' P vs C** — a verdict reader born into hold `T`
+  (`CONFIG_HELD_FRAME`, uninitialized), run by a flush whose transaction
+  is not `T`, reading a node `T` holds: `frameRead`'s `bornInto(c, T)`
+  joins the pass, then `stagedScreen`'s `bornInto(c, flushTransaction)`
+  serves the screen the same read ruled it not to have (A29, #4010).
+  Generator seed 3289 #911; one instance in the 1,500-case gate.
+- **#4427 · V6 Lv vs P** — `laneRead`'s D-28 reset compares verdict lanes
+  by identity: a derivation in `A._verdict` after `A` merged into the seat's
+  hold `B` reads as another hold's lane; the leaf leaves its own verdict
+  seat and is served the staging (L7'). D-28/#4284 is about another
+  hold's lane; #3905-adjacent. Generator seed 3289 #43; one instance.
+- **#4428 · B2 born held (old true, new false)** — `fallback`'s `b._fb`,
+  created by `runWithOwner(out._parent, …)` while the output's pass runs:
+  the born-held test asks `creatorPass(oldcontext)` — one level up the
+  _owner_ chain, the enclosing pass, running and JOINED — where the pass
+  actually running (the output) read nothing held. Today is a third
+  reading of F-transitive (neither one-level-running-creator nor
+  transitive); the entry is carried under the one-level reading pending
+  §7's ruling. Generator seeds 7 #82 / 3289 #374 / 91501 #37 (+ 7 #138,
+  3289 #1647, 91501 #166 with the fallback reading a staging); 31
+  instances at 2k × 3; no suite shape; no screen difference.
+- **#4429 · Vl4 P/P, world old 2 new 0** — `isPending`'s `probing` flag is
+  left set around a memo's pass the probe pulled (`verdictValue` resets
+  only the dispatch, A31): a `latest()` of a born-into-the-future node
+  inside that pass takes the probe's `joinPass` arm and the pulled pass
+  joins the hold; `probeFound` leaks the same way. F-vworld: a verdict
+  read raises no world. Generator seed 7 #1691; one instance; no screen
+  difference.
+
+**Expected, not classes:** `B1 inherited world (old creator JOINED, new 0)`
+for a `runWithOwner` into an owner that is not the running pass (`<For>`'s
+lazy `mapArray` under the component's owner) is the F-mount reading-A
+difference by definition; the shadow compares the owner's flag only when
+the owner is the running pass, and the born-held decision at the close
+still compares for every pass (zero classes besides #4428 above).
+
 ## 7. Blocked / two readings
 
 Recorded as they arise, with both readings and the screen each produces.
@@ -508,6 +663,9 @@ false)`.
   reading A — creator = the running pass (seat stack top), for both
   ahead-ness and world inheritance. The owner-based `creatorPass(context)`
   path and its stale-JOINED-flag hazard retire with the swap.
+  (2026-10-29: the owner-vs-running-pass difference for world inheritance
+  is one shape — `fallback`'s `b._fb`, #4428 — and whether its answer is
+  A's or today's depends on F-transitive's ruling below.)
 - **F-ahead-posture — ahead by posture without a lane.** The brief: ahead
   = creator display-ahead (verdict posture or in a lane). Today `mount`
   comes only from `passLane`/`laneRoot`, so a mount made by a verdict
@@ -553,3 +711,41 @@ creator running true, creator memo:value|children|effect)` — ×29 in
   **Choice 2026-10-28 (agent, no screen change in the differential):**
   whichever the seat stack makes simpler, with the shadow continuing to
   prove equal slots (301 instances at 2k, no slot difference found).
+  **Reopened 2026-10-29 (S1 M1) — needs a ruling.** The condition of the
+  choice ("equal slots") does not hold for either reading once the seat
+  stack names the running creator (F-mount reading A); today is a third
+  reading, and the two candidates each differ from it in a disjoint
+  shape, both born-held differences (a first value staged vs published —
+  behaviour, not a slot):
+  - **Reading A' — one level, running creator** (`creatorWorld =
+p.ownWorld`; D-27's letter, "a node it creates during that pass").
+    Differs from today only under `runWithOwner` to a running ancestor
+    that read the future while the running pass did not: `fallback`'s
+    `b._fb` (#4428; 31 passes at 2k × 3 seeds, no suite shape). Today:
+    born held (the ancestor's flag, one level up the _owner_ chain); A':
+    publishes. Screens equal in every case.
+  - **Reading B — transitive** (`creatorWorld = p.world`; A29 "a held
+    pass's children are the hold's", #4341 "its branch exists only in that
+    world"). Agrees with today on #4428; differs in 14 suite passes: a
+    `mapArray` row root under a pass that inherited the hold's world
+    without reading it (`optimistic-maparray-index-frame-f1` ×13) and a
+    born-into render effect's child (`lazy-memo-rebuilt-reader-4142` ×1)
+    — today they publish, B says born held — plus 29 inherited-world
+    diagnostics (`match-born-latest-4341` ×10, `loading-fallback-in-flush-3540`
+    ×5, …). Suites stay green either way (the shadow does not act), so
+    whether B's born-held changes a screen is unmeasured.
+  - **Reading C — born into the hold counts** (`bornTx` → H for the
+    creator's children, A29's letter for a born-into pass): differs in 7
+    suite passes (`3540` ×5, `4142` ×2 — a render effect born into the
+    hold whose child reads only the screen; today publishes).
+  - **Today** — one level up the owner chain of the creation context,
+    running or not: `creatorPass(oldcontext)._flags & JOINED`. Not a rule
+    anyone wrote; where the owner is not running it reads a stale flag.
+    The shadow carries A' (today's letter minus the owner-vs-running-pass
+    difference) with #4428 as its known class, so the differential reads
+    zero; the swap (M3) must implement the ruling, and M3 is blocked on it
+    only for this arm (`bornHeld`'s `creatorWorld`). Question for the
+    maintainer: is a pass's child born held when the pass itself read
+    nothing of the hold but exists only in it (B), or only when the pass
+    read the hold (A')? If B, the 14 suite shapes are `next` bugs to file;
+    if A', #4428 stands as filed.

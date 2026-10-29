@@ -60,7 +60,7 @@ import {
 } from "./core/constants.js";
 import { computed, read, recompute, runWithOwner, setSignal, signal } from "./core/core.js";
 import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
-import { shadowSwapSeat } from "./core/seat.js";
+import { shadowSeatRestore, shadowSeatSave, shadowSwapSeat } from "./core/seat.js";
 import { NotReadyError, unwrapStatusError } from "./core/error.js";
 import { reportClientError } from "./core/error-hooks.js";
 import { link } from "./core/graph.js";
@@ -854,8 +854,10 @@ function fallback<T>(b: Boundary): T {
   // fallback, #4337).
   const p = passLane;
   const f = out._flags;
+  const saved = __TEST__ ? shadowSeatSave(out) : null;
   const v = read(b._fb) as T;
   setPassLane(p);
+  if (__TEST__) shadowSeatRestore(out, saved);
   out._flags ^= (out._flags ^ f) & (REACTIVE_PROBED | REACTIVE_LANE_READ);
   return v;
 }
