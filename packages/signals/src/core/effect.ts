@@ -126,7 +126,6 @@ function notifyEffectStatus(this: Effect<any>): void {
     escalate(
       this,
       unwrapStatusError(actualError),
-      undefined,
       __DEV__ && actualError instanceof StatusError ? actualError.source : this
     );
   } else if (this._type === EFFECT_RENDER) {
@@ -159,16 +158,11 @@ function notifyEffectStatus(this: Effect<any>): void {
 }
 
 /** An effect's error no boundary takes halts the system (boundary-or-halt):
- * halted with `cause`, `thrown` rethrown; dev locates it at `subject`. */
-function escalate(
-  node: Effect<any>,
-  cause: unknown,
-  thrown: unknown = cause,
-  subject: DiagnosticSubject = node
-): void {
+ * halted with `cause` and rethrown; dev locates it at `subject`. */
+function escalate(node: Effect<any>, cause: unknown, subject: DiagnosticSubject = node): void {
   if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
     __DEV__ ? haltReactivityAt(cause, subject) : haltReactivity(cause);
-    throw thrown;
+    throw cause;
   }
 }
 
