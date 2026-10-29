@@ -2659,7 +2659,6 @@ function subscribeFragments(cb: (id: string, parent?: ParentNode) => void): () =
 // hand-built `_$HY`) nothing says the parser carried the records, and a late
 // runtime stays out.
 function watchTruncation(hy: any) {
-  if (typeof document === "undefined") return;
   const sweep = () => {
     if (!hy.r) return;
     // First, before any boundary below resumes: a cut fragment's fresh
@@ -2682,6 +2681,7 @@ function watchTruncation(hy: any) {
     // rejection.
     setTimeout(() => rejectTruncatedRefs(consumed));
   };
+  if (typeof document === "undefined") return;
   if (document.readyState === "loading")
     document.addEventListener("DOMContentLoaded", sweep, { once: true });
   else if (hy.s) sweep();
