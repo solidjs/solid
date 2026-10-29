@@ -50,6 +50,7 @@ import {
   REACTIVE_LANE_DIRTY,
   REACTIVE_LANE_READ,
   REACTIVE_PROBE_UNANSWERED,
+  REACTIVE_WINDOW,
   REACTIVE_SCREEN_READ,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_LAZY,
@@ -628,7 +629,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           REACTIVE_STAGED_READ |
           REACTIVE_LANE_READ |
           REACTIVE_SCREEN_READ |
-          REACTIVE_PROBE_UNANSWERED)) |
+          REACTIVE_PROBE_UNANSWERED |
+          REACTIVE_WINDOW)) |
       (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
     if (released) for (const node of released) releaseIfSettledUnobserved(node);
@@ -975,7 +977,8 @@ function updateIfNecessary(el: Computed<unknown>): void {
       REACTIVE_STAGED_READ |
       REACTIVE_LANE_READ |
       REACTIVE_SCREEN_READ |
-      REACTIVE_PROBE_UNANSWERED);
+      REACTIVE_PROBE_UNANSWERED |
+      REACTIVE_WINDOW);
 }
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;

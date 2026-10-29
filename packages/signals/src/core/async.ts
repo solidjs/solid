@@ -990,8 +990,21 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     // Inheriting the error would make a probe's reader errored. A boundary's
     // output (CONFIG_REDERIVE, boundaries.ts) the same: content or fallback
     // is its pass's call.
+    // Not an async memo that is a verdict reader only by reading a verdict
+    // memo (F-6, #4050: it opened no window of its own — REACTIVE_WINDOW,
+    // whose bit >> 6 is CONFIG_VERDICT's) when that verdict memo goes
+    // pending: re-derived, it is served the committed value it already
+    // derived from (A10) and asks that question again. What it read ahead is
+    // in flight, so it is pending through the flight like any derivation
+    // (F-9) and the hold's work until the flight lands, reading plainly
+    // (D-25, #3884): it asks once, at the landing. A sync one re-derives as
+    // before — asking nothing, it stays the lane's. (`_inFlight` is its last
+    // pass's flight, landed or not; a sync pass clears it.)
     if (
-      sub._config & (CONFIG_REDERIVE | CONFIG_VERDICT) ||
+      (sub._config &= ~(pendingSource && sub._x?._inFlight
+        ? el._config & (~sub._flags >> 6) & CONFIG_VERDICT
+        : 0)) &
+        (CONFIG_REDERIVE | CONFIG_VERDICT) ||
       (status === STATUS_PENDING && link._gen !== sub._depGen)
     ) {
       enqueueSub(sub);

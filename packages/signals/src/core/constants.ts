@@ -68,6 +68,12 @@ export const REACTIVE_SCREEN_READ = 1 << 18;
  * later read of the same pass routed it into a verdict lane — that was not
  * the probe's answer (lanes.ts). Per pass. */
 export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
+/** The pass opened a verdict window of its own (`isPending`/`latest`) — not
+ * only read a verdict memo (F-6, core.ts `read`): a verdict memo it reads
+ * going pending changes its answer (async.ts `propagateStatus`). Per pass,
+ * kept until the next. CONFIG_VERDICT << 6, which the propagation relies on
+ * (1 << 20 is lanes.ts's LEFT_SHOWN). */
+export const REACTIVE_WINDOW = 1 << 21;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;
