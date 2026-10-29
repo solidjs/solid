@@ -154,42 +154,53 @@ describe("a plain write beside an async memo: the screen beside latest(), inline
         t.dispose();
       });
 
-  // A plain synchronous write (no action, no async) commits at its seam: the
-  // pass that read `s` before the frame had a transaction and then
-  // `latest(s)` stood — one compute, one effect run — whether the reader is
-  // a memo, a render effect or a user effect, of `latest(s)` or of
-  // `latest(memo)`. The seam re-derives such a reader only if the frame
-  // parks (D-22: `latest()` of a staging not yet held is the frame's read,
-  // opens no hold, and re-derives once only if the flush parks; F-10).
-  for (const reader of ["memo", "render effect", "user effect", "render effect of latest(memo)"])
-    it(`inline [s(), latest] in a flush that commits runs once: ${reader}`, () => {
-      let set!: (v: number) => void;
-      let passes = 0;
-      const seen: string[] = [];
-      const dispose = createRoot(d => {
-        const [s, _set] = createSignal(0);
-        set = _set;
-        const m = createMemo(() => s());
-        const f =
-          reader === "render effect of latest(memo)"
-            ? () => (passes++, `v:${s()} l:${latest(m)}`)
-            : () => (passes++, `v:${s()} l:${latest(s)}`);
-        if (reader === "memo") createRenderEffect(createMemo(f), v => void seen.push(v));
-        else
-          (reader === "user effect" ? createEffect : createRenderEffect)(
-            f,
-            (v: string) => void seen.push(v)
-          );
-        return d;
+  // A plain synchronous write (no action, no async) commits at its seam: a
+  // pass that read `s` and then `latest(s)` — inline, or through
+  // `L = createMemo(() => latest(s))` — stood: one compute, one effect run
+  // per write, whether the reader is a memo, a render effect or a user
+  // effect, and whether or not another pass's `latest()` opened the flush's
+  // transaction first (a memo of `latest(s)` beside it). The seam re-derives
+  // such a reader only if the frame parks (D-22: `latest()` of a staging not
+  // yet held is the frame's read, opens no hold, and re-derives once only if
+  // the flush parks; F-10: one frame for every channel; F-6: the memo form
+  // as inline).
+  for (const via of [
+    "inline",
+    "memo",
+    "inline beside a memo of latest(s)",
+    "latest(memo)"
+  ] as const)
+    for (const reader of ["memo", "render effect", "user effect"] as const)
+      it(`[s(), latest] in a flush that commits runs once: ${via}, ${reader}`, () => {
+        let set!: (v: number) => void;
+        let passes = 0;
+        const seen: string[] = [];
+        const dispose = createRoot(d => {
+          const [s, _set] = createSignal(0);
+          set = _set;
+          const m = createMemo(() => s());
+          const L = createMemo(() => latest(s));
+          if (via === "inline beside a memo of latest(s)") createRenderEffect(L, () => {});
+          const l = via === "memo" ? L : via === "latest(memo)" ? () => latest(m) : () => latest(s);
+          const f = () => (passes++, `v:${s()} l:${l()}`);
+          if (reader === "memo") createRenderEffect(createMemo(f), v => void seen.push(v));
+          else
+            (reader === "user effect" ? createEffect : createRenderEffect)(
+              f,
+              (v: string) => void seen.push(v)
+            );
+          return d;
+        });
+        flush();
+        passes = 0;
+        set(1);
+        flush();
+        set(2);
+        flush();
+        expect(seen).toEqual(["v:0 l:0", "v:1 l:1", "v:2 l:2"]);
+        expect(passes).toBe(2);
+        dispose();
       });
-      flush();
-      passes = 0;
-      set(1);
-      flush();
-      expect(seen).toEqual(["v:0 l:0", "v:1 l:1"]);
-      expect(passes).toBe(1);
-      dispose();
-    });
 });
 
 // A memo of a verdict read moves its async derivation into the verdict lane
@@ -498,4 +509,54 @@ describe("an error stays the display while the memo it came through re-asks", ()
       expect(screens).toEqual(["[L]", "[E]", "[E]", "a=2 b=4"]);
       dispose();
     });
+});
+
+// The same re-ask read in the Loading boundary's body (its tree) rather than
+// in a render effect: the inner fallback is hidden behind the error (D-39,
+// "over `Errored > Loading(never shown)` ... the inner fallback is hidden
+// behind the error"): `[E]` stays until `m1` lands. Before, the Loading —
+// never shown, still collecting — caught the re-ask and the Errored healed
+// onto `[L]`.
+it("an error stays the display while a Loading body read of the memo it came through re-asks", async () => {
+  const flights: { v: number; res: (v: number) => void }[] = [];
+  let set!: (v: number) => void;
+  let view = "";
+  const screens: string[] = [];
+  const dispose = createRoot(d => {
+    const [s, _set] = createSignal(1);
+    set = _set;
+    const m0 = createMemo(() => {
+      const v = 1 + s();
+      if (v % 4 === 1) throw new Error("m0:" + v);
+      return v;
+    });
+    const m1 = createMemo(() => {
+      const v = 1 + m0();
+      return new Promise<number>(res => flights.push({ v, res }));
+    });
+    const out = createErrorBoundary(
+      () =>
+        createLoadingBoundary(
+          () => `m1:${m1()}`,
+          () => "[L]"
+        ),
+      () => "[E]"
+    );
+    createRenderEffect(out, v => void (view = String(v)));
+    return d;
+  });
+  flush();
+  screens.push(view);
+  set(0);
+  await tick();
+  screens.push(view);
+  set(2);
+  await tick();
+  screens.push(view);
+  expect(flights.map(f => f.v)).toEqual([3, 4]);
+  flights[1].res(4);
+  await tick();
+  screens.push(view);
+  expect(screens).toEqual(["[L]", "[E]", "[E]", "m1:4"]);
+  dispose();
 });

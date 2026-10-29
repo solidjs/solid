@@ -199,6 +199,12 @@ function caught(b: Boundary, node: Computed<any>, error: unknown, source = node)
     reportClientError(caught, b._owner, source);
   }
   record(b, node, source);
+  // A loading fallback behind an error fallback is hidden: the error stays
+  // the display until what the fallback waits on answers (D-39) — the
+  // error boundary waits on it too.
+  if (b._type === STATUS_PENDING)
+    for (let p = b._parent; p; p = p._parent)
+      if (p._type === STATUS_ERROR && p._fallback) record(p, node);
   if (b._armed) flip(b);
   // Already showing the fallback: one more reader to wait on changes
   // nothing on screen. The fallback is instantiated once per show — a later

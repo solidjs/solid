@@ -57,6 +57,7 @@ import {
   globalQueue,
   GlobalQueue,
   joinFuture,
+  openedByLatest,
   passLane,
   queuePendingNode,
   setPassLane,
@@ -177,8 +178,10 @@ function provisionalVerdict(c: Computed<any>, notFinal: boolean): void {
   // (`observeFlight`), which the seam must not take as this probe's answer.
   const t = flushTransaction;
   if (probing && !t) return watchVerdict(c, notFinal);
-  if (!probing) joinFuture(null);
-  else if (notFinal) probeFound = true;
+  if (!probing) {
+    joinFuture(null);
+    if (!t) openedByLatest();
+  } else if (notFinal) probeFound = true;
   verdictRead(c, flushTransaction!);
   // A `latest` reader watches only a staged read made before the frame had
   // a transaction: one made in it (an action's world) is the frame's, and

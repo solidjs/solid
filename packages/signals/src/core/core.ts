@@ -126,6 +126,7 @@ import {
   passTx,
   joinPassTx,
   stagedReaders,
+  latestOpened,
   staleReader,
   laneDirty,
   externalUntrackHook,
@@ -2189,6 +2190,17 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
  * (`bornInto`, #4010): its branch exists only there. */
 export function stagedScreen(c: Computed<any>): boolean {
   if (flushTransaction === null || bornInto(c, flushTransaction)) return false;
+  // A transaction only a `latest()` read opened holds nothing: the staging
+  // is the frame's read for a pass in the frame's seat, as it is before the
+  // frame has one, and the seam re-derives the pass once only if the flush
+  // parks (D-22, F-10). Lane work sees the screen (D-37).
+  if (
+    observeFlightHook &&
+    flushTransaction === latestOpened &&
+    passLane === null &&
+    c._config & CONFIG_VERDICT
+  )
+    return !stagedReaders.push(c);
   staleReader(c, flushTransaction);
   return true;
 }

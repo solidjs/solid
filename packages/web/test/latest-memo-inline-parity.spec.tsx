@@ -176,31 +176,39 @@ test("isPending() of a first load in flight keeps the boundary's fallback", asyn
 // inline commits at its seam: one compute per write, whether the holes are
 // grouped attributes or one template string.
 describe("a plain write beside latest() in JSX computes once", () => {
-  for (const form of ["attributes", "template string"] as const)
-    test(form, () => {
-      const div = document.createElement("div");
-      let passes = 0;
-      let set!: (v: number) => void;
-      const dispose = render(() => {
-        const [s, _set] = createSignal(0);
-        set = _set;
-        const count = <T,>(v: T) => (passes++, v);
-        return form === "attributes" ? (
-          <div title={count(`${s()}`)} data-l={latest(s)} />
-        ) : (
-          <div title={count(`${s()} ${latest(s)}`)} />
+  // D-22 (a staging not yet held is the frame's read; one re-derive only if
+  // the flush parks), F-6 (the memo form as inline): one compute per write,
+  // inline or through `L = createMemo(() => latest(s))`.
+  for (const via of ["inline", "memo"] as const)
+    for (const form of ["attributes", "template string"] as const)
+      test(`${via}, ${form}`, () => {
+        const div = document.createElement("div");
+        let passes = 0;
+        let set!: (v: number) => void;
+        const dispose = render(() => {
+          const [s, _set] = createSignal(0);
+          set = _set;
+          const L = createMemo(() => latest(s));
+          const l = via === "memo" ? L : () => latest(s);
+          const count = <T,>(v: T) => (passes++, v);
+          return form === "attributes" ? (
+            <div title={count(`${s()}`)} data-l={l()} />
+          ) : (
+            <div title={count(`${s()} ${l()}`)} />
+          );
+        }, div);
+        flush();
+        passes = 0;
+        set(1);
+        flush();
+        set(2);
+        flush();
+        expect(div.innerHTML).toBe(
+          form === "attributes" ? '<div title="2" data-l="2"></div>' : '<div title="2 2"></div>'
         );
-      }, div);
-      flush();
-      passes = 0;
-      set(1);
-      flush();
-      expect(div.innerHTML).toBe(
-        form === "attributes" ? '<div title="1" data-l="1"></div>' : '<div title="1 1"></div>'
-      );
-      expect(passes).toBe(1);
-      dispose();
-    });
+        expect(passes).toBe(2);
+        dispose();
+      });
 });
 
 // async-gen seed 91501 #1831 (E1): `<Errored><Loading><Loading>` over a leaf
