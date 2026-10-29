@@ -423,8 +423,13 @@ a table gap or to a two-readings item (§7); no issue was filed.
 ## 7. Blocked / two readings
 
 Recorded as they arise, with both readings and the screen each produces.
-Nothing is ruled here. Each names the mismatch class it leaves in the
-differential (PR body table) so the swap can be gated on a ruling.
+All six are closed as of 2026-10-28: three ruled by the maintainer
+(today's behaviour — the rules as they stand — over the brief's reading:
+F-vlane, F-leaf, F-ahead-posture) and three left to the agent as
+implementation choices with no screen change in the differential (F-mount,
+F-vworld, F-transitive); each item ends with its ruling or choice. Each
+still names the mismatch class it leaves in the differential (PR body
+table) so the residue can be read against it.
 
 - **F-vlane — verdict lanes as node sets.** Today a pass that probed
   stages into the hold's _verdict lane_ (`CONFIG_OVERRIDE` node whose
@@ -444,6 +449,23 @@ differential (PR body table) so the swap can be gated on a ruling.
   classes. Needs a ruling on how posture persists across passes without a
   node set (sticky `CONFIG_VERDICT` until a pass completes without
   probing? the swap marking the output `CONFIG_VERDICT`?).
+  **Ruled 2026-10-28 (maintainer):** reading A — today's behaviour. The
+  rule is the posture, not the membership: a pass that asked is the hold's
+  verdict reader on every re-run until it completes a pass that asked
+  nothing, so a `Loading` fallback that went up beside the held frame
+  stays up beside it until the landing rather than travelling with the
+  write's frame (#3540, #4337; `tests/loading-on-latest-fallback-4337.test.ts`,
+  `tests/loading-fallback-in-flush-3540.test.ts`), and today's verdict-lane
+  membership is only the mechanism that happens to carry it. The general
+  paragraph for D-25 is **not yet written**: as drafted it listed the
+  #3884 pending re-pass among re-runs whose plain read of the held node is
+  the screen's, which D-25's standing clause ("a pass that re-runs it
+  while its fetch is in flight reads plainly — following the change it is
+  fetching for — even if an earlier pass of it called `isPending` or
+  `latest`", #3884) and `tests/superseded-transition-verdicts-3884.test.ts`
+  contradict — the hold's own work reads its own staging, whatever its
+  seat. Until the paragraph is re-drafted around that clause, D-25 as it
+  stands is where the rule lives.
 - **F-leaf — a leaf's children.** INV-seat-1 keeps a leaf at world S;
   the brief inherits `{world, lane, ahead}` from the running creator.
   Today a render effect that read a born node (`L4`: `joinPass`) or the
@@ -457,6 +479,16 @@ differential (PR body table) so the swap can be gated on a ruling.
   `boundary-output-frame-reader`, `loading-fallback-in-flush-3540`,
   `fuzz-findings-l2`. Classes: `B1 inherited world (old creator JOINED,
 new < H)`, `B2 born held (old true, new false; world 0 …)`.
+  **Ruled 2026-10-28 (maintainer):** reading A — today's behaviour. Now
+  D-27 "A joined pass's children are the hold's" (promoted from A29
+  ruling A, with a dated note under A29): a pass — a render effect
+  included — that read a node with no screen to fall back to joins the
+  hold, and a node it creates during that pass is born held; its value
+  commits with the frame and a mainline reader of it waits. Consequence
+  for §3.3: INV-seat-1 ("a leaf never raises its world") must admit the
+  born-node read — a leaf that read one is in the hold's world and its
+  children inherit it; a leaf that read only committed values still
+  raises nothing.
 - **F-mount — who is the creator.** The brief: the running creator pass
   is `context` while it recomputes, never the owner. Today's display-ahead
   mount (`laneRoot`/`mount`) is module state — any pass running when the
@@ -469,6 +501,10 @@ new < H)`, `B2 born held (old true, new false; world 0 …)`.
   creator = `creatorPass(context)`. The shadow uses B, searching the seat
   stack for it. Classes: `B1 ahead (old true, new false; creator running
 false)`.
+  **Choice 2026-10-28 (agent, no screen change in the differential):**
+  reading A — creator = the running pass (seat stack top), for both
+  ahead-ness and world inheritance. The owner-based `creatorPass(context)`
+  path and its stale-JOINED-flag hazard retire with the swap.
 - **F-ahead-posture — ahead by posture without a lane.** The brief: ahead
   = creator display-ahead (verdict posture or in a lane). Today `mount`
   comes only from `passLane`/`laneRoot`, so a mount made by a verdict
@@ -478,6 +514,13 @@ false)`.
 creator running true, creator memo:value|children|effect)` — ×29 in
   web, ×1,276 in the generator at 2k/seed; downstream B2 differences are
   rare (`world 0, ahead true … rows L1,L1`).
+  **Ruled 2026-10-28 (maintainer):** today; no rule change. D-27 as
+  clarified 2026-10-28 already rules it: a mount gated by a display-ahead
+  read is a mainline mount, its plain reads are the screen's, and it is
+  not "ahead" by its creator's verdict posture — only lane work's children
+  live in the lane. The seat's ahead bit comes from a lane, never from a
+  verdict posture alone; the brief's "verdict posture or in a lane" is
+  the brief's reading, not the rule.
 - **F-vworld — do verdict reads move the world?** The table gives the
   verdict rows marks (`AH`, `W`, `ST`) and no raise, except `Vp2`/`V1'`;
   today a verdict read of a staged or held node also sets
@@ -488,6 +531,11 @@ creator running true, creator memo:value|children|effect)` — ×29 in
   `world after the read (old 1|2, new 0; Vl|Vp|V posture)` with equal
   slots, plus `D5 (E, old 2)` — today joins the hold before throwing a
   held node's error.
+  **Choice 2026-10-28 (agent, no screen change in the differential):**
+  verdict reads leave marks (`AH`/`W`/`ST`) and do not raise the reader's
+  world. Today's one exception — the join before re-throwing a held
+  node's error (`D5`) — is kept until the `D5` residue (an errored node in
+  flight, 101 instances at 50k, §4.2) is traced.
 - **F-transitive — how far does the world inherit?** The brief inherits
   the world from the running creator, which inherited its own:
   transitive. Today's born-held arm checks one level
@@ -499,3 +547,6 @@ creator running true, creator memo:value|children|effect)` — ×29 in
   B (brief; A29 read transitively): born held. Classes: `B2 born held
 (old false, new true; world 2, ahead false, mount false … rows
 ∅|L0|D0|L1)`.
+  **Choice 2026-10-28 (agent, no screen change in the differential):**
+  whichever the seat stack makes simpler, with the shadow continuing to
+  prove equal slots (301 instances at 2k, no slot difference found).
