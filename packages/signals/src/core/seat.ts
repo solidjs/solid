@@ -385,6 +385,8 @@ export function slot(
   const laneNode = (cfg & CONFIG_OVERRIDE) !== 0;
   const guess = (cfg & CONFIG_GUESS) !== 0;
   const stagedError = (cfg & CONFIG_STAGED_ERROR) !== 0;
+  /** The staging as a slot: its value, or the error it stages (D-41). */
+  const stagedSlot = stagedError ? SLOT_E : SLOT_P;
   const born = held && uninit && staged && !pending;
   /** f0: a flight with no value yet. */
   const firstFlight = pending && uninit;
@@ -588,20 +590,26 @@ export function slot(
     if (leaf) {
       // L4 (D-9 D-2): inputs published, or born — the leaf has no screen to
       // fall back to; the tick joins (D-4), the leaf's world does not move.
+      // (A staged error throws, D-41 — the 50k differential's L4 finding.)
       if (uninit)
-        return pred("L4", pending ? SLOT_NR : staged ? SLOT_P : SLOT_C, MARK_TICK | MARK_HOLD, t);
+        return pred(
+          "L4",
+          pending ? SLOT_NR : staged ? stagedSlot : SLOT_C,
+          MARK_TICK | MARK_HOLD,
+          t
+        );
       if (cfg & CONFIG_INPUTS_PUBLISHED)
-        return pred("L4", pending ? SLOT_NR : staged ? SLOT_P : SLOT_C, MARK_HOLD, t);
+        return pred("L4", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, MARK_HOLD, t);
       if (inLane && !(c!._statusFlags & STATUS_UNINITIALIZED && pending))
         return pred("D6", SLOT_C, MARK_ST, t); // lane work: the screen (D-37)
-      if (own) return pred("L2", pending ? SLOT_NR : staged ? SLOT_P : SLOT_C, MARK_HOLD, t); // D-3 D-2
+      if (own) return pred("L2", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, MARK_HOLD, t); // D-3 D-2
       return pred("L3", SLOT_C, MARK_ST, t); // D-3 D-9 D-26
     }
     if (verdictReader) {
       // V1 (D-23 A10 [R7]): a verdict reader is a frame reader — the
       // screen, re-derived at the landing — unless born into t.
       if (seatBornInto(seat, t))
-        return pred("V1'", pending ? SLOT_NR : staged ? SLOT_P : SLOT_C, RAISE_H, t);
+        return pred("V1'", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H, t);
       if (uninit) return pred("V1''", pending ? SLOT_NR : SLOT_P, RAISE_H, t); // no screen to serve
       return pred("V1", SLOT_C, MARK_ST | MARK_AH, t);
     }
@@ -627,7 +635,15 @@ export function slot(
     if (uninit && !pending && spectate) return pred("U2", SLOT_NR);
     // (F-vlane: a pass the verdict lane's node set seats, not a probe's
     // CONFIG_VERDICT, reads a staging as its base posture does today.)
-    if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) {
+    // (F-9, as D1/L1: a staging beneath a flight whose inputs are published
+    // is not what the reader sees — the flight decides, V4'. The 50k
+    // differential's V3 finding.)
+    if (
+      verdictReader &&
+      !uninit &&
+      c!._config & CONFIG_VERDICT &&
+      !(pending && cfg & CONFIG_INPUTS_PUBLISHED)
+    ) {
       // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
       // staging before (the seam's verdict).
       const h = tickHold();
