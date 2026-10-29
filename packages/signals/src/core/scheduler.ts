@@ -1170,8 +1170,14 @@ export function reruns(u: Transaction): unknown {
     const r = u._reruns[i];
     // An errored reader's display is its error (D-39): the landing gives it
     // nothing to re-derive, and a re-run would be a read that retries the
-    // errored source (#3945).
-    if (r._flags & REACTIVE_DISPOSED || r._statusFlags & STATUS_ERROR) continue;
+    // errored source (#3945) — unless that source is errored no longer: the
+    // reader was served a shown error the landing replaces (`throwShown`).
+    if (
+      r._flags & REACTIVE_DISPOSED ||
+      (r._statusFlags & STATUS_ERROR &&
+        ((r._x?._error as any)?.source?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
+    )
+      continue;
     if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
       frame ||= (r as any)._type;
       r._flags &= ~REACTIVE_FRAME_READ;
@@ -1351,7 +1357,7 @@ export function commitPendingNode(n: Signal<any>): void {
   const inFlight = n._pendingValue === NOT_PENDING && (c._statusFlags! & STATUS_PENDING) !== 0;
   const err = n._config & CONFIG_STAGED_ERROR;
   // An answer commits: the error it replaces leaves the display (D-41).
-  if (!inFlight && c._x) c._x._shownError = undefined;
+  if (!inFlight && c._x) c._x._shownError = null;
   n._config = inFlight
     ? (n._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_INPUTS_PUBLISHED
     : n._config &
