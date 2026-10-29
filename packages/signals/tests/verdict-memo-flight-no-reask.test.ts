@@ -218,7 +218,7 @@ it.fails(
 // flight, the landing voided the reveal's run, and `m1`'s lane answer was
 // asked and never shown. A lane's reveal now leaves the mark to the
 // transaction (`reruns`). And a pass served a held node's committed value
-// does not wait on its flight (`servedCommitted`): a reader that went
+// does not wait on its flight (`frameRead`): a reader that went
 // pending on a `refresh()` of `m0` mid-hold woke when the re-ask landed,
 // instead of waiting on `h` too and skipping `m1`'s lane answer.
 async function heldShapes(
