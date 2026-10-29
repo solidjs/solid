@@ -81,6 +81,9 @@ export let laneSeamsHook: ((t: Transaction | null) => void) | null = null;
 export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
+/** R5 (lanes.ts `laneSeams` parks a frame flight): the landing's re-derive
+ * of a reader adopts the flight instead (true: adopted, nothing to queue). */
+export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
 /** core.ts `frameRead` served lane work or a verdict reader a held node's
  * committed value (lanes.ts `laneServed`). */
 export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
@@ -102,6 +105,7 @@ export function installLaneHooks(
   corrections: NonNullable<typeof laneCorrectionsHook>,
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
+  adopt: NonNullable<typeof laneAdoptHook>,
   served: NonNullable<typeof laneServedHook>
 ): void {
   laneReadHook = read;
@@ -113,6 +117,7 @@ export function installLaneHooks(
   laneCorrectionsHook = corrections;
   endLanesHook = end;
   lanesBlockedHook = blocked;
+  laneAdoptHook = adopt;
   laneServedHook = served;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
@@ -1193,15 +1198,23 @@ export function reruns(u: Transaction): unknown {
     // nothing to re-derive, and a re-run would be a read that retries the
     // errored source (#3945) — unless that source is errored no longer: the
     // reader was served a shown error the landing replaces (`throwShown`).
+    // Nor is the reader's own error: its pass threw over the committed value
+    // of what the landing carries, served as the screen (A10; a lane's node
+    // reading its parent's hold, or a pass with no value yet reading a
+    // staging, `stagedScreen`) — the landing is the new answer, and the
+    // reader re-derives on it (A15; D-39). A first load read so has no other
+    // run: its error would stay the screen (async-gen 91501 #1158, #119).
     // A boundary's structure (its tree, its output: CONFIG_FRAME, no effect
     // type) re-derives all the same: what it read as the screen is the
     // content the landing replaces, and only its pass links the new content
     // whose recovery must reach it (D-3, D-39, #4405).
+    const s = (r._x?._error as any)?.source;
     if (
       r._flags & REACTIVE_DISPOSED ||
       (r._statusFlags & STATUS_ERROR &&
         ((r as any)._type || !(r._config & CONFIG_FRAME)) &&
-        ((r._x?._error as any)?.source?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
+        s !== r &&
+        (s?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
     )
       continue;
     if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
@@ -1217,7 +1230,9 @@ export function reruns(u: Transaction): unknown {
       // frame being replaced — void too (#3404).
       for (let c = r._firstChild; c !== null; c = c._nextSibling)
         if ((c as any)._type) (c as any)._modified = false;
-      enqueueSub(r);
+      // A frame flight the seam parked (lanes.ts `laneSeams`, R5) asked the
+      // question this landing would: adopted, it is asked once (F-9).
+      if (!laneAdoptHook?.(r)) enqueueSub(r);
     }
   }
   u._reruns.length = 0;
