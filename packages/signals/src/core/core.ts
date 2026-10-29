@@ -572,6 +572,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._config &= ~CONFIG_ASYNC;
       parkLoadingWindow(el, e as NotReadyError);
     } else {
+      // An error answers (D-25, verdict.ts `holdWork`): no flight is its own.
+      if (!notReady) el._config &= ~CONFIG_ASYNC;
       // D-41: a pass of a held node, or one that read a staging of this
       // flush, stages its error (`stageError`).
       if (notReady || !(stagedErr = stageError(el, e, true))) {

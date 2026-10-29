@@ -530,8 +530,8 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
 function holdWork(n: Computed<any>, source: Computed<any>): unknown {
   // CONFIG_ASYNC records an async memo with no window of its own: its last
   // answering pass registered a flight (`handleAsync`) and called neither
-  // `latest` nor `isPending`. A window (`markVerdictReader`) or a sync answer
-  // clears it; a pass left pending or errored keeps the last answer's.
+  // `latest` nor `isPending`. A window (`markVerdictReader`), a sync answer or
+  // an error clears it; a pass left pending keeps the last answer's.
   const own = n._config & CONFIG_ASYNC;
   return (
     own &&
