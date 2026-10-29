@@ -188,9 +188,12 @@ function caught(b: Boundary, node: Computed<any>, error: unknown, source = node)
     // source is neither errored nor in flight and the reader is not pending
     // on the answer that replaces it (`prune`) — or when the
     // reader is disposed: a source no live reader holds holds nothing
-    // (#4373). `reset` re-runs the source.
+    // (#4373). A source that died (a memo its reader owned, kept past the
+    // pass that disposed it) settles nothing: the reader is waited on.
+    // `reset` re-runs the source.
     error ??= node._x?._error;
     source = (error as { source?: Computed<any> })?.source ?? node;
+    if (source._flags & REACTIVE_DISPOSED) source = node;
     const caught = unwrapStatusError(error);
     setSignal(b._error!, caught);
     reportClientError(caught, b._owner, source);
