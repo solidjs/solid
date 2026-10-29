@@ -1174,7 +1174,8 @@ export function reruns(u: Transaction): unknown {
     // reader was served a shown error the landing replaces (`throwShown`).
     if (
       r._flags & REACTIVE_DISPOSED ||
-      (r._statusFlags & STATUS_ERROR && (r._x!._error as any).source._statusFlags & STATUS_ERROR)
+      (r._statusFlags & STATUS_ERROR &&
+        ((r._x?._error as any)?.source?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
     )
       continue;
     if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {

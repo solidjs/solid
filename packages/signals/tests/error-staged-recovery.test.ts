@@ -93,3 +93,49 @@ it.each([false, true])(
     }
   }
 );
+
+// The memo is the verdict reader's own child, created on its first pass and
+// kept by closure past the pass that disposes it. The shown error it throws
+// names a source that died: the boundary waits on the reader (the tree), not
+// on the dead source — which would settle at once, redraw, re-catch and
+// loop the flush (#4396 review).
+it.each([false, true])(
+  "a held recovery of a memo the reader owned stays live (memo between: %s)",
+  async between => {
+    let release!: () => void;
+    const gate = new Promise<void>(r => (release = r));
+    const [s, setS] = createSignal(0);
+    const screens: unknown[] = [];
+    let kept: (() => number) | undefined;
+    const dispose = createRoot(d => {
+      const fn = () =>
+        "X" +
+        latest(s) +
+        (kept ||= createMemo(() => {
+          if (s() === 0) throw new Error("boom");
+          return s();
+        }))();
+      const view = between ? createMemo(fn) : fn;
+      const errored = createErrorBoundary(view, e => `E:${(e() as Error).message}`);
+      createRenderEffect(errored, v => void screens.push(v));
+      return d;
+    });
+    try {
+      flush();
+      action(function* () {
+        setS(1);
+        yield gate;
+      })();
+      flush();
+      expect(screens).toEqual(["E:boom"]);
+      release();
+      await tick();
+      await tick();
+      expect(screens).toEqual(["E:boom", "X11"]);
+    } finally {
+      release();
+      dispose();
+      flush();
+    }
+  }
+);

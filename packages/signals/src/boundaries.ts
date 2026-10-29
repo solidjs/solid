@@ -186,9 +186,11 @@ function caught(b: Boundary, node: Computed<any>, error?: unknown): void {
     // the reader that saw it: the reader recovers the moment a refetch
     // starts (its boundary catches the pending), while the error is settled
     // only when its source is neither errored nor in flight. `reset` re-runs
-    // the same node.
+    // the same node. A source that died (a memo its reader owned, kept past
+    // the pass that disposed it) settles nothing: the reader is waited on.
     error ??= node._x?._error;
-    node = (error as { source?: Computed<any> })?.source ?? node;
+    const source = (error as { source?: Computed<any> })?.source;
+    node = source && !(source._flags & REACTIVE_DISPOSED) ? source : node;
     const caught = unwrapStatusError(error);
     setSignal(b._error!, caught);
     reportClientError(caught, b._owner, node);

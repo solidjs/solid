@@ -53,3 +53,40 @@ test.each(["inline", "memo"])(
     dispose();
   }
 );
+
+// The memo is created by the `<Errored>` content on its first pass and kept
+// by closure past the pass that disposes it: the boundary waits on the
+// content, not on the dead memo the shown error names, and the first flush
+// of the action stays live (#4396 review).
+test("Errored over a memo its content created and kept stays live through an open action", async () => {
+  const el = document.createElement("div");
+  const [s, setS] = createSignal(0);
+  let release!: () => void;
+  const gate = new Promise<void>(r => (release = r));
+  let cached: (() => number) | undefined;
+  const dispose = render(
+    () => (
+      <Errored fallback={(e: () => any) => `[E ${e()?.message}]`}>
+        {"X" +
+          latest(s) +
+          (cached ||= createMemo(() => {
+            if (s() === 0) throw new Error("boom");
+            return s();
+          }))()}
+      </Errored>
+    ),
+    el
+  );
+  flush();
+  expect(el.innerHTML).toBe("[E boom]");
+  action(function* () {
+    setS(1);
+    yield gate;
+  })();
+  flush();
+  expect(el.innerHTML).toBe("[E boom]");
+  release();
+  await settle();
+  expect(el.innerHTML).toBe("X11");
+  dispose();
+});
