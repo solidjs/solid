@@ -558,7 +558,7 @@ export function handleAsync<T>(
       // a verdict reader of the next flight would suspend instead of being
       // served the screen; held, both at the derive's commit.
       if (!(el._config & CONFIG_HELD)) {
-        el._x!._shownError = undefined;
+        el._x!._shownError = null;
         el._config &= ~CONFIG_INPUTS_PUBLISHED;
       }
       if (wasUninitialized) landStatus(el, true);
@@ -895,7 +895,7 @@ function landStatus(el: Computed<any>, clearUninitialized: boolean = false): voi
   } else clearStatus(el, clearUninitialized);
 }
 
-export function notifyStatus(el: Computed<any>, status: number, error: any): void {
+export function notifyStatus(el: Computed<any>, status: number, error?: any): void {
   // Wrap regular errors to track source node
   if (
     status === STATUS_ERROR &&
@@ -904,8 +904,7 @@ export function notifyStatus(el: Computed<any>, status: number, error: any): voi
   )
     error = new StatusError(el, error);
 
-  const pendingSource =
-    status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
+  const pendingSource = status === STATUS_PENDING && error instanceof NotReadyError && error.source;
   // (CARVE 2: the lane assignment went with the engine.)
 
   if (status === STATUS_PENDING && pendingSource) {
@@ -967,8 +966,7 @@ export function notifyStatus(el: Computed<any>, status: number, error: any): voi
  * propagates the derive's status from each leaf to the leaf's readers
  * (store/projection.ts `wakeFamily`), exactly as a memo's would reach its. */
 export function propagateStatus(el: Computed<any>, status: number, error: any): void {
-  const pendingSource =
-    status === STATUS_PENDING && error instanceof NotReadyError ? error.source : undefined;
+  const pendingSource = status === STATUS_PENDING && error instanceof NotReadyError && error.source;
   forEachDependent(el, (sub, link) => {
     sub._time = clock;
     // A pending mark on a kept-tail link re-derives the subscriber instead of

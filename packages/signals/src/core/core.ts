@@ -464,9 +464,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // Capture both error and pending status before the compute clears them.
   // A conditional can drop its pending source and recover to an unchanged
   // value, leaving blocked dependents outside that source’s settle walk.
-  const outgoingError = el._statusFlags & STATUS_ERROR ? el._x?._error : undefined;
+  const outgoingError = el._statusFlags & STATUS_ERROR && el._x?._error;
   const wasPending = (el._statusFlags & STATUS_PENDING) !== 0;
-  const outgoingPendingSources = wasPending ? el._x?._pendingSources : undefined;
+  const outgoingPendingSources = wasPending && el._x?._pendingSources;
   // Pending SOURCE-hood, captured before the compute clears status: a node
   // whose own flight parked dependents self-registers in _pendingSources
   // (notifyStatus, isSource). If this recompute supersedes that flight and
@@ -829,6 +829,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         el._value = value;
       } else {
         el._pendingValue = value;
+        // D-39: a staged recovery keeps the error it replaces the display
+        // until it commits (`commitPendingNode`), as a write over one does
+        // (`setMemo`).
+        if (outgoingError) el._x!._shownError = outgoingError;
         // Born held: in the transaction from birth, so a read of it this
         // tick is a read of its world (the mount-during-a-hold case), not
         // only after the seam parks it.
@@ -868,7 +872,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // recoveries ride insertSubs above; a comparator throw re-errored the node
     // (el._x?._error re-set), so this only runs on a genuinely clean recovery.
     if (!valueChanged && !el._x?._error) {
-      if (outgoingError !== undefined) settleErroredDependents(el, outgoingError);
+      if (outgoingError) settleErroredDependents(el, outgoingError);
       // Self-registration (this node's own superseded flight) is the #3181
       // sweep's business below — retiring it here too would walk twice.
       if (outgoingPendingSources)
@@ -1138,7 +1142,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _q: 0,
     _lane: NOT_PENDING,
     _marks: 0,
-    _shownError: undefined
+    _shownError: null
   });
 }
 
@@ -1262,6 +1266,16 @@ export function creatorPass(owner: Owner | null): Computed<any> | null {
   return owner !== null && (owner as Root)._root
     ? (owner as Root)._parentComputed
     : (owner as Computed<any> | null);
+}
+
+/** What `born` and the passes still running around `p` read — its
+ * creator's, theirs — of the future or a staging (REACTIVE_JOINED |
+ * REACTIVE_STAGED_READ): a pass created by one that did has no screen; its
+ * branch exists only in that world (#4341). */
+export function creatorReads(p: Computed<any> | null, born: number): number {
+  return (p = creatorPass(p!._parent))?._flags! & REACTIVE_RECOMPUTING_DEPS
+    ? creatorReads(p, born | p!._flags)
+    : born & (REACTIVE_JOINED | REACTIVE_STAGED_READ);
 }
 
 /** L2 — park the previous pass's frame for this node's commit: the children
@@ -2093,11 +2107,11 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     } else throw (owner as Computed<any>)._x?._error;
   }
 
-  if (committed) return el._value as T;
-  // D-41: an untracked read reads the screen, and a shown error is on it
-  // until the answer that replaces it commits.
-  if (!c && el._x?._shownError) throw el._x._shownError;
-  const value = serve(el, c as Computed<any> | null) as T;
+  // D-41: an untracked read reads the screen, and so does a frame reader
+  // served the committed value — `serve` hands it that value as it does an
+  // untracked read — a shown error included (`throwShown`).
+  if (committed || !c) throwShown(el);
+  const value = serve(el, committed ? null : (c as Computed<any> | null)) as T;
   if (
     !c &&
     typeof computed._fn === "function" &&
@@ -2115,6 +2129,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     schedule();
   }
   return value;
+}
+
+/** D-41: a reader served the screen — an untracked read, a frame reader
+ * served the committed value, a verdict reader (`serve`) — reads a shown
+ * error there until the answer that replaces it commits. */
+function throwShown(el: Signal<any> | Computed<any>): undefined {
+  if (el._x?._shownError) throw el._x._shownError;
 }
 
 /**
@@ -2143,12 +2164,13 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     markLateLinker(c!);
     return u;
   }
-  if (readerSeesCommitted(el, c)) return el._value;
   if (
-    observeFlightHook &&
-    c!._config & CONFIG_VERDICT &&
-    !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
-    stagedScreen(c!)
+    readerSeesCommitted(el, c) ||
+    (observeFlightHook &&
+      c!._config & CONFIG_VERDICT &&
+      !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
+      stagedScreen(c!) &&
+      !throwShown(el))
   )
     return el._value;
   stagedRead(c!, el);
@@ -2389,7 +2411,7 @@ export function setMemo<T>(el: Computed<T>, v: T | ((prev: T) => T)): T {
   // The error stays the display until the write commits (D-41).
   if (el._statusFlags & STATUS_ERROR) {
     el._x!._shownError = el._x!._error;
-    notifyStatus(el, STATUS_NONE, undefined);
+    notifyStatus(el, STATUS_NONE);
   }
   v = setSignal(el, v);
   // A write replaces an error a pass staged (D-41): it is a value again.
