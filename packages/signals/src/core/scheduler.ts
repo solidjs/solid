@@ -1218,7 +1218,11 @@ export function reruns(u: Transaction): unknown {
     )
       continue;
     if (r._flags & REACTIVE_FRAME_READ || (observeFlightHook && r._config & CONFIG_VERDICT)) {
-      frame ||= (r as any)._type;
+      // A memo re-deriving its own error holds the release as an effect
+      // does (`land`): run first, the held runs showed that error beside a
+      // frame about to replace it (#4407; #4284: the grouping never changes
+      // the screen).
+      frame ||= (r as any)._type || s === r;
       // A lane's reveal leaves the mark to the transaction: a reader that
       // also read a held node as committed (`staleReader`) still observes
       // that flight until it re-runs — cleared here, the transaction landed
