@@ -1197,10 +1197,16 @@ export function reruns(u: Transaction): unknown {
     // nothing to re-derive, and a re-run would be a read that retries the
     // errored source (#3945) — unless that source is errored no longer: the
     // reader was served a shown error the landing replaces (`throwShown`).
+    // Nor is the reader's own error: its pass threw over the committed value
+    // of what the landing carries, served as the screen (A10; a lane's node
+    // reading its parent's hold, or a pass with no value yet reading a
+    // staging, `stagedScreen`) — the landing is the new answer, and the
+    // reader re-derives on it (A15; D-39). A first load read so has no other
+    // run: its error would stay the screen (async-gen 91501 #1158, #119).
+    const s = (r._x?._error as any)?.source;
     if (
       r._flags & REACTIVE_DISPOSED ||
-      (r._statusFlags & STATUS_ERROR &&
-        ((r._x?._error as any)?.source?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
+      (r._statusFlags & STATUS_ERROR && s !== r && (s?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
     )
       continue;
     if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {

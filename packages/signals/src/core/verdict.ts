@@ -436,6 +436,17 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         if (latestActive && l.folded) return l.folded(null, el);
         return el._x!._lane;
       }
+      // A first load in flight with nothing produced yet: loading, for
+      // `latest` (D-22) as for `isPending` (A19 exc. 1) — unless an error
+      // answered it first: its re-ask is pending, the error its display
+      // (D-41, #4375).
+      if (
+        flying &&
+        v === el._value &&
+        owner._statusFlags & STATUS_UNINITIALIZED &&
+        (latestActive || !owner._x!._shownError)
+      )
+        throw owner._x!._error;
       if (probing && flying) probeFound = true;
       return v;
     }
