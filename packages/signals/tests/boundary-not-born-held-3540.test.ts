@@ -333,7 +333,9 @@ describe("Loading `on` beside a keyed Show around the boundary (#3540)", () => {
     ["on", "committed", HELD]
   ];
   for (const [form, key, midFlight] of matrix) {
-    test(`${form} over ${key}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "holds"}`, async () => {
+    // Known bug #4417: the park re-derive voids the provisional owner, so the same key mounts again ([1,3,3]). Target [1,2,2] via in-place re-derive (reader-seat S1).
+    const it = form !== "on" && key === "latest" ? test.fails : test;
+    it(`${form} over ${key}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "holds"}`, async () => {
       // `on` over committed warns LOADING_ON_OUTSIDE_HOLD (B reads data too).
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       const t = build(form, key);
@@ -352,21 +354,17 @@ describe("Loading `on` beside a keyed Show around the boundary (#3540)", () => {
       expect(t.snapshot()).toBe("2|2|2");
       seen.push(t.mounts());
       // A keyed Show remounts at the key change — over `count()` once, at
-      // the landing. Over `latest(count)` twice, mid-flight (design ruling
-      // R-5, #4365): `latest()` opens no transaction for its verdict, so the
-      // condition's first pass is the frame's — Show mounts A for key 2 in
-      // the frame, which parks on data and holds that mount. The parked
-      // flush re-runs the `latest()` reader once in the verdict lane and
-      // Show mounts A again there: the lane's mount is the one shown (the
-      // early fallback), the held frame's is discarded at the lane's reveal.
-      // (Before R-5 the read opened the flush's transaction and seated the
-      // pass in the lane at once: one mount, #3540 web.) Why 3: the parked
-      // flush re-derives the pass that read `latest(count)` once, as a
-      // verdict reader (D-2, A10), and a keyed Show whose condition is that
-      // read mounts its branch on that re-derive. That is the cost of keying
-      // a mount on a `latest()` read at a park, not a bug (maintainer ruling
-      // on #4365). `on` never remounts.
-      expect(seen).toEqual(form === "on" ? [0, 0, 0] : key === "latest" ? [1, 3, 3] : [1, 2, 2]);
+      // the landing; over `latest(count)` once, mid-flight: `latest()` opens
+      // no transaction for its verdict (R-5, #4365), so the condition's
+      // first pass is the frame's — Show mounts A for key 2 in the frame,
+      // which parks on data. The parked flush re-derives the pass that read
+      // `latest(count)` once, as a verdict reader (D-2, A10); `latest()`
+      // serves the staging on both runs, so the key is the same and the
+      // one child stays mounted. Today the re-derive voids the provisional
+      // owner and compares against the last COMMITTED `when`, so the same
+      // key mounts again ([1, 3, 3]) — the known bug #4417, pinned above as
+      // `test.fails` at its target. `on` never remounts.
+      expect(seen).toEqual(form === "on" ? [0, 0, 0] : [1, 2, 2]);
       t.dispose();
       expect(warn).toHaveBeenCalledTimes(form === "on" && key === "committed" ? 1 : 0);
       warn.mockRestore();
