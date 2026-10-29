@@ -2677,7 +2677,8 @@ module.exports = [
     // An Errored heals when the last reader that caught its error is disposed (#4373, 2026-10-28, over next @ 6b792a95, after #4355; re-recorded over next @ b68942ca): cap 31.80 KB unchanged, recorded minified 96,978 -> 97,023 B (+45 B minified over next's record, measured locally on linux; every boundary-carrying scenario pays the same +38–52 B, inside its recorded minified except this one, which sat at its cap). A boundary's readers become a reader -> source map, so an error boundary waits on what threw only while a reader that caught it is alive. Correctness (Ryan's ruling on #4373). Recorded minified = measured.
     limit: "31.80 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 96,989 -> 97,047 B (+58 B minified over next's record), measured locally (linux) at 31,811 B brotli. Recorded minified = measured; CI re-bases.
-    capMinified: 97024,
+    // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 97,024 -> 97,045 B (+21 B minified over next's record), measured locally (linux) at 31,798 B brotli. Recorded minified = measured; CI re-bases.
+    capMinified: 97045,
     alias
   },
   {
@@ -5776,7 +5777,8 @@ module.exports = [
     // An Errored heals when the last reader that caught its error is disposed (#4373, 2026-10-28, re-recorded over next @ b68942ca): cap 41.56 KB unchanged, recorded minified 123,182 -> 123,228 B (+46 B minified over next's record), measured locally (linux) at 41,856 B brotli. A boundary's readers become a reader -> source map, so an error boundary waits on what threw only while a reader that caught it is alive. Correctness (Ryan's ruling on #4373). Recorded minified = measured; CI re-bases.
     limit: "41.56 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 123,191 -> 123,249 B (+58 B minified over next's record), measured locally (linux) at 41,899 B brotli. Recorded minified = measured; CI re-bases.
-    capMinified: 123203,
+    // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 123,203 -> 123,224 B (+21 B minified over next's record), measured locally (linux) at 41,966 B brotli. Recorded minified = measured; CI re-bases.
+    capMinified: 123224,
     alias: pageAlias
   },
   {
@@ -6164,7 +6166,8 @@ module.exports = [
     // An Errored heals when the last reader that caught its error is disposed (#4373, 2026-10-28, re-recorded over next @ b68942ca): cap 47.16 KB unchanged, recorded minified 140,442 -> 140,485 B (+43 B minified over next's record), measured locally (linux) at 47,463 B brotli. A boundary's readers become a reader -> source map, so an error boundary waits on what threw only while a reader that caught it is alive. Correctness (Ryan's ruling on #4373). Recorded minified = measured; CI re-bases.
     limit: "47.16 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 140,451 -> 140,509 B (+58 B minified over next's record), measured locally (linux) at 47,516 B brotli. Recorded minified = measured; CI re-bases.
-    capMinified: 140463,
+    // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 140,463 -> 140,485 B (+22 B minified over next's record), measured locally (linux) at 47,547 B brotli. Recorded minified = measured; CI re-bases.
+    capMinified: 140485,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }

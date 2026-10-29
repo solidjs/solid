@@ -181,8 +181,7 @@ function record(b: Boundary, node: Computed<any>, source = node): void {
 /** The reader goes to the fallback: recorded, and the output re-derives
  * (a no-op while the output's own pass is running — its post-check
  * decides). */
-function caught(b: Boundary, node: Computed<any>, error: unknown): void {
-  let source = node;
+function caught(b: Boundary, node: Computed<any>, error: unknown, source = node): void {
   if (b._type === STATUS_ERROR) {
     // An error boundary waits on what THREW (`StatusError.source`), not on
     // the reader that saw it: the reader recovers the moment a refetch

@@ -273,13 +273,11 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // `stagedRead`): it has no committed world to re-derive on (#3969).
     // (A pass not joined: a held write beside a guess, #4336.)
     if (c._flags & REACTIVE_STAGED_READ && (guessed || c._flags & REACTIVE_JOINED)) stagedRead(c);
-    return;
+  } else if (sameLane(p, l)) setPassLane(l);
+  else if (!under(p, l)) {
+    if (!under(l, p)) linkLanes(p, l);
+    setPassLane(l);
   }
-  if (sameLane(p, l)) return setPassLane(l);
-  if (under(p, l)) return;
-  if (under(l, p)) return setPassLane(l);
-  linkLanes(p, l);
-  setPassLane(l);
 }
 /** Is `l` nested under `a` (an ancestor lane)? */
 function under(l: Transaction, a: Transaction): boolean {
