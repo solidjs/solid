@@ -186,7 +186,7 @@ describe("a plain write beside latest() in JSX computes once", () => {
         set = _set;
         const count = <T,>(v: T) => (passes++, v);
         return form === "attributes" ? (
-          <div title={count(s())} data-l={latest(s)} />
+          <div title={count(`${s()}`)} data-l={latest(s)} />
         ) : (
           <div title={count(`${s()} ${latest(s)}`)} />
         );
