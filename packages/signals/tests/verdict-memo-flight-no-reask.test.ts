@@ -673,3 +673,54 @@ it("own window: an async memo over latest() of an async memo, read with isPendin
   expect(asks).toEqual(["m0:2", "l1", "l2"]);
   expect(out).toEqual(["false,1", "false,2"]);
 });
+
+// An error is an answer (F-1): after `m1` throws on `m0`'s 5, its pass left
+// no flight of its own, so `m0` going pending again re-derives it (D-25,
+// verdict.ts `holdWork`). `refresh(m0)` re-asks `m0:5`, `m1` throws again,
+// and the boundary keeps the error, never `m1`'s pre-error value as final.
+for (const plain of [false, true])
+  it(`error, then refresh(m0) to the same answer: ${plain ? "unheld" : "held"}, the error stays`, async () => {
+    const { land, fly } = inFlight();
+    const [s, setS] = createSignal(1);
+    const out: string[] = [];
+    let release = () => {};
+    let m0!: () => number;
+    createRoot(() => {
+      m0 = createMemo(() => fly(1 + latest(s) + s()));
+      const m1 = createMemo(() => {
+        const v = m0();
+        if (v === 5) throw new Error("boom");
+        return fly(100 + v);
+      });
+      const h = createMemo(() =>
+        plain || s() === 1 ? 1 : new Promise<number>(r => void (release = () => r(1)))
+      );
+      createErrorBoundary(
+        () =>
+          createLoadingBoundary(
+            () => {
+              createRenderEffect(
+                () => (h(), `${isPending(m1)},${m1()}`),
+                v => void out.push(v)
+              );
+              return null;
+            },
+            () => "L"
+          ),
+        () => (out.push("E"), "E")
+      );
+    });
+    flush();
+    await land();
+    setS(2);
+    flush();
+    await land(2);
+    release();
+    await land();
+    const atError = out.length;
+    expect(out[atError - 1]).toBe("E");
+    refresh(m0);
+    flush();
+    await land();
+    expect(out.slice(atError)).toEqual([]);
+  });

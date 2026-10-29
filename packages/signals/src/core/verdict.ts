@@ -371,7 +371,9 @@ function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): u
  *   differs (A24, A18 provenance). A derivation: `latest` sees the lane's
  *   latest (a landing a blocked lane holds has answered its question — the
  *   checkout's shipping text updates independently of the tax in flight),
- *   `isPending` the screen; not final while its own flight is up;
+ *   `isPending` the screen; not final while its own flight is up. A
+ *   derivation's first load in flight (nothing produced yet — an async memo
+ *   over a verdict memo, F-6) reads as the flight below: loading (D-22);
  * - a held node: the reader breaks out as the holder's verdict lane's and
  *   re-derives at the landing; `latest` serves the proposal (`heldLatest`),
  *   `isPending` answers `heldNotFinal`;
@@ -547,8 +549,8 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
 function holdWork(n: Computed<any>, source: Computed<any>): unknown {
   // CONFIG_ASYNC records an async memo with no window of its own: its last
   // answering pass registered a flight (`handleAsync`) and called neither
-  // `latest` nor `isPending`. A window (`markVerdictReader`) or a sync answer
-  // clears it; a pass left pending or errored keeps the last answer's.
+  // `latest` nor `isPending`. A window (`markVerdictReader`), a sync answer or
+  // an error clears it; a pass left pending keeps the last answer's.
   const own = n._config & CONFIG_ASYNC;
   return (
     own &&
