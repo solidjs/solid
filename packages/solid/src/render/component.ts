@@ -117,35 +117,68 @@ function trueFn() {
   return true;
 }
 
-const propTraps: ProxyHandler<{
-  get: (k: string | number | symbol) => any;
-  has: (k: string | number | symbol) => boolean;
-  keys: () => string[];
-}> = {
-  get(_, property, receiver) {
-    if (property === $PROXY) return receiver;
-    return _.get(property);
+type PropsSource = Record<PropertyKey, any>;
+const sourcesKey = Symbol("sources");
+const sourceKey = Symbol("source");
+const keysKey = Symbol("keys");
+const remainderKey = Symbol("remainder");
+type MergeState = { [sourcesKey]: any[] };
+function readMerge(state: MergeState, key: PropertyKey) {
+  for (let i = state[sourcesKey].length - 1; i >= 0; i--) {
+    const value = resolveSource(state[sourcesKey][i])[key];
+    if (value !== undefined) return value;
+  }
+}
+const mergeHandler: ProxyHandler<MergeState> = {
+  get(state, key, receiver) {
+    return key === $PROXY ? receiver : readMerge(state, key);
   },
-  has(_, property) {
-    if (property === $PROXY) return true;
-    return _.has(property);
+  has(state, key) {
+    if (key === $PROXY) return true;
+    for (let i = state[sourcesKey].length - 1; i >= 0; i--)
+      if (key in resolveSource(state[sourcesKey][i])) return true;
+    return false;
+  },
+  ownKeys(state) {
+    const keys: string[] = [];
+    for (const source of state[sourcesKey]) keys.push(...Object.keys(resolveSource(source)));
+    return [...new Set(keys)];
+  },
+  getOwnPropertyDescriptor(state, key) {
+    return { configurable: true, enumerable: true, get: () => readMerge(state, key), set: trueFn };
   },
   set: trueFn,
-  deleteProperty: trueFn,
-  getOwnPropertyDescriptor(_, property) {
-    return {
-      configurable: true,
-      enumerable: true,
-      get() {
-        return _.get(property);
-      },
-      set: trueFn,
-      deleteProperty: trueFn
-    };
+  deleteProperty: trueFn
+};
+
+type SplitState = {
+  [sourceKey]: PropsSource;
+  [keysKey]: readonly PropertyKey[];
+  [remainderKey]: boolean;
+};
+function readSplit(state: SplitState, key: PropertyKey) {
+  return state[keysKey].includes(key) !== state[remainderKey] ? state[sourceKey][key] : undefined;
+}
+const splitHandler: ProxyHandler<SplitState> = {
+  get(state, key, receiver) {
+    return key === $PROXY ? receiver : readSplit(state, key);
   },
-  ownKeys(_) {
-    return _.keys();
-  }
+  has(state, key) {
+    return (
+      key === $PROXY ||
+      (state[keysKey].includes(key) !== state[remainderKey] && key in state[sourceKey])
+    );
+  },
+  ownKeys(state) {
+    return state[remainderKey]
+      ? Object.keys(state[sourceKey]).filter(key => !state[keysKey].includes(key))
+      : (state[keysKey].filter(key => key in state[sourceKey]) as (string | symbol)[]);
+  },
+  getOwnPropertyDescriptor(state, key) {
+    return { configurable: true, enumerable: true, get: () => readSplit(state, key), set: trueFn };
+  },
+  set: trueFn,
+  deleteProperty: trueFn
 };
 
 type DistributeOverride<T, F> = T extends undefined ? F : T;
@@ -207,29 +240,7 @@ export function mergeProps<T extends unknown[]>(...sources: T): MergeProps<T> {
       typeof s === "function" ? ((proxy = true), createMemo(s as EffectFunction<unknown>)) : s;
   }
   if (SUPPORTS_PROXY && proxy) {
-    return new Proxy(
-      {
-        get(property: string | number | symbol) {
-          for (let i = sources.length - 1; i >= 0; i--) {
-            const v = resolveSource(sources[i])[property];
-            if (v !== undefined) return v;
-          }
-        },
-        has(property: string | number | symbol) {
-          for (let i = sources.length - 1; i >= 0; i--) {
-            if (property in resolveSource(sources[i])) return true;
-          }
-          return false;
-        },
-        keys() {
-          const keys = [];
-          for (let i = 0; i < sources.length; i++)
-            keys.push(...Object.keys(resolveSource(sources[i])));
-          return [...new Set(keys)];
-        }
-      },
-      propTraps
-    ) as unknown as MergeProps<T>;
+    return new Proxy({ [sourcesKey]: sources }, mergeHandler) as unknown as MergeProps<T>;
   }
   const sourcesMap: Record<string, any[]> = {};
   const defined: Record<string, PropertyDescriptor | undefined> = Object.create(null);
@@ -298,35 +309,12 @@ export function splitProps<
       // a key belongs to the first group that lists it (matches non-proxy path)
       const owned = k.filter(property => !claimed.has(property) && (claimed.add(property), true));
       return new Proxy(
-        {
-          get(property) {
-            return owned.includes(property) ? props[property as any] : undefined;
-          },
-          has(property) {
-            return owned.includes(property) && property in props;
-          },
-          keys() {
-            return owned.filter(property => property in props);
-          }
-        },
-        propTraps
+        { [sourceKey]: props, [keysKey]: owned, [remainderKey]: false },
+        splitHandler
       );
     });
     res.push(
-      new Proxy(
-        {
-          get(property) {
-            return blocked.includes(property) ? undefined : props[property as any];
-          },
-          has(property) {
-            return blocked.includes(property) ? false : property in props;
-          },
-          keys() {
-            return Object.keys(props).filter(k => !blocked.includes(k));
-          }
-        },
-        propTraps
-      )
+      new Proxy({ [sourceKey]: props, [keysKey]: blocked, [remainderKey]: true }, splitHandler)
     );
     return res as SplitProps<T, K>;
   }
