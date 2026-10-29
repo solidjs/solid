@@ -1,5 +1,13 @@
 # @solidjs/html
 
+## 2.0.0-rc.20
+
+### Patch Changes
+
+- Updated dependencies [122797e]
+- Updated dependencies [56eb192]
+  - @solidjs/web@2.0.0-rc.20
+
 ## 2.0.0-rc.19
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
   "name": "canvas-example",
   "description": "A multiplayer canvas: shapes several people drag at once, with live cursors and live drags, over one shared broadcast and plain server-function writes",
-  "version": "0.0.1-rc.0",
+  "version": "0.0.1-rc.1",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",
