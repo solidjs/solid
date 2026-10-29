@@ -271,32 +271,53 @@ go.
 
 Counts are the shadow's: reads compared / passes seated / mismatch
 classes / instances. Every mismatch is bucketed in §6 (table fixes,
-applied) or §7 (two readings, awaiting a ruling); no class was found where
-the new slot is right and today wrong by a rule, so no issue was filed.
+applied), §7 (two readings, awaiting a ruling) or the untraced residue
+below; no class was found where the new slot is right and today wrong by
+a rule, so no issue was filed.
 
-| run                                                 |      reads |     passes | classes | instances |
-| --------------------------------------------------- | ---------: | ---------: | ------: | --------: |
-| signals suite (375 files, green)                    |    965,402 |    238,364 |      40 |       137 |
-| visibility oracle (posture / oracle / store)        |     11,379 |      8,322 |       0 |         0 |
-| solid suite                                         |      2,389 |      1,546 |       0 |         0 |
-| web suite (the 27 `.spec.ts` files that load here¹) |    254,902 |    155,740 |      25 |        74 |
-| generator 2,000 × {3289, 91501, 7}, every pair      |  6,969,627 |  5,153,328 |     143 |     4,127 |
-| generator 50,000 × {3289, 91501, 7}, every pair²    | 67,328,944 | 43,755,988 |     133 |     8,821 |
+| run                                                                         |      reads |     passes | classes | instances |
+| --------------------------------------------------------------------------- | ---------: | ---------: | ------: | --------: |
+| signals suite (376 files, green; table as committed)                        |    965,386 |    238,343 |      40 |       151 |
+| visibility oracle (posture / oracle / store)                                |     11,379 |      8,322 |       0 |         0 |
+| solid suite                                                                 |      2,389 |      1,546 |       0 |         0 |
+| web suite (the 27 `.spec.ts` files that load here¹)                         |    254,902 |    155,740 |      25 |        74 |
+| generator 2,000 × {3289, 91501, 7}, every pair                              |  6,969,627 |  5,153,328 |     143 |     4,127 |
+| generator 50,000 × {3289, 91501, 7}, every pair² — before the two 50k fixes | 67,328,944 | 43,755,988 |     220 |     8,821 |
+| generator 50,000 × {3289, 91501, 7}, every pair² — table as committed       | 67,328,944 | 43,755,988 |     209 |     8,706 |
 
 ¹ The worktree has no `@solidjs/compiler` binary, so the 153 `.spec.tsx`
 files fail to load on `next` too; CI runs them.
 ² All three seeds abort on `next` before 50,000 cases with `Potential
-Infinite Loop Detected. Kept alive by scheduled work` (seed 7 inside the
-first 2,000; 3289 at ~427 s, 91501 at ~638 s), identically on the plain
-build without the shadow — a generator finding on `next`, not a shadow
-finding, reported in the PR and not minimized here. Seeds 3289 and 91501
-also report one `equivalence/E7` signature each on both builds.
+Infinite Loop Detected. Kept alive by scheduled work`, and at the same
+case on a dist built without `SIGNALS_TEST_DEFINE` (no shadow): seed 7 at
+case 1158 (the E8 `remount` run; `last staged node: computed`), 3289 at
+case 3963 (the base run; `value`), 91501 at case 5807 (the E8 `remount`
+run; `signal`) — a generator finding on `next`, not a shadow finding,
+reported in the PR and not minimized here. (The campaign does not print
+the index; a throwaway replay of its survey loop did.) Seeds 3289 and
+91501 also report one `equivalence/E7` signature each on both builds.
 
 The 50k run added two table rows to §6 (L4/L2/V1' staged error, V3 under
-published inputs) and no new two-readings item; by bucket (2k → 50k):
-F-ahead-posture 1,461 → 2,922; F-vlane 1,054 → 2,431; F-vworld 1,101 →
-2,308; F-transitive 301 → 684; B2 display-ahead residue 104 → 257; F-mount
-97 → 180.
+published inputs) and no new two-readings item. Re-run with the table as
+committed, the three seeds lose exactly the 11 classes / 115 instances
+those two fixes cover and gain none (reads and passes are identical). By
+bucket (2k → 50k, the previous triage's reading): F-ahead-posture 1,461 →
+2,922; F-vlane 1,054 → 2,431; F-vworld 1,101 → 2,308; F-transitive 301 →
+684; B2 display-ahead residue 104 → 257; F-mount 97 → 180.
+
+Read literally against the class signatures §7 names, 623 instances / 43
+classes of the 50k (unchanged by the two fixes) match no §6 finding or §7
+item. They are listed with counts under the PR body's residue row and
+left **untraced** here: `B1 ahead (old true, new false; creator running
+true)` ×406 / 4 classes; `D5` E vs NR for an errored node in flight
+(`u f` · `f ip` · `u f ip` · one `f d vlane`; D and V postures; 4 under
+`oldVlane`) ×101 / 17; `L8` E vs NR, the same shape at a leaf ×34 / 6; `V1` C vs P (`s h`,
+`oldNoLane`) ×57 / 2; `V4` C vs NR (`f ip`; 8 under `oldVlane`, 4 not)
+×12 / 5; `V1''` P vs E (`s h u ip` — the D-41 staged-error shape on a row
+the §6 fix did not touch) ×2 / 2; `V1'` P vs C ×2 / 2 and `Vl1` P vs C
+×1 / 1 (`s h`, `oldNoLane`, world 2 / 0); world after the read old 2 →
+new 1 with equal slots (`Vl1` / `Vp1` / `Vl5`) ×7 / 3; `B2 born held (old
+true, new false; world 1, no mount, rows L8)` ×1 / 1.
 
 ## 5. Swap plan
 
