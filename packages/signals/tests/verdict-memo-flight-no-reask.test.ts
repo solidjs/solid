@@ -35,7 +35,10 @@ const expected = {
   // (F-6: async derived from a display-ahead read is the lane's), then the
   // landing asks each memo once.
   "latest held": ["m0:4", "m1:5", "m0:5", "m1:6"],
-  "latest unheld": ["m0:4", "m0:5", "m1:6"],
+  // Unheld too: `m1` never resolved (`m0:3` rejected), so `isPending(m1)` of
+  // the lane node throws NotReady (A19 exc. 1, #4362) and the Loading holds
+  // the write like `h` does.
+  "latest unheld": ["m0:4", "m1:5", "m0:5", "m1:6"],
   "plain held": ["m0:5", "m1:6"],
   "plain unheld": ["m0:5", "m1:6"]
 };
