@@ -1,4 +1,5 @@
 import {
+  CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_HELD_FRAME,
   CONFIG_IN_SNAPSHOT_SCOPE,
@@ -1192,9 +1193,14 @@ export function reruns(u: Transaction): unknown {
     // nothing to re-derive, and a re-run would be a read that retries the
     // errored source (#3945) — unless that source is errored no longer: the
     // reader was served a shown error the landing replaces (`throwShown`).
+    // A boundary's structure (its tree, its output: CONFIG_FRAME, no effect
+    // type) re-derives all the same: what it read as the screen is the
+    // content the landing replaces, and only its pass links the new content
+    // whose recovery must reach it (D-3, D-39, #4405).
     if (
       r._flags & REACTIVE_DISPOSED ||
       (r._statusFlags & STATUS_ERROR &&
+        ((r as any)._type || !(r._config & CONFIG_FRAME)) &&
         ((r._x?._error as any)?.source?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
     )
       continue;
