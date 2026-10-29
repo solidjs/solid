@@ -1044,7 +1044,20 @@ const laneSeams = (leaks: Computed<any>[] | null, t: Transaction | null): void =
         if (isThenable(r._x?._inFlight)) {
           if (!blocked(t!)) continue;
           r._x!._parked = r._x!._inFlight;
-        }
+        } else if (blocked(t!))
+          // A sync reader's lane pass re-derives the async memos over it (a
+          // memo over a verdict memo is a verdict reader, D-25 #4050; D-22:
+          // `latest()` extracted into a memo reads as inline). The flight
+          // each asked over its frame staging, up and held by `t`, is the
+          // frame's answer too: the landing adopts it (F-9).
+          for (let s = r._subs, n; s; s = s._nextSub)
+            if (
+              isThenable((n = s._sub)._x?._inFlight) &&
+              n._x!._pendingSources?.has(n) &&
+              n._config & CONFIG_HELD &&
+              txOf(n) === t
+            )
+              n._x!._parked = n._x!._inFlight;
         if (t?._verdict && leaked.indexOf(t._verdict) === -1) leaked.push(t._verdict);
       }
       enqueueSub(r);

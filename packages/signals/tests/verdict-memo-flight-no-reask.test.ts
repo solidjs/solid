@@ -429,11 +429,12 @@ it("held write, refresh mid-hold: every shape shows m1's lane answer", async () 
 // The `latest()` read extracted into a sync memo (D-22): `v` is a verdict
 // memo, and `m1`, an async memo over `v()` and `s()`, reads its value, so it
 // is a verdict reader itself (D-25, #4050), as the inline `latest(s)` makes
-// it. The write's verdict lane asks `m1:120` (`v`'s lane value, the
+// it. `m1`'s pass at the write is the frame's (R5, #4393): it asks the
+// frame's `m1:220`. The verdict lane asks `m1:120` (`v`'s lane value, the
 // screen's `s()`), revealed ahead of the transaction (F-6: v120 then v220),
-// and the landing asks `m1:220` — each once, as inline (F-9: a re-ask of the
-// same question is no new question). A later write before the landing is a
-// new question, asked once.
+// and the landing adopts the frame's `m1:220` — each once, as inline (F-9: a
+// re-ask of the same question is no new question). A later write before the
+// landing is a new question, asked once.
 async function extracted(reader: "value" | "pair" | "split", second: boolean, inline = false) {
   // Flights land only when the test lands them, so the later write always
   // comes while the write's flights are up, at any runner speed.
@@ -497,10 +498,10 @@ for (const reader of ["value", "pair", "split"] as const)
   it(`${reader}: an async memo over a latest() memo asks each question once, as inline`, async () => {
     for (const inline of [false, true]) {
       const one = await extracted(reader, false, inline);
-      expect(one.asks).toEqual(["m1:120", "m1:220"]);
+      expect(one.asks).toEqual(["m1:220", "m1:120"]);
       expect(one.values).toEqual(["v110", "v120", "v220"]);
       const two = await extracted(reader, true, inline);
-      expect(two.asks).toEqual(["m1:120", "m1:125", "m1:225"]);
+      expect(two.asks).toEqual(["m1:220", "m1:120", "m1:125", "m1:225"]);
       expect(two.values).toEqual(["v110", "v125", "v225"]);
     }
   });
@@ -509,8 +510,10 @@ for (const reader of ["value", "pair", "split"] as const)
 // flight: mounted mid-hold, it shows what is on the screen and reveals with
 // the hold (D-26), and grouping `[isPending(m1), m1()]` in one render effect
 // holds like `m1()` alone (F-6): no shape shows a lane answer the screen
-// never showed. The unmount and the remount come once `m0:4` has landed,
-// with the lane's `m1:5` up; a later write comes right after the remount.
+// never showed. m0's pass at the write is the frame's (R5, #4393): it asks
+// `m0:5` first, then re-derives in the verdict lane (`m0:4`). The unmount and
+// the remount come once `m0:4` has landed, with the lane's `m1:5` up; a later
+// write comes right after the remount.
 async function remounted(reader: "value" | "pair" | "split", later: boolean) {
   const { land, fly } = inFlight();
   const [s, setS] = createSignal(1);
@@ -574,7 +577,7 @@ for (const later of [false, true])
     for (const reader of ["value", "pair", "split"] as const) {
       const { asks, out } = await remounted(reader, later);
       expect(new Set(asks).size).toBe(asks.length);
-      expect(asks.slice(0, 3)).toEqual(["m0:4", "m1:5", "m0:5"]);
+      expect(asks.slice(0, 3)).toEqual(["m0:5", "m0:4", "m1:5"]);
       expect(asks.at(-1)).toBe(`m1:${last}`);
       const values = out
         .map(x => x.slice(x.indexOf(",") + 1).replace(/^[vp]/, ""))

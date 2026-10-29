@@ -232,7 +232,15 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
   if (probing && !quietPending(el)) probeFound = true;
   if (c && tracking) {
     if (el._config & CONFIG_HELD) verdictRead(c, txOf(el));
-    else if (globalQueue._running) provisionalVerdict(c, false); // decided above
+    else if (globalQueue._running) {
+      // `latest` of a flight serves the committed value, the frame's and the
+      // lane's alike (D-22): nothing is the seam's, so the reader is the
+      // verdict lane's now, as a plain read of a flight makes it
+      // (`observeFlight`). Its frame pass re-derived in the lane (R5) asked
+      // its question again (F-9, #4397). A staging's is the seam's (#4365).
+      if (!probing) joinFuture(null);
+      provisionalVerdict(c, false); // decided above
+    }
   }
 }
 
