@@ -251,6 +251,7 @@ function markVerdictReader(window: number): void {
     // (`route`); a verdict reader from its next pass. #4341: a memo born in
     // a newly opened <Match> read the screen, where its branch was closed.
     // Not such a pass: a verdict reader now.
+    c._config &= ~CONFIG_ASYNC;
     c._flags |=
       REACTIVE_PROBED |
       REACTIVE_WINDOW |
@@ -512,13 +513,13 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * nor `isPending`) is a verdict reader between its flights, and the hold's
  * work while one is up or its hold re-runs it.
  *
- * At a pass's head (`source` absent): a pending node's pass — its flight is
- * the transition's own work (#3884) — and a held one's re-run of such a memo
- * read plainly: the write that re-ran it is its hold's, and served the
- * screen it re-asked a question it had answered (A10, #4397). Only a memo
- * that never asked: D-25's "a verdict posture outlives the pass that asked"
- * is a pass that called `latest`/`isPending`, which clears CONFIG_ASYNC at
- * its end and stays a verdict reader whoever dirties it.
+ * At a pass's head (core.ts `recompute`): a pending node's pass — its
+ * flight is the transition's own work (#3884) — and a held one's re-run of
+ * such a memo read plainly: the write that re-ran it is its hold's, and
+ * served the screen it re-asked a question it had answered (A10, #4397).
+ * Only a memo that never asked: D-25's "a verdict posture outlives the pass
+ * that asked" is a pass that called `latest`/`isPending`, which clears
+ * CONFIG_ASYNC and stays a verdict reader whoever dirties it.
  *
  * On `source` going pending (`propagateStatus`): such a memo waits on it
  * like any derivation (F-9) instead of re-deriving — what it read changed
@@ -526,29 +527,18 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * its own flight is up outside a lane on a new question of the source's:
  * its re-run supersedes a flight asked of a value the source has moved past
  * (re-asked by a `refresh()`, the source's question is the same one). */
-function holdWork(n: Computed<any>, source?: Computed<any>): unknown {
-  // At a pass's end (`source` is the node), while the pass's
-  // REACTIVE_WINDOW is still up (the tail wipes it): CONFIG_ASYNC records an
-  // async memo with no window of its own — the last answering pass
-  // registered a flight (`_inFlight`) and called neither `latest` nor
-  // `isPending`. A pass that opened a window, or answered sync, clears it;
-  // one left pending or errored without a flight keeps the last answer's.
-  if (source === n) {
-    if (n._x?._inFlight && !(n._flags & REACTIVE_WINDOW)) n._config |= CONFIG_ASYNC;
-    else if (n._flags & REACTIVE_WINDOW || !(n._statusFlags & (STATUS_PENDING | STATUS_ERROR)))
-      n._config &= ~CONFIG_ASYNC;
-    return;
-  }
+function holdWork(n: Computed<any>, source: Computed<any>): unknown {
+  // CONFIG_ASYNC records an async memo with no window of its own: its last
+  // answering pass registered a flight (`handleAsync`) and called neither
+  // `latest` nor `isPending`. A window (`markVerdictReader`) or a sync answer
+  // clears it; a pass left pending or errored keeps the last answer's.
   const own = n._config & CONFIG_ASYNC;
-  if (source)
-    return (
-      own &&
-      (!(n._statusFlags & STATUS_PENDING) ||
-        n._x!._transaction?._lane ||
-        source._flags & REACTIVE_REASK)
-    );
-  if (n._statusFlags & STATUS_PENDING || (own && n._config & CONFIG_HELD))
-    n._config &= ~CONFIG_VERDICT;
+  return (
+    own &&
+    (!(n._statusFlags & STATUS_PENDING) ||
+      n._x!._transaction?._lane ||
+      source._flags & REACTIVE_REASK)
+  );
 }
 
 // Installed at module evaluation — present exactly when something imports

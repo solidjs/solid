@@ -12,6 +12,7 @@ import {
 } from "./async.js";
 import {
   $REFRESH,
+  CONFIG_ASYNC,
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_FRESH_READ,
@@ -138,7 +139,6 @@ import {
   laneServedHook,
   laneWriteHook,
   observeFlightHook,
-  holdWorkHook,
   wireExternalSourceHook
 } from "./scheduler.js";
 import type { Transaction } from "./scheduler.js";
@@ -386,7 +386,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // superseding write's verdict would depend on that probe. Cleared for
     // this pass, before the flight it judges by is superseded; a probe in
     // the body re-stamps it after the plain reads.
-    holdWorkHook?.(el);
+    if (
+      el._statusFlags & STATUS_PENDING ||
+      (el._config & (CONFIG_ASYNC | CONFIG_HELD)) === (CONFIG_ASYNC | CONFIG_HELD)
+    )
+      el._config &= ~CONFIG_VERDICT;
     if (el._x !== null) {
       el._x._inFlight = null;
       // Supersede is where an iterator flight dies (#3122): close it now.
@@ -540,7 +544,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       const selfRegistered = el._x?._inFlight !== prevInFlight;
       value = selfRegistered || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
       if (!selfRegistered && !isAsyncResult) {
-        if (el._x !== null) el._x._inFlight = null;
+        if (el._x !== null) {
+          el._x._inFlight = null;
+          el._config &= ~CONFIG_ASYNC;
+        }
         // A sync (non-object) return is the first real answer; async-shaped
         // results clear inside handleAsync at their own landing points, and a
         // self-registered flight clears when its own handleAsync lands.
@@ -562,6 +569,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // keeps serving. If the
       // node is currently errored the error stays the answer until this
       // retry can actually run.
+      el._config &= ~CONFIG_ASYNC;
       parkLoadingWindow(el, e as NotReadyError);
     } else {
       // D-41: a pass of a held node, or one that read a staging of this
@@ -617,9 +625,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A verdict reader is one for as long as it probes, or reads a memo
     // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
     // bit) is an ordinary derivation again. Its async posture is the
-    // verdict engine's to keep (verdict.ts `holdWork`, D-25).
+    // verdict engine's to keep (CONFIG_ASYNC, verdict.ts `holdWork`, D-25).
     el._config = (el._config & ~CONFIG_VERDICT) | (el._flags & REACTIVE_PROBED);
-    holdWorkHook?.(el, el);
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
     // own owner (a memo calling its root's `dispose()`, a cleanup doing so
     // #3601/#3606), and `disposeChildren` set the flag on this node
