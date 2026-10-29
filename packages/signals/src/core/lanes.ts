@@ -101,7 +101,20 @@ import {
   installLaneHooks,
   armGuessing
 } from "./scheduler.js";
-import { SLOT_C, SLOT_DV, SLOT_LV, SLOT_P, SLOT_T, shadowActual } from "./seat.js";
+import {
+  MARK_ENTERED,
+  MARK_LANE_READ,
+  MARK_LEAVE,
+  MARK_LST,
+  SLOT_C,
+  SLOT_DV,
+  SLOT_LV,
+  SLOT_P,
+  SLOT_T,
+  installSeatLaneHints,
+  shadowMark,
+  shadowActual
+} from "./seat.js";
 import type { Computed, Signal } from "./types.js";
 
 export { laneValueOf };
@@ -276,6 +289,7 @@ function applyGuesses(parent: Transaction | null): void {
  * through an ancestor's guess stays its own (the screen plus its own
  * guesses). */
 export function enterLane(l: Transaction, c: Computed<any>): void {
+  if (__TEST__) shadowMark(c, MARK_LANE_READ);
   const f = (c._flags |= REACTIVE_LANE_READ),
     p = passLane;
   if (p === null) {
@@ -714,7 +728,10 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // read had come first (S-39, #4275). Nor does a verdict lane's seat carry
     // the leaf into another lane (no link): it reads that lane as from the
     // frame's seat (#4284).
-    if ((never || passLane !== l) && passLane?._parent!._verdict === passLane) setPassLane(null);
+    if ((never || passLane !== l) && passLane?._parent!._verdict === passLane) {
+      if (__TEST__) shadowMark(c, MARK_LEAVE);
+      setPassLane(null);
+    }
     if (passLane === null || !sameLane(passLane, l)) {
       // (A lane that has never shown: the screen is the committed value.)
       if (never && l._shown) return NOT_PENDING;
@@ -734,6 +751,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
         // Before the throw below: a leaf that waits on a lane that has never
         // shown has no flight to settle it — only the reveal re-derives it,
         // and its pending holds its frame until then (#4338).
+        if (__TEST__) shadowMark(c, MARK_LST, l);
         if (!(c._flags & REACTIVE_SCREEN_READ)) {
           c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
           l._reruns.push(c);
@@ -746,7 +764,10 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
       }
       // A verdict reader reads ahead of the seam's verdict: re-derived on the
       // screen if the lane holds (#4284).
-      if (c._config & CONFIG_VERDICT && l._parent!._verdict !== l) entered.push(c);
+      if (c._config & CONFIG_VERDICT && l._parent!._verdict !== l) {
+        if (__TEST__) shadowMark(c, MARK_ENTERED);
+        entered.push(c);
+      }
     }
   }
   enterLane(l, c);
@@ -1155,6 +1176,7 @@ const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => 
 };
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
+if (__TEST__) installSeatLaneHints(() => guessed);
 installLaneHooks(
   laneRead,
   laneStage,

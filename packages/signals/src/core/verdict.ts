@@ -70,12 +70,24 @@ import {
   installVerdictHooks
 } from "./scheduler.js";
 import {
+  MARK_AH,
+  MARK_JF0,
+  MARK_JFT,
+  MARK_LINK,
+  MARK_OBS,
+  MARK_PR,
+  MARK_ST,
+  MARK_UNANS,
+  MARK_W,
   SLOT_C,
   SLOT_DV,
   SLOT_LV,
   SLOT_P,
+  WINDOW_LATEST,
+  WINDOW_PROBE,
   shadowActual,
   shadowExpect,
+  shadowMark,
   shadowWindow
 } from "./seat.js";
 import type { Computed, Signal } from "./types.js";
@@ -87,6 +99,7 @@ import type { Computed, Signal } from "./types.js";
  * lanes.ts — entering the verdict lane then voids what it staged); if it
  * commits, the answer stood. */
 function watchVerdict(c: Computed<any>, unanswered = false): void {
+  if (__TEST__) shadowMark(c, MARK_W | (unanswered ? MARK_UNANS : 0));
   if (unanswered) c._flags |= REACTIVE_PROBE_UNANSWERED;
   stagedReaders.push(c);
 }
@@ -97,6 +110,7 @@ function watchVerdict(c: Computed<any>, unanswered = false): void {
  * does not rescue it: its result shows at the landing, re-derived). A lane
  * read, for `recompute`'s tail (REACTIVE_LANE_READ). */
 function route(c: Computed<any>, t: Transaction): void {
+  if (__TEST__) shadowMark(c, MARK_AH, t);
   if (!passLane && !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)))
     setPassLane(verdictLane(t));
   c._flags |= REACTIVE_LANE_READ;
@@ -128,8 +142,12 @@ function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
   if (el._config & CONFIG_INPUTS_PUBLISHED || (el._config & CONFIG_HELD && bornInto(c, txOf(el))))
     return false;
   if (globalQueue._running) {
+    if (__TEST__) shadowMark(c, MARK_JF0);
     joinFuture(null);
-    if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
+    if (!(el._config & CONFIG_HELD)) {
+      if (__TEST__) shadowMark(c, MARK_OBS);
+      queuePendingNode(el);
+    }
     verdictRead(c, flushTransaction!, true);
   }
   return true;
@@ -154,8 +172,13 @@ let probeFound = false;
  * re-run would only repeat the frame. */
 function verdictRead(c: Computed<any>, t: Transaction, plain?: boolean): void {
   route(c, t);
-  if (plain) staleReader(c, t);
-  else if (probing && t._reruns[t._reruns.length - 1] !== c) t._reruns.push(c);
+  if (plain) {
+    if (__TEST__) shadowMark(c, MARK_ST, t);
+    staleReader(c, t);
+  } else if (probing) {
+    if (__TEST__) shadowMark(c, MARK_PR);
+    if (t._reruns[t._reruns.length - 1] !== c) t._reruns.push(c);
+  }
 }
 
 /** A verdict read of a node staged or in flight but not held yet: whether it
@@ -247,7 +270,10 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
       // verdict lane's now, as a plain read of a flight makes it
       // (`observeFlight`). Its frame pass re-derived in the lane (R5) asked
       // its question again (F-9, #4397). A staging's is the seam's (#4365).
-      if (!probing) joinFuture(null);
+      if (!probing) {
+        if (__TEST__) shadowMark(c, MARK_JF0);
+        joinFuture(null);
+      }
       provisionalVerdict(c, false); // decided above
     }
   }
@@ -412,7 +438,15 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   }
   setVerdict(verdictValue);
   // Shadow (S0): the window's decision point — the rows Vl*/Vp*.
-  if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, false);
+  if (__TEST__)
+    shadowExpect(
+      c,
+      el,
+      tracking,
+      (probing ? WINDOW_PROBE : 0) | (latestActive ? WINDOW_LATEST : 0),
+      spectating,
+      false
+    );
   // A live `affects()` mark on the node or a dependency (affects.ts): not
   // final by declaration — the value itself is read as below. The verdict is
   // display-ahead like any: in a transaction's flush (the declaring action's
@@ -495,6 +529,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         t._verdict?._held &&
         flushTransaction !== t
       ) {
+        if (__TEST__) shadowMark(c!, MARK_ST, t._verdict);
         staleReader(c!, t._verdict);
         if (__TEST__) shadowActual(SLOT_C);
         return el._value;
@@ -505,7 +540,10 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         // An action body reading another transaction's proposal derives
         // from it: the two settle as one (A15; posture C, 2026-09-15). An
         // untracked read elsewhere has no transaction to entangle.
-        if (!tracked && flushTransaction && !globalQueue._running) joinFuture(txOf(el));
+        if (!tracked && flushTransaction && !globalQueue._running) {
+          if (__TEST__) shadowMark(c, MARK_JFT);
+          joinFuture(txOf(el));
+        }
         if (__TEST__) shadowActual(SLOT_P);
         return heldLatest(el, tracked ? c : null);
       }
@@ -554,7 +592,10 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // As `read()`: an untracked read of a pending node still re-runs its
     // reader when the node settles (a projection's pull reads its firewall
     // untracked, store/store.ts).
-    if (c && !tracking && !spectating && el !== c) link(el, c);
+    if (c && !tracking && !spectating && el !== c) {
+      if (__TEST__) shadowMark(c, MARK_LINK);
+      link(el, c);
+    }
     throw owner._x?._error;
   }
   if ((el as any)._fn && owner._statusFlags & STATUS_ERROR) throw owner._x!._error;

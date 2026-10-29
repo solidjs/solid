@@ -106,8 +106,14 @@ import { cleanup, disposeChildren, inheritId, linkChild, markDisposal } from "./
 // The reader seat's shadow (S0): reachable only under `__TEST__`
 // (documentation/plans/reader-seat-rebuild.md §3).
 import {
+  MARK_LATE,
+  MARK_LINK,
+  MARK_SERVED,
+  MARK_ST,
+  MARK_W,
   RAISE_FL,
   RAISE_H,
+  RAISE_HAT,
   SLOT_C,
   SLOT_E,
   SLOT_NONE,
@@ -120,6 +126,7 @@ import {
   shadowEnter,
   shadowExpect,
   shadowLeave,
+  shadowMark,
   shadowSeatClose,
   shadowSeatOpen,
   shadowThrown
@@ -1242,7 +1249,7 @@ export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): voi
  * `foldedRead`, D-34) — a reader is never a render effect there. */
 export function joinPassAt(c: Computed<any>, t: Transaction): void {
   c._flags |= REACTIVE_JOINED;
-  if (__TEST__) shadowExternalRaise(c, RAISE_H);
+  if (__TEST__) shadowExternalRaise(c, RAISE_H | RAISE_HAT);
   joinPassTx(t, (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || freshHook?.(c));
 }
 
@@ -1302,10 +1309,14 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // flush runs it: a node T holds re-enters T when it re-runs (`recompute`'s
   // head), and the pass may then read a guess and become the lane's.
   if ((t === flushTransaction && !lane && !verdict) || bornInto(c, t)) return false;
+  if (__TEST__) shadowMark(c, MARK_ST, t);
   staleReader(c, t);
   // Lane work or a verdict reader no longer waits on `el`'s flight (lanes.ts
   // `laneServed`, A15).
-  if (lane || verdict) laneServedHook!(c, el);
+  if (lane || verdict) {
+    if (__TEST__) shadowMark(c, MARK_SERVED);
+    laneServedHook!(c, el);
+  }
   return true;
 }
 
@@ -1904,6 +1915,7 @@ const promotedWrites: Array<Signal<any> | Computed<any>> = [];
  * (A28) must run again in the flush that carries it — the late-linker case
  * (#3337's reason to defer the walk): it linked after the write walked. */
 export function markLateLinker(c: Computed<any>): true {
+  if (__TEST__) shadowMark(c, MARK_LATE);
   // The pass's own tail re-enqueues on this latch (recompute's finally) —
   // a direct enqueue here would be wiped by the pass's flag reset.
   c._flags |= REACTIVE_MISSED_WAKE;
@@ -2176,7 +2188,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // An untracked read of a pending node still re-runs its reader when
         // the node settles — unless nobody is reading (`spectating`, #3528)
         // or the reader is the node itself.
-        if (!tracking && !spectating && el !== c) link(el, c as Computed<any>);
+        if (!tracking && !spectating && el !== c) {
+          if (__TEST__) shadowMark(c as Computed<any>, MARK_LINK);
+          link(el, c as Computed<any>);
+        }
         throw owner._x?._error;
       }
     } else if (owner._statusFlags & STATUS_UNINITIALIZED) {
@@ -2323,8 +2338,10 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
     // if the flush parks (D-22; D-25: the probe decides the posture in either
     // read order). A memo's is the frame's derivation either way: a memo is
     // not a leaf (`frameRead`).
-    if (laneSeamsHook && (passLane !== null || ((c as any)._type && c._config & CONFIG_VERDICT)))
+    if (laneSeamsHook && (passLane !== null || ((c as any)._type && c._config & CONFIG_VERDICT))) {
+      if (__TEST__) shadowMark(c, MARK_W);
       stagedReaders.push(c);
+    }
   }
 }
 
@@ -2352,8 +2369,11 @@ export function stagedScreen(c: Computed<any>): boolean {
     passLane === null &&
     c._config & CONFIG_VERDICT &&
     !(c._statusFlags & STATUS_UNINITIALIZED)
-  )
+  ) {
+    if (__TEST__) shadowMark(c, MARK_W);
     return !stagedReaders.push(c);
+  }
+  if (__TEST__) shadowMark(c, MARK_ST, flushTransaction);
   staleReader(c, flushTransaction);
   return true;
 }
