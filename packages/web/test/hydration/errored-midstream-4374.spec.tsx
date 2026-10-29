@@ -71,7 +71,8 @@ async function run(
   app: App,
   mode: "loaded" | "streamed",
   served: string,
-  recovered: string
+  recovered: string,
+  fallback = "[LOAD]"
 ) {
   const { shell, chunks } = load(name);
   bootstrapHydrationGlobal();
@@ -89,7 +90,7 @@ async function run(
     dispose = hydrate(() => <App />, container);
     await settle();
     if (mode === "streamed") {
-      expect(main().textContent).toBe("[LOAD]");
+      expect(main().textContent).toBe(fallback);
       for (const c of chunks) applyChunk(container, c, false);
       // The fragment swapped in: the server's text, before the resume.
       serverTexts = texts(main());
@@ -142,5 +143,16 @@ describe("#4374: a string fallback's region, claimed after the swap", () => {
         mode,
         "siba1",
         "siba2"
+      ));
+  // A falsy primitive fallback (`0`) re-claims too.
+  for (const mode of ["loaded", "streamed"] as const)
+    test(`a zero fallback: ${mode}`, () =>
+      run(
+        "errored-midstream-4374-zero-fallback",
+        createTextAfterElementApp(0),
+        mode,
+        "siba1",
+        "siba2",
+        "0"
       ));
 });

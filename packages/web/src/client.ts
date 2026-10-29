@@ -1480,13 +1480,14 @@ export function installHydrationRuntime() {
     // loose text positionally — elements recover through the registry, text
     // only has position. The region is `parent`'s children, or for
     // marker-bounded holes the nodes back to the matching `<!--$-->` start.
-    // A sole primitive (text the claim kept raw: a `<Loading>`'s string
-    // fallback; only a markerless hole holds one) tracks no node, so it
-    // cannot tell a swap happened: the region is re-claimed (#4374).
+    // A sole primitive (text the claim kept raw: a `<Loading>`'s string or
+    // number fallback, `0` included; only a markerless hole holds one)
+    // tracks no node, so it cannot tell a swap happened: the region is
+    // re-claimed (#4374).
     reclaimRegion(current, parent, marker) {
-      if (!sharedConfig.hydrating || !current || !parent.isConnected) return current;
+      if (!sharedConfig.hydrating || current == null || !parent.isConnected) return current;
       const first = Array.isArray(current) ? current[0] : current;
-      if (!first || first.isConnected) return current;
+      if (first == null || first.isConnected) return current;
       let nodes;
       if (marker) {
         nodes = [];

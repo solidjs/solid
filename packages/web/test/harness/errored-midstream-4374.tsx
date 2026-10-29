@@ -30,8 +30,8 @@ export const nestedErroredName = (o: NestedErroredShape) =>
 
 // The same region with no Errored: the Loading's text fallback, then
 // content whose text follows an element. Pins the hole's bookkeeping, not
-// the boundaries.
-export function createTextAfterElementApp() {
+// the boundaries. `fallback` may be a falsy primitive (`0`).
+export function createTextAfterElementApp(fallback: string | number = "[LOAD]") {
   const [k, setK] = createSignal(1);
   let asks = 0;
   function App() {
@@ -43,7 +43,7 @@ export function createTextAfterElementApp() {
     });
     return (
       <main>
-        <Loading fallback="[LOAD]">
+        <Loading fallback={fallback}>
           <i>sib</i>
           {"a" + a()}
         </Loading>
