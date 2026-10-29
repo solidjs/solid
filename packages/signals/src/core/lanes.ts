@@ -1116,7 +1116,7 @@ const laneSeams = (t: Transaction | null): void => {
 const adoptParked = (r: Computed<any>): boolean => {
   const parked = r._x?._parked;
   if (!parked || r._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP)) return false;
-  r._x!._parked = null;
+  r._x!._parked = undefined;
   releaseFlightTeardown(r);
   try {
     handleAsync(r, parked.then());

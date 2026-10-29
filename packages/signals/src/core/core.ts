@@ -400,8 +400,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el._config &= ~CONFIG_VERDICT;
     if (el._x !== null) {
       // The seam's re-derive runs with the parked flight still current; any
-      // later pass asks its own question (`_parked`).
-      if (el._x._parked !== el._x._inFlight) el._x._parked = null;
+      // later pass asks its own question (`_parked`; only the lane engine
+      // parks one).
+      const p = laneStageHook && el._x._parked;
+      if (p && p !== el._x._inFlight) el._x._parked = undefined;
       el._x._inFlight = null;
       // Supersede is where an iterator flight dies (#3122): close it now.
       // Idempotent with the cleanup-channel close.
@@ -1146,8 +1148,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _q: 0,
     _lane: NOT_PENDING,
     _marks: 0,
-    _shownError: null,
-    _parked: null
+    _shownError: null
   });
 }
 
