@@ -99,12 +99,16 @@ describe("#4375: a served rejection read only through isPending, hydrated", () =
           expect(asks()).toEqual([]);
 
           // The input changes (mid-hydration for `slow`, streamed): both
-          // memos ask (a client render asks `m0` for the intermediate
-          // `1 + latest(s) + s()` too), and the page stays live.
+          // memos ask, each question once, and the page stays live. Over
+          // `latest(s)`, m0's frame pass asks the frame's `m0:5` (R5), the
+          // parked flush re-derives it in the verdict lane for the
+          // intermediate `1 + latest(s) + s()` (`m0:4`, `m1:5`), and the
+          // landing adopts the frame's `m0:5` (F-9).
           write(2);
           await settle();
           expect(asks()).not.toContain("m0:3");
-          expect(asks().slice(-2)).toEqual(["m0:5", "m1:6"]);
+          if (o.latest) expect(asks()).toEqual(["m0:5", "m0:4", "m1:5", "m1:6"]);
+          else expect(asks().slice(-2)).toEqual(["m0:5", "m1:6"]);
           for (const c of held) {
             applyChunk(container, c, false);
             await settle();
