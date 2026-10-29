@@ -1,6 +1,5 @@
 import {
   CONFIG_AUTO_DISPOSE,
-  CONFIG_ASYNC,
   CONFIG_REDERIVE,
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
@@ -61,7 +60,7 @@ export function addPendingSource(el: Computed<any>, source: Computed<any>): bool
   return true;
 }
 
-function removePendingSource(el: Computed<any>, source: Computed<any>): boolean {
+export function removePendingSource(el: Computed<any>, source: Computed<any>): boolean {
   const sources = el._x?._pendingSources;
   if (!sources?.delete(source)) return false;
   if (!sources.size) el._x!._pendingSources = undefined;
@@ -445,7 +444,6 @@ export function handleAsync<T>(
   }
 
   if (!thenable && !iterator) {
-    el._config &= ~CONFIG_ASYNC;
     if (el._x !== null) el._x._inFlight = null;
     // A sync landing is the first real answer for a loadingValue node.
     el._loading = false;
@@ -481,7 +479,6 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
-  el._config |= CONFIG_ASYNC;
   // The question this flight answers (A18 provenance, lanes.ts): the action
   // whose slice asked it; mainline is always the current question.
   el._x!._q = question || MAINLINE_QUESTION;

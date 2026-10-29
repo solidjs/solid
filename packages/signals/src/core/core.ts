@@ -6,6 +6,7 @@ import {
   parkLoadingWindow,
   releaseFlightTeardown,
   releaseIfSettledUnobserved,
+  removePendingSource,
   settleErroredDependents,
   settlePendingSource,
   stageError
@@ -540,7 +541,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       const selfRegistered = el._x?._inFlight !== prevInFlight;
       value = selfRegistered || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
       if (!selfRegistered && !isAsyncResult) {
-        el._config &= ~CONFIG_ASYNC;
         if (el._x !== null) el._x._inFlight = null;
         // A sync (non-object) return is the first real answer; async-shaped
         // results clear inside handleAsync at their own landing points, and a
@@ -625,12 +625,19 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // asks its next question once, at their landing. A frame reader, it was
     // served committed values a hold had moved past (A10) and asked an
     // answered question again; re-derived at each verdict source going
-    // pending, again (#4397).
+    // pending, again (#4397). Async (CONFIG_ASYNC) is the last answering
+    // pass's: one that registered a flight (`_inFlight`, cleared at the top
+    // of every pass) is; one that answered sync is not; one left pending or
+    // errored without a flight keeps the last answer's. Worked out here, so a
+    // sync pass does no extra work.
+    const config = el._x?._inFlight
+      ? el._config | CONFIG_ASYNC
+      : el._config & ~(el._statusFlags & (STATUS_PENDING | STATUS_ERROR) ? 0 : CONFIG_ASYNC);
     el._config =
-      (el._config & ~CONFIG_VERDICT) |
+      (config & ~CONFIG_VERDICT) |
       (el._flags &
         REACTIVE_PROBED &
-        (el._config & CONFIG_ASYNC && !(el._flags & REACTIVE_WINDOW) ? 0 : CONFIG_VERDICT));
+        (config & CONFIG_ASYNC && !(el._flags & REACTIVE_WINDOW) ? 0 : CONFIG_VERDICT));
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
     // own owner (a memo calling its root's `dispose()`, a cleanup doing so
     // #3601/#3606), and `disposeChildren` set the flag on this node
@@ -1231,6 +1238,12 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // head), and the pass may then read a guess and become the lane's.
   if ((t === flushTransaction && !lane && !verdict) || bornInto(c, t)) return false;
   staleReader(c, t);
+  // A15: the pass served `el`'s committed value, so it does not wait on
+  // `el`'s flight: what `el`'s pending propagated onto it before the pass
+  // (its origins, self included) is not this pass's — the landing re-derives
+  // it (`reruns`). Kept, a pass that went pending on another source never
+  // woke when that source settled (#4397).
+  (el as Computed<any>)._x?._pendingSources?.forEach(s => removePendingSource(c, s));
   return true;
 }
 

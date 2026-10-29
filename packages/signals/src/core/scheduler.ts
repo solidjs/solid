@@ -1180,7 +1180,11 @@ export function reruns(u: Transaction): unknown {
     if (r._flags & REACTIVE_DISPOSED || r._statusFlags & STATUS_ERROR) continue;
     if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
       frame ||= (r as any)._type;
-      r._flags &= ~REACTIVE_FRAME_READ;
+      // A lane's reveal leaves the mark to the transaction: a reader that
+      // also read a held node as committed (`staleReader`) still observes
+      // that flight until it re-runs — cleared here, the transaction landed
+      // at this seam with the flight up and voided the reveal's run (#4397).
+      if (!u._lane) r._flags &= ~REACTIVE_FRAME_READ;
       (r as any)._modified = false;
       // Its frame is replaced by the re-derivation: a run one of its
       // children queued this flush (re-run by the same landing) is for the
