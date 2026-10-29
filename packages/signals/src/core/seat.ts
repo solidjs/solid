@@ -315,6 +315,52 @@ export function carry(tx: Transaction | null, lane: Transaction | null = null): 
   seatLane = lane;
 }
 
+/** The world the running pass reads from, packed: the world it was BORN
+ * in (SEAT_BORN_*: the hold it was born into, or the world its creator's
+ * pass was in when it created it — F-transitive reading B, the seat
+ * stack's inheritance, creator = the RUNNING pass, F-mount) and the world
+ * its OWN reads raised it to (SEAT_OWN_*: `read`'s RAISE_H / RAISE_FL,
+ * `applyMarks`). Saved and restored around every pass (`recompute`): a
+ * first pass's creator reads it at the head for the world the child is
+ * born in, `bornHeld` at the tail. The two halves are kept apart because
+ * the branch's world decides differently from the pass's own reads
+ * (#4341, D-26: a pass whose BRANCH exists only in the future is not a
+ * verdict reader; one that read the future ITSELF still takes the sticky
+ * posture, D-25). (S1 M3: replaces `creatorPass(oldcontext)._flags &
+ * REACTIVE_JOINED` — one level, the owner's flags — and `creatorReads`'
+ * owner-chain walk.) */
+export const SEAT_OWN_FL = 1;
+export const SEAT_OWN_H = 2;
+export const SEAT_BORN_FL = 4;
+export const SEAT_BORN_H = 8;
+/** The pass's own and inherited worlds: the branch it is in, plus what it
+ * read. */
+export const SEAT_OWN = SEAT_OWN_FL | SEAT_OWN_H;
+export const SEAT_BORN = SEAT_BORN_FL | SEAT_BORN_H;
+export const SEAT_READ = SEAT_OWN | SEAT_BORN;
+/** A pass over a node born into a hold (`bornInto`): the hold's world (H)
+ * for what it creates — its reads of the hold are its own (RAISE_H) and the
+ * branch it is in is its creators' (SEAT_BORN), so this half is neither. */
+export const SEAT_TX_H = 16;
+export let seatWorld: number = 0;
+export function setSeatWorld(w: number): void {
+  seatWorld = w;
+}
+/** D-1: a pass's world only rises (`w`: SEAT_OWN_* bits). */
+export function raiseSeatWorld(w: number): void {
+  seatWorld |= w;
+}
+/** The packed world as a WORLD_* level: H if any half reached H. */
+export function worldLevel(w: number): number {
+  w = (w | (w >> 2) | (w >> 3)) & 3;
+  return w & SEAT_OWN_H ? WORLD_H : w ? WORLD_FL : WORLD_S;
+}
+/** The world a child of a pass with packed world `w` is born in (B): every
+ * half of the pass's, folded into the child's born half. */
+export function childBorn(w: number): number {
+  return ((w | (w >> 2) | (w >> 3)) & 3) << 2;
+}
+
 // ─── The seat (S1 M2: a view over the pass state the old deciders keep) ───
 
 /** A node born into transaction `t`: held by it and never committed (A29,
@@ -799,43 +845,26 @@ export function openSeat(
     // First pass: {world, lane, ahead} from the running creator pass — the
     // world it raised itself to (one level), its lane, its ahead-ness.
     const p = parent!;
-    // One level (D-27's letter: "a node it creates during that pass"; today's
-    // `creatorPass(oldcontext)` JOINED): the creator's own reads, not the
-    // world it inherited or was born into. F-transitive, settled 2026-10-29
-    // by the differential: the transitive reading (`p.world`) makes a
-    // mapArray row root under a joined pass, and a born-into effect's
-    // child, born held where today they publish (signals ×14, S0's ×301 at
-    // 2k); this reading differs from today only where today reads an owner's
-    // STALE flag — `fallback`'s `b._fb` created under `out._parent` while a
-    // pulled, held output runs (generator ×31 at 2k × 3; no suite shape),
-    // the F-mount reading-A residue by definition.
-    creatorWorld = p.ownWorld;
+    // F-transitive, reading B (determined 2026-10-29 by the differential,
+    // design doc §7): the world the creator's pass is in — its own reads,
+    // the hold it was born into, and the world it inherited — not its own
+    // reads alone (A′, one level). The production seat is `seatWorld`
+    // (core.ts `recompute` saves the creator's at the head).
+    creatorWorld = p.world;
     if (creatorWorld > world) world = creatorWorld;
     // Display-ahead: the creator is in a lane or seated as a hold's verdict
     // reader (today `prevLane`), or under a mount that was (`laneRoot`).
     creatorDirect = p.lane !== null || p.vhold !== null;
     ahead = p.ahead || creatorDirect;
-    // The branch this pass exists in (#4341, D-26): its owners' passes while
-    // they run — a node a running pass created, and that pass's own
-    // creators. Not the pass that merely pulls a lazy memo another owner
-    // made: the memo's branch is its owner's, and its first pass reads the
-    // screen where the puller read a staging (today `creatorReads` walks
-    // `_parent`, the owner chain, stopping at the first owner not running).
-    for (let o = el._parent; o !== null; ) {
-      const cp: Computed<any> | null = (o as any)._root
-        ? ((o as any)._parentComputed ?? null)
-        : (o as Computed<any>);
-      if (cp === null) break;
-      let s: Seat | null = null;
-      for (let i = depth; i >= 0; i--)
-        if (seats[i].node === cp) {
-          s = seats[i];
-          break;
-        }
-      if (s === null) break;
-      if (s.ownWorld > creatorsWorld) creatorsWorld = s.ownWorld;
-      o = cp._parent;
-    }
+    // The branch this pass exists in (#4341, D-26): the world of the pass
+    // that created it — the creator's own reads, the hold it was born into,
+    // and what it inherited, transitively (B; production: the born half of
+    // `seatWorld`, `childBorn`). Until S1 M3 this walked the OWNER chain's
+    // running passes for their JOINED | STAGED_READ flags (`creatorReads`);
+    // the two part only where the owner is not the running pass
+    // (`runWithOwner`, F-mount) or a creator was born into a hold it did
+    // not read — generator-measured, no screen moves (design doc §4.5).
+    creatorsWorld = creatorWorld;
     // The creator's lane is inherited (its owner running); a verdict seat
     // is not — a verdict reader's mount is a mainline mount (D-27, #3851).
     if (ownerRunning) lane = p.lane;
@@ -1423,35 +1452,6 @@ const known: KnownDifference[] = [
     when: (c, el, seat) => known[1].when(c, el, seat)
   },
   {
-    // `recompute`'s born-held test reads `creatorPass(oldcontext)`'s JOINED
-    // flag — the owner context of the creation, not the running pass. Under
-    // `runWithOwner` to an ancestor (`fallback`'s `b._fb`, created in
-    // `out._parent` while the output runs) that is a running ancestor that
-    // read the future itself, while the running pass (the output) did not:
-    // born held today, one level up the OWNER chain; not by the table's
-    // one-level running creator (F-mount reading A). The transitive reading
-    // (A29 / #4341: the branch exists only in the hold) agrees with today
-    // here and disagrees in 14 suite passes — design doc §7 F-transitive,
-    // pending the maintainer's ruling.
-    issue: 4428,
-    kind: "born",
-    row: "B2",
-    expected: 0,
-    actual: 1,
-    when: (c, _el, seat) => {
-      const o = shadowOldCreator;
-      return (
-        o !== null &&
-        seat !== null &&
-        (o._flags & REACTIVE_JOINED) !== 0 &&
-        (depth === 0 || seats[depth - 1].node !== o) &&
-        !(c._flags & REACTIVE_JOINED) &&
-        seat.creatorWorld < WORLD_H &&
-        seat.creatorsWorld === WORLD_H
-      );
-    }
-  },
-  {
     // `isPending`'s `probing` flag is left set around a memo's pass the
     // probe pulled (`verdictValue` closes only the dispatch, A31): a
     // `latest()` of a born-into-the-future node inside that pass takes the
@@ -1476,9 +1476,6 @@ const knownHits = new Map<number, number>();
 export function shadowKnownHits(): ReadonlyMap<number, number> {
   return knownHits;
 }
-/** The old born-held test's creator (`creatorPass(oldcontext)`), for the
- * close's known entries. */
-let shadowOldCreator: Computed<any> | null = null;
 function shadowKnown(
   kind: KnownDifference["kind"],
   row: string,
@@ -1589,7 +1586,7 @@ export function shadowSeatOpen(
   creator: Computed<any> | null,
   ownLane: Transaction | null,
   mount: unknown,
-  creatorJoined: boolean
+  creatorWorld: number
 ): Seat {
   const seat = openSeat(el, create, creator, ownLane);
   passes++;
@@ -1634,20 +1631,15 @@ export function shadowSeatOpen(
         0,
         0
       );
-    // (F-mount, reading A: the creator is the running pass — the seat
-    // stack's top; the old test reads the owner's flags. The two are one
-    // when the owner is the running pass. A `runWithOwner` into another
-    // owner — `<For>`'s lazy `mapArray` under the component's owner, an
-    // ancestor pass still running or one not running at all — is the
-    // retired path; the born-held decision at the close still compares.)
-    const ownerIsRunningPass = creator === null || (depth > 0 && seats[depth - 1].node === creator);
-    if (ownerIsRunningPass && creatorJoined !== (seat.creatorWorld === WORLD_H))
+    // The production seat's inherited world (`seatWorld` at the head) is
+    // the shadow's: the running creator's world (B).
+    if (creatorWorld !== seat.creatorWorld)
       report(
         "INV-seat-3",
         "B1",
         el,
         null,
-        `inherited world (old creator ${creatorJoined ? "JOINED" : "not joined"}, new ${seat.creatorWorld}; creator running ${seat.creatorRunning})`,
+        `inherited world (production ${creatorWorld}, shadow ${seat.creatorWorld}; creator running ${seat.creatorRunning})`,
         0,
         0
       );
@@ -1660,7 +1652,7 @@ export function shadowSeatClose(
   el: Computed<any>,
   isEffect: boolean,
   oldJoined: boolean,
-  oldCreator: Computed<any> | null,
+  creatorWorld: number,
   oldMount: unknown
 ): void {
   const seat = currentSeat();
@@ -1668,7 +1660,7 @@ export function shadowSeatClose(
     report("INV-seat", "B2", el, null, "no seat open for the pass", 0, 0);
     return;
   }
-  const oldCreatorJoined = !!(oldCreator !== null && oldCreator._flags & REACTIVE_JOINED);
+  const oldCreatorJoined = creatorWorld === WORLD_H;
   // (A known difference in this pass: the two seats parted by construction.)
   if (seat.known) {
     seats[depth--] = null!;
@@ -1704,21 +1696,17 @@ export function shadowSeatClose(
     const tick = flushTransaction !== null || passTx !== null;
     const oldBorn = tick && (oldJoined || oldCreatorJoined);
     const newBorn = bornHeld(seat, isEffect, pending);
-    shadowOldCreator = oldCreator;
     const knownBorn =
       oldBorn !== newBorn && shadowKnown("born", "B2", +newBorn, +oldBorn, el, null, seat);
-    shadowOldCreator = null;
     if (oldBorn !== newBorn && !knownBorn)
       report(
         "INV-seat-3",
         "B2",
         el,
         null,
-        `born held (old ${oldBorn}, new ${newBorn}; world ${seat.world}/${seat.ownWorld}/${seat.creatorWorld}, ahead ${seat.ahead}, mount ${!!oldMount}, pending ${pending}, old creator ${
-          oldCreator === null
-            ? "none"
-            : `${oldCreator._flags & REACTIVE_RECOMPUTING_DEPS ? "running" : "idle"} ${oldCreatorJoined ? "JOINED" : "not joined"} ${depth > 0 && seats[depth - 1].node === oldCreator ? "= running pass" : "≠ running pass"}`
-        }, rows ${seat.trail.slice(-4).join(",")})`,
+        `born held (old ${oldBorn}, new ${newBorn}; world ${seat.world}/${seat.ownWorld}/${seat.creatorWorld}, ahead ${seat.ahead}, mount ${!!oldMount}, pending ${pending}, creator ${
+          seat.creatorRunning ? "running" : "none"
+        } world ${creatorWorld}, rows ${seat.trail.slice(-4).join(",")})`,
         0,
         0
       );

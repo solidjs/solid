@@ -38,7 +38,6 @@ import {
   applyMarks,
   context,
   creatorPass,
-  creatorReads,
   prepareComputed,
   pullComputed,
   setVerdict,
@@ -98,22 +97,16 @@ import {
   carry,
   setRow,
   readerVhold,
+  SEAT_BORN,
+  SEAT_BORN_H,
+  SEAT_OWN,
+  raiseSeatWorld,
+  seatWorld,
   shadowActual,
   shadowDecided,
   shadowWindow
 } from "./seat.js";
 import type { Computed, Signal } from "./types.js";
-
-/** The reading pass is the holder's verdict lane's — unless already lane
- * work, or already the transaction's (it derives from the future — a held
- * node's, or the staging of a write this flush may hold — and the verdict
- * does not rescue it: its result shows at the landing, re-derived). A lane
- * read, for `recompute`'s tail (REACTIVE_LANE_READ). */
-function route(c: Computed<any>, t: Transaction): void {
-  if (!passLane && !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)))
-    setPassLane(verdictLane(t));
-  c._flags |= REACTIVE_LANE_READ;
-}
 
 /** Verdict windows. Inside `latest(fn)` a read of a held node serves the
  * proposal (above the async, the held write; below it, the committed value
@@ -178,12 +171,19 @@ function markVerdictReader(window: number): void {
     // derivation of it does (`bornInto` once held) and stays its pass
     // (`route`); a verdict reader from its next pass. #4341: a memo born in
     // a newly opened <Match> read the screen, where its branch was closed.
-    // Not such a pass: a verdict reader now.
+    // Not such a pass: a verdict reader now. (The branch's world is the
+    // seat's born half — seat.ts `seatWorld`, SEAT_BORN: the world the
+    // running pass was born in, its creators' transitively.)
     c._config &= ~CONFIG_ASYNC;
-    c._flags |=
-      REACTIVE_PROBED |
-      REACTIVE_WINDOW |
-      (creatorReads(c, 0) || ((c._config |= CONFIG_VERDICT), 0));
+    c._flags |= REACTIVE_PROBED | REACTIVE_WINDOW;
+    const born = seatWorld & SEAT_BORN;
+    if (born === 0) c._config |= CONFIG_VERDICT;
+    else {
+      // Its branch's world is its own from here (today: the creators' bits
+      // copied onto the pass).
+      raiseSeatWorld(born >> 2);
+      c._flags |= born & SEAT_BORN_H ? REACTIVE_JOINED : REACTIVE_STAGED_READ;
+    }
     if (__TEST__) shadowWindow(c);
     // Observe tier: which windows this pass entered (1 `isPending`, 2
     // `latest`) — the hold census names the affordance (attribution.ts).
@@ -286,7 +286,15 @@ function verdictApply(
   if (r & MARK_JF0) joinFuture(null);
   if (r & MARK_OBS) queuePendingNode(el as Computed<any>);
   const t = tx ?? flushTransaction!;
-  if (r & MARK_AH) route(c, t);
+  // AH: the reading pass is the holder's verdict reader (seated in its
+  // verdict lane, `t._verdict`) — unless already seated, or already the
+  // frame's (its own reads derive from the future or a staging: the
+  // verdict does not rescue it; its result shows at the landing,
+  // re-derived). A lane read either way, for `recompute`'s tail.
+  if (r & MARK_AH) {
+    if (passLane === null && !(seatWorld & SEAT_OWN)) setPassLane(verdictLane(t));
+    c._flags |= REACTIVE_LANE_READ;
+  }
   if (r & MARK_PR) {
     const rr = t._reruns;
     if (rr[rr.length - 1] !== c) rr.push(c);

@@ -59,7 +59,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { creatorReads, ext, stagedRead } from "./core.js";
+import { ext, stagedRead } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
 import {
   handleAsync,
@@ -127,7 +127,10 @@ import {
   laneNP,
   carry,
   setRow,
-  readerVhold
+  readerVhold,
+  SEAT_BORN,
+  SEAT_READ,
+  seatWorld
 } from "./seat.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -764,9 +767,10 @@ export function laneSlot(
   } else laneRow = ROW && (row || (flying ? "D4'''" : "D4"));
   // Entering the lane (`laneApply`): the pass is the lane's — or, a verdict
   // lane's, the hold's verdict reader (RAISE_VSEAT), unless its branch
-  // exists only in the future (`creatorReads`: a pass whose running
-  // creators, or itself when a memo, read the future or a staging — D-25,
-  // D-26, #4341: the verdict read does not break it out). The read is a
+  // exists only in the future (seat.ts `seatWorld`: a pass born in the
+  // future or a staging — its running creators' world, transitively — or
+  // one that read it itself, when a memo — D-25, D-26, #4341: the verdict
+  // read does not break it out). The read is a
   // lane read either way (REACTIVE_LANE_READ). A pass that read the
   // frame's staging before its first lane read — a held write it joined, a
   // staging beside a guess written this round, or a verdict lane's value —
@@ -775,7 +779,7 @@ export function laneSlot(
   let enter = MARK_LANE_READ | extra | leave;
   const f = c._flags;
   if (passLane === null || leave) {
-    if (!(vlane && creatorReads(c, cType || f))) {
+    if (!(vlane && seatWorld & (cType ? SEAT_BORN : SEAT_READ))) {
       enter |= vlane ? RAISE_VSEAT : RAISE_LANE;
       if (f & REACTIVE_STAGED_READ && (guessed || vlane || f & REACTIVE_JOINED))
         enter |= RAISE_FL | MARK_W;

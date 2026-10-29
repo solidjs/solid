@@ -134,9 +134,18 @@ import {
   SLOT_STASH,
   SLOT_T,
   VERDICT_BITS,
+  SEAT_BORN_H,
+  SEAT_OWN_FL,
+  SEAT_OWN_H,
+  SEAT_TX_H,
   bornInto,
+  childBorn,
+  raiseSeatWorld,
   seatLane,
   seatTx,
+  seatWorld,
+  setSeatWorld,
+  worldLevel,
   shadowActual,
   shadowConsumeBypass,
   shadowDecided,
@@ -397,6 +406,23 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // bundle without it seats every pass on mainline (`passLane` is never set)
   // and folds the seat, and its restores, away.
   const prevLane = passLane;
+  // The world of the pass that runs this one — a first pass's creator (the
+  // seat stack's top: F-mount), whose world the child is born in (B2,
+  // F-transitive reading B: transitive through the creator's own inherited
+  // world; seat.ts `seatWorld`). Restored at the end. This pass's own
+  // world: born into a hold (held and never committed: uninitialized, or a
+  // member of a held frame — `bornInto`), it is the hold's (H) from the
+  // start; a first pass starts in its creator's; any other pass starts on
+  // the screen (S) and its reads raise it (`applyMarks`).
+  const creatorWorld = seatWorld;
+  setSeatWorld(
+    create
+      ? childBorn(creatorWorld)
+      : el._config & CONFIG_HELD &&
+          (el._statusFlags & STATUS_UNINITIALIZED || el._config & CONFIG_HELD_FRAME)
+        ? SEAT_TX_H
+        : 0
+  );
   // The mount a first pass belongs to: its creator's lane, or the one its
   // creator's own mount came from — a render effect a verdict lane's mount's
   // content creates is that mount's too (#4166). Lanes only, like the seat.
@@ -575,7 +601,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       creatorPass(context),
       shadowOwnLane,
       mount,
-      !!((creatorPass(context)?._flags as number) & REACTIVE_JOINED)
+      worldLevel(creatorWorld)
     );
   const oldcontext = context;
   context = el;
@@ -682,6 +708,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     }
   } finally {
     tracking = prevTracking;
+    setSeatWorld(creatorWorld);
     if (laneStageHook) laneRoot = prevMount;
     if (__DEV__) {
       strictRead = prevStrictRead;
@@ -709,7 +736,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     );
     // Shadow seat (S0): the born-held decision beside the old one, then
     // the seat is restored.
-    if (__TEST__) shadowSeatClose(el, !!isEffect, joined, creatorPass(oldcontext), mount);
+    if (__TEST__) shadowSeatClose(el, !!isEffect, joined, worldLevel(creatorWorld), mount);
     // A verdict reader is one for as long as it probes, or reads a memo
     // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
     // bit) is an ordinary derivation again. Its async posture is the
@@ -901,7 +928,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         create
           ? !(
               (flushTransaction !== null || passTx !== null) &&
-              (joined || (creatorPass(oldcontext)?._flags as number) & REACTIVE_JOINED)
+              (joined || creatorWorld & (SEAT_OWN_H | SEAT_BORN_H | SEAT_TX_H))
             )
           : isEffect && el._pendingValue === NOT_PENDING
       ) {
@@ -1248,6 +1275,9 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
  * boundary's, not the tick's (A29's boundary exemption, #3540). */
 export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): void {
   c._flags |= REACTIVE_JOINED;
+  // The running pass's world is the hold's now (seat.ts `seatWorld`; not
+  // an idle owner a `runWithOwner` reads under).
+  if (c._flags & REACTIVE_RECOMPUTING_DEPS) raiseSeatWorld(SEAT_OWN_H);
   if (__TEST__) shadowExternalRaise(c, RAISE_H);
   // A new memo's first pass is the hold's work (born held) but not the
   // tick's: a render effect that reads it decides — under a boundary that
@@ -1268,6 +1298,7 @@ export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): voi
  * `foldedRead`, D-34) — a reader is never a render effect there. */
 export function joinPassAt(c: Computed<any>, t: Transaction): void {
   c._flags |= REACTIVE_JOINED;
+  if (c._flags & REACTIVE_RECOMPUTING_DEPS) raiseSeatWorld(SEAT_OWN_H);
   if (__TEST__) shadowExternalRaise(c, RAISE_H | RAISE_HAT);
   joinPassTx(t, (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || freshHook?.(c));
 }
@@ -1278,16 +1309,6 @@ export function creatorPass(owner: Owner | null): Computed<any> | null {
   return owner !== null && (owner as Root)._root
     ? (owner as Root)._parentComputed
     : (owner as Computed<any> | null);
-}
-
-/** What `born` and the passes still running around `p` read — its
- * creator's, theirs — of the future or a staging (REACTIVE_JOINED |
- * REACTIVE_STAGED_READ): a pass created by one that did has no screen; its
- * branch exists only in that world (#4341). */
-export function creatorReads(p: Computed<any> | null, born: number): number {
-  return (p = creatorPass(p!._parent))?._flags! & REACTIVE_RECOMPUTING_DEPS
-    ? creatorReads(p, born | p!._flags)
-    : born & (REACTIVE_JOINED | REACTIVE_STAGED_READ);
 }
 
 /** L2 — park the previous pass's frame for this node's commit: the children
@@ -2088,7 +2109,10 @@ export function applyMarks(c: Computed<any>, el: Signal<any> | Computed<any>, r:
     if (r & RAISE_HAT) joinPassAt(c, seatTx!);
     else joinPass(c, el);
   }
-  if (r & RAISE_FL) c._flags |= REACTIVE_STAGED_READ;
+  if (r & RAISE_FL) {
+    c._flags |= REACTIVE_STAGED_READ;
+    if (c._flags & REACTIVE_RECOMPUTING_DEPS) raiseSeatWorld(SEAT_OWN_FL);
+  }
   if (verdictApplyHook !== null && r & MARK_UNANS) c._flags |= REACTIVE_PROBE_UNANSWERED;
   if (laneSeamsHook !== null && r & MARK_W) stagedReaders.push(c);
   if (r & MARK_ST) staleReader(c, seatTx ?? flushTransaction!);
@@ -2135,6 +2159,7 @@ function shadowRead<T>(el: Signal<T> | Computed<T>): T {
 export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): void {
   if (!((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)) {
     c._flags |= REACTIVE_STAGED_READ;
+    if (c._flags & REACTIVE_RECOMPUTING_DEPS) raiseSeatWorld(SEAT_OWN_FL);
     if (__TEST__) shadowExternalRaise(c, RAISE_FL);
     // A verdict reader's too when it is an effect, before the frame has a
     // transaction (after, `stagedScreen` serves it the screen): the staging
