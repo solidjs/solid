@@ -1,3 +1,4 @@
+import { checkForeignRead, enterCopy, exitCopy } from "./copies.js";
 import {
   clearStatus,
   handleAsync,
@@ -423,7 +424,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // children die below (`disposeChildren`). The landing re-derives a
         // fresh held frame for the reveal (`_reruns`).
         // Not held any more, whichever frame reader it is: its readers read
-        // the value this pass publishes.
+        // the value this pass publishes — those that read the staging it
+        // supersedes re-derive, even when it publishes the committed value
+        // back (no change to notify them by): their held runs carry the
+        // superseded frame, and the landing would apply them (#4378).
+        if (el._pendingValue !== NOT_PENDING) insertSubs(el);
         el._pendingValue = NOT_PENDING;
         el._config &= ~CONFIG_HELD;
       }
@@ -510,6 +515,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     prevStrictRead = strictRead;
     strictRead = false;
   }
+  const prevCopy = __DEV__ ? enterCopy() : undefined;
   tracking = true;
   const isStaleEffect = isEffect && isEffect !== EFFECT_USER;
   const prevStale = stale;
@@ -579,7 +585,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   } finally {
     tracking = prevTracking;
     if (laneStageHook) laneRoot = prevMount;
-    if (__DEV__) strictRead = prevStrictRead;
+    if (__DEV__) {
+      strictRead = prevStrictRead;
+      exitCopy(prevCopy);
+    }
     if (isStaleEffect) stale = prevStale;
     // Consume the missed-wake latch (#3037, set by insertSubs): a dep write
     // landed beneath this pass on a link it had already validated. The wipe
@@ -1827,9 +1836,16 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
   if (height >= c._height && owner._parent !== c) c._height = height + 1;
 }
 
-export function read<T>(el: Signal<T> | Computed<T>): T {
-  if (__DEV__) DEV.hooks.onRead?.(el);
-  if (__DEV__ && asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
+/**
+ * Dev only: a read's diagnostics — the devtools read hook, the foreign-read
+ * check and the post-await untracked-read check. Every caller guards with
+ * `__DEV__`: `read` here, and a store leaf's read that is served without
+ * `read` (`nodeValue`'s first landing), so no read goes unseen in dev.
+ */
+export function devRead(el: Signal<any> | Computed<any>): void {
+  DEV.hooks.onRead?.(el);
+  if (!tracking) checkForeignRead();
+  if (asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
     checkPostAwaitRead(
       el,
       el,
@@ -1838,6 +1854,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       ((el as any)._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) ===
         (STATUS_PENDING | STATUS_UNINITIALIZED)
     );
+}
+
+export function read<T>(el: Signal<T> | Computed<T>): T {
+  if (__DEV__) devRead(el);
 
   let c = context;
   if ((c as Root)?._root) c = (c as Root)._parentComputed;
@@ -1848,11 +1868,12 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // undefined and mask to 0 on every site below.)
   const owner = el as Computed<any>;
 
-  if (typeof computed._fn === "function") prepareComputed(el as Computed<unknown>, false);
-
   // The verdict windows (`latest`, `isPending`; verdict.ts): one cold path,
-  // off this one, present only while a window is open.
+  // off this one, present only while a window is open. It wakes a lazy or
+  // dormant memo itself, outside the window (#4366).
   if (verdict !== null) return verdict(el, c as Computed<any> | null) as T;
+
+  if (typeof computed._fn === "function") prepareComputed(el as Computed<unknown>, false);
 
   if (
     !computed._fn &&

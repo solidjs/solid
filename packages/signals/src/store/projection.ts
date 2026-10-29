@@ -191,6 +191,10 @@ function settleFamily(fam: StoreFamily): void {
   forEachFamilyNode(fam, n => {
     if (n._subs !== null) settlePendingSource(n as unknown as Computed<any>, fw);
   });
+  // The landing is the derive's change for a reader parked on the derive
+  // itself, whatever status the landing pass began from (an errored derive
+  // re-asked: a reader that met the error has no leaf to learn it from).
+  insertSubs(fw);
 }
 
 /** A source's status reached the derive by propagation (core
