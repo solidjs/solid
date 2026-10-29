@@ -265,16 +265,24 @@ Confidence: **high** = implementation self-consistency, assert now.
   JSON lines per test file) rather than thrown, unless
   `globalThis.__SEAT_SHADOW_STRICT__` is set — the differential needs the
   shape of every class, not the first throw.
-  - **INV-seat-1** a leaf (posture L) never raises its world: after a read
-    whose row predicts no raise, the seat's world is unchanged.
+  - **INV-seat-1** (amended 2026-10-28, D-27 / F-leaf) a leaf's world is
+    its reads': a leaf (posture L) served the screen raises nothing; one
+    that read a born node or the hold's own staging (L2/L4, raise H) is in
+    the hold's world and its children are born held (#4166). The original
+    "a leaf never raises its world" was wrong — it could not express
+    `verdict-mount-render-effect-4166`. After a read whose row predicts no
+    raise, the seat's world is unchanged.
   - **INV-seat-2** posture is never inherited: recomputed from the node
     alone (`_config`, `_type`, the probe window) at seat open and close;
     the node's own transitions during a pass (`CONFIG_FRAME` set by a
     boundary's output, `CONFIG_VERDICT` set by a probe or cleared at the
     pass's end) are exempt.
   - **INV-seat-3** the shadow agrees: slot identity per read, world state
-    per read (non-L postures), lane seat and born-held per pass (rows B1,
-    B2). The open classes and their readings are the design doc's §6/§7.
+    per read (every posture, leaves included since the amendment), verdict
+    seat per read, lane seat and born-held per pass (rows B1, B2). Known
+    differences — today wrong by rule, filed — are allow-listed by shape
+    (`shadowKnown`, each entry naming its issue) and counted apart. The
+    open classes and their readings are the design doc's §6/§7.
 
 Rejected for assertion (state space too dynamic, would need semantic rulings):
 whether `_optimisticLane` must always resolve to a live lane (stale lanes are
