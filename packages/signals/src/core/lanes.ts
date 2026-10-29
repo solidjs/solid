@@ -59,7 +59,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { bornInto, creatorReads, ext, stagedRead, tracking } from "./core.js";
+import { creatorReads, ext, stagedRead } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
 import {
   handleAsync,
@@ -105,15 +105,29 @@ import {
   MARK_ENTERED,
   MARK_LANE_READ,
   MARK_LEAVE,
+  MARK_LINK,
   MARK_LST,
-  SLOT_C,
+  MARK_W,
+  RAISE_FL,
+  RAISE_H,
+  RAISE_HAT,
+  RAISE_LANE,
+  RAISE_VSEAT,
+  ROW,
   SLOT_DV,
+  SLOT_FOLD,
   SLOT_LV,
+  SLOT_NONE,
+  SLOT_NR,
+  SLOT_NR0,
   SLOT_P,
   SLOT_T,
-  installSeatLaneHints,
-  shadowMark,
-  shadowActual
+  bornInto,
+  dispNP,
+  laneNP,
+  carry,
+  setRow,
+  readerVhold
 } from "./seat.js";
 import type { Computed, Signal } from "./types.js";
 
@@ -167,6 +181,10 @@ export function pendingGuessOf(n: Signal<any> | Computed<any>): unknown {
  * foldable when a bundler splits lanes.ts from scheduler.ts into separate
  * chunks (a cross-chunk binding is not folded; the compiled live page). */
 let guessed = false;
+/** Shadow (seat-oracle.ts): the old `enterLane`'s read of `guessed`. */
+export function laneGuessed(): boolean {
+  return guessed;
+}
 /** Guesses another action's lane took over (#4336): the node, its guess,
  * the guess's lane, its question, the lane that took it. */
 const kept: any[] = [];
@@ -280,44 +298,6 @@ function applyGuesses(parent: Transaction | null): void {
   pendingGuesses.length = 0;
 }
 
-/** The running pass read lane `l`'s work as a derivation: it is `l`'s — or,
- * already another lane's, the frame it computes derives from both guesses
- * and cannot show one without the other (#3335, A15 for lanes): the two
- * lanes are linked — one reveal unit, each blocked while any is — while
- * their lifetimes stay their own (#2912: a guess reverts with its own
- * action, not with the one it shares a reader with). A nested lane reading
- * through an ancestor's guess stays its own (the screen plus its own
- * guesses). */
-export function enterLane(l: Transaction, c: Computed<any>): void {
-  if (__TEST__) shadowMark(c, MARK_LANE_READ);
-  const f = (c._flags |= REACTIVE_LANE_READ),
-    p = passLane;
-  if (p === null) {
-    const verdict = l._parent!._verdict === l;
-    // A verdict lane's value (a memo of `latest` / `isPending`, F-6) read by
-    // a derivation that already read the frame's staging or joined its
-    // hold, or by any pass a pass that did is creating: the verdict read
-    // does not break it out — it stays the frame's, as the same read inline
-    // does (verdict.ts `markVerdictReader`, `route`; D-25, D-26). An
-    // effect's own reads do not count (its `_type`, 1–3, carries neither bit).
-    if (!(verdict && creatorReads(c, (c as any)._type || f))) {
-      setPassLane(l);
-      // The pass read a held write before its first lane read (it joined the
-      // frame's future as mainline would): lane work sees the screen — the
-      // seam re-derives it on the committed world next round (`stagedReaders`,
-      // the park's repair), as it does a lane pass that read a staging. Not a
-      // pass whose held reads were all of nodes born held (no staged read,
-      // `stagedRead`): it has no committed world to re-derive on (#3969).
-      // (A pass not joined: a held write beside a guess, #4336; a leaf of a
-      // verdict lane — its plain reads are the screen's, D-26 `[s(), L()]`.)
-      if (f & REACTIVE_STAGED_READ && (guessed || verdict || f & REACTIVE_JOINED)) stagedRead(c);
-    }
-  } else if (sameLane(p, l)) setPassLane(l);
-  else if (!under(p, l)) {
-    if (!under(l, p)) linkLanes(p, l);
-    setPassLane(l);
-  }
-}
 /** Is `l` nested under `a` (an ancestor lane)? */
 function under(l: Transaction, a: Transaction): boolean {
   for (let t = l._parent; t !== null && t._lane; t = t._parent) if (t === a) return true;
@@ -659,120 +639,201 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
   else l._queues[0].length = l._queues[1].length = 0;
 }
 
-/** Lanes. A lane's node is read by its reader's kind: an authoritative
- * reader (`until`) sees the truth — staged beneath a guess, else committed
- * — and is no lane's; an untracked read sees the lane's latest value (A17:
- * "direct read shows optimistic"; A28); a children-forbidden reader sees
- * the frame (A32). A render effect in the frame's seat reading a lane the
- * seam found blocked, or a member whose own flight is up (held or not — the
- * lane-membership ruling, 2026-10-05), sees the screen, re-derived at the
- * reveal (#3460's stale reader) — or, the node a
- * flight that has never shown (nothing to show), waits on it: its own frame
- * holds (A15, #3334), not the lane's parent. Any other tracked reader is
- * the lane's work from this read — a derivation; a leaf reading a lane that
- * has shown, or one the seam has not judged yet (its run waits on the
- * verdict: released if the lane shows, held if it blocks) — and sees the
- * lane's latest. NOT_PENDING falls through: lane work's read of a pending
- * member throws like any. A verdict reader entering a lane the seam has
- * not judged reads ahead of it like a staging read: if the seam holds the
- * lane, the pass re-derives on the screen (`entered`, #4284) — `latest()`
- * beside the lane's nodes tears ahead of the hold however the reads are
- * grouped into effects. */
-export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): unknown {
-  const guess = el._config & CONFIG_GUESS;
+/**
+ * The lane rows of the reader seat (seat.ts `slot` dispatches a lane's node
+ * — CONFIG_OVERRIDE — here first): the slot the read is served and the
+ * mechanisms it fires, packed (slot | raise); or the raise alone (slot 0) when
+ * the lane has nothing to serve and the plain rows go on with these side
+ * effects carried — a derivation in flight throws there, a node with
+ * nothing in either view reads as any uninitialized node.
+ *
+ * A lane's node is read by its reader's kind. A folded lane's guess (D-34,
+ * store/optimistic.ts) read by a deriving pass outside every seat is the
+ * hold's world — the truth staged beneath, else what it covered — and the
+ * pass joins that hold (D4'); an authoritative reader (`until`) sees the
+ * truth and is no lane's (A1, D-31); an errored member's lane value
+ * predates its error: the error is the answer (#4106, the plain rows); no
+ * pass sees the lane's latest value (U3; A17 "direct read shows
+ * optimistic"); a children-forbidden reader, or an untracked read outside
+ * lane work, sees the screen (F1, D4''; A32); a render effect in the frame's
+ * seat reading a lane the seam found blocked, or a member whose own flight
+ * is up, sees the screen, re-derived at the reveal (L7, #3460's stale
+ * reader) — or waits on a flight that has never shown (nothing to show):
+ * its own frame holds (A15, #3334). Any other tracked reader is the lane's
+ * work from this read (D4, L6: it enters — `laneApply`); a verdict reader
+ * entering a lane the seam has not judged reads ahead of it like a staging
+ * read, re-derived on the screen if the seam holds the lane (`entered`,
+ * #4284). D-28 (#4275, #4284): a leaf seated as a hold's verdict reader
+ * leaves the seat on a flight never shown, or for a lane that is not that
+ * hold's, and reads from the frame's seat.
+ */
+export function laneSlot(
+  c: Computed<any> | null,
+  el: Signal<any> | Computed<any>,
+  tracked: boolean,
+  spectate: boolean
+): number {
+  const cfg = el._config;
+  const guess = (cfg & CONFIG_GUESS) !== 0;
   const l = txOf(el);
-  // A lane a correction folded under (D-34): store/optimistic.ts reads it.
-  // Before the authoritative arm: an `until` outside the lane reads the
-  // same truth there, and joins the hold it folded into — its posture over
-  // a foreign hold (D-31), which the truth read alone would not take.
-  const folded = c !== null && l.folded;
-  if (folded) {
-    const v = folded(c, el);
-    if (v !== NOT_PENDING) {
-      if (__TEST__) shadowActual(el._pendingValue !== NOT_PENDING ? SLOT_P : SLOT_C);
-      return v;
+  const cType = c !== null ? ((c as any)._type as number | undefined) : undefined;
+  // D-34: the hold's world for a deriving pass outside every seat — not the
+  // store's own derive, which is the author (`foldedRead`).
+  if (
+    c !== null &&
+    l.folded &&
+    guess &&
+    passLane === null &&
+    cType !== EFFECT_RENDER &&
+    !(c._config & CONFIG_CHILDREN_FORBIDDEN) &&
+    (el as any)._host?.fam?.node !== c
+  ) {
+    ROW && setRow("D4'");
+    carry(resolveTx(l._parent ?? l));
+    return SLOT_FOLD | RAISE_H | RAISE_HAT;
+  }
+  if (c !== null && c._config & CONFIG_AUTHORITATIVE) return (ROW && setRow("A1"), SLOT_T);
+  const st = (el as Computed<any>)._statusFlags ?? 0;
+  if (!guess && st & STATUS_ERROR) return 0;
+  const staged = el._pendingValue !== NOT_PENDING;
+  const uninit = (st & STATUS_UNINITIALIZED) !== 0;
+  if (c === null) return laneNP(el, guess, staged, uninit) ? 0 : (ROW && setRow("U3"), SLOT_LV);
+  const flying = !guess && (st & STATUS_PENDING) !== 0;
+  const vlane = l._parent!._verdict === l;
+  const row = ROW && (vlane ? "V6" : "");
+  const forbidden = (c._config & CONFIG_CHILDREN_FORBIDDEN) !== 0;
+  const nrLink = !tracked && !spectate && el !== c ? MARK_LINK : 0;
+  /** The lane has a value to serve (`laneValueOf`), and the member is not
+   * in flight (lane work's read of a pending member throws like any). */
+  const has = !flying && !laneNP(el, guess, staged, uninit);
+  let leave = 0;
+  let extra = 0;
+  let laneRow: string | 0 = row;
+  if (!tracked || forbidden) {
+    // Outside lane work, or the frame: the screen. Inside lane work an
+    // untracked read derives from the lane like a tracked one (`untrack` is
+    // about dependencies, not about which world a pass derives from).
+    if (passLane === null || forbidden) {
+      if (!dispNP(el, uninit)) return (ROW && setRow(row || (forbidden ? "F1" : "D4''")), SLOT_DV);
+      return 0;
     }
-  }
-  if (c !== null && c._config & CONFIG_AUTHORITATIVE) {
-    if (__TEST__) shadowActual(SLOT_T);
-    return GlobalQueue._truth!(el);
-  }
-  const status = (el as Computed<any>)._statusFlags;
-  // An errored member's lane value predates its error; the error is the answer (#4106).
-  if (!guess && status & STATUS_ERROR) return NOT_PENDING;
-  if (c === null) {
-    if (__TEST__) shadowActual(SLOT_LV);
-    return laneValueOf(el);
-  }
-  const pending = !guess && status & STATUS_PENDING;
-  if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) {
-    // An untracked read inside lane work derives from the lane like a
-    // tracked one, minus the subscription — `untrack` is about
-    // dependencies, not about which world a pass derives from (a mapper's
-    // row reads under its root, store/map): the pass enters the lane (two
-    // lanes read by one pass link, as for tracked reads). Outside lane
-    // work, the screen.
-    if (passLane === null || c._config & CONFIG_CHILDREN_FORBIDDEN) {
-      if (__TEST__) shadowActual(SLOT_DV);
-      return display(el);
-    }
-  } else if ((c as any)._type === EFFECT_RENDER) {
+    laneRow = ROW && (row || "D4");
+  } else if (cType === EFFECT_RENDER) {
     // A flight whose value has never shown: nothing to show — the leaf
     // waits on it, and its own frame holds (A15, #3334), not the lane's
-    // parent. The landing lands the frame: its own pass (the flush joined
-    // its transaction) reads the answer it waited on — the lane's staging,
-    // revealed at this seam.
-    const never = pending && el._x!._lane === NOT_PENDING;
-    // D-28: a leaf a verdict read moved into the lane still throws on such
-    // a flight — the pass leaves the lane, and its frame holds as if the
-    // read had come first (S-39, #4275). Nor does a verdict lane's seat carry
-    // the leaf into another lane (no link): it reads that lane as from the
-    // frame's seat (#4284).
-    if ((never || passLane !== l) && passLane?._parent!._verdict === passLane) {
-      if (__TEST__) shadowMark(c, MARK_LEAVE);
-      setPassLane(null);
-    }
-    if (passLane === null || !sameLane(passLane, l)) {
-      // (A lane that has never shown: the screen is the committed value.)
-      if (never && l._shown) return NOT_PENDING;
+    // parent.
+    const never = flying && el._x!._lane === NOT_PENDING;
+    // D-28: the leaf leaves the verdict seat before the read is decided —
+    // for such a flight, a lane that is not a hold's verdict lane, or
+    // another hold's (resolved: a lane whose parent merged into the seat's
+    // hold is that hold's, #4427).
+    const vhold = readerVhold();
+    if (vhold !== null && (never || !vlane || vhold !== resolveTx(l._parent!))) leave = MARK_LEAVE;
+    const pl = leave ? null : passLane;
+    if (pl === null || !sameLane(pl, l)) {
+      // (A lane that has never shown: the screen is the committed value —
+      // the throw is `read`'s.)
+      if (never && l._shown) {
+        ROW && setRow(row || "L7");
+        carry(null, l);
+        return SLOT_NR | leave | nrLink;
+      }
+      // L7' (D-2): a leaf the flush's hold holds reads a lane derivation's
+      // staging — the hold's own value.
       if (
         !guess &&
-        el._pendingValue !== NOT_PENDING &&
+        staged &&
         c._config & CONFIG_HELD &&
         flushTransaction !== null &&
         resolveTx(flushTransaction) === txOf(c)
-      ) {
-        if (__TEST__) shadowActual(SLOT_P);
-        return el._pendingValue;
+      )
+        return (ROW && setRow(row || "L7'"), SLOT_P | leave);
+      if (l._held || flying) {
+        // D-26 D-28: a stale reader of the lane — the display, re-derived at
+        // the reveal (once per pass); nothing on screen yet: NotReady
+        // (#4338 — only the reveal re-derives it, and its pending holds its
+        // frame until then).
+        ROW && setRow(row || "L7");
+        carry(null, l);
+        return (dispNP(el, uninit) ? SLOT_NR0 : SLOT_DV) | MARK_LST | leave;
       }
-      if (l._held || pending) {
-        // Re-derived at the reveal; once per pass (the pass may also be a stale
-        // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
-        // Before the throw below: a leaf that waits on a lane that has never
-        // shown has no flight to settle it — only the reveal re-derives it,
-        // and its pending holds its frame until then (#4338).
-        if (__TEST__) shadowMark(c, MARK_LST, l);
-        if (!(c._flags & REACTIVE_SCREEN_READ)) {
-          c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
-          l._reruns.push(c);
-        }
-        // Nothing on screen yet (uninitialized: `display` is NOT_PENDING).
-        const v = display(el);
-        if (v === NOT_PENDING) throw new NotReadyError(null);
-        if (__TEST__) shadowActual(SLOT_DV);
-        return v;
-      }
-      // A verdict reader reads ahead of the seam's verdict: re-derived on the
-      // screen if the lane holds (#4284).
-      if (c._config & CONFIG_VERDICT && l._parent!._verdict !== l) {
-        if (__TEST__) shadowMark(c, MARK_ENTERED);
-        entered.push(c);
-      }
+      // A verdict reader reads ahead of the seam's verdict (#4284).
+      if (c._config & CONFIG_VERDICT && !vlane) extra = MARK_ENTERED;
+      laneRow = ROW && (row || "L7");
+    } else laneRow = ROW && (row || "L6");
+  } else laneRow = ROW && (row || (flying ? "D4'''" : "D4"));
+  // Entering the lane (`laneApply`): the pass is the lane's — or, a verdict
+  // lane's, the hold's verdict reader (RAISE_VSEAT), unless its branch
+  // exists only in the future (`creatorReads`: a pass whose running
+  // creators, or itself when a memo, read the future or a staging — D-25,
+  // D-26, #4341: the verdict read does not break it out). The read is a
+  // lane read either way (REACTIVE_LANE_READ). A pass that read the
+  // frame's staging before its first lane read — a held write it joined, a
+  // staging beside a guess written this round, or a verdict lane's value —
+  // watches the seam from the lane's seat (`stagedRead`: lane work sees
+  // the screen, the park re-derives it; #3969, #4336).
+  let enter = MARK_LANE_READ | extra | leave;
+  const f = c._flags;
+  if (passLane === null || leave) {
+    if (!(vlane && creatorReads(c, cType || f))) {
+      enter |= vlane ? RAISE_VSEAT : RAISE_LANE;
+      if (f & REACTIVE_STAGED_READ && (guessed || vlane || f & REACTIVE_JOINED))
+        enter |= RAISE_FL | MARK_W;
+    }
+  } else enter |= vlane ? RAISE_VSEAT : RAISE_LANE;
+  carry(vlane ? l._parent : null, l);
+  if (has) return (ROW && setRow(laneRow || "L6"), SLOT_LV | enter);
+  // Nothing to serve from the lane: a flight is the lane's wait (NR —
+  // lane work throws on its own flights, D-37); else the plain rows go on.
+  ROW && setRow(laneRow);
+  if (flying) return SLOT_NR | enter | nrLink;
+  return SLOT_NONE | enter;
+}
+
+/** The lane engine's bits of a raise (seat.ts LANE_BITS), applied to the
+ * reader `c` (core.ts `applyMarks`): D-28's leave; the stale reader of the
+ * lane (`_reruns`, once per pass — the pass may also be a stale reader of a
+ * transaction, REACTIVE_FRAME_READ: both reruns apply); the verdict reader
+ * that entered before the seam (#4284); the lane read for `recompute`'s
+ * tail; the move into `lane` — the running pass is `lane`'s, or, already
+ * another lane's, the frame it computes derives from both guesses and
+ * cannot show one without the other (#3335, A15 for lanes): the two lanes
+ * are linked — one reveal unit, each blocked while any is — while their
+ * lifetimes stay their own (#2912: a guess reverts with its own action,
+ * not with the one it shares a reader with). A nested lane reading through
+ * an ancestor's guess stays its own (the screen plus its own guesses). */
+function laneApply(c: Computed<any>, r: number, lane: Transaction | null): void {
+  if (r & MARK_LEAVE) setPassLane(null);
+  if (r & MARK_LST && !(c._flags & REACTIVE_SCREEN_READ)) {
+    c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
+    lane!._reruns.push(c);
+  }
+  if (r & MARK_ENTERED) entered.push(c);
+  if (r & MARK_LANE_READ) c._flags |= REACTIVE_LANE_READ;
+  if (r & (RAISE_LANE | RAISE_VSEAT)) {
+    const p = passLane,
+      l = lane!;
+    if (p === null || sameLane(p, l)) setPassLane(l);
+    else if (!under(p, l)) {
+      if (!under(l, p)) linkLanes(p, l);
+      setPassLane(l);
     }
   }
-  enterLane(l, c);
-  if (__TEST__ && !pending) shadowActual(SLOT_LV);
-  return pending ? NOT_PENDING : laneValueOf(el);
+}
+
+/** The lane slots served (seat.ts): the lane's latest value (Lv), what the
+ * screen shows for the node (Dv), the truth (T, `until`), a folded lane's
+ * hold-world value (D-34). */
+export function laneServe(el: Signal<any> | Computed<any>, s: number): unknown {
+  switch (s) {
+    case SLOT_LV:
+      return laneValueOf(el);
+    case SLOT_DV:
+      return display(el);
+    case SLOT_T:
+      return GlobalQueue._truth!(el);
+  }
+  return txOf(el).folded!(null, el);
 }
 
 /** The value a guess covered: the node's committed value — a store slot's
@@ -1176,9 +1237,10 @@ const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => 
 };
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
-if (__TEST__) installSeatLaneHints(() => guessed);
 installLaneHooks(
-  laneRead,
+  laneSlot,
+  laneApply,
+  laneServe,
   laneStage,
   laneOutcome,
   laneWrite,

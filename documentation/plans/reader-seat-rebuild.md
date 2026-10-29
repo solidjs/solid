@@ -346,6 +346,51 @@ in brotli and minified bytes (`+ isPending/latest` 11,026 B brotli /
 `observe` differ from the base only in statement braces and import order
 left where `__TEST__` blocks were removed (the minifier erases both).
 
+### 4.4 Results (S1 M2 read-side swap, 2026-10-29)
+
+`slot()` is `read`'s decision: `read` (fast path and `readSlow`),
+`verdictValue` (`windowSlot`) and the lane dispatch (`laneSlot` through
+`laneReadHook`) serve the table's slot and fire the mechanisms its raise
+names (`applyMarks` in core.ts; `laneApply` / `verdictApply` for the
+engines' bits). The old deciders are the shadow's oracle now
+(`seat-oracle.ts`, `__TEST__` only — a pure port of `read`'s old slow
+block, `frameRead`, `readerSeesCommitted`, `serve`, `throwShown`,
+`laneRead`, `enterLane`, `verdictRead`, `watchVerdict`,
+`provisionalVerdict`, `pendingVerdict`, `observeFlight`), compared slot
+by slot and mark by mark on every read, the fast path included
+(`shadowFast`). Same runs as §4.3:
+
+| run                                     |     reads |    passes | classes | known                          |
+| --------------------------------------- | --------: | --------: | ------: | ------------------------------ |
+| signals suite (393 files, green)        |   965,381 |   242,299 |       0 | —                              |
+| solid suite (54 files, green)           |     2,388 |     1,546 |       0 | —                              |
+| web suite (188 files, green)            |    43,723 |    24,257 |       0 | —                              |
+| generator 2,000 × seed 7, every pair    |   856,775 |   856,072 |       0 | #4428 ×11                      |
+| generator 2,000 × seed 3289, every pair | 1,066,114 |   965,593 |       0 | #4428 ×11, #4426 ×10, #4427 ×9 |
+| generator 2,000 × seed 91501            | 8,800,109 | 5,351,433 |       0 | #4428 ×9                       |
+
+`ASYNC_GEN_DIFF` against the `next` recording: zero screen differences on
+all three seeds; the equivalence-survey findings are line-identical to
+M1's.
+
+Bytes (`scripts/size`, prod build, against `next` @ 5e68925cc): the
+engine-less floors are **+570 B minified / +331 B brotli** (core floor
+20,478 / 7,746 B), `+ isPending/latest` +1,977 / +987 B, the live pages
++2.2–2.5 KB minified; frames and server scenarios unchanged. The packed
+result carries the slot in its low five bits so a row with no raise is a
+literal and the row ids (`ROW && setRow(…)`) fold out; the verdict rows
+and the lane-seat state are gated on `verdictApplyHook` / `laneReadHook`
+and fold out of a build without those engines (checked in the minified
+core-floor bundle: no verdict or seat arm survives). What remains on the
+floors is the table's explicit case analysis against the old inline
+deciders (U/F/L/D rows, the held rows, the error block) plus the
+slot-then-serve split; the lane/verdict scenarios also carry the new
+`laneSlot` beside the mechanisms M3 deletes (`markVerdictReader`,
+`provisionalVerdict`'s seating, `route`, the verdict-lane node set,
+`holdWork`). The gate's clause (c) — no growth on any floor — is M5's;
+the pass-side swap (M3) and the deletions are the lever, and the floors
+are re-measured there.
+
 ## 5. Swap plan
 
 Three to five PRs, serial, each in its own worktree (brief §4 item 4):
@@ -574,6 +619,36 @@ lazy `mapArray` under the component's owner) is the F-mount reading-A
 difference by definition; the shadow compares the owner's flag only when
 the owner is the running pass, and the born-held decision at the close
 still compares for every pass (zero classes besides #4428 above).
+
+### 6.2 S1 M2 read-side swap (2026-10-29) — rows made exact against the deciders
+
+Making the table the implementation surfaced the arms where a prediction
+had been looser than the mechanism; each was settled by the differential
+(table vs oracle), not by inspection:
+
+- **L7 · D-26/D-28** — a flight never shown (`never && l._shown`, NR to
+  the leaf) is not a stale reader of the lane: no LST. Today's `laneRead`
+  throws before `frameRead`'s mark.
+- **V3 · D-22** — the seam watch (W) on a verdict reader's staging read is
+  only for an effect, lane work, or a `latest()`-only hold; a memo's V3
+  has Fl alone (today `stagedRead`'s `isEffect` test).
+- **V4 · D-23** — the ST/AH/JF0/OBS marks fire only in a flush
+  (`globalQueue._running`); outside one the screen is served plainly.
+- **D6 (leaf in seat) · D-37** — lane work that is a leaf reading a hold's
+  node that is not its own and not born into: the screen with ST and
+  SERVED (today's `read` L2 block before the leaf arm).
+- **D2 · D-1** — the join of a staged, not pending held node raises H and
+  Fl both (`stagedRead` after `joinPass`); the staged-error arm raises H
+  only (the error is thrown).
+- **Vl5 (lane arm of `latest`)** — `flying` is `pending && !quietPending`:
+  a quiet pending (a hold waiting on the node's fetch, D-25) is served the
+  lane value, not NR.
+- **Lane node excluded from the hold rows** — a lane's node
+  (CONFIG_OVERRIDE) beneath a hold is the lane's; `held` is HELD without
+  OVERRIDE, as `read`'s L2 block had it.
+- **Vl4 (#4429)** — the known entry is generalized: `when` no longer tests
+  JOINED, so the world of a `latest()` under a joined pass is compared by
+  the oracle's reading.
 
 ## 7. Blocked / two readings
 

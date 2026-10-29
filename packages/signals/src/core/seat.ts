@@ -1,15 +1,25 @@
 /**
  * The reader seat — the one answer to "which world does this read see".
  *
- * SHADOW (S0, `documentation/plans/reader-seat-rebuild.md`): every function
- * here is reachable only under `__TEST__`. It runs BESIDE the deciders it is
- * built to replace (`frameRead`, `bornInto`, `joinPass`, `stagedScreen`,
- * `stagedRead`, `readerSeesCommitted`, `read`/`serve`'s hold arms,
- * `recompute`'s head seating, `route`, `verdictValue`'s arms, `laneRead`'s
- * arms) and asserts agreement — slot identity, not value equality. Nothing
- * here has a side effect on a node: the seat is module state, and the raise
- * a row predicts is applied to this module's seat only, so the shadow is an
- * independent implementation of the table and the comparison is honest.
+ * `slot()` is the decision `read` makes (S1, `documentation/plans/
+ * reader-seat-rebuild.md`): posture × node-state bits → a row of the table,
+ * which names the slot the read is served from and the mechanisms the read
+ * fires (the raise bits). The table decides; `read` (core.ts `applyMarks`,
+ * `serveSlot`) applies. The rows for a lane's node live with the lane
+ * engine (lanes.ts `laneSlot`, reached through `laneReadHook`) and the
+ * rows inside a verdict window with the verdict engine (verdict.ts
+ * `windowSlot`): a build without them retains neither.
+ *
+ * The SEAT this pass reads from is, at S1 M2, a view over the pass state
+ * the old deciders kept (`passLane`, the pass's JOINED / STAGED_READ flags,
+ * `bornInto`); M3 moves it to the module state `openSeat`/`closeSeat`
+ * maintain, which the shadow below already keeps beside it.
+ *
+ * SHADOW (`__TEST__` only): the seat stack, the born-held decision, and
+ * `seat-oracle.ts` — the old deciders ported as a pure function — run
+ * beside the table and assert agreement, read by read: the slot, the raise
+ * bits, the holds they name; then the world and the lane seat the pass is
+ * left in.
  *
  * Vocabulary (the task brief / `reader-seat-brief.md` §4):
  *
@@ -38,7 +48,8 @@
  *
  * Slots: C `_value` · P `_pendingValue` · Lv the lane's value
  * (`laneValueOf`) · Dv the lane's display (`display`) · T the truth · NR
- * throws NotReady · E throws an error.
+ * throws NotReady · E throws an error. Serving variants of a slot (which
+ * error, which store of the staging) are the SLOT_* constants below.
  *
  * Rows are named as in the brief's table (`U1`…`B2`); a primed row (`D2'`)
  * is a state the table did not spell out, resolved here from the rule the
@@ -69,16 +80,18 @@ import {
   clock,
   flushTransaction,
   globalQueue,
-  GlobalQueue,
+  laneReadHook,
   latestOpened,
   passLane,
   passTx,
   resolveTx,
   sameLane,
   txOf,
+  verdictApplyHook,
   type Transaction
 } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
+import { oldSlot } from "./seat-oracle.js";
 
 type AnyNode = Signal<any> | Computed<any>;
 
@@ -104,73 +117,125 @@ export const SLOT_P = 2;
 export const SLOT_LV = 3;
 export const SLOT_DV = 4;
 export const SLOT_T = 5;
+/** NotReady — the node's own (`_x._error`, naming it as the source). */
 export const SLOT_NR = 6;
+/** The derivation's error (`_x._error`). */
 export const SLOT_E = 7;
 /** A read served from a hydration snapshot — outside the table. */
 export const SLOT_SNAPSHOT = 8;
-const SLOT_NAMES = ["none", "C", "P", "Lv", "Dv", "T", "NR", "E", "snapshot"];
+/** E: the staged error (`_pendingValue`, D-41 `stageError`). */
+export const SLOT_ESTAGED = 9;
+/** E: the error still shown on screen (`_x._shownError`, D-41). */
+export const SLOT_ESHOWN = 10;
+/** NR with no source (`new NotReadyError(null)`): a node born staged read
+ * by no pass (A19 exc. 1), a lane with nothing shown yet. */
+export const SLOT_NR0 = 11;
+/** P/C of a folded lane's guess: the hold's world beneath it
+ * (store/optimistic.ts `foldedRead(null, el)`). */
+export const SLOT_FOLD = 12;
+/** P: a held node's flushed stash — the staging the last flush left,
+ * rewritten since (A28 `unflushedValue`). */
+export const SLOT_STASH = 13;
+/** D-41 (#2897): an errored derivation's retry — re-run it and read again. */
+export const SLOT_RETRY = 14;
+const SLOT_NAMES = [
+  "none",
+  "C",
+  "P",
+  "Lv",
+  "Dv",
+  "T",
+  "NR",
+  "E",
+  "snapshot",
+  "E",
+  "E",
+  "NR",
+  "fold",
+  "P",
+  "retry"
+];
 
-/** Side effects a row predicts, as a bit set. */
-export const RAISE_FL = 1;
-export const RAISE_H = 2;
-export const RAISE_LANE = 4;
+/** A packed result: the slot in the low bits, the raise above it (a row
+ * with no raise is its slot — a literal in the build). */
+export const SLOT_BITS = 5;
+export const SLOT_MASK = (1 << SLOT_BITS) - 1;
+export const RAISE_MASK = ~SLOT_MASK;
+
+/** The windows open around a read, as bits: `isPending` (a probe) and
+ * `latest`. Either alone, or one inside the other: `latest` decides the
+ * value (posture Vl), the probe still records its verdict. */
+export const WINDOW_PROBE = 1;
+export const WINDOW_LATEST = 2;
+
+/** Side effects a row predicts, as a bit set (the raise). */
+export const RAISE_FL = 1 << SLOT_BITS;
+export const RAISE_H = 2 << SLOT_BITS;
+export const RAISE_LANE = 4 << SLOT_BITS;
 /** Stale reader of a hold: re-derived at its landing (`staleReader`). */
-export const MARK_ST = 8;
+export const MARK_ST = 8 << SLOT_BITS;
 /** Watches the seam (`stagedReaders`). */
-export const MARK_W = 16;
-/** Display-ahead: the pass is the hold's verdict lane's. */
-export const MARK_AH = 32;
+export const MARK_W = 16 << SLOT_BITS;
+/** Display-ahead: the pass is the hold's verdict lane's (`route`). */
+export const MARK_AH = 32 << SLOT_BITS;
 /** The tick joins the hold (`joinPassTx`) without the reader's world moving
- * — a leaf reading a born-held derivation (D-4, L4). */
-export const MARK_TICK = 64;
-/** A leaf's first pass read the hold's staging: born held (B2's leaf clause). */
-export const MARK_HOLD = 128;
+ * — a leaf reading a born-held derivation (D-4, L4). Shadow seat only. */
+export const MARK_TICK = 64 << SLOT_BITS;
+/** A leaf's first pass read the hold's staging: born held (B2's leaf
+ * clause). Shadow seat only. */
+export const MARK_HOLD = 128 << SLOT_BITS;
 /** A leaf read a staging of this flush (L1): under a display-ahead mount
- * its first pass is born held (D-27, #4166 — B2's leaf clause, §6). */
-export const MARK_SR = 256;
-/** The pass enters the hold's verdict seat unconditionally (today
- * `enterLane` on a verdict lane's node — `route`'s "unless already seated"
- * test does not apply). */
-export const RAISE_VSEAT = 512;
+ * its first pass is born held (D-27, #4166 — B2's leaf clause, §6).
+ * Shadow seat only. */
+export const MARK_SR = 256 << SLOT_BITS;
+/** The pass enters the hold's verdict seat (a verdict lane's node read as
+ * lane work: `enterLane` on the verdict lane). */
+export const RAISE_VSEAT = 512 << SLOT_BITS;
 /** D-28 (#4275, #4284): a leaf seated as a hold's verdict reader reading a
  * lane that is not that hold's, or a flight never shown, leaves the verdict
  * seat first and reads from the frame's. */
-export const MARK_LEAVE = 1024;
+export const MARK_LEAVE = 1024 << SLOT_BITS;
 /** A15: lane work or a verdict reader served a held flight's committed value
  * no longer waits on that flight (`laneServed`). */
-export const MARK_SERVED = 1 << 11;
+export const MARK_SERVED = 1 << (11 + SLOT_BITS);
 /** A stale reader of a LANE (L7): re-derived at its reveal (`_reruns` of
  * the lane, once per pass — REACTIVE_SCREEN_READ). */
-export const MARK_LST = 1 << 12;
+export const MARK_LST = 1 << (12 + SLOT_BITS);
 /** The pass read a lane's node as lane work or a verdict reader
  * (REACTIVE_LANE_READ, for `recompute`'s tail). */
-export const MARK_LANE_READ = 1 << 13;
+export const MARK_LANE_READ = 1 << (13 + SLOT_BITS);
 /** A verdict reader entered a lane the seam has not judged (#4284,
  * `entered`): re-derived on the screen if the seam holds the lane. */
-export const MARK_ENTERED = 1 << 14;
+export const MARK_ENTERED = 1 << (14 + SLOT_BITS);
 /** A verdict reader observed a flight nobody holds (A15, #3458): the flight
  * is queued for the seam as if it had gone pending here. */
-export const MARK_OBS = 1 << 15;
+export const MARK_OBS = 1 << (15 + SLOT_BITS);
 /** The flush's transaction opens if none has (`joinFuture(null)`). */
-export const MARK_JF0 = 1 << 16;
+export const MARK_JF0 = 1 << (16 + SLOT_BITS);
 /** An action body's untracked `latest()` of another hold's proposal: the
  * two settle as one (`joinFuture(txOf(el))`, posture C). */
-export const MARK_JFT = 1 << 17;
+export const MARK_JFT = 1 << (17 + SLOT_BITS);
 /** A28: served the committed value over an unflushed write — the pass runs
  * again in the flush that carries it (`markLateLinker`). */
-export const MARK_LATE = 1 << 18;
+export const MARK_LATE = 1 << (18 + SLOT_BITS);
 /** An untracked owned read that throws NotReady still links, so the reader
  * re-runs when the node settles (#3528's exceptions aside). */
-export const MARK_LINK = 1 << 19;
+export const MARK_LINK = 1 << (19 + SLOT_BITS);
 /** The seam's verdict is this probe's own (REACTIVE_PROBE_UNANSWERED): a
  * later plain read must not answer for it. */
-export const MARK_UNANS = 1 << 20;
+export const MARK_UNANS = 1 << (20 + SLOT_BITS);
 /** `isPending`'s verdict read: re-derived at the hold's landing
  * (`_reruns`, deduplicated against the last entry). */
-export const MARK_PR = 1 << 21;
+export const MARK_PR = 1 << (21 + SLOT_BITS);
 /** The join names a hold other than the node's own (`joinPassAt`: a folded
  * guess joins its lane's parent, D-34). */
-export const RAISE_HAT = 1 << 22;
+export const RAISE_HAT = 1 << (22 + SLOT_BITS);
+/** The bits the lane engine applies (lanes.ts `laneApply`). */
+export const LANE_BITS =
+  RAISE_LANE | RAISE_VSEAT | MARK_LEAVE | MARK_LST | MARK_LANE_READ | MARK_ENTERED;
+/** The bits the verdict engine applies (verdict.ts `verdictApply`). */
+export const VERDICT_BITS = MARK_AH | MARK_PR | MARK_OBS | MARK_JF0 | MARK_JFT;
+
 const RAISE_NAMES: Array<[number, string]> = [
   [RAISE_FL, "Fl"],
   [RAISE_H, "H"],
@@ -201,10 +266,9 @@ function raiseNames(r: number): string {
   for (const [bit, name] of RAISE_NAMES) if (r & bit) out.push(name);
   return out.length ? out.join("+") : "none";
 }
-/** The bits the shadow compares against the mechanisms the old deciders
- * fire (`shadowMark`): everything but the shadow seat's own bookkeeping
- * (tick/hold/sr) and the lane seat moves, compared as the seat after the
- * read. */
+/** The bits the shadow compares against the oracle: everything but the
+ * shadow seat's own bookkeeping (tick/hold/sr) and the lane seat moves,
+ * compared as the seat after the read. */
 const COMPARED =
   RAISE_FL |
   RAISE_H |
@@ -225,6 +289,403 @@ const COMPARED =
   MARK_LINK |
   MARK_UNANS;
 
+// ─── The packed result ─────────────────────────────────────────────────────
+
+/** The row ids are the shadow's vocabulary: folded out of a build
+ * without it (`ROW && setRow("D2")`). */
+export const ROW: 0 | 1 = __TEST__ ? 1 : 0;
+
+/** The hold the side effects of the last `slot()` name (ST(t), AH(t), the
+ * join of a folded guess), and the lane a RAISE_LANE moves the pass into.
+ * Module state beside the packed result: no allocation per read. */
+export let seatTx: Transaction | null = null;
+export let seatLane: Transaction | null = null;
+/** The row of the last `slot()` (shadow). */
+export let seatRow: string | 0 = 0;
+
+/** The row a result comes from (shadow): `ROW && setRow("D2")` folds out of
+ * a build without the shadow. */
+export function setRow(row: string | 0): void {
+  seatRow = row;
+}
+/** The hold (and lane) a row's side effects name — set by the rows that
+ * carry one; cleared when a decision starts (`slot`, `windowSlot`). */
+export function carry(tx: Transaction | null, lane: Transaction | null = null): void {
+  seatTx = tx;
+  seatLane = lane;
+}
+
+// ─── The seat (S1 M2: a view over the pass state the old deciders keep) ───
+
+/** A node born into transaction `t`: held by it and never committed (A29,
+ * ruling A) — uninitialized (born held), or a member of the frame one of its
+ * held passes built (CONFIG_HELD_FRAME). Its branch exists only in `t`: it
+ * has no screen to read, so it reads `t`'s values, whichever flush runs it,
+ * and keeps staging (#4010). */
+export function bornInto(c: Computed<any>, t: Transaction): unknown {
+  return (
+    (c._statusFlags & STATUS_UNINITIALIZED || c._config & CONFIG_HELD_FRAME) &&
+    c._config & CONFIG_HELD &&
+    txOf(c) === t
+  );
+}
+
+/** The lane a pass is seated in, as the old code spells it: a verdict lane
+ * is a seating of posture V, not a lane (verdicts have no node set). */
+export function laneOf(t: Transaction | null): Transaction | null {
+  return t !== null && t._parent?._verdict === t ? null : t;
+}
+/** The hold whose verdict reader the running pass sits as. */
+export function readerVhold(): Transaction | null {
+  return passLane !== null && laneOf(passLane) === null ? resolveTx(passLane._parent!) : null;
+}
+
+/** The posture of a node from the node alone (INV-seat-2). `window`: the
+ * WINDOW_* bits open (WINDOW_LATEST wins — `latest` inside `isPending` is
+ * `latest`'s value). */
+export function postureOf(c: Computed<any> | null, window: number): number {
+  if (c === null) return window ? (window & WINDOW_LATEST ? POSTURE_VL : POSTURE_VP) : POSTURE_U;
+  if (c._config & CONFIG_CHILDREN_FORBIDDEN) return POSTURE_F;
+  if (c._config & CONFIG_AUTHORITATIVE) return POSTURE_A;
+  if (window) return window & WINDOW_LATEST ? POSTURE_VL : POSTURE_VP;
+  // A pass that asked (`latest`/`isPending`) is a verdict reader from the
+  // window on, and stays one on every re-run until a pass asks nothing
+  // (D-25 "a verdict posture outlives the pass that asked"): the sticky
+  // CONFIG_VERDICT, set at the window (`markVerdictReader`). (A verdict
+  // reader exists only with the verdict engine installed: a build without
+  // it folds the V rows away.)
+  if (verdictApplyHook !== null && c._config & CONFIG_VERDICT) return POSTURE_V;
+  if ((c as any)._type === EFFECT_RENDER || c._config & CONFIG_FRAME) return POSTURE_L;
+  return POSTURE_D;
+}
+
+/** A28 — a write not yet flushed: the committed value is what the pass
+ * sees, re-run in the flush that carries the write. (A held node rewritten
+ * between flushes keeps its flushed stash — `stash`.) */
+function unflushed(el: AnyNode): boolean {
+  return (
+    !globalQueue._running && el._pendingValue !== NOT_PENDING && !(el._config & CONFIG_PROMOTED)
+  );
+}
+
+/** `laneValueOf(el) === NOT_PENDING`: a lane node with nothing in either
+ * view (born in the lane, uninitialized, nothing produced). */
+export function laneNP(el: AnyNode, guess: boolean, staged: boolean, uninit: boolean): boolean {
+  if (!guess && staged) return false;
+  return el._x!._lane === NOT_PENDING && uninit;
+}
+/** `display(el) === NOT_PENDING`: nothing on screen for a lane node. */
+export function dispNP(el: AnyNode, uninit: boolean): boolean {
+  const l = el._x!;
+  return !(l._transaction!._shown && l._lane !== NOT_PENDING) && uninit;
+}
+
+// ─── The slot table (plain rows: U, F, A, L, D, V) ─────────────────────────
+
+/**
+ * The slot a plain read of `el` by `c` is served from, with the mechanisms
+ * the row fires — `read`'s decision. Pure: nothing on `c` or `el` is
+ * touched; `read` applies the raise (core.ts `applyMarks`) and serves the
+ * slot (`serveSlot`). A lane's node dispatches to the lane rows first
+ * (lanes.ts `laneSlot` through `laneReadHook`); a verdict window's read
+ * never arrives here (verdict.ts `windowSlot`).
+ *
+ * @param c the reader (null: no pass)
+ * @param el the node read
+ * @param tracked the read is a tracked dependency read (`tracking`)
+ * @param spectate a bookkeeping read (`spectating`)
+ */
+export function slot(
+  c: Computed<any> | null,
+  el: AnyNode,
+  tracked: boolean,
+  spectate: boolean
+): number {
+  // Lane node (CONFIG_OVERRIDE, the lane engine's): the lane rows. Nothing
+  // to serve from the lane (a node with nothing in either view): the plain
+  // rows go on with the lane's side effects carried — the pass entered.
+  seatTx = seatLane = null;
+  if (__TEST__) seatRow = 0;
+  if (laneReadHook !== null && el._config & CONFIG_OVERRIDE) {
+    const r = laneReadHook(c, el, tracked, spectate);
+    if (r & SLOT_MASK) return r;
+    if (r !== 0) {
+      const row = seatRow;
+      const p = plainRows(c, el, tracked, spectate);
+      if (__TEST__) seatRow = `${row}→${seatRow}`;
+      return p | r;
+    }
+  }
+  return plainRows(c, el, tracked, spectate);
+}
+
+/** The plain rows (U, F, L, D, V; A as D) — every node but a lane's with a
+ * value to serve. */
+function plainRows(
+  c: Computed<any> | null,
+  el: AnyNode,
+  tracked: boolean,
+  spectate: boolean
+): number {
+  const cfg = el._config;
+  const posture = postureOf(c, 0);
+  const st = ((el as Computed<any>)._statusFlags as number | undefined) ?? 0;
+  const isFn = typeof (el as Computed<any>)._fn === "function";
+  const staged = el._pendingValue !== NOT_PENDING;
+  /** (A lane's node — a derivation the lane holds beneath a hold — is the
+   * lane's: the hold rows are not its; `read`'s L2 block excluded it.) */
+  const held = (cfg & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD;
+  const uninit = (st & STATUS_UNINITIALIZED) !== 0;
+  const pending = (st & STATUS_PENDING) !== 0;
+  const errored = isFn && (st & STATUS_ERROR) !== 0;
+  const stagedError = (cfg & CONFIG_STAGED_ERROR) !== 0;
+  /** The staging as a slot: its value, or the error it stages (D-41). */
+  const stagedSlot = stagedError ? SLOT_ESTAGED : SLOT_P;
+  /** The screen as a slot: the committed value, or the error still shown
+   * there — a write or retry has not yet replaced it (D-41 `throwShown`,
+   * #4110). */
+  const screen = isFn && el._x?._shownError ? SLOT_ESHOWN : SLOT_C;
+  /** f0: a flight with no value yet. */
+  const firstFlight = pending && uninit;
+  /** The pass is lane work, or a hold's verdict reader (`passLane` — the
+   * lane engine's: without it no pass is seated, and the rows fold). */
+  const inSeat = laneReadHook !== null && passLane !== null;
+  const lane = inSeat ? laneOf(passLane) : null;
+  const inLane = lane !== null;
+  /** (The reader's own state matters to the seat and verdict rows alone.) */
+  const cUninit =
+    (inSeat || verdictApplyHook !== null) &&
+    c !== null &&
+    (c._statusFlags & STATUS_UNINITIALIZED) !== 0;
+  /** D-41 (#2897): an errored derivation's retry — a tracked re-read on a
+   * later cycle than the one that found the error re-runs it and reads
+   * again. */
+  const retry = errored && tracked && c !== null && (el as Computed<any>)._time < clock;
+  /** A pending read thrown to an owned untracked reader still links it
+   * (`read`'s throw arm; not `spectate`, not the node itself). */
+  const nrLink = c !== null && !tracked && !spectate && el !== c ? MARK_LINK : 0;
+  /** A28: a held node rewritten outside a flush serves the staging the
+   * last flush left (`_flushed`) until the flush that carries the
+   * rewrite. */
+  const stash = held && unflushed(el) && el._x!._flushedAt === clock;
+  /** A28: served the committed value — or the stash — over a write not yet
+   * flushed: a late-linker re-run (`markLateLinker`). */
+  const late = c !== null && (held ? stash : unflushed(el)) ? MARK_LATE : 0;
+
+  // ── U: no pass ──────────────────────────────────────────────────────────
+  if (posture === POSTURE_U) {
+    if (firstFlight) return (ROW && setRow("U2"), SLOT_NR); // F-9: no value yet
+    // D-41: an errored derivation, or a shown error a write/retry has not
+    // yet replaced on the screen (`_shownError`), is the screen's answer.
+    if (errored) return (ROW && setRow("U4"), SLOT_E);
+    if (screen !== SLOT_C) return (ROW && setRow("U4"), screen);
+    if (uninit && staged) return (ROW && setRow("U2"), SLOT_NR0); // D-24: born held, no screen
+    return (ROW && setRow("U1"), SLOT_C); // D-29 D-34 F-10 (s unflushed: C)
+  }
+
+  // ── F: children-forbidden (the frame; A32) ─────────────────────────────
+  if (posture === POSTURE_F) {
+    ROW && setRow("F1");
+    if (retry) return SLOT_RETRY;
+    if (errored) return SLOT_E | (stagedError && !uninit ? late : 0);
+    // (A first flight is `read`'s throw — it links; a node born staged has
+    // nothing for the frame, A19 exc. 1 — no source.)
+    if (firstFlight) return SLOT_NR | nrLink;
+    if (uninit && staged) return SLOT_NR0;
+    // D-29: the committed value (lane work's frame reader over a flight:
+    // the screen, `throwShown`); over an unflushed write, the late re-run
+    // (a held node's: its stash).
+    if (pending && inSeat && !cUninit) return screen;
+    if (stash) return SLOT_STASH | late;
+    return SLOT_C | (staged ? late : 0);
+  }
+
+  // ── Common arms for L / D / V / A-as-D ─────────────────────────────────
+  // (An authoritative reader of a lane's node took the lane rows — `until`
+  // sees the truth, D-31; of any other node it reads as a derivation.)
+  const leaf = posture === POSTURE_L;
+  // (A truth reader that is also a verdict reader — F-6's flag copy, a
+  // window of its own — reads a hold's node as a verdict reader does:
+  // `truthRead` is for lane nodes only.)
+  const verdictReader =
+    verdictApplyHook !== null &&
+    (posture === POSTURE_V || (posture === POSTURE_A && (c!._config & CONFIG_VERDICT) !== 0));
+  const rowBase = ROW && (posture === POSTURE_A ? "A1/" : "");
+  /** A verdict reader that is an effect (its pass re-derives once as a
+   * verdict reader if the flush parks, D-22). */
+  const vEffect = verdictReader && !!(c as any)._type;
+  /** A staging served to the pass (`stagedRead`): the pass derives from
+   * this flush (Fl) — and watches the seam when it is lane work, a hold's
+   * verdict reader, or a verdict reader that is a leaf (an effect). Not a
+   * node born staged (#3969: no screen to re-derive on). Over a write not
+   * yet flushed, the committed value (or the stash) and a late re-run
+   * instead (A28). */
+  const stagedServe = late ? MARK_LATE : uninit ? 0 : RAISE_FL | (inSeat || vEffect ? MARK_W : 0);
+  const latestOnly =
+    verdictApplyHook !== null &&
+    flushTransaction !== null &&
+    flushTransaction === latestOpened &&
+    !inSeat &&
+    !cUninit;
+  /** `stagedScreen`: a verdict reader's — or lane work's — plain read of a
+   * staging is the screen's once the frame has a hold, unless born into it
+   * — a stale reader of the hold. A hold a `latest()` alone opened holds
+   * nothing: the reader watches the seam (W) and is served the staging. */
+  const stagedScreen =
+    (verdictReader || inLane) &&
+    flushTransaction !== null &&
+    !(c !== null && bornInto(c, flushTransaction));
+  /** A verdict reader's staging read (`serve`'s verdict arm, then
+   * `stagedRead`): the screen and ST, or — under `latest()`'s hold alone,
+   * or with no hold — the staging, Fl, and W (for a `latest()`-only hold
+   * the seam watch comes from `stagedScreen` whoever the reader is). */
+  const verdictStaged = (slotOf: number): number => {
+    if (stagedScreen && !latestOnly) {
+      ROW && setRow("V2");
+      seatTx = flushTransaction;
+      return screen | MARK_ST;
+    }
+    ROW && setRow("V3");
+    return slotOf | RAISE_FL | (latestOnly || inSeat || vEffect ? MARK_W : 0);
+  };
+
+  // Error (D-41 #2897): the error — the retry re-reads. The hold arms run
+  // first (`read`'s L2 block): a derivation of a held errored node joins
+  // before it throws. A staged error replacing the shown one
+  // (`stageError`) is served as the staging would be: a reader served the
+  // screen throws the shown error, one served the staging throws the
+  // staged one and stages its own with it (Fl).
+  if (errored) {
+    let r = held ? heldRow(true) : SLOT_E;
+    let s = retry ? SLOT_RETRY : SLOT_E;
+    r &= ~(MARK_LINK | SLOT_MASK); // (the error is thrown, not NotReady)
+    if (!retry && stagedError && !(r & MARK_ST)) {
+      if (verdictReader && c!._config & CONFIG_VERDICT && !uninit && !late) {
+        const v = verdictStaged(SLOT_ESTAGED);
+        r |= v & RAISE_MASK;
+        if ((v & SLOT_MASK) === SLOT_ESTAGED) s = SLOT_ESTAGED;
+      } else {
+        r |= stagedServe;
+        if (!late && !uninit) s = SLOT_ESTAGED;
+      }
+    }
+    ROW && setRow(leaf ? "L8" : rowBase + "D5");
+    return r | s;
+  }
+
+  // Held node.
+  if (held) return heldRow(false);
+
+  /** The held rows. `err`: the node is errored — the slot is the error's
+   * (the caller's), the marks the row's. */
+  function heldRow(err: boolean): number {
+    const t = txOf(el);
+    seatTx = t;
+    const own = t === flushTransaction || bornInto(c!, t);
+    /** A row that joins and is served the staging (or NR in flight). */
+    const join = (extra = 0): number =>
+      pending
+        ? SLOT_NR | RAISE_H | extra | nrLink
+        : (staged ? (stash ? SLOT_STASH : stagedSlot) : SLOT_C) |
+          RAISE_H |
+          extra |
+          (staged && !err ? stagedServe : 0);
+    const stale = (served: boolean): number => screen | MARK_ST | (served ? MARK_SERVED : 0);
+    if (leaf) {
+      // L4 (D-9 D-2 D-27): inputs published, or born — the leaf has no
+      // screen to fall back to; it joins the hold (D-4): its world is the
+      // hold's and its children inherit it (INV-seat-1 as amended).
+      // (A staged error throws, D-41 — the 50k differential's L4 finding.)
+      if (uninit) return (ROW && setRow("L4"), join(MARK_TICK));
+      if (cfg & CONFIG_INPUTS_PUBLISHED) return (ROW && setRow("L4"), join());
+      if (bornInto(c!, t)) return (ROW && setRow("L2"), join()); // D-2
+      if (inSeat) return (ROW && setRow("D6"), stale(true)); // lane work: the screen (D-37)
+      if (own) return (ROW && setRow("L2"), join()); // D-3 D-2
+      return (ROW && setRow("L3"), stale(false)); // D-3 D-9 D-26
+    }
+    if (verdictReader) {
+      // V1 (D-23 A10 [R7]): a verdict reader is a frame reader — the
+      // screen, re-derived at the landing — unless born into t.
+      if (bornInto(c!, t)) return (ROW && setRow("V1'"), join());
+      if (uninit) return (ROW && setRow("V1''"), join()); // no screen to serve
+      return (ROW && setRow("V1"), stale(true));
+    }
+    if (inSeat) {
+      // D6 (D-37): lane work reading a hold's node — the screen, re-derived
+      // at that landing; a lane pass with no value yet over a flight enters.
+      if (!(cUninit && pending) && !uninit && !bornInto(c!, t))
+        return (ROW && setRow(rowBase + "D6"), stale(true));
+      return (ROW && setRow(rowBase + "D6'"), join());
+    }
+    // D2 (D-1 D-2 D-10): the pass derives from the hold.
+    return (ROW && setRow(rowBase + (pending ? "D2'" : "D2")), join());
+  }
+
+  // Staged this flush, not held.
+  if (staged) {
+    if (late && !uninit) {
+      // A28 / F-10: an unflushed write — the committed value now and a late
+      // re-run in the flush that carries it (`markLateLinker`).
+      return (ROW && setRow(leaf ? "L1'" : rowBase + "D1'"), SLOT_C | MARK_LATE);
+    }
+    if (uninit && !pending && spectate) return (ROW && setRow("U2"), SLOT_NR0);
+    // (F-9, as D1/L1: a staging beneath a flight is not what the reader
+    // sees — the flight decides below. The 50k differential's V3 finding.)
+    if (!pending) {
+      // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
+      // staging before (the seam's verdict).
+      if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) return verdictStaged(stagedSlot);
+      if (inLane && lane!.folded && stagedScreen && !uninit) {
+        // Folded lane work reads the screen (D-34).
+        ROW && setRow(rowBase + "D7'");
+        seatTx = flushTransaction;
+        return SLOT_C | MARK_ST;
+      }
+      // (D-28's leaf treatment of a lane — lanes.ts L6/L7 — is a render
+      // effect's, the binding that shows: L1. A boundary's structure
+      // (CONFIG_FRAME, posture L per #4283) reads as a derivation does.)
+      ROW &&
+        setRow(
+          (c as any)._type === EFFECT_RENDER && (leaf || verdictReader)
+            ? "L1"
+            : inLane
+              ? rowBase + "D7"
+              : rowBase + "D1"
+        );
+      return stagedSlot | stagedServe;
+    }
+  }
+
+  // A flight, not held.
+  if (pending) {
+    // D-37: not the lane's own, the pass has a value — and so does the
+    // node (a first load in flight has no screen: NR, F-2).
+    if (inSeat && !cUninit && !uninit) return (ROW && setRow(rowBase + "D8"), screen);
+    if (verdictReader && !uninit) {
+      if (cfg & CONFIG_INPUTS_PUBLISHED) {
+        ROW && setRow("V4'");
+        seatTx = flushTransaction;
+        return SLOT_NR | nrLink;
+      }
+      // D-23 D-9: the screen; in a flush the pass is the hold's verdict
+      // reader and a stale reader of the flight (`observeFlight`: the
+      // flush's hold opens if none has, and the flight nobody holds is
+      // queued for the seam).
+      ROW && setRow("V4");
+      if (globalQueue._running) {
+        seatTx = flushTransaction;
+        return screen | MARK_ST | MARK_AH | MARK_JF0 | MARK_OBS;
+      }
+      return screen;
+    }
+    return (ROW && setRow(leaf ? "L5" : rowBase + "D3"), SLOT_NR | nrLink); // F-2 D-28 / F-2 D-9
+  }
+
+  return (ROW && setRow(leaf ? "L0" : rowBase + "D0"), SLOT_C); // committed only
+}
+
+// ─── The shadow seat (module state the swap's M3 makes the seat) ──────────
+
 export interface Prediction {
   row: string;
   slot: number;
@@ -234,8 +695,6 @@ export interface Prediction {
   /** The lane a RAISE_LANE moves the pass into. */
   lane: Transaction | null;
 }
-
-// ─── The seat ──────────────────────────────────────────────────────────────
 
 export interface Seat {
   node: Computed<any> | null;
@@ -295,29 +754,6 @@ let depth = -1;
 /** The seat of the running pass, or null outside every pass. */
 export function currentSeat(): Seat | null {
   return depth >= 0 ? seats[depth] : null;
-}
-
-/** The windows open around a read, as bits: `isPending` (a probe) and
- * `latest`. Either alone, or one inside the other: `latest` decides the
- * value (posture Vl), the probe still records its verdict. */
-export const WINDOW_PROBE = 1;
-export const WINDOW_LATEST = 2;
-
-/** The posture of a node from the node alone (INV-seat-2). `window`: the
- * WINDOW_* bits open (WINDOW_LATEST wins — `latest` inside `isPending` is
- * `latest`'s value). */
-export function postureOf(c: Computed<any> | null, window: number): number {
-  if (c === null) return window ? (window & WINDOW_LATEST ? POSTURE_VL : POSTURE_VP) : POSTURE_U;
-  if (c._config & CONFIG_CHILDREN_FORBIDDEN) return POSTURE_F;
-  if (c._config & CONFIG_AUTHORITATIVE) return POSTURE_A;
-  if (window) return window & WINDOW_LATEST ? POSTURE_VL : POSTURE_VP;
-  // A pass that asked (`latest`/`isPending`) is a verdict reader from the
-  // window on, and stays one on every re-run until a pass asks nothing
-  // (D-25 "a verdict posture outlives the pass that asked"): the sticky
-  // CONFIG_VERDICT, set at the window (`markVerdictReader`).
-  if (c._config & CONFIG_VERDICT) return POSTURE_V;
-  if ((c as any)._type === EFFECT_RENDER || c._config & CONFIG_FRAME) return POSTURE_L;
-  return POSTURE_D;
 }
 
 /** B1 — open the seat of a pass at `recompute`'s head. The creator of a
@@ -437,11 +873,6 @@ export function openSeat(
   return seat;
 }
 
-/** Today's verdict seat: the hold whose verdict lane `passLane` is. */
-function oldVerdictSeat(): Transaction | null {
-  return passLane !== null && laneOf(passLane) === null ? resolveTx(passLane._parent!) : null;
-}
-
 /** Today's `passLane !== null`: the pass is a lane's work or a hold's
  * verdict reader. */
 function seated(seat: Seat | null): boolean {
@@ -492,9 +923,9 @@ function applyRaise(seat: Seat, p: Prediction): void {
   // staging: world > S).
   if (p.raise & MARK_AH && p.tx !== null && !seated(seat) && seat.ownWorld === WORLD_S)
     seat.vhold = resolveTx(p.tx);
-  if (p.raise & RAISE_VSEAT && p.tx !== null) {
-    // (A lane the pass sat in links to the verdict lane, `enterLane`.)
-    seat.vhold = resolveTx(p.tx);
+  if (p.raise & RAISE_VSEAT && p.lane !== null) {
+    // (A lane the pass sat in links to the verdict lane, `laneApply`.)
+    seat.vhold = resolveTx(p.lane._parent!);
     seat.lane = null;
   }
   if (p.raise & RAISE_LANE && laneOf(p.lane) !== null) {
@@ -511,630 +942,6 @@ function applyRaise(seat: Seat, p: Prediction): void {
 function under(l: Transaction, a: Transaction): boolean {
   for (let t = l._parent; t !== null && t._lane; t = t._parent) if (t === a) return true;
   return false;
-}
-
-/** The lane a pass is seated in, as the old code spells it: a verdict lane
- * is a seating of posture V, not a lane (`verdicts have no node set`). */
-function laneOf(t: Transaction | null): Transaction | null {
-  return t !== null && t._parent?._verdict === t ? null : t;
-}
-
-// ─── The slot table ────────────────────────────────────────────────────────
-
-function pred(
-  row: string,
-  slot: number,
-  raise = 0,
-  tx: Transaction | null = null,
-  lane: Transaction | null = null
-): Prediction {
-  return { row, slot, raise, tx, lane };
-}
-
-/** The tick's hold: the flush's transaction, or the pass transaction
- * outside a flush. */
-function tickHold(): Transaction | null {
-  return flushTransaction ?? passTx;
-}
-
-/** "Born into t" for the reading pass (`bornInto`): its own node is held
- * by `t` and never committed. */
-function seatBornInto(seat: Seat | null, t: Transaction): boolean {
-  return seat !== null && seat.bornTx !== null && resolveTx(seat.bornTx) === resolveTx(t);
-}
-
-/** A28 — a write not yet flushed: the committed value is what the pass
- * sees, re-run in the flush that carries the write. (A held node rewritten
- * between flushes keeps its flushed stash: the slot is still the
- * staging's, served from the stash.) */
-function unflushed(el: AnyNode): boolean {
-  return (
-    !globalQueue._running && el._pendingValue !== NOT_PENDING && !(el._config & CONFIG_PROMOTED)
-  );
-}
-
-/**
- * The slot a read of `el` by `c` is served from, with the side effects the
- * row predicts. Pure: nothing on `c`, `el` or the seat is touched —
- * `shadowRead` applies the raise to the shadow seat after the comparison.
- *
- * @param c the reader (null: no pass)
- * @param el the node read
- * @param tracked the read is a tracked dependency read (`tracking`)
- * @param window 0 none · 1 `isPending` · 2 `latest`
- * @param spectate a bookkeeping read (`spectating`)
- * @param snapshot the read is served from a hydration snapshot (outside the table)
- */
-export function slot(
-  c: Computed<any> | null,
-  el: AnyNode,
-  tracked: boolean,
-  window: number,
-  spectate: boolean,
-  snapshot: boolean
-): Prediction {
-  if (snapshot) return pred("—", SLOT_SNAPSHOT);
-  const seat = currentSeat();
-  const posture = postureOf(c, window);
-  const cfg = el._config;
-  const st = ((el as Computed<any>)._statusFlags as number | undefined) ?? 0;
-  const isFn = typeof (el as Computed<any>)._fn === "function";
-  const staged = el._pendingValue !== NOT_PENDING;
-  const held = (cfg & CONFIG_HELD) !== 0;
-  const uninit = (st & STATUS_UNINITIALIZED) !== 0;
-  const pending = (st & STATUS_PENDING) !== 0;
-  const errored = isFn && (st & STATUS_ERROR) !== 0;
-  const laneNode = (cfg & CONFIG_OVERRIDE) !== 0;
-  const guess = (cfg & CONFIG_GUESS) !== 0;
-  const stagedError = (cfg & CONFIG_STAGED_ERROR) !== 0;
-  /** The staging as a slot: its value, or the error it stages (D-41). */
-  const stagedSlot = stagedError ? SLOT_E : SLOT_P;
-  /** The screen as a slot: the committed value, or the error still shown
-   * there — a write or retry has not yet replaced it (D-41 `throwShown`,
-   * #4110). */
-  const screen = isFn && el._x?._shownError ? SLOT_E : SLOT_C;
-  /** f0: a flight with no value yet. */
-  const firstFlight = pending && uninit;
-  const inLane = seat !== null && seat.lane !== null;
-  /** Today's `passLane !== null`: lane work, or a hold's verdict reader. */
-  const inSeat = seated(seat);
-  const cUninit = c !== null && (c._statusFlags & STATUS_UNINITIALIZED) !== 0;
-  const cType = c !== null ? ((c as any)._type as number | undefined) : undefined;
-  const running = globalQueue._running;
-  /** D-41 (#2897): an errored derivation's retry — a tracked re-read on a
-   * later cycle than the one that found the error re-runs it and reads
-   * again; the re-read is compared on its own (a nested frame). */
-  const retry = errored && tracked && c !== null && (el as Computed<any>)._time < clock;
-  const probing = (window & WINDOW_PROBE) !== 0;
-  /** The pass read a staging of this flush (today REACTIVE_STAGED_READ
-   * alone — a world of Fl raised by its own reads, whether or not it also
-   * joined; S3 re-encodes the flag). */
-  const sawFl = c !== null && (c._flags & REACTIVE_STAGED_READ) !== 0;
-  const joinedFlag = c !== null && (c._flags & REACTIVE_JOINED) !== 0;
-  /** A pending read thrown to an owned untracked reader still links it
-   * (`read`'s throw arm; not `spectate`, not the node itself). */
-  const nrLink = c !== null && !tracked && !spectate && el !== c ? MARK_LINK : 0;
-  /** A28: served the committed value — or a held node's flushed stash —
-   * over a write not yet flushed: a late-linker re-run (`serve`'s first
-   * arm, `unflushedValue`). */
-  const late =
-    c !== null && unflushed(el) && (!held || el._x!._flushedAt === clock) ? MARK_LATE : 0;
-
-  // ── U: no pass ──────────────────────────────────────────────────────────
-  if (posture === POSTURE_U) {
-    if (laneNode && !(errored && !guess)) {
-      // Live guess / lane value (A17); none (born in the lane, nothing yet:
-      // #4363) — as any read of it below.
-      if (!laneNP(el, guess, staged, uninit)) return pred("U3", SLOT_LV);
-      if (pending) return pred("U3", SLOT_NR);
-    }
-    if (firstFlight) return pred("U2", SLOT_NR); // F-9: no value yet
-    // D-41: an errored derivation, or a shown error a write/retry has not
-    // yet replaced on the screen (`_shownError`), is the screen's answer.
-    if (errored || el._x?._shownError) return pred("U4", SLOT_E);
-    if (uninit && staged) return pred("U2", SLOT_NR); // D-24: born held, no screen
-    return pred("U1", SLOT_C); // D-29 D-34 F-10 (s unflushed: C)
-  }
-
-  // ── F: children-forbidden (the frame; A32) ─────────────────────────────
-  if (posture === POSTURE_F) {
-    if (laneNode && !(errored && !guess)) {
-      if (!dispNP(el, uninit)) return pred("F1", SLOT_DV);
-      if (pending) return pred("F1", SLOT_NR); // nothing shown yet (#4362)
-    }
-    if (retry) return pred("F1", SLOT_SNAPSHOT);
-    if (errored) return pred("F1", SLOT_E, stagedError && !uninit ? late : 0);
-    // (A first flight is `read`'s throw — it links; a node born staged is
-    // `serve`'s, A19 exc. 1 — it does not.)
-    if (firstFlight) return pred("F1", SLOT_NR, nrLink);
-    if (uninit && staged) return pred("F1", SLOT_NR);
-    // D-29: the committed value (lane work's frame reader over a flight:
-    // the screen, `throwShown`); over an unflushed write, the late re-run.
-    if (pending && inSeat && !cUninit) return pred("F1", screen);
-    return pred("F1", SLOT_C, staged ? late : 0);
-  }
-
-  // ── A: authoritative (`until`, `refresh`) ──────────────────────────────
-  if (posture === POSTURE_A) {
-    if (laneNode && !(errored && !guess)) {
-      // A folded guess (D-34) is the hold's world; `truthRead` otherwise.
-      const l = txOf(el);
-      if (l.folded && guess && !inSeat)
-        return pred("A1", staged ? SLOT_P : SLOT_C, RAISE_H | RAISE_HAT, resolveTx(l._parent ?? l));
-      return pred("A1", SLOT_T); // D-31
-    }
-    // "other → as D": fall through with D's rows under the A row id.
-  }
-
-  // ── Vl / Vp: inside a window (`latest` / `isPending`) ──────────────────
-  if (posture === POSTURE_VL || posture === POSTURE_VP) {
-    const p = windowRow();
-    // A live `affects()` mark on the node or a dependency (affects.ts): not
-    // final by declaration; in a flush with a hold the probe's reader is its
-    // verdict reader whatever the value's row says (`verdictRead`).
-    if (
-      probing &&
-      tracked &&
-      c !== null &&
-      !(c._config & CONFIG_CHILDREN_FORBIDDEN) &&
-      flushTransaction !== null &&
-      GlobalQueue._marked?.(el as Computed<any>)
-    ) {
-      p.raise |= MARK_AH | MARK_PR;
-      if (p.tx === null) p.tx = flushTransaction;
-    }
-    return p;
-  }
-  function windowRow(): Prediction {
-    const latest = posture === POSTURE_VL;
-    const owned = c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
-    const tr = owned && tracked;
-    /** A verdict read (`verdictRead`): the pass is the hold's verdict
-     * reader (AH); a probe's is re-derived at the landing too (PR). */
-    const ah = MARK_AH | (probing ? MARK_PR : 0);
-    /** The seam's verdict for a staging or flight not held
-     * (`provisionalVerdict`): once the flush has a hold the reader is its
-     * verdict reader at once (`route`) — and a probe that also read the
-     * frame's staging plainly watches the seam as well; before any hold it
-     * watches the seam, the verdict its own unless a probe found the value
-     * final. `flush`: the flush has a hold when the arm runs. */
-    const prov = (notFinal: boolean, flush: boolean): number =>
-      flush
-        ? ah | (probing && sawFl ? MARK_W : 0)
-        : MARK_W | (!probing || notFinal ? MARK_UNANS : 0);
-    /** The seam's verdict for a flight (`pendingVerdict`), in a flush:
-     * `latest` opens the flush's transaction for it (the reader is its
-     * verdict reader at once); a probe watches the seam before anything
-     * joined. Outside a flush nothing is the seam's. */
-    const pend = (): number =>
-      running ? (!probing ? MARK_JF0 : 0) | prov(false, flushTransaction !== null || !probing) : 0;
-    let row = latest ? "Vl" : "Vp";
-    if (laneNode && !(errored && !guess)) {
-      // Vl5 (D-22 D-34): a guess is the value; a derivation the lane's
-      // latest unless in flight, else its display. `isPending` reads the
-      // display. The pass is the holder's verdict reader (AH(parent)).
-      const l = txOf(el);
-      const flying = pending; // (quiet re-asks are the verdict's business, not the slot's)
-      const parent = l._parent ?? l;
-      row = latest ? "Vl5" : "Vp1";
-      if (guess)
-        return pred(
-          row,
-          latest && l.folded ? (staged ? SLOT_P : SLOT_C) : SLOT_LV,
-          tr ? ah : 0,
-          parent
-        );
-      if (!(latest && !flying ? laneNP(el, guess, staged, uninit) : dispNP(el, uninit))) {
-        // A first load in flight with nothing produced yet (D-22): loading —
-        // unless an error answered it first (`isPending`: the error is the
-        // display, D-41 #4375).
-        if (flying && uninit && el._x!._lane === el._value && (latest || !el._x!._shownError))
-          return pred(row, SLOT_NR, tr ? ah : 0, parent);
-        return pred(row, latest && !flying ? SLOT_LV : SLOT_DV, tr ? ah : 0, parent);
-      }
-      // A derivation with nothing in either view (born in the lane, its
-      // first flight up, #4362 #4363): read as any uninitialized node below
-      // (A7, A19 exc. 1), the reader not moved into the verdict seat.
-    }
-    // (An error is thrown last, as `verdictValue` does: a held or staged
-    // node answers through the rows above it, D-41.)
-    if (held) {
-      const t = txOf(el);
-      if (!uninit) {
-        // Vl1' (#3460, as L7): a render effect outside the hold's own flush
-        // while its verdict lane is blocked is a stale reader of it — the
-        // screen now, re-derived at the reveal. (`latest` alone: a probe
-        // is answered either way.)
-        if (
-          !probing &&
-          tr &&
-          cType === EFFECT_RENDER &&
-          !inSeat &&
-          t._verdict?._held &&
-          flushTransaction !== t
-        )
-          return pred("Vl1'", SLOT_C, MARK_ST, t._verdict);
-        // Vl1 (D-22 F-6): the proposal — a staged error included (D-41:
-        // `staged` throws it); an action body's untracked read of another
-        // hold's proposal entangles the two (`joinFuture`); a tracked read
-        // of a rewrite not yet flushed is served the flushed stash and runs
-        // again in the carrying flush (`heldLatest`). `isPending`'s value
-        // is the screen's (Vp1).
-        if (latest && staged)
-          return pred(
-            "Vl1",
-            stagedSlot,
-            tr ? ah | (late ? MARK_LATE : 0) : flushTransaction !== null && !running ? MARK_JFT : 0,
-            t
-          );
-        return pred(latest ? "Vl1" : "Vp1", SLOT_C, tr ? ah : 0, t);
-      }
-      // Born into the future: its staging is its only value (Vl4 b → P; Vp2:
-      // a probe's owned read is a plain read — the owner joins the hold).
-      if (staged && !pending)
-        return pred(latest ? "Vl4" : "Vp2", stagedSlot, owned && probing ? RAISE_H : 0, t);
-      return pred(latest ? "Vl4" : "Vp2", SLOT_NR, nrLink, t); // f0
-    }
-    if (staged) {
-      // The seam's verdict: a flight's beneath a staging (#3376, Vl4' — the
-      // stale first hop of a chain; `pendingVerdict`), else the staging's
-      // (`provisionalVerdict`) in a flush; outside one a probe watches the
-      // seam of the flush that carries the write (#3078).
-      const seam =
-        pending && !uninit
-          ? tr
-            ? pend()
-            : 0
-          : tr && running
-            ? prov(!latest && !uninit, flushTransaction !== null)
-            : tr && probing
-              ? MARK_W
-              : 0;
-      // Vl2/Vl3 (D-22 D-32 F-10 [R5]): in a flush the staging; outside a
-      // flush the committed value and a late re-run (A28: an unflushed
-      // write is not what `latest` serves — any reader's pass runs again).
-      // `isPending`: the screen.
-      if (latest) {
-        if (running)
-          return pred(pending && !uninit ? "Vl4'" : "Vl2", stagedSlot, seam, flushTransaction);
-        return pred(
-          pending && !uninit ? "Vl4'" : "Vl3",
-          SLOT_C,
-          seam | (c !== null ? MARK_LATE : 0)
-        );
-      }
-      return pred("Vp1", SLOT_C, seam, flushTransaction);
-    }
-    if (pending) {
-      if (uninit) return pred(latest ? "Vl4" : "Vp2", SLOT_NR, nrLink); // f0: loading, not pending
-      // f: below the async nothing newer exists — the seam's verdict
-      // (`pendingVerdict`).
-      return pred(latest ? "Vl4" : "Vp1", SLOT_C, tr ? pend() : 0, flushTransaction);
-    }
-    if (errored) return pred(latest ? "Vl4" : "Vp1", SLOT_E);
-    return pred(latest ? "Vl4" : "Vp1", SLOT_C);
-  }
-
-  // ── Common arms for L / D / V / A-as-D ─────────────────────────────────
-  const leaf = posture === POSTURE_L;
-  // (A truth reader that is also a verdict reader — F-6's flag copy, a
-  // window of its own — reads a hold's node as a verdict reader does:
-  // `truthRead` is for lane nodes only.)
-  const verdictReader =
-    posture === POSTURE_V || (posture === POSTURE_A && (c!._config & CONFIG_VERDICT) !== 0);
-  const rowBase = posture === POSTURE_A ? "A1/" : "";
-  const isEffect = !!cType;
-  /** A staging served to the pass (`stagedRead`): the pass derives from
-   * this flush (Fl) — and watches the seam when it is lane work, a hold's
-   * verdict reader, or a verdict reader that is a leaf (an effect: its
-   * pass re-derives once as a verdict reader if the flush parks, D-22). Not
-   * a node born staged (#3969: no screen to re-derive on). Over a write not
-   * yet flushed, the committed value and a late re-run instead (A28). */
-  const stagedServe = late
-    ? MARK_LATE
-    : uninit
-      ? 0
-      : RAISE_FL | (inSeat || (isEffect && verdictReader) ? MARK_W : 0);
-  // D-28's leaf treatment of a lane (L6/L7: a stale reader of the lane,
-  // re-derived at the reveal) is a render effect's — the binding that
-  // shows. A boundary's structure (CONFIG_FRAME, posture L on the plain
-  // rows per #4283) reads a lane as a derivation does: it enters. Read as
-  // a leaf, a fallback-showing `<Loading>` whose `on` is `latest(b)` would
-  // hold `latest(b)` (lane-hold-on-observation), and a boundary's content
-  // would serve a flight committed beneath its inputs — a tear A15's
-  // reveal corollary forbids for every reader kind (l2-fuzz-existing-rules,
-  // seed 3289 #922). Traced 2026-10-29 (S1 M1).
-  const renderLeaf = cType === EFFECT_RENDER && (leaf || verdictReader);
-  /** The lane rows' side effects, carried into the plain rows when the
-   * lane has nothing to serve (`laneRead` returns NOT_PENDING and `read`
-   * goes on). */
-  let laneRaise = 0;
-  let laneTx: Transaction | null = null;
-  let laneInto: Transaction | null = null;
-  let laneRow = "";
-
-  // Lane node (CONFIG_OVERRIDE): the lane rows (`laneRead`).
-  if (laneNode && !(errored && !guess)) {
-    const l = txOf(el);
-    const vlane = laneOf(l) === null;
-    const flying = pending && !guess;
-    const cHeldByFlush =
-      c !== null &&
-      (c._config & CONFIG_HELD) !== 0 &&
-      flushTransaction !== null &&
-      resolveTx(flushTransaction) === txOf(c);
-    const row = vlane ? "V6" : "";
-    const laneHas = !laneNP(el, guess, staged, uninit) && !flying;
-    // A folded lane (D-34, store/optimistic.ts `foldedRead`): a deriving
-    // pass outside every seat reads the hold's world and joins it (the
-    // lane's parent — not the node's own hold); lane work, a verdict seat
-    // and leaves keep the guess; the store's own derive is the author.
-    if (
-      l.folded &&
-      guess &&
-      !inSeat &&
-      cType !== EFFECT_RENDER &&
-      (el as any)._host?.fam?.node !== c
-    )
-      return pred(
-        rowBase + "D4'",
-        staged ? SLOT_P : SLOT_C,
-        RAISE_H | RAISE_HAT,
-        resolveTx(l._parent ?? l)
-      );
-    // D-28 (#4275, #4284): a leaf seated as a hold's verdict reader leaves
-    // the seat on a flight never shown, or for a lane that is not that
-    // hold's, and reads from the frame's seat — before anything else the
-    // read decides.
-    const never = flying && el._x!._lane === NOT_PENDING;
-    const leave =
-      renderLeaf &&
-      tracked &&
-      seat!.vhold !== null &&
-      (never || !vlane || resolveTx(seat!.vhold) !== resolveTx(l._parent!))
-        ? MARK_LEAVE
-        : 0;
-    const seatedNow = inSeat && !leave;
-    // Entering the lane (`enterLane`): a lane's — the pass is the lane's
-    // (D4, [R4]); a verdict lane's — the pass is the hold's verdict reader,
-    // unless its branch exists only in the future (`creatorReads`: a pass
-    // whose running creators, or itself when a memo, read the future or a
-    // staging — D-25, D-26, #4341). The read is a lane read either way
-    // (REACTIVE_LANE_READ). A pass that read the frame's staging before
-    // its first lane read — a held write it joined, a staging beside a
-    // guess written this round, or a verdict lane's value — watches the
-    // seam from the lane's seat (`stagedRead` from `enterLane`: lane work
-    // sees the screen, the park re-derives it; #3969, #4336).
-    const moves = vlane
-      ? seatedNow || !(seat!.creatorsWorld > WORLD_S || (!isEffect && seat!.ownWorld > WORLD_S))
-      : true;
-    const enter =
-      MARK_LANE_READ |
-      (moves ? (vlane ? RAISE_VSEAT : RAISE_LANE) : 0) |
-      (moves && !seatedNow && sawFl && (vlane || joinedFlag || !!seatLaneHints?.())
-        ? RAISE_FL | MARK_W // (`stagedRead`: the flag it sets again, and the watch)
-        : 0);
-    const enterTx = vlane ? l._parent : null;
-    const enterInto = vlane ? null : l;
-    if (!tracked) {
-      // An untracked read outside lane work: the screen (D4''); inside, the
-      // pass derives from the lane like a tracked one (enters).
-      if (!inSeat) {
-        if (!dispNP(el, uninit)) return pred(row || rowBase + "D4''", SLOT_DV);
-        laneRow = row || "D4''";
-      } else if (laneHas) return pred(row || rowBase + "D4", SLOT_LV, enter, enterTx, enterInto);
-      else {
-        laneRaise = enter;
-        laneTx = enterTx;
-        laneInto = enterInto;
-        laneRow = row || "D4";
-      }
-    } else if (renderLeaf) {
-      const laneSeat = leave ? null : vlane ? (seat!.vhold !== null ? l : null) : seat!.lane;
-      let stale = false;
-      if (laneSeat === null || !sameLane(laneSeat, l)) {
-        // A flight never shown waits (NR: the leaf's own frame holds, A15
-        // #3334 — `read`'s throw, which links); the lane has never shown:
-        // the screen is the committed value.
-        if (never && l._shown) return pred(row || "L7", SLOT_NR, leave | nrLink, l);
-        // L7' (D-2): a leaf the flush's hold holds reads a lane derivation's
-        // staging — the hold's own value.
-        if (!guess && staged && cHeldByFlush) return pred(row || "L7'", SLOT_P, leave);
-        if (l._held || flying) {
-          // D-26 D-28: a stale reader of the lane — the display, re-derived
-          // at the reveal; nothing on screen yet (uninitialized): NR
-          // (#4338; the lane engine's own throw, which does not link).
-          if (dispNP(el, uninit)) return pred(row || "L7", SLOT_NR, MARK_LST | leave, l);
-          return pred(row || "L7", SLOT_DV, MARK_LST | leave, l);
-        }
-        stale = true;
-      }
-      // A verdict reader reads ahead of a lane the seam has not judged
-      // (#4284, `entered`): re-derived on the screen if the seam holds it.
-      const entered = stale && !vlane && c!._config & CONFIG_VERDICT ? MARK_ENTERED : 0;
-      // D-26 D-37: the lane's value; a flight of the lane's own is the
-      // lane's wait (NR: lane work throws on its own flights, D-37).
-      if (laneHas) return pred(row || "L6", SLOT_LV, enter | leave | entered, enterTx, enterInto);
-      laneRaise = enter | leave | entered;
-      laneTx = enterTx;
-      laneInto = enterInto;
-      laneRow = row || (stale ? "L7" : "L6");
-    } else {
-      // D4 (D-37 D-25 [R4]): the lane's value, the pass enters the lane
-      // (links if it already sits in another). A lane derivation in flight:
-      // the pass has entered and the flight is the lane's own — NR (D4-f,
-      // D-37).
-      if (laneHas) return pred(row || rowBase + "D4", SLOT_LV, enter, enterTx, enterInto);
-      laneRaise = enter;
-      laneTx = enterTx;
-      laneInto = enterInto;
-      laneRow = row || rowBase + (flying ? "D4'''" : "D4");
-    }
-    // Nothing to serve from the lane: `read` goes on with the lane entered
-    // (`laneRead` returned NOT_PENDING). A flight: NR (`read`'s throw);
-    // else the plain rows.
-    if (flying) return pred(laneRow, SLOT_NR, laneRaise | nrLink, laneTx, laneInto);
-  }
-  const carry = (p: Prediction): Prediction => {
-    if (laneRaise) {
-      p.raise |= laneRaise;
-      if (p.tx === null) p.tx = laneTx;
-      if (p.lane === null) p.lane = laneInto;
-      p.row = laneRow + "→" + p.row;
-    }
-    return p;
-  };
-  const latestOnly =
-    flushTransaction !== null && flushTransaction === latestOpened && !inSeat && !cUninit;
-  /** `stagedScreen`: a verdict reader's plain read of a staging is the
-   * screen's once the frame has a hold, unless born into it — a stale
-   * reader of the hold. A hold a `latest()` alone opened holds nothing:
-   * the reader watches the seam (W) and is served the staging. */
-  const stagedScreen = flushTransaction !== null && !seatBornInto(seat, flushTransaction);
-  /** A verdict reader's staging read (`serve`'s verdict arm, then
-   * `stagedRead`): the screen and ST, or — under `latest()`'s hold alone,
-   * or with no hold — the staging, Fl, and W (for a `latest()`-only hold
-   * the seam watch comes from `stagedScreen` whoever the reader is). */
-  const verdictStaged = (): Prediction =>
-    stagedScreen && !latestOnly
-      ? pred("V2", screen, MARK_ST, flushTransaction)
-      : pred(
-          "V3",
-          stagedSlot,
-          late ? MARK_LATE : RAISE_FL | (latestOnly || inSeat || isEffect ? MARK_W : 0)
-        );
-
-  // Error (D-41 #2897): the error — the retry re-reads (compared on its
-  // own). The hold arms run first (`read`'s L2 block): a derivation of a
-  // held errored node joins before it throws. A staged error replacing the
-  // shown one (`stageError`) is served as the staging would be: a reader
-  // served the screen throws the shown error, one served the staging
-  // throws the staged one and stages its own with it (Fl).
-  if (errored) {
-    const row = leaf ? "L8" : rowBase + "D5";
-    const p = held ? heldRow(row, true) : pred(row, SLOT_E);
-    p.slot = retry ? SLOT_SNAPSHOT : SLOT_E;
-    p.raise &= ~MARK_LINK; // (the error is thrown, not NotReady)
-    if (!retry && stagedError && !(p.raise & MARK_ST)) {
-      if (verdictReader && c!._config & CONFIG_VERDICT && !uninit && !late) {
-        const v = verdictStaged();
-        p.raise |= v.raise;
-        if (p.tx === null) p.tx = v.tx;
-      } else p.raise |= stagedServe;
-    }
-    return carry(p);
-  }
-
-  // Held node.
-  if (held) return carry(heldRow("", false));
-
-  /** The held rows. `err`: the node is errored — the slot is the error's
-   * (the caller's), the marks the row's. */
-  function heldRow(errRow: string, err: boolean): Prediction {
-    const t = txOf(el);
-    const own = t === flushTransaction || seatBornInto(seat, t);
-    /** A row that joins and is served the staging (or NR in flight). */
-    const join = (row: string, extra = 0): Prediction =>
-      pending
-        ? pred(errRow || row, SLOT_NR, RAISE_H | extra | nrLink, t)
-        : pred(
-            errRow || row,
-            staged ? stagedSlot : SLOT_C,
-            RAISE_H | extra | (staged && !err ? stagedServe : 0),
-            t
-          );
-    const stale = (row: string, served: boolean): Prediction =>
-      pred(errRow || row, screen, MARK_ST | (served ? MARK_SERVED : 0), t);
-    if (leaf) {
-      // L4 (D-9 D-2 D-27): inputs published, or born — the leaf has no
-      // screen to fall back to; it joins the hold (D-4): its world is the
-      // hold's and its children inherit it (INV-seat-1 as amended).
-      // (A staged error throws, D-41 — the 50k differential's L4 finding.)
-      if (uninit) return join("L4", MARK_TICK);
-      if (cfg & CONFIG_INPUTS_PUBLISHED) return join("L4");
-      if (seatBornInto(seat, t)) return join("L2"); // D-2
-      if (inSeat) return stale("D6", true); // lane work: the screen (D-37)
-      if (own) return join("L2"); // D-3 D-2
-      return stale("L3", false); // D-3 D-9 D-26
-    }
-    if (verdictReader) {
-      // V1 (D-23 A10 [R7]): a verdict reader is a frame reader — the
-      // screen, re-derived at the landing — unless born into t.
-      if (seatBornInto(seat, t)) return join("V1'");
-      if (uninit) return join("V1''"); // no screen to serve
-      return stale("V1", true);
-    }
-    if (inSeat) {
-      // D6 (D-37): lane work reading a hold's node — the screen, re-derived
-      // at that landing; a lane pass with no value yet over a flight enters.
-      if (!(cUninit && pending) && !uninit && !seatBornInto(seat, t))
-        return stale(rowBase + "D6", true);
-      return join(rowBase + "D6'");
-    }
-    // D2 (D-1 D-2 D-10): the pass derives from the hold.
-    return join(rowBase + (pending ? "D2'" : "D2"));
-  }
-
-  // Staged this flush, not held.
-  if (staged) {
-    if (late && !uninit) {
-      // A28 / F-10: an unflushed write — the committed value now and a late
-      // re-run in the flush that carries it (`markLateLinker`).
-      return carry(pred(leaf ? "L1'" : rowBase + "D1'", SLOT_C, MARK_LATE));
-    }
-    if (uninit && !pending && spectate) return carry(pred("U2", SLOT_NR));
-    // (F-9, as D1/L1: a staging beneath a flight is not what the reader
-    // sees — the flight decides below. The 50k differential's V3 finding.)
-    if (!pending) {
-      // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
-      // staging before (the seam's verdict).
-      if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) return carry(verdictStaged());
-      if (inLane && seat!.lane!.folded && stagedScreen && !uninit)
-        return carry(pred(rowBase + "D7'", SLOT_C, MARK_ST, flushTransaction)); // folded lane work reads the screen (D-34)
-      const row = renderLeaf ? "L1" : inLane ? rowBase + "D7" : rowBase + "D1";
-      return carry(pred(row, stagedSlot, stagedServe, null, inLane ? seat!.lane : null));
-    }
-  }
-
-  // A flight, not held.
-  if (pending) {
-    // D-37: not the lane's own, the pass has a value — and so does the
-    // node (a first load in flight has no screen: NR, F-2).
-    if (inSeat && !cUninit && !uninit) return carry(pred(rowBase + "D8", screen));
-    if (verdictReader && !uninit) {
-      if (cfg & CONFIG_INPUTS_PUBLISHED)
-        return carry(pred("V4'", SLOT_NR, nrLink, flushTransaction));
-      // D-23 D-9: the screen; in a flush the pass is the hold's verdict
-      // reader and a stale reader of the flight (`observeFlight`: the
-      // flush's hold opens if none has, and the flight nobody holds is
-      // queued for the seam).
-      if (running)
-        return carry(pred("V4", screen, MARK_ST | MARK_AH | MARK_JF0 | MARK_OBS, flushTransaction));
-      return carry(pred("V4", screen));
-    }
-    return carry(pred(leaf ? "L5" : rowBase + "D3", SLOT_NR, nrLink)); // F-2 D-28 / F-2 D-9
-  }
-
-  return carry(pred(leaf ? "L0" : rowBase + "D0", SLOT_C)); // committed only
-}
-
-/** The lane engine's hint for the seam watch on entering a lane (today
- * lanes.ts `guessed`: a guess was written since the last seam). */
-export let seatLaneHints: (() => boolean) | null = null;
-export function installSeatLaneHints(f: () => boolean): void {
-  seatLaneHints = f;
-}
-
-/** `laneValueOf(el) === NOT_PENDING`: a lane node with nothing in either
- * view (born in the lane, uninitialized, nothing produced). */
-function laneNP(el: AnyNode, guess: boolean, staged: boolean, uninit: boolean): boolean {
-  if (!guess && staged) return false;
-  return el._x!._lane === NOT_PENDING && uninit;
-}
-/** `display(el) === NOT_PENDING`: nothing on screen for a lane node. */
-function dispNP(el: AnyNode, uninit: boolean): boolean {
-  const l = el._x!;
-  return !(l._transaction!._shown && l._lane !== NOT_PENDING) && uninit;
 }
 
 // ─── Shadow harness ────────────────────────────────────────────────────────
@@ -1301,22 +1108,14 @@ export function shadowReset(): void {
   reads = passes = orphanReads = 0;
 }
 
-// Per-read frames: the decision point stores the prediction and a snapshot of
-// the reader's flags; the return site stores the slot the old decider chose.
+// Per-read frames: the decision point stores the table's prediction (after
+// comparing it with the oracle's); the return site stores the slot served.
 interface ReadFrame {
   c: Computed<any> | null;
   el: AnyNode | null;
   prediction: Prediction | null;
-  flagsBefore: number;
-  laneBefore: Transaction | null;
   posture: number;
   actual: number;
-  /** The mechanisms the old deciders fired for this read (`shadowMark`),
-   * as the table's bits, and the holds ST / AH / LST named. */
-  marks: number;
-  stTx: Transaction | null;
-  ahTx: Transaction | null;
-  lstTx: Transaction | null;
 }
 const frames: ReadFrame[] = [];
 let readDepth = -1;
@@ -1329,39 +1128,13 @@ export function shadowEnter(): void {
     c: null,
     el: null,
     prediction: null,
-    flagsBefore: 0,
-    laneBefore: null,
     posture: POSTURE_U,
-    actual: SLOT_NONE,
-    marks: 0,
-    stTx: null,
-    ahTx: null,
-    lstTx: null
+    actual: SLOT_NONE
   });
   f.c = f.el = null;
   f.prediction = null;
   f.actual = SLOT_NONE;
-  f.marks = 0;
-  f.stTx = f.ahTx = f.lstTx = null;
   shadowBypass = true;
-}
-
-/** A mechanism the old deciders fired for the read of the frame on top, by
- * reader `c` — recorded at the mechanism's entry (before its own dedupe),
- * as the table predicts the intent, not the bookkeeping. A mark for a pass
- * other than the frame's reader (a seam's, a nested pass's) is nobody's. */
-export function shadowMark(
-  c: Computed<any> | null,
-  bit: number,
-  tx: Transaction | null = null
-): void {
-  if (readDepth < 0) return;
-  const f = frames[readDepth];
-  if (f.c !== c || c === null) return;
-  f.marks |= bit;
-  if (bit & MARK_ST) f.stTx = tx;
-  if (bit & MARK_AH) f.ahTx = tx;
-  if (bit & MARK_LST) f.lstTx = tx;
 }
 export function shadowConsumeBypass(): boolean {
   if (shadowBypass) {
@@ -1371,24 +1144,129 @@ export function shadowConsumeBypass(): boolean {
   return false;
 }
 
-/** The decision point of `read`/`verdictValue`: where today's deciders
- * begin. Records the prediction for the frame on top. */
-export function shadowExpect(
+/** A slot as the brief's vocabulary names it: the serving variants fold. */
+function plainSlot(s: number, el: AnyNode | null): number {
+  switch (s) {
+    case SLOT_ESTAGED:
+    case SLOT_ESHOWN:
+      return SLOT_E;
+    case SLOT_NR0:
+      return SLOT_NR;
+    case SLOT_STASH:
+      return SLOT_P;
+    case SLOT_FOLD:
+      return el !== null && el._pendingValue !== NOT_PENDING ? SLOT_P : SLOT_C;
+    case SLOT_RETRY:
+      return SLOT_SNAPSHOT;
+  }
+  return s;
+}
+
+/** The decision point of `read`/`verdictValue`: the table has decided
+ * (`r`, with `seatTx`/`seatLane`/`seatRow`). The oracle — the old
+ * deciders as a pure function — decides beside it, and the two are
+ * compared: slot, raise bits, the holds they name, the lane. The
+ * prediction is kept for the frame's close (the world and seat after). */
+export function shadowDecided(
   c: Computed<any> | null,
   el: AnyNode,
   tracked: boolean,
   window: number,
   spectate: boolean,
-  snapshot: boolean
+  r: number
 ): void {
   if (readDepth < 0) return;
   const f = frames[readDepth];
+  const p: Prediction = {
+    row: String(seatRow),
+    slot: r & SLOT_MASK,
+    raise: r & RAISE_MASK,
+    tx: seatTx,
+    lane: seatLane
+  };
   f.c = c;
   f.el = el;
-  f.flagsBefore = c !== null ? c._flags : 0;
-  f.laneBefore = passLane;
   f.posture = postureOf(c, window);
-  f.prediction = slot(c, el, tracked, window, spectate, snapshot);
+  f.prediction = p;
+  const o = oldSlot(c, el, tracked, window, spectate);
+  const seat = currentSeat();
+  const ps = plainSlot(p.slot, el);
+  const os = plainSlot(o.slot, el);
+  // The identity of a serving variant is compared too (which error, the
+  // stash): the table's vocabulary is finer than the brief's.
+  if (p.slot !== o.slot) {
+    if (shadowKnown("slot", p.row, ps, os, c, el, seat)) {
+      if (seat !== null) seat.known = true;
+      return;
+    }
+    report(
+      "INV-seat-3",
+      p.row,
+      c,
+      el,
+      `slot (${POSTURE_NAMES[f.posture]} posture; ${stateOf(c, el)}${ps === os ? `; variant ${SLOT_NAMES[p.slot]}#${p.slot} vs ${SLOT_NAMES[o.slot]}#${o.slot}` : ""})`,
+      ps,
+      os
+    );
+    return;
+  }
+  const diff = (p.raise ^ o.raise) & COMPARED;
+  if (diff) {
+    const worldOnly = !(diff & ~(RAISE_H | RAISE_FL));
+    const oldWorld = o.raise & RAISE_H ? WORLD_H : o.raise & RAISE_FL ? WORLD_FL : WORLD_S;
+    const newWorld = p.raise & RAISE_H ? WORLD_H : p.raise & RAISE_FL ? WORLD_FL : WORLD_S;
+    if (
+      (worldOnly &&
+        seat !== null &&
+        shadowKnown("world", p.row, newWorld, oldWorld, c, el, seat)) ||
+      shadowKnown("marks", p.row, p.raise & COMPARED, o.raise & COMPARED, c, el, seat)
+    ) {
+      if (seat !== null) seat.known = true;
+      return;
+    }
+    report(
+      "INV-seat-4",
+      p.row,
+      c,
+      el,
+      `marks (table ${raiseNames(p.raise & COMPARED)}, oracle ${raiseNames(o.raise & COMPARED)}; ${POSTURE_NAMES[f.posture]} posture; ${stateOf(c, el)})`,
+      ps,
+      os
+    );
+    return;
+  }
+  // (A row that opens the flush's transaction names the one it will open:
+  // both say null before the read.)
+  if (p.raise & (MARK_ST | MARK_AH | RAISE_HAT) && p.tx !== o.tx)
+    report("INV-seat-4", p.row, c, el, `the hold named (${stateOf(c, el)})`, ps, os);
+  if (p.raise & (MARK_LST | RAISE_LANE | RAISE_VSEAT) && p.lane !== o.lane)
+    report("INV-seat-4", p.row, c, el, `the lane named (${stateOf(c, el)})`, ps, os);
+}
+
+/** `read`'s fast path (core.ts): a node it serves `_value` with no world
+ * to choose. The table and the oracle both say C with no mechanism, or the
+ * fast path's condition is wrong. */
+export function shadowFast(
+  c: Computed<any> | null,
+  el: AnyNode,
+  tracked: boolean,
+  spectate: boolean
+): void {
+  if (readDepth < 0) return;
+  reads++;
+  rowHits.set("fast", (rowHits.get("fast") ?? 0) + 1);
+  const r = slot(c, el, tracked, spectate);
+  const o = oldSlot(c, el, tracked, 0, spectate);
+  if (r !== SLOT_C || o.slot !== SLOT_C || o.raise !== 0)
+    report(
+      "INV-seat-3",
+      "fast",
+      c,
+      el,
+      `fast path (table ${String(seatRow)} ${SLOT_NAMES[r & SLOT_MASK]}+${raiseNames(r & RAISE_MASK)}, oracle ${SLOT_NAMES[o.slot]}+${raiseNames(o.raise)}; ${stateOf(c, el)})`,
+      r & SLOT_MASK,
+      o.slot
+    );
 }
 
 /** A raise issued outside `read` — the store's read path calls the kept
@@ -1401,15 +1279,10 @@ export function shadowExternalRaise(
   lane: Transaction | null = null,
   tx: Transaction | null = null
 ): void {
-  // Inside a read frame of `c`: a mechanism of that read (`shadowMark`),
-  // compared at its leave; the table's raise is applied there.
-  if (readDepth >= 0 && frames[readDepth].c === c) {
-    frames[readDepth].marks |= raise;
-    return;
-  }
+  if (readDepth >= 0 && frames[readDepth].c === c) return;
   const seat = currentSeat();
   if (seat === null || seat.node !== c) return;
-  applyRaise(seat, pred("ext", raise, raise, tx, lane));
+  applyRaise(seat, { row: "ext", slot: raise, raise, tx, lane });
   seat.trail.pop();
 }
 
@@ -1432,8 +1305,7 @@ export function shadowWindow(c: Computed<any>): void {
  * pass is seated where the re-arm's `on` pass was — a lane's work, or a
  * verdict reader's (the `isPending`/`latest` the `on` read). */
 export function shadowSwapSeat(out: Computed<any>, l: Transaction): void {
-  if (laneOf(l) === null) shadowExternalRaise(out, RAISE_VSEAT, null, l._parent);
-  else shadowExternalRaise(out, RAISE_LANE, l);
+  shadowExternalRaise(out, laneOf(l) === null ? RAISE_VSEAT : RAISE_LANE, l);
 }
 
 /** The swap is structure (#3540, #4337): what the fallback's build reads
@@ -1459,13 +1331,12 @@ export function shadowSeatRestore(
   seat.vhold = saved[1];
 }
 
-/** A return site of the old deciders: the slot it serves. */
+/** A return site of `read`: the slot it served (the applier's, against the
+ * table's). */
 export function shadowActual(s: number): void {
   if (readDepth >= 0) frames[readDepth].actual = s;
 }
 
-/** The body returned (or threw: `thrown` is the slot of the throw). Compare,
- * apply the predicted raise to the shadow seat, pop. */
 /** Trace aid: the last error a shadowed read threw. */
 export let lastThrown: unknown = null;
 export function shadowThrown(e: unknown): void {
@@ -1489,7 +1360,7 @@ interface KnownDifference {
    * bits, or 1/0 for born). */
   expected: number;
   actual: number;
-  when: (c: Computed<any>, el: AnyNode | null, seat: Seat) => boolean;
+  when: (c: Computed<any>, el: AnyNode | null, seat: Seat | null) => boolean;
 }
 const known: KnownDifference[] = [
   {
@@ -1501,10 +1372,10 @@ const known: KnownDifference[] = [
     row: "V1'",
     expected: SLOT_P,
     actual: SLOT_C,
-    when: (c, el, seat) =>
+    when: (c, el) =>
       (c._config & CONFIG_VERDICT) !== 0 &&
       flushTransaction !== null &&
-      seatBornInto(seat, txOf(el!)) &&
+      !!bornInto(c, txOf(el!)) &&
       resolveTx(flushTransaction) !== resolveTx(txOf(el!))
   },
   {
@@ -1515,17 +1386,18 @@ const known: KnownDifference[] = [
     row: "V6",
     expected: SLOT_LV,
     actual: SLOT_P,
-    when: (c, el, seat) => {
+    when: (c, el) => {
       const l = el!._x?._transaction;
+      const vhold = readerVhold();
       return (
         (c as any)._type === EFFECT_RENDER &&
-        seat.vhold !== null &&
+        vhold !== null &&
         !!l &&
         l._lane &&
         laneOf(l) === null &&
         l._parent !== null &&
         resolveTx(l._parent) !== l._parent &&
-        resolveTx(l._parent) === resolveTx(seat.vhold)
+        resolveTx(l._parent) === vhold
       );
     }
   },
@@ -1538,6 +1410,16 @@ const known: KnownDifference[] = [
     row: "V6",
     expected: MARK_LANE_READ,
     actual: MARK_LEAVE | MARK_LANE_READ,
+    when: (c, el, seat) => known[1].when(c, el, seat)
+  },
+  {
+    // The same, where the read is served the hold's own staging (L7', the
+    // leaf is the flush's hold's): the leave alone.
+    issue: 4427,
+    kind: "marks",
+    row: "V6",
+    expected: 0,
+    actual: MARK_LEAVE,
     when: (c, el, seat) => known[1].when(c, el, seat)
   },
   {
@@ -1560,6 +1442,7 @@ const known: KnownDifference[] = [
       const o = shadowOldCreator;
       return (
         o !== null &&
+        seat !== null &&
         (o._flags & REACTIVE_JOINED) !== 0 &&
         (depth === 0 || seats[depth - 1].node !== o) &&
         !(c._flags & REACTIVE_JOINED) &&
@@ -1574,18 +1457,19 @@ const known: KnownDifference[] = [
     // `latest()` of a born-into-the-future node inside that pass takes the
     // probe's `joinPass` arm and the pulled pass joins the hold. A verdict
     // read raises no world (F-vworld); the slot — the staging — agrees.
+    // (The table's Vl4 joins for no probe, stale or live: `latest` inside
+    // `isPending` of such a node — a shape no corpus has produced — reads
+    // as `latest` does.)
     issue: 4429,
     kind: "world",
     row: "Vl4",
     expected: WORLD_S,
     actual: WORLD_H,
-    when: (c, el, seat) =>
+    when: (_c, el) =>
       (el!._config & CONFIG_HELD) !== 0 &&
       ((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) !== 0 &&
       el!._pendingValue !== NOT_PENDING &&
-      !((el as Computed<any>)._statusFlags & STATUS_PENDING) &&
-      (c._flags & REACTIVE_JOINED) !== 0 &&
-      seat.ownWorld < WORLD_H
+      !((el as Computed<any>)._statusFlags & STATUS_PENDING)
   }
 ];
 const knownHits = new Map<number, number>();
@@ -1604,7 +1488,8 @@ function shadowKnown(
   el: AnyNode | null,
   seat: Seat | null
 ): boolean {
-  if (c === null || seat === null || seat.node !== c) return false;
+  if (c === null) return false;
+  if (seat !== null && seat.node !== c) seat = null;
   for (const k of known)
     if (
       k.kind === kind &&
@@ -1618,28 +1503,11 @@ function shadowKnown(
     }
   return false;
 }
-/** A known world difference, looked up without counting it (the world
- * check counts it once). */
-function knownWorld(
-  row: string,
-  expected: number,
-  actual: number,
-  c: Computed<any>,
-  el: AnyNode | null,
-  seat: Seat
-): boolean {
-  for (const k of known)
-    if (
-      k.kind === "world" &&
-      k.row === row &&
-      k.expected === expected &&
-      k.actual === actual &&
-      k.when(c, el, seat)
-    )
-      return true;
-  return false;
-}
 
+/** The body returned (or threw: `thrown` is the slot of the throw). The
+ * applier served the table's slot; the table's raise is applied to the
+ * shadow seat and the pass's world and seat after the read compared with
+ * the old state the mechanisms left. */
 export function shadowLeave(thrown: number): void {
   if (readDepth < 0) return;
   const f = frames[readDepth--];
@@ -1653,137 +1521,53 @@ export function shadowLeave(thrown: number): void {
   if (p === null) return; // no decision point reached: outside the table
   reads++;
   rowHits.set(p.row, (rowHits.get(p.row) ?? 0) + 1);
+  const predicted = plainSlot(p.slot, el);
   // (A truth read's own NotReady is the T slot's: `truthRead` throws when
   // the truth is not available yet.)
   const actual =
-    thrown !== SLOT_NONE ? (thrown === SLOT_NR && f.actual === SLOT_T ? SLOT_T : thrown) : f.actual;
+    thrown !== SLOT_NONE
+      ? thrown === SLOT_NR && f.actual === SLOT_T
+        ? SLOT_T
+        : thrown
+      : plainSlot(f.actual, el);
   const posture = f.posture;
   const seat = currentSeat();
-  // A known difference (filed): the read's side effects on the seat are
-  // the table's (the swap's behaviour); the old seat is not compared after
-  // it this pass, as the two have parted by construction.
-  if (
-    p.slot !== SLOT_SNAPSHOT &&
-    actual !== p.slot &&
-    shadowKnown("slot", p.row, p.slot, actual, c, el, seat)
-  ) {
-    if (seat !== null && c !== null && seat.node === c) {
-      if (p.raise & (MARK_AH | RAISE_VSEAT) && p.tx === null) p.tx = flushTransaction;
-      applyRaise(seat, p);
-      seat.known = true;
-    }
-    return;
-  }
-  if (p.slot !== SLOT_SNAPSHOT && actual !== p.slot)
+  if (predicted !== SLOT_SNAPSHOT && actual !== predicted)
     report(
-      "INV-seat-3",
+      "INV-seat-5",
       p.row,
       c,
       el,
-      `slot (${POSTURE_NAMES[posture]} posture; ${stateOf(c, el)})`,
-      p.slot,
+      `served slot is not the table's (${POSTURE_NAMES[posture]} posture; ${stateOf(c, el)})`,
+      predicted,
       actual
     );
-  // Mechanism agreement (S1 M2): the marks the row predicts against the
-  // mechanisms the old deciders fired, and the holds they name.
-  if (c !== null && p.slot !== SLOT_SNAPSHOT && actual === p.slot) {
-    const diff = (p.raise ^ f.marks) & COMPARED;
-    if (diff) {
-      // A world the two readings part on (a filed difference) is the world
-      // check's below, not a mark's.
-      const worldOnly = !(diff & ~(RAISE_H | RAISE_FL));
-      const flagWorld =
-        c._flags & REACTIVE_JOINED ? WORLD_H : c._flags & REACTIVE_STAGED_READ ? WORLD_FL : WORLD_S;
-      if (
-        !(
-          worldOnly &&
-          seat !== null &&
-          seat.node === c &&
-          knownWorld(p.row, seat.ownWorld, flagWorld, c, el, seat)
-        ) &&
-        !shadowKnown("marks", p.row, p.raise & COMPARED, f.marks & COMPARED, c, el, seat)
-      )
-        report(
-          "INV-seat-4",
-          p.row,
-          c,
-          el,
-          `marks (predicted ${raiseNames(p.raise & COMPARED)}, old ${raiseNames(f.marks & COMPARED)}; ${POSTURE_NAMES[posture]} posture; ${stateOf(c, el)})`,
-          p.slot,
-          actual
-        );
-    } else {
-      // (A row that opens the flush's transaction names the one it opened.)
-      const ahead =
-        p.raise & (MARK_AH | RAISE_VSEAT | MARK_JF0) && p.tx === null ? flushTransaction : p.tx;
-      if (p.raise & MARK_ST && f.stTx !== ahead)
-        report(
-          "INV-seat-4",
-          p.row,
-          c,
-          el,
-          `ST names another hold (${stateOf(c, el)})`,
-          p.slot,
-          actual
-        );
-      if (
-        p.raise & MARK_AH &&
-        (f.ahTx === null || ahead === null || resolveTx(f.ahTx) !== resolveTx(ahead))
-      )
-        report(
-          "INV-seat-4",
-          p.row,
-          c,
-          el,
-          `AH names another hold (${stateOf(c, el)})`,
-          p.slot,
-          actual
-        );
-      if (p.raise & MARK_LST && f.lstTx !== p.lane && f.lstTx !== p.tx)
-        report(
-          "INV-seat-4",
-          p.row,
-          c,
-          el,
-          `LST names another lane (${stateOf(c, el)})`,
-          p.slot,
-          actual
-        );
-    }
-  }
   if (seat !== null && c !== null && seat.node === c) {
     // A verdict read of a flight opens the flush's transaction if none has
-    // (`observeFlight`, `joinFuture(null)`): the hold the seat names is the
-    // one the read left behind.
-    if (p.raise & (MARK_AH | RAISE_VSEAT) && p.tx === null) p.tx = flushTransaction;
+    // (`joinFuture(null)`): the hold the seat names is the one the read
+    // left behind.
+    if (p.raise & (MARK_AH | RAISE_VSEAT | MARK_JF0) && p.tx === null) p.tx = flushTransaction;
     applyRaise(seat, p);
     // World agreement: the pass's own world against its flags (wiped at the
     // pass's head): JOINED is H, STAGED_READ is Fl. A leaf's too (INV-seat-1
     // as amended by D-27, 2026-10-28: a leaf that read a born node or the
     // hold's own staging is in the hold's world; one served the screen
     // raises nothing).
-    if (actual === p.slot && !seat.known) {
+    if (!seat.known) {
       const flagWorld =
         c._flags & REACTIVE_JOINED ? WORLD_H : c._flags & REACTIVE_STAGED_READ ? WORLD_FL : WORLD_S;
-      if (flagWorld !== seat.ownWorld) {
-        // A known difference (filed): the two worlds have parted for the
-        // rest of this pass.
-        if (shadowKnown("world", p.row, seat.ownWorld, flagWorld, c, el, seat)) {
-          seat.known = true;
-          return;
-        }
+      if (flagWorld !== seat.ownWorld)
         report(
           "INV-seat-3",
           p.row,
           c,
           el,
-          `world after the read (old ${flagWorld}, new ${seat.ownWorld}; ${POSTURE_NAMES[posture]} posture; raise ${p.raise}, ${stateOf(c, el)})`,
-          p.slot,
+          `world after the read (old ${flagWorld}, new ${seat.ownWorld}; ${POSTURE_NAMES[posture]} posture; raise ${raiseNames(p.raise)}, ${stateOf(c, el)})`,
+          predicted,
           actual
         );
-      }
       // Verdict seat agreement (today `passLane` is a verdict lane).
-      const oldV = oldVerdictSeat();
+      const oldV = readerVhold();
       if (oldV !== (seat.vhold && resolveTx(seat.vhold)) && seat.lane === laneOf(passLane))
         report(
           "INV-seat-3",
@@ -1791,7 +1575,7 @@ export function shadowLeave(thrown: number): void {
           c,
           el,
           `verdict seat after the read (old ${oldV ? "seated" : "none"}, new ${seat.vhold ? "seated" : "none"}; ${POSTURE_NAMES[posture]} posture)`,
-          p.slot,
+          predicted,
           actual
         );
     }
@@ -1820,7 +1604,7 @@ export function shadowSeatOpen(
       0,
       0
     );
-  const oldV = oldVerdictSeat();
+  const oldV = readerVhold();
   if (oldV !== (seat.vhold && resolveTx(seat.vhold)))
     report(
       "INV-seat-3",
@@ -1902,7 +1686,7 @@ export function shadowSeatClose(
       0,
       0
     );
-  const oldV = oldVerdictSeat();
+  const oldV = readerVhold();
   if (oldV !== (seat.vhold && resolveTx(seat.vhold)) && seat.lane === old)
     report(
       "INV-seat-3",

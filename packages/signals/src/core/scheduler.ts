@@ -61,9 +61,25 @@ import type { Computed, Owner, Signal } from "./types.js";
 //
 // Lanes (lanes.ts; installed when `createOptimistic` — or verdict.ts — is
 // imported; every call site is behind a bit or a `passLane` nothing else sets).
+/** The lane rows of the reader seat (lanes.ts `laneSlot`): a packed
+ * slot/raise, or the raise alone (slot 0) when the lane has nothing to serve
+ * and the plain rows go on (seat.ts `slot`). */
 export let laneReadHook:
-  | ((c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown)
+  | ((
+      c: Computed<any> | null,
+      el: Signal<any> | Computed<any>,
+      tracked: boolean,
+      spectate: boolean
+    ) => number)
   | null = null;
+/** The lane bits of a raise applied (lanes.ts `laneApply`): the seat move,
+ * the stale-of-a-lane mark, the leave, `entered`. */
+export let laneApplyHook:
+  | ((c: Computed<any>, raise: number, lane: Transaction | null) => void)
+  | null = null;
+/** The lane slots served (lanes.ts `laneServe`): Lv, Dv, T, a fold. */
+export let laneServeHook: ((el: Signal<any> | Computed<any>, slot: number) => unknown) | null =
+  null;
 export let laneStageHook:
   | ((
       el: Computed<any>,
@@ -97,6 +113,8 @@ export function armGuessing(): void {
 }
 export function installLaneHooks(
   read: NonNullable<typeof laneReadHook>,
+  apply: NonNullable<typeof laneApplyHook>,
+  serve: NonNullable<typeof laneServeHook>,
   stage: NonNullable<typeof laneStageHook>,
   outcome: NonNullable<typeof laneOutcomeHook>,
   write: NonNullable<typeof laneWriteHook>,
@@ -109,6 +127,8 @@ export function installLaneHooks(
   served: NonNullable<typeof laneServedHook>
 ): void {
   laneReadHook = read;
+  laneApplyHook = apply;
+  laneServeHook = serve;
   laneStageHook = stage;
   laneOutcomeHook = outcome;
   laneWriteHook = write;
@@ -178,16 +198,26 @@ export function installMarkHooks(
   releaseMarksHook = release;
   releaseAmbientMarksHook = releaseAmbient;
 }
-/** Verdicts (verdict.ts). */
-export let observeFlightHook: ((c: Computed<any>, el: Computed<any>) => boolean) | null = null;
+/** Verdicts (verdict.ts `verdictApply`): the verdict bits of a raise applied
+ * — the display-ahead route, the probe's re-run, the flight observed, the
+ * flush's transaction opened. Also the engine's presence: a verdict reader
+ * (CONFIG_VERDICT) exists only with it installed. */
+export let verdictApplyHook:
+  | ((
+      c: Computed<any>,
+      el: Signal<any> | Computed<any>,
+      raise: number,
+      tx: Transaction | null
+    ) => void)
+  | null = null;
 /** D-25's hold work (verdict.ts `holdWork`): on `source` going pending,
  * whether verdict reader `n` waits on it instead of re-deriving. */
 export let holdWorkHook: ((n: Computed<any>, source: Computed<any>) => unknown) | null = null;
 export function installVerdictHooks(
-  observeFlight: NonNullable<typeof observeFlightHook>,
+  apply: NonNullable<typeof verdictApplyHook>,
   holdWork: NonNullable<typeof holdWorkHook>
 ): void {
-  observeFlightHook = observeFlight;
+  verdictApplyHook = apply;
   holdWorkHook = holdWork;
 }
 /** External-source bridge (wired by enableExternalSource(); undefined while
@@ -1021,7 +1051,7 @@ export class GlobalQueue implements IQueue {
       // it (nothing commits this seam that could dispose it).
       // (Verdict readers exist only with the verdict engine installed.)
       const zombies = deferredZombies.splice(0);
-      if (observeFlightHook) {
+      if (verdictApplyHook) {
         zombies.sort((a, b) => a._height - b._height);
         for (let i = 0; i < zombies.length; i++)
           if (
@@ -1217,7 +1247,7 @@ export function reruns(u: Transaction): unknown {
         (s?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
     )
       continue;
-    if (r._flags & REACTIVE_FRAME_READ || (observeFlightHook && r._config & CONFIG_VERDICT)) {
+    if (r._flags & REACTIVE_FRAME_READ || (verdictApplyHook && r._config & CONFIG_VERDICT)) {
       // A memo re-deriving its own error holds the release as an effect
       // does (`land`): run first, the held runs showed that error beside a
       // frame about to replace it (#4407; #4284: the grouping never changes
