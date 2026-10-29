@@ -434,10 +434,15 @@ table) so the residue can be read against it.
 - **F-vlane — verdict lanes as node sets.** Today a pass that probed
   stages into the hold's _verdict lane_ (`CONFIG_OVERRIDE` node whose
   `_x._transaction` is the verdict lane), and its next pass is seated as
-  the verdict lane's by that membership (`recompute`'s head) — even a
-  pending re-pass whose `CONFIG_VERDICT` the head cleared (#3884), and a
+  the verdict lane's by that membership (`recompute`'s head) — a
   boundary output a display-ahead re-arm swapped (`fallback`'s `b._lane`,
-  #3540/#4337). The brief: "verdicts have NO node set; verdict passes are
+  #3540/#4337). The #3884 pending re-pass is not among these: in
+  `tests/superseded-transition-verdicts-3884.test.ts` the parked memo
+  never enters a verdict lane (its probe follows a staged plain read, so
+  `route` refuses — `verdict.ts` `JOINED|STAGED_READ`) and what the pin
+  exercises is `core.ts`'s `CONFIG_VERDICT` head-clear; that case is the
+  hold's own work under D-25's existing clause, not a persisted posture.
+  The brief: "verdicts have NO node set; verdict passes are
   seated by POSTURE", plus D-25's probe restart. Reading A (today): the
   seat persists through membership — a re-pass reads held nodes as a
   stale reader (C) before it probes again; the swap keeps showing the
@@ -455,17 +460,15 @@ table) so the residue can be read against it.
   nothing, so a `Loading` fallback that went up beside the held frame
   stays up beside it until the landing rather than travelling with the
   write's frame (#3540, #4337; `tests/loading-on-latest-fallback-4337.test.ts`,
-  `tests/loading-fallback-in-flush-3540.test.ts`), and today's verdict-lane
-  membership is only the mechanism that happens to carry it. The general
-  paragraph for D-25 is **not yet written**: as drafted it listed the
-  #3884 pending re-pass among re-runs whose plain read of the held node is
-  the screen's, which D-25's standing clause ("a pass that re-runs it
-  while its fetch is in flight reads plainly — following the change it is
-  fetching for — even if an earlier pass of it called `isPending` or
-  `latest`", #3884) and `tests/superseded-transition-verdicts-3884.test.ts`
-  contradict — the hold's own work reads its own staging, whatever its
-  seat. Until the paragraph is re-drafted around that clause, D-25 as it
-  stands is where the rule lives.
+  `tests/loading-on-rearm-3540.test.ts`,
+  `tests/loading-on-frame-following-3540.test.ts` §4–5), and today's
+  verdict-lane membership is only the mechanism that happens to carry it.
+  Written in D-25 as "A verdict posture outlives the pass that asked
+  (ruled 2026-10-28)". The general persistence claim (a probing memo's
+  later non-probing run reads a held node as the screen) rests on
+  `core.ts` — `CONFIG_VERDICT` set at the pass tail from the probe, cleared
+  only after a pass that did not probe, read by the next pass's frame
+  read — and has no dedicated pin yet; S1 adds one.
 - **F-leaf — a leaf's children.** INV-seat-1 keeps a leaf at world S;
   the brief inherits `{world, lane, ahead}` from the running creator.
   Today a render effect that read a born node (`L4`: `joinPass`) or the
