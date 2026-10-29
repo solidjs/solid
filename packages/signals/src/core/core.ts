@@ -399,6 +399,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     )
       el._config &= ~CONFIG_VERDICT;
     if (el._x !== null) {
+      // The seam's re-derive runs with the parked flight still current; any
+      // later pass asks its own question (`_parked`; only the lane engine
+      // parks one).
+      const p = laneStageHook && el._x._parked;
+      if (p && p !== el._x._inFlight) el._x._parked = undefined;
       el._x._inFlight = null;
       // Supersede is where an iterator flight dies (#3122): close it now.
       // Idempotent with the cleanup-channel close.
@@ -2195,7 +2200,14 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
 export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): void {
   if (!((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)) {
     c._flags |= REACTIVE_STAGED_READ;
-    if (laneSeamsHook && passLane !== null) stagedReaders.push(c);
+    // A verdict reader's too when it is an effect, before the frame has a
+    // transaction (after, `stagedScreen` serves it the screen): the staging
+    // is the frame's read, and the pass re-derives once as a verdict reader
+    // if the flush parks (D-22; D-25: the probe decides the posture in either
+    // read order). A memo's is the frame's derivation either way: a memo is
+    // not a leaf (`frameRead`).
+    if (laneSeamsHook && (passLane !== null || ((c as any)._type && c._config & CONFIG_VERDICT)))
+      stagedReaders.push(c);
   }
 }
 
