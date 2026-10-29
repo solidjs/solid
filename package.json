@@ -54,7 +54,7 @@
     "tsconfig-replace-paths": "^0.0.11",
     "turbo": "^2.10.10",
     "typescript": "~5.7.2",
-    "vite": "^6.0.0",
+    "vite": "^6.4.5",
     "vite-plugin-solid": "^2.6.1",
     "vitest": "^4.1.11"
   },

@@ -108,14 +108,14 @@ importers:
         specifier: ~5.7.2
         version: 5.7.3
       vite:
-        specifier: ^6.0.0
-        version: 6.4.3(@types/node@22.19.7)
+        specifier: ^6.4.5
+        version: 6.4.5(@types/node@22.19.7)
       vite-plugin-solid:
         specifier: ^2.6.1
-        version: 2.11.10(solid-js@1.9.17)(vite@6.4.3(@types/node@22.19.7))
+        version: 2.11.10(solid-js@1.9.17)(vite@6.4.5(@types/node@22.19.7))
       vitest:
         specifier: ^4.1.11
-        version: 4.1.11(@types/node@22.19.7)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@6.4.3(@types/node@22.19.7))
+        version: 4.1.11(@types/node@22.19.7)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@6.4.5(@types/node@22.19.7))
 
   packages/babel-preset-solid:
     dependencies:
@@ -2494,8 +2494,8 @@ packages:
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
-  nanoid@3.3.11:
-    resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
+  nanoid@3.3.20:
+    resolution: {integrity: sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -2650,10 +2650,6 @@ packages:
     resolution: {integrity: sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q==}
     engines: {node: '>=12'}
 
-  picomatch@4.0.5:
-    resolution: {integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==}
-    engines: {node: '>=12'}
-
   picomatch@4.0.7:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
@@ -2675,8 +2671,8 @@ packages:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
     engines: {node: '>= 0.4'}
 
-  postcss@8.5.6:
-    resolution: {integrity: sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==}
+  postcss@8.5.32:
+    resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
 
   prettier@2.8.8:
@@ -2866,6 +2862,10 @@ packages:
     peerDependencies:
       seroval: ^1.0
 
+  seroval@1.6.12:
+    resolution: {integrity: sha512-CqbIVfk/7GL3ITwZI55lcPbpQbjHZ2DD5cUj4iH7E9YsCfHNJV1mx7yNp86Z84w5IpmkZZS/2s5vPOWmVWSdQg==}
+    engines: {node: '>=10'}
+
   seroval@1.6.8:
     resolution: {integrity: sha512-HlSgSAkTk4EqHcje1ptJjfZi1YDv5KbhVJ/d3P7T/nAXua2VmDu+AKDX5VTdFfZf48nDkWB2TKYt0DrCSa+3wg==}
     engines: {node: '>=10'}
@@ -2966,6 +2966,10 @@ packages:
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
+    engines: {node: '>=0.10.0'}
+
+  source-map-js@1.2.2:
+    resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
 
   sourcemap-codec@1.4.8:
@@ -3217,8 +3221,8 @@ packages:
       '@testing-library/jest-dom':
         optional: true
 
-  vite@6.4.3:
-    resolution: {integrity: sha512-NTKlcQjlAK7MlQoyb6LgaqHc8sso/pVyUJYWMws3jg21uTJw/LddqIFPcPqP6PzpgbIcZyKI85sFE4HBrQDA8A==}
+  vite@6.4.5:
+    resolution: {integrity: sha512-4enwjFfi4IwtEh0w+jPzpLVOFQiPHmmzPxcHXQOyEur47o6u0jE573DmGpjA+7irXoMLYRZD5ZaFUEneS3abPg==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
     hasBin: true
     peerDependencies:
@@ -4700,7 +4704,7 @@ snapshots:
       obug: 2.1.4
       std-env: 4.2.0
       tinyrainbow: 3.1.1
-      vitest: 4.1.11(@types/node@22.19.7)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@6.4.3(@types/node@22.19.7))
+      vitest: 4.1.11(@types/node@22.19.7)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@6.4.5(@types/node@22.19.7))
 
   '@vitest/expect@4.1.11':
     dependencies:
@@ -4711,13 +4715,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.1
 
-  '@vitest/mocker@4.1.11(vite@6.4.3(@types/node@22.19.7))':
+  '@vitest/mocker@4.1.11(vite@6.4.5(@types/node@22.19.7))':
     dependencies:
       '@vitest/spy': 4.1.11
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 6.4.3(@types/node@22.19.7)
+      vite: 6.4.5(@types/node@22.19.7)
 
   '@vitest/pretty-format@4.1.10':
     dependencies:
@@ -5339,10 +5343,6 @@ snapshots:
   fastq@1.20.1:
     dependencies:
       reusify: 1.1.0
-
-  fdir@6.5.0(picomatch@4.0.5):
-    optionalDependencies:
-      picomatch: 4.0.5
 
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
@@ -5995,7 +5995,7 @@ snapshots:
 
   ms@2.1.3: {}
 
-  nanoid@3.3.11: {}
+  nanoid@3.3.20: {}
 
   ncp@2.0.0: {}
 
@@ -6125,8 +6125,6 @@ snapshots:
 
   picomatch@4.0.3: {}
 
-  picomatch@4.0.5: {}
-
   picomatch@4.0.7: {}
 
   pidtree@0.3.1: {}
@@ -6137,11 +6135,11 @@ snapshots:
 
   possible-typed-array-names@1.1.0: {}
 
-  postcss@8.5.6:
+  postcss@8.5.32:
     dependencies:
-      nanoid: 3.3.11
+      nanoid: 3.3.20
       picocolors: 1.1.1
-      source-map-js: 1.2.1
+      source-map-js: 1.2.2
 
   prettier@2.8.8: {}
 
@@ -6393,9 +6391,15 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  seroval-plugins@1.6.8(seroval@1.6.12):
+    dependencies:
+      seroval: 1.6.12
+
   seroval-plugins@1.6.8(seroval@1.6.8):
     dependencies:
       seroval: 1.6.8
+
+  seroval@1.6.12: {}
 
   seroval@1.6.8: {}
 
@@ -6501,8 +6505,8 @@ snapshots:
   solid-js@1.9.17:
     dependencies:
       csstype: 3.2.3
-      seroval: 1.6.8
-      seroval-plugins: 1.6.8(seroval@1.6.8)
+      seroval: 1.6.12
+      seroval-plugins: 1.6.8(seroval@1.6.12)
 
   solid-refresh@0.6.3(solid-js@1.9.17):
     dependencies:
@@ -6514,6 +6518,8 @@ snapshots:
       - supports-color
 
   source-map-js@1.2.1: {}
+
+  source-map-js@1.2.2: {}
 
   sourcemap-codec@1.4.8: {}
 
@@ -6775,7 +6781,7 @@ snapshots:
       core-util-is: 1.0.2
       extsprintf: 1.3.0
 
-  vite-plugin-solid@2.11.10(solid-js@1.9.17)(vite@6.4.3(@types/node@22.19.7)):
+  vite-plugin-solid@2.11.10(solid-js@1.9.17)(vite@6.4.5(@types/node@22.19.7)):
     dependencies:
       '@babel/core': 7.29.7
       '@types/babel__core': 7.20.5
@@ -6783,31 +6789,31 @@ snapshots:
       merge-anything: 5.1.7
       solid-js: 1.9.17
       solid-refresh: 0.6.3(solid-js@1.9.17)
-      vite: 6.4.3(@types/node@22.19.7)
-      vitefu: 1.1.1(vite@6.4.3(@types/node@22.19.7))
+      vite: 6.4.5(@types/node@22.19.7)
+      vitefu: 1.1.1(vite@6.4.5(@types/node@22.19.7))
     transitivePeerDependencies:
       - supports-color
 
-  vite@6.4.3(@types/node@22.19.7):
+  vite@6.4.5(@types/node@22.19.7):
     dependencies:
       esbuild: 0.25.12
-      fdir: 6.5.0(picomatch@4.0.5)
-      picomatch: 4.0.5
-      postcss: 8.5.6
+      fdir: 6.5.0(picomatch@4.0.7)
+      picomatch: 4.0.7
+      postcss: 8.5.32
       rollup: 4.62.4
       tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 22.19.7
       fsevents: 2.3.3
 
-  vitefu@1.1.1(vite@6.4.3(@types/node@22.19.7)):
+  vitefu@1.1.1(vite@6.4.5(@types/node@22.19.7)):
     optionalDependencies:
-      vite: 6.4.3(@types/node@22.19.7)
+      vite: 6.4.5(@types/node@22.19.7)
 
-  vitest@4.1.11(@types/node@22.19.7)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@6.4.3(@types/node@22.19.7)):
+  vitest@4.1.11(@types/node@22.19.7)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(vite@6.4.5(@types/node@22.19.7)):
     dependencies:
       '@vitest/expect': 4.1.11
-      '@vitest/mocker': 4.1.11(vite@6.4.3(@types/node@22.19.7))
+      '@vitest/mocker': 4.1.11(vite@6.4.5(@types/node@22.19.7))
       '@vitest/pretty-format': 4.1.11
       '@vitest/runner': 4.1.11
       '@vitest/snapshot': 4.1.11
@@ -6824,7 +6830,7 @@ snapshots:
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.1
-      vite: 6.4.3(@types/node@22.19.7)
+      vite: 6.4.5(@types/node@22.19.7)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 22.19.7
