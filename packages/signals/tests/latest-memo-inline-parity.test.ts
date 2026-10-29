@@ -159,7 +159,8 @@ describe("a plain write beside an async memo: the screen beside latest(), inline
   // `latest(s)` stood — one compute, one effect run — whether the reader is
   // a memo, a render effect or a user effect, of `latest(s)` or of
   // `latest(memo)`. The seam re-derives such a reader only if the frame
-  // parks.
+  // parks (D-22: `latest()` of a staging not yet held is the frame's read,
+  // opens no hold, and re-derives once only if the flush parks; F-10).
   for (const reader of ["memo", "render effect", "user effect", "render effect of latest(memo)"])
     it(`inline [s(), latest] in a flush that commits runs once: ${reader}`, () => {
       let set!: (v: number) => void;
