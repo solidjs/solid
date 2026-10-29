@@ -552,16 +552,13 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       // `isPending()` call pending. It stays loading until its flight
       // answers (D-22, A19 exc. 1; async-gen 3289 #929, 91501 #504, #156).
       x._transaction = null;
-      if (
-        effect ||
-        guess ||
-        slot !== NOT_PENDING ||
-        ((n as Computed<any>)._statusFlags & (STATUS_UNINITIALIZED | STATUS_PENDING)) !==
-          (STATUS_UNINITIALIZED | STATUS_PENDING) ||
-        !(x._inFlight || loading.some(q => x._pendingSources?.has(q)))
-      ) {
-        if (!effect && !guess) n._pendingValue = latest;
-      } else loading.push(n as Computed<any>);
+      if (!effect && !guess)
+        slot === NOT_PENDING &&
+        ((n as Computed<any>)._statusFlags & (STATUS_UNINITIALIZED | STATUS_PENDING)) ===
+          (STATUS_UNINITIALIZED | STATUS_PENDING) &&
+        (x._inFlight || loading.some(q => x._pendingSources?.has(q)))
+          ? loading.push(n as Computed<any>)
+          : (n._pendingValue = latest);
       commitPendingNode(n);
       if (!effect) {
         if (
