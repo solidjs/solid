@@ -218,58 +218,79 @@ describe("latest() of a first load in flight in a verdict lane throws, never und
     });
 });
 
-// C4: a render effect created by a held pass (ruling A: the transaction's,
-// it computes) beside the committed frame's effect, both reading
-// `[s(), L()]`. The committed frame's effect, a zombie of the parked frame
-// that read a verdict, re-runs at the park seam as the verdict lane's work
-// and tears (`v:0 l:1`, D-26) — inline as through a memo. Before, inline, its
-// run waited in a verdict lane born at that seam, which the seam did not
-// judge: it never ran during the hold (`l:0`). (The effect the held pass
-// created is not pinned here: inline it reads its transaction's values
-// (#4010); through a memo, with the guess engine installed, it is verdict
-// lane work re-derived on the screen.)
+// C4: a render effect created by a held pass beside the committed frame's
+// effect, both reading `[s(), L()]`.
+// - The committed frame's effect, a zombie of the parked frame that read a
+//   verdict, re-runs at the park seam as the verdict lane's work and tears
+//   (`v:0 l:1`, D-26). Before, inline, its run waited in a verdict lane born
+//   at that seam, which the seam did not judge (`l:0` through the hold).
+// - The held pass's effect was born into the frame (ruling A, #4010): it has
+//   no screen, its reads are the transaction's — `v:1 l:1`, one run, inline
+//   or through a memo. Before, through a memo once the guess engine had run,
+//   its verdict-memo read broke it out into the verdict lane, which
+//   re-derived it on the screen (`v:0 l:1`, then `v:1 l:1` at the landing).
+// Both with and without an optimistic action having run first (the guess
+// engine installed changes which seat a verdict-memo read takes).
 describe("C4: a render effect born in a held pass beside the committed frame's [s(), L()]", () => {
-  for (const via of ["inline", "memo"] as const)
-    it(`${via}: the committed frame's effect tears beside the hold`, async () => {
-      const log: string[] = [];
-      let done!: () => void;
-      let set!: (v: number) => void;
-      const dispose = createRoot(d => {
-        const [s, _set] = createSignal(0);
-        set = _set;
-        const L = via === "memo" ? createMemo(() => latest(s)) : () => latest(s);
-        const outer = createMemo(() => {
-          const v = s();
-          createRenderEffect(
-            () => `born@${v} v:${s()} l:${L()}`,
-            x => void log.push(x)
-          );
-          return v;
-        });
-        createRenderEffect(outer, x => void log.push(`o:${x}`));
-        return d;
-      });
-      flush();
-      expect(log).toEqual(["born@0 v:0 l:0", "o:0"]);
-      log.length = 0;
-      action(function* () {
-        set(1);
-        yield new Promise<void>(r => (done = r));
-      })();
-      flush();
-      await tick();
-      // The committed frame's effect: one run, the tear. The held pass's
-      // effect runs once (its seam re-derive would repeat its transaction's
-      // values).
-      expect(log.filter(x => x.startsWith("born@0"))).toEqual(["born@0 v:0 l:1"]);
-      expect(log.filter(x => x.startsWith("born@1")).length).toBe(1);
-      expect(log).not.toContain("o:1");
-      log.length = 0;
-      done();
-      await tick();
-      // The landing disposes it; the outer commits.
-      expect(log.filter(x => x.startsWith("born@0"))).toEqual([]);
-      expect(log).toContain("o:1");
-      dispose();
+  async function runGuessEngine() {
+    let resolve!: () => void;
+    let set!: (v: number) => void;
+    const dispose = createRoot(d => {
+      const [x, _set] = createOptimistic(0);
+      set = _set;
+      createRenderEffect(x, () => {});
+      return d;
     });
+    flush();
+    action(function* () {
+      set(1);
+      yield new Promise<void>(r => (resolve = r));
+    })();
+    flush();
+    resolve();
+    await tick();
+    dispose();
+  }
+  for (const engine of [false, true])
+    for (const via of ["inline", "memo"] as const)
+      it(`${via}${engine ? ", guess engine installed" : ""}: the committed frame's effect tears, the born one reads its transaction`, async () => {
+        if (engine) await runGuessEngine();
+        const log: string[] = [];
+        let done!: () => void;
+        let set!: (v: number) => void;
+        const dispose = createRoot(d => {
+          const [s, _set] = createSignal(0);
+          set = _set;
+          const L = via === "memo" ? createMemo(() => latest(s)) : () => latest(s);
+          const outer = createMemo(() => {
+            const v = s();
+            createRenderEffect(
+              () => `born@${v} v:${s()} l:${L()}`,
+              x => void log.push(x)
+            );
+            return v;
+          });
+          createRenderEffect(outer, x => void log.push(`o:${x}`));
+          return d;
+        });
+        flush();
+        expect(log).toEqual(["born@0 v:0 l:0", "o:0"]);
+        log.length = 0;
+        action(function* () {
+          set(1);
+          yield new Promise<void>(r => (done = r));
+        })();
+        flush();
+        await tick();
+        expect(log.filter(x => x.startsWith("born@0"))).toEqual(["born@0 v:0 l:1"]);
+        expect(log.filter(x => x.startsWith("born@1"))).toEqual(["born@1 v:1 l:1"]);
+        expect(log).not.toContain("o:1");
+        log.length = 0;
+        done();
+        await tick();
+        // The landing disposes the committed frame's effect; the outer
+        // commits; the born effect's values did not change.
+        expect(log).toEqual(["o:1"]);
+        dispose();
+      });
 });

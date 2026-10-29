@@ -1238,6 +1238,16 @@ export function creatorPass(owner: Owner | null): Computed<any> | null {
     : (owner as Computed<any> | null);
 }
 
+/** What `born` and the passes still running around `p` read — its
+ * creator's, theirs — of the future or a staging (REACTIVE_JOINED |
+ * REACTIVE_STAGED_READ): a pass created by one that did has no screen; its
+ * branch exists only in that world (#4341). */
+export function creatorReads(p: Computed<any> | null, born: number): number {
+  return (p = creatorPass(p!._parent))?._flags! & REACTIVE_RECOMPUTING_DEPS
+    ? creatorReads(p, born | p!._flags)
+    : born & (REACTIVE_JOINED | REACTIVE_STAGED_READ);
+}
+
 /** L2 — park the previous pass's frame for this node's commit: the children
  * (already allocated — nothing new) and the `_disposal` list move to the
  * extension, keep reacting from the heap, and die when the commit publishes
