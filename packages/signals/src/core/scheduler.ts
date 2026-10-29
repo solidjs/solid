@@ -174,11 +174,9 @@ export function installMarkHooks(
 }
 /** Verdicts (verdict.ts). */
 export let observeFlightHook: ((c: Computed<any>, el: Computed<any>) => boolean) | null = null;
-/** D-25's hold work (verdict.ts `holdWork`): at a pass's head, `n` alone —
- * drops a verdict role the pass does not take; at a pass's end, `n` twice —
- * keeps its async posture; on `source` going pending,
+/** D-25's hold work (verdict.ts `holdWork`): on `source` going pending,
  * whether verdict reader `n` waits on it instead of re-deriving. */
-export let holdWorkHook: ((n: Computed<any>, source?: Computed<any>) => unknown) | null = null;
+export let holdWorkHook: ((n: Computed<any>, source: Computed<any>) => unknown) | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
   holdWork: NonNullable<typeof holdWorkHook>
