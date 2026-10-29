@@ -61,7 +61,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { creatorReads, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
-import { adoptFlight, isThenable } from "./async.js";
+import { handleAsync, isThenable, notifyStatus, releaseFlightTeardown } from "./async.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
@@ -781,7 +781,7 @@ function laneSeam(l: Transaction, leaked: boolean): void {
   }
   l._held = false;
   l._shown = true;
-  reruns(l);
+  if (reruns(l)) revealing.push(resolveTx(l._parent!));
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i] as Computed<any>;
     if (n._flags & LEFT_SHOWN) {
@@ -847,8 +847,14 @@ function endLanes(u: Transaction): void {
 function lanesBlocked(t: Transaction): boolean {
   return (t._lane && linkBlocked(t)) || nestedBlocked(t);
 }
+/** Parents whose lane revealed this seam with readers to re-derive there
+ * (`laneSeam`): the lane shows ahead of its parent (F-6), so the parent lands
+ * a round later — after those readers have shown the lane's answer — even
+ * when nothing else holds it (#4393). */
+const revealing: Transaction[] = [];
 /** The lanes under `t` (its own; a link group's are each other's). */
 function nestedBlocked(t: Transaction): boolean {
+  if (revealing.indexOf(t) !== -1) return true;
   for (let i = 0; i < lanes.length; i++) {
     const l = lanes[i];
     if (resolveTx(l._parent!) !== t) continue;
@@ -947,19 +953,28 @@ const applyGuessesAt = (parent: Transaction | null): void => {
   judged = lanes.length;
   if (pendingGuesses.length !== 0) applyGuesses(parent);
 };
-/** `t` is parked by `r`'s pass alone: each node keeping it is a render
- * effect pending on `r` only — the frame observing the lane work that read
- * its staging. Anything else (an open action, a lane, a flight) holds it on
- * its own. */
+/** `t` is parked by `r`'s pass alone: each node keeping it — `t`'s own, or
+ * a lane's under it — is `r` itself (its flight, in the verdict lane) or a
+ * render effect pending on `r` only: the frame observing the lane work that
+ * read its staging. Anything else (an open action, a guess's flight,
+ * another flight) holds it on its own. */
 function heldBy(t: Transaction, r: Computed<any>): boolean {
-  if (t._open !== 0 || lanesBlocked(t)) return false;
-  for (let i = 0; i < t._nodes.length; i++) {
-    const n = t._nodes[i] as Computed<any>;
-    if (!(n._statusFlags & STATUS_PENDING) || (n._x!._transaction !== null && txOf(n) !== t))
-      continue;
-    const s = n._x!._pendingSources;
-    if ((n as any)._type !== EFFECT_RENDER || s?.size !== 1 || !s.has(r)) return false;
-  }
+  if (t._open !== 0 || (t._lane && linkBlocked(t))) return false;
+  for (let k = -1, u = t; u; u = lanes[++k])
+    if (u === t || resolveTx(u._parent!) === t) {
+      if (u !== t && guessFlights(u)) return false;
+      for (let i = 0; i < u._nodes.length; i++) {
+        const n = u._nodes[i] as Computed<any>;
+        if (
+          n === r ||
+          !(n._statusFlags & STATUS_PENDING) ||
+          (n._x!._transaction !== null && txOf(n) !== u)
+        )
+          continue;
+        const s = n._x!._pendingSources;
+        if ((n as any)._type !== EFFECT_RENDER || s?.size !== 1 || !s.has(r)) return false;
+      }
+    }
   return true;
 }
 const laneSeams = (leaks: Computed<any>[] | null, t: Transaction | null): void => {
@@ -968,6 +983,7 @@ const laneSeams = (leaks: Computed<any>[] | null, t: Transaction | null): void =
   // re-derive on the committed world next round (and register as stale
   // readers of the transaction there); a lane's runs wait that round — a
   // lane sees the screen plus its own guesses.
+  if (revealing.length) revealing.length = 0;
   const leaked: Transaction[] = [];
   if (leaks !== null)
     for (let i = 0; i < leaks.length; i++) {
@@ -1011,10 +1027,19 @@ const laneSeams = (leaks: Computed<any>[] | null, t: Transaction | null): void =
       // answer: the landing adopts it rather than asking it again (F-9: a
       // re-ask of the same question is no new question; `reruns`). A frame
       // landing at this seam has nothing to re-derive: the pass was the
-      // landing's, its flight the screen's answer.
-      else if (!l?._lane && r._flags & REACTIVE_PROBE_UNANSWERED && isThenable(r._x?._inFlight)) {
-        if (!blocked(t!)) continue;
-        r._x!._parked = r._x!._inFlight;
+      // landing's, its flight the screen's answer. Sync or async, the
+      // reader's lane pass is still to come: the verdict lane it joins does
+      // not reveal this seam (F-6: the lane's readers show its answer
+      // together, D-23: atomic with the value) — revealed now, it showed a
+      // verdict beside the frame pass's value, before the pass that answers
+      // for the lane, and a reader of the re-derived memo read it outside
+      // the shown lane and waited for the frame (#4393).
+      else if (!l?._lane && r._flags & REACTIVE_PROBE_UNANSWERED) {
+        if (isThenable(r._x?._inFlight)) {
+          if (!blocked(t!)) continue;
+          r._x!._parked = r._x!._inFlight;
+        }
+        if (t?._verdict && leaked.indexOf(t._verdict) === -1) leaked.push(t._verdict);
       }
       enqueueSub(r);
       if (l?._lane && leaked.indexOf(l) === -1) leaked.push(l);
@@ -1032,11 +1057,21 @@ const laneSeams = (leaks: Computed<any>[] | null, t: Transaction | null): void =
 };
 /** The landing's re-derive of a reader whose frame flight the seam parked
  * (R5): the flight asked the question the landing would — adopted, it is
- * asked once (F-9). Not over a pass already queued: that one asks anew. */
+ * asked once (F-9). Not over a pass already queued: that one asks anew.
+ * Registered as if this pass had returned it — the node pending on it, its
+ * landing the answer — through a promise of its own: the frame pass's
+ * registration still listens to the flight, and must not land it a second
+ * time. */
 const adoptParked = (r: Computed<any>): boolean => {
   const parked = r._x?._parked;
   if (!parked || r._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP)) return false;
-  adoptFlight(r, parked);
+  r._x!._parked = null;
+  releaseFlightTeardown(r);
+  try {
+    handleAsync(r, parked.then());
+  } catch {}
+  r._x!._blocked = true;
+  notifyStatus(r, STATUS_PENDING, new NotReadyError(r));
   return true;
 };
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */

@@ -406,24 +406,6 @@ export function onSupersede(fn: () => void): void {
         };
 }
 
-/** The landing's re-derive of a reader whose frame flight the seam parked
- * (`_parked`, R5): the flight is registered as if this pass had returned it
- * — the node pending on it, its landing the answer. Through a promise of
- * its own: the frame pass's registration still listens to the flight, and
- * must not land it a second time. */
-export function adoptFlight(el: Computed<any>, flight: PromiseLike<any>): void {
-  el._x!._parked = null;
-  releaseFlightTeardown(el);
-  try {
-    handleAsync(
-      el,
-      flight.then(v => v)
-    );
-  } catch {}
-  el._x!._blocked = true;
-  notifyStatus(el, STATUS_PENDING, new NotReadyError(el));
-}
-
 export function handleAsync<T>(
   el: Computed<T>,
   result: T | PromiseLike<T> | AsyncIterable<T>,

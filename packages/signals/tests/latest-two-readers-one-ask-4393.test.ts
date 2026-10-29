@@ -25,7 +25,8 @@ import {
   createSignal,
   flush,
   isPending,
-  latest
+  latest,
+  untrack
 } from "../src/index.js";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -188,5 +189,154 @@ describe("#4400: a second write during the hold, distinct encoding", () => {
     dispose();
     expect(asks).toEqual(["m0:23", "m0:22", "m0:32", "m1:33", "m0:34", "m1:35"]);
     expect(out.at(-1)).toBe(reader === "pair" ? "false,35" : "pfalse");
+  });
+});
+
+// F-6: a `latest()` reader shows the held change now, beside the held screen,
+// whatever the grouping (#4284) — and its re-derived memo's readers show the
+// lane's answer together. R5 re-derives the frame pass of a `latest()` reader
+// in the verdict lane once the flush parks; the verdict lane it joins does
+// not reveal at that seam (lanes.ts `laneSeams`), and a parent whose lane
+// reveals with readers to re-derive lands a round later (`revealing`), so
+// those readers show the lane's answer before the parent's (F-6: the lane
+// reveals at its own landing, ahead of the parent's).
+describe("#4393: a latest() reader's lane answer reaches the screen", () => {
+  // m0 = an async memo over `latest(s) + s()`; the same flush writes `w`,
+  // whose unrelated async `X` takes 60 ms and keeps the flush parked. An
+  // `isPending(m0)` effect beside `v${m0()}` must not change what it shows
+  // (D-23: the verdict is atomic with the value; F-6: grouping never
+  // changes the result). It sat in the verdict lane, which revealed at the
+  // write before m0's lane pass joined it; m0's reader then read m0 outside
+  // that shown lane and waited for `X`.
+  for (const sibling of [false, true])
+    it(`v(m0) shows the display-ahead answer mid-flight ${sibling ? "with" : "without"} an isPending(m0) sibling`, async () => {
+      const [s, setS] = createSignal(1);
+      const [w, setW] = createSignal(1);
+      const out: string[] = [];
+      const ask = (v: number, ms: number) => sleep(ms).then(() => v);
+      const dispose = createRoot(dispose => {
+        const m0 = createMemo(() => ask(1 + 10 * latest(s) + s(), 10));
+        const X = createMemo(() => ask(w(), 60));
+        createRenderEffect(X, () => {});
+        untrack(() =>
+          createLoadingBoundary(
+            () => {
+              if (sibling)
+                createRenderEffect(
+                  () => isPending(m0),
+                  () => {}
+                );
+              createRenderEffect(
+                () => `v${m0()}`,
+                v => void out.push(v)
+              );
+              return null;
+            },
+            () => "L"
+          )
+        );
+        return dispose;
+      });
+      flush();
+      await settle();
+      out.length = 0;
+      setS(2);
+      setW(2);
+      flush();
+      await sleep(25);
+      flush();
+      expect(out).toEqual(["v22"]);
+      await settle();
+      await settle();
+      dispose();
+      expect(out).toEqual(["v22", "v23"]);
+    });
+
+  // An async memo over `latest(s)*10 + s()*100`, held only by its own
+  // flight. The verdict lane asks m1:120 (F-6: async derived from a
+  // display-ahead read is the lane's); its answer shows, then the frame's
+  // m1:220 — inline and with `latest(s)` extracted into a memo (Ryan,
+  // 2026-10-29: `latest()` tears beside the held screen whatever the
+  // grouping, #4284). The lane and its parent landed at one seam, and the
+  // parent's landing adopted its frame flight before the lane's reader had
+  // re-run: only v220 showed.
+  for (const form of ["inline", "memo"] as const)
+    it(`async m1 over latest(s) (${form}) shows the display-ahead answer, then the frame's`, async () => {
+      const [s, setS] = createSignal(1);
+      const out: string[] = [];
+      const dispose = createRoot(dispose => {
+        const v = form === "memo" ? createMemo(() => latest(s)) : () => latest(s);
+        const m1 = createMemo(() => {
+          const x = v() * 10 + s() * 100;
+          return sleep(10).then(() => x);
+        });
+        untrack(() =>
+          createLoadingBoundary(
+            () => {
+              createRenderEffect(
+                () => `v${m1()}`,
+                x => void out.push(x)
+              );
+              return null;
+            },
+            () => "L"
+          )
+        );
+        return dispose;
+      });
+      flush();
+      await settle();
+      out.length = 0;
+      setS(2);
+      flush();
+      await settle();
+      await settle();
+      dispose();
+      expect(out).toEqual(["v120", "v220"]);
+    });
+
+  // A sync memo over `latest(s) + s()` under an unrelated hold, read as
+  // `[isPending(m0), m0()]`: the pair shows the lane's `false,22` at once.
+  // The verdict lane revealed the frame pass's `true,12` first, before the
+  // pass that answers for the lane (D-22: if the flush parks, the pass
+  // re-derives once as a verdict reader; D-23).
+  it("a sync latest() memo's pair reader under an unrelated hold shows the lane's verdict directly", async () => {
+    const [s, setS] = createSignal(1);
+    const [w, setW] = createSignal(1);
+    const out: string[] = [];
+    const dispose = createRoot(dispose => {
+      const m0 = createMemo(() => 1 + 10 * latest(s) + s());
+      const X = createMemo(() => {
+        const v = w();
+        return sleep(60).then(() => v);
+      });
+      createRenderEffect(X, v => void out.push(`x${v}`));
+      untrack(() =>
+        createLoadingBoundary(
+          () => {
+            createRenderEffect(
+              () => `${isPending(m0)},${m0()}`,
+              v => void out.push(v)
+            );
+            return null;
+          },
+          () => "L"
+        )
+      );
+      return dispose;
+    });
+    flush();
+    await settle();
+    out.length = 0;
+    setS(2);
+    setW(2);
+    flush();
+    await sleep(25);
+    flush();
+    expect(out).toEqual(["false,22"]);
+    await settle();
+    await settle();
+    dispose();
+    expect(out).toEqual(["false,22", "x2", "false,23"]);
   });
 });

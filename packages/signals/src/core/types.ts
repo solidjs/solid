@@ -126,7 +126,7 @@ export interface NodeExtension {
   /** R5: the frame pass's flight of a `latest()`/`isPending()` reader the
    * seam re-derived in the verdict lane (lanes.ts `laneSeams`) — the
    * frame's answer to the question it asked, which the transaction's
-   * landing adopts instead of asking it again (`adoptFlight`, F-9). Cleared
+   * landing adopts instead of asking it again (lanes.ts `adoptParked`, F-9). Cleared
    * by any later pass. */
   _parked: PromiseLike<any> | null;
 }
