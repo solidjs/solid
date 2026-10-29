@@ -1,5 +1,6 @@
 import {
   CONFIG_AUTO_DISPOSE,
+  CONFIG_ASYNC,
   CONFIG_REDERIVE,
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
@@ -444,6 +445,7 @@ export function handleAsync<T>(
   }
 
   if (!thenable && !iterator) {
+    el._config &= ~CONFIG_ASYNC;
     if (el._x !== null) el._x._inFlight = null;
     // A sync landing is the first real answer for a loadingValue node.
     el._loading = false;
@@ -479,6 +481,7 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
+  el._config |= CONFIG_ASYNC;
   // The question this flight answers (A18 provenance, lanes.ts): the action
   // whose slice asked it; mainline is always the current question.
   el._x!._q = question || MAINLINE_QUESTION;
@@ -1008,21 +1011,8 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     // Inheriting the error would make a probe's reader errored. A boundary's
     // output (CONFIG_REDERIVE, boundaries.ts) the same: content or fallback
     // is its pass's call.
-    // Not an async memo that is a verdict reader only by reading a verdict
-    // memo (F-6, #4050: it opened no window of its own — REACTIVE_WINDOW,
-    // whose bit >> 6 is CONFIG_VERDICT's) when that verdict memo goes
-    // pending: re-derived, it is served the committed value it already
-    // derived from (A10) and asks that question again. What it read ahead is
-    // in flight, so it is pending through the flight like any derivation
-    // (F-9) and the hold's work until the flight lands, reading plainly
-    // (D-25, #3884): it asks once, at the landing. A sync one re-derives as
-    // before — asking nothing, it stays the lane's. (`_inFlight` is its last
-    // pass's flight, landed or not; a sync pass clears it.)
     if (
-      (sub._config &= ~(pendingSource && sub._x?._inFlight
-        ? el._config & (~sub._flags >> 6) & CONFIG_VERDICT
-        : 0)) &
-        (CONFIG_REDERIVE | CONFIG_VERDICT) ||
+      sub._config & (CONFIG_REDERIVE | CONFIG_VERDICT) ||
       (status === STATUS_PENDING && link._gen !== sub._depGen)
     ) {
       enqueueSub(sub);
