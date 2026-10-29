@@ -84,6 +84,10 @@ export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
 /** R5 (lanes.ts `laneSeams` parks a frame flight): the landing's re-derive
  * of a reader adopts the flight instead (true: adopted, nothing to queue). */
 export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
+/** core.ts `frameRead` served lane work or a verdict reader a held node's
+ * committed value (lanes.ts `laneServed`). */
+export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
+  null;
 /** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
  * reaches (CONFIG_GUESS) — a build without `createOptimistic` or
  * `createOptimisticStore` never sets it, and its bundler folds them. */
@@ -101,7 +105,8 @@ export function installLaneHooks(
   corrections: NonNullable<typeof laneCorrectionsHook>,
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
-  adopt: NonNullable<typeof laneAdoptHook>
+  adopt: NonNullable<typeof laneAdoptHook>,
+  served: NonNullable<typeof laneServedHook>
 ): void {
   laneReadHook = read;
   laneStageHook = stage;
@@ -113,6 +118,7 @@ export function installLaneHooks(
   endLanesHook = end;
   lanesBlockedHook = blocked;
   laneAdoptHook = adopt;
+  laneServedHook = served;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary
@@ -174,8 +180,15 @@ export function installMarkHooks(
 }
 /** Verdicts (verdict.ts). */
 export let observeFlightHook: ((c: Computed<any>, el: Computed<any>) => boolean) | null = null;
-export function installVerdictHooks(observeFlight: NonNullable<typeof observeFlightHook>): void {
+/** D-25's hold work (verdict.ts `holdWork`): on `source` going pending,
+ * whether verdict reader `n` waits on it instead of re-deriving. */
+export let holdWorkHook: ((n: Computed<any>, source: Computed<any>) => unknown) | null = null;
+export function installVerdictHooks(
+  observeFlight: NonNullable<typeof observeFlightHook>,
+  holdWork: NonNullable<typeof holdWorkHook>
+): void {
   observeFlightHook = observeFlight;
+  holdWorkHook = holdWork;
 }
 /** External-source bridge (wired by enableExternalSource(); undefined while
  * no config is active — including after _resetExternalSourceConfig()). */

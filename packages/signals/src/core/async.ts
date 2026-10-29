@@ -1,4 +1,5 @@
 import {
+  CONFIG_ASYNC,
   CONFIG_AUTO_DISPOSE,
   CONFIG_REDERIVE,
   CONFIG_GUESS,
@@ -13,6 +14,7 @@ import {
   EFFECT_USER,
   NOT_PENDING,
   REACTIVE_DIRTY,
+  REACTIVE_WINDOW,
   REACTIVE_DISPOSED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_REASK,
@@ -44,6 +46,7 @@ import {
   schedule,
   txOf,
   freshHook,
+  holdWorkHook,
   guessing,
   laneStageHook
 } from "./scheduler.js";
@@ -426,7 +429,10 @@ export function handleAsync<T>(
   }
 
   if (!thenable && !iterator) {
-    if (el._x !== null) el._x._inFlight = null;
+    if (el._x !== null) {
+      el._x._inFlight = null;
+      el._config &= ~CONFIG_ASYNC;
+    }
     // A sync landing is the first real answer for a loadingValue node.
     el._loading = false;
     return result as T;
@@ -461,6 +467,9 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
+  // D-25 (verdict.ts `holdWork`): an async memo whose answering pass opened
+  // no verdict window of its own (`markVerdictReader` clears the bit).
+  if (!(el._flags & REACTIVE_WINDOW)) el._config |= CONFIG_ASYNC;
   // The question this flight answers (A18 provenance, lanes.ts): the action
   // whose slice asked it; mainline is always the current question.
   el._x!._q = question || MAINLINE_QUESTION;
@@ -988,8 +997,15 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     // Inheriting the error would make a probe's reader errored. A boundary's
     // output (CONFIG_REDERIVE, boundaries.ts) the same: content or fallback
     // is its pass's call.
+    // Not one D-25 makes the hold's work (verdict.ts `holdWork`): an async
+    // memo with no verdict window of its own reads a verdict memo's value,
+    // and that source going pending changes none of its reads — re-derived,
+    // it is served the committed value it already derived from (A10) and
+    // asks that question again. It waits on the source like any derivation
+    // (F-9), and asks its next question once, at the landing (#4397).
     if (
-      sub._config & (CONFIG_REDERIVE | CONFIG_VERDICT) ||
+      sub._config & CONFIG_REDERIVE ||
+      (sub._config & CONFIG_VERDICT && !(pendingSource && holdWorkHook!(sub, el))) ||
       (status === STATUS_PENDING && link._gen !== sub._depGen)
     ) {
       enqueueSub(sub);

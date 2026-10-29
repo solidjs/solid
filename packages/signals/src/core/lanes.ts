@@ -61,7 +61,13 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { creatorReads, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
-import { handleAsync, isThenable, notifyStatus, releaseFlightTeardown } from "./async.js";
+import {
+  handleAsync,
+  isThenable,
+  notifyStatus,
+  releaseFlightTeardown,
+  removePendingSource
+} from "./async.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
@@ -1074,6 +1080,17 @@ const adoptParked = (r: Computed<any>): boolean => {
   notifyStatus(r, STATUS_PENDING, new NotReadyError(r));
   return true;
 };
+/** A15: lane work or a verdict reader was served `el`'s committed value
+ * (core.ts `frameRead`), so its pass does not wait on `el`'s flight: what
+ * `el`'s pending propagated onto it before the pass (its origins, `el`
+ * included) is not this pass's — the landing re-derives it (`reruns`).
+ * Kept, a pass that went pending on another source never woke when that
+ * source settled (#4397). Only a reader something made pending has anything
+ * to drop. */
+const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => {
+  const from = (el as Computed<any>)._x?._pendingSources;
+  if (from && c._x?._pendingSources) for (const s of from) removePendingSource(c, s);
+};
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
 installLaneHooks(
@@ -1086,7 +1103,8 @@ installLaneHooks(
   () => lanes.length !== 0 && laneCorrections(),
   endLanes,
   lanesBlocked,
-  adoptParked
+  adoptParked,
+  laneServed
 );
 if (__OBSERVE__)
   GlobalQueue._laneGuesses = t => {
