@@ -213,9 +213,10 @@ async function twoVerdicts(grouped: boolean) {
   const [s, setS] = createSignal(1);
   const [t, setT] = createSignal(0);
   const asks: string[] = [];
+  const { land, fly } = inFlight();
   const ask = (name: string, v: number) => {
     asks.push(`${name}:${v}`);
-    return sleep(10).then(() => v);
+    return fly(v);
   };
   const shown = { pending: "", value: "" };
   createRoot(() => {
@@ -245,14 +246,16 @@ async function twoVerdicts(grouped: boolean) {
     );
   });
   flush();
-  await settle();
+  await land();
   asks.length = 0;
+  // The s write's first flights land, then t is written while the
+  // landing's `m1` question is up.
   setS(2);
-  await sleep(12);
   flush();
+  await land(1);
   setT(1);
-  await settle();
-  await settle();
+  flush();
+  await land();
   return { asks, shown };
 }
 
