@@ -377,6 +377,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   }
   // CARVE 2: lane posture resolution (OPTIMISTIC_DIRTY, derived-override
   // re-derivation, lane adoption through deps) went with the optimistic engine.
+  // An error a pass staged, which this pass replaces (`valueChanged`).
+  const replaced = el._config & CONFIG_STAGED_ERROR;
   if (!create) {
     deleteFromHeap(el, dirtyQueue);
     // A pending flight is the transition's own work (#3884), and so is a
@@ -727,8 +729,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           ? el._x!._lane
           : el._value;
     // A throwing comparator is contained inside `isSame` (A3, #2837; #4111).
+    // A pass replacing an error this node staged is a new answer, even the
+    // committed value (D-41: a recovery equal to the last good value is a
+    // change): the slot it publishes to held the error, and the readers that
+    // derived from it — `latest()` throws it — re-derive (#4403).
     const valueChanged =
-      (!isEffect && wasUninitialized) || !!el._x?._shownError || !isSame(el, compareValue, value);
+      (!isEffect && wasUninitialized) ||
+      !!el._x?._shownError ||
+      !!replaced ||
+      !isSame(el, compareValue, value);
 
     // A committed derived change becomes a cause for this node's subscribers,
     // chaining their attribution through this node to the root write.
@@ -2107,7 +2116,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (tracking && (owner as Computed<any>)._time < clock) {
       recompute(owner as Computed<unknown>);
       return read(el);
-    } else throw (owner as Computed<any>)._x?._error;
+    }
+    // D-41: a staged error replacing the shown one is this flush's answer
+    // (`stageError`): a reader served the staging (`serve`) throws it, as it
+    // would read a staged value, and stages its own error with it; one
+    // served the screen throws the shown error. Thrown the shown error, a
+    // reader born this flush published it, and its readers' stale error
+    // committed after the new one (#4404).
+    if (!committed && el._config & CONFIG_STAGED_ERROR) serve(el, c as Computed<any> | null);
+    throw (owner as Computed<any>)._x?._error;
   }
 
   // D-41: an untracked read reads the screen, and so does a frame reader
