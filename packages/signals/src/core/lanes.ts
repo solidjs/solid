@@ -508,6 +508,8 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
     l._verdict = null;
     if (lanes.indexOf(v) !== -1) dissolveLane(v, null);
   }
+  // First loads this dissolution leaves loading (below).
+  const loading: Computed<any>[] = [];
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i];
     const x = n._x!;
@@ -543,22 +545,23 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       // lane's answer beside inputs that are the truth now: a fresh reader
       // of its flight observes it (#3648, #3651; #3305's commit beneath a
       // flight).
-      // Not a first load whose own flight is up and already observed (its
-      // inputs published beneath it) with nothing produced in the lane:
-      // committing its empty `_value` would initialize it as `undefined`,
-      // and `latest()` would serve that. It stays loading until its flight
-      // answers (D-22; async-gen seed 3289 #929).
+      // Not a first load the lane produced nothing for whose own flight is
+      // up, nor one pending on such a load kept here (an identity memo of
+      // it, a derived store's derive): committing its empty `_value` would
+      // initialize it as `undefined`, which `latest()` would serve and
+      // `isPending()` call pending. It stays loading until its flight
+      // answers (D-22, A19 exc. 1; async-gen 3289 #929, 91501 #504, #156).
       x._transaction = null;
       if (
-        !effect &&
-        !guess &&
-        (slot !== NOT_PENDING ||
-          !x._inFlight ||
-          !(n._config & CONFIG_INPUTS_PUBLISHED) ||
-          ((n as Computed<any>)._statusFlags & (STATUS_UNINITIALIZED | STATUS_PENDING)) !==
-            (STATUS_UNINITIALIZED | STATUS_PENDING))
-      )
-        n._pendingValue = latest;
+        effect ||
+        guess ||
+        slot !== NOT_PENDING ||
+        ((n as Computed<any>)._statusFlags & (STATUS_UNINITIALIZED | STATUS_PENDING)) !==
+          (STATUS_UNINITIALIZED | STATUS_PENDING) ||
+        !(x._inFlight || loading.some(q => x._pendingSources?.has(q)))
+      ) {
+        if (!effect && !guess) n._pendingValue = latest;
+      } else loading.push(n as Computed<any>);
       commitPendingNode(n);
       if (!effect) {
         if (

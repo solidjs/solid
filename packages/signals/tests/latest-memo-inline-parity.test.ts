@@ -24,7 +24,9 @@ import {
   createRenderEffect,
   createRoot,
   createSignal,
+  createStore,
   flush,
+  isPending,
   latest
 } from "../src/index.js";
 
@@ -293,4 +295,113 @@ describe("C4: a render effect born in a held pass beside the committed frame's [
         expect(log).toEqual(["o:1"]);
         dispose();
       });
+});
+
+// E2/E3 twins of the first-load rule (async-gen seed 91501 #504): the leaf
+// reads `latest(view)` where `view` is the async derivation itself, an
+// identity memo of it, or a derived store's `v` over it. Its first load is
+// in flight in a verdict lane and has produced nothing: loading in all three
+// (D-22) — the boundary keeps its fallback. Before, the lane's dissolution
+// committed the identity memo (pending on that load, no flight of its own)
+// as `undefined`, and `latest()` served it.
+describe("latest() of a first load in flight read through an identity memo or a derived store is loading", () => {
+  for (const view of ["direct", "identity", "store"] as const)
+    it(view, async () => {
+      const seen: string[] = [];
+      const resolvers: (() => void)[] = [];
+      let set!: (v: number) => void;
+      const dispose = createRoot(d => {
+        const [s, _set] = createSignal(0);
+        set = _set;
+        const m0 = createMemo(() => 1 + latest(s) + s());
+        const m1 = createMemo(() => {
+          const v = 1 + latest(m0) + m0();
+          return new Promise<number>(r => resolvers.push(() => r(v)));
+        });
+        let read: () => number | undefined = m1;
+        if (view === "identity") read = createMemo(() => m1());
+        else if (view === "store") {
+          const [store] = createStore<{ v?: number }>(d => {
+            d.v = m1();
+          }, {});
+          read = () => store.v;
+        }
+        const b = createLoadingBoundary(
+          () => {
+            // One hole each, as a compiled leaf has them.
+            createRenderEffect(
+              () => `lm1:${latest(read)}`,
+              v => void seen.push(v)
+            );
+            createRenderEffect(s, () => {});
+            createRenderEffect(
+              () => latest(s),
+              () => {}
+            );
+            return "content";
+          },
+          () => "[L]"
+        );
+        createRenderEffect(b, v => void seen.push(`view=${v}`));
+        return d;
+      });
+      flush();
+      expect(seen).toEqual(["view=[L]"]);
+      set(2);
+      await tick();
+      expect(seen).toEqual(["view=[L]"]);
+      expect(seen.some(x => x.includes("undefined"))).toBe(false);
+      resolvers.forEach(r => r());
+      await tick();
+      expect(seen.slice(1).sort()).toEqual(["lm1:11", "view=content"]);
+      dispose();
+    });
+});
+
+// async-gen seed 91501 #156: `isPending(m0)` of a first load in flight in a
+// verdict lane is loading, as `latest()` of it is (A19 exc. 1, D-22): the
+// boundary keeps its fallback until a load lands. Before, the lane pass
+// answered `true` and the boundary revealed; the pass after the lane's
+// dissolution (the load kept uninitialized) threw, and the revealed leaf
+// never ran.
+describe("isPending() of a first load in flight in a verdict lane is loading", () => {
+  it("the boundary keeps its fallback until the load lands", async () => {
+    const seen: string[] = [];
+    const flights: { v: number; settle: () => void }[] = [];
+    let set!: (v: number) => void;
+    const dispose = createRoot(d => {
+      const [s, _set] = createSignal(0, { ownedWrite: true });
+      set = _set;
+      const m0 = createMemo(() => {
+        const v = 1 + latest(s);
+        return new Promise<number>((res, rej) =>
+          flights.push({ v, settle: () => (v === 1 ? rej(new Error("m0:1")) : res(v)) })
+        );
+      });
+      const b = createLoadingBoundary(
+        () => {
+          createRenderEffect(
+            () => `ls:${latest(s)} pm:${isPending(m0)}`,
+            v => void seen.push(v)
+          );
+          return "content";
+        },
+        () => "[L]"
+      );
+      createRenderEffect(b, v => void seen.push(`view=${v}`));
+      return d;
+    });
+    flush();
+    set(3);
+    await new Promise(r => setTimeout(r, 0));
+    flush();
+    expect(seen).toEqual(["view=[L]"]);
+    flights.shift()!.settle();
+    await tick();
+    expect(seen).toEqual(["view=[L]"]);
+    flights.shift()!.settle();
+    await tick();
+    expect(seen).toEqual(["view=[L]", "ls:3 pm:false", "view=content"]);
+    dispose();
+  });
 });
