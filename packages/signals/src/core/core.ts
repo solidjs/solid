@@ -461,9 +461,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // Capture both error and pending status before the compute clears them.
   // A conditional can drop its pending source and recover to an unchanged
   // value, leaving blocked dependents outside that source’s settle walk.
-  const outgoingError = el._statusFlags & STATUS_ERROR ? el._x?._error : undefined;
+  const outgoingError = el._statusFlags & STATUS_ERROR && el._x?._error;
   const wasPending = (el._statusFlags & STATUS_PENDING) !== 0;
-  const outgoingPendingSources = wasPending ? el._x?._pendingSources : undefined;
+  const outgoingPendingSources = wasPending && el._x?._pendingSources;
   // Pending SOURCE-hood, captured before the compute clears status: a node
   // whose own flight parked dependents self-registers in _pendingSources
   // (notifyStatus, isSource). If this recompute supersedes that flight and
@@ -850,7 +850,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // recoveries ride insertSubs above; a comparator throw re-errored the node
     // (el._x?._error re-set), so this only runs on a genuinely clean recovery.
     if (!valueChanged && !el._x?._error) {
-      if (outgoingError !== undefined) settleErroredDependents(el, outgoingError);
+      if (outgoingError) settleErroredDependents(el, outgoingError);
       // Self-registration (this node's own superseded flight) is the #3181
       // sweep's business below — retiring it here too would walk twice.
       if (outgoingPendingSources)
