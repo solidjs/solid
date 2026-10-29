@@ -1,8 +1,9 @@
-// A memo that reads a verdict memo is a verdict reader (F-6, #4050) without
-// opening a window of its own. When that verdict memo goes pending, what the
-// memo read ahead is in flight: it is pending through the flight like any
-// derivation (F-9) and the hold's work until it lands (D-25, #3884), so an
-// async one asks its next question once, at the landing. Before: `m1` over
+// A memo that reads a verdict memo is a verdict reader (D-25, #4050) without
+// opening a window of its own. When that verdict memo goes pending, none of
+// what an async one read changed: it waits on it like any derivation (F-9),
+// and a pass its hold re-runs is the hold's work, reading plainly (D-25,
+// #3884, verdict.ts `holdWork`), so it asks its next question once, at the
+// landing. Before: `m1` over
 // `m0 = ask(1 + latest(s) + s())` was re-derived when `m0` re-asked, served
 // `m0`'s committed value (A10) — the one it had already derived `m1:5` from —
 // and asked `m1:5` again; that flight held the verdict lane, `m0`'s landing
@@ -134,9 +135,10 @@ for (const reader of ["m1()", "[isPending(m1), m1()]"] as const)
 // Two verdict memos feeding one async memo (#4397 review): `m1` over
 // `m0 = ask(1 + latest(s) + s())` and `m0b = ask(10 * (latest(t) + t()))`,
 // `setS(2)` then `setT(1)` 12ms later. An async memo that opened no window
-// of its own takes no verdict role (core.ts `recompute`): it waits on its
-// sources like any derivation (F-9), so no question is asked twice, whether
-// `[isPending(m1), m1()]` is read in one render effect or in two (D-25).
+// of its own waits on a verdict source going pending like any derivation
+// (F-9), and its hold's re-run of it reads plainly (D-25, verdict.ts
+// `holdWork`), so no question is asked twice, whether `[isPending(m1), m1()]`
+// is read in one render effect or in two (D-25).
 async function twoVerdicts(grouped: boolean) {
   const [s, setS] = createSignal(1);
   const [t, setT] = createSignal(0);
@@ -335,3 +337,150 @@ it("held write, refresh mid-hold: every shape shows m1's lane answer", async () 
   for (const a of Object.values(asked))
     expect(a).toEqual(["m0:4", "m1:104", "m0:4", "m0:5", "m1:105"]);
 });
+
+// The `latest()` read extracted into a sync memo (D-22): `v` is a verdict
+// memo, and `m1`, an async memo over `v()` and `s()`, reads its value, so it
+// is a verdict reader itself (D-25, #4050), as the inline `latest(s)` makes
+// it. The write's verdict lane asks `m1:120` (`v`'s lane value, the
+// screen's `s()`), revealed ahead of the transaction (F-6: v120 then v220),
+// and the landing asks `m1:220` — each once, as inline. Before: an async
+// memo with no window of its own took no verdict role, so its pass at the
+// write read the transaction's staging and asked `m1:220`, the lane
+// re-derived it on the screen (`m1:120`), and the landing asked `m1:220`
+// again (F-9: a re-ask of the same question is no new question). A later
+// write before the landing is a new question, asked once.
+async function extracted(reader: "value" | "pair" | "split", second: boolean, inline = false) {
+  const [s, setS] = createSignal(1);
+  const [u, setU] = createSignal(0);
+  const asks: string[] = [];
+  const values: string[] = [];
+  const show = (x: string) => void (values.at(-1) !== x && values.push(x));
+  const dispose = createRoot(dispose => {
+    const v = inline ? () => latest(s) : createMemo(() => latest(s));
+    const m1 = createMemo(() => {
+      const q = v() * 10 + s() * 100 + u();
+      asks.push(`m1:${q}`);
+      return sleep(10).then(() => q);
+    });
+    createLoadingBoundary(
+      () => {
+        if (reader === "pair")
+          createRenderEffect(
+            () => [isPending(m1), m1()] as const,
+            ([, x]) => show(`v${x}`)
+          );
+        else if (reader === "split") {
+          createRenderEffect(
+            () => isPending(m1),
+            () => {}
+          );
+          createRenderEffect(m1, x => show(`v${x}`));
+        } else createRenderEffect(m1, x => show(`v${x}`));
+        return null;
+      },
+      () => "L"
+    );
+    return dispose;
+  });
+  flush();
+  await settle();
+  asks.length = 0;
+  setS(2);
+  flush();
+  if (second) {
+    await sleep(2);
+    flush();
+    setU(5);
+    flush();
+  }
+  await settle();
+  await settle();
+  dispose();
+  return { asks, values };
+}
+
+for (const reader of ["value", "pair", "split"] as const)
+  it(`${reader}: an async memo over a latest() memo asks each question once, as inline`, async () => {
+    for (const inline of [false, true]) {
+      const one = await extracted(reader, false, inline);
+      expect(one.asks).toEqual(["m1:120", "m1:220"]);
+      expect(one.values).toEqual(["v110", "v120", "v220"]);
+      const two = await extracted(reader, true, inline);
+      expect(two.asks).toEqual(["m1:120", "m1:125", "m1:225"]);
+      expect(two.values).toEqual(["v110", "v125", "v225"]);
+    }
+  });
+
+// A reader disposed and mounted again while the write's lane answer is in
+// flight: mounted mid-hold, it shows what is on the screen and reveals with
+// the hold (D-26), and grouping `[isPending(m1), m1()]` in one render effect
+// holds like `m1()` alone (F-6). Before: `m1`, no verdict reader, kept the
+// lane flight its reader had left, which landed after the lane ended — the
+// grouped remount showed `true,5`, a lane answer the screen never showed.
+async function remounted(reader: "value" | "pair" | "split", later: boolean) {
+  const [s, setS] = createSignal(1);
+  const [u, setU] = createSignal(0);
+  const asks: string[] = [];
+  const out: string[] = [];
+  const ask = (n: string, v: number) => {
+    asks.push(`${n}:${v}`);
+    return sleep(10).then(() => v);
+  };
+  let unmount!: () => void;
+  const mount = () =>
+    createRoot(d => {
+      unmount = d;
+      createLoadingBoundary(
+        () => {
+          const push = (x: string) => void out.push(x);
+          if (reader === "pair") createRenderEffect(() => `${isPending(m1)},${m1()}`, push);
+          else if (reader === "split") {
+            createRenderEffect(() => `p${isPending(m1)}`, push);
+            createRenderEffect(() => `v${m1()}`, push);
+          } else createRenderEffect(() => `v${m1()}`, push);
+          return null;
+        },
+        () => "L"
+      );
+    });
+  let m1!: () => number;
+  const dispose = createRoot(dispose => {
+    const m0 = createMemo(() => ask("m0", 1 + latest(s) + s()));
+    m1 = createMemo(() => ask("m1", 1 + m0() + u()));
+    createMemo(() => (s() === 1 ? 1 : sleep(80).then(() => 1)));
+    mount();
+    return dispose;
+  });
+  flush();
+  await settle();
+  asks.length = 0;
+  setS(2);
+  await sleep(12);
+  flush();
+  unmount();
+  flush();
+  await sleep(8);
+  mount();
+  flush();
+  if (later) setU(5);
+  await settle();
+  await settle();
+  unmount();
+  dispose();
+  return { asks, out };
+}
+
+for (const later of [false, true])
+  it(`remounted mid-flight${later ? ", then a write" : ""}: every shape shows the screen, then the landing`, async () => {
+    const last = later ? 11 : 6;
+    const value = await remounted("value", later);
+    expect(value.out).toEqual(["v4", `v${last}`]);
+    expect(new Set(value.asks).size).toBe(value.asks.length);
+    const pair = await remounted("pair", later);
+    expect(pair.out).toEqual(["false,4", "true,4", `false,${last}`]);
+    expect(pair.asks).toEqual(value.asks);
+    const split = await remounted("split", later);
+    expect(split.out.filter(x => x[0] === "v")).toEqual(value.out);
+    expect(split.out.filter(x => x[0] === "p").at(-1)).toBe("pfalse");
+    expect(split.asks).toEqual(value.asks);
+  });

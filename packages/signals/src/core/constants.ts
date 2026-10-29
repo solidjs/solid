@@ -70,8 +70,8 @@ export const REACTIVE_SCREEN_READ = 1 << 18;
 export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
 /** The pass opened a verdict window of its own (`isPending`/`latest`) — not
  * only read a verdict memo (F-6, core.ts `read`). An async memo whose pass
- * did not takes no verdict role (core.ts `recompute`, CONFIG_ASYNC). Per
- * pass (1 << 20 is lanes.ts's LEFT_SHOWN). */
+ * did not is D-25's hold work while its flight is up (verdict.ts
+ * `holdWork`). Per pass (1 << 20 is lanes.ts's LEFT_SHOWN). */
 export const REACTIVE_WINDOW = 1 << 21;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
@@ -221,12 +221,8 @@ export const CONFIG_KEY_BAG = 1 << 28;
  * joins nothing, so two mounts under one boundary made in separate flushes
  * keep their holds apart (D-4, S-5 rows 1′–3′, #4283). */
 export const CONFIG_FRAME = 1 << 23;
-/** The node's last pass that answered registered a flight (`_inFlight`):
- * an async memo. A sync answer clears it; a pass that threw (NotReady, or an
- * error) keeps the last answer's. Worked out once, at the end of each pass
- * (core.ts `recompute`). With no verdict window of its own
- * (REACTIVE_WINDOW), it takes no verdict role from the verdict memos it
- * reads (F-6). */
+/** The node's last answering pass registered a flight: an async memo. Kept
+ * by the verdict engine alone (verdict.ts `holdWork`), which reads it. */
 export const CONFIG_ASYNC = 1 << 29;
 
 export const STATUS_NONE = 0;

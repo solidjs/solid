@@ -6,7 +6,6 @@ import {
   parkLoadingWindow,
   releaseFlightTeardown,
   releaseIfSettledUnobserved,
-  removePendingSource,
   settleErroredDependents,
   settlePendingSource,
   stageError
@@ -14,7 +13,6 @@ import {
 import {
   $REFRESH,
   CONFIG_AUTO_DISPOSE,
-  CONFIG_ASYNC,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_FRESH_READ,
   CONFIG_GUESS,
@@ -52,7 +50,6 @@ import {
   REACTIVE_LANE_DIRTY,
   REACTIVE_LANE_READ,
   REACTIVE_PROBE_UNANSWERED,
-  REACTIVE_WINDOW,
   REACTIVE_SCREEN_READ,
   REACTIVE_IN_HEAP_HEIGHT,
   REACTIVE_LAZY,
@@ -138,8 +135,10 @@ import {
   laneReadHook,
   laneStageHook,
   laneSeamsHook,
+  laneServedHook,
   laneWriteHook,
   observeFlightHook,
+  holdWorkHook,
   wireExternalSourceHook
 } from "./scheduler.js";
 import type { Transaction } from "./scheduler.js";
@@ -379,6 +378,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // re-derivation, lane adoption through deps) went with the optimistic engine.
   if (!create) {
     deleteFromHeap(el, dirtyQueue);
+    // A pending flight is the transition's own work (#3884), and so is a
+    // held async memo's re-run with no verdict window of its own (D-25,
+    // `holdWork`): a pass that takes no verdict role this time. A probe on
+    // an earlier pass left CONFIG_VERDICT, and a frame read here would serve
+    // the committed screen, settle the flight and drop the hold — a
+    // superseding write's verdict would depend on that probe. Cleared for
+    // this pass, before the flight it judges by is superseded; a probe in
+    // the body re-stamps it after the plain reads.
+    holdWorkHook?.(el);
     if (el._x !== null) {
       el._x._inFlight = null;
       // Supersede is where an iterator flight dies (#3122): close it now.
@@ -398,12 +406,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A).
     // A boundary's structure (CONFIG_FRAME) is the frame like a render
     // effect: it publishes mainline outside its transaction's flush (#4283).
-    // A pending flight is the transition's own work (#3884). A probe on an
-    // earlier pass left CONFIG_VERDICT, and a frame read here would serve the
-    // committed screen, settle the flight and drop the hold — a superseding
-    // write's verdict would depend on that probe. Cleared for this pass; a
-    // probe in the body re-stamps it after the plain reads.
-    if (el._statusFlags & STATUS_PENDING) el._config &= ~CONFIG_VERDICT;
     if (el._config & CONFIG_HELD) {
       const tx = txOf(el);
       // Held by a blocked lane: the frame joins nothing — a lane never holds
@@ -614,27 +616,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     );
     // A verdict reader is one for as long as it probes, or reads a memo
     // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
-    // bit) is an ordinary derivation again. Not an async memo that only
-    // read a verdict memo (F-6, #4050 — no window of its own,
-    // REACTIVE_WINDOW): what it read ahead is the lane's, and its own async
-    // is a derivation of it, held in that lane (F-6) — it waits on its
-    // sources like any derivation (F-9), reading them plainly (D-25), and
-    // asks its next question once, at their landing. A frame reader, it was
-    // served committed values a hold had moved past (A10) and asked an
-    // answered question again; re-derived at each verdict source going
-    // pending, again (#4397). Async (CONFIG_ASYNC) is the last answering
-    // pass's: one that registered a flight (`_inFlight`, cleared at the top
-    // of every pass) is; one that answered sync is not; one left pending or
-    // errored without a flight keeps the last answer's. Worked out here, so a
-    // sync pass does no extra work.
-    const config = el._x?._inFlight
-      ? el._config | CONFIG_ASYNC
-      : el._config & ~(el._statusFlags & (STATUS_PENDING | STATUS_ERROR) ? 0 : CONFIG_ASYNC);
-    el._config =
-      (config & ~CONFIG_VERDICT) |
-      (el._flags &
-        REACTIVE_PROBED &
-        (config & CONFIG_ASYNC && !(el._flags & REACTIVE_WINDOW) ? 0 : CONFIG_VERDICT));
+    // bit) is an ordinary derivation again. Its async posture is the
+    // verdict engine's to keep (verdict.ts `holdWork`, D-25).
+    el._config = (el._config & ~CONFIG_VERDICT) | (el._flags & REACTIVE_PROBED);
+    holdWorkHook?.(el, el);
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
     // own owner (a memo calling its root's `dispose()`, a cleanup doing so
     // #3601/#3606), and `disposeChildren` set the flag on this node
@@ -1238,12 +1223,9 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // head), and the pass may then read a guess and become the lane's.
   if ((t === flushTransaction && !lane && !verdict) || bornInto(c, t)) return false;
   staleReader(c, t);
-  // A15: the pass served `el`'s committed value, so it does not wait on
-  // `el`'s flight: what `el`'s pending propagated onto it before the pass
-  // (its origins, self included) is not this pass's — the landing re-derives
-  // it (`reruns`). Kept, a pass that went pending on another source never
-  // woke when that source settled (#4397).
-  (el as Computed<any>)._x?._pendingSources?.forEach(s => removePendingSource(c, s));
+  // Lane work or a verdict reader no longer waits on `el`'s flight (lanes.ts
+  // `laneServed`, A15).
+  if (lane || verdict) laneServedHook!(c, el);
   return true;
 }
 

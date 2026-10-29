@@ -44,6 +44,7 @@ import {
   schedule,
   txOf,
   freshHook,
+  holdWorkHook,
   guessing,
   laneStageHook
 } from "./scheduler.js";
@@ -988,8 +989,15 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     // Inheriting the error would make a probe's reader errored. A boundary's
     // output (CONFIG_REDERIVE, boundaries.ts) the same: content or fallback
     // is its pass's call.
+    // Not one D-25 makes the hold's work (verdict.ts `holdWork`): an async
+    // memo with no verdict window of its own reads a verdict memo's value,
+    // and that source going pending changes none of its reads — re-derived,
+    // it is served the committed value it already derived from (A10) and
+    // asks that question again. It waits on the source like any derivation
+    // (F-9), and asks its next question once, at the landing (#4397).
     if (
-      sub._config & (CONFIG_REDERIVE | CONFIG_VERDICT) ||
+      sub._config & CONFIG_REDERIVE ||
+      (sub._config & CONFIG_VERDICT && !(pendingSource && holdWorkHook!(sub, el))) ||
       (status === STATUS_PENDING && link._gen !== sub._depGen)
     ) {
       enqueueSub(sub);

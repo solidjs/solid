@@ -12,6 +12,7 @@
 import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
+  CONFIG_ASYNC,
   CONFIG_HELD,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
@@ -24,6 +25,7 @@ import {
   REACTIVE_JOINED,
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
+  REACTIVE_REASK,
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_STAGED_READ,
   REACTIVE_WINDOW,
@@ -502,10 +504,51 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   return el._value;
 }
 
+/** D-25: a node whose fetch a hold is waiting on is that hold's work, not a
+ * verdict reader — a pass that re-runs it reads plainly — and a memo's
+ * posture is what it reads: one that reads a verdict reader's value is a
+ * verdict reader itself (#4050). An async memo with no verdict window of its
+ * own (REACTIVE_WINDOW: it read a verdict memo, it called neither `latest`
+ * nor `isPending`) is a verdict reader between its flights, and the hold's
+ * work while one is up or its hold re-runs it.
+ *
+ * At a pass's head (`source` absent): a pending node's pass — its flight is
+ * the transition's own work (#3884) — and a held one's re-run of such a memo
+ * read plainly: the write that re-ran it is its hold's, and served the
+ * screen it re-asked a question it had answered (A10, #4397).
+ *
+ * On `source` going pending (`propagateStatus`): such a memo waits on it
+ * like any derivation (F-9) instead of re-deriving — what it read changed
+ * no value, so its re-run re-asked the question it was answering. Unless
+ * its own flight is up outside a lane on a new question of the source's:
+ * its re-run supersedes a flight asked of a value the source has moved past
+ * (re-asked by a `refresh()`, the source's question is the same one). */
+function holdWork(n: Computed<any>, source?: Computed<any>): unknown {
+  // At a pass's end (`source` is the node): async (CONFIG_ASYNC) is the
+  // last answering pass's — one that registered a
+  // flight (`_inFlight`) is; one that answered sync is not; one left pending
+  // or errored without a flight keeps the last answer's.
+  if (source === n) {
+    if (n._x?._inFlight) n._config |= CONFIG_ASYNC;
+    else if (!(n._statusFlags & (STATUS_PENDING | STATUS_ERROR))) n._config &= ~CONFIG_ASYNC;
+    return;
+  }
+  const own = n._config & CONFIG_ASYNC && !(n._flags & REACTIVE_WINDOW);
+  if (source)
+    return (
+      own &&
+      (!(n._statusFlags & STATUS_PENDING) ||
+        n._x!._transaction?._lane ||
+        source._flags & REACTIVE_REASK)
+    );
+  if (n._statusFlags & STATUS_PENDING || (own && n._config & CONFIG_HELD))
+    n._config &= ~CONFIG_VERDICT;
+}
+
 // Installed at module evaluation — present exactly when something imports
 // `latest` or `isPending`. (`read` dispatches to `verdictValue` through
 // `verdict`, set while a window is open.)
-installVerdictHooks(observeFlight);
+installVerdictHooks(observeFlight, holdWork);
 /** A store read inside an untracked `isPending` probe found a live mark on
  * a record with no node to carry it (store/affects.ts): not final. */
 GlobalQueue._witnessMark = () => {
