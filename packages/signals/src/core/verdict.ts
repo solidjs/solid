@@ -515,7 +515,10 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * At a pass's head (`source` absent): a pending node's pass — its flight is
  * the transition's own work (#3884) — and a held one's re-run of such a memo
  * read plainly: the write that re-ran it is its hold's, and served the
- * screen it re-asked a question it had answered (A10, #4397).
+ * screen it re-asked a question it had answered (A10, #4397). Only a memo
+ * that never asked: D-25's "a verdict posture outlives the pass that asked"
+ * is a pass that called `latest`/`isPending`, which clears CONFIG_ASYNC at
+ * its end and stays a verdict reader whoever dirties it.
  *
  * On `source` going pending (`propagateStatus`): such a memo waits on it
  * like any derivation (F-9) instead of re-deriving — what it read changed
@@ -524,16 +527,19 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * its re-run supersedes a flight asked of a value the source has moved past
  * (re-asked by a `refresh()`, the source's question is the same one). */
 function holdWork(n: Computed<any>, source?: Computed<any>): unknown {
-  // At a pass's end (`source` is the node): async (CONFIG_ASYNC) is the
-  // last answering pass's — one that registered a
-  // flight (`_inFlight`) is; one that answered sync is not; one left pending
-  // or errored without a flight keeps the last answer's.
+  // At a pass's end (`source` is the node), while the pass's
+  // REACTIVE_WINDOW is still up (the tail wipes it): CONFIG_ASYNC records an
+  // async memo with no window of its own — the last answering pass
+  // registered a flight (`_inFlight`) and called neither `latest` nor
+  // `isPending`. A pass that opened a window, or answered sync, clears it;
+  // one left pending or errored without a flight keeps the last answer's.
   if (source === n) {
-    if (n._x?._inFlight) n._config |= CONFIG_ASYNC;
-    else if (!(n._statusFlags & (STATUS_PENDING | STATUS_ERROR))) n._config &= ~CONFIG_ASYNC;
+    if (n._x?._inFlight && !(n._flags & REACTIVE_WINDOW)) n._config |= CONFIG_ASYNC;
+    else if (n._flags & REACTIVE_WINDOW || !(n._statusFlags & (STATUS_PENDING | STATUS_ERROR)))
+      n._config &= ~CONFIG_ASYNC;
     return;
   }
-  const own = n._config & CONFIG_ASYNC && !(n._flags & REACTIVE_WINDOW);
+  const own = n._config & CONFIG_ASYNC;
   if (source)
     return (
       own &&
