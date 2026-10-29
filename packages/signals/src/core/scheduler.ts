@@ -1318,11 +1318,22 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
  * inert for its pass (`recompute` seats a lane only from its own `_x`), it
  * is a live write if the effect becomes a zombie later this flush — an
  * on-screen reader whose removal an adopted write stages follows the lane
- * (the lane-membership ruling, 2026-10-05; `_update`). */
+ * (the lane-membership ruling, 2026-10-05; `_update`).
+ *
+ * A render effect re-run by a verdict memo's change (`createMemo(() =>
+ * latest(x))`, CONFIG_VERDICT) is the verdict reader the same read inline
+ * makes it, for that pass (F-6; D-26 `[s(), L()]`, #4284): a frame reader
+ * of its other reads — a staging's screen, a flight's committed value. One
+ * an earlier propagation this flush seated in another lane leaves that
+ * seat: its pass starts from the frame's, as the inline effect's does, and
+ * `laneRead` re-derives it on the screen if that lane holds (`entered`). */
 export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): void {
   for (let s = node._subs; s !== null; s = s._nextSub) {
-    const t = s._sub._x?._transaction;
-    if (t?._lane ? sameLane(t, l) : (s._sub as any)._type) s._sub._flags |= REACTIVE_LANE_DIRTY;
+    const c = s._sub,
+      t = c._x?._transaction;
+    if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT)
+      ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
+    if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
   }
 }
 /** One lane, or two of one link group (#3335): one reveal unit. */

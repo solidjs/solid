@@ -59,7 +59,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { ext, stagedRead, tracking } from "./core.js";
+import { bornInto, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
@@ -533,8 +533,22 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       // lane's answer beside inputs that are the truth now: a fresh reader
       // of its flight observes it (#3648, #3651; #3305's commit beneath a
       // flight).
+      // Not a first load whose own flight is up and already observed (its
+      // inputs published beneath it) with nothing produced in the lane:
+      // committing its empty `_value` would initialize it as `undefined`,
+      // and `latest()` would serve that. It stays loading until its flight
+      // answers (D-22; async-gen seed 3289 #929).
       x._transaction = null;
-      if (!effect && !guess) n._pendingValue = latest;
+      if (
+        !effect &&
+        !guess &&
+        (slot !== NOT_PENDING ||
+          !x._inFlight ||
+          !(n._config & CONFIG_INPUTS_PUBLISHED) ||
+          ((n as Computed<any>)._statusFlags & (STATUS_UNINITIALIZED | STATUS_PENDING)) !==
+            (STATUS_UNINITIALIZED | STATUS_PENDING))
+      )
+        n._pendingValue = latest;
       commitPendingNode(n);
       if (!effect) {
         if (
@@ -936,7 +950,11 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
       // flight, held as the frame's pending observer or its staged
       // derivation) has nothing to re-derive: its re-run re-enters that
       // transaction and parks it again, every round — it runs at the
-      // landing (#4349).
+      // landing (#4349). One that read a staging re-derives only if its
+      // frame stays parked: landing at this seam, what it read is the screen
+      // (one run, D-22). Not one born into that frame (a held pass's child,
+      // ruling A): it has no screen, its reads are the transaction's either
+      // way — it runs again at the landing, not now.
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
@@ -944,7 +962,11 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
             (r._config & CONFIG_VERDICT
               ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
               : !blocked(l._parent))
-          : l && !(r._flags & (REACTIVE_STAGED_READ | REACTIVE_PROBE_UNANSWERED)))
+          : l &&
+            !(
+              r._flags & REACTIVE_PROBE_UNANSWERED ||
+              (r._flags & REACTIVE_STAGED_READ && blocked(l) && !bornInto(r, l))
+            ))
       )
         continue;
       // A leaked effect re-derives seated in its lane from its first read: it
@@ -957,8 +979,12 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
       enqueueSub(r);
       if (l?._lane && leaked.indexOf(l) === -1) leaked.push(l);
     }
-  for (let k = Math.min(judged, lanes.length) - 1; k >= 0; k--)
-    laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
+  // A verdict lane born at this seam is judged with it: it exists only once
+  // a pass routed into it — the park seam's zombie verdict readers re-run
+  // as its work so that this seam reveals them (#3444).
+  for (let k = lanes.length - 1; k >= 0; k--)
+    if (k < judged || lanes[k]._parent?._verdict === lanes[k])
+      laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
   // A verdict reader that entered a lane this seam held: its run waits with
   // the lane, and the verdict beside it would freeze — it re-derives next
   // round from the frame's seat, a stale reader of the lane (#4284).
