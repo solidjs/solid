@@ -202,9 +202,10 @@ function caught(b: Boundary, node: Computed<any>, error: unknown, source = node)
   // A loading fallback behind an error fallback is hidden: the error stays
   // the display until what the fallback waits on answers (D-39) — the
   // error boundary waits on it too.
-  if (b._type === STATUS_PENDING)
-    for (let p = b._parent; p; p = p._parent)
-      if (p._type === STATUS_ERROR && p._fallback) record(p, node);
+  // (`_type`: STATUS_PENDING 1 < STATUS_ERROR 2 — an error boundary above a
+  // loading one.)
+  for (let p: Boundary | null = b; (p = p._parent); )
+    if (p._fallback && p._type > b._type) record(p, node);
   if (b._armed) flip(b);
   // Already showing the fallback: one more reader to wait on changes
   // nothing on screen. The fallback is instantiated once per show — a later

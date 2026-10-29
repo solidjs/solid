@@ -371,6 +371,8 @@ export function resolveTx(t: Transaction): Transaction {
  * went pending with nothing held). Joining a second one merges it into the
  * flush's: the work that touched both entangles them (A15). */
 export function joinFuture(t: Transaction | null): void {
+  // Something real joins: the transaction is no longer `latest()`'s alone.
+  latestOpened = null;
   const f = flushTransaction;
   if (f === null) {
     flushTransaction = t === null ? newTransaction(false) : resolveTx(t);
@@ -924,7 +926,7 @@ export class GlobalQueue implements IQueue {
     // pure round — the parent's flights before the parent is judged below.
     if (laneCorrectionsHook?.()) runHeap(dirtyQueue, GlobalQueue._update);
     const joined = flushTransaction;
-    flushTransaction = null;
+    flushTransaction = latestOpened = null;
     // The frame's verdict is in: the guesses written since the last seam
     // open their lane under the frame's transaction (a lane's own flush
     // parents a nested lane to it), or are dropped — the frame commits, and

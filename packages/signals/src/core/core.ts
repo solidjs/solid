@@ -2193,12 +2193,16 @@ export function stagedScreen(c: Computed<any>): boolean {
   // A transaction only a `latest()` read opened holds nothing: the staging
   // is the frame's read for a pass in the frame's seat, as it is before the
   // frame has one, and the seam re-derives the pass once only if the flush
-  // parks (D-22, F-10). Lane work sees the screen (D-37).
+  // parks (D-22, F-10). Lane work sees the screen (D-37). Not a pass with no
+  // value yet: its first answer is nobody's hold (D-6) and would commit the
+  // staging whether or not the frame parks — it reads the screen, and runs
+  // again at the landing.
   if (
     observeFlightHook &&
     flushTransaction === latestOpened &&
     passLane === null &&
-    c._config & CONFIG_VERDICT
+    c._config & CONFIG_VERDICT &&
+    !(c._statusFlags & STATUS_UNINITIALIZED)
   )
     return !stagedReaders.push(c);
   staleReader(c, flushTransaction);
