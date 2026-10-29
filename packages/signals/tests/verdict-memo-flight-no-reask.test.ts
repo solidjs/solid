@@ -235,20 +235,15 @@ it("two verdict memos into one async memo: no question asked twice, grouped or s
   expect(split.shown).toEqual(grouped.shown);
 });
 
-// Open question (lane merge, #4398): with the grouped reader,
-// `m1` is pending in the s write's transaction and the render effect reading
-// `isPending(m1)` beside `m1()` is held there, so the t write merges into
-// that transaction instead of opening its own lane — the t lane's views of
-// `m1` (`m1:15`, `m1:16`) are never asked. Split, the t write opens its own
-// lane and they are asked. Whether a later write merges into an open
-// transaction or opens its own lane must not depend on grouping (D-25,
-// D-26; F-6: `[isPending(x), x()]` in one render effect holds like `x()`
-// alone).
-it.fails(
-  "two verdict memos into one async memo: grouped asks the t lane's questions as split does",
-  async () => {
-    const grouped = await twoVerdicts(true);
-    const split = await twoVerdicts(false);
-    expect(grouped.asks).toEqual(split.asks);
-  }
-);
+// #4398 (lane merge) on #4393: with `latest()`'s pass the frame's (R5), the
+// grouped reader no longer decides whether the t write merges into the s
+// write's transaction or opens its own lane — grouped and split ask the same
+// questions (D-25, D-26; F-6: `[isPending(x), x()]` in one render effect
+// holds like `x()` alone). Before R5 the grouped reader held `isPending(m1)`
+// beside `m1()` in the s write's transaction, the t write merged into it,
+// and the t lane's views of `m1` were asked only split.
+it("two verdict memos into one async memo: grouped asks the questions split does", async () => {
+  const grouped = await twoVerdicts(true);
+  const split = await twoVerdicts(false);
+  expect(grouped.asks).toEqual(split.asks);
+});

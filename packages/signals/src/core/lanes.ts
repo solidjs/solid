@@ -61,7 +61,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
-import { isThenable } from "./async.js";
+import { adoptFlight, isThenable } from "./async.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
@@ -937,7 +937,22 @@ const applyGuessesAt = (parent: Transaction | null): void => {
   judged = lanes.length;
   if (pendingGuesses.length !== 0) applyGuesses(parent);
 };
-const laneSeams = (leaks: Computed<any>[] | null): void => {
+/** `t` is parked by `r`'s pass alone: each node keeping it is a render
+ * effect pending on `r` only — the frame observing the lane work that read
+ * its staging. Anything else (an open action, a lane, a flight) holds it on
+ * its own. */
+function heldBy(t: Transaction, r: Computed<any>): boolean {
+  if (t._open !== 0 || lanesBlocked(t)) return false;
+  for (let i = 0; i < t._nodes.length; i++) {
+    const n = t._nodes[i] as Computed<any>;
+    if (!(n._statusFlags & STATUS_PENDING) || (n._x!._transaction !== null && txOf(n) !== t))
+      continue;
+    const s = n._x!._pendingSources;
+    if ((n as any)._type !== EFFECT_RENDER || s?.size !== 1 || !s.has(r)) return false;
+  }
+  return true;
+}
+const laneSeams = (leaks: Computed<any>[] | null, t: Transaction | null): void => {
   // Passes that read a write the parked frame holds as the screen
   // (`stagedReaders`: lane work, a verdict reader before the verdict): they
   // re-derive on the committed world next round (and register as stale
@@ -952,19 +967,25 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
       // lane answered for itself: it re-derives at the holder's landing, not
       // now (one run — #3322, #3540). Other verdict-lane work re-derives only
       // if the frame stays parked: a transaction landing at this seam makes
-      // what it read the screen (one run). A reader a transaction holds that
-      // read none of its stagings (a verdict reader that probed only a
-      // flight, held as the frame's pending observer or its staged
-      // derivation) has nothing to re-derive: its re-run re-enters that
-      // transaction and parks it again, every round — it runs at the
-      // landing (#4349).
+      // what it read the screen (one run). The frame is the transaction that
+      // holds what it read (`t`, this flush's — not always the lane's parent:
+      // a landing that reached a frame held elsewhere joined that one). Nor
+      // when only this pass keeps it parked (`heldBy`): the frame lands with
+      // the pass's answer, so what the pass read is the screen when anything
+      // shows it — re-derived on the committed world, it would ask a question
+      // already asked, over inputs the landing replaces. A reader a
+      // transaction holds that read none of its stagings (a verdict reader
+      // that probed only a flight, held as the frame's pending observer or
+      // its staged derivation) has nothing to re-derive: its re-run
+      // re-enters that transaction and parks it again, every round — it
+      // runs at the landing (#4349).
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
           ? l._parent?._verdict === l &&
             (r._config & CONFIG_VERDICT
               ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
-              : !blocked(l._parent))
+              : !blocked(t!) || heldBy(t!, r))
           : l && !(r._flags & (REACTIVE_STAGED_READ | REACTIVE_PROBE_UNANSWERED)))
       )
         continue;
@@ -978,9 +999,13 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
       // R5 for an async reader: its frame pass asked the frame's question
       // (F-6's lane gets its own pass now). That flight is the frame's
       // answer: the landing adopts it rather than asking it again (F-9: a
-      // re-ask of the same question is no new question; `reruns`).
-      else if (!l?._lane && r._flags & REACTIVE_PROBE_UNANSWERED && isThenable(r._x?._inFlight))
+      // re-ask of the same question is no new question; `reruns`). A frame
+      // landing at this seam has nothing to re-derive: the pass was the
+      // landing's, its flight the screen's answer.
+      else if (!l?._lane && r._flags & REACTIVE_PROBE_UNANSWERED && isThenable(r._x?._inFlight)) {
+        if (!blocked(t!)) continue;
         r._x!._parked = r._x!._inFlight;
+      }
       enqueueSub(r);
       if (l?._lane && leaked.indexOf(l) === -1) leaked.push(l);
     }
@@ -995,6 +1020,15 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
       enqueueSub(r);
     }
 };
+/** The landing's re-derive of a reader whose frame flight the seam parked
+ * (R5): the flight asked the question the landing would — adopted, it is
+ * asked once (F-9). Not over a pass already queued: that one asks anew. */
+const adoptParked = (r: Computed<any>): boolean => {
+  const parked = r._x?._parked;
+  if (!parked || r._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP)) return false;
+  adoptFlight(r, parked);
+  return true;
+};
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
 installLaneHooks(
@@ -1006,7 +1040,8 @@ installLaneHooks(
   laneSeams,
   () => lanes.length !== 0 && laneCorrections(),
   endLanes,
-  lanesBlocked
+  lanesBlocked,
+  adoptParked
 );
 if (__OBSERVE__)
   GlobalQueue._laneGuesses = t => {

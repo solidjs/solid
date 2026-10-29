@@ -15,7 +15,6 @@ import {
   NOT_PENDING,
   CONFIG_HAS_SNAPSHOT,
   REACTIVE_CHECK,
-  REACTIVE_IN_HEAP,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
@@ -30,7 +29,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { adoptFlight, notifyStatus } from "./async.js";
+import { notifyStatus } from "./async.js";
 import {
   dispatchingEvent,
   ext,
@@ -77,10 +76,14 @@ export let laneOutcomeHook:
   | null = null;
 export let laneWriteHook: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | null = null;
 export let applyGuessesHook: ((parent: Transaction | null) => void) | null = null;
-export let laneSeamsHook: ((leaks: Computed<any>[] | null) => void) | null = null;
+export let laneSeamsHook: ((leaks: Computed<any>[] | null, t: Transaction | null) => void) | null =
+  null;
 export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
+/** R5 (lanes.ts `laneSeams` parks a frame flight): the landing's re-derive
+ * of a reader adopts the flight instead (true: adopted, nothing to queue). */
+export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
 /** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
  * reaches (CONFIG_GUESS) — a build without `createOptimistic` or
  * `createOptimisticStore` never sets it, and its bundler folds them. */
@@ -97,7 +100,8 @@ export function installLaneHooks(
   seams: NonNullable<typeof laneSeamsHook>,
   corrections: NonNullable<typeof laneCorrectionsHook>,
   end: NonNullable<typeof endLanesHook>,
-  blocked: NonNullable<typeof lanesBlockedHook>
+  blocked: NonNullable<typeof lanesBlockedHook>,
+  adopt: NonNullable<typeof laneAdoptHook>
 ): void {
   laneReadHook = read;
   laneStageHook = stage;
@@ -108,6 +112,7 @@ export function installLaneHooks(
   laneCorrectionsHook = corrections;
   endLanesHook = end;
   lanesBlockedHook = blocked;
+  laneAdoptHook = adopt;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary
@@ -1037,7 +1042,7 @@ export class GlobalQueue implements IQueue {
     // world (a lane's runs wait this round).
     if (laneSeamsHook) {
       this._queues = lanes;
-      laneSeamsHook(t !== null ? stagedReaders : null);
+      laneSeamsHook(t !== null ? stagedReaders : null, t);
       if (stagedReaders.length) stagedReaders.length = 0;
     }
     this._queues = [[], []];
@@ -1184,10 +1189,7 @@ export function reruns(u: Transaction): unknown {
         if ((c as any)._type) (c as any)._modified = false;
       // A frame flight the seam parked (lanes.ts `laneSeams`, R5) asked the
       // question this landing would: adopted, it is asked once (F-9).
-      const parked = r._x?._parked;
-      if (parked && !(r._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP)))
-        adoptFlight(r, parked);
-      else enqueueSub(r);
+      if (!laneAdoptHook?.(r)) enqueueSub(r);
     }
   }
   u._reruns.length = 0;
