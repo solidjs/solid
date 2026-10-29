@@ -13,6 +13,7 @@ import {
 import {
   $REFRESH,
   CONFIG_AUTO_DISPOSE,
+  CONFIG_ASYNC,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_FRESH_READ,
   CONFIG_GUESS,
@@ -536,6 +537,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       const selfRegistered = el._x?._inFlight !== prevInFlight;
       value = selfRegistered || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
       if (!selfRegistered && !isAsyncResult) {
+        el._config &= ~CONFIG_ASYNC;
         if (el._x !== null) el._x._inFlight = null;
         // A sync (non-object) return is the first real answer; async-shaped
         // results clear inside handleAsync at their own landing points, and a
@@ -612,8 +614,20 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     );
     // A verdict reader is one for as long as it probes, or reads a memo
     // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
-    // bit) is an ordinary derivation again.
-    el._config = (el._config & ~CONFIG_VERDICT) | (el._flags & REACTIVE_PROBED);
+    // bit) is an ordinary derivation again. Not an async memo that only
+    // read a verdict memo (F-6, #4050 — no window of its own,
+    // REACTIVE_WINDOW): what it read ahead is the lane's, and its own async
+    // is a derivation of it, held in that lane (F-6) — it waits on its
+    // sources like any derivation (F-9), reading them plainly (D-25), and
+    // asks its next question once, at their landing. A frame reader, it was
+    // served committed values a hold had moved past (A10) and asked an
+    // answered question again; re-derived at each verdict source going
+    // pending, again (#4397).
+    el._config =
+      (el._config & ~CONFIG_VERDICT) |
+      (el._flags &
+        REACTIVE_PROBED &
+        (el._config & CONFIG_ASYNC && !(el._flags & REACTIVE_WINDOW) ? 0 : CONFIG_VERDICT));
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
     // own owner (a memo calling its root's `dispose()`, a cleanup doing so
     // #3601/#3606), and `disposeChildren` set the flag on this node
@@ -629,8 +643,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           REACTIVE_STAGED_READ |
           REACTIVE_LANE_READ |
           REACTIVE_SCREEN_READ |
-          REACTIVE_PROBE_UNANSWERED |
-          REACTIVE_WINDOW)) |
+          REACTIVE_PROBE_UNANSWERED)) |
       (create ? el._flags & REACTIVE_SNAPSHOT_STALE : 0);
     context = oldcontext;
     if (released) for (const node of released) releaseIfSettledUnobserved(node);
@@ -977,8 +990,7 @@ function updateIfNecessary(el: Computed<unknown>): void {
       REACTIVE_STAGED_READ |
       REACTIVE_LANE_READ |
       REACTIVE_SCREEN_READ |
-      REACTIVE_PROBE_UNANSWERED |
-      REACTIVE_WINDOW);
+      REACTIVE_PROBE_UNANSWERED);
 }
 
 export function computed<T>(fn: (prev?: T) => T | PromiseLike<T> | AsyncIterable<T>): Computed<T>;

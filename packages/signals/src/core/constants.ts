@@ -69,10 +69,9 @@ export const REACTIVE_SCREEN_READ = 1 << 18;
  * the probe's answer (lanes.ts). Per pass. */
 export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
 /** The pass opened a verdict window of its own (`isPending`/`latest`) — not
- * only read a verdict memo (F-6, core.ts `read`): a verdict memo it reads
- * going pending changes its answer (async.ts `propagateStatus`). Per pass,
- * kept until the next. CONFIG_VERDICT << 6, which the propagation relies on
- * (1 << 20 is lanes.ts's LEFT_SHOWN). */
+ * only read a verdict memo (F-6, core.ts `read`). An async memo whose pass
+ * did not takes no verdict role (core.ts `recompute`, CONFIG_ASYNC). Per
+ * pass (1 << 20 is lanes.ts's LEFT_SHOWN). */
 export const REACTIVE_WINDOW = 1 << 21;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
@@ -222,6 +221,12 @@ export const CONFIG_KEY_BAG = 1 << 28;
  * joins nothing, so two mounts under one boundary made in separate flushes
  * keep their holds apart (D-4, S-5 rows 1′–3′, #4283). */
 export const CONFIG_FRAME = 1 << 23;
+/** The node's last pass that answered registered a flight (`handleAsync`):
+ * an async memo. A sync answer clears it; a pass that threw (NotReady) keeps
+ * the last answer's. With no verdict window of its own (REACTIVE_WINDOW), it
+ * takes no verdict role from the verdict memos it reads (core.ts
+ * `recompute`, F-6). */
+export const CONFIG_ASYNC = 1 << 29;
 
 export const STATUS_NONE = 0;
 export const STATUS_PENDING = 1 << 0;
