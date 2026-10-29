@@ -50,6 +50,7 @@ import {
 import {
   captureWriteSnapshot,
   context,
+  devRead,
   disposalDepth,
   isEqual,
   notePromotedWrite,
@@ -64,6 +65,7 @@ import {
   stagedScreen,
   strictRead,
   strictReadActive,
+  tracking,
   untrack,
   untrackDepth,
   verdict
@@ -78,7 +80,7 @@ import {
   warnStrictReadUntracked
 } from "../core/dev.js";
 import { signalHook } from "../core/identities.js";
-import { setSlotUnobserved } from "../core/graph.js";
+import { link, setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
 import { checkForeignRead } from "../core/copies.js";
 import { insertIntoHeap } from "../core/heap.js";
@@ -1749,14 +1751,21 @@ function changedBetween(
  * verdict reader, #4355) is served the staging, as for a memo born staged
  * (core `serve`). */
 function nodeValue(node: Signal<any>, backing: any, target: StoreTarget): any {
-  let v = readNode(node);
+  let v;
   if (
     node._pendingValue !== NOT_PENDING &&
     !(node._config & CONFIG_HELD) &&
     target.fam !== null &&
     (context === null || target.fam.node?._statusFlags! & STATUS_UNINITIALIZED)
-  )
+  ) {
+    // A pass over a derive that has never committed: the staging is its
+    // first answer, not a change — linked and served with no verdict (a
+    // first landing is loading, not pending: A19 exc. 1, F-9, as for a memo
+    // born staged; core's verdict would call the leaf's staging pending).
+    if (__DEV__) devRead(node); // read()'s dev diagnostics, which this read skips
+    if (context !== null && tracking) link(node, context as Computed<any>);
     v = node._pendingValue;
+  } else v = readNode(node);
   return v === (FORCE as any) ? backing : v;
 }
 
@@ -2145,7 +2154,8 @@ const traps: ProxyHandler<StoreTarget> = {
       // Reading a currently-absent own key subscribes to it (R12) — for any
       // target OUTSIDE its own draft scope, even mid-setter (#3037, above).
       if (v === undefined && !inDraft(target)) {
-        if (getObserver() !== null) readNode(getNode(target, key, accProbe));
+        // (`nodeValue` reads — and links — the node it creates.)
+        if (getObserver() !== null) getNode(target, key, accProbe);
         const node = target.n?.[key];
         if (node) {
           const nv = nodeValue(node, undefined, target);
