@@ -189,10 +189,10 @@ export function optimisticWrite<T>(n: Signal<T> | Computed<T>, v: T | ((prev: T)
 /** A guess's own truth is in flight: the node's own refetch — or, a store
  * leaf's, its family's derive (the slot's flight; store/optimistic.ts
  * installs the resolver). A17: the guess stands in for the flight. */
-function inFlight(n: Signal<any>): boolean {
+function inFlight(n: Signal<any>): unknown {
   return (
-    ((n as Computed<any>)._statusFlags & STATUS_PENDING) !== 0 ||
-    ((n._config & CONFIG_SLOT_NODE) !== 0 && GlobalQueue._slotFlight?.(n) === true)
+    (n as Computed<any>)._statusFlags & STATUS_PENDING ||
+    (n._config & CONFIG_SLOT_NODE && GlobalQueue._slotFlight?.(n))
   );
 }
 
@@ -273,13 +273,11 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // `stagedRead`): it has no committed world to re-derive on (#3969).
     // (A pass not joined: a held write beside a guess, #4336.)
     if (c._flags & REACTIVE_STAGED_READ && (guessed || c._flags & REACTIVE_JOINED)) stagedRead(c);
-    return;
+  } else if (sameLane(p, l)) setPassLane(l);
+  else if (!under(p, l)) {
+    if (!under(l, p)) linkLanes(p, l);
+    setPassLane(l);
   }
-  if (sameLane(p, l)) return setPassLane(l);
-  if (under(p, l)) return;
-  if (under(l, p)) return setPassLane(l);
-  linkLanes(p, l);
-  setPassLane(l);
 }
 /** Is `l` nested under `a` (an ancestor lane)? */
 function under(l: Transaction, a: Transaction): boolean {
@@ -357,10 +355,21 @@ export function laneStage(
     const x = el._x;
     if (x !== null) {
       const tx = x._transaction;
-      // Cleared before equality, so a return to the committed value notifies
-      // nobody. The seam wakes it unless the frame is still held (#3892).
-      if (tx?._shown && !blocked(resolveTx(tx!._parent!))) el._flags |= LEFT_SHOWN;
-      if (tx?._lane) x._transaction = null;
+      if (tx?._lane) {
+        // Cleared before equality, so a return to the committed value
+        // notifies nobody. The seam wakes it (#3892) — always for a pass
+        // outside any transaction's flush: its value is the screen's now
+        // (#4367). While a transaction's flush runs the pass and the lane's
+        // frame is still held, what the screen shows stays the screen until
+        // the landing, and `_value` takes it (as `dissolveLane` keeps a shown
+        // lane's), so this pass's answer — the frame's — is a change against
+        // what is seen and reaches the screen with the frame's commit. (Only
+        // a lane is ever `_shown`.)
+        if (tx._shown)
+          if (!flushTransaction || !blocked(resolveTx(tx._parent!))) el._flags |= LEFT_SHOWN;
+          else el._value = display(el);
+        x._transaction = null;
+      }
       x._lane = NOT_PENDING;
     }
     el._config &= ~(CONFIG_OVERRIDE | CONFIG_HELD | CONFIG_HELD_FRAME);
@@ -382,12 +391,12 @@ export function laneStage(
     // question, which the guess (over the old one) does not answer — the
     // lane waits for its own answer (F-1, F-6, #4336). (A guess of the
     // lane's own action, D-33's entangled slot, still stands in.)
-    const g = el._x!._transaction;
+    // (Read behind `guessed`: a bundle without optimism drops the reads.)
     if (
       guessed &&
       el._config & CONFIG_GUESS &&
-      g?._lane &&
-      resolveTx(g._parent!) !== resolveTx(l._parent!)
+      el._x!._transaction?._lane &&
+      resolveTx(el._x!._transaction!._parent!) !== resolveTx(l._parent!)
     )
       take(el, l);
     else if (!errored) el._config &= ~CONFIG_GUESS;

@@ -313,6 +313,8 @@ let _snapshotRootOwner: Owner | null = null;
 // round a served answer lands in (`servedPass`). Never 0: `~` maps every
 // round to a truthy number.
 let _claimOwner: Owner | number | null = null;
+// The flush round the last claim window opened in (`clock`).
+let _claimRound: number | undefined;
 // Under a hydrated `<Errored>` that shows the server's fallback the markup
 // is the fallback's: nothing its content creates claims — in the content's
 // own run (the `~clock` window) or later, wherever its children are created
@@ -749,8 +751,17 @@ export function readSerializedOrCompute(
     // answer, an error included, and arms nothing — no ask, no loading flash
     // (#4287, #4306). A served pass covers the round its answer lands in
     // (`servedPass`): a later round of that flush is an effect's write
-    // re-running the node, which computes.
-    if (options?.ssrSource !== "hybrid" && _claimOwner !== ~clock) {
+    // re-running the node, which computes. A served rejection re-serves in a
+    // claim window's own round too (`_claimRound`): a reader the resume
+    // creates there, on a later round than the one the rejection landed in,
+    // retries it with nothing changed — an `isPending` of a memo over it,
+    // outside the claim, re-asked it (#4375). A write an effect makes there
+    // runs in a later round, which computes.
+    if (
+      options?.ssrSource !== "hybrid" &&
+      _claimOwner !== ~clock &&
+      !(initP?.s === 2 && _claimRound === clock)
+    ) {
       let p: Owner | null = o;
       while (p && !(p as any)._hp) p = p._parent;
       if (!p && !(sharedConfig.hydrating && isClaiming(1))) return compute(prev);
@@ -2303,6 +2314,7 @@ function hydrateWindow<T>(
     if (id) sharedConfig.gather?.(id);
     _hydratingValue = true;
     _claimOwner = o;
+    _claimRound = clock;
     if (own) {
       if (capture) setSnapshotCapture(true);
       markSnapshotScope(own);
@@ -2589,11 +2601,8 @@ function fragmentSuperseded(id: string): boolean {
   const hy = (globalThis as any)._$HY;
   if (hy && hy.v && hy.v[id]) return false;
   if (document.getElementById(id)) return false;
-  return !!placeholder(id);
+  return !!document.getElementById("pl-" + id);
 }
-
-/** A fragment's `pl-*` placeholder, while its range is still in the document. */
-const placeholder = (id: string) => document.getElementById("pl-" + id);
 
 /**
  * A settled declaration whose swap has not run yet: its content template and
@@ -2603,7 +2612,7 @@ const placeholder = (id: string) => document.getElementById("pl-" + id);
 function fragmentParked(id: string): boolean {
   const hy = (globalThis as any)._$HY;
   if (hy && hy.v && hy.v[id]) return false;
-  return !!document.getElementById(id) && !!placeholder(id);
+  return !!document.getElementById(id) && !!document.getElementById("pl-" + id);
 }
 
 function whenRevealed(id: string, cb: () => void) {
@@ -3030,9 +3039,6 @@ function hydratedCreateLoadingBoundary<T, U>(
       // the content is in the DOM, so render nothing until the resume
       // adopts it.
       const revealed = hy.v?.[id];
-      // The region the claimed fallback stands in, read before a swap takes
-      // the placeholder range (none once revealed).
-      const region = placeholder(id)?.parentNode;
       waitAndResume(
         fr,
         shouldHydrate =>
@@ -3051,12 +3057,8 @@ function hydratedCreateLoadingBoundary<T, U>(
               // claimed fallback left its nodes — the server's outcome for
               // the failure, which `$dfr` lists in the reveal record
               // (#4287) — beside the range the fresh render takes: clear
-              // them first. The swap took the claimed fallback with its
-              // range, so a region left empty gets back an empty text node:
-              // an insert that claimed a text fallback as its sole child
-              // writes its next text there (#4372).
+              // them first.
               (revealed || hy.v?.[id]?.forEach?.((n: ChildNode) => n.remove()),
-              region && !region.firstChild && region.append(""),
               IS_OBSERVE
                 ? recover(id, registeredAt, () => resume(shouldHydrate))
                 : resume(shouldHydrate)),
