@@ -391,6 +391,73 @@ slot-then-serve split; the lane/verdict scenarios also carry the new
 the pass-side swap (M3) and the deletions are the lever, and the floors
 are re-measured there.
 
+### 4.5 Results (S1 M3a pass-side swap, 2026-10-29)
+
+The pass side reads the seat. The world a pass is in is module state
+(`seat.ts` `seatWorld`, packed in three halves: SEAT_BORN — the world the
+creator's pass was in when it created it, transitively (B); SEAT_OWN —
+what its own reads raised it to (`applyMarks`, `joinPass`, `joinPassAt`,
+`stagedRead`); SEAT_TX_H — a pass over a node born into a hold), saved
+and restored around every `recompute`. Consumers: the born-held arm
+(`joined || creatorWorld & H`, replacing `creatorPass(oldcontext)._flags
+& REACTIVE_JOINED`); the window entry (`markVerdictReader`: the branch's
+world from SEAT_BORN, copied onto the pass as today's creator bits were,
+replacing `creatorReads`' owner-chain walk); the lane-seat row's "branch
+exists only in the future" test (`laneSlot`, same half); `route`, folded
+into `verdictApply` (`passLane === null && !(seatWorld & SEAT_OWN)` →
+`setPassLane(verdictLane(t))`). `creatorReads` and `route` are deleted.
+The shadow moved with it (`creatorWorld = p.world`, `creatorsWorld =
+creatorWorld`); the #4428 known entry is retired — production reads the
+running creator now, so the shape it named no longer exists. Same runs as
+§4.4:
+
+| run                                     |     reads |    passes | classes | known               |
+| --------------------------------------- | --------: | --------: | ------: | ------------------- |
+| signals suite (393 files, green)        |   965,427 |   242,372 |       0 | —                   |
+| solid suite (54 files, green)           |     2,388 |     1,546 |       0 | —                   |
+| web suite (188 files, green)            |    43,723 |    24,257 |       0 | —                   |
+| generator 2,000 × seed 7, every pair    |   856,773 |   856,070 |     0\* | —                   |
+| generator 2,000 × seed 3289, every pair | 1,066,079 |   965,570 |     0\* | #4426 ×10, #4427 ×9 |
+| generator 2,000 × seed 91501            | 8,800,147 | 5,351,466 |     0\* | —                   |
+
+\* The generator runs were taken with the shadow's `creatorsWorld` still
+on the owner-chain model; they showed 13/16/16 classes, all of one kind —
+the owner-chain model and the inherited (B) model naming different
+branch worlds (`Vl2`/`Vl4` "verdict seat after the read" and "world
+after the read (old 1, new 0)") — with `ASYNC_GEN_DIFF` **zero screen
+differences** against the `next` recording on all three seeds and the
+surveys line-identical. The shadow was then moved to the B model
+(`creatorsWorld = creatorWorld`) and the signals suite re-run clean; the
+generator is re-run at M5 with the moved shadow.
+
+Three arms were found by the differential while making the born half
+exact (each a class of ≥ 30 until fixed): the branch's world must be
+copied onto the pass at the window (today's `c._flags |= creatorReads`;
+without it the pass stays unseated where today it is seated, 4 tests
+fail); a pass over a node born into a hold is NOT in the future for the
+branch test (today's `creatorReads` walks running creators only — a
+re-pass has none — so SEAT_TX_H is its own half, excluded from
+SEAT_BORN); and the born-held inheritance folds all three halves of the
+creator's world (`childBorn`).
+
+Bytes (`scripts/size`, prod build, against `next` @ 5e68925cc): core
+floor 20,618 / 7,805 B (**+710 B minified / +390 B brotli**; +140 over
+M2), `+ isPending/latest` 32,525 B (+2,117), the live pages +2.4–2.7 KB
+minified; frames unchanged. Per module in the core floor: `seat.js`
+contributes 1,690 B; `core.js` is −705 B, `scheduler.js` −103, `async.js`
+−84. Correction to §4.4: the hook guards (`verdictApplyHook !== null`,
+`laneReadHook !== null && passLane !== null`) do NOT fold in the
+engine-less bundle — the hooks are module `let`s and Rolldown keeps the
+tests and the small arms behind them (`laneOf`, `postureOf`'s V arm, the
+verdict-staged closure); what folds is the rows' row ids and the shadow.
+The floor growth is the table's own case analysis. The deletions still
+to come (`markVerdictReader`'s `creatorReads` is gone; `holdWork`,
+`laneServed`, `adoptParked`/`heldBy`/`revealing`, `laneSeams`'
+carve-outs, `stagedScreen`) are in the lane/verdict scenarios, not the
+floors: clause (c) is not reachable by deletion alone and needs a byte
+pass over `plainRows` (sharing the held rows across postures, hoisting
+the hook tests out of the row body) — recorded for M5.
+
 ## 5. Swap plan
 
 Three to five PRs, serial, each in its own worktree (brief §4 item 4):
@@ -857,3 +924,76 @@ p.ownWorld`; D-27's letter, "a node it creates during that pass").
     The shadow moves to B with M3 (its `creatorWorld = p.world`), carrying
     the shapes as a named known class until the oracle's pass side is
     gone.
+    (Implemented in M3a, 2026-10-29: `seatWorld`'s born half; the shadow
+    is on B, no known class needed — production and shadow read the same
+    creator.)
+
+- **F-vset — the verdict lane's node set (OPEN, 2026-10-29; two
+  readings).** The brief (§4 S1): "`t._verdict` stays as the record;
+  verdict passes are seated by posture, not `passLane`; verdicts have no
+  node set (`latest()` is read-level, D-27)"; the decided list: "verdict
+  lanes have NO node set — posture persists as a sticky flag until a pass
+  asks nothing (D-25)". The design doc (§1.1 `route` row, §1.2) keeps
+  `t._verdict` as a lane _record_ with `verdictLane` in the sub-hold core
+  ("lane lifecycle, not seating"). M3a swapped the _seating_ (posture flag
+  - `seatWorld` decide; `route` is folded) and left the set. Today the
+    verdict lane's `_nodes` membership is not seating only — it is the
+    display-ahead **reveal mechanism**: `laneStage` lists a verdict reader's
+    staging into `t._verdict` (`list(el, l)`, CONFIG_OVERRIDE, `_x._lane`),
+    `laneSeam` reveals `_nodes` together (F-6/D-23: a verdict and its
+    readers show at once), the park's `holdFrame` skips a lane's node so the
+    frame it built is the lane's, rule-3 blocking reads `t._verdict._held`
+    (row Vl1′, #3460), `dissolveLane` on a correction re-derives the set,
+    #3444's zombie verdict readers re-run as the lane's work so the park
+    seam reveals them, #4284's `entered` and R4's lane linking (#3335,
+    #4393) are set-level. Two readings:
+  * _Reading 1 (the brief's letter) — no set._ A verdict reader's pass
+    publishes its answer mainline at the seam (the display-ahead value IS
+    the mainline value, D-27), its readers read it plainly (no Lv through
+    L6/V6; posture V inherited by reading a V memo, D-25 #4050), and the
+    park no longer has a set to reveal: the reveal is each node's own
+    publish. What changes structurally: a verdict reader's staging is no
+    longer skipped by `holdFrame` (its children would be held with the
+    frame — or must be exempted by posture instead of membership); F-6's
+    "together" needs another carrier than the set; rule-3's `_held`,
+    `dissolveLane`, #3444's re-run, #4284's `entered`, R4's linking all
+    need a posture-level replacement or go. Screens: unmeasured — not
+    implementable as a shadow (it is a different seam), and the tests
+    that pin today's set-level behaviour are explicit:
+    `latest-two-readers-one-ask-4393`, `nested-render-effect-async-
+cleanup` ("#3444 latest() inside a branch a held Show is removing"),
+    `lane-frame-held-lane-3662` (#3444's re-run for the lane's landing),
+    `lane-render-effect-grouping-4284`, `lane-outside-view` (#3460: a
+    `latest()` reader mounted mid-hold "reveals with the lane"),
+    `lane-contract` (the dissolve into the parent on a correction, R4's
+    linking), `fuzz-findings-l2`. Each would be re-derived under reading
+    1, not preserved by construction.
+  * _Reading 2 (the design doc) — the set stays as the record's content._
+    `t._verdict` keeps its `_nodes`; only the _seating_ moves from
+    membership to the posture flag and the seat (done in M3a). Screens:
+    today's, by construction (the differential is clean). What is deleted
+    is `route` (done) and nothing of the reveal.
+  * _#4417 depends on it._ The in-place park re-derive (`[1, 2, 2]`): the
+    provisional pass's staging (`conditionValue` = 2) is dropped at the
+    re-pass (`recompute`'s "published mainline, not held" arm:
+    `insertSubs`, `_pendingValue = NOT_PENDING`), the re-derive compares
+    against the committed value and re-notifies the keyed `Show`, which
+    disposes its provisional child and mounts again. The fix under
+    reading 2 is an _adoption_: when the re-derived value equals the
+    staging, the readers held with that staging move into the verdict
+    lane's set with their stagings as lane values (the lane reveals the
+    provisional frame) instead of re-running — a new set-level mechanism
+    (today's `adoptParked`/`revealing` family, on the deletion list).
+    Under reading 1 there is no set to adopt into; the fix is the
+    re-derive comparing against the staging and the readers' holds
+    released at the seam. Different mechanisms, same target screen
+    (`1|Loading A|1`, mounts `[1, 2, 2]`); not designed until the reading
+    is ruled. The pins stay `test.fails` at the target.
+  * _M4's split boundary depends on it._ §1.2 puts `verdictLane` and the
+    set in the sub-hold core; under reading 1 `verdictLane` is a record
+    with no set and the optimistic layer owns every node set.
+  * _Rule precedence._ F-6 (a verdict and its readers show together) and
+    D-23 (atomic with the value) are the rules the set carries today;
+    D-27 (plain read never display-ahead) and D-25 (posture is a sticky
+    flag) are what the brief reads as "no set". None names the set; the
+    conflict is design-vs-ruling, not rule-vs-rule. Not picked here.
