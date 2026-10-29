@@ -110,10 +110,15 @@ function newLane(parent: Transaction): Transaction {
 }
 
 /** What the screen shows for a lane's node: the lane's value once the lane
- * has revealed, the committed truth before. */
+ * has revealed, the committed truth before — NOT_PENDING when there is none
+ * (uninitialized, as `laneValueOf`): its read throws NotReady. */
 export function display(el: Signal<any> | Computed<any>): unknown {
   const v = el._x!._lane;
-  return el._x!._transaction!._shown && v !== NOT_PENDING ? v : el._value;
+  return el._x!._transaction!._shown && v !== NOT_PENDING
+    ? v
+    : (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
+      ? NOT_PENDING
+      : el._value;
 }
 
 /** Guesses written since the last seam (`[node, value, question, …]`).
@@ -127,9 +132,10 @@ const pendingGuesses: any[] = [];
  * lane's value or the committed one — what an optimistic updater composes
  * on (a store setter's draft too, store/optimistic.ts). */
 export function guessedValueOf<T>(n: Signal<T> | Computed<T>): T {
-  const g = pendingGuessOf(n);
-  if (g !== NOT_PENDING) return g as T;
-  return n._config & CONFIG_OVERRIDE ? (laneValueOf(n) as T) : n._value;
+  let g = pendingGuessOf(n);
+  return g !== NOT_PENDING || (n._config & CONFIG_OVERRIDE && (g = laneValueOf(n)) !== NOT_PENDING)
+    ? (g as T)
+    : n._value;
 }
 /** The unflushed guess to `n`, else NOT_PENDING. */
 export function pendingGuessOf(n: Signal<any> | Computed<any>): unknown {
@@ -699,8 +705,10 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
           c._flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
           l._reruns.push(c);
         }
-        if (!guess && !l._shown && status & STATUS_UNINITIALIZED) throw new NotReadyError(null);
-        return display(el);
+        // Nothing on screen yet (uninitialized: `display` is NOT_PENDING).
+        const v = display(el);
+        if (v === NOT_PENDING) throw new NotReadyError(null);
+        return v;
       }
       // A verdict reader reads ahead of the seam's verdict: re-derived on the
       // screen if the lane holds (#4284).

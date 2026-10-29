@@ -409,36 +409,43 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     el._config & CONFIG_OVERRIDE &&
     !(owner._statusFlags & STATUS_ERROR && !(el._config & CONFIG_GUESS))
   ) {
-    const l = txOf(el);
-    if (tracked) verdictRead(c!, l._parent ?? l);
-    const flying = (owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner);
-    if (el._config & CONFIG_GUESS) {
+    const l = txOf(el),
+      flying = (owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner),
+      guess = el._config & CONFIG_GUESS,
+      // NOT_PENDING: a node born in the lane with nothing in it yet has no
+      // value in either view — loading, not pending, and no verdict to read
+      // ahead: it is read as any uninitialized node, NotReady below (A7, A19
+      // exc. 1; #4363), its reader not moved into the verdict lane.
+      v = guess ? 0 : latestActive && !flying ? laneValueOf(el) : display(el);
+    if (v !== NOT_PENDING) {
+      if (tracked) verdictRead(c!, l._parent ?? l);
+      if (guess) {
+        if (
+          probing &&
+          (flying ||
+            (el._pendingValue !== NOT_PENDING &&
+              (!el._equals || !el._equals(el._x!._lane as any, el._pendingValue as any))))
+        )
+          probeFound = true;
+        // A lane a correction folded under (D-34): `latest()` shows the hold's
+        // world whole — the truth beneath each guess, else what it covered.
+        if (latestActive && l.folded) return l.folded(null, el);
+        return el._x!._lane;
+      }
+      // A first load in flight with nothing produced yet: loading, for
+      // `latest` (D-22) as for `isPending` (A19 exc. 1) — unless an error
+      // answered it first: its re-ask is pending, the error its display
+      // (D-41, #4375).
       if (
-        probing &&
-        (flying ||
-          (el._pendingValue !== NOT_PENDING &&
-            (!el._equals || !el._equals(el._x!._lane as any, el._pendingValue as any))))
+        flying &&
+        v === el._value &&
+        owner._statusFlags & STATUS_UNINITIALIZED &&
+        (latestActive || !owner._x!._shownError)
       )
-        probeFound = true;
-      // A lane a correction folded under (D-34): `latest()` shows the hold's
-      // world whole — the truth beneath each guess, else what it covered.
-      if (latestActive && l.folded) return l.folded(null, el);
-      return el._x!._lane;
+        throw owner._x!._error;
+      if (probing && flying) probeFound = true;
+      return v;
     }
-    const v = flying ? display(el) : laneValueOf(el);
-    // A first load in flight with nothing produced yet: loading, for
-    // `latest` (D-22) as for `isPending` (A19 exc. 1) — unless an error
-    // answered it first: its re-ask is pending, the error its display
-    // (D-41, #4375).
-    if (
-      flying &&
-      v === el._value &&
-      owner._statusFlags & STATUS_UNINITIALIZED &&
-      (latestActive || !owner._x!._shownError)
-    )
-      throw owner._x!._error;
-    if (probing && flying) probeFound = true;
-    return latestActive ? v : display(el);
   }
   // Dev strict-read scopes (a component body, an effect callback) warn on a
   // verdict read as on any untracked read; the pending throw they add for a
