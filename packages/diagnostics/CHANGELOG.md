@@ -1,5 +1,55 @@
 # @solidjs/diagnostics
 
+## 2.0.0-rc.20
+
+### Patch Changes
+
+- Updated dependencies [c9d1eeb]
+- Updated dependencies [178605c]
+- Updated dependencies [17ec571]
+- Updated dependencies [178605c]
+- Updated dependencies [df2ba6c]
+- Updated dependencies [957f065]
+- Updated dependencies [c7f4403]
+- Updated dependencies [3b7ea81]
+- Updated dependencies [2861ab8]
+- Updated dependencies [0f5b150]
+- Updated dependencies [e82efb0]
+- Updated dependencies [2ba8a02]
+- Updated dependencies [910abc1]
+- Updated dependencies [cddc7c3]
+- Updated dependencies [81a12d8]
+- Updated dependencies [81a12d8]
+- Updated dependencies [5f22701]
+- Updated dependencies [81a12d8]
+- Updated dependencies [9baaba3]
+- Updated dependencies [122797e]
+- Updated dependencies [ffe0c1c]
+- Updated dependencies [b68942c]
+- Updated dependencies [7cacef2]
+- Updated dependencies [ac28157]
+- Updated dependencies [1e115b8]
+- Updated dependencies [6b7e34a]
+- Updated dependencies [822fa01]
+- Updated dependencies [2c63f41]
+- Updated dependencies [5f60713]
+- Updated dependencies [425a713]
+- Updated dependencies [bd95616]
+- Updated dependencies [38e0c49]
+- Updated dependencies [1f558e5]
+- Updated dependencies [56a982c]
+- Updated dependencies [56eb192]
+- Updated dependencies [1b32ff2]
+- Updated dependencies [5d57e12]
+- Updated dependencies [4d8195d]
+- Updated dependencies [7ebd4a3]
+- Updated dependencies [f94dcd5]
+- Updated dependencies [409f893]
+- Updated dependencies [85ad399]
+  - @solidjs/signals@2.0.0-rc.20
+  - solid-js@2.0.0-rc.20
+  - @solidjs/web@2.0.0-rc.20
+
 ## 2.0.0-rc.19
 
 ### Patch Changes

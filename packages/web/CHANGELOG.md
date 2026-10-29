@@ -1,5 +1,24 @@
 # @solidjs/web
 
+## 2.0.0-rc.20
+
+### Patch Changes
+
+- 122797e: A direct server-function call no longer copies every plain object and array in its result. The carrier walk that binds deferred bodies to the call's request scope now builds a container's shallow-rebuilt shell only when a value inside it is bound or a cycle reaches it. Before, it built one for every container up front and discarded it when nothing changed. A call returning 1,000 plain rows walks in 0.56 ms instead of 0.91 ms.
+- 56eb192: A hydrating client that boots mid-stream shows a `<Loading>`'s streamed content once when the boundary's fallback was a bare string (#4374). The hole holding the fallback kept it as a raw string, which tracks no node, so the hole never noticed that the fragment had swapped in and reconciled against a fallback it no longer had: a text node of the server's content stayed beside the client's copy (a nested `<Errored>`'s fallback drawn twice, text after an element repeated), or was replaced instead of adopted. While hydrating, a hole holding a raw string now re-claims its region, as it does when the nodes it tracks are gone.
+- Updated dependencies [178605c]
+- Updated dependencies [17ec571]
+- Updated dependencies [178605c]
+- Updated dependencies [df2ba6c]
+- Updated dependencies [c7f4403]
+- Updated dependencies [ffe0c1c]
+- Updated dependencies [bd95616]
+- Updated dependencies [38e0c49]
+- Updated dependencies [1f558e5]
+- Updated dependencies [56a982c]
+- Updated dependencies [5d57e12]
+  - solid-js@2.0.0-rc.20
+
 ## 2.0.0-rc.19
 
 ### Patch Changes

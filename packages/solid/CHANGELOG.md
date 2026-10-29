@@ -1,5 +1,57 @@
 # solid-js
 
+## 2.0.0-rc.20
+
+### Patch Changes
+
+- 178605c: `isPending` of a derived store's key no longer reads `true` for one pass at the store's first landing. A first answer is loading, not pending, as it is for the memo the store copies. Before, a `<Show when={isPending(...)}>` over such a key could open for that pass and mount content that was never meant to show.
+- 17ec571: A derived store whose derive reads an async memo through `latest()` no longer shows its seed for one pass after it first resolves: a memo (or a second derived store) reading it now sees what the derive wrote, so a render effect downstream commits only the real value, the same as one reading the store directly (#4355).
+- 178605c: A render effect reading a derived store that errored, then recovered through `latest()` into a new flight, now re-runs when that flight lands. Before, it never re-ran: an `Errored` around it went back to its content with the value missing, or a `Loading` around it stayed on its fallback.
+- df2ba6c: The dev "multiple instances of Solid" warning now fires when two copies actually meet (a component or `useContext()` from one copy runs inside a component rendered by another, with no owner) instead of whenever a second copy loads. Isolated copies, such as a devtools panel rendering into its own root or a Solid 1 copy on the same page, no longer warn (#2549). Solid 2 no longer sets v1's `globalThis.Solid$$` flag.
+- c7f4403: A hydrated `<Errored>` showing the server's fallback no longer logs `Hydration key miss` (or builds detached elements) for content it creates lazily: children behind a context provider, a component returning a function, a `children()` accessor, or a nested `<Loading>`, `<Errored>`, `<Show>` or `<For>` resolved after the content's own run. Nothing under the boundary claims server DOM, so the fallback stays up until a content input changes or `reset()` (#4348). A nested `<Loading>` there no longer waits on a fragment the server dropped with the content.
+- ffe0c1c: Dev: warn `LOADING_ON_ACCESSOR` when a Loading boundary's `on` receives a function (`on={route}` or `on={() => route()}`). The boundary never calls it, so it never re-arms; pass the value, `on={route()}`. Dev builds only.
+- bd95616: A hydrating client never asks again for an async memo the server answered with an error, when a boundary that resumes mid-stream reads it only through another memo (#4375). The resume created a reader (`isPending(m1)` of a memo `m1` over the rejected `m0`) on a later flush round than the one the rejection landed in, so the read retried the errored memo (PJ-R35); `m0` sat in the shell, outside the boundary being claimed, and hydration took the retry for a client write and ran its compute — a real request, with nothing changed. A served rejection now re-serves in a claim window's own round, as it already does in the round a served answer lands in; a write still recomputes it.
+- 38e0c49: `<For>` / `mapArray` over a shallow store diffs the store's backing array instead of reading every slot through the proxy. A one-row write on a 1,000-row shallow store spent ~1.3 ms in per-slot trap reads; the list's diff now costs what it does over a plain array (~0.05 ms). Optimistic shallow stores, accessor slots and reads inside a setter keep the per-slot path.
+- 1f558e5: Non-keyed Show's narrowed accessor no longer throws a stale-value error when an on-screen branch re-runs during a hold that is closing it: the guard reads the condition as the reading binding sees it (the screen), as Match already does
+- 56a982c: The first draft write to a plain store array clones it with `slice()` instead of copying one property descriptor per element. A push into a 10,000-row store drops from ~10.7 ms to ~0.15 ms per write. Arrays with accessors, named keys or a non-Array prototype keep the descriptor copy.
+- 5d57e12: A `<Loading>` whose fragment was cut off by a truncated stream renders fresh on the client and adopts the records the server sent. The records the stream never settled were still in the registry at that point, so the fresh render adopted their promises, which never settle: the boundary stayed on its fallback and its reads never ran. Truncation now removes those records before any boundary resumes. Reads the server never answered compute on the client, and the values and errors it sent before the cut are still adopted.
+- Updated dependencies [c9d1eeb]
+- Updated dependencies [178605c]
+- Updated dependencies [17ec571]
+- Updated dependencies [178605c]
+- Updated dependencies [957f065]
+- Updated dependencies [3b7ea81]
+- Updated dependencies [2861ab8]
+- Updated dependencies [0f5b150]
+- Updated dependencies [e82efb0]
+- Updated dependencies [2ba8a02]
+- Updated dependencies [910abc1]
+- Updated dependencies [cddc7c3]
+- Updated dependencies [81a12d8]
+- Updated dependencies [81a12d8]
+- Updated dependencies [5f22701]
+- Updated dependencies [81a12d8]
+- Updated dependencies [9baaba3]
+- Updated dependencies [ffe0c1c]
+- Updated dependencies [b68942c]
+- Updated dependencies [7cacef2]
+- Updated dependencies [ac28157]
+- Updated dependencies [1e115b8]
+- Updated dependencies [6b7e34a]
+- Updated dependencies [822fa01]
+- Updated dependencies [2c63f41]
+- Updated dependencies [5f60713]
+- Updated dependencies [425a713]
+- Updated dependencies [38e0c49]
+- Updated dependencies [56a982c]
+- Updated dependencies [1b32ff2]
+- Updated dependencies [4d8195d]
+- Updated dependencies [7ebd4a3]
+- Updated dependencies [f94dcd5]
+- Updated dependencies [409f893]
+- Updated dependencies [85ad399]
+  - @solidjs/signals@2.0.0-rc.20
+
 ## 2.0.0-rc.19
 
 ### Patch Changes
