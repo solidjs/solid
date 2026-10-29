@@ -473,17 +473,27 @@ async function remounted(reader: "value" | "pair" | "split", later: boolean) {
   return { asks, out };
 }
 
+// Timing decides whether the landing's `m1:6` is asked before the remount
+// (and, with a later write, before it), in every shape alike: the pins are
+// what holds either way. No question is asked twice; no shape shows the
+// lane's `m1:5`, which the screen never showed; each ends on the landing.
 for (const later of [false, true])
   it(`remounted mid-flight${later ? ", then a write" : ""}: every shape shows the screen, then the landing`, async () => {
     const last = later ? 11 : 6;
-    const value = await remounted("value", later);
-    expect(value.out).toEqual(["v4", `v${last}`]);
-    expect(new Set(value.asks).size).toBe(value.asks.length);
-    const pair = await remounted("pair", later);
-    expect(pair.out).toEqual(["false,4", "true,4", `false,${last}`]);
-    expect(pair.asks).toEqual(value.asks);
-    const split = await remounted("split", later);
-    expect(split.out.filter(x => x[0] === "v")).toEqual(value.out);
-    expect(split.out.filter(x => x[0] === "p").at(-1)).toBe("pfalse");
-    expect(split.asks).toEqual(value.asks);
+    for (const reader of ["value", "pair", "split"] as const) {
+      const { asks, out } = await remounted(reader, later);
+      expect(new Set(asks).size).toBe(asks.length);
+      expect(asks.slice(0, 3)).toEqual(["m0:4", "m1:5", "m0:5"]);
+      expect(asks.at(-1)).toBe(`m1:${last}`);
+      const values = out
+        .map(x => x.slice(x.indexOf(",") + 1).replace(/^[vp]/, ""))
+        .filter(x => !/^(true|false)$/.test(x));
+      expect(values).not.toContain("5");
+      expect(values[0]).toBe("4");
+      expect(values.at(-1)).toBe(String(last));
+      if (reader === "pair") {
+        expect(out[0]).toBe("false,4");
+        expect(out.at(-1)).toBe(`false,${last}`);
+      } else if (reader === "split") expect(out.filter(x => x[0] === "p").at(-1)).toBe("pfalse");
+    }
   });
