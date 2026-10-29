@@ -18,7 +18,8 @@ import {
   createSignal,
   flush,
   isPending,
-  latest
+  latest,
+  refresh
 } from "../src/index.js";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -211,3 +212,129 @@ it.fails(
     expect(grouped.asks).toEqual(split.asks);
   }
 );
+
+// Grouping never changes the result (F-6: `[isPending(x), x()]` in one
+// render effect holds like `x()` alone). Over a write `h` holds, the grouped
+// reader read `h` as a stale reader of the transaction (A15) and the verdict
+// lane's reveal re-derived it: the reveal's re-run cleared the frame-read
+// mark the transaction's hold counts, so the transaction landed with `h` in
+// flight, the landing voided the reveal's run, and `m1`'s lane answer was
+// asked and never shown. A lane's reveal now leaves the mark to the
+// transaction (`reruns`). And a pass served a held node's committed value
+// does not wait on its flight (`servedCommitted`): a reader that went
+// pending on a `refresh()` of `m0` mid-hold woke when the re-ask landed,
+// instead of waiting on `h` too and skipping `m1`'s lane answer.
+async function heldShapes(
+  f: (l: number, v: number) => number,
+  script: (setS: (v: number) => void, m0: () => number) => Promise<void>
+) {
+  const shown: Record<string, string[]> = {};
+  const asked: Record<string, string[]> = {};
+  for (const reader of ["value", "pair", "split"] as const) {
+    const [s, setS] = createSignal(1);
+    const asks: string[] = [];
+    const values: string[] = [];
+    const ask = (n: string, v: number) => {
+      asks.push(`${n}:${v}`);
+      return sleep(10).then(() => v);
+    };
+    const show = (v: string) => void (values.at(-1) !== v && values.push(v));
+    let m0!: () => number;
+    const dispose = createRoot(dispose => {
+      m0 = createMemo(() => ask("m0", f(latest(s), s())));
+      const m1 = createMemo(() => ask("m1", 100 + m0()));
+      const h = createMemo(() => (s() === 1 ? 1 : sleep(80).then(() => 1)));
+      createLoadingBoundary(
+        () => {
+          if (reader === "pair")
+            createRenderEffect(
+              () => (h(), [isPending(m1), m1()] as const),
+              ([, v]) => show(String(v))
+            );
+          else if (reader === "split") {
+            createRenderEffect(
+              () => (h(), isPending(m1)),
+              () => {}
+            );
+            createRenderEffect(
+              () => (h(), m1()),
+              v => show(String(v))
+            );
+          } else
+            createRenderEffect(
+              () => (h(), m1()),
+              v => show(String(v))
+            );
+          return null;
+        },
+        () => "L"
+      );
+      return dispose;
+    });
+    flush();
+    await settle();
+    asks.length = 0;
+    await script(setS, m0);
+    await settle();
+    await settle();
+    dispose();
+    shown[reader] = values;
+    asked[reader] = asks;
+  }
+  return { shown, asked };
+}
+
+it("held write: grouped shows m1's lane answer as a value read does", async () => {
+  const { shown, asked } = await heldShapes(
+    (l, v) => 1 + l + v,
+    async setS => setS(2)
+  );
+  expect(shown.value).toEqual(["103", "104", "105"]);
+  expect(shown.pair).toEqual(shown.value);
+  expect(shown.split).toEqual(shown.value);
+  for (const a of Object.values(asked)) expect(a).toEqual(["m0:4", "m1:104", "m0:5", "m1:105"]);
+});
+
+it("held write landing equal: grouped shows m1's lane answer as a value read does", async () => {
+  const { shown } = await heldShapes(
+    (l, v) => l - v + 3,
+    async setS => setS(2)
+  );
+  expect(shown.value).toEqual(["103", "104", "103"]);
+  expect(shown.pair).toEqual(shown.value);
+  expect(shown.split).toEqual(shown.value);
+});
+
+it("held write, refresh after it settles: grouped shows m1's lane answer as a value read does", async () => {
+  const { shown } = await heldShapes(
+    (l, v) => 1 + l + v,
+    async (setS, m0) => {
+      setS(2);
+      await settle();
+      await settle();
+      refresh(m0);
+      flush();
+    }
+  );
+  expect(shown.value).toEqual(["103", "104", "105"]);
+  expect(shown.pair).toEqual(shown.value);
+  expect(shown.split).toEqual(shown.value);
+});
+
+it("held write, refresh mid-hold: every shape shows m1's lane answer", async () => {
+  const { shown, asked } = await heldShapes(
+    (l, v) => 1 + l + v,
+    async (setS, m0) => {
+      setS(2);
+      await sleep(12);
+      flush();
+      refresh(m0);
+      flush();
+    }
+  );
+  expect(shown.value).toEqual(["103", "104", "105"]);
+  expect(shown.pair).toEqual(shown.value);
+  expect(shown.split).toEqual(shown.value);
+  for (const a of Object.values(asked))
+    expect(a).toEqual(["m0:4", "m1:104", "m0:4", "m0:5", "m1:105"]);
+});
