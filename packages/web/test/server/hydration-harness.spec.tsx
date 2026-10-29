@@ -31,7 +31,10 @@ import {
   shellFallbackFailureName,
   lazyErroredShapes,
   lazyErroredContent,
-  lazyErroredName
+  lazyErroredName,
+  erroredOutsideLoadingShapes,
+  erroredOutsideLoading,
+  erroredOutsideLoadingName
 } from "../harness/scenarios.jsx";
 import { recordStream, writeArtifact } from "./artifact-recorder.js";
 
@@ -94,6 +97,24 @@ describe("hydration parity harness — Errored fallback over lazy content (#4348
       expect(shell).toMatch(/<p[^>]*>loading<\/p>/);
       expect(rest).toContain("failed: <!--$-->no user 7<!--/--></p>");
       expect(rest).not.toContain("<button");
+    });
+  }
+});
+
+// #4372: a rejection under a streamed Loading caught by an Errored outside
+// it. Recorded for test/hydration/errored-outside-loading-4372.spec.tsx.
+describe("hydration parity harness — Errored outside a failing streamed Loading (#4372)", () => {
+  for (const shape of erroredOutsideLoadingShapes) {
+    const name = erroredOutsideLoadingName(shape);
+    test(name, async () => {
+      const App = erroredOutsideLoading(shape);
+      const { shell, rest } = await storage.run(makeEvent(), () => recordStream(() => <App />));
+      writeArtifact(name, { name, shell, rest });
+      // Shell: the Loading's fallback; the fragment: the Errored's fallback,
+      // marked as a rejected fragment.
+      expect(shell).toContain("[LOAD]");
+      if (shape === "text") expect(rest).toMatch(/<template id="[^"]+" e><\/template>/);
+      else expect(rest).toMatch(/<template id="[^"]+" e>(<p[^>]*>)?\[ERR\]/);
     });
   }
 });
