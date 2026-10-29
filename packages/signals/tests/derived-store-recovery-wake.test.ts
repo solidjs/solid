@@ -91,7 +91,10 @@ describe("a derived store's landing wakes a reader parked on its error", () => {
   for (const how of ["action", "write"] as const) {
     it(`${how}: the store's reader commits the recovered value, as the memo's does`, async () => {
       const memo = await run("memo", how);
-      expect(memo).toEqual(["error", "content", "v:5"]);
+      // The error stays the display until the new answer lands (D-39: a
+      // pending is not a value): the content shows with the reader's value,
+      // in one flush, never with the reader still loading.
+      expect(memo).toEqual(["error", "v:5", "content"]);
       expect(await run("store", how)).toEqual(memo);
     });
   }

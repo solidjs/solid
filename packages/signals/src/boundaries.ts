@@ -184,9 +184,9 @@ function record(b: Boundary, node: Computed<any>, source = node): void {
 function caught(b: Boundary, node: Computed<any>, error: unknown, source = node): void {
   if (b._type === STATUS_ERROR) {
     // An error boundary waits on what THREW (`StatusError.source`), not on
-    // the reader that saw it: the reader recovers the moment a refetch
-    // starts (its boundary catches the pending), while the error is settled
-    // only when its source is neither errored nor in flight — or when the
+    // the reader that saw it, while the error is settled only when its
+    // source is neither errored nor in flight and the reader is not pending
+    // on the answer that replaces it (`prune`) — or when the
     // reader is disposed: a source no live reader holds holds nothing
     // (#4373). A source that died (a memo its reader owned, kept past the
     // pass that disposed it) settles nothing: the reader is waited on.
@@ -199,6 +199,13 @@ function caught(b: Boundary, node: Computed<any>, error: unknown, source = node)
     reportClientError(caught, b._owner, source);
   }
   record(b, node, source);
+  // A loading fallback behind an error fallback is hidden: the error stays
+  // the display until what the fallback waits on answers (D-39) — the
+  // error boundary waits on it too.
+  // (`_type`: STATUS_PENDING 1 < STATUS_ERROR 2 — an error boundary above a
+  // loading one.)
+  for (let p: Boundary | null = b; (p = p._parent); )
+    if (p._fallback && p._type > b._type) record(p, node);
   if (b._armed) flip(b);
   // Already showing the fallback: one more reader to wait on changes
   // nothing on screen. The fallback is instantiated once per show — a later
@@ -327,7 +334,11 @@ function release(b: Boundary): void {
  * content reveals at the commit, with its run. The tree is: the output reads
  * it and enters the transaction itself (its committed value shows until the
  * landing). The statuses that keep a reader: pending — and its error, for an
- * error boundary (`_type` is the status it catches). */
+ * error boundary (`_type` is the status it catches) — on the reader or its
+ * source. A reader pending again after the source that threw answered (it
+ * re-asks through a memo that carried the error) has no new answer yet: the
+ * error stays the display (D-39: a pending is not a value; async-gen 91501
+ * #1831). */
 export function prune(b: Boundary, pass: boolean): number {
   const mask = b._type | STATUS_PENDING;
   for (const [r, s] of b._readers) {
@@ -336,7 +347,10 @@ export function prune(b: Boundary, pass: boolean): number {
       // it publishes with the commit. A reader that threw it now (a lane
       // pass, a reader of a node born staged) reached the boundary first
       // (#4364).
-      if (s._statusFlags & mask || (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR))
+      if (
+        (r._statusFlags | s._statusFlags) & mask ||
+        (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR)
+      )
         continue;
       if (
         (s !== b._tree || b._armed) &&
