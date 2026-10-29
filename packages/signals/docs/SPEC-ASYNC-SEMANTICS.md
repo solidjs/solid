@@ -128,6 +128,8 @@ A tracked computation served a node's staged `_pendingValue` — a value a live 
 
 **Clarified 2026-10-07 (#3800, maintainer):** "I meant new memos that don't read async.. if you are moving from page a to page b.. and page b reads async everything is held even if it is new async (assuming the read doesn't get exclusively caught by a boundary). These are basics." A new memo whose first pass reads the held world is held with it whether its first answer is a value or a promise: an async first answer lands into the transaction while it is live (the direction rule's "a first load derived from a hold lands into it").
 
+_(Promoted 2026-10-28, D-27: ruling A's "a held pass's children compute but do not effect and die with the commit that replaces their frame" is now a derived rule — a pass that read a node born into the hold, a render effect included, joins it, and a node it creates during that pass is born held: its value commits with the frame and a mainline reader of it waits rather than showing it ahead of the frame, F-7. The hold's own children only; a verdict reader's mount stays mainline, the 2026-10-07 amendment above.)_
+
 ### A31. A memo computes under its own lane posture, never its puller's
 
 **Status:** **live** 2026-09-14 (#3442) — stated by the fix; the lane-side twin of A29's "a value derived from the held world is that transaction's work"
