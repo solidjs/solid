@@ -120,11 +120,13 @@ function notifyEffectStatus(this: Effect<any>): void {
       return;
     }
     // Dev locates the halt at the node that threw: the StatusError's
-    // source, upstream of this effect when a computed failed.
+    // source, upstream of this effect when a computed failed. The rethrow is
+    // the user's error, not the wrapper: the wrapper's `source` is a node, and
+    // a reporter that serializes the throw walks the reactive graph.
     escalate(
       this,
       unwrapStatusError(actualError),
-      actualError,
+      undefined,
       __DEV__ && actualError instanceof StatusError ? actualError.source : this
     );
   } else if (this._type === EFFECT_RENDER) {
