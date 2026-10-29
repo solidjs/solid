@@ -1,4 +1,5 @@
 import {
+  CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_HELD_FRAME,
   CONFIG_IN_SNAPSHOT_SCOPE,
@@ -1203,13 +1204,20 @@ export function reruns(u: Transaction): unknown {
     // staging, `stagedScreen`) — the landing is the new answer, and the
     // reader re-derives on it (A15; D-39). A first load read so has no other
     // run: its error would stay the screen (async-gen 91501 #1158, #119).
+    // A boundary's structure (its tree, its output: CONFIG_FRAME, no effect
+    // type) re-derives all the same: what it read as the screen is the
+    // content the landing replaces, and only its pass links the new content
+    // whose recovery must reach it (D-3, D-39, #4405).
     const s = (r._x?._error as any)?.source;
     if (
       r._flags & REACTIVE_DISPOSED ||
-      (r._statusFlags & STATUS_ERROR && s !== r && (s?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
+      (r._statusFlags & STATUS_ERROR &&
+        ((r as any)._type || !(r._config & CONFIG_FRAME)) &&
+        s !== r &&
+        (s?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
     )
       continue;
-    if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
+    if (r._flags & REACTIVE_FRAME_READ || (observeFlightHook && r._config & CONFIG_VERDICT)) {
       frame ||= (r as any)._type;
       // A lane's reveal leaves the mark to the transaction: a reader that
       // also read a held node as committed (`staleReader`) still observes

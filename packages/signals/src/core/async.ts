@@ -316,8 +316,9 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // A19: a verdict reader holds no pending of its own (it was re-derived
       // when the source went pending, `propagateStatus`), and a landing
       // equal to the committed value notifies nobody — the source settling
-      // is its verdict changing: it runs again.
-      return node._config & CONFIG_VERDICT && enqueueSub(node);
+      // is its verdict changing: it runs again. (Verdict readers exist only
+      // with the verdict engine installed.)
+      return holdWorkHook && node._config & CONFIG_VERDICT && enqueueSub(node);
     visited.add(node);
     node._time = clock;
     const remaining = node._x?._pendingSources?.values().next().value;
@@ -431,7 +432,7 @@ export function handleAsync<T>(
   if (!thenable && !iterator) {
     if (el._x !== null) {
       el._x._inFlight = null;
-      el._config &= ~CONFIG_ASYNC;
+      if (holdWorkHook) el._config &= ~CONFIG_ASYNC;
     }
     // A sync landing is the first real answer for a loadingValue node.
     el._loading = false;
@@ -469,7 +470,9 @@ export function handleAsync<T>(
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
   // D-25 (verdict.ts `holdWork`): an async memo whose answering pass opened
   // no verdict window of its own (`markVerdictReader` clears the bit).
-  if (!(el._flags & REACTIVE_WINDOW)) el._config |= CONFIG_ASYNC;
+  // Kept by the verdict engine alone (`holdWorkHook`): a build without it
+  // folds the bit's upkeep away.
+  if (holdWorkHook && !(el._flags & REACTIVE_WINDOW)) el._config |= CONFIG_ASYNC;
   // The question this flight answers (A18 provenance, lanes.ts): the action
   // whose slice asked it; mainline is always the current question.
   el._x!._q = question || MAINLINE_QUESTION;
@@ -1005,7 +1008,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     // (F-9), and asks its next question once, at the landing (#4397).
     if (
       sub._config & CONFIG_REDERIVE ||
-      (sub._config & CONFIG_VERDICT && !(pendingSource && holdWorkHook!(sub, el))) ||
+      (holdWorkHook && sub._config & CONFIG_VERDICT && !(pendingSource && holdWorkHook(sub, el))) ||
       (status === STATUS_PENDING && link._gen !== sub._depGen)
     ) {
       enqueueSub(sub);
