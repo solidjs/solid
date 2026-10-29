@@ -1,21 +1,5 @@
 {
   "seed": 3289,
   "cases": 1500,
-  "failing": {
-    "465": [
-      "liveness/final-screen"
-    ],
-    "1091": [
-      "liveness/final-screen"
-    ],
-    "1188": [
-      "liveness/final-screen"
-    ],
-    "1237": [
-      "liveness/final-screen"
-    ],
-    "1383": [
-      "liveness/final-screen"
-    ]
-  }
+  "failing": {}
 }
