@@ -350,6 +350,16 @@ it("held write, refresh mid-hold: every shape shows m1's lane answer", async () 
 // again (F-9: a re-ask of the same question is no new question). A later
 // write before the landing is a new question, asked once.
 async function extracted(reader: "value" | "pair" | "split", second: boolean, inline = false) {
+  // Flights land only when the test lands them, so the later write always
+  // comes while the write's flights are up, at any runner speed.
+  const flights: (() => void)[] = [];
+  const land = async () => {
+    for (let i = 0; i < 8; i++) {
+      flights.splice(0).forEach(f => f());
+      await sleep(0);
+      flush();
+    }
+  };
   const [s, setS] = createSignal(1);
   const [u, setU] = createSignal(0);
   const asks: string[] = [];
@@ -360,7 +370,7 @@ async function extracted(reader: "value" | "pair" | "split", second: boolean, in
     const m1 = createMemo(() => {
       const q = v() * 10 + s() * 100 + u();
       asks.push(`m1:${q}`);
-      return sleep(10).then(() => q);
+      return new Promise<number>(r => flights.push(() => r(q)));
     });
     createLoadingBoundary(
       () => {
@@ -383,18 +393,17 @@ async function extracted(reader: "value" | "pair" | "split", second: boolean, in
     return dispose;
   });
   flush();
-  await settle();
+  await land();
   asks.length = 0;
   setS(2);
   flush();
   if (second) {
-    await sleep(2);
+    await sleep(0);
     flush();
     setU(5);
     flush();
   }
-  await settle();
-  await settle();
+  await land();
   dispose();
   return { asks, values };
 }
