@@ -221,11 +221,12 @@ export const CONFIG_KEY_BAG = 1 << 28;
  * joins nothing, so two mounts under one boundary made in separate flushes
  * keep their holds apart (D-4, S-5 rows 1′–3′, #4283). */
 export const CONFIG_FRAME = 1 << 23;
-/** The node's last pass that answered registered a flight (`handleAsync`):
- * an async memo. A sync answer clears it; a pass that threw (NotReady) keeps
- * the last answer's. With no verdict window of its own (REACTIVE_WINDOW), it
- * takes no verdict role from the verdict memos it reads (core.ts
- * `recompute`, F-6). */
+/** The node's last pass that answered registered a flight (`_inFlight`):
+ * an async memo. A sync answer clears it; a pass that threw (NotReady, or an
+ * error) keeps the last answer's. Worked out once, at the end of each pass
+ * (core.ts `recompute`). With no verdict window of its own
+ * (REACTIVE_WINDOW), it takes no verdict role from the verdict memos it
+ * reads (F-6). */
 export const CONFIG_ASYNC = 1 << 29;
 
 export const STATUS_NONE = 0;
