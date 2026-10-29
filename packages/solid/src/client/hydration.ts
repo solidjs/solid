@@ -2656,6 +2656,10 @@ function watchTruncation(hy: any) {
     "DOMContentLoaded",
     () => {
       if (!hy.r) return;
+      // First, before any boundary below resumes: a cut fragment's fresh
+      // render adopts by id, so the records that can no longer settle must
+      // already be gone from the registry when it reads them.
+      const consumed = dropTruncatedRefs(hy);
       for (const key in hy.r) {
         if (key.length <= 3 || !key.endsWith("_fr")) continue;
         const ref = hy.r[key];
@@ -2664,13 +2668,13 @@ function watchTruncation(hy: any) {
       // A macrotask later, on purpose: the fragment rejections above release
       // their boundaries through microtask chains (abort race -> resume ->
       // fresh render), and that teardown disposes the computations that
-      // adopted pending owner-id refs while hydrating. Rejecting those refs
+      // adopted pending owner-id refs while hydrating. Rejecting refs
       // synchronously would race the disposal and land an unhandled error in
       // a still-live computation, halting the reactive system. After the
-      // boundaries have released, whoever still holds a pending ref (keyed
-      // consumers like the router's query channel, boundaries waiting on a
-      // sync-serialized data ref) is exactly who needs the rejection.
-      setTimeout(() => rejectTruncatedRefs(hy));
+      // boundaries have released, whoever still holds a consumed ref (keyed
+      // consumers like the router's query channel) is exactly who needs the
+      // rejection.
+      setTimeout(() => rejectTruncatedRefs(consumed));
     },
     { once: true }
   );
@@ -2686,28 +2690,31 @@ function watchTruncation(hy: any) {
 // arrays for scoped renders) is dead. What each one needs depends on who is
 // left holding its promise:
 //
+// - A ref STILL in the registry either was adopted by a live reactive
+//   computation (owner-id channel — never deleted) or awaits a late reader,
+//   a cut fragment's fresh render among them. Rejecting those promises raw
+//   lands an unhandled error inside live computations (no boundary routes
+//   it — the fragment pass already released the boundaries) and halts the
+//   reactive system. Deleting the entry instead makes every future presence
+//   check (`sharedConfig.has`) fall through to a fresh compute/fetch —
+//   recovery, not failure — while already-adopted computations keep their
+//   pre-existing stall until their sources re-run. A delete notifies no
+//   one, so it runs at the cut itself (dropTruncatedRefs), before the
+//   fragment pass resumes any boundary: a fresh render that read the entry
+//   first would adopt the dead promise and never ask.
 // - A ref GONE from the registry was consumed one-shot by a keyed consumer
 //   (the router deletes `_$HY.r[key]` on load) — that consumer holds the
 //   bare promise and hangs permanently unless it actually rejects, and its
-//   `.then` chain is built for rejections. Reject through the resolver.
-//   Walking the resolvers rather than the registry keys is what reaches
-//   these at all.
-// - A ref STILL in the registry either was adopted by a live reactive
-//   computation (owner-id channel — never deleted) or awaits a late reader.
-//   Rejecting those promises raw lands an unhandled error inside live
-//   computations (no boundary routes it — the fragment pass already
-//   released the boundaries) and halts the reactive system. Deleting the
-//   entry instead makes every future presence check (`sharedConfig.has`)
-//   fall through to a fresh compute/fetch — recovery, not failure — while
-//   already-adopted computations keep their pre-existing stall until their
-//   sources re-run.
+//   `.then` chain is built for rejections. Reject through the resolver, a
+//   macrotask later (rejectTruncatedRefs). Walking the resolvers rather
+//   than the registry keys is what reaches these at all.
 //
 // Settled promises carry the status stamp (`.s`) the settle helpers write,
-// and the fragment pass stamps rejected `_fr` declarations before this
-// runs, so both are skipped.
-function rejectTruncatedRefs(hy: any) {
+// so they are skipped. The `_fr` declarations are the fragment pass's.
+function dropTruncatedRefs(hy: any): any[] {
+  const consumed: any[] = [];
   const R = (globalThis as any).$R;
-  if (!R || typeof R !== "object") return;
+  if (!R || typeof R !== "object") return consumed;
   let registryKeys: Map<any, string> | undefined;
   const sweep = (entry: any) => {
     if (
@@ -2724,10 +2731,20 @@ function rejectTruncatedRefs(hy: any) {
       for (const key in hy.r) registryKeys.set(hy.r[key], key);
     }
     const key = registryKeys.get(entry.p);
-    if (key !== undefined) {
-      delete hy.r[key];
-      return;
-    }
+    if (key === undefined) consumed.push(entry);
+    else if (!key.endsWith("_fr")) delete hy.r[key];
+  };
+  for (const key in R) {
+    const value = R[key];
+    if (Array.isArray(value)) for (const entry of value) sweep(entry);
+    else sweep(value);
+  }
+  return consumed;
+}
+
+function rejectTruncatedRefs(consumed: any[]) {
+  for (const entry of consumed) {
+    if (entry.p.s) continue;
     const err = new Error("Hydration value was truncated: the stream ended before it settled.");
     // Mirror seroval's failure helper: reject through the resolver and stamp
     // the promise's status for status-based readers.
@@ -2737,11 +2754,6 @@ function rejectTruncatedRefs(hy: any) {
     // Guard the harness itself against an unhandled-rejection report; the
     // consumer observes the rejection through its own chain.
     entry.p.then(undefined, noop);
-  };
-  for (const key in R) {
-    const value = R[key];
-    if (Array.isArray(value)) for (const entry of value) sweep(entry);
-    else sweep(value);
   }
 }
 
