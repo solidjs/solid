@@ -2646,38 +2646,45 @@ function subscribeFragments(cb: (id: string, parent?: ParentNode) => void): () =
 // unsettled then can never settle, because the script that would resolve it
 // executes during parse. Each one becomes a rejected fragment: an
 // error-class write, distinguishable from a server-sent rejection by its
-// error, surfaced through the boundary's normal rejection path. The sweep
-// only arms when the runtime booted while the document was still streaming;
-// a runtime loaded after parse can't tell a completed page from a truncated
-// one and stays out of it.
+// error, surfaced through the boundary's normal rejection path. A runtime
+// that boots while the document is still streaming sweeps at
+// DOMContentLoaded. One that boots after the parser finished (an entry that
+// waits on a route module, a deferred entry) sweeps at boot, but only under
+// the in-render bootstrap (`_$HY.s`, #3971): every declaration and settle in
+// that document is a parser-inserted script, so the transport has already
+// closed. Both passes then run before hydrate()'s claim walk: the records
+// that can no longer settle leave the registry, boundaries register against
+// rejected declarations, and only the rejection of consumed refs waits its
+// macrotask. Without the ledger (a host-placed bootstrap, a
+// hand-built `_$HY`) nothing says the parser carried the records, and a late
+// runtime stays out.
 function watchTruncation(hy: any) {
-  if (typeof document === "undefined" || document.readyState !== "loading") return;
-  document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-      if (!hy.r) return;
-      // First, before any boundary below resumes: a cut fragment's fresh
-      // render adopts by id, so the records that can no longer settle must
-      // already be gone from the registry when it reads them.
-      const consumed = dropTruncatedRefs(hy);
-      for (const key in hy.r) {
-        if (key.length <= 3 || !key.endsWith("_fr")) continue;
-        const ref = hy.r[key];
-        if (ref && typeof ref === "object" && !ref.s) markTruncated(hy, key.slice(0, -3));
-      }
-      // A macrotask later, on purpose: the fragment rejections above release
-      // their boundaries through microtask chains (abort race -> resume ->
-      // fresh render), and that teardown disposes the computations that
-      // adopted pending owner-id refs while hydrating. Rejecting refs
-      // synchronously would race the disposal and land an unhandled error in
-      // a still-live computation, halting the reactive system. After the
-      // boundaries have released, whoever still holds a consumed ref (keyed
-      // consumers like the router's query channel) is exactly who needs the
-      // rejection.
-      setTimeout(() => rejectTruncatedRefs(consumed));
-    },
-    { once: true }
-  );
+  if (typeof document === "undefined") return;
+  const sweep = () => {
+    if (!hy.r) return;
+    // First, before any boundary below resumes: a cut fragment's fresh
+    // render adopts by id, so the records that can no longer settle must
+    // already be gone from the registry when it reads them.
+    const consumed = dropTruncatedRefs(hy);
+    for (const key in hy.r) {
+      if (key.length <= 3 || !key.endsWith("_fr")) continue;
+      const ref = hy.r[key];
+      if (ref && typeof ref === "object" && !ref.s) markTruncated(hy, key.slice(0, -3));
+    }
+    // A macrotask later, on purpose: the fragment rejections above release
+    // their boundaries through microtask chains (abort race -> resume ->
+    // fresh render), and that teardown disposes the computations that
+    // adopted pending owner-id refs while hydrating. Rejecting refs
+    // synchronously would race the disposal and land an unhandled error in
+    // a still-live computation, halting the reactive system. After the
+    // boundaries have released, whoever still holds a consumed ref (keyed
+    // consumers like the router's query channel) is exactly who needs the
+    // rejection.
+    setTimeout(() => rejectTruncatedRefs(consumed));
+  };
+  if (document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", sweep, { once: true });
+  else if (hy.s) sweep();
 }
 
 // The fragment pass above releases BOUNDARIES, but the registry also carries
