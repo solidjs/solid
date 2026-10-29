@@ -27,6 +27,7 @@ import {
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
+  REACTIVE_WINDOW,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
@@ -252,7 +253,7 @@ function markVerdictReader(window: number): void {
     while ((p = creatorPass(p!._parent))?._flags! & REACTIVE_RECOMPUTING_DEPS)
       born |= p!._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ);
     if (!born) c._config |= CONFIG_VERDICT;
-    c._flags |= REACTIVE_PROBED | born;
+    c._flags |= REACTIVE_PROBED | REACTIVE_WINDOW | born;
     // Observe tier: which windows this pass entered (1 `isPending`, 2
     // `latest`) — the hold census names the affordance (attribution.ts).
     if (__OBSERVE__) (c as any)._devWindows = ((c as any)._devWindows ?? 0) | window;
