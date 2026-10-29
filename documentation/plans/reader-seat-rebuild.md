@@ -824,3 +824,36 @@ p.ownWorld`; D-27's letter, "a node it creates during that pass").
     nothing of the hold but exists only in it (B), or only when the pass
     read the hold (A')? If B, the 14 suite shapes are `next` bugs to file;
     if A', #4428 stands as filed.
+    **Determined 2026-10-29 (S1 M2, under the maintainer's delegation for
+    readings that move no screen): reading B.** Measured by switching
+    today's born-held arm to B on a scratch worktree (`BORN_HELD_MODE=B`:
+    the running creator is in world H by its own JOINED, by birth into a
+    hold, or by inheritance from _its_ creator; `runWithOwner` creations
+    included — the running pass, not the owner) and running everything
+    with the decision applied: (1) signals 393 files / 5,994 tests, solid,
+    web — the same pass/fail set as today in every file (no assertion
+    moves; the seven `it.fails` stay failing); the 14 diverging passes
+    (`optimistic-maparray-index-frame-f1` ×13 across insert/delete/move/
+    swap/reverse/rotate, `lazy-memo-rebuilt-reader-4142` ×1) and web's 3
+    (`use-head-css-gating-client` "a branch superseded before its sheet
+    loads") stage their first value where today publishes it, and every
+    asserted screen — the DOM after the landing, the `For` frame's rows,
+    the applied sheet stack — is the same; (2) none of those tests pins
+    the publish-vs-stage of that first value to a rule id (the f1 tests
+    pin D-34's landing-replaces-frame, 4142 pins "runs once", the css test
+    pins the sheet stack) — incidental; (3) generator 2,000 × seeds
+    7/3289/91501 with B applied, `ASYNC_GEN_DIFF` against the `next`
+    recording: **zero screen differences**, equivalence surveys
+    line-identical. #4428 under B is today's answer (born held), screens
+    equal by identity. Size: in the module-state seat B needs only the
+    pass's world (`seatWorld`, saved/restored by `recompute` for every
+    reading); A' additionally needs the running creator's _own_ world —
+    a second saved/restored variable or a running-pass pointer — so B is
+    the smaller by one save/restore pair (~30 B minified). M3 implements
+    B; the 14 + 3 suite shapes are `next` findings closed by S1 (noted in
+    the PR body; no separate issues — no screen changes), and #4428 closes
+    as "today's answer was right, for a reason today does not have"
+    (B inherits through the running pass, not the owner's stale flag).
+    The shadow moves to B with M3 (its `creatorWorld = p.world`), carrying
+    the shapes as a named known class until the oracle's pass side is
+    gone.
