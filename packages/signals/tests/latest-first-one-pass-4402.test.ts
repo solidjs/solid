@@ -10,7 +10,7 @@
 // - #4399 (it.fails, carve row): two actions, each holding a verdict
 //   memo's write, ask `m1:15` twice: once in A's verdict lane, once in B's
 //   transaction over the same inputs (F-9).
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   action,
   createEffect,
@@ -24,10 +24,12 @@ import {
   latest
 } from "../src/index.js";
 
+// Fake timers: the flights' order is the script's, not the runner's speed.
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const wait = (ms: number) => vi.advanceTimersByTimeAsync(ms);
 async function settle(n = 4) {
   for (let i = 0; i < n; i++) {
-    await sleep(15);
+    await wait(15);
     flush();
   }
 }
@@ -55,6 +57,9 @@ describe("#4402: latest(s) before s() computes once on a plain write", () => {
 });
 
 type Reader = "pair" | "split" | "value";
+
+beforeEach(() => void vi.useFakeTimers());
+afterEach(() => void vi.useRealTimers());
 
 async function run(reader: Reader, script: "change" | "two-actions") {
   const [s, setS] = createSignal(1);
@@ -91,7 +96,7 @@ async function run(reader: Reader, script: "change" | "two-actions") {
   out.length = 0;
   if (script === "change") {
     setS(2);
-    await sleep(25);
+    await wait(25);
     flush();
     setS(4);
   } else {
@@ -99,7 +104,7 @@ async function run(reader: Reader, script: "change" | "two-actions") {
       setS(2);
       yield sleep(30);
     })();
-    await sleep(5);
+    await wait(5);
     action(function* () {
       setT(1);
       yield sleep(50);
