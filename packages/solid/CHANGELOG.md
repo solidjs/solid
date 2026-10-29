@@ -1,5 +1,15 @@
 # solid-js
 
+## 1.9.18
+
+### Patch Changes
+
+- 458a0b6: Raise the `seroval` dependency to `~1.6.11`.
+- fb50357: Stop a `createRoot` dispose function from retaining the root's `fn`. The dispose function shared `createRoot`'s scope, so holding it kept `fn` and everything `fn` closes over alive: every `mapArray`/`indexArray` row (and so every `<For>`/`<Index>` row) kept the list it was created from, including items later removed from it.
+- 8220215: Fix `lazy()` rendering nothing, or the Suspense fallback, when an already-loaded component is mounted again. Disposing an instance still releases the shared resource while its import is in flight or has failed, so that load can be collected and retried, but a resolved module stays cached and the next mount renders synchronously.
+- 63210b7: Preserve the target array length when reconciling stores on the server.
+- d95127c: Update DOM Expressions to 0.40.13. The universal renderer's spread now clears properties whose keys are removed, calling `setProperty(node, name, undefined, prev)`, and SVG `<radialGradient>` accepts `fr`.
+
 ## 1.9.17
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # test-integration
 
+## 1.9.18
+
+### Patch Changes
+
+- Updated dependencies [458a0b6]
+- Updated dependencies [fb50357]
+- Updated dependencies [8220215]
+- Updated dependencies [63210b7]
+- Updated dependencies [d95127c]
+  - solid-js@1.9.18
+
 ## 1.9.17
 
 ### Patch Changes
