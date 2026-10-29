@@ -80,6 +80,10 @@ export let laneSeamsHook: ((t: Transaction | null) => void) | null = null;
 export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
+/** core.ts `frameRead` served lane work or a verdict reader a held node's
+ * committed value (lanes.ts `laneServed`). */
+export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
+  null;
 /** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
  * reaches (CONFIG_GUESS) — a build without `createOptimistic` or
  * `createOptimisticStore` never sets it, and its bundler folds them. */
@@ -96,7 +100,8 @@ export function installLaneHooks(
   seams: NonNullable<typeof laneSeamsHook>,
   corrections: NonNullable<typeof laneCorrectionsHook>,
   end: NonNullable<typeof endLanesHook>,
-  blocked: NonNullable<typeof lanesBlockedHook>
+  blocked: NonNullable<typeof lanesBlockedHook>,
+  served: NonNullable<typeof laneServedHook>
 ): void {
   laneReadHook = read;
   laneStageHook = stage;
@@ -107,6 +112,7 @@ export function installLaneHooks(
   laneCorrectionsHook = corrections;
   endLanesHook = end;
   lanesBlockedHook = blocked;
+  laneServedHook = served;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary
@@ -168,8 +174,15 @@ export function installMarkHooks(
 }
 /** Verdicts (verdict.ts). */
 export let observeFlightHook: ((c: Computed<any>, el: Computed<any>) => boolean) | null = null;
-export function installVerdictHooks(observeFlight: NonNullable<typeof observeFlightHook>): void {
+/** D-25's hold work (verdict.ts `holdWork`): on `source` going pending,
+ * whether verdict reader `n` waits on it instead of re-deriving. */
+export let holdWorkHook: ((n: Computed<any>, source: Computed<any>) => unknown) | null = null;
+export function installVerdictHooks(
+  observeFlight: NonNullable<typeof observeFlightHook>,
+  holdWork: NonNullable<typeof holdWorkHook>
+): void {
   observeFlightHook = observeFlight;
+  holdWorkHook = holdWork;
 }
 /** External-source bridge (wired by enableExternalSource(); undefined while
  * no config is active — including after _resetExternalSourceConfig()). */
@@ -1187,7 +1200,11 @@ export function reruns(u: Transaction): unknown {
       continue;
     if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
       frame ||= (r as any)._type;
-      r._flags &= ~REACTIVE_FRAME_READ;
+      // A lane's reveal leaves the mark to the transaction: a reader that
+      // also read a held node as committed (`staleReader`) still observes
+      // that flight until it re-runs — cleared here, the transaction landed
+      // at this seam with the flight up and voided the reveal's run (#4397).
+      if (!u._lane) r._flags &= ~REACTIVE_FRAME_READ;
       (r as any)._modified = false;
       // Its frame is replaced by the re-derivation: a run one of its
       // children queued this flush (re-run by the same landing) is for the

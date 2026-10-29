@@ -12,6 +12,7 @@ import {
 } from "./async.js";
 import {
   $REFRESH,
+  CONFIG_ASYNC,
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_FRESH_READ,
@@ -136,6 +137,7 @@ import {
   laneReadHook,
   laneStageHook,
   laneSeamsHook,
+  laneServedHook,
   laneWriteHook,
   observeFlightHook,
   wireExternalSourceHook
@@ -377,6 +379,25 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // re-derivation, lane adoption through deps) went with the optimistic engine.
   if (!create) {
     deleteFromHeap(el, dirtyQueue);
+    // A pending flight is the transition's own work (#3884), and so is a
+    // held async memo's re-run with no verdict window of its own (D-25,
+    // `holdWork`): a pass that takes no verdict role this time. A probe on
+    // an earlier pass left CONFIG_VERDICT, and a frame read here would serve
+    // the committed screen, settle the flight and drop the hold — a
+    // superseding write's verdict would depend on that probe. Cleared for
+    // this pass, before the flight it judges by is superseded; a probe in
+    // the body re-stamps it after the plain reads. Not an effect: it has no
+    // flight of its own (its pending is a source's), and a verdict memo's
+    // change may have just made it a verdict reader (`laneDirty`). Only a
+    // build with the lane engine (`laneStageHook`; verdict.ts imports it)
+    // ever sets CONFIG_VERDICT: without it the line folds away.
+    if (
+      laneStageHook &&
+      !isEffect &&
+      (el._statusFlags & STATUS_PENDING ||
+        (el._config & (CONFIG_ASYNC | CONFIG_HELD)) === (CONFIG_ASYNC | CONFIG_HELD))
+    )
+      el._config &= ~CONFIG_VERDICT;
     if (el._x !== null) {
       el._x._inFlight = null;
       // Supersede is where an iterator flight dies (#3122): close it now.
@@ -396,17 +417,6 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A).
     // A boundary's structure (CONFIG_FRAME) is the frame like a render
     // effect: it publishes mainline outside its transaction's flush (#4283).
-    // A pending flight is the transition's own work (#3884). A probe on an
-    // earlier pass left CONFIG_VERDICT, and a frame read here would serve the
-    // committed screen, settle the flight and drop the hold — a superseding
-    // write's verdict would depend on that probe. Cleared for this pass; a
-    // probe in the body re-stamps it after the plain reads. Not an effect: it
-    // has no flight of its own (its pending is a source's), and a verdict
-    // memo's change may have just made it a verdict reader (`laneDirty`).
-    // Only a build with the lane engine (`laneStageHook`; verdict.ts imports
-    // it) ever sets CONFIG_VERDICT: without it the line folds away.
-    if (laneStageHook && !isEffect && el._statusFlags & STATUS_PENDING)
-      el._config &= ~CONFIG_VERDICT;
     if (el._config & CONFIG_HELD) {
       const tx = txOf(el);
       // Held by a blocked lane: the frame joins nothing — a lane never holds
@@ -541,7 +551,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       const selfRegistered = el._x?._inFlight !== prevInFlight;
       value = selfRegistered || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
       if (!selfRegistered && !isAsyncResult) {
-        if (el._x !== null) el._x._inFlight = null;
+        if (el._x !== null) {
+          el._x._inFlight = null;
+          el._config &= ~CONFIG_ASYNC;
+        }
         // A sync (non-object) return is the first real answer; async-shaped
         // results clear inside handleAsync at their own landing points, and a
         // self-registered flight clears when its own handleAsync lands.
@@ -563,8 +576,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // keeps serving. If the
       // node is currently errored the error stays the answer until this
       // retry can actually run.
+      el._config &= ~CONFIG_ASYNC;
       parkLoadingWindow(el, e as NotReadyError);
     } else {
+      // An error answers (D-25, verdict.ts `holdWork`): no flight is its own.
+      if (!notReady) el._config &= ~CONFIG_ASYNC;
       // D-41: a pass of a held node, or one that read a staging of this
       // flush, stages its error (`stageError`).
       if (notReady || !(stagedErr = stageError(el, e, true))) {
@@ -617,7 +633,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     );
     // A verdict reader is one for as long as it probes, or reads a memo
     // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
-    // bit) is an ordinary derivation again.
+    // bit) is an ordinary derivation again. Its async posture is the
+    // verdict engine's to keep (CONFIG_ASYNC, verdict.ts `holdWork`, D-25).
     el._config = (el._config & ~CONFIG_VERDICT) | (el._flags & REACTIVE_PROBED);
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
     // own owner (a memo calling its root's `dispose()`, a cleanup doing so
@@ -1222,6 +1239,9 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // head), and the pass may then read a guess and become the lane's.
   if ((t === flushTransaction && !lane && !verdict) || bornInto(c, t)) return false;
   staleReader(c, t);
+  // Lane work or a verdict reader no longer waits on `el`'s flight (lanes.ts
+  // `laneServed`, A15).
+  if (lane || verdict) laneServedHook!(c, el);
   return true;
 }
 
