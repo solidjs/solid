@@ -59,7 +59,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { ext, stagedRead, tracking } from "./core.js";
+import { creatorReads, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError } from "./error.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
@@ -261,18 +261,28 @@ function applyGuesses(parent: Transaction | null): void {
  * through an ancestor's guess stays its own (the screen plus its own
  * guesses). */
 export function enterLane(l: Transaction, c: Computed<any>): void {
-  c._flags |= REACTIVE_LANE_READ;
-  const p = passLane;
+  const f = (c._flags |= REACTIVE_LANE_READ),
+    p = passLane;
   if (p === null) {
-    setPassLane(l);
-    // The pass read a held write before its first lane read (it joined the
-    // frame's future as mainline would): lane work sees the screen — the
-    // seam re-derives it on the committed world next round (`stagedReaders`,
-    // the park's repair), as it does a lane pass that read a staging. Not a
-    // pass whose held reads were all of nodes born held (no staged read,
-    // `stagedRead`): it has no committed world to re-derive on (#3969).
-    // (A pass not joined: a held write beside a guess, #4336.)
-    if (c._flags & REACTIVE_STAGED_READ && (guessed || c._flags & REACTIVE_JOINED)) stagedRead(c);
+    const verdict = l._parent!._verdict === l;
+    // A verdict lane's value (a memo of `latest` / `isPending`, F-6) read by
+    // a derivation that already read the frame's staging or joined its
+    // hold, or by any pass a pass that did is creating: the verdict read
+    // does not break it out — it stays the frame's, as the same read inline
+    // does (verdict.ts `markVerdictReader`, `route`; D-25, D-26). An
+    // effect's own reads do not count (its `_type`, 1–3, carries neither bit).
+    if (!(verdict && creatorReads(c, (c as any)._type || f))) {
+      setPassLane(l);
+      // The pass read a held write before its first lane read (it joined the
+      // frame's future as mainline would): lane work sees the screen — the
+      // seam re-derives it on the committed world next round (`stagedReaders`,
+      // the park's repair), as it does a lane pass that read a staging. Not a
+      // pass whose held reads were all of nodes born held (no staged read,
+      // `stagedRead`): it has no committed world to re-derive on (#3969).
+      // (A pass not joined: a held write beside a guess, #4336; a leaf of a
+      // verdict lane — its plain reads are the screen's, D-26 `[s(), L()]`.)
+      if (f & REACTIVE_STAGED_READ && (guessed || verdict || f & REACTIVE_JOINED)) stagedRead(c);
+    }
   } else if (sameLane(p, l)) setPassLane(l);
   else if (!under(p, l)) {
     if (!under(l, p)) linkLanes(p, l);

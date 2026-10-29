@@ -25,7 +25,6 @@ import {
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
   REACTIVE_PROBE_UNANSWERED,
-  REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
   REACTIVE_WINDOW,
   STATUS_ERROR,
@@ -36,6 +35,7 @@ import {
   bornInto,
   context,
   creatorPass,
+  creatorReads,
   joinPass,
   markLateLinker,
   prepareComputed,
@@ -248,12 +248,11 @@ function markVerdictReader(window: number): void {
     // derivation of it does (`bornInto` once held) and stays its pass
     // (`route`); a verdict reader from its next pass. #4341: a memo born in
     // a newly opened <Match> read the screen, where its branch was closed.
-    let p: Computed<any> | null = c,
-      born = 0;
-    while ((p = creatorPass(p!._parent))?._flags! & REACTIVE_RECOMPUTING_DEPS)
-      born |= p!._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ);
-    if (!born) c._config |= CONFIG_VERDICT;
-    c._flags |= REACTIVE_PROBED | REACTIVE_WINDOW | born;
+    // Not such a pass: a verdict reader now.
+    c._flags |=
+      REACTIVE_PROBED |
+      REACTIVE_WINDOW |
+      (creatorReads(c, 0) || ((c._config |= CONFIG_VERDICT), 0));
     // Observe tier: which windows this pass entered (1 `isPending`, 2
     // `latest`) — the hold census names the affordance (attribution.ts).
     if (__OBSERVE__) (c as any)._devWindows = ((c as any)._devWindows ?? 0) | window;

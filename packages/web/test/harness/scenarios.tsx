@@ -3196,6 +3196,81 @@ export const lazyErroredName = (shape: LazyErroredShape) => `errored-lazy-conten
 export const setLazyErroredKey = (shape: LazyErroredShape, v: string) =>
   lazyErroredKeys.get(shape)!(v);
 
+// #4372: an async read under a streamed `<Loading>` rejects, and the error
+// escapes it to an `<Errored>` outside. The shell carries the Loading's
+// fallback; a later chunk swaps in the Errored's fallback as the Loading's
+// fragment (`<template e>`) with the rejection. `app`: the memo is created
+// in the component around the boundaries (the issue's repro); `inner`: in a
+// component under the Loading; `sibling`: the Errored beside other content;
+// `element`: an element fallback. Hydrated from the shell, the client claims
+// the streamed error and never asks again. `text` (no Errored): the content
+// is text whose server render throws after its async read, so the fragment
+// rejects empty and the client renders the text fresh from the adopted value.
+export const erroredOutsideLoadingShapes = ["app", "inner", "sibling", "element", "text"] as const;
+export type ErroredOutsideLoadingShape = (typeof erroredOutsideLoadingShapes)[number];
+let erroredOutsideLoadingAsks = 0;
+export const erroredOutsideLoadingAskCount = () => erroredOutsideLoadingAsks;
+export function erroredOutsideLoading(shape: ErroredOutsideLoadingShape) {
+  const ask = () =>
+    createMemo(async (): Promise<string> => {
+      if (!isServer && Promise === RealPromise) erroredOutsideLoadingAsks++;
+      await sleep(10);
+      throw new Error("boom");
+    });
+  const Inner = () => {
+    const m = ask();
+    return <span>{m()}</span>;
+  };
+  return function ErroredOutsideLoading() {
+    if (shape === "text") {
+      const a = createMemo(async () => {
+        if (!isServer && Promise === RealPromise) erroredOutsideLoadingAsks++;
+        await sleep(10);
+        return "a";
+      });
+      return (
+        <main>
+          <Loading fallback="[LOAD]">
+            {(() => {
+              const v = a();
+              if (isServer) throw new Error("server render");
+              return "!" + v;
+            })()}
+          </Loading>
+        </main>
+      );
+    }
+    const m = shape === "inner" ? null : ask();
+    const content = () => (m ? <span>{m()}</span> : <Inner />);
+    if (shape === "element")
+      return (
+        <main>
+          <Errored fallback={() => <p>[ERR]</p>}>
+            <Loading fallback="[LOAD]">{content()}</Loading>
+          </Errored>
+        </main>
+      );
+    if (shape === "sibling")
+      return (
+        <main>
+          <Errored fallback={() => "[ERR]"}>
+            <Loading fallback="[LOAD]">{content()}</Loading>
+          </Errored>
+          <b>tail</b>
+        </main>
+      );
+    return (
+      <main>
+        <Errored fallback={() => "[ERR]"}>
+          <Loading fallback="[LOAD]">{content()}</Loading>
+        </Errored>
+      </main>
+    );
+  };
+}
+export const erroredOutsideLoadingName = (shape: ErroredOutsideLoadingShape) =>
+  `errored-outside-loading-4372-${shape}`;
+
 export const scenarios: Scenario[] = [
   {
     name: "polymorphic-chain",
