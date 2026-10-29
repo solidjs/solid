@@ -15,6 +15,7 @@ import {
   NOT_PENDING,
   CONFIG_HAS_SNAPSHOT,
   REACTIVE_CHECK,
+  REACTIVE_IN_HEAP,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
@@ -29,7 +30,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { notifyStatus } from "./async.js";
+import { adoptFlight, notifyStatus } from "./async.js";
 import {
   dispatchingEvent,
   ext,
@@ -1181,7 +1182,12 @@ export function reruns(u: Transaction): unknown {
       // frame being replaced — void too (#3404).
       for (let c = r._firstChild; c !== null; c = c._nextSibling)
         if ((c as any)._type) (c as any)._modified = false;
-      enqueueSub(r);
+      // A frame flight the seam parked (lanes.ts `laneSeams`, R5) asked the
+      // question this landing would: adopted, it is asked once (F-9).
+      const parked = r._x?._parked;
+      if (parked && !(r._flags & (REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_IN_HEAP)))
+        adoptFlight(r, parked);
+      else enqueueSub(r);
     }
   }
   u._reruns.length = 0;

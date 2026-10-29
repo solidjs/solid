@@ -29,7 +29,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | INV | 11 | 4 | 7 | 4 |
 | RUL | 13 | 3 | 6 | 6 |
 | R (CS) | 59 | 15 | 16 | 32 |
-| R (OL) | 37 | 1 | 1 | 35 |
+| R (OL) | 37 | 2 | 1 | 34 |
 | R (OS) | 46 | 0 | 0 | 46 |
 | R (PJ) | 37 | 2 | 5 | 32 |
 | R (RS) | 38 | 0 | 2 | 36 |
@@ -146,7 +146,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | CS-R2a | live | `docs/INTERNALS-STORE-STATE.md:107` | — | — | Corollary R2a (Ryan, 2026-08-17): **take no responsibility for mutation |
 | CS-R3 | live | `docs/rules-mining/core-store.md:18` | — | — | A store proxy ingested into another store (deep or shallow) is re-wrapped in the ingesting store's own proxy family — never identity-passed, never raw-marked.** |
 | CS-R4 | live | `docs/rules-mining/core-store.md:22` | — | — | Write isolation across a store chain: writing through the last store in a derived chain is visible only there; upstream stores and base objects untouched (shallow or deep middle).** |
-| CS-R5 | live | `docs/rules-mining/core-store.md:26` | — | visibility-oracle-store.states.ts×4 visibility-oracle.states.ts×4 | Upstream writes propagate downstream through the chain without re-running structural machinery.** |
+| CS-R5 | live | `docs/rules-mining/core-store.md:26` | — | verdict-memo-flight-no-reask.test.ts×3 visibility-oracle-store.states.ts×4 visibility-oracle.states.ts×4 | Upstream writes propagate downstream through the chain without re-running structural machinery.** |
 | CS-R6 | live | `docs/rules-mining/core-store.md:30` | — | — | No store write path ever mutates a user-provided source object.** Aligned with 2026-08-16b. |
 | CS-R7 | live | `docs/rules-mining/core-store.md:34` | — | — | Circular references wrap without infinite recursion; cycle consistent through proxy (`state.b.a === state.a`).** |
 | CS-R8 | live | `docs/rules-mining/core-store.md:38` | — | — | `snapshot` returns fully unwrapped values (no proxy anywhere, `$TARGET` undefined), incl. frozen objects/arrays; reflects committed written values incl. writes over inherited prototype props.** |
@@ -208,7 +208,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | OL-R2 | superseded | `docs/rules-mining/optimistic-lanes.md:15` | — | — | ~~An optimistic write is synchronously visible to direct reads before any flush — inside the action body, outside it, and outside any reactive context.~~ **Superseded 2026-09-10 by A28(5)** (SPEC-ASYN… |
 | OL-R3 | live | `docs/rules-mining/optimistic-lanes.md:19` | — | — | The setter's updater receives the current _visible_ (optimistic-if-overridden) value, never the committed value; a plain setter on the underlying source during a transition composes on the transition'… |
 | OL-R4 | live | `docs/rules-mining/optimistic-lanes.md:23` | — | — | Multiple optimistic writes before settle compose sequentially (each updater sees the prior override; last write wins). |
-| OL-R5 | live | `docs/rules-mining/optimistic-lanes.md:27` | — | — | An optimistic write **outside any action** reverts at the next flush; subscribers observe the optimistic value and then the reverted value within that single flush (effect log `[1, 2, 1]` after one `f… |
+| OL-R5 | live | `docs/rules-mining/optimistic-lanes.md:27` | async.ts×1 lanes.ts×1 scheduler.ts×1 types.ts×1 | — | An optimistic write **outside any action** reverts at the next flush; subscribers observe the optimistic value and then the reverted value within that single flush (effect log `[1, 2, 1]` after one `f… |
 | OL-R6 | live | `docs/rules-mining/optimistic-lanes.md:32` | — | — | An optimistic write inside an `action` holds for the entire action window and reverts when the action's transition completes; each intermediate write during a multi-yield action is observable in order… |
 | OL-R7 | live | `docs/rules-mining/optimistic-lanes.md:36` | — | — | Computed-form `createOptimistic(fn)` with no overrides is a transparent passthrough of its (possibly async) source: promise resolutions, re-fired promises, and async-iterable yields all propagate; ove… |
 | OL-R8 | live | `docs/rules-mining/optimistic-lanes.md:40` | — | — | Reset-on-settle targets the source's **newly computed value at settle time**, not the pre-write value: a wrong optimistic guess is auto-corrected to the real result; a correct guess settles silently (… |

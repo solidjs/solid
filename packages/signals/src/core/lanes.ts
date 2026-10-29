@@ -61,6 +61,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
+import { isThenable } from "./async.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
@@ -974,6 +975,12 @@ const laneSeams = (leaks: Computed<any>[] | null): void => {
       // again — every round (#4014). A computed is already seated by its
       // override, and a written guess's own pass stays the frame's.
       if (l?._lane && (r as any)._type) r._flags |= REACTIVE_LANE_DIRTY;
+      // R5 for an async reader: its frame pass asked the frame's question
+      // (F-6's lane gets its own pass now). That flight is the frame's
+      // answer: the landing adopts it rather than asking it again (F-9: a
+      // re-ask of the same question is no new question; `reruns`).
+      else if (!l?._lane && r._flags & REACTIVE_PROBE_UNANSWERED && isThenable(r._x?._inFlight))
+        r._x!._parked = r._x!._inFlight;
       enqueueSub(r);
       if (l?._lane && leaked.indexOf(l) === -1) leaked.push(l);
     }

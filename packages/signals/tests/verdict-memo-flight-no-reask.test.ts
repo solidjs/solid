@@ -30,15 +30,17 @@ async function settle() {
 }
 
 const expected = {
-  // The verdict lane answers m0's display-ahead intermediate (`latest(s)` = 2
-  // beside the screen's `s()` = 1) and m1 over it while `h` holds the write
-  // (F-6: async derived from a display-ahead read is the lane's), then the
-  // landing asks each memo once.
-  "latest held": ["m0:4", "m1:5", "m0:5", "m1:6"],
+  // m0's pass is the frame's (R5, #4365): it asks the frame's question
+  // (`m0:5`). The flush parks, and m0 re-derives in the verdict lane on
+  // `latest(s)` = 2 beside the screen's `s()` = 1 (`m0:4`), with m1 over it
+  // while `h` holds the write (F-6: async derived from a display-ahead read
+  // is the lane's). The landing adopts the frame's `m0:5` flight instead of
+  // asking it again (F-9) and asks m1 once.
+  "latest held": ["m0:5", "m0:4", "m1:5", "m1:6"],
   // Unheld too: `m1` never resolved (`m0:3` rejected), so `isPending(m1)` of
   // the lane node throws NotReady (A19 exc. 1, #4362) and the Loading holds
   // the write like `h` does.
-  "latest unheld": ["m0:4", "m1:5", "m0:5", "m1:6"],
+  "latest unheld": ["m0:5", "m0:4", "m1:5", "m1:6"],
   "plain held": ["m0:5", "m1:6"],
   "plain unheld": ["m0:5", "m1:6"]
 };
@@ -91,9 +93,10 @@ for (const useLatest of [true, false])
     });
   }
 
-// Settled memos, no boundary hold: the verdict lane shows `m0:4`/`m1:5`, the
-// write's landing re-asks `m0`, and `m1` waits on it — pending throughout,
-// its next question asked once.
+// Settled memos, no boundary hold: m0's frame pass asks `m0:5` (R5), the
+// verdict lane shows `m0:4`/`m1:5`, the write's landing adopts the frame's
+// `m0:5` flight, and `m1` waits on it — pending throughout, its next
+// question asked once.
 for (const reader of ["m1()", "[isPending(m1), m1()]"] as const)
   it(`${reader}: a memo over a re-asking verdict memo waits on it, pending`, async () => {
     const [s, setS] = createSignal(1);
@@ -123,7 +126,7 @@ for (const reader of ["m1()", "[isPending(m1), m1()]"] as const)
     setS(2);
     await settle();
     await settle();
-    expect(asks.slice(2)).toEqual(["m0:4", "m1:5", "m0:5", "m1:6"]);
+    expect(asks.slice(2)).toEqual(["m0:5", "m0:4", "m1:5", "m1:6"]);
     if (reader === "m1()") expect(out).toEqual(["4", "5", "6"]);
     else {
       expect(out[0]).toBe("false,4");
@@ -131,4 +134,42 @@ for (const reader of ["m1()", "[isPending(m1), m1()]"] as const)
       // Never final before `m1:6` lands.
       expect(out.slice(1, -1).every(v => v.startsWith("true,"))).toBe(true);
     }
+  });
+
+// R5 (#4365): the frame's pass of a `latest()` reader asks the frame's
+// question; when the flush parks, the reader re-derives in the verdict lane,
+// and the transaction's landing adopts the frame's flight instead of asking
+// it again (F-9) — whether that flight landed before the transaction or is
+// still in the air.
+for (const frameMs of [5, 30, 80])
+  it(`a frame flight of ${frameMs}ms is adopted at the landing, asked once`, async () => {
+    const [s, setS] = createSignal(1);
+    const asks: string[] = [];
+    const ask = (name: string, v: number) => {
+      asks.push(`${name}:${v}`);
+      return sleep(name === "m0" && v === 5 ? frameMs : 10).then(() => v);
+    };
+    const out: string[] = [];
+    createRoot(() => {
+      const m0 = createMemo(() => ask("m0", 1 + latest(s) + s()));
+      const m1 = createMemo(() => ask("m1", 1 + m0()));
+      createLoadingBoundary(
+        () => {
+          createRenderEffect(
+            () => `${isPending(m1)},${m1()}`,
+            v => void out.push(v)
+          );
+          return null;
+        },
+        () => "L"
+      );
+    });
+    flush();
+    await settle();
+    setS(2);
+    for (let i = 0; i < 3; i++) await settle();
+    expect(asks).toEqual(["m0:3", "m1:4", "m0:5", "m0:4", "m1:5", "m1:6"]);
+    expect(out[0]).toBe("false,4");
+    expect(out[out.length - 1]).toBe("false,6");
+    expect(out.slice(1, -1).every(v => v.startsWith("true,"))).toBe(true);
   });
