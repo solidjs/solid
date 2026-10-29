@@ -171,3 +171,96 @@ test("isPending() of a first load in flight keeps the boundary's fallback", asyn
   expect(div.innerHTML).toBe('<span data-a="ls:3" data-b="pm:false"></span>');
   dispose();
 });
+
+// A plain synchronous write (no action, no async) beside `latest()` read
+// inline commits at its seam: one compute per write, whether the holes are
+// grouped attributes or one template string.
+describe("a plain write beside latest() in JSX computes once", () => {
+  for (const form of ["attributes", "template string"] as const)
+    test(form, () => {
+      const div = document.createElement("div");
+      let passes = 0;
+      let set!: (v: number) => void;
+      const dispose = render(() => {
+        const [s, _set] = createSignal(0);
+        set = _set;
+        const count = <T,>(v: T) => (passes++, v);
+        return form === "attributes" ? (
+          <div title={count(s())} data-l={latest(s)} />
+        ) : (
+          <div title={count(`${s()} ${latest(s)}`)} />
+        );
+      }, div);
+      flush();
+      passes = 0;
+      set(1);
+      flush();
+      expect(div.innerHTML).toBe(
+        form === "attributes" ? '<div title="1" data-l="1"></div>' : '<div title="1 1"></div>'
+      );
+      expect(passes).toBe(1);
+      dispose();
+    });
+});
+
+// async-gen seed 91501 #1831 (E1): `<Errored><Loading><Loading>` over a leaf
+// reading `latest(s)` and `latest(m1)`, `m1` an async memo of `m0`, which
+// threw. The error stays the display while `m1` re-asks after `m0` recovers
+// (D-39: a pending is not a value), in either hole layout. Before, the
+// Errored healed at once and the inner Loading, revealed behind the error,
+// kept its content: grouped attributes showed nothing, split ones showed
+// `data-a` alone.
+describe("an error stays the display while the memo it came through re-asks", () => {
+  for (const form of ["grouped", "split"] as const)
+    test(form, async () => {
+      const div = document.createElement("div");
+      const flights: { v: number; res: (v: number) => void }[] = [];
+      let set!: (v: number) => void;
+      const screens: string[] = [];
+      const dispose = render(() => {
+        const [s, _set] = createSignal(1);
+        set = _set;
+        const m0 = createMemo(() => {
+          const v = 1 + latest(s);
+          if (v % 4 === 1) throw new Error("m0:" + v);
+          return v;
+        });
+        const m1 = createMemo(() => {
+          const v = 1 + m0();
+          return new Promise<number>(res => flights.push({ v, res }));
+        });
+        return (
+          <Errored fallback="[E]">
+            <Loading fallback="[L]">
+              <Loading fallback="[L]">
+                {form === "grouped" ? (
+                  <span data-a={latest(s)} data-b={latest(m1)} />
+                ) : (
+                  <span data-a={latest(s)}>{latest(m1)}</span>
+                )}
+              </Loading>
+            </Loading>
+          </Errored>
+        );
+      }, div);
+      flush();
+      screens.push(div.innerHTML);
+      set(0);
+      await tick();
+      screens.push(div.innerHTML);
+      set(2);
+      await tick();
+      screens.push(div.innerHTML);
+      expect(flights.map(f => f.v)).toEqual([3, 4]);
+      flights[1].res(4);
+      await tick();
+      screens.push(div.innerHTML);
+      expect(screens).toEqual([
+        "[L]",
+        "[E]",
+        "[E]",
+        form === "grouped" ? '<span data-a="2" data-b="4"></span>' : '<span data-a="2">4</span>'
+      ]);
+      dispose();
+    });
+});

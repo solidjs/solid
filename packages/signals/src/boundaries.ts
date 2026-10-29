@@ -184,9 +184,9 @@ function record(b: Boundary, node: Computed<any>, source = node): void {
 function caught(b: Boundary, node: Computed<any>, error: unknown, source = node): void {
   if (b._type === STATUS_ERROR) {
     // An error boundary waits on what THREW (`StatusError.source`), not on
-    // the reader that saw it: the reader recovers the moment a refetch
-    // starts (its boundary catches the pending), while the error is settled
-    // only when its source is neither errored nor in flight — or when the
+    // the reader that saw it, while the error is settled only when its
+    // source is neither errored nor in flight and the reader is not pending
+    // on the answer that replaces it (`prune`) — or when the
     // reader is disposed: a source no live reader holds holds nothing
     // (#4373). `reset` re-runs the source.
     error ??= node._x?._error;
@@ -324,7 +324,11 @@ function release(b: Boundary): void {
  * content reveals at the commit, with its run. The tree is: the output reads
  * it and enters the transaction itself (its committed value shows until the
  * landing). The statuses that keep a reader: pending — and its error, for an
- * error boundary (`_type` is the status it catches). */
+ * error boundary (`_type` is the status it catches) — on the reader or its
+ * source. A reader pending again after the source that threw answered (it
+ * re-asks through a memo that carried the error) has no new answer yet: the
+ * error stays the display (D-39: a pending is not a value; async-gen 91501
+ * #1831). */
 export function prune(b: Boundary, pass: boolean): number {
   const mask = b._type | STATUS_PENDING;
   for (const [r, s] of b._readers) {
@@ -333,7 +337,10 @@ export function prune(b: Boundary, pass: boolean): number {
       // it publishes with the commit. A reader that threw it now (a lane
       // pass, a reader of a node born staged) reached the boundary first
       // (#4364).
-      if (s._statusFlags & mask || (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR))
+      if (
+        (r._statusFlags | s._statusFlags) & mask ||
+        (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR)
+      )
         continue;
       if (
         (s !== b._tree || b._armed) &&

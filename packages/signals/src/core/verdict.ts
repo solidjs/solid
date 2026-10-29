@@ -25,7 +25,6 @@ import {
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
   REACTIVE_PROBE_UNANSWERED,
-  REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
   STATUS_PENDING,
@@ -35,6 +34,7 @@ import {
   bornInto,
   context,
   creatorPass,
+  creatorReads,
   joinPass,
   markLateLinker,
   prepareComputed,
@@ -163,8 +163,8 @@ function verdictRead(c: Computed<any>, t: Transaction, plain?: boolean): void {
  * lane's. One pass: a provisional pass re-derived at the seam ran everything
  * downstream of it twice (#3540 web). A pass that also read the frame's own
  * stagings plainly (REACTIVE_STAGED_READ) stays the frame's (`route` does
- * not move it) — its plain read came before the frame had a transaction to
- * serve it the screen — and the seam watches it as it does a probe: if the
+ * not move it). If its plain read came before the frame had a transaction
+ * to serve it the screen, the seam watches it as it does a probe: if the
  * frame parks, the pass re-derives once as a verdict reader, so
  * `[s(), latest(s)]` shows `[0, 1]` as `[latest(s), s()]` does (D-22, D-25:
  * the probe decides the posture in either read order); if the frame lands
@@ -175,11 +175,15 @@ function provisionalVerdict(c: Computed<any>, notFinal: boolean): void {
   // answer yet: whatever the seam decides, the pass runs again — a later
   // plain read of the same pass may route it into the verdict lane
   // (`observeFlight`), which the seam must not take as this probe's answer.
-  if (probing && !flushTransaction) return watchVerdict(c, notFinal);
+  const t = flushTransaction;
+  if (probing && !t) return watchVerdict(c, notFinal);
   if (!probing) joinFuture(null);
   else if (notFinal) probeFound = true;
   verdictRead(c, flushTransaction!);
-  if (c._flags & REACTIVE_STAGED_READ) watchVerdict(c);
+  // A `latest` reader watches only a staged read made before the frame had
+  // a transaction: one made in it (an action's world) is the frame's, and
+  // its verdict read does not break it out (E9, F-7).
+  if (c._flags & REACTIVE_STAGED_READ && (probing || !t)) watchVerdict(c);
 }
 
 /** A19 exc. 2 / A24: a flight that re-asks the question already answered
@@ -245,12 +249,8 @@ function markVerdictReader(window: number): void {
     // derivation of it does (`bornInto` once held) and stays its pass
     // (`route`); a verdict reader from its next pass. #4341: a memo born in
     // a newly opened <Match> read the screen, where its branch was closed.
-    let p: Computed<any> | null = c,
-      born = 0;
-    while ((p = creatorPass(p!._parent))?._flags! & REACTIVE_RECOMPUTING_DEPS)
-      born |= p!._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ);
-    if (!born) c._config |= CONFIG_VERDICT;
-    c._flags |= REACTIVE_PROBED | born;
+    // Not such a pass: a verdict reader now.
+    c._flags |= REACTIVE_PROBED | (creatorReads(c, 0) || ((c._config |= CONFIG_VERDICT), 0));
     // Observe tier: which windows this pass entered (1 `isPending`, 2
     // `latest`) — the hold census names the affordance (attribution.ts).
     if (__OBSERVE__) (c as any)._devWindows = ((c as any)._devWindows ?? 0) | window;

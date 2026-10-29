@@ -74,6 +74,7 @@ import {
   joinFuture,
   laneDirty,
   list,
+  stagedReaders,
   staleReader,
   merge,
   newTransaction,
@@ -940,17 +941,22 @@ const applyGuessesAt = (parent: Transaction | null): void => {
   judged = lanes.length;
   if (pendingGuesses.length !== 0) applyGuesses(parent);
 };
-const laneSeams = (leaks: Computed<any>[] | null): void => {
+const laneSeams = (t: Transaction | null): void => {
   // Passes that read a write the parked frame holds as the screen
   // (`stagedReaders`: lane work, a verdict reader before the verdict): they
   // re-derive on the committed world next round (and register as stale
   // readers of the transaction there); a lane's runs wait that round — a
   // lane sees the screen plus its own guesses.
   const leaked: Transaction[] = [];
-  if (leaks !== null)
-    for (let i = 0; i < leaks.length; i++) {
-      const r = leaks[i];
-      const l = r._x?._transaction;
+  if (t !== null)
+    for (let i = 0; i < stagedReaders.length; i++) {
+      const r = stagedReaders[i],
+        // A pass no transaction holds that read the frame's staging (an
+        // effect, a `[s(), latest(s)]` reader watched before the frame had
+        // a transaction): judged by the frame's — it re-derives only if the
+        // frame stays parked; landing here, what it read is the screen (one
+        // run, D-22).
+        l = r._x?._transaction || (r._flags & REACTIVE_STAGED_READ ? t : null);
       // A verdict reader a later read of the same pass routed into a verdict
       // lane answered for itself: it re-derives at the holder's landing, not
       // now (one run — #3322, #3540). Other verdict-lane work re-derives only

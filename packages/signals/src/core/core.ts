@@ -402,7 +402,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // probe in the body re-stamps it after the plain reads. Not an effect: it
     // has no flight of its own (its pending is a source's), and a verdict
     // memo's change may have just made it a verdict reader (`laneDirty`).
-    if (!isEffect && el._statusFlags & STATUS_PENDING) el._config &= ~CONFIG_VERDICT;
+    // Only a build with the lane engine (`laneStageHook`; verdict.ts imports
+    // it) ever sets CONFIG_VERDICT: without it the line folds away.
+    if (laneStageHook && !isEffect && el._statusFlags & STATUS_PENDING)
+      el._config &= ~CONFIG_VERDICT;
     if (el._config & CONFIG_HELD) {
       const tx = txOf(el);
       // Held by a blocked lane: the frame joins nothing — a lane never holds

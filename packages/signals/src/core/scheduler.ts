@@ -76,7 +76,7 @@ export let laneOutcomeHook:
   | null = null;
 export let laneWriteHook: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | null = null;
 export let applyGuessesHook: ((parent: Transaction | null) => void) | null = null;
-export let laneSeamsHook: ((leaks: Computed<any>[] | null) => void) | null = null;
+export let laneSeamsHook: ((t: Transaction | null) => void) | null = null;
 export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
@@ -1036,7 +1036,7 @@ export class GlobalQueue implements IQueue {
     // world (a lane's runs wait this round).
     if (laneSeamsHook) {
       this._queues = lanes;
-      laneSeamsHook(t !== null ? stagedReaders : null);
+      laneSeamsHook(t);
       if (stagedReaders.length) stagedReaders.length = 0;
     }
     this._queues = [[], []];

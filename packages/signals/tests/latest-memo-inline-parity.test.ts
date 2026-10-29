@@ -20,6 +20,8 @@ import {
   action,
   createLoadingBoundary,
   createMemo,
+  createEffect,
+  createErrorBoundary,
   createOptimistic,
   createRenderEffect,
   createRoot,
@@ -152,25 +154,41 @@ describe("a plain write beside an async memo: the screen beside latest(), inline
         t.dispose();
       });
 
-  it("inline [s(), latest(s)] in a flush that commits runs once (the seam re-derives only a parked frame's reader)", () => {
-    let set!: (v: number) => void;
-    let passes = 0;
-    const seen: string[] = [];
-    const dispose = createRoot(d => {
-      const [s, _set] = createSignal(0);
-      set = _set;
-      const D = createMemo(() => (passes++, `v:${s()} l:${latest(s)}`));
-      createRenderEffect(D, v => void seen.push(v));
-      return d;
+  // A plain synchronous write (no action, no async) commits at its seam: the
+  // pass that read `s` before the frame had a transaction and then
+  // `latest(s)` stood — one compute, one effect run — whether the reader is
+  // a memo, a render effect or a user effect, of `latest(s)` or of
+  // `latest(memo)`. The seam re-derives such a reader only if the frame
+  // parks.
+  for (const reader of ["memo", "render effect", "user effect", "render effect of latest(memo)"])
+    it(`inline [s(), latest] in a flush that commits runs once: ${reader}`, () => {
+      let set!: (v: number) => void;
+      let passes = 0;
+      const seen: string[] = [];
+      const dispose = createRoot(d => {
+        const [s, _set] = createSignal(0);
+        set = _set;
+        const m = createMemo(() => s());
+        const f =
+          reader === "render effect of latest(memo)"
+            ? () => (passes++, `v:${s()} l:${latest(m)}`)
+            : () => (passes++, `v:${s()} l:${latest(s)}`);
+        if (reader === "memo") createRenderEffect(createMemo(f), v => void seen.push(v));
+        else
+          (reader === "user effect" ? createEffect : createRenderEffect)(
+            f,
+            (v: string) => void seen.push(v)
+          );
+        return d;
+      });
+      flush();
+      passes = 0;
+      set(1);
+      flush();
+      expect(seen).toEqual(["v:0 l:0", "v:1 l:1"]);
+      expect(passes).toBe(1);
+      dispose();
     });
-    flush();
-    passes = 0;
-    set(1);
-    flush();
-    expect(seen).toEqual(["v:0 l:0", "v:1 l:1"]);
-    expect(passes).toBe(1);
-    dispose();
-  });
 });
 
 // A memo of a verdict read moves its async derivation into the verdict lane
@@ -404,4 +422,79 @@ describe("isPending() of a first load in flight in a verdict lane is loading", (
     expect(seen).toEqual(["view=[L]", "ls:3 pm:false", "view=content"]);
     dispose();
   });
+});
+
+// async-gen seed 91501 #1831 (E1, grouped vs split): an error caught from an
+// async memo whose source threw stays the display while that memo re-asks
+// (D-39: a pending is not a value). Before, the boundary healed the moment
+// the source answered, and the Loading inside — revealed behind the error,
+// never shown — kept its content with its readers still loading: one
+// grouped effect held every hole, split effects showed the ones that
+// answered (`latest()` of the first load is loading too since D-22 here; on
+// `next` it served `undefined`). Now the error stays until the re-ask lands,
+// grouped or split.
+describe("an error stays the display while the memo it came through re-asks", () => {
+  for (const form of ["grouped", "split"] as const)
+    it(form, async () => {
+      const flights: { v: number; res: (v: number) => void }[] = [];
+      let set!: (v: number) => void;
+      const out: Record<string, string> = {};
+      const screens: string[] = [];
+      const dispose = createRoot(d => {
+        const [s, _set] = createSignal(1);
+        set = _set;
+        const m0 = createMemo(() => {
+          const v = 1 + s();
+          if (v % 4 === 1) throw new Error("m0:" + v);
+          return v;
+        });
+        const m1 = createMemo(() => {
+          const v = 1 + m0();
+          return new Promise<number>(res => flights.push({ v, res }));
+        });
+        const view = createErrorBoundary(
+          () =>
+            createLoadingBoundary(
+              () => {
+                if (form === "grouped")
+                  createRenderEffect(
+                    () => [latest(s), latest(m1)],
+                    v => void ((out.a = String(v[0])), (out.b = String(v[1])))
+                  );
+                else {
+                  createRenderEffect(
+                    () => latest(s),
+                    v => void (out.a = String(v))
+                  );
+                  createRenderEffect(
+                    () => latest(m1),
+                    v => void (out.b = String(v))
+                  );
+                }
+                return "content";
+              },
+              () => "[L]"
+            ),
+          () => "[E]"
+        );
+        createRenderEffect(view, v => void (out.view = String(v)));
+        return d;
+      });
+      const screen = () =>
+        screens.push(out.view === "content" ? `a=${out.a} b=${out.b}` : out.view);
+      flush();
+      screen();
+      set(0);
+      await tick();
+      screen();
+      set(2);
+      await tick();
+      screen();
+      expect(flights.map(f => f.v)).toEqual([3, 4]);
+      flights[1].res(4);
+      await tick();
+      screen();
+      expect(screens).toEqual(["[L]", "[E]", "[E]", "a=2 b=4"]);
+      dispose();
+    });
 });
