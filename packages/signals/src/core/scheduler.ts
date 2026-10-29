@@ -1217,7 +1217,7 @@ export function reruns(u: Transaction): unknown {
         (s?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR)
     )
       continue;
-    if (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) {
+    if (r._flags & REACTIVE_FRAME_READ || (observeFlightHook && r._config & CONFIG_VERDICT)) {
       // A memo re-deriving its own error holds the release as an effect
       // does (`land`): run first, the held runs showed that error beside a
       // frame about to replace it (#4407; #4284: the grouping never changes
