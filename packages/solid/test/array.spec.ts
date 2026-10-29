@@ -1,4 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
+import { setFlagsFromString } from "v8";
+import { runInNewContext } from "vm";
 import {
   mapArray,
   indexArray,
@@ -119,6 +121,32 @@ describe("Map operator", () => {
       dispose();
       for (const item of [...initial, ...added]) expect(item.cleanup).toHaveBeenCalledTimes(1);
     });
+  });
+
+  test("a surviving row does not retain removed items", async () => {
+    setFlagsFromString("--expose-gc");
+    const gc: () => void = runInNewContext("gc");
+    const kept = {};
+    let removed: WeakRef<object>, set: (v: object[]) => void;
+    const dispose = createRoot(dispose => {
+      const [s, setS] = createSignal(createItems()),
+        r = createMemo(mapArray(s, v => v));
+      set = setS;
+      r();
+      return dispose;
+    });
+    function createItems() {
+      const item = {};
+      removed = new WeakRef(item);
+      return [kept, item];
+    }
+    // The row for `kept` was created from the original list.
+    set!([kept]);
+    // WeakRef targets stay alive until the current job ends.
+    await new Promise(r => setTimeout(r, 0));
+    gc();
+    expect(removed!.deref()).toBeUndefined();
+    dispose();
   });
 });
 

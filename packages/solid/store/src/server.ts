@@ -153,6 +153,7 @@ export function reconcile<T extends U, U extends object>(
     for (let i = 0, len = previousKeys.length; i < len; i++) {
       if (value[previousKeys[i]] === undefined) setProperty(state, previousKeys[i], undefined);
     }
+    if (Array.isArray(state) && Array.isArray(value)) setProperty(state, "length", value.length);
     return state as T;
   };
 }

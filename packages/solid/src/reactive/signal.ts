@@ -169,7 +169,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
               throw new Error("Dispose method must be an explicit argument to createRoot function");
             })
         : fn
-      : () => fn(() => untrack(() => cleanNode(root)));
+      : () => fn(createDisposer(root));
 
   if (IS_DEV) DevHooks.afterCreateOwner && DevHooks.afterCreateOwner(root);
 
@@ -182,6 +182,13 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
     Listener = listener;
     Owner = owner;
   }
+}
+
+// Created outside createRoot so the dispose function does not share its scope,
+// which holds `fn`: whoever keeps the dispose function would keep `fn` and
+// everything it closes over (e.g. the list a mapArray row was created from).
+function createDisposer(root: Owner) {
+  return () => untrack(() => cleanNode(root));
 }
 
 export type Accessor<T> = () => T;
