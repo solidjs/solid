@@ -932,7 +932,7 @@ export function slot(
       !inSeat &&
       (c!._flags & REACTIVE_MISSED_WAKE ||
         (c!._pendingValue === NOT_PENDING &&
-          !!c!._x?._pendingSources?.has((el as Computed<any>)._x!._error.source)))
+          !!c!._x?._pendingSources?.has(((el as Computed<any>)._x!._error as any).source)))
     )
       return carry(pred(rowBase + "D3'", SLOT_P));
     return carry(pred(leaf ? "L5" : rowBase + "D3", SLOT_NR)); // F-2 D-28 / F-2 D-9

@@ -2202,7 +2202,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
           !(c as any)._type &&
           (c._flags & REACTIVE_MISSED_WAKE ||
             ((c as Computed<any>)._pendingValue === NOT_PENDING &&
-              (c as Computed<any>)._x?._pendingSources?.delete(owner._x!._error.source) &&
+              (c as Computed<any>)._x?._pendingSources?.delete(
+                (owner._x!._error as NotReadyError).source
+              ) &&
               (c._flags |= REACTIVE_MISSED_WAKE)))
         ) {
           if (__TEST__) shadowActual(SLOT_P);
