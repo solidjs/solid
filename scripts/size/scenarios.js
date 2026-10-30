@@ -6178,8 +6178,9 @@ module.exports = [
     // A propagated error reaches a derived store's readers once (#4463, 2026-10-30, over next @ 131ceb8c): 41.23 KB -> 41.25 KB, recorded minified 125,468 -> 125,470 B (+2 B), measured locally (linux) at 41,231 B brotli. familyStatus hands the error to errorFamily so a reader its derive's pass already handed it is skipped; the brotli move is layout from +2 B minified. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Batch re-record (2026-10-30, over next @ 643a7a7: #4473, #4475, #4478, #4459): cap unchanged at 41.25 KB, recorded minified 125,470 -> 125,503 B (+33 B), measured at 41,132 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-10-30, over next @ b5077ea: #4499, #4500, #4493, #4488, #4498): cap unchanged at 41.25 KB, recorded minified 125,503 -> 125,539 B (+36 B), measured at 41,106 B brotli. Re-recorded once after the batch, per the batch process.
+    // #4508 (#4444, bound dispose on the public createOwner, which @solidjs/router calls; accepted by the maintainer 2026-10-30, router follow-up to win it back), recorded ahead of its merge from its CI head a4ab913: cap unchanged at 41.25 KB, recorded minified 125,539 -> 125,596 B (+57 B), measured at 41,149 B brotli.
     limit: "41.25 KB",
-    capMinified: 125539,
+    capMinified: 125596,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
@@ -6377,11 +6378,12 @@ module.exports = [
     // Batch re-record (2026-10-30, over next @ 643a7a7: #4473, #4475, #4478, #4459): 48.51 KB -> 48.58 KB, recorded minified 142,987 -> 143,269 B (+282 B), measured at 48,569 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-10-30, over next @ b5077ea: #4499, #4500, #4493, #4488, #4498): 48.58 KB -> 48.65 KB, recorded minified 143,269 -> 143,439 B (+170 B), measured at 48,640 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-10-30, over next @ 71a6a75: #4512, #4506, #4509): cap unchanged at 48.65 KB, recorded minified 143,439 -> 143,454 B (+15 B), measured at 48,620 B brotli. Re-recorded once after the batch, per the batch process.
-    limit: "48.65 KB",
+    // #4508 (#4444, bound dispose on the public createOwner, which @solidjs/router calls; accepted by the maintainer 2026-10-30, router follow-up to win it back), recorded ahead of its merge from its CI head a4ab913: 48.65 KB -> 48.67 KB, recorded minified 143,454 -> 143,527 B (+73 B), measured at 48,652 B brotli.
+    limit: "48.67 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 140,451 -> 140,509 B (+58 B minified over next's record), measured locally (linux) at 47,516 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 140,463 -> 140,485 B (+22 B minified over next's record), measured locally (linux) at 47,547 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 140,485 -> 140,983 B (+405 B minified over next), measured locally (linux) at 47,722 B brotli (+162 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 143454,
+    capMinified: 143527,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
