@@ -358,7 +358,7 @@ A first load that rejects has no previous content to keep: born held (D-2), it s
 
 **Built 2026-10-15.** An error a held node's flight or pass finds is staged in `_pendingValue` (CONFIG_STAGED_ERROR) and committed with the frame, which publishes it through the ordinary error path; a held recovery keeps the shown error (`_shownError`) until its own commit, and a recovery equal to the last good value is a change of answer, held or not. `watch` (`resolve`, `until`, `refresh`) rejects at the landing. The duplicated immediate-publish path is gone. Pins: `tests/error-is-an-answer.test.ts`, `tests/watch-error-outcomes.test.ts` (GabbeV, #3886).
 
-**Deviation today.** An untracked read of a derived store's property (`createStore(fn)`, projections) throws a held rejection before its frame; the store's effect and the screen do wait. Pinned `it.fails` in `tests/error-is-an-answer.test.ts`. The standalone cases from #3886's audit (a write to a failed writable memo, error-wrapper formatting, comparator release, snapshot capture) are not this rule. **Status:** standing.
+**Derived stores (closed 2026-10-30, #4489).** A derived store's (`createStore(fn)`, projections, optimistic stores) held rejection is staged like a memo's: an untracked read of its property reads the screen until the frame reveals. Pinned in `tests/error-is-an-answer.test.ts` and `tests/optimistic-held-error-untracked-read-4489.test.ts`. The standalone cases from #3886's audit (a write to a failed writable memo, error-wrapper formatting, comparator release, snapshot capture) are not this rule. **Status:** standing.
 
 ### D-42. A reactive read is not an `await`: `try/catch` around it is not a channel
 

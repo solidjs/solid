@@ -332,7 +332,11 @@ export function runProjectionComputed<T extends object>(
           // rejection): the wake, as for the pass. Errored: every live
           // reader re-derives and meets the error at its pull (memo parity,
           // #2897) — and the flush that runs them advances the clock, so a
-          // later tracked re-read may retry (core `read`).
+          // later tracked re-read may retry (core `read`). A held derive's
+          // error is staged (D-41, #4489): a reader in the hold derives from
+          // the staging and stages its own error with the frame; one served
+          // the screen (an untracked read included) reads the committed
+          // leaves until the frame reveals.
           if (first && owner._statusFlags & STATUS_UNINITIALIZED) return;
           if (pending) wakeFamily(fam);
           else errorFamily(fam, error);
