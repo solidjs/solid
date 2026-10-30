@@ -24,19 +24,16 @@
  * 2026-08-31b continuation half) is not built here; the matrix decides.
  */
 import {
-  CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   EFFECT_RENDER,
   NOT_PENDING,
-  REACTIVE_REASK,
-  STATUS_PENDING
+  REACTIVE_REASK
 } from "../core/constants.js";
-import { computed, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
+import { ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
 import { laneValueOf, optimisticWrite, pendingGuessOf, take } from "../core/lanes.js";
-import { getOwner } from "../core/owner.js";
 import {
   clock,
   GlobalQueue,
@@ -54,7 +51,7 @@ import {
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
-import { runProjectionComputed } from "./projection.js";
+import { createProjectionInternal } from "./projection.js";
 import { reconcileState } from "./reconcile.js";
 import {
   cloneRaw,
@@ -63,13 +60,11 @@ import {
   getHasNode,
   getNode,
   LaneView,
-  nameStore,
   resolveChainedRaw,
   sameKey,
   storeSetter,
   targetsEqual,
-  unwrapValue,
-  wrap
+  unwrapValue
 } from "./store.js";
 import { installOptHooks } from "./hooks.js";
 import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
@@ -77,7 +72,6 @@ import {
   $TARGET,
   $TRACK,
   isWrappable,
-  markRawIngest,
   type NoArray,
   type NoFn,
   type ProjectionOptions,
@@ -801,42 +795,13 @@ export function createOptimisticStore<T extends object = {}>(
   third?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function";
-  const options = (derived ? third : second) as ProjectionOptions | undefined;
-  // Seedless derived form: the root starts as an empty record (see
-  // createProjectionInternal).
-  const initialValue = (derived ? second || {} : first) as T;
-  const keyOption = options?.key === undefined ? "id" : options.key;
-  const fam: StoreFamily = {
-    map: new WeakMap(),
-    node: null,
-    live: new Set(),
-    shallow: !!options?.shallow,
-    opt: true,
-    key:
-      typeof keyOption === "function"
-        ? keyOption
-        : keyOption === null
-          ? null
-          : (row: any) => (isWrappable(row) ? row[keyOption] : undefined)
-  };
-  const store = wrap(initialValue as any, null, null, fam) as Store<T>;
-  if (__OBSERVE__) nameStore(store, options?.name, options?.loc);
-  if (fam.shallow) {
-    ((store as any)[$TARGET] as StoreTarget).s = true;
-    markRawIngest(initialValue);
-  }
-  if (derived) {
-    const fn = first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>;
-    let nodeOptions: { name?: string; loc?: string; loadingValue?: void } | undefined;
-    if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
-    if (__OBSERVE__ && (options?.name || options?.loc))
-      nodeOptions = { ...nodeOptions, name: options.name, loc: options.loc };
-    const node = computed(() => {
-      if (!fam.node) fam.node = getOwner() as Computed<any>;
-      runProjectionComputed(store, fn, keyOption);
-    }, nodeOptions) as Computed<void>;
-    node._config &= ~CONFIG_AUTO_DISPOSE;
-    fam.node = node;
-  }
+  // A derived store's family (projection.ts): the derive's status reaches
+  // its leaves' readers as for `createStore(fn)` (F-12, #4437).
+  const store = createProjectionInternal(
+    (derived ? first : null) as any,
+    (derived ? second : first) as T,
+    (derived ? third : second) as ProjectionOptions,
+    true
+  );
   return [store, ((fn: (draft: T) => void) => storeSetter(store, fn)) as StoreSetter<T>];
 }

@@ -2022,7 +2022,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // transaction, reads the screen too.
     if (
       ((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
-      stagedScreen(c as Computed<any>)
+      stagedScreen(c as Computed<any>, el)
     ) {
       if (__TEST__) shadowActual(SLOT_C);
       return el._value as T;
@@ -2270,7 +2270,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     (observeFlightHook &&
       c!._config & CONFIG_VERDICT &&
       !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
-      stagedScreen(c!) &&
+      stagedScreen(c!, el) &&
       !throwShown(el))
   ) {
     if (__TEST__) shadowActual(SLOT_C);
@@ -2338,9 +2338,18 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
  * transaction the answer is the seam's and the reader watches it
  * (verdict.ts). A node born into the future has no screen: its staging is
  * its only value (A29). Nor has a reader born into the flush's transaction
- * (`bornInto`, #4010): its branch exists only there. */
-export function stagedScreen(c: Computed<any>): boolean {
-  if (flushTransaction === null || bornInto(c, flushTransaction)) return false;
+ * (`bornInto`, #4010): its branch exists only there — nor, reading `el` a
+ * hold holds, one born into that hold, whichever flush runs it (D-25: the
+ * hold's own work reads plainly). A held node `read` brings here is one
+ * `frameRead` found the reader born into: every other it served the screen
+ * (a lane's node it never asks — CONFIG_OVERRIDE; #4426). */
+export function stagedScreen(c: Computed<any>, el?: Signal<any> | Computed<any>): boolean {
+  if (
+    flushTransaction === null ||
+    bornInto(c, flushTransaction) ||
+    (el?._config! & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
+  )
+    return false;
   // A transaction only a `latest()` read opened holds nothing: the staging
   // is the frame's read for a pass in the frame's seat, as it is before the
   // frame has one, and the seam re-derives the pass once only if the flush

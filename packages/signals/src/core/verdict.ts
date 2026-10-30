@@ -235,10 +235,6 @@ function heldNotFinal(owner: Computed<any>): boolean {
   );
 }
 
-/** The flush's transaction when `latest` of an unheld flight opened it
- * (`pendingVerdict`): it holds nothing of that flight. */
-let latestJoined: Transaction | null = null;
-
 /** `isPending`'s answer for an unheld node whose flight is up (cause ii). */
 function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
   if (el._statusFlags & STATUS_UNINITIALIZED) return;
@@ -255,8 +251,12 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
       // re-run at its landing: nothing it holds flips the verdict — the
       // flight's own landing re-derives the reader — and it lands at this
       // seam, where a re-run would open it again, every flush (F-6, D-23).
-      if (!probing) flushTransaction || (joinFuture(null), (latestJoined = flushTransaction));
-      else if (latestJoined && latestJoined === flushTransaction) return route(c, latestJoined);
+      // (The mark is the transaction's own — `Transaction.latest` — so
+      // nothing outlives its landing.)
+      if (!probing)
+        flushTransaction ||
+          (joinFuture(null), ((flushTransaction as Transaction | null)!.latest = 1));
+      else if (flushTransaction?.latest) return route(c, flushTransaction);
       provisionalVerdict(c, false); // decided above
     }
   }
