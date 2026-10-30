@@ -138,6 +138,7 @@ import {
   laneStageHook,
   laneSeamsHook,
   laneServedHook,
+  adoptReadersHook,
   holdWorkHook,
   laneWriteHook,
   observeFlightHook,
@@ -331,6 +332,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   bumpNotifyEpoch();
   const isEffect = (el as any)._type;
   let released: Computed<any>[] | undefined;
+  /** The hold whose verdict reader's provisional staging this pass
+   * re-derives (D-2; #4417), else null. */
+  let provisional: Transaction | null = null;
   // Lanes (plan sec. 28): the seat of a pass is its node's. A node carrying a lane's
   // derived value runs as the lane's whoever dirtied it — a sync write, a
   // boundary reset, a frame rerun — so its children and its result are the
@@ -452,8 +456,21 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // supersedes re-derive, even when it publishes the committed value
         // back (no change to notify them by): their held runs carry the
         // superseded frame, and the landing would apply them (#4378).
-        if (el._pendingValue !== NOT_PENDING) insertSubs(el);
-        el._pendingValue = NOT_PENDING;
+        // A verdict reader's staging is D-2's provisional answer (it read
+        // a staging of the flush that parked, as a verdict reader; this
+        // pass is its one re-derive): kept as this pass's previous value
+        // and judged at the tail — equal, and the pass the hold's verdict
+        // reader, the readers that derived from it are the verdict lane's
+        // with their frames (`adoptReadersHook`, #4417: a keyed Show mounts
+        // once); else published mainline as below. (Only the verdict engine
+        // stages one: without it the arm folds to the publish.)
+        if (el._pendingValue !== NOT_PENDING) {
+          if (observeFlightHook && el._config & CONFIG_VERDICT && !isEffect) provisional = tx;
+          else {
+            insertSubs(el);
+            el._pendingValue = NOT_PENDING;
+          }
+        }
         el._config &= ~CONFIG_HELD;
       }
     }
@@ -700,9 +717,21 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // Listed before its staging, a pending pass included (the lane's own
   // flight is the lane's); false: the pass left the lane (lanes.ts).
   const errored = !!el._x?._error || stagedErr;
+  // (The provisional staging, before `laneStage` voids the slot. Every
+  // `provisional` arm is behind the verdict engine's hook: without it the
+  // head arm never sets one, and the bundler folds these away with it.)
+  const staged = observeFlightHook && provisional !== null ? el._pendingValue : NOT_PENDING;
   if (laneStageHook && lane !== null) {
     if (laneStageHook(el, lane, create, errored)) setPassLane(lane);
     else lane = null;
+  }
+  // The provisional staging (above) of a pass that is not the hold's verdict
+  // reader after all (no verdict lane seats it) is superseded as any other:
+  // published mainline, its readers re-derive (#4378).
+  if (observeFlightHook && provisional !== null && (lane === null || errored)) {
+    insertSubs(el);
+    el._pendingValue = NOT_PENDING;
+    provisional = null;
   }
 
   if (!errored) {
@@ -726,12 +755,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // publishes to — the staged `_pendingValue` when staged; a lane node's
     // lane value (a node entering the lane this pass has none yet — its
     // committed value, `laneStage` having voided a frame staging).
+    // (A provisional staging the pass re-derives is what it compares to.)
     const compareValue =
-      el._pendingValue !== NOT_PENDING
-        ? el._pendingValue
-        : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
-          ? el._x!._lane
-          : el._value;
+      observeFlightHook && provisional !== null
+        ? staged
+        : el._pendingValue !== NOT_PENDING
+          ? el._pendingValue
+          : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
+            ? el._x!._lane
+            : el._value;
     // A throwing comparator is contained inside `isSame` (A3, #2837; #4111).
     // A pass replacing an error this node staged is a new answer, even the
     // committed value (D-41: a recovery equal to the last good value is a
@@ -881,6 +913,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // Lane work re-staged: the lane's members re-derive as its work.
         if (lane !== null) laneDirty(el, lane);
       }
+    } else if (observeFlightHook && provisional !== null) {
+      // D-2's one re-derive, in place (#4417): the verdict reader staged this
+      // very value provisionally and the hold's verdict lane seats it now —
+      // the value is the lane's (as a changed one would be, above), and the
+      // readers that derived from the staging are the lane's with their
+      // frames, revealed at its seam instead of re-run (lanes.ts).
+      if (lane!._shown) el._pendingValue = value;
+      else el._x!._lane = value;
+      adoptReadersHook!(el, lane!, provisional);
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) insertIntoHeapHeight(s._sub, dirtyQueue);
     }
