@@ -10,8 +10,12 @@
  *
  * Per case, the shell is hydrated and every chunk applied, then:
  *
- * - NO REFETCH: no memo asks again before the first client write (an ask
- *   made under hydration's dry run, with its fake Promise, is not one).
+ * - NO REFETCH (Ryan, 2026-10-30): "a refetch is a re-ask of a read the
+ *   server answered (value or error); a first ask of a read the server
+ *   never reached is the client's ordinary ask". Hydration is CSR with the
+ *   server's answers claimed, so an ask counts only when the payload carries
+ *   that memo's answer and it comes before the first client write. An ask
+ *   made under hydration's dry run, with its fake Promise, is not one.
  * - CLEAN: no console.error, no hydration warning.
  * - HYDRATED = CSR: the hydrated screen equals a fresh client render of the
  *   same inputs with every memo synchronous.
@@ -24,11 +28,12 @@
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test } from "vitest";
-import { action, flush, resetErrorHalt } from "solid-js";
+import { action, flush, getOwner, resetErrorHalt } from "solid-js";
+import { peekNextChildId } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
 import { sharedConfig } from "solid-js/internal";
 import type { AppContext } from "../../async-gen/emit.js";
-import type { Node, Scenario, SrcRef } from "../../async-gen/scenario.js";
+import type { Scenario } from "../../async-gen/scenario.js";
 import { describeScenario } from "../../async-gen/scenario.js";
 import { recordOrDiff, type Trace } from "../../async-gen/differential.js";
 import { serialize as serializeDom } from "../../async-gen/run.js";
@@ -85,26 +90,6 @@ async function freshScreen(createApp: (ctx: AppContext) => any, values: number[]
   } catch (e: any) {
     return `<fresh render threw: ${e?.message ?? e}${sharedConfig.hydrating ? " (still hydrating)" : ""}>`;
   }
-}
-
-/** The memos the tree reads, directly or through other memos. */
-function readMemos(sc: Scenario): Set<number> {
-  const out = new Set<number>();
-  const add = (r: SrcRef) => {
-    if (r.k !== "m" || out.has(r.i)) return;
-    out.add(r.i);
-    sc.memos[r.i].deps.forEach(d => add(d.src));
-  };
-  const walk = (n: Node) => {
-    if (n.t === "leaf") [...n.text, ...n.attrs].forEach(r => add(r.src));
-    else if (n.t === "group") n.kids.forEach(walk);
-    else {
-      if (n.t === "show") add(n.when.src);
-      walk(n.child);
-    }
-  };
-  walk(sc.tree);
-  return out;
 }
 
 async function runCase(
@@ -170,8 +155,14 @@ async function runCase(
     guard("throw", flush);
   };
 
+  // Each memo's hydration id, taken just before it is created.
+  const ids = new Map<string, string>();
   const ctx: AppContext = {
     values,
+    id(name) {
+      const owner = getOwner();
+      if (owner && !ids.has(name)) ids.set(name, String(peekNextChildId(owner)));
+    },
     ask(name, v, poison) {
       // Hydration's dry run swaps the global Promise for a mock: that run's
       // flight is never consumed, so it is not an ask.
@@ -206,10 +197,11 @@ async function runCase(
     }
     await drain();
     hydrating = false;
-    // A memo the page never reads is never streamed (the server answers
-    // what the render waited on), so its client ask is not a refetch.
-    const read = readMemos(sc);
-    const refetched = asks.filter(a => read.has(Number(a.slice(1, a.indexOf(":")))));
+    // Only an answer the payload carried can be re-asked.
+    const payload = shell + chunks.join("");
+    const served = (name: string) =>
+      ids.has(name) && payload.includes(`_$HY.r["${ids.get(name)}"]`);
+    const refetched = asks.filter(a => served(a.slice(0, a.indexOf(":"))));
     if (refetched.length) findings.push({ law: "refetch", step, detail: refetched.join(",") });
     const hydrated = serialize(container);
     screens.push(hydrated);
