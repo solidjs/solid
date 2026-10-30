@@ -2158,7 +2158,6 @@ module.exports = [
     // B; CI-measured at 18,701 B (53,566 B minified). Lower only: cap at
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): 18.72 KB -> 18.74 KB, recorded minified 53,566 -> 53,585 B, measured in CI at 18,726 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
-    // The Loading fallback memo is the output's creation (#4428, 2026-10-30, over next @ 5f07d049): frozen floor 18.74 KB -> 18.79 KB, recorded minified 53,585 -> 53,606 B (+21 B: +8 B this fix, +13 B next's own growth since the floor was recorded), measured locally (linux) at 18,776 B brotli. `fallback()` creates its memo lazy, so its first pass runs in the output's read and born held asks the output, not the owner it lives in (D-27). Correctness; Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
