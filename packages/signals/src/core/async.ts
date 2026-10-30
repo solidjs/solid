@@ -1097,7 +1097,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
       notifyStatus(sub, status, error);
       // A derived store's derive (store/projection.ts): marked, not re-run —
       // its leaves' readers are not its dependents, so the family walks them.
-      (sub as any).fam?.st(status);
+      (sub as any).fam?.st(status, error);
     }
   });
 }
