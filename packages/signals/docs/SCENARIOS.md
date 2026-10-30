@@ -809,7 +809,7 @@ Layered: action A guesses `milk`, action B sets a filter optimistically over it.
 
 ---
 
-## E. First loads, stores, errors (D-6, D-30, D-38, D-39, D-41)
+## E. First loads, stores, errors (D-6, D-30, D-38, D-39, D-41, D-42)
 
 ### S-36. A declared first paint is loading, not pending — D-30 (A27)
 
@@ -890,6 +890,40 @@ createEffect(data, { effect: v => log(v), error: e => log(e) });
 | ✗   |                          | after 2: `1 \| Error 2 \| 1` with the arm already run — the screen before D-41, F-1's torn frame |                    |                   |                  |              |                                                               |
 
 The hold did not wait on the rejection: step 3 lands as soon as `slow(2)` does, whether `data(2)` rejected before or after it.
+
+### S-47. `try/catch` around a reactive read: caught on one pass, bypassed on the next — D-42, F-12
+
+_Pinned: `tests/try-catch-reactive-read.test.ts` (the bypass as it is; not a target)._ (S-46 is #4466's.)
+
+```tsx
+const [id, setId] = createSignal(0);
+const data = createMemo(() => fetchData(id())); // async
+const guarded = createMemo(() => {
+  try {
+    return data();
+  } catch {
+    return "caught"; // written as if `data()` were an `await`
+  }
+});
+<p>{guarded()}</p>;
+```
+
+| #   | Action               | Screen            | `guarded` ran | Notes                                                                                                                                        |
+| --- | -------------------- | ----------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | mount                | `caught`          | yes           | the first pass read `data` loading; the catch fired and the memo completed — the first load is masked: no fallback, no hold                  |
+| 1   | `fetchData(0)` lands | `d0`              | yes           | the dependency registered before the throw, so the memo re-runs at the landing                                                               |
+| 2   | `setId(1); flush()`  | `d0` — held       | **no**        | `data` goes pending; `guarded` is marked pending by propagation, not run. The catch never sees it; the write is held through `guarded` (F-2) |
+| 3   | `fetchData(1)` lands | `d1`              | yes           |                                                                                                                                              |
+| ✗   |                      | after 2: `caught` | —             | what the author expected: the catch to run on every pending. It runs only on a pass that happens to execute while the source is pending      |
+
+The error twin, under `<Errored fallback={e => ...}>` with a sync `source` that throws when `mode() === 1`:
+
+| #   | Action                          | Screen         | `guarded` ran | Notes                                                                                                                                 |
+| --- | ------------------------------- | -------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | mount, `mode = 0`               | `m0`           | yes           |                                                                                                                                       |
+| 1   | `setMode(1); flush()`           | `errored:boom` | **no**        | `source` errors; `guarded` is marked errored, not run; the error reaches `<Errored>` as if the catch were not there                   |
+| 2   | `setMode(2); flush()`           | `m2`           | yes           |                                                                                                                                       |
+| 0′  | mounted with `mode = 1` already | `caught`       | yes           | the same code, the other outcome: the pass ran while the source was already errored, so the catch fired and the boundary never saw it |
 
 ### S-43. A held recovery keeps the shown error; recovering to the last good value is a change — D-41, D-39 (#3886)
 
