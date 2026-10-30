@@ -69,13 +69,7 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { claim, ext, joinPass, joinPassAt, markLateLinker } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
-import {
-  handleAsync,
-  isThenable,
-  notifyStatus,
-  releaseFlightTeardown,
-  removePendingSource
-} from "./async.js";
+import { handleAsync, isThenable, notifyStatus, releaseFlightTeardown } from "./async.js";
 import { laneValueOf } from "./truth.js";
 import { link } from "./graph.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
@@ -120,7 +114,6 @@ import {
   MARK_LINK,
   MARK_LST,
   MARK_OBS,
-  MARK_SERVED,
   MARK_ST,
   MARK_UNANS,
   MARK_W,
@@ -723,7 +716,7 @@ function preSnapshotBits(cfg: number): number {
   return cfg & CONFIG_OVERRIDE
     ? LANE_BITS | RAISE_FL | MARK_W
     : cfg & CONFIG_HELD
-      ? RAISE_H | MARK_ST | MARK_SERVED
+      ? RAISE_H | MARK_ST
       : 0;
 }
 
@@ -736,8 +729,7 @@ function preSnapshotBits(cfg: number): number {
  * before the hold is named. Then, in the order the old deciders fired them:
  * the join (H; `joinPassAt` into the hold named when RAISE_HAT), the
  * staging read (Fl), the unanswered probe, the seam watch (W), the stale
- * reader (ST), the flight no longer waited on (`laneServed`), the late
- * linker, the link of a throwing untracked read. (The plain rows fire
+ * reader (ST), the late linker, the link of a throwing untracked read. (The plain rows fire
  * theirs directly, seat.ts `plainRows`; core.ts `readSlow` applies a
  * packed raise through `applyMarksHook`, verdict.ts `verdictValue`
  * directly.)
@@ -756,7 +748,6 @@ export function applyMarks(c: Computed<any>, el: Signal<any> | Computed<any>, r:
   if (verdictApplyHook !== null && r & MARK_UNANS) c._flags |= REACTIVE_PROBE_UNANSWERED;
   if (r & MARK_W) stagedReaders.push(c);
   if (r & MARK_ST) staleReader(c, seatTx ?? flushTransaction!);
-  if (r & MARK_SERVED) laneServed(c, el);
   if (r & MARK_LATE) markLateLinker(c);
   if (r & MARK_LINK) link(el, c);
 }
@@ -846,8 +837,8 @@ function seatedRows(
     ROW && setRow("V3");
     return slotOf | RAISE_FL | (latestOnly || watch ? MARK_W : 0);
   };
-  /** The held rows the engine owns: the screen, a stale reader of the hold,
-   * served (`laneServed`) — lane work's (D6, D-37), and a verdict reader's
+  /** The held rows the engine owns: the screen, a stale reader of the hold
+   * — lane work's (D6, D-37), and a verdict reader's
    * (V1: a frame reader, re-derived at the landing, D-23 A10). Not a pass
    * with no screen to serve (born into the hold, uninitialized — the join,
    * V1'/V1''/D6'), nor a leaf's L4/L2 arms before it (the plain rows). */
@@ -863,7 +854,7 @@ function seatedRows(
   if (errored) {
     if (held && staleServed) {
       carry(t, seatLane);
-      let r = MARK_ST | MARK_SERVED; // (stale, served; the screen's slot is the error's)
+      let r = MARK_ST; // (stale; the screen's slot is the error's)
       const s = retry ? SLOT_RETRY : SLOT_E;
       // (`!(r & MARK_ST)`: a reader served the screen throws the shown one.)
       ROW && setRow(leaf ? "L8" : rowBase + "D5");
@@ -889,7 +880,7 @@ function seatedRows(
     if (staleServed) {
       carry(t, seatLane);
       ROW && setRow(leaf ? "D6" : vReader ? "V1" : rowBase + "D6");
-      return screen | MARK_ST | MARK_SERVED;
+      return screen | MARK_ST;
     }
     const p = plainRows(c, el, tracked, spectate);
     if (ROW && !leaf) setRow(vReader ? (bornInto(c, t!) ? "V1'" : "V1''") : rowBase + "D6'");
@@ -1239,17 +1230,6 @@ const adoptParked = (r: Computed<any>): boolean => {
   notifyStatus(r, STATUS_PENDING, new NotReadyError(r));
   return true;
 };
-/** A15: lane work or a verdict reader was served `el`'s committed value
- * (core.ts `frameRead`), so its pass does not wait on `el`'s flight: what
- * `el`'s pending propagated onto it before the pass (its origins, `el`
- * included) is not this pass's — the landing re-derives it (`reruns`).
- * Kept, a pass that went pending on another source never woke when that
- * source settled (#4397). Only a reader something made pending has anything
- * to drop. */
-const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => {
-  const from = (el as Computed<any>)._x?._pendingSources;
-  if (from && c._x?._pendingSources) for (const s of from) removePendingSource(c, s);
-};
 /** D-2's one re-derive, in place (#4417; core.ts `recompute`): a verdict
  * reader whose provisional pass read a staging of a flush that parked has
  * re-derived the value it staged, seated in the hold's verdict lane `l`.
@@ -1373,7 +1353,6 @@ installLaneHooks(
   endLanes,
   lanesBlocked,
   adoptParked,
-  laneServed,
   adoptReaders
 );
 if (__OBSERVE__) GlobalQueue._verdictLane = verdictLane;

@@ -213,41 +213,38 @@ export const RAISE_VSEAT = 512 << SLOT_BITS;
  * lane that is not that hold's, or a flight never shown, leaves the verdict
  * seat first and reads from the frame's. */
 export const MARK_LEAVE = 1024 << SLOT_BITS;
-/** A15: lane work or a verdict reader served a held flight's committed value
- * no longer waits on that flight (`laneServed`). */
-export const MARK_SERVED = 1 << (11 + SLOT_BITS);
 /** A stale reader of a LANE (L7): re-derived at its reveal (`_reruns` of
  * the lane, once per pass — REACTIVE_SCREEN_READ). */
-export const MARK_LST = 1 << (12 + SLOT_BITS);
+export const MARK_LST = 1 << (11 + SLOT_BITS);
 /** The pass read a lane's node as lane work or a verdict reader
  * (REACTIVE_LANE_READ, for `recompute`'s tail). */
-export const MARK_LANE_READ = 1 << (13 + SLOT_BITS);
+export const MARK_LANE_READ = 1 << (12 + SLOT_BITS);
 /** A verdict reader entered a lane the seam has not judged (#4284,
  * `entered`): re-derived on the screen if the seam holds the lane. */
-export const MARK_ENTERED = 1 << (14 + SLOT_BITS);
+export const MARK_ENTERED = 1 << (13 + SLOT_BITS);
 /** A verdict reader observed a flight nobody holds (A15, #3458): the flight
  * is queued for the seam as if it had gone pending here. */
-export const MARK_OBS = 1 << (15 + SLOT_BITS);
+export const MARK_OBS = 1 << (14 + SLOT_BITS);
 /** The flush's transaction opens if none has (`joinFuture(null)`). */
-export const MARK_JF0 = 1 << (16 + SLOT_BITS);
+export const MARK_JF0 = 1 << (15 + SLOT_BITS);
 /** An action body's untracked `latest()` of another hold's proposal: the
  * two settle as one (`joinFuture(txOf(el))`, posture C). */
-export const MARK_JFT = 1 << (17 + SLOT_BITS);
+export const MARK_JFT = 1 << (16 + SLOT_BITS);
 /** A28: served the committed value over an unflushed write — the pass runs
  * again in the flush that carries it (`markLateLinker`). */
-export const MARK_LATE = 1 << (18 + SLOT_BITS);
+export const MARK_LATE = 1 << (17 + SLOT_BITS);
 /** An untracked owned read that throws NotReady still links, so the reader
  * re-runs when the node settles (#3528's exceptions aside). */
-export const MARK_LINK = 1 << (19 + SLOT_BITS);
+export const MARK_LINK = 1 << (18 + SLOT_BITS);
 /** The seam's verdict is this probe's own (REACTIVE_PROBE_UNANSWERED): a
  * later plain read must not answer for it. */
-export const MARK_UNANS = 1 << (20 + SLOT_BITS);
+export const MARK_UNANS = 1 << (19 + SLOT_BITS);
 /** `isPending`'s verdict read: re-derived at the hold's landing
  * (`_reruns`, deduplicated against the last entry). */
-export const MARK_PR = 1 << (21 + SLOT_BITS);
+export const MARK_PR = 1 << (20 + SLOT_BITS);
 /** The join names a hold other than the node's own (`joinPassAt`: a folded
  * guess joins its lane's parent, D-34). */
-export const RAISE_HAT = 1 << (22 + SLOT_BITS);
+export const RAISE_HAT = 1 << (21 + SLOT_BITS);
 /** The bits the lane engine applies (lanes.ts `laneApply`). */
 export const LANE_BITS =
   RAISE_LANE | RAISE_VSEAT | MARK_LEAVE | MARK_LST | MARK_LANE_READ | MARK_ENTERED;
@@ -268,7 +265,6 @@ const RAISE_NAMES: Array<[number, string]> = [
   [MARK_HOLD, "hold"],
   [MARK_SR, "sr"],
   [MARK_LEAVE, "leave"],
-  [MARK_SERVED, "served"],
   [MARK_LST, "LST"],
   [MARK_LANE_READ, "laneRead"],
   [MARK_ENTERED, "entered"],
@@ -296,7 +292,6 @@ const COMPARED =
   MARK_AH |
   MARK_PR |
   MARK_LEAVE |
-  MARK_SERVED |
   MARK_LST |
   MARK_LANE_READ |
   MARK_ENTERED |

@@ -116,10 +116,6 @@ export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
 export let adoptReadersHook:
   | ((el: Computed<any>, l: Transaction, t: Transaction, value: unknown) => void)
   | null = null;
-/** core.ts `frameRead` served lane work or a verdict reader a held node's
- * committed value (lanes-core.ts `laneServed`). */
-export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
-  null;
 /** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
  * reaches (CONFIG_GUESS) — a build without `createOptimistic` or
  * `createOptimisticStore` never sets it, and its bundler folds them. */
@@ -138,7 +134,6 @@ export function installLaneHooks(
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
   adopt: NonNullable<typeof laneAdoptHook>,
-  served: NonNullable<typeof laneServedHook>,
   adoptReaders: NonNullable<typeof adoptReadersHook>
 ): void {
   seatRowsHook = rows;
@@ -151,7 +146,6 @@ export function installLaneHooks(
   endLanesHook = end;
   lanesBlockedHook = blocked;
   laneAdoptHook = adopt;
-  laneServedHook = served;
   adoptReadersHook = adoptReaders;
 }
 // The optimistic layer (lanes.ts; installed when `createOptimistic` or

@@ -64,7 +64,6 @@ import {
   MARK_LST,
   MARK_OBS,
   MARK_PR,
-  MARK_SERVED,
   MARK_ST,
   MARK_UNANS,
   MARK_W,
@@ -218,7 +217,6 @@ function frameRead(): boolean {
   const t = txOf(el);
   if ((t === flush && !lane && !verdict) || bornInto(c!, t)) return false;
   mark(MARK_ST, t);
-  if (lane || verdict) mark(MARK_SERVED);
   return true;
 }
 function readerSeesCommitted(r: Computed<any> | null): boolean {
