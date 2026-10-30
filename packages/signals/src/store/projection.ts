@@ -214,6 +214,12 @@ function settleFamily(fam: StoreFamily): void {
  * pass's own throw. */
 function familyStatus(this: StoreFamily, status: number, error?: unknown): void {
   if (status & STATUS_PENDING) wakeFamily(this);
+  // No status: the source's settle walk retired the derive's pending, its
+  // pass not re-run (core `settlePendingSource`) — the readers waiting on the
+  // derive settle with it (F-9). A re-run would ask again: an async derive's
+  // new flight is a second wait, and would run ahead of a staged rejection's
+  // publish, which reaches the derive at the commit (F-12, D-41).
+  else if (!status) settleFamily(this);
   // The error rides along: a reader the derive's own pass already handed it
   // (a sync derive re-run in the same flush) is not handed it again.
   else if (status & STATUS_ERROR) errorFamily(this, error);
