@@ -14,7 +14,7 @@
  * refresh landing is the new answer (D-39).
  */
 import { expect, test } from "vitest";
-import { Errored, For, Loading, Show, createMemo, flush, refresh } from "solid-js";
+import { Errored, For, Loading, Show, createMemo, flush, refresh, type Refreshable } from "solid-js";
 import { render } from "../src/index.js";
 
 const tick = async () => {
@@ -35,7 +35,7 @@ async function run(nested: boolean) {
   };
   const container = document.body.appendChild(document.createElement("div"));
   const text = () => container.textContent;
-  let detail!: () => any;
+  let detail!: Refreshable<() => any>;
 
   function Related(props: { title: string }) {
     const hits = createMemo(() => ask(`search:${props.title}`));
