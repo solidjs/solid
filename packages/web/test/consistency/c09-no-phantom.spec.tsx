@@ -20,13 +20,21 @@
  * claim walk), and `hydratedCreateLoadingBoundary` (a boundary with nothing
  * pending hydrates straight through).
  *
+ * Arm (b)'s materializer is the frames client's traces tier (plan step C3),
+ * loaded through `prepareTier("trace")`; these cells run with it RESIDENT
+ * (warmed once below, as C19 does), so the claim reads the delivered
+ * snapshot synchronously. Cold, the marker HOLDS the occurrence until the
+ * import lands — a module load no fixed `quiesce()` count can wait out —
+ * and that hold has its own pin (`tier-trace-hold.spec`).
+ *
  * Observation: a MutationObserver frame recorder over the container (a
  * fallback frame would appear as a distinct text), the dev key-miss warning,
  * and node identity of the claimed `_hk` element.
  */
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { Loading } from "solid-js";
 import { hydrate } from "@solidjs/web";
+import { prepareTier } from "../../frames/src/frame-client.js";
 import {
   bootPage,
   fillHtml,
@@ -45,6 +53,8 @@ afterEach(async () => {
   await page?.cleanup();
   page = undefined;
 });
+// The traces tier, resident before any page boots (see the module doc).
+beforeAll(() => prepareTier("trace"));
 
 const keyMisses = (p: Page) => p.warnings.filter(w => w.includes("Hydration key miss"));
 
