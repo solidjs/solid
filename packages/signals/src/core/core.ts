@@ -30,6 +30,7 @@ import {
   CONFIG_SLOT_NODE,
   CONFIG_OWNED_WRITE,
   CONFIG_PROMOTED,
+  CONFIG_REDERIVE,
   CONFIG_STAGED,
   CONFIG_HELD_FRAME,
   CONFIG_LAGS,
@@ -46,6 +47,7 @@ import {
   REACTIVE_CHECK,
   REACTIVE_DIRTY,
   REACTIVE_DISPOSED,
+  REACTIVE_ERRORED_READ,
   REACTIVE_FRAME_READ,
   REACTIVE_IN_HEAP,
   REACTIVE_LANE_DIRTY,
@@ -596,6 +598,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // answer, and the outer handleAsync must not clobber the registration.
       const prevInFlight = el._x?._inFlight;
       const fnResult = el._fn(value);
+      // F-12 / D-42 (#4410, #4486): a pass that read an errored memo is
+      // errored with it whether or not its body caught the throw
+      // (`throwInto`): the body's answer — a value, a flight — is not an
+      // answer, and the pass throws the source's error as if the catch were
+      // not there. The runtime's own catchers are exempt: a boundary's
+      // output and `on`, `watch`, a deferred (CONFIG_REDERIVE) decide what
+      // an errored source means for them.
+      if (el._flags & REACTIVE_ERRORED_READ && !(el._config & CONFIG_REDERIVE)) throw el._x!._error;
       const isAsyncResult = typeof fnResult === "object" && fnResult !== null;
       const selfRegistered = el._x?._inFlight !== prevInFlight;
       value = selfRegistered || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
@@ -2203,13 +2213,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // reader born this flush published it, and its readers' stale error
     // committed after the new one (#4404).
     if (!committed && el._config & CONFIG_STAGED_ERROR) serve(el, c as Computed<any> | null);
-    throw (owner as Computed<any>)._x?._error;
+    throwInto(c as Computed<any> | null, (owner as Computed<any>)._x?._error);
   }
 
   // D-41: an untracked read reads the screen, and so does a frame reader
   // served the committed value — `serve` hands it that value as it does an
   // untracked read — a shown error included (`throwShown`).
-  if (committed || !c) throwShown(el);
+  if (committed || !c) throwShown(el, c as Computed<any> | null);
   const value = serve(el, committed ? null : (c as Computed<any> | null)) as T;
   if (
     !c &&
@@ -2233,8 +2243,22 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
 /** D-41: a reader served the screen — an untracked read, a frame reader
  * served the committed value, a verdict reader (`serve`) — reads a shown
  * error there until the answer that replaces it commits. */
-function throwShown(el: Signal<any> | Computed<any>): undefined {
-  if (el._x?._shownError) throw el._x._shownError;
+function throwShown(el: Signal<any> | Computed<any>, c: Computed<any> | null): undefined {
+  if (el._x?._shownError) throwInto(c, el._x._shownError);
+}
+
+/** F-12 (#4410, #4486): an errored memo's error — committed, shown or
+ * staged (D-41) — thrown into a pass `c` errors the pass with it, whether or
+ * not the body catches the throw: the pass is marked (REACTIVE_ERRORED_READ,
+ * the error in `_x._error`, where its own error would go) and throws it
+ * again when it completes (`recompute`). An untracked read inside the pass
+ * is the pass's read too; a read outside any pass (`c` null) just throws. */
+function throwInto(c: Computed<any> | null, e: unknown): never {
+  if (c) {
+    c._flags |= REACTIVE_ERRORED_READ;
+    ext(c)._error = e;
+  }
+  throw e;
 }
 
 /**
@@ -2271,7 +2295,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       c!._config & CONFIG_VERDICT &&
       !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
       stagedScreen(c!, el) &&
-      !throwShown(el))
+      !throwShown(el, c))
   ) {
     if (__TEST__) shadowActual(SLOT_C);
     return el._value;
@@ -2284,7 +2308,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   if (!(__DEV__ && strictRead) || (el as Computed<any>)._fn || el._pendingValue !== el._value)
     stagedRead(c!, el);
   // D-41: the staged answer is an error (`stageError`).
-  if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
+  if (el._config & CONFIG_STAGED_ERROR) throwInto(c, el._pendingValue);
   if (__TEST__) shadowActual(SLOT_P);
   return el._pendingValue;
 }

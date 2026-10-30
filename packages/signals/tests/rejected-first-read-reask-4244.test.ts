@@ -1,4 +1,5 @@
 import {
+  createEffect,
   createErrorBoundary,
   createLoadingBoundary,
   createMemo,
@@ -17,6 +18,9 @@ const tick = (ms = 0) => new Promise(r => setTimeout(r, ms));
 // uninitialized status, so a re-ask made it "pending with a value" and
 // verdict reads (`isPending` passes, `latest`) returned its `undefined`
 // `_value` instead of throwing NotReady.
+// The error phase is observed through the effects' error arms: a computation
+// that reads an errored memo is errored with it whether or not it catches
+// (F-12, #4410, #4486), so the readers below only catch NotReady.
 function setup(first: "reject" | "value") {
   const [n, setN] = createSignal(0);
   const seen: unknown[] = [];
@@ -25,8 +29,12 @@ function setup(first: "reject" | "value") {
     try {
       return f();
     } catch (e) {
-      return e instanceof NotReadyError ? "NotReady" : `error:${(e as Error).message}`;
+      if (e instanceof NotReadyError) return "NotReady";
+      throw e;
     }
+  };
+  const errored = (log: unknown[]) => (e: unknown) => {
+    log.push(`error:${(e as Error).message}`);
   };
   createRoot(() => {
     const m = createMemo(() => {
@@ -36,18 +44,18 @@ function setup(first: "reject" | "value") {
       if (i === 1 && first === "value") return Promise.reject(new Error("boom"));
       return new Promise<string>(r => setTimeout(() => r("ok"), 20));
     });
-    createRenderEffect(
-      () => shape(() => [isPending(() => m()), m()]),
-      v => {
+    createEffect(() => shape(() => [isPending(() => m()), m()]), {
+      effect: v => {
         seen.push(v);
-      }
-    );
-    createRenderEffect(
-      () => shape(() => latest(() => m())),
-      v => {
+      },
+      error: errored(seen)
+    });
+    createEffect(() => shape(() => latest(() => m())), {
+      effect: v => {
         latestSeen.push(v);
-      }
-    );
+      },
+      error: errored(latestSeen)
+    });
   });
   return { setN, seen, latestSeen };
 }

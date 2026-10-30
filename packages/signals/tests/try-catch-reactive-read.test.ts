@@ -14,8 +14,11 @@ import {
 // not run (`propagateStatus`: the status rides the edge so dependents are not
 // re-executed just to re-throw), so a catch around the read runs only when
 // the computation happens to run while the source is already in that state,
-// and never when the state changes under it. These pins record the bypass as
-// it is: they are not a target.
+// and never when the state changes under it. For not-ready, these pins record
+// the bypass as it is: a catch that runs masks the load (not a target). For
+// errors the catch is fully inert (F-12, #4410, #4486): a reader of an
+// errored memo is errored with it whether or not it catches —
+// `errored-reader-4486.test.ts` pins the screens.
 
 let resolvers: ((v: any) => void)[] = [];
 function pending<T>(): Promise<T> {
@@ -131,9 +134,9 @@ describe("D-42: try/catch around a reactive read is not a channel", () => {
     expect(screens).toEqual(["m0", "errored:boom", "m2"]);
   });
 
-  it("error: the same catch fires when the computation is created over an already-errored source", () => {
+  it("error: a computation created over an already-errored source is errored with it, though its catch runs", () => {
     const runs: string[] = [];
-    let value = "";
+    const screens: string[] = [];
     createRoot(() => {
       const [mode] = createSignal(1);
       const source = createMemo(() => {
@@ -149,17 +152,22 @@ describe("D-42: try/catch around a reactive read is not a channel", () => {
           return "caught";
         }
       });
-      createRenderEffect(
+      const out = createErrorBoundary(
         () => guarded(),
+        err => `errored:${(err() as Error).message}`
+      );
+      createRenderEffect(
+        () => out(),
         v => {
-          value = v;
+          screens.push(v);
         }
       );
     });
     flush();
-    // Same code, different outcome: whether the catch runs depends on when
-    // the computation's pass happens to run — which is why it is not a channel.
+    // Same code, the same outcome as the bypass above: the catch ran, and
+    // the pass is errored with `source` all the same (F-12, #4410, #4486).
+    // "caught" never shows.
     expect(runs).toEqual(["run", "caught:boom"]);
-    expect(value).toBe("caught");
+    expect(screens).toEqual(["errored:boom"]);
   });
 });

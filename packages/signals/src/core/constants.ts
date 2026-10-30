@@ -73,6 +73,12 @@ export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
  * did not is D-25's hold work while its flight is up (verdict.ts
  * `holdWork`). Per pass (1 << 20 is lanes.ts's LEFT_SHOWN). */
 export const REACTIVE_WINDOW = 1 << 21;
+/** The pass read an errored memo — its error was thrown into the pass
+ * (core.ts `throwInto`), which is errored with it whether or not the body
+ * caught the throw (F-12, D-42, #4410, #4486): a pass that completes with
+ * the bit set throws the error again (`recompute`). The error itself is in
+ * `_x._error`. Per pass. */
+export const REACTIVE_ERRORED_READ = 1 << 22;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;
