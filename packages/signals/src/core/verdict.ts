@@ -14,6 +14,7 @@ import {
   CONFIG_GUESS,
   CONFIG_ASYNC,
   CONFIG_HELD,
+  CONFIG_HELD_FRAME,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_STAGED_ERROR,
@@ -62,6 +63,7 @@ import {
   joinFuture,
   passLane,
   queuePendingNode,
+  resolveTx,
   setPassLane,
   stagedReaders,
   staleReader,
@@ -94,10 +96,18 @@ function watchVerdict(c: Computed<any>, unanswered = false): void {
 /** The reading pass is the holder's verdict lane's — unless already lane
  * work, or already the transaction's (it derives from the future — a held
  * node's, or the staging of a write this flush may hold — and the verdict
- * does not rescue it: its result shows at the landing, re-derived). A lane
+ * does not rescue it: its result shows at the landing, re-derived), or a
+ * member of the frame a held pass of that hold built (CONFIG_HELD_FRAME,
+ * `bornInto`): the hold's own work, born in its world, reads plainly and
+ * its run is the frame's (D-25, D-27) — the same leaf reading a memo of the
+ * `latest()` waits for the landing too (`enterLane`; E2, #4284). A lane
  * read, for `recompute`'s tail (REACTIVE_LANE_READ). */
 function route(c: Computed<any>, t: Transaction): void {
-  if (!passLane && !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)))
+  if (
+    !passLane &&
+    !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)) &&
+    !(c._config & CONFIG_HELD_FRAME && bornInto(c, resolveTx(t)))
+  )
     setPassLane(verdictLane(t));
   c._flags |= REACTIVE_LANE_READ;
 }
@@ -417,9 +427,13 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // `_flags`: the wake is a no-op for it.) So is the probe's state (#4429):
   // a `latest()` the pass makes itself does not join a hold through the
   // probe's arm, and what the pass reads does not answer the outer probe
-  // (`probeFound` is only set while `probing`).
+  // (`probeFound` is only set while `probing`). So is the window's kind: an
+  // `isPending` the pass makes itself answers for what it reads, not as a
+  // probe inside the outer `latest()`.
   const prevProbing = probing;
+  const prevLatest = latestActive;
   probing = false;
+  latestActive = false;
   setVerdict(null);
   prepareComputed(owner, false);
   if (c && tracking) {
@@ -427,6 +441,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     if ((el as any)._fn) pullComputed(owner, c);
   }
   setVerdict(verdictValue);
+  latestActive = prevLatest;
   probing = prevProbing;
   // Shadow (S0): the window's decision point — the rows Vl*/Vp*.
   if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, false);
