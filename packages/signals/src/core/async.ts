@@ -227,21 +227,22 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
  * re-derive (the settle walk). Only a verdict reads a derivation's staging
  * before its commit, so only the verdict engine marks. Not a boundary's
  * output, an async memo, an effect or a boundary's tree (`EFFECT_TRACKED <<
- * 23` spans CONFIG_FRAME and every effect type), one already carrying a
- * staged error, nor a derived store's derive, whose readers learn its status
- * through its family (#4189): the commit's publish reaches them. A pending
- * mark supersedes the staging (`propagateStatus`). */
+ * 23` spans CONFIG_FRAME and every effect type), nor one already carrying a
+ * staged error: the commit's publish reaches them. A pending mark supersedes
+ * the staging (`propagateStatus`). */
 function stageMark(node: Computed<any>, el: Computed<any>): void {
   if (
     !(
       node._config &
-        (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | CONFIG_ASYNC | (EFFECT_TRACKED << 23)) ||
-      (node as any).fam
+      (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | CONFIG_ASYNC | (EFFECT_TRACKED << 23))
     )
   ) {
     node._pendingValue = el._pendingValue;
     node._config |= CONFIG_STAGED_ERROR;
     queuePendingNode(node);
+    // A derived store's readers are its family's (store/projection.ts): they
+    // re-derive from the staging, as from the derive's status (#4189).
+    (node as any).fam?.st(STATUS_ERROR);
     settlePendingSource(node);
   }
 }
