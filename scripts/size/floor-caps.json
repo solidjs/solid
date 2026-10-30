@@ -4,8 +4,8 @@
     "minified": 19908
   },
   "app: render + one signal (the simple-app floor)": {
-    "cap": "9.78 KB",
-    "minified": 26739
+    "cap": "9.80 KB",
+    "minified": 26761
   },
   "app: hydrating (no stores) with Show/For/Loading/Errored/lazy": {
     "cap": "18.74 KB",

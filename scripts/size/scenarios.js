@@ -1757,6 +1757,7 @@ module.exports = [
     // 9.78 KB, recorded minified 26,738 -> 26,739 B; CI-measured at 9,769 B
     // (26,739 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
+    // Size-Exception (a lane's held reader settling never makes the flush join the lane, #4440, 2026-10-30, over next @ 131ceb8c): 9.78 KB -> 9.80 KB (floor-caps.json), recorded minified 26,739 -> 26,761 B, measured locally (linux) at 9,789 B brotli / 26,761 B minified (+9 B minified over next). The settle walk joined a held reader's transaction even when it was a lane, so the flush took the lane as its transaction and a row born in that flush was held into the lane the same flush dissolved: it never committed and rendered empty (D-37). One guard in core/async.ts. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
