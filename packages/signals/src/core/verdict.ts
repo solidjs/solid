@@ -228,7 +228,6 @@ function heldNotFinal(owner: Computed<any>): boolean {
 
 /** `isPending`'s answer for an unheld node whose flight is up (cause ii). */
 function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
-  if (el._statusFlags & STATUS_UNINITIALIZED) return;
   if (probing && !quietPending(el)) probeFound = true;
   if (c && tracking) {
     if (el._config & CONFIG_HELD) verdictRead(c, txOf(el));
@@ -501,7 +500,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       return staged(el);
     }
   } else if (el._pendingValue !== NOT_PENDING) {
-    if (owner._statusFlags & STATUS_PENDING && !uninitialized)
+    // A first value staged this flush and re-asked in it (an async first
+    // answer landing in the tick a write re-asks it) is answered: the
+    // re-ask is a new question (F-9, D-22). An error is no value (D-41).
+    // `latest` serves the staging below.
+    if (
+      owner._statusFlags & STATUS_PENDING &&
+      (!uninitialized || (probing && !(el._config & CONFIG_STAGED_ERROR)))
+    )
       pendingVerdict(tracked ? c : null, owner);
     else if (tracked && globalQueue._running)
       provisionalVerdict(c!, !latestActive && !uninitialized);
