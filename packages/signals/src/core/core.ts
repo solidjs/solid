@@ -93,9 +93,13 @@ import {
   DEV,
   emitDiagnostic,
   asyncTailFlights,
+  checkCaughtRead,
   checkPostAwaitRead,
+  clearThrownRead,
+  forgetThrownRead,
   GRAPH_SIZE_WARN_AT,
   noteFanIn,
+  noteThrownRead,
   reportDiagnostic,
   throwPendingUntrackedRead,
   warnStrictReadUntracked
@@ -591,7 +595,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const isStaleEffect = isEffect && isEffect !== EFFECT_USER;
   const prevStale = stale;
   if (isStaleEffect) stale = true;
+  // D-42 (dev): whatever an earlier pass of this node left recorded is not
+  // this pass's; `checkCaughtRead` below judges this pass's body alone.
+  if (__DEV__) clearThrownRead(el);
   try {
+    // (The CONFIG_SYNC fast arm is prod-only: a dev build takes the general
+    // arm for every node, so the D-42 check there sees sync nodes too.)
     if (!__DEV__ && el._config & CONFIG_SYNC) {
       value = el._fn(value);
       if (el._x !== null) el._x._inFlight = null;
@@ -604,6 +613,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       const fnResult = el._fn(value);
       const isAsyncResult = typeof fnResult === "object" && fnResult !== null;
       const selfRegistered = el._x?._inFlight !== prevInFlight;
+      // D-42 (dev): the body returned after a reactive read threw into it —
+      // the catch around that read ran and swallowed (CAUGHT_REACTIVE_READ),
+      // unless what returned is the flight the throw became (async.ts judges
+      // that at its settle). Before handleAsync: a pending flight throws out.
+      if (__DEV__) checkCaughtRead(el, selfRegistered ? el._x!._inFlight : fnResult);
       value = selfRegistered || !isAsyncResult ? fnResult : handleAsync(el, fnResult);
       if (!selfRegistered && !isAsyncResult) {
         if (el._x !== null) {
@@ -2025,7 +2039,19 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // The verdict windows (`latest`, `isPending`; verdict.ts): one cold path,
   // off this one, present only while a window is open. It wakes a lazy or
   // dormant memo itself, outside the window (#4366).
-  if (verdict !== null) return verdict(el, c as Computed<any> | null) as T;
+  if (verdict !== null) {
+    // D-42 (dev): the window's throws (an uninitialized node, an errored
+    // derivation, a staged error — verdict.ts) are this read's throws.
+    if (__DEV__) {
+      try {
+        return verdict(el, c as Computed<any> | null) as T;
+      } catch (e) {
+        noteThrownRead(el, e);
+        throw e;
+      }
+    }
+    return verdict(el, c as Computed<any> | null) as T;
+  }
 
   if (typeof computed._fn === "function") prepareComputed(el as Computed<unknown>, false);
 
@@ -2232,9 +2258,11 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // the node settles — unless nobody is reading (`spectating`, #3528)
         // or the reader is the node itself.
         if (!tracking && !spectating && el !== c) link(el, c as Computed<any>);
+        if (__DEV__) noteThrownRead(el, owner._x?._error);
         throw owner._x?._error;
       }
     } else if (owner._statusFlags & STATUS_UNINITIALIZED) {
+      // (No reader pass: nothing to record against.)
       throw owner._x?._error;
     }
   }
@@ -2256,6 +2284,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // reader born this flush published it, and its readers' stale error
     // committed after the new one (#4404).
     if (!committed && el._config & CONFIG_STAGED_ERROR) serve(el, c as Computed<any> | null);
+    if (__DEV__) noteThrownRead(el, (owner as Computed<any>)._x?._error);
     throw (owner as Computed<any>)._x?._error;
   }
 
@@ -2287,7 +2316,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
  * served the committed value, a verdict reader (`serve`) — reads a shown
  * error there until the answer that replaces it commits. */
 function throwShown(el: Signal<any> | Computed<any>): undefined {
-  if (el._x?._shownError) throw el._x._shownError;
+  if (el._x?._shownError) {
+    if (__DEV__) noteThrownRead(el, el._x._shownError);
+    throw el._x._shownError;
+  }
 }
 
 /**
@@ -2309,8 +2341,14 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     el._pendingValue !== NOT_PENDING &&
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED &&
     (!c || spectating || c._config & CONFIG_CHILDREN_FORBIDDEN)
-  )
+  ) {
+    if (__DEV__) {
+      const e = new NotReadyError(null);
+      noteThrownRead(el, e);
+      throw e;
+    }
     throw new NotReadyError(null);
+  }
   const u = c && unflushedStaged ? unflushedValue(el) : NOT_PENDING;
   if (u !== NOT_PENDING) {
     markLateLinker(c!);
@@ -2337,7 +2375,10 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   if (!(__DEV__ && strictRead) || (el as Computed<any>)._fn || el._pendingValue !== el._value)
     stagedRead(c!, el);
   // D-41: the staged answer is an error (`stageError`).
-  if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
+  if (el._config & CONFIG_STAGED_ERROR) {
+    if (__DEV__) noteThrownRead(el, el._pendingValue);
+    throw el._pendingValue;
+  }
   if (__TEST__) shadowActual(SLOT_P);
   return el._pendingValue;
 }
@@ -2499,6 +2540,9 @@ export function isSame(el: Signal<any>, a: unknown, b: unknown): unknown {
   try {
     return el._equals && el._equals(a, b);
   } catch (e) {
+    // D-42 (dev): a comparator's throw is `el`'s (routed here), not a catch
+    // in the pass that happens to be running (the creator's, at a mount).
+    if (__DEV__) forgetThrownRead();
     if (!(e instanceof NotReadyError))
       return (notifyStatus(el as Computed<any>, STATUS_ERROR, e), true);
   }

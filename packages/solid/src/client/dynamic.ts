@@ -1,4 +1,4 @@
-import { onCleanup, untrack, type Setter } from "@solidjs/signals";
+import { forgetThrownRead, onCleanup, untrack, type Setter } from "@solidjs/signals";
 import type { Element as SolidElement } from "../types.js";
 import type { Component, ComponentProps } from "./component.js";
 import { $DEVCOMP, IS_DEV } from "./core.js";
@@ -174,7 +174,9 @@ export function dynamicCore(
       try {
         untrack(cached);
       } catch {
-        // The value memo observes the NotReady on its own read.
+        // The value memo observes the NotReady on its own read. (D-42, dev:
+        // the runtime's catch, not the enclosing pass's — not a caught read.)
+        if (IS_DEV) forgetThrownRead();
       }
     }
     let latest = 0;
