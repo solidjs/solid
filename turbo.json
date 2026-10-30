@@ -7,6 +7,9 @@
       "outputLogs": "new-only"
     },
     "@solidjs/signals#build": {
+      // A SIGNALS_TEST_DEFINE=true build (the seat shadow on) must never be
+      // restored from cache into a plain build.
+      "env": ["SIGNALS_TEST_DEFINE"],
       "outputs": ["dist/**"]
     },
     "@solidjs/signals#types": {
