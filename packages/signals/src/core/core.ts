@@ -2102,9 +2102,18 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // it probed inline: it reads held values as the screen and shows the
         // verdict now. Not an effect: a render effect is a frame reader
         // already, and a user effect's posture is its own reads'.
+        // A read of a pending node hands on no posture to a pass that is
+        // not a verdict reader already (#4504): such a read throws — it read
+        // no value, and a node whose flight is up is the hold's work, not a
+        // verdict reader (D-25, #3884). Stamped, the pass's next run — the
+        // hold's re-run at the landing of a memo whose plain mount read
+        // held its reader (D-2, D-27) — was served the screen beside the
+        // answer its reader waited for (F-2, D-22). A verdict reader keeps
+        // the posture it is served the screen with (`observeFlight`).
         // (A verdict memo exists only with the verdict engine installed.)
         if (observeFlightHook && !(c as any)._type)
-          (c as Computed<any>)._flags |= owner._config & CONFIG_VERDICT;
+          (c as Computed<any>)._flags |=
+            owner._config & CONFIG_VERDICT & (owner._statusFlags & STATUS_PENDING ? c._config : -1);
       }
     }
     if (__TEST__)

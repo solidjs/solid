@@ -173,9 +173,13 @@ describe("readers the hold does not reach (#4491)", () => {
  * writes nothing on the derive: it marks the derive's next pass (`fam.w`),
  * a read that finds no flight up clears the mark, and the posture stays the
  * pass's own reads (core `recompute`). A later flight of `m1`, the reader on
- * screen, then runs as it does for a store read from the start, and as the
- * memo form: the same screen, the same posture — whether the landing changed
- * the leaf (the derive re-ran) or equalled it (it did not).
+ * screen, then shows what a store read from the start and the memo form
+ * show — whether the landing changed the leaf (the derive re-ran) or equalled
+ * it (it did not). After an equal landing the flight wakes the held derive
+ * pending, and that pass reads the pending `m1` plainly: a read of a pending
+ * node hands no posture to a pass that is the hold's work (#4504; D-25), as
+ * a memo between `m1` and the reader posts none. The posture during the
+ * flight is internal; the screen is the rule (D-30).
  */
 describe("the derive's posture after the held mount (#4491)", () => {
   async function later(form: "memo" | "storeKey", mountMidFlight: boolean, equal: boolean) {
@@ -230,7 +234,7 @@ describe("the derive's posture after the held mount (#4491)", () => {
   for (const equal of [false, true])
     test(`a later flight after ${equal ? "an equal" : "a changed"} landing`, async () => {
       const held = await later("storeKey", true, equal);
-      expect(held).toEqual(await later("storeKey", false, equal));
+      expect(screen(held)).toEqual(screen(await later("storeKey", false, equal)));
       expect(screen(held)).toEqual(screen(await later("memo", true, equal)));
       expect(held).toContain("--landed verdict=true pending=false");
     });
