@@ -23,7 +23,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "../core/constants.js";
-import { computed } from "../core/core.js";
+import { computed, ext } from "../core/core.js";
 import { NotReadyError } from "../core/error.js";
 import {
   addPendingSource,
@@ -153,6 +153,11 @@ function wakeFamily(fam: StoreFamily): void {
   // reader the landing leaves unchanged does not re-run to clear it (#4305).
   const error = new NotReadyError(fw);
   fam.woke = true;
+  // Pending by propagation, its pass not re-run: a source's settle re-runs
+  // it (core `settlePendingSource`, as for a pass that threw), and its
+  // commit settles the family — the leaves' readers wait on the derive, not
+  // on that source (F-9, F-12).
+  ext(fw)._blocked = true;
   optHooks?.ask(fam);
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
