@@ -101,6 +101,7 @@ import {
   installLaneHooks,
   armGuessing
 } from "./scheduler.js";
+import { SLOT_C, SLOT_DV, SLOT_LV, SLOT_P, SLOT_T, shadowActual } from "./seat.js";
 import type { Computed, Signal } from "./types.js";
 
 export { laneValueOf };
@@ -673,13 +674,22 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
   const folded = c !== null && l.folded;
   if (folded) {
     const v = folded(c, el);
-    if (v !== NOT_PENDING) return v;
+    if (v !== NOT_PENDING) {
+      if (__TEST__) shadowActual(el._pendingValue !== NOT_PENDING ? SLOT_P : SLOT_C);
+      return v;
+    }
   }
-  if (c !== null && c._config & CONFIG_AUTHORITATIVE) return GlobalQueue._truth!(el);
+  if (c !== null && c._config & CONFIG_AUTHORITATIVE) {
+    if (__TEST__) shadowActual(SLOT_T);
+    return GlobalQueue._truth!(el);
+  }
   const status = (el as Computed<any>)._statusFlags;
   // An errored member's lane value predates its error; the error is the answer (#4106).
   if (!guess && status & STATUS_ERROR) return NOT_PENDING;
-  if (c === null) return laneValueOf(el);
+  if (c === null) {
+    if (__TEST__) shadowActual(SLOT_LV);
+    return laneValueOf(el);
+  }
   const pending = !guess && status & STATUS_PENDING;
   if (!tracking || c._config & CONFIG_CHILDREN_FORBIDDEN) {
     // An untracked read inside lane work derives from the lane like a
@@ -688,7 +698,10 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // row reads under its root, store/map): the pass enters the lane (two
     // lanes read by one pass link, as for tracked reads). Outside lane
     // work, the screen.
-    if (passLane === null || c._config & CONFIG_CHILDREN_FORBIDDEN) return display(el);
+    if (passLane === null || c._config & CONFIG_CHILDREN_FORBIDDEN) {
+      if (__TEST__) shadowActual(SLOT_DV);
+      return display(el);
+    }
   } else if ((c as any)._type === EFFECT_RENDER) {
     // A flight whose value has never shown: nothing to show — the leaf
     // waits on it, and its own frame holds (A15, #3334), not the lane's
@@ -719,8 +732,10 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
         c._config & CONFIG_HELD &&
         flushTransaction !== null &&
         resolveTx(flushTransaction) === txOf(c)
-      )
+      ) {
+        if (__TEST__) shadowActual(SLOT_P);
         return el._pendingValue;
+      }
       if (l._held || pending) {
         // Re-derived at the reveal; once per pass (the pass may also be a stale
         // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
@@ -734,6 +749,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
         // Nothing on screen yet (uninitialized: `display` is NOT_PENDING).
         const v = display(el);
         if (v === NOT_PENDING) throw new NotReadyError(null);
+        if (__TEST__) shadowActual(SLOT_DV);
         return v;
       }
       // A verdict reader reads ahead of the seam's verdict: re-derived on the
@@ -742,6 +758,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     }
   }
   enterLane(l, c);
+  if (__TEST__ && !pending) shadowActual(SLOT_LV);
   return pending ? NOT_PENDING : laneValueOf(el);
 }
 

@@ -66,9 +66,9 @@ describe("stream truncated before a declared fragment settles (#2958)", () => {
     (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    // The runtime boots while the document is still streaming — the only
-    // window where the truncation sweep arms (a runtime loaded after parse
-    // can't tell a completed page from a truncated one).
+    // The runtime boots while the document is still streaming, so the sweep
+    // waits for DOMContentLoaded (booting after parse is covered in
+    // truncated-stream-late-start.spec.tsx).
     Object.defineProperty(document, "readyState", { value: "loading", configurable: true });
 
     for (const s of applyChunk(container, shell, true)) (0, eval)(s);

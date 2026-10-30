@@ -1828,10 +1828,10 @@ function trackAssetLoad(entry, adopted) {
   }
   entry.loadState = "pending";
   entry.loadPromise = new Promise(resolve => {
-    const settle = state => {
+    const settle = (entry.settle = state => {
       entry.loadState = state;
       resolve();
-    };
+    });
     el.addEventListener("load", () => settle("loaded"), { once: true });
     el.addEventListener("error", () => settle("errored"), { once: true });
   });
@@ -1966,6 +1966,11 @@ export function acquireAsset(descriptor) {
     entry.timer = setTimeout(() => {
       assetRegistry.delete(key);
       entry.element && entry.element.remove();
+      // A removed element fires neither load nor error, so a gate that
+      // warmed this entry inside the grace would wait on it forever. Release
+      // it the way an error does; its retry warms the sheet again, on a new
+      // entry.
+      if (entry.loadState === "pending") entry.settle("errored");
     }, ASSET_REMOVAL_GRACE);
   };
 }

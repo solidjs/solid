@@ -71,8 +71,10 @@ async function withPage(body: (page: Page) => Promise<void>) {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
   const container = document.createElement("div");
   document.body.appendChild(container);
-  // The runtime boots while the document is still streaming: the only
-  // window where the truncation sweep arms.
+  // The runtime boots while the document is still streaming, so the sweep
+  // waits for DOMContentLoaded. A runtime that boots after the parser
+  // finished sweeps at hydrate() instead
+  // (truncated-fragment-fresh-render-late-start.spec.tsx).
   Object.defineProperty(document, "readyState", { value: "loading", configurable: true });
   const { App, asks } = createTruncatedFragmentApp();
   let dispose: (() => void) | undefined;

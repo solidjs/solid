@@ -19,6 +19,10 @@ export default defineConfig({
     environment: "jsdom",
     pool: "threads",
     globals: true,
+    // Reader-seat shadow (S0): see packages/web/vite.config.mjs.
+    setupFiles: process.env.SEAT_SHADOW_REPORT
+      ? [resolve(rootDir, "../signals/tests/setup/seat-shadow-report.ts")]
+      : [],
     exclude: ["**/node_modules/**", "archived_tests/**"]
   },
   resolve: {
