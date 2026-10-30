@@ -2467,6 +2467,12 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   writeScopes.add(scopeKey(target));
   const prevUser = userWrite;
   userWrite = guard;
+  // An outermost setter's exit notifies the targets it wrote. A
+  // write-override write (a derive's continuation after an `await`) was
+  // notified at once and left its target listed: dropped here, or this
+  // setter's exit would notify the derive's staging as its own — a user's,
+  // on an optimistic family, as guesses (#4484).
+  if (writing === 0) pendingNotify.clear();
   writing++;
   let result: any;
   try {
