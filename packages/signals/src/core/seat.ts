@@ -1314,25 +1314,6 @@ const known: KnownDifference[] = [
         seat.creatorsWorld === WORLD_H
       );
     }
-  },
-  {
-    // `isPending`'s `probing` flag is left set around a memo's pass the
-    // probe pulled (`verdictValue` closes only the dispatch, A31): a
-    // `latest()` of a born-into-the-future node inside that pass takes the
-    // probe's `joinPass` arm and the pulled pass joins the hold. A verdict
-    // read raises no world (F-vworld); the slot — the staging — agrees.
-    issue: 4429,
-    kind: "world",
-    row: "Vl4",
-    expected: WORLD_S,
-    actual: WORLD_H,
-    when: (c, el, seat) =>
-      (el!._config & CONFIG_HELD) !== 0 &&
-      ((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) !== 0 &&
-      el!._pendingValue !== NOT_PENDING &&
-      !((el as Computed<any>)._statusFlags & STATUS_PENDING) &&
-      (c._flags & REACTIVE_JOINED) !== 0 &&
-      seat.ownWorld < WORLD_H
   }
 ];
 const knownHits = new Map<number, number>();
