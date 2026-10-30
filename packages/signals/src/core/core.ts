@@ -463,8 +463,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // it joins nothing, so the write that reached it commits mainline.
       // `EFFECT_RENDER << 23` is CONFIG_FRAME (a render effect, a boundary's
       // tree and output), spelled from the effect type as at creation.
+      // A verdict reader born into `tx` (`bornInto`: never committed) is the
+      // hold's own work, whatever it asked before (D-25): it joins like any
+      // held pass, so what it mounts is the hold's (D-13, #4467).
       if (tx._lane || el._config & CONFIG_LAGS) {
-      } else if (!(el._config & (CONFIG_VERDICT | (EFFECT_RENDER << 23))))
+      } else if (
+        !(el._config & (CONFIG_VERDICT | (EFFECT_RENDER << 23))) ||
+        (observeFlightHook && !(el._config & (EFFECT_RENDER << 23)) && bornInto(el, tx))
+      )
         joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
       else if (
         tx !== flushTransaction &&
@@ -2280,7 +2286,13 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     if (__TEST__) shadowActual(SLOT_C);
     return el._value;
   }
-  stagedRead(c!, el);
+  // D-8 (#4452), as `read`'s fast block: a signal's staging equal to its
+  // committed value is writes that netted — no proposal, not a read of the
+  // frame's future. Only the strict `untrack` read skips the fast block in
+  // dev (its `strictRead` test); a hydration snapshot or a promoted write
+  // reaches here in dev and prod alike, and keeps the mark.
+  if (!(__DEV__ && strictRead) || (el as Computed<any>)._fn || el._pendingValue !== el._value)
+    stagedRead(c!, el);
   // D-41: the staged answer is an error (`stageError`).
   if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
   if (__TEST__) shadowActual(SLOT_P);

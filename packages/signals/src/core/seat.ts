@@ -892,10 +892,11 @@ export function slot(
     // sees — the flight decides below. The 50k differential's V3 finding.)
     if (!pending) {
       const row = renderLeaf ? "L1" : inLane ? rowBase + "D7" : rowBase + "D1";
-      // D-8: writes that netted made no proposal — the staging (the screen's
-      // value) for every reader, raising nothing: not a read of the frame's
-      // future, nor a verdict reader's stale read of the tick's hold.
-      if (netted) return carry(pred(row, SLOT_P));
+      // D1'' / L1'' / V3'' (D-8, #4452, #4485): writes that netted made no
+      // proposal — the staging (the screen's value) for every reader, raising
+      // nothing: not a read of the frame's future, nor a verdict reader's
+      // stale read of the tick's hold.
+      if (netted) return carry(pred(row + "''", SLOT_P));
       if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) {
         // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
         // staging before (the seam's verdict).
@@ -1293,34 +1294,6 @@ const known: KnownDifference[] = [
         l._parent !== null &&
         resolveTx(l._parent) !== l._parent &&
         resolveTx(l._parent) === resolveTx(seat.vhold)
-      );
-    }
-  },
-  {
-    // `recompute`'s born-held test reads `creatorPass(oldcontext)`'s JOINED
-    // flag — the owner context of the creation, not the running pass. Under
-    // `runWithOwner` to an ancestor (`fallback`'s `b._fb`, created in
-    // `out._parent` while the output runs) that is a running ancestor that
-    // read the future itself, while the running pass (the output) did not:
-    // born held today, one level up the OWNER chain; not by the table's
-    // one-level running creator (F-mount reading A). The transitive reading
-    // (A29 / #4341: the branch exists only in the hold) agrees with today
-    // here and disagrees in 14 suite passes — design doc §7 F-transitive,
-    // pending the maintainer's ruling.
-    issue: 4428,
-    kind: "born",
-    row: "B2",
-    expected: 0,
-    actual: 1,
-    when: (c, _el, seat) => {
-      const o = shadowOldCreator;
-      return (
-        o !== null &&
-        (o._flags & REACTIVE_JOINED) !== 0 &&
-        (depth === 0 || seats[depth - 1].node !== o) &&
-        !(c._flags & REACTIVE_JOINED) &&
-        seat.creatorWorld < WORLD_H &&
-        seat.creatorsWorld === WORLD_H
       );
     }
   }
