@@ -428,9 +428,13 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // `_flags`: the wake is a no-op for it.) So is the probe's state (#4429):
   // a `latest()` the pass makes itself does not join a hold through the
   // probe's arm, and what the pass reads does not answer the outer probe
-  // (`probeFound` is only set while `probing`).
+  // (`probeFound` is only set while `probing`). So is the window's kind: an
+  // `isPending` the pass makes itself answers for what it reads, not as a
+  // probe inside the outer `latest()`.
   const prevProbing = probing;
+  const prevLatest = latestActive;
   probing = false;
+  latestActive = false;
   setVerdict(null);
   prepareComputed(owner, false);
   if (c && tracking) {
@@ -438,6 +442,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     if ((el as any)._fn) pullComputed(owner, c);
   }
   setVerdict(verdictValue);
+  latestActive = prevLatest;
   probing = prevProbing;
   // Shadow (S0): the window's decision point — the rows Vl*/Vp*.
   if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, false);
