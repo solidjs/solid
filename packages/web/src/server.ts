@@ -509,7 +509,7 @@ function registerEntryAssets(manifest) {
 
 // ---- Asset Tracking ----
 
-function createAssetTracking() {
+function createAssetTracking(lowPriorityPreloads) {
   const boundaryModules = new Map();
   const boundaryStyles = new Map();
   const emittedAssets = new Set();
@@ -521,7 +521,7 @@ function createAssetTracking() {
     emittedAssets,
     inlineStyles,
     preloadLinks: null,
-    lowModules: null,
+    lowModules: lowPriorityPreloads !== false ? new Set() : null,
     // Inline styles (dev CSS collected from the module graph, critical CSS)
     // dedupe by `id` — repeated registrations reuse the same entry object so
     // boundary Sets and the head injection never emit the same style twice.
@@ -1489,19 +1489,12 @@ function nonceDestination(tag, props) {
   }
 }
 
-// `lowModules` holds module hints outside the entry's static import closure that no
-// author wrote: they yield bandwidth to the modules hydration waits on.
+// `lowModules` (null when `lowPriorityPreloads: false`) holds the module hints that
+// keep default priority: the entry's static import closure and authored links. Every
+// other module hint goes low, yielding bandwidth to the modules hydration waits on.
 function modulePreloadLink(url, scriptAttr, lowModules) {
-  const priority = lowModules && lowModules.has(url) ? ' fetchpriority="low"' : "";
+  const priority = lowModules && !lowModules.has(url) ? ' fetchpriority="low"' : "";
   return `<link rel="modulepreload" href="${url}"${priority}${scriptAttr}>`;
-}
-
-// `defaultPriority` marks the entry closure and authored links (see `modulePreloadLink`).
-function trackModulePriority(tracking, type, value, defaultPriority) {
-  const low = tracking.lowModules;
-  if (!low || type !== "module") return;
-  if (defaultPriority) low.delete(value);
-  else if (!tracking.emittedAssets.has(value)) low.add(value);
 }
 
 function nonceAttr(nonce, destination) {
@@ -1806,8 +1799,7 @@ export function renderToString(code, options = {}) {
     },
     onError: serializerErrorHook(options.onError)
   });
-  const tracking = createAssetTracking();
-  if (options.lowPriorityPreloads !== false) tracking.lowModules = new Set();
+  const tracking = createAssetTracking(options.lowPriorityPreloads);
   const headRegistry = createHeadRegistry();
   // Render-local, never on the context: the finished context lingers as the
   // module global, and another request's writes must not read this latch.
@@ -1856,7 +1848,7 @@ export function renderToString(code, options = {}) {
         }
         styles.add(value);
       }
-      trackModulePriority(tracking, type, value, defaultPriority);
+      if (defaultPriority && tracking.lowModules) tracking.lowModules.add(value);
       tracking.emittedAssets.add(value);
     }
   };
@@ -2807,8 +2799,7 @@ export function renderToStream(code, options = {}) {
       tmp += payload;
     }
   };
-  const tracking = createAssetTracking();
-  if (options.lowPriorityPreloads !== false) tracking.lowModules = new Set();
+  const tracking = createAssetTracking(options.lowPriorityPreloads);
   const headRegistry = createHeadRegistry();
   let headScriptFlushed = false;
   // Head patch ops park on `_$HY.hp[key]` and apply when the owning
@@ -2890,7 +2881,7 @@ export function renderToStream(code, options = {}) {
         }
         styles.add(value);
       }
-      trackModulePriority(tracking, type, value, defaultPriority);
+      if (defaultPriority && tracking.lowModules) tracking.lowModules.add(value);
       if (!tracking.emittedAssets.has(value)) {
         tracking.emittedAssets.add(value);
         if (firstFlushed) sink.asset(type, value);
