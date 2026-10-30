@@ -1117,8 +1117,9 @@ module.exports = [
     // 14.89 KB, recorded minified 43,874 -> 43,875 B; CI-measured at 14,875 B
     // (43,875 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "14.89 KB",
-    capMinified: 43875,
+    // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 14.89 -> 14.95 KB, recorded minified 43,875 -> 43,888 B (+13 B), measured locally (linux) at 14,932 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "14.95 KB",
+    capMinified: 43888,
     alias
   },
   {
@@ -3032,8 +3033,9 @@ module.exports = [
     // B; CI-measured at 13,416 B (37,014 B minified). Lower only: cap at
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): cap unchanged, recorded minified 37,014 -> 37,015 B, measured in CI at 13,423 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
-    limit: "13.43 KB",
-    capMinified: 37015,
+    // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 13.43 -> 13.47 KB, recorded minified 37,015 -> 37,028 B (+13 B), measured locally (linux) at 13,451 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "13.47 KB",
+    capMinified: 37028,
     alias
   },
   {
@@ -3890,8 +3892,9 @@ module.exports = [
     // 29.74 KB, recorded minified 88,302 -> 88,303 B; CI-measured at 29,727 B
     // (88,303 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "29.74 KB",
-    capMinified: 88303,
+    // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 29.74 -> 29.78 KB, recorded minified 88,303 -> 88,316 B (+13 B), measured locally (linux) at 29,762 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "29.78 KB",
+    capMinified: 88316,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -4128,8 +4131,9 @@ module.exports = [
     // 26.27 KB, recorded minified 79,985 -> 79,986 B; CI-measured at 26,257 B
     // (79,986 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "26.27 KB",
-    capMinified: 79986,
+    // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 26.27 -> 26.31 KB, recorded minified 79,986 -> 79,999 B (+13 B), measured locally (linux) at 26,294 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "26.31 KB",
+    capMinified: 79999,
     alias
   },
   {
@@ -4301,8 +4305,9 @@ module.exports = [
     // 32.43 KB, recorded minified 100,729 -> 100,748 B; CI-measured at 32,419 B
     // (100,748 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "32.43 KB",
-    capMinified: 100748,
+    // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 32.43 -> 32.52 KB, recorded minified 100,748 -> 100,761 B (+13 B), measured locally (linux) at 32,508 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.52 KB",
+    capMinified: 100761,
     alias
   },
   {
