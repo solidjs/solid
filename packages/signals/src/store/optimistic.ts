@@ -382,7 +382,10 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
   }
   const used = new Set<unknown>();
   const rows: any[] = [];
-  const guessed = view.rows as any[];
+  // From the guess as written, not an earlier re-base's composition: a
+  // derive's landing writes key by key, and a truth row one partial write
+  // showed must not stay appended once the landing drops it (#4441).
+  const guessed = (view.g ??= view.rows as any[]);
   for (let i = 0; i < guessed.length; i++) {
     const g = guessed[i];
     const k = isWrappable(g) ? keyFn(g) : undefined;
