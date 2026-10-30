@@ -2468,11 +2468,14 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   const prevUser = userWrite;
   userWrite = guard;
   // An outermost setter's exit notifies the targets it wrote. A
-  // write-override write (a derive's continuation after an `await`) was
-  // notified at once and left its target listed: dropped here, or this
-  // setter's exit would notify the derive's staging as its own — a user's,
-  // on an optimistic family, as guesses (#4484).
-  if (writing === 0) pendingNotify.clear();
+  // write-override write (a derive's continuation after an `await`, no
+  // setter open) is notified at once by its trap but stays listed (its keys
+  // share one written set while the continuation writes): dropped here, or
+  // this setter's exit would notify the derive's staging as its own — a
+  // user's, on an optimistic family, as guesses (#4484). Read before the
+  // clear: the list is empty here but for those, and clearing an empty set
+  // allocates.
+  if (writing === 0 && pendingNotify.size) pendingNotify.clear();
   writing++;
   let result: any;
   try {
