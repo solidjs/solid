@@ -9,7 +9,9 @@
 // store's readers wait on the derive itself (projection.ts `wakeFamily`), and
 // nothing retired that: `isPending` stayed true forever (F-9), and the staged
 // rejection's transaction never landed, so the error never showed (F-12). The
-// settle now re-runs the derive, as it does a pass that threw.
+// settle walk now settles the family with the derive (core
+// `settlePendingSource` -> projection.ts `familyStatus`), as a memo's
+// readers settle through its dependents.
 import { expect, test } from "vitest";
 import { runScenario } from "./run.js";
 

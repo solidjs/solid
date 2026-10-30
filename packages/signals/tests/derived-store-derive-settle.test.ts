@@ -13,8 +13,9 @@ import {
 // A derived store over an async memo (`d.v = m()`) reads like the memo
 // (async-gen E3). The derive went pending on the memo's flight, and the
 // flight settled without the derive re-running: the settle retired the memo
-// from the derive, and now re-runs the derive, whose commit settles the
-// store's readers
+// from the derive, and now settles the store's readers with it, as a memo's
+// readers settle through its dependents — not by re-running the derive,
+// whose new flight would be a second wait (F-9; #4463's error-once test)
 // (F-12: a rejection staged in the transaction lands; its isPending twin,
 // F-9, is pinned in web's async-gen store-derive-settle-e3.spec.ts).
 const micro = () => Promise.resolve();

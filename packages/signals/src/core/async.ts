@@ -373,9 +373,12 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       if (node._config & CONFIG_HELD) joinFuture(txOf(node));
       if (node._x?._blocked) {
         enqueueSub(node);
-        scheduled = true;
+        node._x._blocked = !(scheduled = true);
       }
-      if (node._x !== null) node._x._blocked = false;
+      // A derived store's derive pending by propagation (its pass not re-run):
+      // its readers wait on the derive itself, not on this source, so they
+      // settle with it, as a memo's would through its dependents (F-9, A9).
+      else (node as any).fam?.st();
       // Fully settled with nobody watching: release candidate (#2934). Checked
       // again at release time — deferred so unobserved() can't unlink subs
       // lists this walk is still iterating.

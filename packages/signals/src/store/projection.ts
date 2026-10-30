@@ -23,7 +23,7 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "../core/constants.js";
-import { computed, ext } from "../core/core.js";
+import { computed } from "../core/core.js";
 import { NotReadyError } from "../core/error.js";
 import {
   addPendingSource,
@@ -153,11 +153,6 @@ function wakeFamily(fam: StoreFamily): void {
   // reader the landing leaves unchanged does not re-run to clear it (#4305).
   const error = new NotReadyError(fw);
   fam.woke = true;
-  // Pending by propagation, its pass not re-run: a source's settle re-runs
-  // it (core `settlePendingSource`, as for a pass that threw), and its
-  // commit settles the family — the leaves' readers wait on the derive, not
-  // on that source (F-9, F-12).
-  ext(fw)._blocked = true;
   optHooks?.ask(fam);
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
@@ -212,6 +207,12 @@ function settleFamily(fam: StoreFamily): void {
  * pass's own throw. */
 function familyStatus(this: StoreFamily, status: number, error?: unknown): void {
   if (status & STATUS_PENDING) wakeFamily(this);
+  // No status: the source's settle walk retired the derive's pending, its
+  // pass not re-run (core `settlePendingSource`) — the readers waiting on the
+  // derive settle with it (F-9). A re-run would ask again: an async derive's
+  // new flight is a second wait, and would run ahead of a staged rejection's
+  // publish, which reaches the derive at the commit (F-12, D-41).
+  else if (!status) settleFamily(this);
   // The error rides along: a reader the derive's own pass already handed it
   // (a sync derive re-run in the same flush) is not handed it again.
   else if (status & STATUS_ERROR) errorFamily(this, error);
