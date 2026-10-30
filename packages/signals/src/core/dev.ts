@@ -1455,8 +1455,9 @@ function reportCaughtRead(el: Computed<any>, thrown: ThrownRead): void {
         `and when the source changes later this computation is marked pending and not re-run, so the catch will not fire again. ` +
         `Branch on readiness with isPending(), show ahead with latest(), or let the read suspend.`
       : `[CAUGHT_REACTIVE_READ] ${owner} caught the error of ${source} and completed with a value. ` +
-        `Errors reach <Errored> (or createEffect's error arm) through the graph; when the source errors later ` +
-        `this computation is marked errored and not re-run, so the catch will not fire again. ` +
+        `An error is the source's status, not a throw this computation owns: the computation is errored with it regardless, ` +
+        `and today's runtime may complete with the caught value until the source is retried, ` +
+        `when the error reaches <Errored> (or halts) and the catch does not fire again. ` +
         `Handle errors with <Errored> or createEffect's error option.`;
   reportDiagnostic(
     emitDiagnostic(
