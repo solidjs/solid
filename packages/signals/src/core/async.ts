@@ -195,12 +195,13 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
   // Staged whether or not the flush has joined a hold yet: a pass that runs
   // before its async sibling joins is the seam's to decide, like a value
   // (#4109). A flush that parks nothing publishes it at its commit (S-38).
-  // Not a projection's derive: its readers learn its error through the
-  // family, which the commit's publish never reaches (#4189).
+  // A projection's derive too (D-41): its pass's throw has already sent the
+  // family's readers to re-derive (store/projection.ts `errorFamily`), and
+  // they derive from the staging like a memo's readers (#4189).
   if (
     !(
       el._config & CONFIG_HELD ||
-      (inPass && el._flags & REACTIVE_STAGED_READ && globalQueue._running && !(el as any).fam)
+      (inPass && el._flags & REACTIVE_STAGED_READ && globalQueue._running)
     ) ||
     passLane
   )
@@ -215,36 +216,10 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
   el._config |= CONFIG_STAGED | CONFIG_STAGED_ERROR;
   // Readers parked on the flight re-run and derive from the staging; the
   // verdict readers the walk wakes need a flush (#4106); the derivations it
-  // reaches carry the staging (`settlePendingSource`).
+  // reaches derive from it (`settlePendingSource`).
   settlePendingSource(el);
   schedule();
   return true;
-}
-
-/** D-41: a derivation of a staged error carries it, staged with the same
- * frame — marked, not re-run, as a published error marks it (a re-run would
- * replace the frame its content owns) — and its own verdict readers
- * re-derive (the settle walk). Only a verdict reads a derivation's staging
- * before its commit, so only the verdict engine marks. Not a boundary's
- * output, an async memo, an effect or a boundary's tree (`EFFECT_TRACKED <<
- * 23` spans CONFIG_FRAME and every effect type), nor one already carrying a
- * staged error: the commit's publish reaches them. A pending mark supersedes
- * the staging (`propagateStatus`). */
-function stageMark(node: Computed<any>, el: Computed<any>): void {
-  if (
-    !(
-      node._config &
-      (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | CONFIG_ASYNC | (EFFECT_TRACKED << 23))
-    )
-  ) {
-    node._pendingValue = el._pendingValue;
-    node._config |= CONFIG_STAGED_ERROR;
-    queuePendingNode(node);
-    // A derived store's readers are its family's (store/projection.ts): they
-    // re-derive from the staging, as from the derive's status (#4189).
-    (node as any).fam?.st(STATUS_ERROR);
-    settlePendingSource(node);
-  }
 }
 
 export function settleErroredDependents(el: Computed<any>, error: any): void {
@@ -345,12 +320,24 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // equal to the committed value notifies nobody — the source settling
       // is its verdict changing: it runs again. (Verdict readers exist only
       // with the verdict engine installed.)
-      // D-41: a derivation of a staged error carries it (`stageMark`).
+      // D-41: a derivation that reads a staged error throws it, as it would
+      // read a staged value — its own pass errors and stages with the same
+      // frame. So it re-runs: the pass decides, and one that catches answers
+      // with its own value (a derived store's derive included: each key is
+      // its own, D-30). Only a verdict reads a derivation's staging before
+      // its commit, so only the verdict engine re-runs it. Not a boundary's
+      // output, an async memo, an effect or a boundary's tree (`EFFECT_TRACKED
+      // << 23` spans CONFIG_FRAME and every effect type), nor a node that
+      // owns children (a boundary's content, #3945: a re-run would replace
+      // the frame they are): the commit's publish reaches them.
       return (
         holdWorkHook &&
         (node._config & CONFIG_VERDICT
           ? enqueueSub(node)
-          : el._config & CONFIG_STAGED_ERROR && stageMark(node, el))
+          : el._config & CONFIG_STAGED_ERROR &&
+            !(node._config & (CONFIG_REDERIVE | CONFIG_ASYNC | (EFFECT_TRACKED << 23))) &&
+            !node._firstChild &&
+            enqueueSub(node))
       );
     visited.add(node);
     node._time = clock;
@@ -1040,8 +1027,8 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     // asks that question again. It waits on the source like any derivation
     // (F-9), and asks its next question once, at the landing (#4397).
     // A node carrying a staged error re-derives on a pending mark: its
-    // source asks again, and the staging it carried is not the answer
-    // (#4109, `stageMark`).
+    // source asks again, and the staging it re-derived from is not the
+    // answer (#4109).
     if (
       sub._config & CONFIG_REDERIVE ||
       (holdWorkHook &&
@@ -1072,7 +1059,13 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     }
     if (
       (status === STATUS_PENDING && pendingSource) ||
-      (status !== STATUS_PENDING && (sub._x?._error !== error || sub._x?._pendingSources))
+      // An error does not mark a node holding an answer of its own pass to
+      // this frame (D-41: it derived from the staging this commit
+      // publishes): that answer commits with the frame, a caught error a
+      // value.
+      (status !== STATUS_PENDING &&
+        sub._pendingValue === NOT_PENDING &&
+        (sub._x?._error !== error || sub._x?._pendingSources))
     ) {
       // The marked subscriber is queued for the commit sweep so its status
       // bookkeeping (loading window, uninitialized clear) runs with the flush

@@ -72,13 +72,16 @@ describe("silent error recovery (#2949)", () => {
     setB(-1);
     flush();
     expect(out()).toBe("err:b=-1");
+    // The dependent's own pass meets the error (D-41: a derivation that
+    // reads a staged error throws it — its own pass errors).
+    expect(runs()).toBe(runsBefore + 1);
 
     setB(0);
     flush();
     expect(out()).toBe("ok:0");
     // The sweep re-runs the errored dependent once; it commits an unchanged
     // value and everything settles.
-    expect(runs()).toBe(runsBefore + 1);
+    expect(runs()).toBe(runsBefore + 2);
   });
 
   test("changed-value recovery still rides normal notification", () => {
