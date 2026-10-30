@@ -659,6 +659,80 @@ Already gone or out of scope: `markVerdictReader`, `provisionalVerdict`,
 reveal record); `stagedScreen` (store.ts still calls it — S4, the store
 twins).
 
+### 4.10 Results (S1 M5 gate, 2026-10-29) — NOT CLEAN at 50k
+
+Head 8ae8829e8 (shadow build). Suites: signals 393 files green, 965,387
+reads / 242,324 passes / 0 classes; solid 2,388 / 1,546 / 0; web 43,729 /
+24,261 / 0. Generator 50,000 × seeds 7 / 3289 / 91501, every pair, head
+recorded (`ASYNC_GEN_RECORD`) and compared offline against a recording of
+the same cases on the plain `next` @ 5e68925cc build (the comparison is
+`differential.ts`'s, run by a script because the two recordings were made
+in parallel). 2k × 3 had been clean at every milestone; 50k is not:
+
+| seed  |       reads |      passes | classes | known                |    screen diffs vs `next` |
+| ----- | ----------: | ----------: | ------: | -------------------- | ------------------------: |
+| 7     | 327,936,991 | 236,113,560 |  **19** | #4427 ×16, #4426 ×10 |                     **9** |
+| 3289  | 427,095,467 | 308,276,567 |  **13** | #4427 ×25, #4426 ×15 | **10** (incl. #464 known) |
+| 91501 | 381,398,391 | 262,188,619 |  **15** | #4426 ×13, #4427 ×13 |  **6** (incl. #411 known) |
+
+Survey findings line-identical to the base recording except the law
+changes below (seed 7: 623 → 624 cases with findings; 3289: 665 → 665, 117
+→ 118 signatures; 91501: 652 → 650, 109 → 108).
+
+**The 25 differing cases, replayed on base, M2 (490a387ba), M3a
+(b6ea9ceb1), M3b (143d829bf) and the head's prod build** (the shadow does
+not alter them — prod and shadow screens identical):
+
+- **Final screens identical to `next` in all 25**; every difference is an
+  intermediate (mid-hold) screen.
+- **20 are one shape, introduced at M3b**: under a display-ahead
+  `<Show when=latest(x)>` the lane work shows the committed value (or an
+  inner `<Show when=x()>`'s fallback) where `next` showed the staged one —
+  e.g. `<span>vs0:1 ls0:1</span>` → `<span>vs0:0 ls0:1</span>`; `[F]` for
+  `<span>vs0:1</span>`. Screen-identical to base at M2 and M3a. This is the
+  #411 shape (D-37, "lane work sees the screen") the adoption produced and
+  §4.6 pinned as a `next` bug; at 50k it is a class of 21, not a case.
+  **Not ruled as a class** — listed for the ruling: seed 7 #9846 #13595
+  #19106 (the error surfaces one settle earlier) #20324 #21348 #39486
+  #42058 #48845; 3289 #3598 #8992 #12559 #22669 #28591 #30977 #34631
+  #49646; 91501 #3494 #5871 #14705 #45722.
+- **2 `next` bugs closed** (laws removed): 3289 #464 (E9, M3b, §4.6);
+  **91501 #8991** (E9, closed at M3a — `latest()` through a memo showed
+  `lm0:3` where the leaf showed an empty span under
+  `<Show when=isPending(s0)><Show when=isPending(m0)><Show when=m0()>`;
+  S1 shows the empty span in both).
+- **2 regressions — S1 breaks a pair `next` kept** (pinned `test.fails`,
+  `packages/web/test/async-gen/gate-50k-pairs-3289-39609-7-45702.spec.ts`):
+  - **3289 #39609 (E8, remount) — introduced at M3a.** The reader born in
+    the flush that applies the write ends with the inner
+    `<Show when=m0()>` content missing from its **final, quiet** screen
+    (`<span data-a0=lm0:3></span>` absent); the reader born before shows
+    it; `next` shows it in both. M3a's changes are the pass side: seat
+    world as module state, born-held on F-transitive B, `creatorReads`
+    deleted, `route` folded — B was ruled "no screen moves" on 2k × 3; this
+    is a final-screen move at 50k.
+  - **7 #45702 (E9, latestDerive) — introduced at M3b.** `latest()` through
+    a memo shows the content frame at the settle after `t` where the leaf
+    form shows nothing; `next` shows nothing in both; finals agree.
+
+**Shadow classes (47)** — all in the generator, none in the suites; not
+yet traced to a milestone (a 50k shadow run per milestone is ≈ 95 min
+each). Rows: **V6** (a reader of a verdict-lane node: `vlane`, `oldVlane`)
+in four variants — slot `V6→L0` / `V6→D0` expected C got Lv (the table
+serves the lane's value where the deciders served committed; flags
+`shown`, `parentMerged`, `lheld`); slot `V6` expected Lv got Dv; marks
+`LST` vs `leave+LST` and `laneRead` vs `leave+laneRead` (the oracle fires
+a `leave` the table does not); **L4** expected P got C (L posture, `h ip`
+— a held reader under `isPending`) ×3 classes; **B2** born held (old
+false, new true; world 2/0/0) ×7 — F-transitive B's known class
+(§4.5). `#4427`'s known filter (`parentMerged` identity reset) catches 54
+of the V6 family; these are its unmatched variants.
+
+**Gate verdict: FAIL on the 50k differential** (two regressions, one class
+of 20 awaiting a ruling, 47 untraced classes); suites, `it.fails`
+inventory and `scripts/size` as reported in the PR body; clause (c) is a
+pending ruling. Nothing merged.
+
 ## 5. Swap plan
 
 Three to five PRs, serial, each in its own worktree (brief §4 item 4):
