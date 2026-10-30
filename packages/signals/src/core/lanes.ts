@@ -713,9 +713,17 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // a flight — the pass leaves the lane, and its frame holds as if the
     // read had come first (S-39, #4275). Nor does a verdict lane's seat carry
     // the leaf into another lane (no link): it reads that lane as from the
-    // frame's seat (#4284).
-    if ((never || passLane !== l) && passLane?._parent!._verdict === passLane) setPassLane(null);
-    if (passLane === null || !sameLane(passLane, l)) {
+    // frame's seat (#4284). The seat is the hold's, not the lane object's: a
+    // transaction merged into the hold keeps its own verdict lane, and that
+    // lane is the same hold's (D-4 — merged holds are one; #4427).
+    const p = passLane;
+    const seated = p?._parent!._verdict === p;
+    if (
+      seated &&
+      (never || l._parent!._verdict !== l || resolveTx(l._parent!) !== resolveTx(p!._parent!))
+    )
+      setPassLane(null);
+    if (passLane === null || (!seated && !sameLane(passLane, l))) {
       // (A lane that has never shown: the screen is the committed value.)
       if (never && l._shown) return NOT_PENDING;
       if (
@@ -1017,7 +1025,7 @@ function heldBy(t: Transaction, r: Computed<any>): boolean {
 }
 /** `r`'s pass read a node a transaction holds (#4439). */
 function readsHeld(r: Computed<any>): boolean {
-  for (let d = r._deps; d !== null; d = d._nextDep) if (d._dep._config & CONFIG_HELD) return true;
+  for (let d = r._deps; d; d = d._nextDep) if (d._dep._config & CONFIG_HELD) return true;
   return false;
 }
 const laneSeams = (t: Transaction | null): void => {
