@@ -16,7 +16,7 @@
 // - #4400's "m0:5 asked twice" is a number collision under `1 + latest(s) +
 //   s()`: the lane question for s=3 and the frame question for s=2 are both
 //   5. With a distinct encoding each question is asked once.
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createLoadingBoundary,
   createMemo,
@@ -30,9 +30,15 @@ import {
 } from "../src/index.js";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+// Fake timers: the gaps between writes are part of each scenario, and on a
+// loaded runner (CI coverage) a real 3 ms gap outlived a 10 ms ask, landing
+// it before the second write (#4400 asked `m1:23`).
+const wait = (ms: number) => vi.advanceTimersByTimeAsync(ms);
+beforeEach(() => void vi.useFakeTimers());
+afterEach(() => void vi.useRealTimers());
 async function settle() {
   for (let i = 0; i < 4; i++) {
-    await sleep(15);
+    await wait(15);
     flush();
   }
 }
@@ -78,7 +84,7 @@ async function run(reader: Reader, gap: number) {
   out.length = 0;
   setS(2);
   flush();
-  await sleep(gap);
+  await wait(gap);
   flush();
   setT(1);
   flush();
@@ -190,7 +196,7 @@ describe("#4400: a second write during the hold, distinct encoding", () => {
     out.length = 0;
     setS(2);
     flush();
-    await sleep(3);
+    await wait(3);
     flush();
     setS(3);
     flush();
@@ -252,7 +258,7 @@ describe("#4393: a latest() reader's lane answer reaches the screen", () => {
       setS(2);
       setW(2);
       flush();
-      await sleep(25);
+      await wait(25);
       flush();
       expect(out).toEqual(["v22"]);
       await settle();
@@ -340,7 +346,7 @@ describe("#4393: a latest() reader's lane answer reaches the screen", () => {
     setS(2);
     setW(2);
     flush();
-    await sleep(25);
+    await wait(25);
     flush();
     expect(out).toEqual(["false,22"]);
     await settle();
