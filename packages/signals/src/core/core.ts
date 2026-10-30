@@ -2027,7 +2027,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       if (__TEST__) shadowActual(SLOT_C);
       return el._value as T;
     }
-    stagedRead(c as Computed<any>);
+    // A staging equal to the committed value is writes that netted (D-8): no
+    // proposal, so not a read of the frame's future.
+    if (el._pendingValue !== el._value) stagedRead(c as Computed<any>);
     if (__TEST__) shadowActual(SLOT_P);
     return el._pendingValue as T;
   }
