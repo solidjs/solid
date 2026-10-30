@@ -37,6 +37,8 @@ import {
   latest,
   resetErrorHalt
 } from "../src/index.js";
+import { $REFRESH, CONFIG_VERDICT, STATUS_PENDING } from "../src/core/constants.js";
+import type { Computed } from "../src/core/types.js";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
@@ -164,5 +166,72 @@ describe("readers the hold does not reach (#4491)", () => {
     test(`${form}: as the memo form`, async () => {
       expect(await run(form, "before")).toEqual(await run("memo", "before"));
       expect(await run(form, "afterLanding")).toEqual(await run("memo", "afterLanding"));
+    });
+});
+
+/** The derive's posture after the held mount. The read that held the reader
+ * writes nothing on the derive: it marks the derive's next pass (`fam.w`),
+ * a read that finds no flight up clears the mark, and the posture stays the
+ * pass's own reads (core `recompute`). A later flight of `m1`, the reader on
+ * screen, then runs as it does for a store read from the start, and as the
+ * memo form: the same screen, the same posture — whether the landing changed
+ * the leaf (the derive re-ran) or equalled it (it did not).
+ */
+describe("the derive's posture after the held mount (#4491)", () => {
+  async function later(form: "memo" | "storeKey", mountMidFlight: boolean, equal: boolean) {
+    const log: string[] = [];
+    const [s, setS] = createSignal(1);
+    const [on, setOn] = createSignal(!mountMidFlight);
+    let derive: Computed<any> | null = null;
+    createRoot(() => {
+      const m0 = createMemo(() => latest(s) + s());
+      const m1 = createMemo(async () => {
+        const v = m0();
+        await sleep(100);
+        return equal ? 0 : v;
+      });
+      let read: () => unknown = () => m1();
+      if (form === "storeKey") {
+        const [st] = createStore<{ v?: number }>(d => {
+          d.v = m1();
+        }, {});
+        derive = (st as any)[$REFRESH];
+        read = () => st.v;
+      }
+      createRenderEffect(
+        () => (on() ? `r:${read()}` : "r:off"),
+        v => void log.push(v)
+      );
+    });
+    const posture = (tag: string) =>
+      log.push(
+        derive
+          ? `${tag} verdict=${!!(derive._config & CONFIG_VERDICT)} pending=${!!(derive._statusFlags & STATUS_PENDING)}`
+          : tag
+      );
+    flush();
+    await tick(150);
+    setS(2); // m1 re-asks
+    flush();
+    await tick(20);
+    setOn(true); // mid-flight: held on the flight
+    flush();
+    await tick(300);
+    posture("--landed");
+    setS(3); // a later flight, the reader on screen
+    flush();
+    posture("--reask");
+    await tick(300);
+    // From the first landing on.
+    return log.slice(log.findIndex(x => x.startsWith("--landed")) - 1);
+  }
+  const screen = (log: string[]) => log.map(x => x.split(" ")[0]);
+
+  for (const equal of [false, true])
+    test(`a later flight after ${equal ? "an equal" : "a changed"} landing`, async () => {
+      const held = await later("storeKey", true, equal);
+      expect(held).toEqual(await later("storeKey", false, equal));
+      expect(screen(held)).toEqual(screen(await later("memo", true, equal)));
+      expect(held).toContain("--landed verdict=true pending=false");
     });
 });
