@@ -648,13 +648,14 @@ function holdWork(n: Computed<any>, source: Computed<any>): unknown {
   // answering pass registered a flight (`handleAsync`) and called neither
   // `latest` nor `isPending`. A window (`markVerdictReader`), a sync answer or
   // an error clears it; a pass left pending keeps the last answer's.
-  const wait =
+  // Waiting drops the posture; the result stays truthy (CONFIG_ASYNC is kept).
+  if (
     n._config & CONFIG_ASYNC &&
     (!(n._statusFlags & STATUS_PENDING) ||
       n._x!._transaction?._lane ||
-      source._flags & REACTIVE_REASK);
-  if (wait) n._config &= ~CONFIG_VERDICT;
-  return wait;
+      source._flags & REACTIVE_REASK)
+  )
+    return (n._config &= ~CONFIG_VERDICT);
 }
 
 // Installed at module evaluation — present exactly when something imports
