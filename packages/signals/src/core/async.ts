@@ -557,10 +557,10 @@ export function handleAsync<T>(
       el._time = clock;
       return;
     }
-    // D-41: a held node's error is staged (`stageError`). A derived store's
-    // readers learn its error through the family, not the derive's
-    // dependents: it publishes now.
-    if (stillPending || setter || !stageError(el, error)) {
+    // D-41: a held node's error is staged (`stageError`) — a derived
+    // store's derive's too: its family publishes it at the commit
+    // (store/projection.ts `errorFamily`, #4489).
+    if (stillPending || !stageError(el, error)) {
       notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
       // The error is this pass's answer, published now: it replaces the shown
       // frame as a value's commit would (`commitPendingNode`), so the frame
