@@ -2158,6 +2158,7 @@ module.exports = [
     // B; CI-measured at 18,701 B (53,566 B minified). Lower only: cap at
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): 18.72 KB -> 18.74 KB, recorded minified 53,566 -> 53,585 B, measured in CI at 18,726 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
+    // #4428 fallback memo lazy (+7 B over next, which sits +15 over this record): cap unchanged at 18.74 KB; minified 53,585 -> 53,607 (+22), brotli 18,752 (Size-Exception)
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias

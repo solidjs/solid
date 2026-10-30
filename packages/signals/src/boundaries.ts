@@ -846,12 +846,13 @@ function fallback<T>(b: Boundary): T {
   // outside the boundary, as the output is: its errors and runs are the
   // enclosing boundary's — with the output's id, so what it builds gets the
   // ids a build under the output would; disposed once content is on screen.
-  // Lazy (`1`: a byte under `true`), so its first pass runs in the output's read below: the pass that
-  // creates it is the output's, and born held asks the output — what it read
-  // — not the owner the fallback lives in (D-27; #4428: an enclosing pass that
-  // joined a hold, while the output read nothing held). (Lazy also releases
-  // it when its one reader, the output, stops reading it: where `drop` below
-  // disposes it, or with the commit of a held swap.)
+  // Lazy (`1`: a byte under `true`), so its first pass runs in the output's
+  // read below: the pass that creates it is the output's, and born held asks
+  // the output — what it read — not the owner the fallback lives in (D-27;
+  // #4428: an enclosing pass that joined a hold, while the output read nothing
+  // held). (Lazy also releases it when its one reader, the output, stops
+  // reading it: where `drop` below disposes it, or with the commit of a held
+  // swap.)
   if (b._fb === null)
     b._fb = runWithOwner(out._parent, () =>
       computed(() => b._show(b), { id: out.id, lazy: 1 as any })
