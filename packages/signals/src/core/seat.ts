@@ -1281,28 +1281,6 @@ const known: KnownDifference[] = [
       resolveTx(flushTransaction) !== resolveTx(txOf(el!))
   },
   {
-    // laneRead's D-28 reset compares verdict lanes by identity: a lane whose
-    // parent merged into the seat's hold reads as another hold's.
-    issue: 4427,
-    kind: "slot",
-    row: "V6",
-    expected: SLOT_LV,
-    actual: SLOT_P,
-    when: (c, el, seat) => {
-      const l = el!._x?._transaction;
-      return (
-        (c as any)._type === EFFECT_RENDER &&
-        seat.vhold !== null &&
-        !!l &&
-        l._lane &&
-        laneOf(l) === null &&
-        l._parent !== null &&
-        resolveTx(l._parent) !== l._parent &&
-        resolveTx(l._parent) === resolveTx(seat.vhold)
-      );
-    }
-  },
-  {
     // `recompute`'s born-held test reads `creatorPass(oldcontext)`'s JOINED
     // flag — the owner context of the creation, not the running pass. Under
     // `runWithOwner` to an ancestor (`fallback`'s `b._fb`, created in
