@@ -584,7 +584,13 @@ export function handleAsync<T>(
     // If the node was dirtied by a newer write (optimistic override or regular),
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
-    if (el._flags & REACTIVE_DIRTY) return;
+    // Not a first answer (D-22, F-9): it resolved before the write — only its
+    // reaction ran after — so it is a produced value, and the flush that
+    // re-asks lands it first (the node is answered, then re-asked). Only
+    // `latest`/`isPending` tell such a node from one with no value, so the
+    // landing is the verdict engine's (`holdWorkHook`).
+    if (el._flags & REACTIVE_DIRTY && !(holdWorkHook && el._statusFlags & STATUS_UNINITIALIZED))
+      return;
     const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
     landStatus(el);
     // Attribution hook: lets the engine snapshot state before the landing

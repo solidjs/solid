@@ -86,6 +86,9 @@ export interface NodeExtension {
   _error: unknown;
   _blocked: boolean | undefined;
   _pendingSources: Set<Computed<any>> | undefined;
+  /** The clock of this node's pass served an answered-then-reasked first
+   * answer (D-22, F-9; `read`): one served pass a flush. */
+  _served?: number;
   _unobserved: (() => void) | undefined;
   _snapshotValue: any;
   /** L2 — the previous pass's frame, parked for this node's commit: its child
