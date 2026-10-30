@@ -500,7 +500,7 @@ function registerEntryAssets(manifest) {
         for (let i = 0; i < assets.css.length; i++) ctx.registerAsset("style", assets.css[i]);
         // js[0] is the entry itself, which the document loads with its own <script>;
         // preload only its static import closure.
-        for (let i = 1; i < assets.js.length; i++) ctx.registerAsset("module", assets.js[i]);
+        for (let i = 1; i < assets.js.length; i++) ctx.registerAsset("module", assets.js[i], true);
       }
       return;
     }
@@ -509,7 +509,7 @@ function registerEntryAssets(manifest) {
 
 // ---- Asset Tracking ----
 
-function createAssetTracking() {
+function createAssetTracking(lowPriorityPreloads) {
   const boundaryModules = new Map();
   const boundaryStyles = new Map();
   const emittedAssets = new Set();
@@ -521,6 +521,7 @@ function createAssetTracking() {
     emittedAssets,
     inlineStyles,
     preloadLinks: null,
+    lowModules: lowPriorityPreloads !== false ? new Set() : null,
     // Inline styles (dev CSS collected from the module graph, critical CSS)
     // dedupe by `id` — repeated registrations reuse the same entry object so
     // boundary Sets and the head injection never emit the same style twice.
@@ -1131,7 +1132,7 @@ function emitHeadResource(registry, context, tracking, emitResource, nonce, desc
     if (plain && props.href != null) {
       const isCss = isCssUrl(props.href);
       if (rel === "stylesheet" ? isCss : !isCss) {
-        context.registerAsset(rel === "stylesheet" ? "style" : "module", props.href);
+        context.registerAsset(rel === "stylesheet" ? "style" : "module", props.href, true);
         return;
       }
     }
@@ -1488,6 +1489,14 @@ function nonceDestination(tag, props) {
   }
 }
 
+// `lowModules` (null when `lowPriorityPreloads: false`) holds the module hints that
+// keep default priority: the entry's static import closure and authored links. Every
+// other module hint goes low, yielding bandwidth to the modules hydration waits on.
+function modulePreloadLink(url, scriptAttr, lowModules) {
+  const priority = lowModules && !lowModules.has(url) ? ' fetchpriority="low"' : "";
+  return `<link rel="modulepreload" href="${url}"${priority}${scriptAttr}>`;
+}
+
 function nonceAttr(nonce, destination) {
   if (!nonce || !destination) return "";
   return destination === "script" ? nonce.scriptAttr : nonce.styleAttr;
@@ -1736,6 +1745,13 @@ export function renderToString<T>(
     plugins?: SerializerPlugin[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     /**
+     * Server modulepreload hints for modules outside the entry's static import
+     * closure (lazy and route chunks) carry `fetchpriority="low"` so they do not
+     * compete with the modules hydration waits on. `false` emits them at default
+     * priority.
+     */
+    lowPriorityPreloads?: boolean;
+    /**
      * This render's server error hook, ahead of `configureServerErrors`'
      * (see `ServerErrorHook`): every failure the render handles — an
      * `<Errored>` fallback (`handling: "fallback"`), a hydration value that
@@ -1783,7 +1799,7 @@ export function renderToString(code, options = {}) {
     },
     onError: serializerErrorHook(options.onError)
   });
-  const tracking = createAssetTracking();
+  const tracking = createAssetTracking(options.lowPriorityPreloads);
   const headRegistry = createHeadRegistry();
   // Render-local, never on the context: the finished context lingers as the
   // module global, and another request's writes must not read this latch.
@@ -1815,7 +1831,7 @@ export function renderToString(code, options = {}) {
       }
       serializer.write(id, p);
     },
-    registerAsset(type, value) {
+    registerAsset(type, value, defaultPriority) {
       if (type === "preload") {
         registerPreloadLink(tracking, headRegistry, value, nonce);
         return;
@@ -1832,6 +1848,7 @@ export function renderToString(code, options = {}) {
         }
         styles.add(value);
       }
+      if (defaultPriority && tracking.lowModules) tracking.lowModules.add(value);
       tracking.emittedAssets.add(value);
     }
   };
@@ -1878,7 +1895,8 @@ export function renderToString(code, options = {}) {
         scripts.length ? scripts : "",
         nonce,
         head,
-        onHead
+        onHead,
+        tracking.lowModules
       ),
       context,
       renderId,
@@ -1943,6 +1961,13 @@ export function renderToStream<T>(
     noScripts?: boolean;
     plugins?: SerializerPlugin[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
+    /**
+     * Server modulepreload hints for modules outside the entry's static import
+     * closure (lazy and route chunks) carry `fetchpriority="low"` so they do not
+     * compete with the modules hydration waits on. `false` emits them at default
+     * priority.
+     */
+    lowPriorityPreloads?: boolean;
     onCompleteShell?: (info: { write: (v: string) => void }) => void;
     onCompleteAll?: (info: { write: (v: string) => void }) => void;
     /**
@@ -2434,7 +2459,7 @@ export function renderToStream(code, options = {}) {
     // already-rendered markup and write through eagerly.
     asset(type, value) {
       if (type === "module") {
-        buffer.write(`<link rel="modulepreload" href="${value}"${nonceAttr(nonce, "script")}>`);
+        buffer.write(modulePreloadLink(value, nonceAttr(nonce, "script"), tracking.lowModules));
       } else if (type === "preload") {
         buffer.write(`<link${value.attrHtml}>`);
       } else if (type === "inline-style") {
@@ -2460,7 +2485,8 @@ export function renderToStream(code, options = {}) {
             meta.tasks.length ? meta.tasks : "",
             nonce,
             meta.head,
-            onHead
+            onHead,
+            tracking.lowModules
           ),
           context,
           renderId,
@@ -2773,7 +2799,7 @@ export function renderToStream(code, options = {}) {
       tmp += payload;
     }
   };
-  const tracking = createAssetTracking();
+  const tracking = createAssetTracking(options.lowPriorityPreloads);
   const headRegistry = createHeadRegistry();
   let headScriptFlushed = false;
   // Head patch ops park on `_$HY.hp[key]` and apply when the owning
@@ -2830,7 +2856,7 @@ export function renderToStream(code, options = {}) {
         tags
       );
     },
-    registerAsset(type, value) {
+    registerAsset(type, value, defaultPriority) {
       if (type === "preload") {
         const entry = registerPreloadLink(tracking, headRegistry, value, nonce);
         if (entry && firstFlushed) sink.asset("preload", entry);
@@ -2855,6 +2881,7 @@ export function renderToStream(code, options = {}) {
         }
         styles.add(value);
       }
+      if (defaultPriority && tracking.lowModules) tracking.lowModules.add(value);
       if (!tracking.emittedAssets.has(value)) {
         tracking.emittedAssets.add(value);
         if (firstFlushed) sink.asset(type, value);
@@ -5796,7 +5823,8 @@ function assembleDocument(
   scripts,
   nonce,
   headTags,
-  onHead
+  onHead,
+  lowModules
 ) {
   const scriptTag = scripts ? `<script${nonceAttr(nonce, "script")}>${scripts}</script>` : "";
   const title = headTags ? headTags.title : null;
@@ -5853,7 +5881,7 @@ function assembleDocument(
         headPrelude +
           headTagsHtml +
           titleHtml +
-          renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce)
+          renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce, lowModules)
       );
     }
     // No head to splice into: without `onHead`, assets/preloads/styles are
@@ -5892,7 +5920,8 @@ function assembleDocument(
       headTagsHtml = `<title data-dh="title">${winner}</title>` + headTagsHtml;
     }
   }
-  const head = headTagsHtml + renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce);
+  const head =
+    headTagsHtml + renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce, lowModules);
   if (!scriptTag) return html.slice(0, headIdx) + head + html.slice(headIdx);
   const xsIdx = html.indexOf("<!--xs-->");
   if (xsIdx === -1) return html.slice(0, headIdx) + head + html.slice(headIdx) + scriptTag;
@@ -5904,7 +5933,7 @@ function assembleDocument(
 // Tracked asset links (stylesheet/modulepreload by URL) and unconsumed inline
 // styles, rendered for a head splice or an `onHead` delivery. Inline-style
 // entries are consumed (marked emitted) by whichever path renders them first.
-function renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce) {
+function renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce, lowModules) {
   let head = "";
   const styleAttr = nonceAttr(nonce, "style");
   const scriptAttr = nonceAttr(nonce, "script");
@@ -5912,7 +5941,7 @@ function renderHeadAssets(emittedAssets, preloadLinks, inlineStyles, nonce) {
     for (const url of emittedAssets) {
       head += isCssUrl(url)
         ? `<link rel="stylesheet" href="${url}"${styleAttr}>`
-        : `<link rel="modulepreload" href="${url}"${scriptAttr}>`;
+        : modulePreloadLink(url, scriptAttr, lowModules);
     }
   }
   if (preloadLinks) {

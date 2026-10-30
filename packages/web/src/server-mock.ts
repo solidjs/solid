@@ -170,6 +170,13 @@ export function renderToString<T>(
     noScripts?: boolean;
     plugins?: any[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
+    /**
+     * Server modulepreload hints for modules outside the entry's static import
+     * closure (lazy and route chunks) carry `fetchpriority="low"` so they do not
+     * compete with the modules hydration waits on. `false` emits them at default
+     * priority.
+     */
+    lowPriorityPreloads?: boolean;
     /** This render's server error hook, ahead of `configureServerErrors`' (see the server entry). */
     onError?: ServerErrorHook;
     /**
@@ -221,6 +228,13 @@ export function renderToStream<T>(
     noScripts?: boolean;
     plugins?: any[];
     manifest?: AssetManifest | AssetResolver | AssetResolverFn;
+    /**
+     * Server modulepreload hints for modules outside the entry's static import
+     * closure (lazy and route chunks) carry `fetchpriority="low"` so they do not
+     * compete with the modules hydration waits on. `false` emits them at default
+     * priority.
+     */
+    lowPriorityPreloads?: boolean;
     onCompleteShell?: (info: { write: (v: string) => void }) => void;
     onCompleteAll?: (info: { write: (v: string) => void }) => void;
     /** This render's server error hook, ahead of `configureServerErrors`' (see the server entry). */
