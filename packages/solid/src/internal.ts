@@ -27,6 +27,11 @@
  *    build boundaries without the components, and so are `sharedConfig`
  *    (the hydration/SSR coordination object) and the `$DEVCOMP` brand.
  *
+ * Also re-exported from `@solidjs/signals`: `createScopeOwner`, the owner the
+ * runtimes create for their own scopes (`NoHydration`, `Portal`, a frame's
+ * fill). It keeps the shared `this`-reading `dispose`, where the public
+ * `createOwner` binds it per owner (#4444).
+ *
  * Not here: the container-trace materializer. It lives in its own entry,
  * `solid-js/internal/container-trace`, so the store engine it builds on can
  * be a lazy chunk — a re-export from this (eagerly imported) module would

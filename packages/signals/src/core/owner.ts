@@ -444,15 +444,18 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
   return owner;
 }
 
+// The exported `createOwner` (the internal one is above): its `dispose` is
+// bound to the owner, so it can be handed around as a plain function, as
+// `createRoot`'s dispose can (#4444). Internal owners (a `mapArray` row, a
+// boundary) keep the shared `this`-reading method: they are only ever disposed
+// as `o.dispose()`, and a bound function per row would be an allocation per row.
 /**
- * The exported `createOwner` (see `createOwner` above): its `dispose` is bound
- * to the owner, so it can be handed around as a plain function —
- * `queueMicrotask(o.dispose)`, `setTimeout(o.dispose)` — as `createRoot`'s
- * dispose can (#4444). Internal owners (a `mapArray` row, a boundary) keep the
- * shared `this`-reading method: they are only ever disposed as `o.dispose()`,
- * and a bound function per row would be an allocation per row.
- *
- * @internal
+ * Creates a fresh owner attached as a child of the current owner (or as a
+ * detached root if there is none), to group cleanups and context under one
+ * scope. Its `dispose()` tears that scope down and is bound to the owner, so it
+ * can be passed around as a plain function: `queueMicrotask(owner.dispose)`.
+ * To host a reactive scope outside a component, prefer `createRoot()`; to
+ * re-enter a captured owner, use `runWithOwner()`.
  */
 export function createPublicOwner(options?: { id?: string; transparent?: boolean }) {
   const owner = createOwner(options);
