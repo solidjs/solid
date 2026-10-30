@@ -5244,6 +5244,7 @@ module.exports = [
     // 33.66 KB, recorded minified 101,586 -> 101,605 B; CI-measured at 33,645 B
     // (101,605 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
+    // A verdict reader born into a hold reads it whichever flush runs it (#4426, D-25/D-27; re-measured over next @ 9c4e4a8): 33.66 KB -> 33.77 KB, recorded minified 101,605 -> 101,638 B, measured locally (linux) at 33,755 B brotli. `stagedScreen`'s held-node check (+20 B minified in core.js) on top of next's +13 B over this floor's record (#4452); the brotli is layout. Correctness; a frozen floor, Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5598,6 +5599,7 @@ module.exports = [
     // (117,143 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
     // A held memo's parked reader re-derives at the seam (#4439, 2026-10-30, over next @ b249ad96): 38.74 KB -> 38.76 KB, recorded minified 117,143 -> 117,227 B (+84 B), measured locally (linux) at 38,741 B brotli. `laneSeams` also re-derives a reader whose pass read a held node, so `isPending` of a memo parked behind a held one turns true. Correctness; a frozen floor, +15 B brotli is under the maintainer's 20 B flag line (2026-10-29), Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // A verdict reader born into a hold reads it whichever flush runs it (#4426, D-25/D-27; re-measured over next @ 9c4e4a8): 38.81 KB -> 38.83 KB, recorded minified 117,251 -> 117,331 B, measured locally (linux) at 38,817 B brotli. `stagedScreen`'s held-node check (+20 B minified in core.js) on top of next's +13 B over this floor's record (#4452); the brotli is layout. Correctness; a frozen floor, Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5767,8 +5769,9 @@ module.exports = [
     // 35.66 KB, recorded minified 107,955 -> 107,974 B; CI-measured at 35,645 B
     // (107,974 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "35.66 KB",
-    capMinified: 107974,
+    // A verdict reader born into a hold reads it whichever flush runs it (#4426, D-25/D-27; re-measured over next @ 9c4e4a8): 35.66 KB -> 35.72 KB, recorded minified 107,974 -> 108,007 B (+33 B), measured locally (linux) at 35,702 B brotli. `stagedScreen`'s held-node check (+20 B minified in core.js) on top of next's +13 B; the brotli is layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "35.72 KB",
+    capMinified: 108007,
     alias: pageAlias
   },
   {
