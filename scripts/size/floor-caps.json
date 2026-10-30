@@ -1,23 +1,23 @@
 {
   "signals: core floor (createSignal/Memo/Effect/Root/flush)": {
     "cap": "7.43 KB",
-    "minified": 19907
+    "minified": 19908
   },
   "app: render + one signal (the simple-app floor)": {
-    "cap": "9.79 KB",
-    "minified": 26738
+    "cap": "9.78 KB",
+    "minified": 26739
   },
   "app: hydrating (no stores) with Show/For/Loading/Errored/lazy": {
-    "cap": "18.72 KB",
-    "minified": 53566
+    "cap": "18.74 KB",
+    "minified": 53585
   },
   "page: base server components (hydrating + dynamic + frames + sf reference)": {
-    "cap": "33.68 KB",
-    "minified": 101586
+    "cap": "33.66 KB",
+    "minified": 101605
   },
   "page: live server components (base + live/GET + action + isPending/latest)": {
-    "cap": "38.75 KB",
-    "minified": 117124
+    "cap": "38.76 KB",
+    "minified": 117227
   },
   "server: floor (getRequestEvent + isServer)": {
     "cap": "1.29 KB",

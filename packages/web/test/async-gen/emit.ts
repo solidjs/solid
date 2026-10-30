@@ -14,6 +14,9 @@ import type { Node, Read, Scenario, SrcRef } from "./scenario.js";
 export interface AppContext {
   values: number[];
   ask(name: string, v: number, poison: number | null): unknown;
+  /** Called just before memo `name` is created (the client half reads the
+   * hydration id it will take). */
+  id?(name: string): void;
 }
 
 const ref = (r: SrcRef) => (r.k === "s" ? `S[${r.i}][0]` : `M[${r.i}]`);
@@ -56,8 +59,8 @@ export function emitApp(sc: Scenario): string {
         .join(" + ");
       const poison = m.poison === null ? "null" : String(m.poison);
       return m.async
-        ? `  M[${i}] = createMemo(() => { const v = 1 + ${input}; return ctx.ask("m${i}", v, ${poison}); });`
-        : `  M[${i}] = createMemo(() => { const v = 1 + ${input}; if (${poison} !== null && v % 4 === ${poison}) throw new Error("m${i}:" + v); return v; });`;
+        ? `  ctx.id?.("m${i}");\n  M[${i}] = createMemo(() => { const v = 1 + ${input}; return ctx.ask("m${i}", v, ${poison}); });`
+        : `  ctx.id?.("m${i}");\n  M[${i}] = createMemo(() => { const v = 1 + ${input}; if (${poison} !== null && v % 4 === ${poison}) throw new Error("m${i}:" + v); return v; });`;
     })
     .join("\n");
   return `/**
