@@ -452,6 +452,27 @@ a table gap or to a two-readings item (§7); no issue was filed.
   committed value would tear against the published inputs). The D1/L1
   finding above, on the V rows. Fix: the V2/V3 arm yields to the flight
   rows when the node is in flight with published inputs.
+- **D1'' / L1'' · D-8** (2026-10-30, after #4452) — a pass reading a
+  signal whose staging equals its committed value (a plain write and an
+  action writing it back in one tick). The table's D1 / L1 / D7 raised Fl;
+  since #4452 (`read`'s fast block, `core.ts` "writes that netted") today
+  serves the same value and marks no staged read. Today is right: a tick
+  whose writes net to the committed value made no proposal, so the slot
+  pends nothing (D-8, A34 (3)). The slot is P either way; only the world
+  differed — the 8 `INV-seat-3` "world after the read" classes (×59) on
+  `next` @ 9c4e4a89f, all from #4452 (none from #4453 / #4460), and 7
+  more on the web suite (`regression.spec.ts`: a verdict reader's V3, and
+  the Vl2 / Vl4 reads after it in the same pass), and in the generator 60
+  classes (37 / 35 / 43 at 2,000 cases × seeds 3289 / 91501 / 7, every
+  pair — D1, L1, V3 and the reads after them in the pass: D0, D3, L0, L5,
+  Vl2, Vl4, Vl5, Vp1, Vp2, V6, D5, B2). Bisected over every merge
+  7135a77a..131ceb8c: 0 before #4452, 60 at it, +0 at each later merge.
+  Fix: rows `D1''` /
+  `L1''` (`D7''` in a lane) and `V3''`, raise nothing. With the row in, the
+  shadow found the one read path #4452 missed: a labelled `untrack` read
+  takes the slow path in dev (`strictRead`), where `serve` still marked
+  the staged read — dev held what prod did not. Fixed in `serve` (dev
+  only; prod's fast block already has it).
 
 ### 6.1 S1 M1 re-baseline (2026-10-29) — the 43 untraced classes and the six rulings, traced
 
