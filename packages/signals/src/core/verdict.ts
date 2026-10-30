@@ -563,8 +563,16 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       (!uninitialized || (probing && !(el._config & CONFIG_STAGED_ERROR)))
     )
       pendingVerdict(tracked ? c : null, owner);
+    // D-8: a signal's staging equal to its committed value is writes that
+    // netted — no proposal: the seam holds nothing of it and no landing
+    // flips its verdict, so it is final (F-9, D-23) and the reader is not
+    // re-run at the landing (#4485; `read`'s plain arm likewise, #4452). The
+    // reader is still the tick's verdict reader, shown now (D-25: the
+    // posture is the pass's). A signal's staging only, as `read`'s arm.
     else if (tracked && globalQueue._running)
-      provisionalVerdict(c!, !latestActive && !uninitialized);
+      flushTransaction && !(el as any)._fn && el._pendingValue === el._value
+        ? route(c!, flushTransaction)
+        : provisionalVerdict(c!, !latestActive && !uninitialized);
     // Outside a flush, the staging is an unflushed write (A28): the probe
     // answers for the flushed world, and watches the seam of the flush that
     // carries the write — a memo of `isPending(x)` created after the write
