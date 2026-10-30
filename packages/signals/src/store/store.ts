@@ -52,7 +52,6 @@ import {
   context,
   devRead,
   disposalDepth,
-  ext,
   isEqual,
   notePromotedWrite,
   ownedScopeWriteMessage,
@@ -95,6 +94,7 @@ import {
   joinFuture,
   joinPassTx,
   list,
+  laneStageHook,
   passLane,
   queuePendingNode,
   schedule,
@@ -1885,15 +1885,16 @@ function holdWithDerive(target: StoreTarget, node: Signal<any>): void {
   // A pass that is a lane's work (a display-ahead read, F-6): its write is
   // the lane's derivation, as a memo's value would be (D-25).
   if (
+    laneStageHook &&
     passLane !== null &&
     !userWrite &&
     node._pendingValue !== NOT_PENDING &&
     !(node._config & CONFIG_OVERRIDE)
   ) {
-    ext(node)._lane = node._pendingValue;
+    list(node, passLane);
+    node._x!._lane = node._pendingValue;
     node._pendingValue = NOT_PENDING;
     node._config |= CONFIG_OVERRIDE;
-    list(node, passLane);
     return;
   }
   if (
