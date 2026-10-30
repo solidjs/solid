@@ -369,7 +369,8 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // L2: a landing resumes the transaction waiting on it (maintainer: "it
       // resumes the sync frame") — a held reader's re-pass over the landed
       // value is that transaction's work, and the flush that carries it
-      // parks into it.
+      // parks into it. A lane's held reader is the lane's (D-37): the flush
+      // never takes a lane as its transaction (#4440).
       if (node._config & CONFIG_HELD) joinFuture(txOf(node));
       if (node._x?._blocked) {
         enqueueSub(node);
