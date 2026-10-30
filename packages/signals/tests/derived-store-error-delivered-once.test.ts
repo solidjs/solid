@@ -178,3 +178,46 @@ for (const kind of ["optimistic", "store"] as const)
       await tick();
       expect(log).toEqual(["v 0", "ERR undefined"]);
     });
+
+// A sync derive over a sync memo learns a new error twice in one flush: by
+// propagation (core `propagateStatus` -> `familyStatus`) and by its own pass
+// re-run against it. The second hand-off carries the same error, so the
+// reader's error arm runs once per error.
+for (const kind of ["optimistic", "store"] as const)
+  it(`${kind === "store" ? "a createStore(fn)" : "an optimistic store's"} sync derive over a failing sync memo delivers each error once`, async () => {
+    const log: string[] = [];
+    let set!: (v: number) => void;
+    const E1 = new Error("E1");
+    const E2 = new Error("E2");
+    createRoot(() => {
+      const [n, s] = createSignal(0);
+      set = s;
+      const m = createMemo(() => {
+        if (n() === 1) throw E1;
+        if (n() === 2) throw E2;
+        return n();
+      });
+      const make: any = kind === "store" ? createStore : createOptimisticStore;
+      const [st] = make(
+        (d: any) => {
+          d.v = m();
+        },
+        { v: -1 }
+      );
+      createEffect(() => (st as any).v, {
+        effect: (v: any) => {
+          log.push(`v ${v}`);
+        },
+        error: (e: any) => {
+          log.push(`ERR ${e?.message}`);
+        }
+      } as any);
+    });
+    await tick();
+    for (const v of [1, 2, 0]) {
+      set(v);
+      flush();
+      await tick();
+    }
+    expect(log).toEqual(["v 0", "ERR E1", "ERR E2", "v 0"]);
+  });
