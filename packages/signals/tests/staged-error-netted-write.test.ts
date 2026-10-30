@@ -8,6 +8,11 @@
  * (a re-run's error is never equal to the shown one): `isPending(m0)` read
  * `true` for as long as the action stayed open, where an identity memo over
  * it read `false`.
+ *
+ * The strict form: a labelled `untrack` read takes `read`'s slow path in
+ * dev (the fast block tests `strictRead`), where `serve` marked the staged
+ * read the fast block skips — dev held what prod did not. The reader-seat
+ * shadow's D1'' row (D-8) found it.
  */
 import { afterEach, expect, it } from "vitest";
 import {
@@ -18,7 +23,8 @@ import {
   createSignal,
   flush,
   isPending,
-  resetErrorHalt
+  resetErrorHalt,
+  untrack
 } from "../src/index.js";
 
 afterEach(() => resetErrorHalt());
@@ -28,14 +34,18 @@ const tick = async () => {
   flush();
 };
 
-for (const identity of [false, true])
-  it(`writes that net to the committed value pend nothing over an errored memo${identity ? " (through an identity memo)" : ""}`, async () => {
+for (const [identity, strict] of [
+  [false, false],
+  [true, false],
+  [false, true]
+])
+  it(`writes that net to the committed value pend nothing over an errored memo${identity ? " (through an identity memo)" : ""}${strict ? " (read in a strict untrack)" : ""}`, async () => {
     const [s, setS] = createSignal(1);
     let m!: () => number;
     const seen: boolean[] = [];
     const dispose = createRoot(d => {
       const m0 = createMemo(() => {
-        const v = s() + 1;
+        const v = (strict ? (s(), untrack(s, "netted")) : s()) + 1;
         if (v % 4 === 2) throw new Error(`m0:${v}`);
         return v;
       });
