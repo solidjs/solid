@@ -139,6 +139,7 @@ import {
   laneSeamsHook,
   laneServedHook,
   holdWorkHook,
+  answeredHook,
   laneWriteHook,
   observeFlightHook,
   wireExternalSourceHook
@@ -2101,6 +2102,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         );
       }
       if (!(c._config & CONFIG_CHILDREN_FORBIDDEN) || owner._statusFlags & STATUS_UNINITIALIZED) {
+        // D-22, F-9: a node answered and re-asked in this flush (verdict.ts
+        // `answered`).
+        if (answeredHook?.(c as Computed<any>, owner)) return el._pendingValue as T;
         // An untracked read of a pending node still re-runs its reader when
         // the node settles — unless nobody is reading (`spectating`, #3528)
         // or the reader is the node itself.

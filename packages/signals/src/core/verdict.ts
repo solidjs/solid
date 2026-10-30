@@ -24,6 +24,7 @@ import {
   REACTIVE_FRAME_READ,
   REACTIVE_JOINED,
   REACTIVE_LANE_READ,
+  REACTIVE_MISSED_WAKE,
   REACTIVE_PROBED,
   REACTIVE_REASK,
   REACTIVE_PROBE_UNANSWERED,
@@ -228,7 +229,6 @@ function heldNotFinal(owner: Computed<any>): boolean {
 
 /** `isPending`'s answer for an unheld node whose flight is up (cause ii). */
 function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
-  if (el._statusFlags & STATUS_UNINITIALIZED) return;
   if (probing && !quietPending(el)) probeFound = true;
   if (c && tracking) {
     if (el._config & CONFIG_HELD) verdictRead(c, txOf(el));
@@ -501,7 +501,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       return staged(el);
     }
   } else if (el._pendingValue !== NOT_PENDING) {
-    if (owner._statusFlags & STATUS_PENDING && !uninitialized)
+    // A first value staged this flush and re-asked in it (an async first
+    // answer landing in the tick a write re-asks it) is answered: the
+    // re-ask is a new question (F-9, D-22). An error is no value (D-41).
+    // `latest` serves the staging below.
+    if (
+      owner._statusFlags & STATUS_PENDING &&
+      (!uninitialized || (probing && !(el._config & CONFIG_STAGED_ERROR)))
+    )
       pendingVerdict(tracked ? c : null, owner);
     else if (tracked && globalQueue._running)
       provisionalVerdict(c!, !latestActive && !uninitialized);
@@ -571,10 +578,37 @@ function holdWork(n: Computed<any>, source: Computed<any>): unknown {
   );
 }
 
+/** D-22, F-9: `el`'s first value was staged this flush and `el` went
+ * pending on a re-ask in it — an async first answer landing in the tick a
+ * write re-asks it: answered, then re-asked; only the seam has not run. A
+ * memo `c` with no value of its own derives from that value, as a flush of
+ * the answer alone would have let it, then runs again (the missed-wake
+ * latch) and waits on the re-ask holding it: `latest`/`isPending` of it read
+ * as of `el` (E2). One pass: every read of it is served (the latch marks
+ * it); its wait on `el` is dropped, and the re-run — staged, pending on its
+ * own flight or on another source — throws and waits on `el` afresh. Not a
+ * render effect (the frame: its plain read throws), lane work, or a held
+ * node (the staging is the hold's). The verdict engine's: a plain read of
+ * a derivation holding the answer throws as one of a derivation with none,
+ * only `latest`/`isPending` tell them apart. */
+function answered(c: Computed<any>, el: Computed<any>): unknown {
+  return (
+    c._statusFlags & el._statusFlags & STATUS_UNINITIALIZED &&
+    el._pendingValue !== NOT_PENDING &&
+    !(el._config & (CONFIG_HELD | CONFIG_STAGED_ERROR)) &&
+    !(c as any)._type &&
+    !passLane &&
+    (c._flags & REACTIVE_MISSED_WAKE ||
+      (c._pendingValue === NOT_PENDING &&
+        (!(c._statusFlags & STATUS_PENDING) || c._x?._pendingSources?.delete(el)))) &&
+    (c._flags |= REACTIVE_MISSED_WAKE)
+  );
+}
+
 // Installed at module evaluation — present exactly when something imports
 // `latest` or `isPending`. (`read` dispatches to `verdictValue` through
 // `verdict`, set while a window is open.)
-installVerdictHooks(observeFlight, holdWork);
+installVerdictHooks(observeFlight, holdWork, answered);
 /** A store read inside an untracked `isPending` probe found a live mark on
  * a record with no node to carry it (store/affects.ts): not final. */
 GlobalQueue._witnessMark = () => {

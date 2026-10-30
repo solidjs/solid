@@ -183,12 +183,17 @@ export let observeFlightHook: ((c: Computed<any>, el: Computed<any>) => boolean)
 /** D-25's hold work (verdict.ts `holdWork`): on `source` going pending,
  * whether verdict reader `n` waits on it instead of re-deriving. */
 export let holdWorkHook: ((n: Computed<any>, source: Computed<any>) => unknown) | null = null;
+/** D-22, F-9 (verdict.ts `answered`): whether reader `c` derives from
+ * pending `el`'s first value staged this flush. */
+export let answeredHook: ((c: Computed<any>, el: Computed<any>) => unknown) | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
-  holdWork: NonNullable<typeof holdWorkHook>
+  holdWork: NonNullable<typeof holdWorkHook>,
+  answered: NonNullable<typeof answeredHook>
 ): void {
   observeFlightHook = observeFlight;
   holdWorkHook = holdWork;
+  answeredHook = answered;
 }
 /** External-source bridge (wired by enableExternalSource(); undefined while
  * no config is active — including after _resetExternalSourceConfig()). */
