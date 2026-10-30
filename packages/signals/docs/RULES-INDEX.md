@@ -381,7 +381,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | §1 | live | `docs/INTERNALS-STORE-STATE.md:27` | seat.ts×1 target.ts×1 | reveal-gating-contract.test.ts×1 | Storage model (the single-home rule) |
 | §2 | live | `docs/INTERNALS-STORE-STATE.md:81` | — | — | Read paths |
 | §3 | live | `docs/INTERNALS-STORE-STATE.md:116` | core.ts×2 optimistic.ts×1 reconcile.ts×1 store.ts×2 | seat-shadow-report.ts×1 | Write paths (all must stay equivalent) |
-| §4 | live | `docs/INTERNALS-STORE-STATE.md:200` | seat.ts×3 | seat-shadow-report.ts×1 | Identity rules |
+| §4 | live | `docs/INTERNALS-STORE-STATE.md:200` | seat.ts×4 | seat-shadow-report.ts×1 | Identity rules |
 | §5 | live | `docs/INTERNALS-STORE-STATE.md:221` | seat-oracle.ts×1 store.ts×1 target.ts×1 | — | Laziness invariants (candidates for `__TEST__` assertions) |
 | §5b | live | `docs/INTERNALS-STORE-STATE.md:239` | target.ts×2 | — | Creation budget (phase-1 fitness) |
 | §5c | live | `docs/INTERNALS-STORE-STATE.md:258` | — | — | Comparison method (shipped vs rewrite) |

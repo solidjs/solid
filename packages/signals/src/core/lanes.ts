@@ -61,7 +61,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { ext, stagedRead } from "./core.js";
+import { claim, ext, joinPass, joinPassAt, markLateLinker, stagedRead } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
 import {
   handleAsync,
@@ -71,6 +71,7 @@ import {
   removePendingSource
 } from "./async.js";
 import { laneValueOf } from "./truth.js";
+import { link } from "./graph.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
   blocked,
@@ -104,9 +105,11 @@ import {
   txOf,
   type Transaction,
   installLaneHooks,
-  armGuessing
+  armGuessing,
+  verdictApplyHook
 } from "./scheduler.js";
 import {
+  LANE_BITS,
   MARK_AH,
   MARK_ENTERED,
   MARK_JF0,
@@ -118,6 +121,7 @@ import {
   MARK_OBS,
   MARK_SERVED,
   MARK_ST,
+  MARK_UNANS,
   MARK_W,
   RAISE_FL,
   RAISE_H,
@@ -139,19 +143,24 @@ import {
   SLOT_NR0,
   SLOT_P,
   SLOT_RETRY,
+  SLOT_SNAPSHOT,
   SLOT_T,
+  VERDICT_BITS,
   bornInto,
   dispNP,
   laneNP,
   laneOf,
   carry,
   plainRows,
+  raiseSeatWorld,
   setRow,
   readerVhold,
   SEAT_BORN,
+  SEAT_OWN_FL,
   SEAT_READ,
   seatLane,
   seatRow,
+  seatTx,
   seatWorld,
   unflushed
 } from "./seat.js";
@@ -849,17 +858,68 @@ function seatRows(
   tracked: boolean,
   spectate: boolean
 ): number {
+  carry(null);
+  let r = 0;
   if (el._config & CONFIG_OVERRIDE) {
-    const r = laneSlot(c, el, tracked, spectate);
+    r = laneSlot(c, el, tracked, spectate);
     if (r & SLOT_MASK) return r;
-    if (r !== 0) {
-      const row = seatRow;
-      const p = seatedRows(c, el, tracked, spectate);
-      if (__TEST__) setRow(`${row}→${seatRow}`);
-      return p | r;
-    }
+    const row = seatRow;
+    r |= seatedRows(c, el, tracked, spectate);
+    if (__TEST__ && r & RAISE_MASK) setRow(`${row}→${seatRow}`);
+  } else r = seatedRows(c, el, tracked, spectate);
+  // A hydration claim (seat.ts `claim`): the plain rows served the snapshot
+  // themselves; an engine row's packed result becomes it here, keeping of
+  // its raise what the old deciders fired before the snapshot
+  // (`preSnapshotBits`).
+  if ((r & SLOT_MASK) !== SLOT_SNAPSHOT && claim(c, el))
+    r = (r & preSnapshotBits(el._config)) | SLOT_SNAPSHOT;
+  return r;
+}
+
+/** The raise bits the old deciders applied before the hydration snapshot
+ * served a reader in a snapshot scope: the hold arms (`frameRead`,
+ * `joinPass`) and the lane read; everything after the snapshot (the
+ * staging's, the flight's) did not run. */
+function preSnapshotBits(cfg: number): number {
+  return cfg & CONFIG_OVERRIDE
+    ? LANE_BITS | RAISE_FL | MARK_W
+    : cfg & CONFIG_HELD
+      ? RAISE_H | MARK_ST | MARK_SERVED
+      : 0;
+}
+
+/**
+ * The mechanisms an engine row fires, applied to the reader `c` (seat.ts:
+ * the RAISE_* / MARK_* bits of `r`, with `seatTx` / `seatLane` naming the
+ * hold and the lane). The lane bits first (`laneApply`) and the verdict
+ * engine's (`verdictApplyHook`): a lane read moves the seat before the
+ * pass's world is raised, and a verdict read opens the flush's transaction
+ * before the hold is named. Then, in the order the old deciders fired them:
+ * the join (H; `joinPassAt` into the hold named when RAISE_HAT), the
+ * staging read (Fl), the unanswered probe, the seam watch (W), the stale
+ * reader (ST), the flight no longer waited on (`laneServed`), the late
+ * linker, the link of a throwing untracked read. (The plain rows fire
+ * theirs directly, seat.ts `plainRows`; core.ts `readSlow` applies a
+ * packed raise through `applyMarksHook`, verdict.ts `verdictValue`
+ * directly.)
+ */
+export function applyMarks(c: Computed<any>, el: Signal<any> | Computed<any>, r: number): void {
+  if (r & LANE_BITS) laneApply(c, r, seatLane);
+  if (verdictApplyHook !== null && r & VERDICT_BITS) verdictApplyHook(c, el, r, seatTx);
+  if (r & RAISE_H) {
+    if (r & RAISE_HAT) joinPassAt(c, seatTx!);
+    else joinPass(c, el);
   }
-  return seatedRows(c, el, tracked, spectate);
+  if (r & RAISE_FL) {
+    c._flags |= REACTIVE_STAGED_READ;
+    if (c._flags & REACTIVE_RECOMPUTING_DEPS) raiseSeatWorld(SEAT_OWN_FL);
+  }
+  if (verdictApplyHook !== null && r & MARK_UNANS) c._flags |= REACTIVE_PROBE_UNANSWERED;
+  if (r & MARK_W) stagedReaders.push(c);
+  if (r & MARK_ST) staleReader(c, seatTx ?? flushTransaction!);
+  if (r & MARK_SERVED) laneServed(c, el);
+  if (r & MARK_LATE) markLateLinker(c);
+  if (r & MARK_LINK) link(el, c);
 }
 
 /** The rows of a SEATED pass (`passLane`: lane work, or a hold's verdict
@@ -906,9 +966,9 @@ function seatedRows(
   const late = (held ? stash : unflushed(el)) ? MARK_LATE : 0;
   /** A staging served to a seated pass, or to a verdict reader that is an
    * effect (its pass re-derives once as a verdict reader if the flush
-   * parks, D-22), watches the seam. */
+   * parks, D-22), watches the seam. (The plain rows' `stagedRead` does the
+   * same for the arms they decide.) */
   const watch = inSeat || (vReader && !!(c as any)._type);
-  const seamWatch = (r: number): number => (watch && r & RAISE_FL ? r | MARK_W : r);
 
   // ── F: children-forbidden (the frame; A32) ─────────────────────────────
   if (forbidden) {
@@ -982,7 +1042,7 @@ function seatedRows(
       ROW && setRow(rowBase + "D5");
       return r | (v & RAISE_MASK) | ((v & SLOT_MASK) === SLOT_ESTAGED ? SLOT_ESTAGED : SLOT_E);
     }
-    return seamWatch(plainRows(c, el, tracked, spectate));
+    return plainRows(c, el, tracked, spectate);
   }
 
   // Held node.
@@ -992,7 +1052,7 @@ function seatedRows(
       ROW && setRow(leaf ? "D6" : vReader ? "V1" : rowBase + "D6");
       return screen | MARK_ST | MARK_SERVED;
     }
-    const p = seamWatch(plainRows(c, el, tracked, spectate));
+    const p = plainRows(c, el, tracked, spectate);
     if (ROW && !leaf) setRow(vReader ? (bornInto(c, t!) ? "V1'" : "V1''") : rowBase + "D6'");
     return p;
   }
@@ -1042,7 +1102,7 @@ function seatedRows(
       return screen;
     }
   }
-  return seamWatch(plainRows(c, el, tracked, spectate));
+  return plainRows(c, el, tracked, spectate);
 }
 
 /** The lane engine's bits of a raise (seat.ts LANE_BITS), applied to the
@@ -1604,6 +1664,7 @@ function adoptFrame(owner: Owner, el: Computed<any>, l: Transaction): void {
 const entered: Computed<any>[] = [];
 installLaneHooks(
   seatRows,
+  applyMarks,
   laneApply,
   laneServe,
   laneStage,

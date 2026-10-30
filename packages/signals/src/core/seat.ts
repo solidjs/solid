@@ -4,16 +4,27 @@
  * `slot()` is the decision `read` makes (S1, `documentation/plans/
  * reader-seat-rebuild.md`): posture × node-state bits → a row of the table,
  * which names the slot the read is served from and the mechanisms the read
- * fires (the raise bits). The table decides; `read` (core.ts `applyMarks`,
- * `serveSlot`) applies. This module is the floor's: the plain rows (U, F,
- * L, D — the committed value, a staging, a hold, a flight, an error, for a
- * pass in no seat). The rows of a SEATED pass (lane work, a hold's verdict
- * reader) and of a verdict reader live with the lane engine (lanes.ts
- * `seatRows`, reached through `seatRowsHook`; a lane's node's rows are
- * `laneSlot` there) and the rows inside a verdict window with the verdict
- * engine (verdict.ts `windowSlot`): a build without them retains neither —
- * `slot` dispatches to the engine on the three things only an engine sets
- * (`passLane`, CONFIG_OVERRIDE, CONFIG_VERDICT) and the floor pays the test.
+ * fires. This module is the floor's: the plain rows (U, F, L, D — the
+ * committed value, a staging, a hold, a flight, an error, for a pass in no
+ * seat) fire their mechanisms directly as they decide (the join, the
+ * staging read, the stale reader, the late linker, the link of a throwing
+ * untracked read — the floor's own functions) and return the slot alone;
+ * `read` serves it (core.ts `readSlow`). The rows of a SEATED pass (lane
+ * work, a hold's verdict reader) and of a verdict reader live with the lane
+ * engine (lanes.ts `seatRows`, reached through `seatRowsHook`; a lane's
+ * node's rows are `laneSlot` there) and the rows inside a verdict window
+ * with the verdict engine (verdict.ts `windowSlot`): those return a PACKED
+ * result — the slot in the low bits, the raise above (the RAISE_* / MARK_*
+ * bits below) — which the engine applies (lanes.ts `applyMarks`); a build
+ * without them retains neither the rows nor the applier — `slot` dispatches
+ * to the engine on the three things only an engine sets (`passLane`,
+ * CONFIG_OVERRIDE, CONFIG_VERDICT) and the floor pays the test. (S1 floor
+ * lever (b): the plain rows were packed too; measured, direct is smaller
+ * for every plain family in the floor — the applier and its call leave only
+ * when every family fires its own, and all of them firing their own costs
+ * the rows less than the applier did — and costs the engine builds, which
+ * keep the applier for the engine rows, the claim arms the rows now decide
+ * themselves; design doc §4.8.)
  *
  * The SEAT this pass reads from is, at S1 M2, a view over the pass state
  * the old deciders kept (`passLane`, the pass's JOINED / STAGED_READ flags,
@@ -90,9 +101,13 @@ import {
   resolveTx,
   sameLane,
   seatRowsHook,
+  snapshotCaptureActive,
+  staleReader,
   txOf,
   type Transaction
 } from "./scheduler.js";
+import { claim, joinPass, markLateLinker, stagedRead } from "./core.js";
+import { link } from "./graph.js";
 import type { Computed, Signal } from "./types.js";
 import { oldSlot } from "./seat-oracle.js";
 
@@ -311,11 +326,25 @@ export let seatRow: string | 0 = 0;
 export function setRow(row: string | 0): void {
   seatRow = row;
 }
-/** The hold (and lane) a row's side effects name — set by the rows that
- * carry one; cleared when a decision starts (`slot`, `windowSlot`). */
+/** The hold (and lane) a row's side effects name — set by the engine rows
+ * that carry one (every engine row with a raise that names a hold or a lane
+ * carries before it returns; the plain rows fire theirs directly). */
 export function carry(tx: Transaction | null, lane: Transaction | null = null): void {
   seatTx = tx;
   seatLane = lane;
+}
+
+/** The mechanisms the plain rows fired directly during the decision, as
+ * raise bits (shadow only: compared with the oracle's as a packed row's
+ * raise would be; `noteFired` is called by the mechanisms, folded out of a
+ * build without the shadow). Reset when a decision starts (`slot`,
+ * `windowSlot`). */
+export let fired = 0;
+export function noteFired(bits: number): void {
+  fired |= bits;
+}
+export function resetFired(): void {
+  fired = 0;
 }
 
 /** The world the running pass reads from, packed: the world it was BORN
@@ -427,15 +456,15 @@ export function dispNP(el: AnyNode, uninit: boolean): boolean {
 // ─── The slot table (plain rows: U, F, L, D) ───────────────────────────────
 
 /**
- * The slot a plain read of `el` by `c` is served from, with the mechanisms
- * the row fires — `read`'s decision. Pure: nothing on `c` or `el` is
- * touched; `read` applies the raise (core.ts `applyMarks`) and serves the
- * slot (`serveSlot`). The engines' rows first (lanes.ts `seatRows`, through
- * `seatRowsHook`): a lane's node (CONFIG_OVERRIDE), a seated pass
- * (`passLane`: lane work, a hold's verdict reader), a verdict reader
- * (CONFIG_VERDICT) — each exists only with its engine installed, and the
- * engine's rows fall back to the plain ones below for the arms they share.
- * A verdict window's read never arrives here (verdict.ts `windowSlot`).
+ * The slot a plain read of `el` by `c` is served from — `read`'s decision —
+ * with the mechanisms the row fires, fired. The engines' rows first
+ * (lanes.ts `seatRows`, through `seatRowsHook`): a lane's node
+ * (CONFIG_OVERRIDE), a seated pass (`passLane`: lane work, a hold's verdict
+ * reader), a verdict reader (CONFIG_VERDICT) — each exists only with its
+ * engine installed, and the engine's rows fall back to the plain ones below
+ * for the arms they share; their result is packed (the raise above the
+ * slot), applied by the engine. A verdict window's read never arrives here
+ * (verdict.ts `windowSlot`).
  *
  * @param c the reader (null: no pass)
  * @param el the node read
@@ -448,7 +477,7 @@ export function slot(
   tracked: boolean,
   spectate: boolean
 ): number {
-  seatTx = seatLane = null;
+  if (__TEST__) fired = 0;
   if (__TEST__) seatRow = 0;
   if (
     seatRowsHook !== null &&
@@ -462,9 +491,13 @@ export function slot(
 
 /** The plain rows (U, F, L, D; A as D): a pass in no seat, no verdict
  * reader, reading a node that is no lane's — the committed value, this
- * flush's staging, a hold's, a flight, an error, in worlds S / Fl / H.
- * The engine's rows (lanes.ts `seatRows`) decide their own arms and come
- * here for the rest. */
+ * flush's staging, a hold's, a flight, an error, in worlds S / Fl / H. The
+ * row's mechanisms fire here, in the order the old deciders fired them —
+ * the join (H), the staging read (Fl, and the seam watch W for a seated
+ * pass or a verdict-reader effect: `stagedRead`), the stale reader (ST),
+ * the late linker, the link of a throwing untracked read — and the slot
+ * alone is returned. The engine's rows (lanes.ts `seatRows`) decide their
+ * own arms and come here for the rest. */
 export function plainRows(
   c: Computed<any> | null,
   el: AnyNode,
@@ -495,16 +528,37 @@ export function plainRows(
    * later cycle than the one that found the error re-runs it and reads
    * again. */
   const retry = errored && tracked && c !== null && (el as Computed<any>)._time < clock;
+  /** A hydration claim: the snapshot, after the hold arms (`claim`). */
+  const snap = snapshotCaptureActive && claim(c, el);
   /** A pending read thrown to an owned untracked reader still links it
-   * (`read`'s throw arm; not `spectate`, not the node itself). */
-  const nrLink = c !== null && !tracked && !spectate && el !== c ? MARK_LINK : 0;
+   * (`read`'s throw arm; not `spectate`, not the node itself — nor under
+   * a claim: the snapshot is served instead). */
+  const nrLink = c !== null && !tracked && !spectate && el !== c && !snap;
   /** A28: a held node rewritten outside a flush serves the staging the
    * last flush left (`_flushed`) until the flush that carries the
    * rewrite. */
   const stash = held && unflushed(el) && el._x!._flushedAt === clock;
   /** A28: served the committed value — or the stash — over a write not yet
    * flushed: a late-linker re-run (`markLateLinker`). */
-  const late = c !== null && (held ? stash : unflushed(el)) ? MARK_LATE : 0;
+  const late = c !== null && !snap && (held ? stash : unflushed(el));
+  /** NR thrown: the owned untracked reader is linked. */
+  const nr = (): number => {
+    if (nrLink) {
+      if (__TEST__) fired |= MARK_LINK;
+      link(el, c!);
+    }
+    return SLOT_NR;
+  };
+  /** A staging served to the pass (`stagedRead`): the pass derives from
+   * this flush (Fl) — and, a seated pass or a verdict-reader effect,
+   * watches the seam (W). Not a node born staged (#3969: no screen to
+   * re-derive on — `stagedRead`'s own guard). Over a write not yet flushed,
+   * the committed value (or the stash) and a late re-run instead (A28). */
+  const serveStaged = (s: number): number => {
+    if (late) markLateLinker(c!);
+    else stagedRead(c!, el);
+    return s;
+  };
 
   // ── U: no pass ──────────────────────────────────────────────────────────
   if (posture === POSTURE_U) {
@@ -520,64 +574,46 @@ export function plainRows(
   // ── F: children-forbidden (the frame; A32) ─────────────────────────────
   if (posture === POSTURE_F) {
     ROW && setRow("F1");
+    // (The frame joins nothing: a claim's read fires nothing before the
+    // snapshot.)
+    if (snap) return SLOT_SNAPSHOT;
     if (retry) return SLOT_RETRY;
-    if (errored) return SLOT_E | (stagedError && !uninit ? late : 0);
+    if (errored) {
+      if (stagedError && !uninit && late) markLateLinker(c!);
+      return SLOT_E;
+    }
     // (A first flight is `read`'s throw — it links; a node born staged has
     // nothing for the frame, A19 exc. 1 — no source.)
-    if (firstFlight) return SLOT_NR | nrLink;
+    if (firstFlight) return nr();
     if (uninit && staged) return SLOT_NR0;
     // (D-29's seated arm — lane work's frame reader over a flight sees the
     // screen — is the engine's.) Over an unflushed write, the late re-run (a
     // held node's: its stash).
-    if (stash) return SLOT_STASH | late;
-    return SLOT_C | (staged ? late : 0);
+    if (late) markLateLinker(c!);
+    return stash ? SLOT_STASH : SLOT_C;
   }
 
   // ── Common arms for L / D (A as D) ─────────────────────────────────────
   const leaf = posture === POSTURE_L;
   const rowBase = ROW && (c!._config & CONFIG_AUTHORITATIVE ? "A1/" : "");
-  /** A staging served to the pass (`stagedRead`): the pass derives from
-   * this flush (Fl). Not a node born staged (#3969: no screen to re-derive
-   * on). Over a write not yet flushed, the committed value (or the stash)
-   * and a late re-run instead (A28). (The seam watch, W, is the engine's: a
-   * seated pass's or a verdict-reader effect's — `seatRows` adds it to the
-   * staging served.) */
-  const stagedServe = late ? MARK_LATE : uninit ? 0 : RAISE_FL;
-
-  // Error (D-41 #2897): the error — the retry re-reads. The hold arms run
-  // first (`read`'s L2 block): a derivation of a held errored node joins
-  // before it throws. A staged error replacing the shown one
-  // (`stageError`) is served as the staging would be: a reader served the
-  // screen throws the shown error, one served the staging throws the
-  // staged one and stages its own with it (Fl).
-  if (errored) {
-    let r = held ? heldRow(true) : SLOT_E;
-    let s = retry ? SLOT_RETRY : SLOT_E;
-    r &= ~(MARK_LINK | SLOT_MASK); // (the error is thrown, not NotReady)
-    if (!retry && stagedError && !(r & MARK_ST)) {
-      r |= stagedServe;
-      if (!late && !uninit) s = SLOT_ESTAGED;
-    }
-    ROW && setRow(leaf ? "L8" : rowBase + "D5");
-    return r | s;
-  }
-
-  // Held node.
-  if (held) return heldRow(false);
+  /** L3 fired: a stale reader of the hold (the errored arm's exclusion). */
+  let stale = false;
 
   /** The held rows. `err`: the node is errored — the slot is the error's
    * (the caller's), the marks the row's. */
-  function heldRow(err: boolean): number {
+  const heldRow = (err: boolean): number => {
     const t = txOf(el);
-    seatTx = t;
-    /** A row that joins and is served the staging (or NR in flight). */
-    const join = (extra = 0): number =>
-      pending
-        ? SLOT_NR | RAISE_H | extra | nrLink
-        : (staged ? (stash ? SLOT_STASH : stagedSlot) : SLOT_C) |
-          RAISE_H |
-          extra |
-          (staged && !err ? stagedServe : 0);
+    if (__TEST__) seatTx = t;
+    /** A row that joins and is served the staging (or NR in flight; the
+     * snapshot under a claim). */
+    const join = (extra = 0): number => {
+      if (__TEST__) fired |= extra;
+      joinPass(c!, el);
+      if (snap) return SLOT_SNAPSHOT;
+      if (pending) return err ? SLOT_NR : nr(); // (err: the error is thrown)
+      const s = staged ? (stash ? SLOT_STASH : stagedSlot) : SLOT_C;
+      return staged && !err ? serveStaged(s) : s;
+    };
     if (leaf) {
       // L4 (D-9 D-2 D-27): inputs published, or born — the leaf has no
       // screen to fall back to; it joins the hold (D-4): its world is the
@@ -588,19 +624,53 @@ export function plainRows(
       if (bornInto(c!, t)) return (ROW && setRow("L2"), join()); // D-2
       // (Lane work's leaf sees the screen here — D6, the engine's.)
       if (t === flushTransaction) return (ROW && setRow("L2"), join()); // D-3 D-2
-      return (ROW && setRow("L3"), screen | MARK_ST); // D-3 D-9 D-26: stale
+      // L3 (D-3 D-9 D-26): a stale reader of the hold, served the screen.
+      stale = true;
+      if (__TEST__) fired |= MARK_ST;
+      staleReader(c!, t);
+      ROW && setRow("L3");
+      return snap ? SLOT_SNAPSHOT : screen;
     }
     // D2 (D-1 D-2 D-10): the pass derives from the hold. (A verdict
     // reader's V1 and lane work's D6 — the screen — are the engine's.)
     return (ROW && setRow(rowBase + (pending ? "D2'" : "D2")), join());
+  };
+
+  // Error (D-41 #2897): the error — the retry re-reads. The hold arms run
+  // first (`read`'s L2 block): a derivation of a held errored node joins
+  // before it throws. A staged error replacing the shown one
+  // (`stageError`) is served as the staging would be: a reader served the
+  // screen throws the shown error, one served the staging throws the
+  // staged one and stages its own with it (Fl).
+  if (errored) {
+    let s = retry ? SLOT_RETRY : SLOT_E;
+    if (held) heldRow(true); // (the marks; the error is thrown, not NotReady)
+    if (!retry && stagedError && !stale) {
+      if (late) markLateLinker(c!);
+      else if (!uninit) {
+        stagedRead(c!, el);
+        s = SLOT_ESTAGED;
+      }
+    }
+    ROW && setRow(leaf ? "L8" : rowBase + "D5");
+    return s;
   }
+
+  // Held node.
+  if (held) return heldRow(false);
+
+  // (From here every row is the staging's, the flight's or the screen's: a
+  // claim is served the snapshot, nothing fired.)
+  if (snap) return SLOT_SNAPSHOT;
 
   // Staged this flush, not held.
   if (staged) {
     if (late && !uninit) {
       // A28 / F-10: an unflushed write — the committed value now and a late
       // re-run in the flush that carries it (`markLateLinker`).
-      return (ROW && setRow(leaf ? "L1'" : rowBase + "D1'"), SLOT_C | MARK_LATE);
+      ROW && setRow(leaf ? "L1'" : rowBase + "D1'");
+      markLateLinker(c!);
+      return SLOT_C;
     }
     if (uninit && !pending && spectate) return (ROW && setRow("U2"), SLOT_NR0);
     // (F-9, as D1/L1: a staging beneath a flight is not what the reader
@@ -612,13 +682,13 @@ export function plainRows(
       // render effect's, the binding that shows: L1. A boundary's structure
       // (CONFIG_FRAME, posture L per #4283) reads as a derivation does.
       ROW && setRow((c as any)._type === EFFECT_RENDER && leaf ? "L1" : rowBase + "D1");
-      return stagedSlot | stagedServe;
+      return serveStaged(stagedSlot);
     }
   }
 
   // A flight, not held: NR (F-2 D-28 / F-2 D-9). (A seated pass's screen —
   // D8 — and a verdict reader's — V4 — are the engine's.)
-  if (pending) return (ROW && setRow(leaf ? "L5" : rowBase + "D3"), SLOT_NR | nrLink);
+  if (pending) return (ROW && setRow(leaf ? "L5" : rowBase + "D3"), nr());
 
   return (ROW && setRow(leaf ? "L0" : rowBase + "D0"), SLOT_C); // committed only
 }
@@ -1113,10 +1183,11 @@ export function shadowDecided(
 ): void {
   if (readDepth < 0) return;
   const f = frames[readDepth];
+  // (The plain rows fire their mechanisms directly: `fired` is their raise.)
   const p: Prediction = {
     row: String(seatRow),
     slot: r & SLOT_MASK,
-    raise: r & RAISE_MASK,
+    raise: (r | fired) & RAISE_MASK,
     tx: seatTx,
     lane: seatLane
   };
@@ -1191,7 +1262,7 @@ export function shadowFast(
   if (readDepth < 0) return;
   reads++;
   rowHits.set("fast", (rowHits.get("fast") ?? 0) + 1);
-  const r = slot(c, el, tracked, spectate);
+  const r = slot(c, el, tracked, spectate) | fired;
   const o = oldSlot(c, el, tracked, 0, spectate);
   if (r !== SLOT_C || o.slot !== SLOT_C || o.raise !== 0)
     report(

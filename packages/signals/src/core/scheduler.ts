@@ -78,6 +78,12 @@ export let seatRowsHook:
 export let laneApplyHook:
   | ((c: Computed<any>, raise: number, lane: Transaction | null) => void)
   | null = null;
+/** An engine row's packed raise, applied to the reader (lanes.ts
+ * `applyMarks`): the plain rows fire their own (seat.ts), so only a build
+ * with an engine ever has a raise to apply. */
+export let applyMarksHook:
+  | ((c: Computed<any>, el: Signal<any> | Computed<any>, r: number) => void)
+  | null = null;
 /** The lane slots served (lanes.ts `laneServe`): Lv, Dv, T, a fold. */
 export let laneServeHook: ((el: Signal<any> | Computed<any>, slot: number) => unknown) | null =
   null;
@@ -126,6 +132,7 @@ export function armGuessing(): void {
 }
 export function installLaneHooks(
   rows: NonNullable<typeof seatRowsHook>,
+  marks: NonNullable<typeof applyMarksHook>,
   apply: NonNullable<typeof laneApplyHook>,
   serve: NonNullable<typeof laneServeHook>,
   stage: NonNullable<typeof laneStageHook>,
@@ -141,6 +148,7 @@ export function installLaneHooks(
   adoptReaders: NonNullable<typeof adoptReadersHook>
 ): void {
   seatRowsHook = rows;
+  applyMarksHook = marks;
   laneApplyHook = apply;
   laneServeHook = serve;
   laneStageHook = stage;
@@ -376,6 +384,15 @@ export function newTransaction(lane: boolean, parent: Transaction | null = null)
 // value moves its pass into the lane; a leaf's never does (it reads the
 // screen). Lane work's values go to the lane slot, its runs to the lane's
 // queues; the rest of the frame is the flush's.
+
+/** Hydration's snapshot capture is on (core.ts `setSnapshotCapture`): the
+ * readers created under a snapshot scope serve each source's snapshot. Kept
+ * here, ahead of seat.ts in the bundle, so a build without hydration folds
+ * the table's claim arms (seat.ts `plainRows`) and `readSlow`'s serve. */
+export let snapshotCaptureActive = false;
+export function setSnapshotCaptureActive(active: boolean): void {
+  snapshotCaptureActive = active;
+}
 
 /** The lane the running pass is work of; set at `recompute`'s head from the
  * node, moved by a derivation's lane read, saved and restored around the

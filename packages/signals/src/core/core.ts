@@ -106,18 +106,12 @@ import { cleanup, disposeChildren, inheritId, linkChild, markDisposal } from "./
 // The reader seat's shadow (S0): reachable only under `__TEST__`
 // (documentation/plans/reader-seat-rebuild.md §3).
 import {
-  LANE_BITS,
   MARK_LATE,
-  MARK_LINK,
-  MARK_SERVED,
-  MARK_ST,
-  MARK_UNANS,
   MARK_W,
   RAISE_FL,
   RAISE_H,
   RAISE_HAT,
   RAISE_MASK,
-  SLOT_C,
   SLOT_DV,
   SLOT_E,
   SLOT_ESHOWN,
@@ -133,16 +127,14 @@ import {
   SLOT_SNAPSHOT,
   SLOT_STASH,
   SLOT_T,
-  VERDICT_BITS,
   SEAT_BORN_H,
   SEAT_OWN_FL,
   SEAT_OWN_H,
   SEAT_TX_H,
   bornInto,
   childBorn,
+  noteFired,
   raiseSeatWorld,
-  seatLane,
-  seatTx,
   seatWorld,
   setSeatWorld,
   worldLevel,
@@ -175,6 +167,8 @@ import {
   queuePendingNode,
   schedule,
   setPassLane,
+  setSnapshotCaptureActive,
+  snapshotCaptureActive,
   txOf,
   inEffectCallback,
   effectCallbackEvent,
@@ -188,13 +182,12 @@ import {
   externalUntrackHook,
   freshHook,
   guessing,
-  laneApplyHook,
   laneOutcomeHook,
+  applyMarksHook,
   laneServeHook,
   adoptReadersHook,
   laneStageHook,
   laneSeamsHook,
-  laneServedHook,
   holdWorkHook,
   laneWriteHook,
   verdictApplyHook,
@@ -301,7 +294,7 @@ export function setContextInternal(v: Owner | null): void {
 export let stale = false;
 export let context: Owner | null = null;
 
-export let snapshotCaptureActive = false;
+export { snapshotCaptureActive };
 /** The lane at the root of the running chain of first passes: the lane whose
  * pass created the chain's first node (a mount), inherited by every first
  * pass nested under it, whose seats are mainline (`recompute`, #4166). */
@@ -316,8 +309,27 @@ function ownerInSnapshotScope(owner: Owner | null): boolean {
   return false;
 }
 
+/** A hydration claim's read (`SLOT_SNAPSHOT`): a reader in a snapshot scope,
+ * of a node the server rendered a value for, not errored, is served that
+ * value — a client write's recompute still in flight does not pull the
+ * claim off the markup it adopts; the reader replays at the scope's
+ * release. (The callers guard with `snapshotCaptureActive` so a build
+ * without hydration folds the arms.) Of the row's mechanisms only those the old deciders fired
+ * before the snapshot fire: the hold arms (H, ST — a lane's enter bits,
+ * the engine's); nothing of the staging's or the flight's. Not a lane's
+ * value served (the engine's rows decide that first). */
+export function claim(c: Computed<any> | null, el: Signal<any> | Computed<any>): boolean {
+  return (
+    c !== null &&
+    snapshotCaptureActive &&
+    (c._config & CONFIG_IN_SNAPSHOT_SCOPE) !== 0 &&
+    !((el as Computed<any>)._statusFlags & STATUS_ERROR) &&
+    el._x?._snapshotValue !== undefined
+  );
+}
+
 export function setSnapshotCapture(active: boolean): void {
-  snapshotCaptureActive = active;
+  setSnapshotCaptureActive(active);
   if (active && !snapshotSources) snapshotSources = new NewSet();
 }
 
@@ -380,7 +392,7 @@ export function clearSnapshots(): void {
     }
     snapshotSources = null;
   }
-  snapshotCaptureActive = false;
+  setSnapshotCaptureActive(false);
 }
 
 export function recompute(el: Computed<any>, create: boolean = false): void {
@@ -1309,6 +1321,7 @@ export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): voi
   // The running pass's world is the hold's now (seat.ts `seatWorld`; not
   // an idle owner a `runWithOwner` reads under).
   if (c._flags & REACTIVE_RECOMPUTING_DEPS) raiseSeatWorld(SEAT_OWN_H);
+  if (__TEST__) noteFired(RAISE_H);
   if (__TEST__) shadowExternalRaise(c, RAISE_H);
   // A new memo's first pass is the hold's work (born held) but not the
   // tick's: a render effect that reads it decides — under a boundary that
@@ -1330,6 +1343,7 @@ export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): voi
 export function joinPassAt(c: Computed<any>, t: Transaction): void {
   c._flags |= REACTIVE_JOINED;
   if (c._flags & REACTIVE_RECOMPUTING_DEPS) raiseSeatWorld(SEAT_OWN_H);
+  if (__TEST__) noteFired(RAISE_H | RAISE_HAT);
   if (__TEST__) shadowExternalRaise(c, RAISE_H | RAISE_HAT);
   joinPassTx(t, (!(c as any)._type && c._statusFlags & STATUS_UNINITIALIZED) || freshHook?.(c));
 }
@@ -1890,6 +1904,7 @@ export function markLateLinker(c: Computed<any>): true {
   // The pass's own tail re-enqueues on this latch (recompute's finally) —
   // a direct enqueue here would be wiped by the pass's flag reset.
   c._flags |= REACTIVE_MISSED_WAKE;
+  if (__TEST__) noteFired(MARK_LATE);
   return true;
 }
 
@@ -2008,21 +2023,11 @@ function laneSlot(s: number): boolean {
   return s === SLOT_LV || s === SLOT_DV || s === SLOT_T || s === SLOT_FOLD;
 }
 
-/** The raise bits the old deciders applied before the hydration snapshot
- * served a reader in a snapshot scope: the hold arms (`frameRead`,
- * `joinPass`) and the lane read; everything after the snapshot (the
- * staging's, the flight's) did not run. */
-function preSnapshotBits(cfg: number): number {
-  return cfg & CONFIG_OVERRIDE
-    ? LANE_BITS | RAISE_FL | MARK_W
-    : cfg & CONFIG_HELD
-      ? RAISE_H | MARK_ST | MARK_SERVED
-      : 0;
-}
-
 /** `read`'s decision and its application, for every node the fast path
- * does not serve: the table decides (seat.ts `slot`), the marks are applied
- * (`applyMarks`), the slot is served. */
+ * does not serve: the table decides (seat.ts `slot`) — the plain rows fire
+ * their mechanisms as they decide; an engine row's packed raise is applied
+ * by the engine (lanes.ts `applyMarks`, `applyMarksHook`) — and the slot
+ * is served. */
 function readSlow(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const owner = el as Computed<any>;
   if (__DEV__ && strictRead && owner._statusFlags & STATUS_PENDING && strictReadActive())
@@ -2031,7 +2036,7 @@ function readSlow(el: Signal<any> | Computed<any>, c: Computed<any> | null): unk
       ownerName: (c as any)?._name,
       nodeName: (owner as any)?._name
     });
-  let r = slot(c, el, tracking, spectating);
+  const r = slot(c, el, tracking, spectating);
   const s = r & SLOT_MASK;
   // A component body's direct read is wrong in the same way whether the
   // pass is hydrating or not, and the hydration pass is the console nobody
@@ -2042,35 +2047,20 @@ function readSlow(el: Signal<any> | Computed<any>, c: Computed<any> | null): unk
       ownerName: (c as any)?._name,
       nodeName: (owner as any)?._name
     });
-  // A reader in a snapshot scope (a hydration claim) is served the value the
-  // server rendered with: a client write's recompute still in flight does
-  // not pull the claim off the markup it adopts — the reader replays at the
-  // scope's release. An errored node throws as for any reader; a lane's
-  // value served is the lane's.
-  let snapshot: unknown;
-  if (
-    snapshotCaptureActive &&
-    c !== null &&
-    c._config & CONFIG_IN_SNAPSHOT_SCOPE &&
-    !laneSlot(s) &&
-    (snapshot = el._x?._snapshotValue) !== undefined &&
-    !(owner._statusFlags & STATUS_ERROR)
-  ) {
-    r = (r & preSnapshotBits(el._config)) | SLOT_SNAPSHOT;
-    if (__TEST__) shadowDecided(c, el, tracking, 0, spectating, r);
-    if (r & RAISE_MASK) applyMarks(c, el, r);
-    if (__TEST__) shadowActual(SLOT_SNAPSHOT);
-    const value = snapshot === NO_SNAPSHOT ? undefined : snapshot;
-    const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
-    if (current !== value) c._flags |= REACTIVE_SNAPSHOT_STALE;
-    return value;
-  }
   if (__TEST__) shadowDecided(c, el, tracking, 0, spectating, r);
-  if (c !== null && r & RAISE_MASK) applyMarks(c, el, r);
+  if (applyMarksHook !== null && c !== null && r & RAISE_MASK) applyMarksHook(c, el, r);
   if (__TEST__) shadowActual(s);
   let value: unknown;
   if (laneServeHook !== null && laneSlot(s)) value = laneServeHook(el, s);
-  else
+  else if (snapshotCaptureActive && s === SLOT_SNAPSHOT) {
+    // A hydration claim (`claim`): the value the server rendered with; the
+    // reader replays at the scope's release if the node has moved on. (The
+    // guard is what lets a bundle without hydration fold the arm.)
+    const sv = el._x!._snapshotValue;
+    value = sv === NO_SNAPSHOT ? undefined : sv;
+    const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+    if (current !== value) c!._flags |= REACTIVE_SNAPSHOT_STALE;
+  } else
     switch (s) {
       case SLOT_P:
         value = el._pendingValue;
@@ -2118,40 +2108,6 @@ function dormant(el: Computed<unknown>): void {
   schedule();
 }
 
-/**
- * The mechanisms a row of the table fires, applied to the reader `c`
- * (seat.ts: the RAISE_* / MARK_* bits of `r`, with `seatTx` / `seatLane`
- * naming the hold and the lane). The lane engine's bits go to it
- * (`laneApplyHook`) and the verdict engine's to it (`verdictApplyHook`)
- * first: a lane read moves the seat before the pass's world is raised, and
- * a verdict read opens the flush's transaction before the hold is named.
- * Then, in the order the old deciders fired them: the join (H; `joinPassAt`
- * into the hold named when RAISE_HAT), the staging read (Fl), the
- * unanswered probe, the seam watch (W), the stale reader (ST), the flight
- * no longer waited on (`laneServed`), the late linker, the link of a
- * throwing untracked read.
- */
-export function applyMarks(c: Computed<any>, el: Signal<any> | Computed<any>, r: number): void {
-  // (Each engine's bits arise only from its rows: a build without the engine
-  // folds the guarded line.)
-  if (laneApplyHook !== null && r & LANE_BITS) laneApplyHook(c, r, seatLane);
-  if (verdictApplyHook !== null && r & VERDICT_BITS) verdictApplyHook(c, el, r, seatTx);
-  if (r & RAISE_H) {
-    if (r & RAISE_HAT) joinPassAt(c, seatTx!);
-    else joinPass(c, el);
-  }
-  if (r & RAISE_FL) {
-    c._flags |= REACTIVE_STAGED_READ;
-    if (c._flags & REACTIVE_RECOMPUTING_DEPS) raiseSeatWorld(SEAT_OWN_FL);
-  }
-  if (verdictApplyHook !== null && r & MARK_UNANS) c._flags |= REACTIVE_PROBE_UNANSWERED;
-  if (laneSeamsHook !== null && r & MARK_W) stagedReaders.push(c);
-  if (r & MARK_ST) staleReader(c, seatTx ?? flushTransaction!);
-  if (laneServedHook !== null && r & MARK_SERVED) laneServedHook(c, el);
-  if (r & MARK_LATE) markLateLinker(c);
-  if (r & MARK_LINK) link(el, c);
-}
-
 /** Shadow (S1, `seat.ts`): run `read` once for real and compare the slot it
  * served with the table's prediction recorded at the decision point. A
  * throw is a slot too: NotReady is NR, anything else E. */
@@ -2191,6 +2147,7 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
   if (!((el as Computed<any> | undefined)?._statusFlags! & STATUS_UNINITIALIZED)) {
     c._flags |= REACTIVE_STAGED_READ;
     if (c._flags & REACTIVE_RECOMPUTING_DEPS) raiseSeatWorld(SEAT_OWN_FL);
+    if (__TEST__) noteFired(RAISE_FL);
     if (__TEST__) shadowExternalRaise(c, RAISE_FL);
     // A verdict reader's too when it is an effect, before the frame has a
     // transaction (after, `stagedScreen` serves it the screen): the staging
@@ -2198,8 +2155,10 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
     // if the flush parks (D-22; D-25: the probe decides the posture in either
     // read order). A memo's is the frame's derivation either way: a memo is
     // not a leaf.
-    if (laneSeamsHook && (passLane !== null || ((c as any)._type && c._config & CONFIG_VERDICT)))
+    if (laneSeamsHook && (passLane !== null || ((c as any)._type && c._config & CONFIG_VERDICT))) {
+      if (__TEST__) noteFired(MARK_W);
       stagedReaders.push(c);
+    }
   }
 }
 

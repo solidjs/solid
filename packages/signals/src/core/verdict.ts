@@ -35,7 +35,6 @@ import {
   STATUS_UNINITIALIZED
 } from "./constants.js";
 import {
-  applyMarks,
   context,
   creatorPass,
   prepareComputed,
@@ -50,7 +49,7 @@ import {
 import { warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { laneServe, verdictLane } from "./lanes.js";
+import { applyMarks, laneServe, verdictLane } from "./lanes.js";
 import { enqueueSub } from "./heap.js";
 import {
   clock,
@@ -95,6 +94,7 @@ import {
   laneNP,
   ROW,
   carry,
+  resetFired,
   setRow,
   readerVhold,
   SEAT_BORN,
@@ -268,7 +268,7 @@ export function isPending(fn: () => any): boolean {
 }
 
 /** The verdict engine's bits of a raise (seat.ts VERDICT_BITS), applied to
- * the reader `c` (core.ts `applyMarks`), in the order the old deciders fired
+ * the reader `c` (lanes.ts `applyMarks`), in the order the old deciders fired
  * them: the flush's transaction opens if none has (`joinFuture(null)` — the
  * hold the marks name is the one it opens); the flight nobody holds is
  * queued for the seam (A15, #3458 — as if it had gone pending here); the
@@ -341,6 +341,7 @@ function windowSlot(
   tracked: boolean,
   spectate: boolean
 ): number {
+  if (__TEST__) resetFired();
   const owner = el as Computed<any>;
   const cfg = el._config;
   const st = owner._statusFlags ?? 0;
