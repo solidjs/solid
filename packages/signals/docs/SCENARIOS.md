@@ -638,7 +638,7 @@ const save = action(function* () { setX(1); yield gate; });
 
 ### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-27, D-37
 
-_Ruled 2026-10-30 ("actions aren't special — they are a way to extend the hold"). Pinned: `tests/display-ahead-plain-write-content.test.ts`. S-31's rule in the plain-write, no-boundary form: a write to `id` is held because an async memo over it is on screen; no action, no `Loading`._
+_Ruled 2026-10-30 ("actions aren't special — they are a way to extend the hold"). Pinned: `tests/display-ahead-plain-write-content.test.ts` (signals, passes) and `web/test/display-ahead-plain-write-content-s46.spec.tsx` (through `Show` + `insert`; the plain row is `test.fails` — today the branch attaches with its text hole empty, `selected: ` and nothing, F-2's empty slot and #4417's mechanism). S-31's rule in the plain-write, no-boundary form: a write to `id` is held because an async memo over it is on screen; no action, no `Loading`._
 
 ```tsx
 const [id, setId] = createSignal(0);
@@ -659,6 +659,7 @@ const detail = createMemo(() => fetchDetail(id()));
 | 2   | `fetchDetail(1)` lands                           | `1 \| selected: 1 \| d1`                                                                                                                                                                                     |                                                                      |
 | ✗   |                                                  | after 1: `0 \| selected: 1 \| d0` — two plain reads of one signal disagreeing on one screen                                                                                                                  |                                                                      |
 | ✗   |                                                  | after 1: `0 \| selected: 0 \| d0` — the branch attached with the committed value; a mount under a display-ahead reader is born held, not a D-3 leaf                                                          |                                                                      |
+| ✗   |                                                  | after 1: `0 \| selected: (empty) \| d0` — the branch attached with its hole empty (F-2: never an empty slot). Today's screen through `Show` + `insert`                                                       |                                                                      |
 
 ### S-39. A later unread value still throws — D-28
 
