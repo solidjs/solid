@@ -1,10 +1,17 @@
-// #4469 (it.fails pin): a hold whose staged error recovers to the committed
-// value re-runs its readers at the landing with unchanged values. An action
+// #4469: a hold whose staged error recovers to the committed value. An action
 // makes `m0` throw (staged with the hold, D-41), then writes it back to its
-// committed value; the reader runs while the error is staged and again at
-// the recovery — both right — and a third time when the hold commits, though
-// nothing it read changed. The landing's re-derivation (`reruns`) re-runs
-// every stale and verdict reader of the hold (A15).
+// committed value, and the hold commits later.
+//
+// A plain reader (`value`) shows the committed value for the whole hold and
+// runs once, at the commit. That is the ruled screen: "a recovery to a value
+// equal to the last good one is still a change of answer" (D-41), and the
+// reader settles with the hold it shares (D-9).
+//
+// A verdict reader (`pending`, `both`) runs while the error is staged and
+// again at the recovery, both right, then a third time when the hold
+// commits, though nothing it read changed. The landing's re-derivation
+// (`reruns`) re-runs every stale and verdict reader of the hold (A15). That
+// is a known deviation under D-23's Status, pinned it.fails here.
 import { describe, expect, it } from "vitest";
 import {
   action,
@@ -58,7 +65,14 @@ describe("#4469: a hold that recovers to the committed value", () => {
     return { held, recovered, committed: runs.length, runs };
   };
 
-  it.fails.each(["value", "pending", "both"] as const)(
+  it("runs a plain reader once, at the commit (value; D-41, D-9)", async () => {
+    const { held, recovered, runs } = await recover("value");
+    expect(held).toBe(0);
+    expect(recovered).toBe(0);
+    expect(runs).toEqual([[30]]);
+  });
+
+  it.fails.each(["pending", "both"] as const)(
     "re-runs no reader at the landing (%s)",
     async read => {
       const { recovered, committed } = await recover(read);
