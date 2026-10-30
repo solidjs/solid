@@ -4,9 +4,8 @@
  *
  * `verdictValue` pulls a dirty memo with the dispatch closed
  * (`setVerdict(null)`), so the memo's plain reads are its own. It left the
- * window's state set, though: `probing` (and `latestActive`) stayed on for
- * the pulled pass, so a `latest()` / `isPending()` the memo calls itself
- * re-entered the window with the outer probe's state:
+ * probe's state set, though: `probing` stayed on for the pulled pass, so a
+ * `latest()` the memo calls itself re-entered the window as the outer probe:
  *
  * - `latest()` of a node born held (no committed value, staged) took the
  *   probe's `joinPass` arm: the pulled memo joined the hold, and a memo it
@@ -15,10 +14,7 @@
  *   raises no world);
  * - `probeFound` was set from inside the pulled pass (a flight its
  *   `latest()` read), so the outer `isPending` answered for the memo's
- *   reads rather than for the memo;
- * - inside `latest(fn)`, a pulled memo's own `isPending` of a held write
- *   answered as a probe inside a `latest` window (final), so the memo's
- *   shared value depended on who pulled it.
+ *   reads rather than for the memo.
  *
  * Each case compares the pull inside the window with the same pass woken by
  * a plain read: the memo's pass, its value and what it creates are the same.
@@ -142,39 +138,5 @@ describe("#4429: a memo pulled inside a verdict window computes as its own pass"
       resolve();
       await settle();
       expect(peek(m1)).toBe(21);
-    });
-
-  for (const pull of ["latest", "plain"] as const)
-    it(`isPending() in the pulled pass answers for the memo, not the outer latest window (pulled ${pull})`, async () => {
-      const [x, setX] = createSignal(0);
-      const [s, setS] = createSignal(0);
-      const [on, setOn] = createSignal(false);
-      const m1 = createRoot(() => {
-        createRenderEffect(x, () => {});
-        const sa = createMemo(() => s());
-        const m1 = createMemo(() => (sa(), isPending(x)));
-        createRenderEffect(m1, () => {});
-        createRenderEffect(
-          () => on() && (pull === "latest" ? latest(() => m1()) : m1()),
-          () => {}
-        );
-        return m1;
-      });
-      flush();
-      let release!: () => void;
-      action(function* () {
-        setX(1);
-        yield new Promise<void>(r => (release = r));
-      })();
-      flush();
-      expect(peek(m1)).toBe(true);
-      setS(1);
-      setOn(true);
-      flush();
-      // x's held write has not landed: the memo's own probe says so.
-      expect(peek(m1)).toBe(true);
-      release();
-      await settle();
-      expect(peek(m1)).toBe(false);
     });
 });

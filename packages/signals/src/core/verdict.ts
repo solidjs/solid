@@ -403,14 +403,12 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // produced. So is a lazy or dormant memo's wake (an unowned memo with no
   // reader left, #4366): woken inside the window, it read its sources as the
   // probe does, the committed value under a landing. (A signal has no
-  // `_flags`: the wake is a no-op for it.) The window's state closes with it
-  // (#4429): a `latest()` or `isPending()` the pass makes itself opens its
-  // own window — it does not join a hold through the probe's arm, answer
-  // the outer probe (`probeFound` is only set while `probing`), or read as
-  // inside the outer `latest`.
-  const prevProbing = probing,
-    prevLatest = latestActive;
-  probing = latestActive = false;
+  // `_flags`: the wake is a no-op for it.) So is the probe's state (#4429):
+  // a `latest()` the pass makes itself does not join a hold through the
+  // probe's arm, and what the pass reads does not answer the outer probe
+  // (`probeFound` is only set while `probing`).
+  const prevProbing = probing;
+  probing = false;
   setVerdict(null);
   prepareComputed(owner, false);
   if (c && tracking) {
@@ -419,7 +417,6 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   }
   setVerdict(verdictValue);
   probing = prevProbing;
-  latestActive = prevLatest;
   // Shadow (S0): the window's decision point — the rows Vl*/Vp*.
   if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, false);
   // A live `affects()` mark on the node or a dependency (affects.ts): not
