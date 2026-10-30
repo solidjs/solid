@@ -59,6 +59,7 @@ import {
   EFFECT_RENDER,
   NOT_PENDING,
   REACTIVE_JOINED,
+  REACTIVE_MISSED_WAKE,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
@@ -68,6 +69,7 @@ import {
 import {
   clock,
   flushTransaction,
+  observeFlightHook,
   globalQueue,
   GlobalQueue,
   latestOpened,
@@ -395,8 +397,17 @@ function applyRaise(seat: Seat, p: Prediction): void {
   if (seat.ownWorld > seat.world) seat.world = seat.ownWorld;
   // Display-ahead (today `route`): the pass is the hold's verdict reader
   // unless already seated, or already the frame's (it read the future or a
-  // staging: world > S).
-  if (p.raise & MARK_AH && p.tx !== null && !seated(seat) && seat.ownWorld === WORLD_S)
+  // staging: world > S), or a member of the frame a held pass of that hold
+  // built (the held-frame clause; D-25: born in the hold's world, it reads
+  // plainly — a probe does not rescue it; D-27: its runs are the frame's,
+  // which commits with the hold).
+  if (
+    p.raise & MARK_AH &&
+    p.tx !== null &&
+    !seated(seat) &&
+    seat.ownWorld === WORLD_S &&
+    !(seatBornInto(seat, p.tx) && seat.node!._config & CONFIG_HELD_FRAME)
+  )
     seat.vhold = resolveTx(p.tx);
   if (p.raise & RAISE_VSEAT && p.tx !== null) {
     // (A lane the pass sat in links to the verdict lane, `enterLane`.)
@@ -723,9 +734,15 @@ export function slot(
     // verdict lane's — the pass is the hold's verdict reader, unless its
     // branch exists only in the future (`creatorReads`: a pass whose
     // running creators, or itself when a memo, read the future or a
-    // staging — D-25, D-26, #4341).
+    // staging — D-25, D-26, #4341), or a member of the frame a held pass
+    // of the lane's hold built (the held-frame clause, D-25 D-27).
     const enter = vlane
-      ? inSeat || !(seat!.creatorsWorld > WORLD_S || (!isEffect && seat!.ownWorld > WORLD_S))
+      ? inSeat ||
+        !(
+          seat!.creatorsWorld > WORLD_S ||
+          (!isEffect && seat!.ownWorld > WORLD_S) ||
+          (seatBornInto(seat, l._parent!) && c!._config & CONFIG_HELD_FRAME)
+        )
         ? RAISE_VSEAT
         : 0
       : RAISE_LANE;
@@ -924,6 +941,28 @@ export function slot(
       if (running) return carry(pred("V4", screen, MARK_ST | MARK_AH, flushTransaction));
       return carry(pred("V4", screen));
     }
+    // D-22 (amended 2026-10-30), F-9: a first answer staged this flush and
+    // re-asked in it — answered, then re-asked. A pass with no value of its
+    // own, waiting on it (on the source a read of it parks on — the node,
+    // or the async it derives from, at any depth) or not waiting at all (its
+    // wait released by the landing, or a first pass), derives from it, once
+    // a flush (`read`). Not lane work or a verdict lane's pass (D-37).
+    if (
+      observeFlightHook &&
+      cUninit &&
+      uninit &&
+      staged &&
+      !held &&
+      !stagedError &&
+      !isEffect &&
+      !inSeat &&
+      (c!._flags & REACTIVE_MISSED_WAKE ||
+        (c!._pendingValue === NOT_PENDING &&
+          c!._x?._served !== clock &&
+          (!(c!._statusFlags & STATUS_PENDING) ||
+            !!c!._x?._pendingSources?.has(((el as Computed<any>)._x!._error as any).source))))
+    )
+      return carry(pred(rowBase + "D3'", SLOT_P));
     return carry(pred(leaf ? "L5" : rowBase + "D3", SLOT_NR)); // F-2 D-28 / F-2 D-9
   }
 
@@ -1274,28 +1313,6 @@ const known: KnownDifference[] = [
       flushTransaction !== null &&
       seatBornInto(seat, txOf(el!)) &&
       resolveTx(flushTransaction) !== resolveTx(txOf(el!))
-  },
-  {
-    // laneRead's D-28 reset compares verdict lanes by identity: a lane whose
-    // parent merged into the seat's hold reads as another hold's.
-    issue: 4427,
-    kind: "slot",
-    row: "V6",
-    expected: SLOT_LV,
-    actual: SLOT_P,
-    when: (c, el, seat) => {
-      const l = el!._x?._transaction;
-      return (
-        (c as any)._type === EFFECT_RENDER &&
-        seat.vhold !== null &&
-        !!l &&
-        l._lane &&
-        laneOf(l) === null &&
-        l._parent !== null &&
-        resolveTx(l._parent) !== l._parent &&
-        resolveTx(l._parent) === resolveTx(seat.vhold)
-      );
-    }
   }
 ];
 const knownHits = new Map<number, number>();

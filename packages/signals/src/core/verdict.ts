@@ -14,6 +14,7 @@ import {
   CONFIG_GUESS,
   CONFIG_ASYNC,
   CONFIG_HELD,
+  CONFIG_HELD_FRAME,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_STAGED_ERROR,
@@ -62,6 +63,7 @@ import {
   joinFuture,
   passLane,
   queuePendingNode,
+  resolveTx,
   setPassLane,
   stagedReaders,
   staleReader,
@@ -94,10 +96,18 @@ function watchVerdict(c: Computed<any>, unanswered = false): void {
 /** The reading pass is the holder's verdict lane's — unless already lane
  * work, or already the transaction's (it derives from the future — a held
  * node's, or the staging of a write this flush may hold — and the verdict
- * does not rescue it: its result shows at the landing, re-derived). A lane
+ * does not rescue it: its result shows at the landing, re-derived), or a
+ * member of the frame a held pass of that hold built (CONFIG_HELD_FRAME,
+ * `bornInto`): the hold's own work, born in its world, reads plainly and
+ * its run is the frame's (D-25, D-27) — the same leaf reading a memo of the
+ * `latest()` waits for the landing too (`enterLane`; E2, #4284). A lane
  * read, for `recompute`'s tail (REACTIVE_LANE_READ). */
 function route(c: Computed<any>, t: Transaction): void {
-  if (!passLane && !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)))
+  if (
+    !passLane &&
+    !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)) &&
+    !(c._config & CONFIG_HELD_FRAME && bornInto(c, resolveTx(t)))
+  )
     setPassLane(verdictLane(t));
   c._flags |= REACTIVE_LANE_READ;
 }
@@ -251,7 +261,6 @@ function heldNotFinal(owner: Computed<any>): boolean {
 
 /** `isPending`'s answer for an unheld node whose flight is up (cause ii). */
 function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
-  if (el._statusFlags & STATUS_UNINITIALIZED) return;
   if (probing && !quietPending(el)) probeFound = true;
   if (c && tracking) {
     if (el._config & CONFIG_HELD) verdictRead(c, txOf(el));
@@ -429,9 +438,13 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // `_flags`: the wake is a no-op for it.) So is the probe's state (#4429):
   // a `latest()` the pass makes itself does not join a hold through the
   // probe's arm, and what the pass reads does not answer the outer probe
-  // (`probeFound` is only set while `probing`).
+  // (`probeFound` is only set while `probing`). So is the window's kind: an
+  // `isPending` the pass makes itself answers for what it reads, not as a
+  // probe inside the outer `latest()`.
   const prevProbing = probing;
+  const prevLatest = latestActive;
   probing = false;
+  latestActive = false;
   setVerdict(null);
   prepareComputed(owner, false);
   if (c && tracking) {
@@ -439,6 +452,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     if ((el as any)._fn) pullComputed(owner, c);
   }
   setVerdict(verdictValue);
+  latestActive = prevLatest;
   probing = prevProbing;
   // Shadow (S0): the window's decision point — the rows Vl*/Vp*.
   if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, false);
@@ -551,7 +565,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       return staged(el);
     }
   } else if (el._pendingValue !== NOT_PENDING) {
-    if (owner._statusFlags & STATUS_PENDING && !uninitialized)
+    // A first value staged this flush and re-asked in it (an async first
+    // answer landing in the tick a write re-asks it) is answered: the
+    // re-ask is a new question (F-9, D-22). An error is no value (D-41).
+    // `latest` serves the staging below.
+    if (
+      owner._statusFlags & STATUS_PENDING &&
+      (!uninitialized || (probing && !(el._config & CONFIG_STAGED_ERROR)))
+    )
       pendingVerdict(tracked ? c : null, owner);
     else if (tracked && globalQueue._running)
       provisionalVerdict(c!, !latestActive && !uninitialized, el);
