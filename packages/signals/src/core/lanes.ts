@@ -1025,7 +1025,7 @@ function heldBy(t: Transaction, r: Computed<any>): boolean {
 }
 /** `r`'s pass read a node a transaction holds (#4439). */
 function readsHeld(r: Computed<any>): boolean {
-  for (let d = r._deps; d !== null; d = d._nextDep) if (d._dep._config & CONFIG_HELD) return true;
+  for (let d = r._deps; d; d = d._nextDep) if (d._dep._config & CONFIG_HELD) return true;
   return false;
 }
 const laneSeams = (t: Transaction | null): void => {
