@@ -141,8 +141,9 @@ describe("D-42: try/catch around a reactive read is not a channel", () => {
   // `read()`'s clock-gated retry re-runs the source inside a later pass of
   // this memo. Before the ruling this test pinned that outcome as the bypass's
   // twin ("same code, different outcome"); it was pinning the bug. The fix is
-  // on `fix/errored-reader-4486`, deferred for size (+83 B min / +41 B brotli
-  // core floor).
+  // on `fix/errored-reader-4486` (+83 B min / +41 B brotli core floor), not
+  // shipped: the shape is one `CAUGHT_REACTIVE_READ` warns on in dev (#4481);
+  // accepted 2026-10-30, #4486 closed.
   it.fails(
     "error: a computation created over an already-errored source is errored with it, though its catch runs",
     () => {

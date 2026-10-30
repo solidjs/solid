@@ -32,10 +32,11 @@ import {
 // The fix exists: branch `fix/errored-reader-4486` (a per-pass flag set where
 // the errored memo's error is thrown into the pass, rethrown when the pass
 // completes with a value). It costs +83 B minified / +41 B brotli on the core
-// floor and was pinned at 0 B — deferred until a byte-freeing core change
-// makes room. Until then the ruled screens are pinned `it.fails` below; the
-// cases that hold on today's `next` are plain `it`. In dev, the
-// `CAUGHT_REACTIVE_READ` diagnostic (#4481) warns on this shape.
+// floor and is not shipped: the deviation is reachable only through a catch
+// the `CAUGHT_REACTIVE_READ` dev diagnostic (#4481) warns on, and without a
+// catch the path is coherent — accepted 2026-10-30, #4486 closed. The ruled
+// screens are pinned `it.fails` below so a core change that fixes it is
+// noticed; the cases that hold on today's `next` are plain `it`.
 
 async function settle() {
   for (let r = 0; r < 3; r++) {
