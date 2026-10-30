@@ -11,9 +11,9 @@
 // streaming's `$dfs` gate. jsdom never fetches, so load events are
 // dispatched manually and server-loaded sheets model `.sheet` directly —
 // same technique as the runtime's own head.spec.js.
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createSignal, isPending, Loading, flush } from "solid-js";
-import { render, useHead } from "../src/index.js";
+import { acquireAsset, render, useHead } from "../src/index.js";
 
 function Route(props: { name: string; css: string }) {
   useHead({ tag: "link", props: { rel: "stylesheet", href: props.css } });
@@ -185,6 +185,51 @@ describe("useHead stylesheet reveal gating — client integration", () => {
     expect(div.innerHTML).not.toContain("<main>B</main>");
     expect(headLink("/gate-sup-b.css").getAttribute("rel")).toBe("preload");
     dispose();
+  });
+
+  test("a sheet released while loading and warmed again inside the removal grace still reveals", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      // An owner that acquires without the gate (a router, a hydration
+      // commit) releases the sheet before it has loaded: the element stays
+      // for the removal grace.
+      const release = acquireAsset({ type: "style", href: "/gate-regrace.css" });
+      release();
+
+      // A new mount inside the grace warms the same entry, still loading,
+      // and gates on it.
+      const div = document.createElement("div");
+      const dispose = render(
+        () => (
+          <Loading fallback={<span>Loading...</span>}>
+            <Route name="again" css="/gate-regrace.css" />
+          </Loading>
+        ),
+        div
+      );
+      flush();
+      expect(div.innerHTML).toContain("Loading...");
+
+      // The grace runs out while it waits. The removed element never fires
+      // load or error, so the gate must not keep waiting on it: it warms the
+      // sheet again and holds on the new element.
+      vi.advanceTimersByTime(100);
+      await microtasks();
+      flush();
+      await microtasks();
+      const link = headLink("/gate-regrace.css");
+      expect(link).not.toBe(null);
+      expect(link.getAttribute("rel")).toBe("preload");
+      expect(div.innerHTML).toContain("Loading...");
+
+      await settleLoad("/gate-regrace.css");
+      expect(div.innerHTML).toContain("<main>again</main>");
+      expect(link.getAttribute("rel")).toBe("stylesheet");
+      dispose();
+      vi.runAllTimers();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("adopted server-emitted sheet: counts as loaded, no re-fetch, no gate stall", async () => {
