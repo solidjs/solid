@@ -2543,10 +2543,17 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // user comparator must not run against `undefined` (matches recompute).
   // D-41: a write over a shown error is a change whatever the last good
   // value was — the error leaves at its commit (`commitPendingNode`).
+  // `custom`: with the verdict engine, whether `el` carries a comparator of
+  // its own — `isSame`'s fast-path test, taken once for this gate and D-8's
+  // netting below, so the default comparator's `===` runs inline and a
+  // rewrite loop pays nothing for the netting (CodSpeed `propagation:
+  // avoidable`). Without the engine it is `null`: the gate folds to the
+  // plain `isSame` call and the netting away, byte for byte as before.
+  const custom = observeFlightHook ? el._equals !== isEqual : null;
   const valueChanged =
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
     !!el._x?._shownError ||
-    !isSame(el, currentValue, v);
+    (custom === false ? currentValue !== v : !isSame(el, currentValue, v));
   if (!valueChanged) return v;
 
   // Attribution hook: this committed write is where a re-run chain begins.
@@ -2575,11 +2582,11 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // The netted test reads it only with the verdict engine (`isPending`,
   // `latest`): a build without it stages `v` as written. Under the default
   // comparator only the committed object itself is equal, and `v` is already
-  // it, so a rewrite loop pays one load before the comparator runs.
+  // it, so a rewrite loop pays one local test (`custom`, from the gate).
+  // (`custom` is truthy only with the engine installed.)
   el._pendingValue =
-    observeFlightHook &&
+    custom &&
     wasStaged &&
-    el._equals !== isEqual &&
     !((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED || el._x?._shownError) &&
     isSame(el, el._value, v)
       ? el._value
