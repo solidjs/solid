@@ -1288,11 +1288,12 @@ export function reruns(u: Transaction): unknown {
       // frame about to replace it (#4407; #4284: the grouping never changes
       // the screen).
       frame ||= (r as any)._type || s === r;
-      // A lane's reveal leaves the mark to the transaction: a reader that
-      // also read a held node as committed (`staleReader`) still observes
-      // that flight until it re-runs — cleared here, the transaction landed
-      // at this seam with the flight up and voided the reveal's run (#4397).
-      if (!u._lane) r._flags &= ~REACTIVE_FRAME_READ;
+      // The frame mark is the seat's to re-raise: a reader that also read a
+      // held node as committed (`staleReader`) re-reads it on this run and
+      // the slot's side effect (MARK_ST) marks it again if the flight is
+      // still up (#4397) — a lane's reveal no longer needs the mark carried
+      // across the re-run.
+      r._flags &= ~REACTIVE_FRAME_READ;
       (r as any)._modified = false;
       // Its frame is replaced by the re-derivation: a run one of its
       // children queued this flush (re-run by the same landing) is for the
