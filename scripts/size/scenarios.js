@@ -4146,8 +4146,9 @@ module.exports = [
     // 0.01 KB; recorded minified never raised.
     // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 26.27 -> 26.31 KB, recorded minified 79,986 -> 79,999 B (+13 B), measured locally (linux) at 26,294 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Batch re-record after the 2026-10-30 merges (#4454, #4457, #4461; over next @ 563b6b0): 26.31 KB -> 26.33 KB, recorded minified 79,999 -> 80,035 B (+36 B), measured locally (linux) at 26,312 B brotli. Growth is #4454's `stagedScreen` held-node check (+20 B minified in core.js) and #4457's same-error skip in `errorFamily`; together they put next over this cap. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "26.33 KB",
-    capMinified: 80035,
+    // A derived store's readers settle with its derive (async-gen rerun #1/#9, 2026-10-30, over next @ d0fc2851): 26.33 KB -> 26.35 KB, recorded minified 80,035 -> 80,056 B, measured locally (linux) at 26,336 B brotli / 80,056 B minified (+8 B minified over next). A derive pending by propagation, its pass not re-run, now settles its family when its source's settle walk retires that pending (core settlePendingSource -> familyStatus), as a memo's readers settle through its dependents: isPending ends at a re-ask that nets to the committed question, and a staged rejection lands (F-9, F-12, A9). The derive is not re-run, so an async derive's error reaches its readers once (D-41, #4463). Core floors -3 B minified. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "26.35 KB",
+    capMinified: 80056,
     alias
   },
   {
