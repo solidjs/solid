@@ -10,10 +10,12 @@
  *
  * Per case, the shell is hydrated and every chunk applied, then:
  *
- * - NO REFETCH: no memo whose answer (value or error) the server sent asks
- *   again before the first client write. A first ask of something the
- *   payload never carried is not a refetch (#4313, #4414), nor is an ask
- *   made under hydration's dry run, with its fake Promise.
+ * - NO REFETCH (Ryan, 2026-10-30): "a refetch is a re-ask of a read the
+ *   server answered (value or error); a first ask of a read the server
+ *   never reached is the client's ordinary ask". Hydration is CSR with the
+ *   server's answers claimed, so an ask counts only when the payload carries
+ *   that memo's answer and it comes before the first client write. An ask
+ *   made under hydration's dry run, with its fake Promise, is not one.
  * - CLEAN: no console.error, no hydration warning.
  * - HYDRATED = CSR: the hydrated screen equals a fresh client render of the
  *   same inputs with every memo synchronous.
