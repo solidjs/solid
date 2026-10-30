@@ -137,7 +137,10 @@ function route(c: Computed<any>, t: Transaction): void {
 function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
   if (el._config & CONFIG_INPUTS_PUBLISHED || (el._config & CONFIG_HELD && bornInto(c, txOf(el))))
     return false;
-  if (globalQueue._running) {
+  // A derived store's derive whose store has no reader (`fam.live` empty:
+  // no leaf has a node) is no display: it observes nothing and holds nothing
+  // (F-3, D-11) — it stays live only to keep the store's data.
+  if (globalQueue._running && (c as any).fam?.live.size !== 0) {
     joinFuture(null);
     if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
     verdictRead(c, flushTransaction!, true);
