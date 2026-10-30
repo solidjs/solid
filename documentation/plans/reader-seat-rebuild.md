@@ -891,7 +891,8 @@ seating deciders — `core.js` shrinks by ≈ 540 B minified on the core floor
 (7,144 → 6,603) — and the shadow proves the replacement at 0 classes on
 every suite. But the bytes that grew on `next` between rc.19 and rc.20 are
 not the deciders'. They live in the seam / reveal / hold layer (the
-overnight batch: `lanes.ts`'s seams, +1,330 B minified), which the table
+overnight batch: `lanes.ts`'s seam / landing code, +1,330 B of a +2,167 B
+unmangled lane-bundle delta; the floors grew +64–89 B brotli), which the table
 does not touch, and which the 50k differential shows is load-bearing: the
 D-37 class and #45702 came with M3b's adoption of the provisional readers
 into the verdict lane (the reveal record), #39609 with M3a's pass side —
