@@ -393,7 +393,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // produced. So is a lazy or dormant memo's wake (an unowned memo with no
   // reader left, #4366): woken inside the window, it read its sources as the
   // probe does, the committed value under a landing. (A signal has no
-  // `_flags`: the wake is a no-op for it.)
+  // `_flags`: the wake is a no-op for it.) The window's state closes with it
+  // (#4429): a `latest()` or `isPending()` the pass makes itself opens its
+  // own window — it does not join a hold through the probe's arm, answer
+  // the outer probe (`probeFound` is only set while `probing`), or read as
+  // inside the outer `latest`.
+  const prevProbing = probing,
+    prevLatest = latestActive;
+  probing = latestActive = false;
   setVerdict(null);
   prepareComputed(owner, false);
   if (c && tracking) {
@@ -401,6 +408,8 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     if ((el as any)._fn) pullComputed(owner, c);
   }
   setVerdict(verdictValue);
+  probing = prevProbing;
+  latestActive = prevLatest;
   // A live `affects()` mark on the node or a dependency (affects.ts): not
   // final by declaration — the value itself is read as below. The verdict is
   // display-ahead like any: in a transaction's flush (the declaring action's
