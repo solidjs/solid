@@ -178,8 +178,19 @@ function verdictRead(c: Computed<any>, t: Transaction, plain?: boolean): void {
  * transaction, the reader is its verdict lane's at once; a pass that also
  * read the frame's own stagings plainly (REACTIVE_STAGED_READ) stays the
  * frame's (`route` does not move it). */
-function provisionalVerdict(c: Computed<any>, notFinal: boolean): void {
+function provisionalVerdict(
+  c: Computed<any>,
+  notFinal: boolean,
+  el?: Signal<any> | Computed<any>
+): void {
   if (flushTransaction) {
+    // D-8: a signal's staging equal to its committed value is writes that
+    // netted — no proposal: the seam holds nothing of it and no landing
+    // flips its verdict, so it is final (F-9, D-23) and the reader is not
+    // re-run at the landing (#4485; `read`'s plain arm likewise, #4452). The
+    // reader is still the tick's verdict reader, shown now (D-25: the
+    // posture is the pass's). A signal's staging only, as `read`'s arm.
+    if (el && !(el as any)._fn && el._pendingValue === el._value) return route(c, flushTransaction);
     if (probing && notFinal) probeFound = true;
     verdictRead(c, flushTransaction);
     if (probing && c._flags & REACTIVE_STAGED_READ) watchVerdict(c);
@@ -540,7 +551,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     if (owner._statusFlags & STATUS_PENDING && !uninitialized)
       pendingVerdict(tracked ? c : null, owner);
     else if (tracked && globalQueue._running)
-      provisionalVerdict(c!, !latestActive && !uninitialized);
+      provisionalVerdict(c!, !latestActive && !uninitialized, el);
     // Outside a flush, the staging is an unflushed write (A28): the probe
     // answers for the flushed world, and watches the seam of the flush that
     // carries the write — a memo of `isPending(x)` created after the write

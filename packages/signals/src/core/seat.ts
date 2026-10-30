@@ -493,6 +493,11 @@ export function slot(
   const laneNode = (cfg & CONFIG_OVERRIDE) !== 0;
   const guess = (cfg & CONFIG_GUESS) !== 0;
   const stagedError = (cfg & CONFIG_STAGED_ERROR) !== 0;
+  /** D-8: a plain signal's staging equal to its committed value — writes
+   * that netted, no proposal (`read`'s plain arm; #4452, #4485). A window's
+   * read of it is the seam's verdict's rows below (`provisionalVerdict`
+   * answers it final and routes it as they say). */
+  const netted = staged && !isFn && !laneNode && el._pendingValue === el._value;
   /** The staging as a slot: its value, or the error it stages (D-41). */
   const stagedSlot = stagedError ? SLOT_E : SLOT_P;
   /** The screen as a slot: the committed value, or the error still shown
@@ -886,6 +891,11 @@ export function slot(
     // (F-9, as D1/L1: a staging beneath a flight is not what the reader
     // sees — the flight decides below. The 50k differential's V3 finding.)
     if (!pending) {
+      const row = renderLeaf ? "L1" : inLane ? rowBase + "D7" : rowBase + "D1";
+      // D-8: writes that netted made no proposal — the staging (the screen's
+      // value) for every reader, raising nothing: not a read of the frame's
+      // future, nor a verdict reader's stale read of the tick's hold.
+      if (netted) return carry(pred(row, SLOT_P));
       if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) {
         // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
         // staging before (the seam's verdict).
@@ -894,7 +904,6 @@ export function slot(
       }
       if (inLane && seat!.lane!.folded && stagedScreen && !uninit)
         return carry(pred(rowBase + "D7'", SLOT_C, MARK_ST, flushTransaction)); // folded lane work reads the screen (D-34)
-      const row = renderLeaf ? "L1" : inLane ? rowBase + "D7" : rowBase + "D1";
       // A pass reading a node born staged (uninitialized) has no screen to
       // re-derive on: no Fl mark (#3969), the value is still the staging's.
       const raise = uninit ? 0 : RAISE_FL | (inSeat || (isEffect && verdictReader) ? MARK_W : 0);

@@ -2017,19 +2017,23 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       if (__TEST__) shadowActual(SLOT_C);
       return el._value as T;
     }
-    // (A plain signal is never uninitialized — the carve-out is `serve`'s.)
-    // Lane work over a folded lane (D-34), once the frame has a
-    // transaction, reads the screen too.
-    if (
-      ((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
-      stagedScreen(c as Computed<any>, el)
-    ) {
-      if (__TEST__) shadowActual(SLOT_C);
-      return el._value as T;
-    }
     // A staging equal to the committed value is writes that netted (D-8): no
-    // proposal, so not a read of the frame's future.
-    if (el._pendingValue !== el._value) stagedRead(c as Computed<any>);
+    // proposal, so not a read of the frame's future — nor, for a verdict
+    // reader, a stale read of the tick's hold re-run at its landing (#4485).
+    if (el._pendingValue !== el._value) {
+      // (A plain signal is never uninitialized — the carve-out is `serve`'s.)
+      // Lane work over a folded lane (D-34), once the frame has a
+      // transaction, reads the screen too.
+      if (
+        ((observeFlightHook && c._config & CONFIG_VERDICT) ||
+          (laneStageHook && passLane?.folded)) &&
+        stagedScreen(c as Computed<any>, el)
+      ) {
+        if (__TEST__) shadowActual(SLOT_C);
+        return el._value as T;
+      }
+      stagedRead(c as Computed<any>);
+    }
     if (__TEST__) shadowActual(SLOT_P);
     return el._pendingValue as T;
   }
