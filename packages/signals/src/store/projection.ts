@@ -19,6 +19,7 @@
 import { attrHooks } from "../core/attribution-hooks.js";
 import {
   CONFIG_AUTO_DISPOSE,
+  CONFIG_VERDICT,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
@@ -34,7 +35,13 @@ import {
 } from "../core/async.js";
 import { enqueueSub } from "../core/heap.js";
 import { getOwner, isDisposed } from "../core/owner.js";
-import { insertSubs, question, schedule, setQuestion } from "../core/scheduler.js";
+import {
+  insertSubs,
+  observeFlightHook,
+  question,
+  schedule,
+  setQuestion
+} from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { optHooks } from "./hooks.js";
@@ -239,6 +246,18 @@ export function runProjectionComputed<T extends object>(
   const target: StoreTarget = (wrappedStore as any)[$TARGET];
   const fam = target.fam!;
   const run = (fam.run = (fam.run || 0) + 1);
+  // A verdict reader's pass that is the hold's work reads plainly, as a
+  // pending node's is (core `recompute`, #3884, D-25), so the landing it
+  // computes is the one a reader held on it shows, not the screen a frame
+  // reader is served (#4491; D-30, F-2): its pending is on its leaves'
+  // readers (`wakeFamily`) with no landing to settle them yet — the settle
+  // walk clears the derive's own pending before the landing re-runs it — or
+  // a reader of the leaves reads a flight it was served the committed value
+  // of (`fam.w`, store.ts `pullFamily`; this pass consumes the mark). For
+  // this pass only: its reads set the posture again at its end, and a window
+  // in it re-stamps it (`markVerdictReader`). Only the verdict engine makes
+  // a verdict reader (`observeFlightHook`).
+  if (observeFlightHook && (fam.woke || fam.w)) ((fam.w = 0), (owner._config &= ~CONFIG_VERDICT));
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   // Open loading window (seedLoadingValue): the observable store IS commit #0
   // for the whole first flight — the derive works a detached shadow of the

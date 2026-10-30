@@ -41,6 +41,7 @@ import {
   joinFuture,
   MAINLINE_QUESTION,
   passLane,
+  pendingNodes,
   question,
   queuePendingNode,
   schedule,
@@ -591,6 +592,9 @@ export function handleAsync<T>(
     // landing is the verdict engine's (`holdWorkHook`).
     if (el._flags & REACTIVE_DIRTY && !(holdWorkHook && el._statusFlags & STATUS_UNINITIALIZED))
       return;
+    // A write whose flush is queued (before this landing stages its own): see
+    // the flush below (#4495). Not status bookkeeping queued with no value.
+    const carried = holdWorkHook && pendingNodes.some(n => n._pendingValue !== NOT_PENDING);
     const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
     landStatus(el);
     // Attribution hook: lets the engine snapshot state before the landing
@@ -651,7 +655,15 @@ export function handleAsync<T>(
     }
     settlePendingSource(el);
     schedule();
-    flush();
+    // An answer that lands while a write's flush is queued resolved before
+    // that flush was queued, with every answer whose reaction is queued ahead
+    // of it: the write's flush carries them all (F-10), each answered, then
+    // re-asked (D-22). Flushed here, it would re-ask the write's other async
+    // before their answers' reactions ran, and drop them (#4495). Only
+    // `latest`/`isPending` tell an answered-then-reasked node from one with
+    // no value, so it is the verdict engine's (`holdWorkHook`). A stream's
+    // next pull waits for its landing's flush.
+    if (then || !carried) flush();
     then?.();
   };
 
