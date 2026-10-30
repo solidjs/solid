@@ -89,22 +89,30 @@ and the raise primitives. Everything with a lane or a verdict in it reaches
 
 ### 2.2 `lanes.ts` split
 
-- `core/lanes-core.ts` (sub-hold core): create (`newLane`), judge-blocked
-  (`lanesBlocked`/`nestedBlocked`, parent waits for a lane's flights — F-6
-  2026-10-28 amendment), reveal at seam (`laneSeam`, `laneSeams`), link
-  (`linkLanes`/`linkBlocked`/`unlink`), end with parent (`endLanes`,
-  `dissolveLane`, `supersede`). `verdictLane(t)` lives here: a verdict
-  record is a lane record with no node set. Installs `lanesBlockedHook`,
-  `laneSeamsHook`, `endLanesHook`, `laneOutcomeHook`.
-- `core/lanes.ts` (optimistic layer): guess values (`_x._lane`),
-  `laneWrite`/`optimisticWrite`, `applyGuesses`, `fold`, supersession of
-  guesses, `laneStage`, and the guess arms of `laneRead` (rows L6, L7, D4,
-  V5, Vl5). Installs `laneReadHook`, `laneStageHook`, `laneWriteHook`,
-  `applyGuessesHook`, `laneCorrectionsHook`.
-- An `isPending`-only app imports `verdict.ts` → `lanes-core.ts`; it must
-  not retain `lanes.ts`. The byte saving is **measured** at the swap PR with
-  `scripts/size` (scenario: isPending without createOptimistic), not
-  estimated here.
+As done at S1 M4 (97ed6a00e; the plan above it read "verdict record with
+no node set" — F-vset reading 2 keeps the node set as the reveal record,
+so `verdictLane` and the set are the core's):
+
+- `core/lanes-core.ts` (sub-hold core): the lane records (`lanes`,
+  `newLane`, `verdictLane`), link/blocked/reveal/landing, `laneStage`,
+  `dissolveLane`, the seated rows (`laneSlot`, `seatRows`, `seatedRows`,
+  `preSnapshotBits`), the packed-result applier (`applyMarks`),
+  `laneApply`/`laneServe`, `laneSeam`/`laneSeams`, `endLanes`,
+  `lanesBlocked`/`nestedBlocked`/`revealing`, the derivation arm of
+  `laneWrite`, `adoptParked`/`adoptReaders`/`adoptSubs`/`adoptFrame`, and
+  `judged`/`markJudged`. Installs `installLaneHooks(...)` (twelve hooks)
+  and `GlobalQueue._verdictLane`.
+- `core/lanes.ts` (optimistic layer): `pendingGuesses`, `guessedValueOf`,
+  `pendingGuessOf`, `guessed`/`laneGuessed`, `kept`/`reverted`, `take`,
+  `rerun`, `optimisticWrite`, `inFlight`, `applyGuesses`, `reverting`,
+  `supersede`, `covered`, `guessFlights`, `laneCorrections`,
+  `laneOutcome`, `stale`/`answered`, the guess arm of `laneWrite`
+  (`guessWrite`), `revertLanding`. Installs `installGuessHooks` (outcome,
+  applyGuesses, corrections — scheduler.ts) and `installOptimisticHooks`
+  (guessFlights, take, covered, guessWrite, revertLanding — lanes-core.ts).
+- An `isPending`-only app imports `verdict.ts` → `lanes-core.ts` and does
+  not retain `lanes.ts` (`treeshake.test.ts` pins both directions).
+  Measured (§4.9): `+ isPending/latest` −1,661 B minified.
 
 ### 2.3 `verdict.ts` keeps
 
@@ -557,6 +565,99 @@ born-held are floor code), so no module outside the floor exists to
 install them; the packed-result convention (`slot` → `applyMarks` +
 `serveSlot`) against base's inline early returns; M3b's arms. Stopped
 here for the budget call (ruling 2).
+
+### 4.8 Results (S1 floor levers, 2026-10-29)
+
+Ruling 3 (budget deferred, not waived; two levers, no golfing beyond
+them). Minified bytes per module (`scripts/size` prod build; per-module
+figures are standalone-minified × chunk scale, so they drift a byte or
+two with the scale — chunk totals are the authoritative ones):
+
+| core floor                                                    |       base | before (a) |  after (a) |  after (b) |
+| ------------------------------------------------------------- | ---------: | ---------: | ---------: | ---------: |
+| **chunk total**                                               | **19,908** | **20,721** | **20,599** | **20,411** |
+| core.js                                                       |      7,144 |      6,761 |      6,676 |      6,603 |
+| scheduler.js                                                  |      4,757 |      4,801 |      4,788 |      4,751 |
+| async.js                                                      |      3,561 |      3,577 |      3,567 |      3,537 |
+| seat.js                                                       |          0 |      1,116 |      1,113 |      1,104 |
+| owner.js                                                      |      1,273 |      1,278 |      1,275 |      1,264 |
+| others (constants/effect/error/graph/heap/identities/signals) |      3,173 |      3,188 |      3,180 |      3,152 |
+
+- **(a) hook M3b's re-derive arms out of the floor** (186616316): the in-place re-derive arms in `recompute` now run behind
+  `verdictApplyHook`'s installer; engine-less bundles carry neither the
+  arms nor the guards. −122 B in the floor; engine scenarios +106
+  (`+ isPending/latest` 34,037 → 34,143) for the installer and hook call.
+- **(b) direct side effects on the plain rows** (a1348b19a): `plainRows`
+  fires its mechanisms itself (`joinPass`, `stagedRead` carrying W,
+  `staleReader`, `markLateLinker`, `link`) and returns the slot alone; the
+  packed convention stays for the engine rows (`seatedRows`, verdict
+  rows), applied by `applyMarks` in lanes-core.ts behind `applyMarksHook`.
+  Per row family in the floor: direct is smaller for every plain family
+  (`plainRows` grew +32 B; the applier, 145 B, and its call site leave
+  only once every floor family is direct — so direct per family and the
+  applier gone is the per-family optimum, not a global choice). The
+  hydration claim became a table slot (`SLOT_SNAPSHOT`; `claim` in
+  core.ts; `snapshotCaptureActive` in scheduler.ts so the chunk declares
+  it before seat.ts reads it and the minifier folds the guard — the
+  first cut had it in core.ts, TDZ-ordered after seat.ts, and measured
+  +70 B). −188 B in the floor; engine scenarios +211 (`+ isPending/latest`
+  → 34,354), +110 (live page), +278 (compiled live) for the claim arms and
+  the applier's relocation.
+
+Floor after both levers 20,411 (base +503; was +813). CSR app floor
+37,520 (base +505). Behaviour-neutral at each step (signals suite +
+shadow 0 classes; full battery at (b): solid/web green, generator 2k × 3
+the two known cases only).
+
+### 4.9 Results (S1 M4 — lanes split and deletions, 2026-10-29)
+
+Split (97ed6a00e, §2.2): `+ isPending/latest` 34,354 → 32,693 (−1,661;
+vs base +2,285), live page 121,239 → 119,577 (−1,662; vs base +2,452),
+compiled live 130,036 → 128,328 (−1,708); floors unchanged (the engine
+is not in them). The `+ isPending/latest` chunk now carries
+`lanes-core.js` 6,798 and no `lanes.js` (base: `lanes.js` 5,677 — the
+sub-hold core in base was already most of `lanes.js`; the optimistic
+layer it drops is the 1,661).
+
+Deletions. Each candidate was tried as a cut on the head and judged by
+the differential (signals suite + shadow; the subsumed set also by the
+full battery: solid 917 / web 1,551 + 3 expected fail / generator 2k × 3
+seeds the two known cases only / shadow 0 classes). Where a mechanism's
+firing could be counted, a probe counted it on base and head.
+
+Subsumed — deleted:
+
+| deletion                                                      | commit    | evidence                                                                                                                                                                                                                   | `+ isPending/latest` | live page | floor |
+| ------------------------------------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------: | --------: | ----: |
+| `laneServed` / `MARK_SERVED` / `laneServedHook`               | 5ea7d894a | base drops a served reader's pending source 24× in the signals suite; head 0× — the seat's slot never leaves the source on the reader (the stale screen is served with `staleReader`'s mark, not a pending source to drop) |                 −104 |      −106 |     0 |
+| `reruns`' `if (!u._lane)` carve-out for `REACTIVE_FRAME_READ` | 23160e65d | the carve-out still retained the mark 141× (49 no-ops) on head; clearing unconditionally changes no result — the re-read re-raises it through MARK_ST (`staleReader`) when the flight is still up (#4397)                  |                   −7 |        −7 |    −7 |
+
+Not subsumed — kept, with the failing tests the cut produces:
+
+- `holdWork` / `REACTIVE_WINDOW` / `CONFIG_ASYNC`: 32 failures
+  (`latest-two-readers-one-ask-4393`, `verdict-memo-flight-no-reask`,
+  `latest-first-one-pass-4402`, …). The hold's work-splitting is pass
+  scheduling, not a read decision; no slot covers it.
+- `adoptParked`: 28 failures. Adoption is the M3b answer to #4417 and
+  lives on the pass side.
+- `revealing`: 7 failures.
+- `laneDirty`'s verdict render-effect arm: 4 (`latest-memo-inline-parity`).
+- `laneSeams`' verdict-lane arm: 11; its plain arm: 6.
+
+Not decidable by the differential — kept, flagged:
+
+- `heldBy` (lanes-core.ts, `laneSeams` filter `!blocked(t) || heldBy(t, r)`):
+  its true arm fires **0× on base and 0× on head** across the signals
+  suite (probe), and the full battery is identical with it cut (−281 B
+  on `+ isPending/latest` / −278 live page; 0 floor). The differential
+  cannot show the table subsumes code nothing exercises; it is either
+  dead since before S1 or guarded by a case no suite reaches. Left in
+  place for a ruling (and a test, if the case exists).
+
+Already gone or out of scope: `markVerdictReader`, `provisionalVerdict`,
+`route` (M3a); the verdict-lane node set (F-vset reading 2 — kept as the
+reveal record); `stagedScreen` (store.ts still calls it — S4, the store
+twins).
 
 ## 5. Swap plan
 
