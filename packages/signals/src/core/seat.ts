@@ -59,6 +59,7 @@ import {
   EFFECT_RENDER,
   NOT_PENDING,
   REACTIVE_JOINED,
+  REACTIVE_MISSED_WAKE,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
@@ -68,6 +69,7 @@ import {
 import {
   clock,
   flushTransaction,
+  observeFlightHook,
   globalQueue,
   GlobalQueue,
   latestOpened,
@@ -914,6 +916,20 @@ export function slot(
       if (running) return carry(pred("V4", screen, MARK_ST | MARK_AH, flushTransaction));
       return carry(pred("V4", screen));
     }
+    // D-22 (amended 2026-10-30), F-9: a first answer staged this flush and
+    // re-asked in it — answered, then re-asked. A pass with no value of its
+    // own derives from it, once (`read`).
+    if (
+      observeFlightHook &&
+      cUninit &&
+      uninit &&
+      staged &&
+      !held &&
+      !stagedError &&
+      !isEffect &&
+      (c!._flags & REACTIVE_MISSED_WAKE || c!._x?._pendingSources?.has(el as Computed<any>))
+    )
+      return carry(pred(rowBase + "D3'", SLOT_P));
     return carry(pred(leaf ? "L5" : rowBase + "D3", SLOT_NR)); // F-2 D-28 / F-2 D-9
   }
 

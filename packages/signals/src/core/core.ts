@@ -2197,8 +2197,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
               (!((c as Computed<any>)._statusFlags & STATUS_PENDING) ||
                 (c as Computed<any>)._x?._pendingSources?.delete(owner)) &&
               (c._flags |= REACTIVE_MISSED_WAKE)))
-        )
+        ) {
+          if (__TEST__) shadowActual(SLOT_P);
           return el._pendingValue as T;
+        }
         // An untracked read of a pending node still re-runs its reader when
         // the node settles — unless nobody is reading (`spectating`, #3528)
         // or the reader is the node itself.
