@@ -219,7 +219,9 @@ describe("tier announcement — document face", () => {
       </html>
     ));
     expect(tiersRecord(html)).toEqual(["regions"]);
-    expect(html).toContain('<link rel="modulepreload" href="/assets/tier-regions.js">');
+    expect(html).toContain(
+      '<link rel="modulepreload" href="/assets/tier-regions.js" fetchpriority="low">'
+    );
     // In the head, with the shell.
     expect(html.indexOf("modulepreload")).toBeLessThan(html.indexOf("</head>"));
     expect(html).toContain("server body");
