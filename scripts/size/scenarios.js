@@ -1118,8 +1118,9 @@ module.exports = [
     // (43,875 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
     // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 14.89 -> 14.95 KB, recorded minified 43,875 -> 43,888 B (+13 B), measured locally (linux) at 14,932 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "14.95 KB",
-    capMinified: 43888,
+    // A staged error reaches derived stores and memos that catch it (#4456, 2026-10-30, over next @ 563b6b0f): 14.95 -> 14.98 KB, recorded minified 43,888 -> 43,926 B (+2 B over next, which measures 43,924 B), measured locally (linux) at 14,963 B brotli. A published error does not mark a node holding its own pass's answer (`propagateStatus`): +2 B minified, the rest brotli layout. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "14.98 KB",
+    capMinified: 43926,
     alias
   },
   {
@@ -1440,9 +1441,10 @@ module.exports = [
     // 0.01 KB; recorded minified never raised.
     // A held memo's parked reader re-derives at the seam (#4439, 2026-10-30, over next @ b249ad96): 11.04 KB -> 11.07 KB, recorded minified 30,408 -> 30,492 B (+84 B), measured locally (linux) at 11,057 B brotli. `laneSeams` also re-derives a reader whose pass read a held node, so `isPending` of a memo parked behind a held one turns true. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // A probe beside `latest()` outside any Loading no longer loops on a refetch (F-6, D-23; 2026-10-30, over next @ 7135a77a): 11.07 KB -> 11.10 KB, recorded minified 30,492 -> 30,569 B (+77 B), measured locally (linux) at 11,085 B brotli. `pendingVerdict` remembers the transaction a `latest` read of an unheld flight opened, and a probe in it joins the verdict lane without asking to re-run at its landing (the re-run re-opened it every flush). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "11.10 KB",
+    // A staged error reaches derived stores and memos that catch it (#4456, 2026-10-30, over next @ 563b6b0f): 11.10 -> 11.12 KB, recorded minified 30,569 -> 30,656 B (+60 B over next, which measures 30,596 B), measured locally (linux) at 11,105 B brotli. The settle walk re-runs a derivation of a staged error instead of leaving it to the commit (D-41), with the verdict engine alone. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "11.12 KB",
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 28,693 -> 29,086 B (+343 B minified over next), measured locally (linux) at 10,565 B brotli (+135 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 30569,
+    capMinified: 30656,
     alias
   },
   {
