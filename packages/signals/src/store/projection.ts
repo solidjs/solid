@@ -336,10 +336,13 @@ export function runProjectionComputed<T extends object>(
   return owner;
 }
 
-function createProjectionInternal<T extends object = {}>(
-  fn: (draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>,
+/** A derived store's family and root (`opt`: an optimistic store's, its
+ * derive `fn` optional — the plain form has none). */
+export function createProjectionInternal<T extends object = {}>(
+  fn: ((draft: T) => void | T | Promise<void | T> | AsyncIterable<void | T>) | null,
   seed: T | null | undefined,
-  options?: ProjectionOptions
+  options?: ProjectionOptions,
+  opt?: true
 ) {
   // Seedless (`fn` takes no draft): the root starts as an empty record. It is
   // a draft like any seed, never observable before the first landing (A25).
@@ -351,6 +354,7 @@ function createProjectionInternal<T extends object = {}>(
     live: new Set(),
     st: familyStatus,
     shallow: !!options?.shallow,
+    opt,
     // The row key, for a child paired after the adoption (store.ts
     // `adoptChild`, #3712) as the adoption pairs them.
     key:
@@ -375,16 +379,19 @@ function createProjectionInternal<T extends object = {}>(
     nodeOptions = { ...nodeOptions, name: options.name, loc: options.loc };
     nameStore(store, options.name, options.loc);
   }
-  const node = computed(() => {
-    if (!fam.node) fam.node = getOwner() as Computed<any>;
-    runProjectionComputed(store, fn, keyOption);
-  }, nodeOptions);
-  node._config &= ~CONFIG_AUTO_DISPOSE;
-  fam.node = node;
-  // The derive's leaves are not its dependents: a mark's repoll
-  // (affects-marks.ts) reaches their readers through this.
-  (node as any).fam = fam;
-  return { store, node } as { store: Refreshable<Store<T>>; node: Computed<void | T> };
+  if (fn) {
+    const node = computed(() => {
+      if (!fam.node) fam.node = getOwner() as Computed<any>;
+      runProjectionComputed(store, fn, keyOption);
+    }, nodeOptions);
+    node._config &= ~CONFIG_AUTO_DISPOSE;
+    fam.node = node;
+    // The derive's leaves are not its dependents: a mark's repoll
+    // (affects-marks.ts) and a source's status (core `propagateStatus`,
+    // `familyStatus`) reach their readers through this.
+    (node as any).fam = fam;
+  }
+  return store as Refreshable<Store<T>>;
 }
 
 /**
@@ -408,7 +415,7 @@ export function createProjection<T extends object = {}>(
   seed?: T | null,
   options?: ProjectionOptions
 ): Refreshable<Store<T>> {
-  return createProjectionInternal(fn, seed, options).store;
+  return createProjectionInternal(fn, seed, options);
 }
 
 /** `createStore(fn, seed, options)`: a projection with a user setter. */
@@ -417,6 +424,6 @@ export function createStoreDerived<T extends object = {}>(
   seed: T | null | undefined,
   options?: ProjectionOptions
 ): [Refreshable<Store<T>>, (f: (draft: T) => T | void) => void] {
-  const { store } = createProjectionInternal(fn, seed, options);
+  const store = createProjectionInternal(fn, seed, options);
   return [store, (f: (draft: T) => T | void): void => storeSetter(store, f)];
 }
