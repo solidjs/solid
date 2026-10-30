@@ -288,6 +288,11 @@ export interface Transaction {
    * (scripts/mangle-props.mjs), which costs the floors bytes for a path
    * only optimistic stores reach. */
   folded?: (c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown;
+  /** Opened by a `latest()` read of an unheld flight (verdict.ts
+   * `pendingVerdict`): it holds nothing of that flight, and a probe in it is
+   * its verdict lane's with no re-run at its landing (F-6, D-23). Unset
+   * until then; not `_`-prefixed, as `folded`. */
+  latest?: 1;
   /** `affects()` marks declared in it (affects.ts): released at the landing.
    * Not nodes — a mark holds nothing (`blocked` never sees one). */
   _marks: Signal<any>[] | null;

@@ -636,6 +636,31 @@ const save = action(function* () { setX(1); yield gate; });
 | 2   | `gate`, body returns | `1 \| content 1`                                                                                                                                                  |       |
 | ✗   |                      | after 1: `0 \| content 1` (the torn frame #3869 fixed)                                                                                                            |       |
 
+### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-27, D-37
+
+_Ruled 2026-10-30 ("actions aren't special — they are a way to extend the hold"). Pinned: `tests/display-ahead-plain-write-content.test.ts` (signals, passes) and `web/test/display-ahead-plain-write-content-s46.spec.tsx` (through `Show` + `insert`; the plain row is `test.fails` — today the branch attaches with its text hole empty, `selected: ` and nothing, F-2's empty slot and #4417's mechanism). S-31's rule in the plain-write, no-boundary form: a write to `id` is held because an async memo over it is on screen; no action, no `Loading`._
+
+```tsx
+const [id, setId] = createSignal(0);
+const detail = createMemo(() => fetchDetail(id()));
+<p>{id()}</p> <p>{detail()}</p>
+<Show when={latest(id) > 0} fallback="none">
+  <p>selected: {id()}</p>          {/* a plain read, under the display-ahead Show */}
+</Show>
+// primed: detail answered for id = 0
+```
+
+| #   | Action                                           | Screen                                                                                                                                                                                                       | Notes                                                                |
+| --- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| 0   | primed                                           | `0 \| none \| d0`                                                                                                                                                                                            |                                                                      |
+| 1   | `setId(1); flush()` — `fetchDetail(1)` in flight | `0 \| none \| d0` — the `Show` opens ahead (`latest` asked), but the branch is a mount whose first pass read the staging plainly: born held (D-27), it does not attach until the landing; the fallback stays | a plain `id()` means one thing on the whole screen — the `0` outside |
+| 1′  | same, content `selected: {latest(id)}`           | `0 \| selected: 1 \| d0`                                                                                                                                                                                     | the read that asks sees ahead, at its own site                       |
+| 1″  | same, content inside a `<Loading fallback>`      | `0 \| [fallback] \| d0`                                                                                                                                                                                      | S-31's form: the boundary catches the born-held read                 |
+| 2   | `fetchDetail(1)` lands                           | `1 \| selected: 1 \| d1`                                                                                                                                                                                     |                                                                      |
+| ✗   |                                                  | after 1: `0 \| selected: 1 \| d0` — two plain reads of one signal disagreeing on one screen                                                                                                                  |                                                                      |
+| ✗   |                                                  | after 1: `0 \| selected: 0 \| d0` — the branch attached with the committed value; a mount under a display-ahead reader is born held, not a D-3 leaf                                                          |                                                                      |
+| ✗   |                                                  | after 1: `0 \| selected: (empty) \| d0` — the branch attached with its hole empty (F-2: never an empty slot). Today's screen through `Show` + `insert`                                                       |                                                                      |
+
 ### S-39. A later unread value still throws — D-28
 
 _Ruled 2026-10-09. The `n0`-first order already holds the mount. The `latest`-first order still publishes the empty slot; that is the violation._
@@ -809,7 +834,7 @@ Layered: action A guesses `milk`, action B sets a filter optimistically over it.
 
 ---
 
-## E. First loads, stores, errors (D-6, D-30, D-38, D-39, D-41)
+## E. First loads, stores, errors (D-6, D-30, D-38, D-39, D-41, D-42)
 
 ### S-36. A declared first paint is loading, not pending — D-30 (A27)
 
@@ -890,6 +915,40 @@ createEffect(data, { effect: v => log(v), error: e => log(e) });
 | ✗   |                          | after 2: `1 \| Error 2 \| 1` with the arm already run — the screen before D-41, F-1's torn frame |                    |                   |                  |              |                                                               |
 
 The hold did not wait on the rejection: step 3 lands as soon as `slow(2)` does, whether `data(2)` rejected before or after it.
+
+### S-47. `try/catch` around a reactive read: caught on one pass, bypassed on the next — D-42, F-12
+
+_Pinned: `tests/try-catch-reactive-read.test.ts` (the bypass as it is; not a target)._ (S-46 is #4466's.)
+
+```tsx
+const [id, setId] = createSignal(0);
+const data = createMemo(() => fetchData(id())); // async
+const guarded = createMemo(() => {
+  try {
+    return data();
+  } catch {
+    return "caught"; // written as if `data()` were an `await`
+  }
+});
+<p>{guarded()}</p>;
+```
+
+| #   | Action               | Screen            | `guarded` ran | Notes                                                                                                                                        |
+| --- | -------------------- | ----------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | mount                | `caught`          | yes           | the first pass read `data` loading; the catch fired and the memo completed — the first load is masked: no fallback, no hold                  |
+| 1   | `fetchData(0)` lands | `d0`              | yes           | the dependency registered before the throw, so the memo re-runs at the landing                                                               |
+| 2   | `setId(1); flush()`  | `d0` — held       | **no**        | `data` goes pending; `guarded` is marked pending by propagation, not run. The catch never sees it; the write is held through `guarded` (F-2) |
+| 3   | `fetchData(1)` lands | `d1`              | yes           |                                                                                                                                              |
+| ✗   |                      | after 2: `caught` | —             | what the author expected: the catch to run on every pending. It runs only on a pass that happens to execute while the source is pending      |
+
+The error twin, under `<Errored fallback={e => ...}>` with a sync `source` that throws when `mode() === 1`:
+
+| #   | Action                          | Screen         | `guarded` ran | Notes                                                                                                                                 |
+| --- | ------------------------------- | -------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | mount, `mode = 0`               | `m0`           | yes           |                                                                                                                                       |
+| 1   | `setMode(1); flush()`           | `errored:boom` | **no**        | `source` errors; `guarded` is marked errored, not run; the error reaches `<Errored>` as if the catch were not there                   |
+| 2   | `setMode(2); flush()`           | `m2`           | yes           |                                                                                                                                       |
+| 0′  | mounted with `mode = 1` already | `caught`       | yes           | the same code, the other outcome: the pass ran while the source was already errored, so the catch fired and the boundary never saw it |
 
 ### S-43. A held recovery keeps the shown error; recovering to the last good value is a change — D-41, D-39 (#3886)
 

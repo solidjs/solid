@@ -713,9 +713,17 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // a flight — the pass leaves the lane, and its frame holds as if the
     // read had come first (S-39, #4275). Nor does a verdict lane's seat carry
     // the leaf into another lane (no link): it reads that lane as from the
-    // frame's seat (#4284).
-    if ((never || passLane !== l) && passLane?._parent!._verdict === passLane) setPassLane(null);
-    if (passLane === null || !sameLane(passLane, l)) {
+    // frame's seat (#4284). The seat is the hold's, not the lane object's: a
+    // transaction merged into the hold keeps its own verdict lane, and that
+    // lane is the same hold's (D-4 — merged holds are one; #4427).
+    const p = passLane;
+    const seated = p?._parent!._verdict === p;
+    if (
+      seated &&
+      (never || l._parent!._verdict !== l || resolveTx(l._parent!) !== resolveTx(p!._parent!))
+    )
+      setPassLane(null);
+    if (passLane === null || (!seated && !sameLane(passLane, l))) {
       // (A lane that has never shown: the screen is the committed value.)
       if (never && l._shown) return NOT_PENDING;
       if (
@@ -1015,6 +1023,11 @@ function heldBy(t: Transaction, r: Computed<any>): boolean {
     }
   return true;
 }
+/** `r`'s pass read a node a transaction holds (#4439). */
+function readsHeld(r: Computed<any>): boolean {
+  for (let d = r._deps; d; d = d._nextDep) if (d._dep._config & CONFIG_HELD) return true;
+  return false;
+}
 const laneSeams = (t: Transaction | null): void => {
   // Passes that read a write the parked frame holds as the screen
   // (`stagedReaders`: lane work, a verdict reader before the verdict): they
@@ -1047,11 +1060,16 @@ const laneSeams = (t: Transaction | null): void => {
       // that probed only a flight, held as the frame's pending observer or
       // its staged derivation) has nothing to re-derive: its re-run
       // re-enters that transaction and parks it again, every round — it
-      // runs at the landing (#4349). One that read a staging re-derives only
-      // if its frame stays parked: landing at this seam, what it read is the
-      // screen (one run, D-22). Not one born into that frame (a held pass's
-      // child, ruling A): it has no screen, its reads are the transaction's
-      // either way — it runs again at the landing, not now.
+      // runs at the landing (#4349). Not one whose probe this seam's park
+      // answered: a flight it asked about before anything joined is held
+      // now, so its re-run routes into the holder's verdict lane and shows
+      // the verdict now (F-6, D-23); run only at the landing, its
+      // `isPending` read `false` for the whole hold (#4439). One that read a
+      // staging, or such a flight, re-derives only if its frame stays
+      // parked: landing at this seam, what it read is the screen (one run,
+      // D-22). Not one born into that frame (a held pass's child, ruling A):
+      // it has no screen, its reads are the transaction's either way — it
+      // runs again at the landing, not now.
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
@@ -1062,7 +1080,7 @@ const laneSeams = (t: Transaction | null): void => {
           : l &&
             !(
               r._flags & REACTIVE_PROBE_UNANSWERED ||
-              (r._flags & REACTIVE_STAGED_READ && blocked(l) && !bornInto(r, l))
+              ((r._flags & REACTIVE_STAGED_READ || readsHeld(r)) && blocked(l) && !bornInto(r, l))
             ))
       )
         continue;
