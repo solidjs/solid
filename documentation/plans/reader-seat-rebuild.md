@@ -950,11 +950,20 @@ Landed or to be extracted on their own, each measured on its own:
   #22669 #28591 #30977 #34631 #49646; 91501 #3494 #5871 #14705 #45722),
   and **the #45702 regression** (7, E9: `latest()` through a memo shows
   an empty span pair at settles 8–9 where the leaf form and `next` show
-  nothing). So the M3b signature belongs to the adoption, not the seat:
-  the D-37 class needs a ruling (is lane work under a display-ahead `Show`
-  entitled to the staged value, or the committed one?) before #4417 can
-  be fixed this way, and the fix itself is a membership change written as
-  mechanism — the §8.4 pattern.
+  nothing). So the M3b signature belongs to the adoption, not the seat,
+  and the fix itself is a membership change written as mechanism — the
+  §8.4 pattern. **Traced 2026-10-30 (corrects "needs a ruling"):** the 19
+  are not a ruling. Re-run on `next` with a plain reader of every signal
+  added outside the display-ahead `Show`, all 19 show the plain reads
+  inside agreeing with the outside reader at every step — the values are
+  committed (the flight is observed only through `isPending`, which never
+  keeps a hold open, D-11), so `next`'s values are right and the
+  adoption's `vs0:0` is a regression; where it kept a fallback it matched
+  the rule by accident. What `next` does get wrong in those screens is a
+  separate defect: the display-ahead branch attaches with its held holes
+  empty until the landing (F-2), which is #4417's mechanism in its
+  display-ahead-branch form — pinned as S-46's web row (#4466,
+  `test.fails`: `0 d0 | selected: ` where the rule is `0 d0 | none`).
 - **The `lanes-core` / `lanes` split** (M4, 97ed6a00e) — measured in
   isolation on `next` (`salvage/lanes-split`, b3926358b: pure move plus
   `installOptimisticHooks` / `installGuessHooks`). **Not opened under the
