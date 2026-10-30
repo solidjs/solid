@@ -611,6 +611,51 @@ describe("CAUGHT_REACTIVE_READ (dev): a caught reactive read that completed", ()
       dispose();
     });
 
+    // The query-cache shape of web's keyed-row-snapshot-loop-4342.spec: a
+    // derive probes its sibling queries' keys untracked, swallows a key
+    // that is not ready, and returns its own fetch (a flight). That is a
+    // true positive — the swallow is the spec's own code, not a runtime
+    // catch — and it is reported once, at the flight's landing.
+    it("the #4342 query-cache shape: a derive swallowing a sibling key's untracked NotReady and returning a promise warns once", async () => {
+      const stop = captureWarnings();
+      let dispose!: () => void;
+      const screens: string[] = [];
+      createRoot(d => {
+        dispose = d;
+        const link = createMemo(
+          async () => {
+            await pending<void>();
+            return "A";
+          },
+          { name: "link" }
+        );
+        const siblingKey = createMemo(() => ({ hash: link() }), { name: "sibling-key" });
+        const p = createProjection(
+          (_draft: { value?: string }) => {
+            try {
+              untrack(siblingKey);
+            } catch (err) {
+              if (!(err instanceof NotReadyError)) throw err;
+            }
+            return Promise.resolve({ value: "fetched" });
+          },
+          {} as { value?: string },
+          { name: "query" }
+        );
+        createRenderEffect(
+          () => p.value,
+          v => void screens.push(String(v))
+        );
+      });
+      flush();
+      await settle();
+      expect(screens).toEqual(["fetched"]);
+      const events = stop();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ ownerName: "query", nodeName: "sibling-key" });
+      dispose();
+    });
+
     it("a sync body returning a plain object is judged immediately", () => {
       const stop = captureWarnings();
       let dispose!: () => void;
