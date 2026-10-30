@@ -395,6 +395,8 @@ export function resolveTx(t: Transaction): Transaction {
  * went pending with nothing held). Joining a second one merges it into the
  * flush's: the work that touched both entangles them (A15). */
 export function joinFuture(t: Transaction | null): void {
+  // A lane is never the flush's transaction (D-37, #4440).
+  if (laneStageHook && t?._lane) return;
   const f = flushTransaction;
   if (f === null) {
     flushTransaction = t === null ? newTransaction(false) : resolveTx(t);
