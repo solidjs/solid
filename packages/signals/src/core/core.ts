@@ -2178,26 +2178,31 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // D-22 (amended 2026-10-30), F-9: `el`'s first value was staged
         // this flush and `el` went pending on a re-ask in it — an async
         // first answer landing in the tick a write re-asks it: answered,
-        // then re-asked. A memo with no value, waiting on `el`, derives from
-        // that value, as a flush of the answer alone would have let it,
-        // then runs again (the missed-wake latch) and waits on the re-ask
-        // holding it: `latest`/`isPending` of it read as of `el`. One pass:
-        // every read of it is served (the latch marks it); its wait on `el`
-        // is dropped, so the re-run throws and waits on `el` afresh. Not a
-        // render effect (the frame: its plain read throws), lane work, or a
-        // held node (the staging is the hold's). A plain read of such a memo
-        // throws as one of a memo with no value; only `latest`/`isPending`
-        // tell them apart, so it is the verdict engine's.
+        // then re-asked. A memo with no value, waiting on `el` (on the
+        // source a read of `el` parks on: `el` itself, or the async it
+        // derives from — at any depth), derives from that value, as a
+        // flush of the answer alone would have let it, then runs again (the
+        // missed-wake latch) and waits on the re-ask holding it:
+        // `latest`/`isPending` of it read as of `el`. One pass: every read
+        // of it is served (the latch marks it); its wait on `el` is
+        // dropped, so the re-run throws and waits on `el` afresh. Not a
+        // reader that does not wait on `el` (a first pass: no first load
+        // to have been answered), a render effect (the frame: its plain
+        // read throws), lane work or a verdict lane's pass (D-37: the
+        // screen plus the lane's own guesses), or a held node (the staging
+        // is the hold's). A plain read of such a memo throws as one of a
+        // memo with no value; only `latest`/`isPending` tell them apart, so
+        // it is the verdict engine's.
         if (
           observeFlightHook &&
+          passLane === null &&
           (c as Computed<any>)._statusFlags & owner._statusFlags & STATUS_UNINITIALIZED &&
           el._pendingValue !== NOT_PENDING &&
           !(el._config & (CONFIG_HELD | CONFIG_STAGED_ERROR)) &&
           !(c as any)._type &&
           (c._flags & REACTIVE_MISSED_WAKE ||
             ((c as Computed<any>)._pendingValue === NOT_PENDING &&
-              (!((c as Computed<any>)._statusFlags & STATUS_PENDING) ||
-                (c as Computed<any>)._x?._pendingSources?.delete(owner)) &&
+              (c as Computed<any>)._x?._pendingSources?.delete(owner._x!._error.source) &&
               (c._flags |= REACTIVE_MISSED_WAKE)))
         ) {
           if (__TEST__) shadowActual(SLOT_P);

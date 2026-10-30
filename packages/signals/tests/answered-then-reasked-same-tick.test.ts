@@ -17,10 +17,14 @@ import {
 // flush. The answer exists from when it resolved: the memo is answered, then
 // re-asked — `latest` shows the answer, the re-ask is a new question
 // (`isPending` true), and a derivation of the memo reads the same (async
-// generator E2/E3, `t S5 s0=2 t` and `t S6 s0=0 t`).
+// generator E2/E3, `t S5 s0=2 t` and `t S6 s0=0 t`) — at every depth: an
+// identity memo of an identity memo reads as the memo does (D-22).
 const task = () => new Promise<void>(r => setTimeout(r, 0));
 
-async function sameTick(view: "memo" | "identity" | "store", probe: "pending" | "latest") {
+async function sameTick(
+  view: "memo" | "identity" | "identity2" | "store",
+  probe: "pending" | "latest"
+) {
   const asks: { v: number; resolve: (v: number) => void }[] = [];
   const [s, setS] = createSignal(1);
   const m = createMemo(() => {
@@ -29,7 +33,10 @@ async function sameTick(view: "memo" | "identity" | "store", probe: "pending" | 
   });
   let x: () => number = m;
   if (view === "identity") x = createMemo(() => m());
-  else if (view === "store") {
+  else if (view === "identity2") {
+    const i = createMemo(() => m());
+    x = createMemo(() => i());
+  } else if (view === "store") {
     const [st] = createStore<{ v?: number }>(d => {
       d.v = m();
     }, {});
@@ -70,7 +77,7 @@ async function sameTick(view: "memo" | "identity" | "store", probe: "pending" | 
 }
 
 describe("a first answer landing in the tick a plain write re-asks it", () => {
-  for (const view of ["memo", "identity", "store"] as const) {
+  for (const view of ["memo", "identity", "identity2", "store"] as const) {
     it(`${view}: isPending is true — the re-ask is a new question (F-9)`, async () => {
       expect(await sameTick(view, "pending")).toBe("p:true");
     });

@@ -552,8 +552,11 @@ export function handleAsync<T>(
     // with the new value, creating a fresh Promise that supersedes this one.
     // Not a first answer (D-22, F-9): it resolved before the write — only its
     // reaction ran after — so it is a produced value, and the flush that
-    // re-asks lands it first (the node is answered, then re-asked).
-    if (el._flags & REACTIVE_DIRTY && !(el._statusFlags & STATUS_UNINITIALIZED)) return;
+    // re-asks lands it first (the node is answered, then re-asked). Only
+    // `latest`/`isPending` tell such a node from one with no value, so the
+    // landing is the verdict engine's (`holdWorkHook`).
+    if (el._flags & REACTIVE_DIRTY && !(holdWorkHook && el._statusFlags & STATUS_UNINITIALIZED))
+      return;
     const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
     landStatus(el);
     // Attribution hook: lets the engine snapshot state before the landing
