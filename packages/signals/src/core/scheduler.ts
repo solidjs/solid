@@ -59,8 +59,10 @@ import type { Computed, Owner, Signal } from "./types.js";
 // minifier folds every guarded call site (and the branch behind it) away.
 // Each module installs its own set at evaluation (pay-for-use).
 //
-// Lanes (lanes.ts; installed when `createOptimistic` — or verdict.ts — is
-// imported; every call site is behind a bit or a `passLane` nothing else sets).
+// Lanes — the sub-hold core (lanes-core.ts; installed when verdict.ts or
+// the optimistic layer is imported; every call site is behind a bit or a
+// `passLane` nothing else sets). The optimistic layer's own hooks (lanes.ts;
+// installed with `createOptimistic`) are `installGuessHooks`'s below.
 export let laneReadHook:
   | ((c: Computed<any> | null, el: Signal<any> | Computed<any>) => unknown)
   | null = null;
@@ -72,20 +74,15 @@ export let laneStageHook:
       errored: boolean | Computed<any>
     ) => boolean)
   | null = null;
-export let laneOutcomeHook:
-  | ((el: Computed<any>, value: unknown, errored: boolean) => boolean)
-  | null = null;
 export let laneWriteHook: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | null = null;
-export let applyGuessesHook: ((parent: Transaction | null) => void) | null = null;
 export let laneSeamsHook: ((t: Transaction | null) => void) | null = null;
-export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
-/** R5 (lanes.ts `laneSeams` parks a frame flight): the landing's re-derive
+/** R5 (lanes-core.ts `laneSeams` parks a frame flight): the landing's re-derive
  * of a reader adopts the flight instead (true: adopted, nothing to queue). */
 export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
 /** core.ts `frameRead` served lane work or a verdict reader a held node's
- * committed value (lanes.ts `laneServed`). */
+ * committed value (lanes-core.ts `laneServed`). */
 export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
   null;
 /** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
@@ -98,11 +95,8 @@ export function armGuessing(): void {
 export function installLaneHooks(
   read: NonNullable<typeof laneReadHook>,
   stage: NonNullable<typeof laneStageHook>,
-  outcome: NonNullable<typeof laneOutcomeHook>,
   write: NonNullable<typeof laneWriteHook>,
-  applyGuesses: NonNullable<typeof applyGuessesHook>,
   seams: NonNullable<typeof laneSeamsHook>,
-  corrections: NonNullable<typeof laneCorrectionsHook>,
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
   adopt: NonNullable<typeof laneAdoptHook>,
@@ -110,15 +104,30 @@ export function installLaneHooks(
 ): void {
   laneReadHook = read;
   laneStageHook = stage;
-  laneOutcomeHook = outcome;
   laneWriteHook = write;
-  applyGuessesHook = applyGuesses;
   laneSeamsHook = seams;
-  laneCorrectionsHook = corrections;
   endLanesHook = end;
   lanesBlockedHook = blocked;
   laneAdoptHook = adopt;
   laneServedHook = served;
+}
+// The optimistic layer (lanes.ts; installed when `createOptimistic` or
+// `createOptimisticStore` is imported): a written guess's own pass judged
+// (`laneOutcome`, core.ts `recompute`), the seam's guesses opening their
+// lanes (`applyGuessesAt`), the body-end corrections (`laneCorrections`).
+export let laneOutcomeHook:
+  | ((el: Computed<any>, value: unknown, errored: boolean) => boolean)
+  | null = null;
+export let applyGuessesHook: ((parent: Transaction | null) => void) | null = null;
+export let laneCorrectionsHook: (() => boolean) | null = null;
+export function installGuessHooks(
+  outcome: NonNullable<typeof laneOutcomeHook>,
+  applyGuesses: NonNullable<typeof applyGuessesHook>,
+  corrections: NonNullable<typeof laneCorrectionsHook>
+): void {
+  laneOutcomeHook = outcome;
+  applyGuessesHook = applyGuesses;
+  laneCorrectionsHook = corrections;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary

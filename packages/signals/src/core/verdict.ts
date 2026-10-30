@@ -53,7 +53,7 @@ import {
 import { warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { display, laneValueOf, verdictLane } from "./lanes.js";
+import { display, laneValueOf, verdictLane } from "./lanes-core.js";
 import { enqueueSub } from "./heap.js";
 import {
   flushTransaction,
