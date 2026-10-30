@@ -19,6 +19,7 @@
 import { attrHooks } from "../core/attribution-hooks.js";
 import {
   CONFIG_AUTO_DISPOSE,
+  CONFIG_VERDICT,
   STATUS_ERROR,
   STATUS_PENDING,
   STATUS_UNINITIALIZED
@@ -239,6 +240,14 @@ export function runProjectionComputed<T extends object>(
   const target: StoreTarget = (wrappedStore as any)[$TARGET];
   const fam = target.fam!;
   const run = (fam.run = (fam.run || 0) + 1);
+  // The derive's pending is on its leaves' readers (`wakeFamily`) and no
+  // landing has settled them: it is pending, and its pass is the hold's work
+  // as a pending node's is (core `recompute`, #3884, D-25): it reads plainly,
+  // so the landing it computes is the one a reader held on it shows, not the
+  // screen a frame reader is served (#4491; D-30, F-2). A window in the pass
+  // re-stamps the posture (`markVerdictReader`). (The settle walk clears the
+  // derive's own pending before the landing re-runs it.)
+  if (fam.woke) owner._config &= ~CONFIG_VERDICT;
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   // Open loading window (seedLoadingValue): the observable store IS commit #0
   // for the whole first flight — the derive works a detached shadow of the

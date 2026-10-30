@@ -1119,8 +1119,9 @@ module.exports = [
     // 0.01 KB; recorded minified never raised.
     // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 14.89 -> 14.95 KB, recorded minified 43,875 -> 43,888 B (+13 B), measured locally (linux) at 14,932 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Batch re-record after the 2026-10-30 merges (#4454, #4457, #4461; over next @ 563b6b0): 14.95 KB -> 14.97 KB, recorded minified 43,888 -> 43,924 B (+36 B), measured locally (linux) at 14,951 B brotli. Growth is #4454's `stagedScreen` held-node check (+20 B minified in core.js) and #4457's same-error skip in `errorFamily`; together they put next over this cap. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "14.97 KB",
-    capMinified: 43924,
+    // A reader mounted mid-flight reads a derived store like its memo (#4491, D-30 / F-2; 2026-10-30, over next @ d0fc2851): 14.97 -> 15.01 KB, recorded minified 43,924 -> 44,038 B (+114 B; +108 B over next), measured locally (linux) at 14,997 B brotli. `pullFamily` reads the flight a verdict-reader derive was served the committed value of (its pending deps), so a reader that consumes unanswered async is held; a woke derive's pass reads plainly (projection.ts). Store-only: no frozen floor moves. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "15.01 KB",
+    capMinified: 44038,
     alias
   },
   {
@@ -4146,8 +4147,9 @@ module.exports = [
     // 0.01 KB; recorded minified never raised.
     // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 26.27 -> 26.31 KB, recorded minified 79,986 -> 79,999 B (+13 B), measured locally (linux) at 26,294 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Batch re-record after the 2026-10-30 merges (#4454, #4457, #4461; over next @ 563b6b0): 26.31 KB -> 26.33 KB, recorded minified 79,999 -> 80,035 B (+36 B), measured locally (linux) at 26,312 B brotli. Growth is #4454's `stagedScreen` held-node check (+20 B minified in core.js) and #4457's same-error skip in `errorFamily`; together they put next over this cap. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "26.33 KB",
-    capMinified: 80035,
+    // A reader mounted mid-flight reads a derived store like its memo (#4491, D-30 / F-2; 2026-10-30, over next @ d0fc2851): 26.33 -> 26.36 KB, recorded minified 80,035 -> 80,156 B (+121 B; +108 B over next), measured locally (linux) at 26,350 B brotli. `pullFamily` reads the flight a verdict-reader derive was served the committed value of, and a woke derive's pass reads plainly (store.ts, projection.ts). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "26.36 KB",
+    capMinified: 80156,
     alias
   },
   {

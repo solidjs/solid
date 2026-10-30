@@ -1869,7 +1869,28 @@ function pullFamily(target: StoreTarget): void {
     // (optimistic.ts `stands`, #4336).
     if (verdict === null && fw._statusFlags & STATUS_PENDING && optHooks?.stands(target)) return;
     readNode(fw);
-  } else untrack(() => readNode(fw));
+  } else {
+    untrack(() => readNode(fw));
+    // #4491: a derive that is a verdict reader only through what it reads (a
+    // verdict memo's value, D-25 / F-6; no window of its own) is served the
+    // committed value of a flight it reads (`observeFlight`, A15's stale
+    // reader) and settles over it: its leaves are the screen, not the
+    // flight's answer. A derived store reads like its memo (D-30): a tracked
+    // reader of the leaves reads that flight as the memo's reader would, so
+    // one that mounts mid-flight consumes unanswered async and is held (F-2)
+    // instead of shown the old question's answer. The derive is that hold's
+    // work until it answers (D-25): its next pass reads plainly, and the
+    // landing it computes is the one the held reader shows, not the screen.
+    // A pass that reads the verdict memo again is a verdict reader again
+    // (core `recompute`); one that goes pending stays plain while its pending
+    // is on the leaves (`fam.woke`, projection.ts). (The window flag is
+    // REACTIVE_WINDOW, spelled from EFFECT_RENDER: an import of it keeps a
+    // dead copy in bundles without the store.)
+    if (fw._config & CONFIG_VERDICT && !(fw._flags & (EFFECT_RENDER << 21)) && tracking)
+      for (let l = fw._deps; l; l = l._nextDep)
+        if ((l._dep as Computed<any>)._statusFlags & STATUS_PENDING)
+          ((fw._config &= ~CONFIG_VERDICT), readNode(l._dep));
+  }
 }
 
 /** A projection's writes are its derive's: a staging made while the derive
