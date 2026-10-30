@@ -27,7 +27,7 @@ export interface OptHooks {
   has(t: StoreTarget, key: PropertyKey): boolean | undefined;
   /** A guessed key's descriptor (`null`: removed; `undefined`: no guess). */
   descriptor(t: StoreTarget, key: PropertyKey): PropertyDescriptor | null | undefined;
-  /** The flush's commit: targets no lane holds leave `overlaid`. */
+  /** The flush's commit: targets no lane holds leave `_overlaid`. */
   sweep(): void;
   /** The container comparator's lane arm: an arrangement guess against a
    * landing (or another arrangement), by row identity. */

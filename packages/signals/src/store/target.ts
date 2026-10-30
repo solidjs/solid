@@ -25,12 +25,12 @@ export interface StoreFamily {
   opt?: boolean;
   /** Targets carrying a lane value on one of their nodes (reads compose the
    * view over the truth — optimistic.ts); dropped lazily once none is. */
-  overlaid?: Set<StoreTarget>;
+  _overlaid?: Set<StoreTarget>;
   /** The derive asked a new question over the family's guesses, stamped
    * with that flush's clock (#4336, optimistic.ts `ask`): `clock + 1` from
    * mainline over a live guess, `~clock` otherwise (a lane's work over no
    * guess of its own, or no live guess left). */
-  asked?: number;
+  _asked?: number;
   /** Normalized row-key fn (`options.key`, "id" default, null = unkeyed). */
   key?: ((item: any) => any) | null;
   map: WeakMap<object, StoreTarget>;
@@ -42,13 +42,13 @@ export interface StoreFamily {
   live: Set<StoreTarget>;
   /** A source's status reaching the derive by propagation (`familyStatus`). */
   st?: (status: number, error?: unknown) => void;
-  shallow?: boolean;
+  _shallow?: boolean;
   /** Derive run counter (proj R37): the run whose draft is live. */
   run?: number;
   /** The derive's pending reached the leaves' readers (`wakeFamily`) and no
    * landing has settled them yet: the next commit walks the family
    * (`settleFamily`). A sync commit with no wake behind it walks nothing. */
-  woke?: boolean;
+  _woke?: boolean;
 }
 
 /** One setter's written keys; `u` is the batch's earlier setters' (the
@@ -130,7 +130,7 @@ export interface StoreTarget {
    * a delete); null when none. */
   del: Set<PropertyKey> | null;
   /** Projection family, null for plain stores (§7b). */
-  fam: StoreFamily | null;
+  _fam: StoreFamily | null;
   /** Shallow store root (values served raw). */
   s: boolean;
 }
@@ -156,7 +156,7 @@ export const $OWNER: unique symbol = Symbol(__DEV__ ? "STORE_OWNER" : 0);
 export const storeLookup = new WeakMap<object, StoreTarget>();
 
 export function setLookup(raw: object, t: StoreTarget): void {
-  (t.fam?.map ?? storeLookup).set(raw, t);
+  (t._fam?.map ?? storeLookup).set(raw, t);
 }
 
 export function isOwned(raw: object): boolean {
@@ -167,7 +167,7 @@ export function isOwned(raw: object): boolean {
  * answers from its stamp; a user raw from the map. */
 export function lookupTarget(raw: object, fam: StoreFamily | null): StoreTarget | undefined {
   const owner: StoreTarget | undefined = (raw as any)[$OWNER];
-  return owner !== undefined && owner.fam === fam ? owner : (fam?.map ?? storeLookup).get(raw);
+  return owner !== undefined && owner._fam === fam ? owner : (fam?.map ?? storeLookup).get(raw);
 }
 
 /** Test-tier oracle (INTERNALS §5): no write path ever mutates a

@@ -152,7 +152,7 @@ function wakeFamily(fam: StoreFamily): void {
   // retires the derive (`settleFamily`) — reaches the readers parked here. A
   // reader the landing leaves unchanged does not re-run to clear it (#4305).
   const error = new NotReadyError(fw);
-  fam.woke = true;
+  fam._woke = true;
   optHooks?.ask(fam);
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
@@ -190,8 +190,8 @@ function errorFamily(fam: StoreFamily, error?: unknown): void {
  * settle — core's walk, from each leaf (the leaves are not the derive's
  * dependents, so its own settle walk does not reach them). */
 function settleFamily(fam: StoreFamily): void {
-  if (!fam.woke) return;
-  fam.woke = false;
+  if (!fam._woke) return;
+  fam._woke = false;
   const fw = fam.node!;
   forEachFamilyNode(fam, n => {
     if (n._subs !== null) settlePendingSource(n as unknown as Computed<any>, fw);
@@ -237,7 +237,7 @@ export function runProjectionComputed<T extends object>(
 ): Computed<void | T> {
   const owner = getOwner() as Computed<void | T>;
   const target: StoreTarget = (wrappedStore as any)[$TARGET];
-  const fam = target.fam!;
+  const fam = target._fam!;
   const run = (fam.run = (fam.run || 0) + 1);
   let result: void | T | Promise<void | T> | AsyncIterable<void | T>;
   // Open loading window (seedLoadingValue): the observable store IS commit #0
@@ -360,7 +360,7 @@ export function createProjectionInternal<T extends object = {}>(
     node: null,
     live: new Set(),
     st: familyStatus,
-    shallow: !!options?.shallow,
+    _shallow: !!options?.shallow,
     opt,
     // The row key, for a child paired after the adoption (store.ts
     // `adoptChild`, #3712) as the adoption pairs them.
@@ -372,7 +372,7 @@ export function createProjectionInternal<T extends object = {}>(
           : (row: any) => (isWrappable(row) ? row[keyOption] : undefined)
   };
   const store = wrap(seed as any, null, null, fam) as Store<T>;
-  if (fam.shallow) {
+  if (fam._shallow) {
     ((store as any)[$TARGET] as StoreTarget).s = true;
     markRawIngest(seed);
   }
@@ -396,7 +396,7 @@ export function createProjectionInternal<T extends object = {}>(
     // The derive's leaves are not its dependents: a mark's repoll
     // (affects-marks.ts) and a source's status (core `propagateStatus`,
     // `familyStatus`) reach their readers through this.
-    (node as any).fam = fam;
+    (node as any)._fam = fam;
   }
   return store as Refreshable<Store<T>>;
 }

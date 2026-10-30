@@ -200,7 +200,7 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
   if (
     !(
       el._config & CONFIG_HELD ||
-      (inPass && el._flags & REACTIVE_STAGED_READ && globalQueue._running && !(el as any).fam)
+      (inPass && el._flags & REACTIVE_STAGED_READ && globalQueue._running && !(el as any)._fam)
     ) ||
     passLane
   )
@@ -242,7 +242,7 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
     queuePendingNode(node);
     // A derived store's readers are its family's (store/projection.ts): they
     // re-derive from the staging, as from the derive's status (#4189).
-    (node as any).fam?.st(STATUS_ERROR);
+    (node as any)._fam?.st(STATUS_ERROR);
     settlePendingSource(node);
   }
 }
@@ -1097,7 +1097,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
       notifyStatus(sub, status, error);
       // A derived store's derive (store/projection.ts): marked, not re-run —
       // its leaves' readers are not its dependents, so the family walks them.
-      (sub as any).fam?.st(status, error);
+      (sub as any)._fam?.st(status, error);
     }
   });
 }

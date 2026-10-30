@@ -53,7 +53,7 @@ function lagOf(c: Computed<any>, seen: Set<Computed<any>>): Computed<any> | unde
   if (lagging.has(c)) return c;
   if (seen.has(c)) return;
   seen.add(c);
-  if (c._config & CONFIG_SLOT_NODE) return lagOf((c as any)._host?.fam?.node ?? c, seen);
+  if (c._config & CONFIG_SLOT_NODE) return lagOf((c as any)._host?._fam?.node ?? c, seen);
   const tail = c._flags & REACTIVE_RECOMPUTING_DEPS ? c._depsTail : undefined;
   if (tail !== null)
     for (let d = c._deps ?? null; d !== null; d = d._nextDep) {

@@ -57,7 +57,7 @@ export function reconcileState(
   // truth but an optimistic edit — the keyed diff is written into the draft
   // (a matched row keeps its proxy, its changed leaves become its guesses),
   // and the setter's exit turns the draft into guesses like any.
-  if (optHooks && userWriting() && t.fam?.opt === true) {
+  if (optHooks && userWriting() && t._fam?.opt === true) {
     optHooks.reconcile(state, unwrapValue(value), keyFn);
     return;
   }
@@ -78,7 +78,7 @@ export function reconcileState(
       // A different entity at the root: the old backing is disowned (wraps
       // fresh if re-handed) and the new one adopted whole.
       if (isOwned(prev)) delete (prev as any)[$OWNER];
-      else (t.fam?.map ?? storeLookup).delete(prev);
+      else (t._fam?.map ?? storeLookup).delete(prev);
       adoptPB(t, incoming);
       return;
     }
@@ -100,7 +100,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // Q-D: a landing on an optimistic family is reconciled against the VIEW
   // — key matching from the arrangement the guesses made (R28), so a row
   // the guess added keeps its proxy when the server returns it.
-  const prevView = optHooks && t.fam?.opt === true ? optHooks.view(t, old) : old;
+  const prevView = optHooks && t._fam?.opt === true ? optHooks.view(t, old) : old;
   const nextArr = Array.isArray(incoming);
   const shallow = t.s === true;
   adoptPB(t, incoming, false);
@@ -301,7 +301,7 @@ function descend(
 ): void {
   // `nv` is an object at every call site.
   if (pv === null || typeof pv !== "object") return;
-  const fam = t.fam;
+  const fam = t._fam;
   nv = unwrapValue(nv);
   let ct = lookupTarget(pv, fam);
   const nt = lookupTarget(nv, fam);

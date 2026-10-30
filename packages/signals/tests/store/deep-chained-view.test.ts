@@ -111,7 +111,7 @@ describe("deep() over a chained optimistic view (#3323)", () => {
       // The row the walk resolved is the one the get trap serves: one chained
       // target per row, keyed by the inner proxy.
       const served = view[0];
-      const fam = (view as any)[$TARGET].fam;
+      const fam = (view as any)[$TARGET]._fam;
       const raw = (base as any)[$TARGET].v[0];
       expect(fam.map.get(base[0])).toBe((served as any)[$TARGET]);
       expect(fam.map.get(raw)).toBeUndefined(); // no orphan raw-keyed wrapper
