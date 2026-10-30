@@ -1294,34 +1294,6 @@ const known: KnownDifference[] = [
         resolveTx(l._parent) === resolveTx(seat.vhold)
       );
     }
-  },
-  {
-    // `recompute`'s born-held test reads `creatorPass(oldcontext)`'s JOINED
-    // flag — the owner context of the creation, not the running pass. Under
-    // `runWithOwner` to an ancestor (`fallback`'s `b._fb`, created in
-    // `out._parent` while the output runs) that is a running ancestor that
-    // read the future itself, while the running pass (the output) did not:
-    // born held today, one level up the OWNER chain; not by the table's
-    // one-level running creator (F-mount reading A). The transitive reading
-    // (A29 / #4341: the branch exists only in the hold) agrees with today
-    // here and disagrees in 14 suite passes — design doc §7 F-transitive,
-    // pending the maintainer's ruling.
-    issue: 4428,
-    kind: "born",
-    row: "B2",
-    expected: 0,
-    actual: 1,
-    when: (c, _el, seat) => {
-      const o = shadowOldCreator;
-      return (
-        o !== null &&
-        (o._flags & REACTIVE_JOINED) !== 0 &&
-        (depth === 0 || seats[depth - 1].node !== o) &&
-        !(c._flags & REACTIVE_JOINED) &&
-        seat.creatorWorld < WORLD_H &&
-        seat.creatorsWorld === WORLD_H
-      );
-    }
   }
 ];
 const knownHits = new Map<number, number>();
