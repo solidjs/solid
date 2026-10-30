@@ -12,12 +12,12 @@
     "minified": 53608
   },
   "page: base server components (hydrating + dynamic + frames + sf reference)": {
-    "cap": "33.68 KB",
-    "minified": 101628
+    "cap": "33.77 KB",
+    "minified": 101638
   },
   "page: live server components (base + live/GET + action + isPending/latest)": {
-    "cap": "38.82 KB",
-    "minified": 117464
+    "cap": "38.83 KB",
+    "minified": 117331
   },
   "server: floor (getRequestEvent + isServer)": {
     "cap": "1.29 KB",
