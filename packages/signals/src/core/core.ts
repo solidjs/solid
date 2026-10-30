@@ -2484,11 +2484,8 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // user comparator must not run against `undefined` (matches recompute).
   // D-41: a write over a shown error is a change whatever the last good
   // value was — the error leaves at its commit (`commitPendingNode`).
-  const valueChanged =
-    !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
-    !!el._x?._shownError ||
-    !isSame(el, currentValue, v);
-  if (!valueChanged) return v;
+  const settled = !((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED || el._x?._shownError);
+  if (settled && isSame(el, currentValue, v)) return v;
 
   // Attribution hook: this committed write is where a re-run chain begins.
   if (__OBSERVE__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
@@ -2509,7 +2506,11 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // A28: a held node rewritten outside a flush keeps its flushed staging
   // for every reader until the flush that carries the rewrite.
   else if (el._config & CONFIG_HELD && !globalQueue._running) stashFlushed(el);
-  el._pendingValue = v;
+  // D-8 (#4483): a staged rewrite the comparator calls equal to the
+  // committed value nets to it; staging the committed value itself lets
+  // every netted test (`_pendingValue === _value`) see writes that made no
+  // proposal. (Unstaged, the gate above already compared it.)
+  el._pendingValue = settled && wasStaged && isSame(el, el._value, v) ? el._value : v;
   // A28 arm, gated on the load the write already pays for (`context`); the
   // arm itself is a cold helper so setSignal stays within every setter's
   // inlining budget, ~300 B bytecode.
