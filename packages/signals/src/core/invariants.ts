@@ -17,6 +17,13 @@ import type { Computed, Signal } from "./types.js";
  * early-returns unless `__TEST__` is set, so dev builds pay only a no-op
  * call. The test suite (vitest run) defines `__TEST__: true`; benchmark mode
  * defines `__TEST__: false`.
+ *
+ * INV-seat-1..3 (the reader-seat shadow: a leaf's world is its reads' —
+ * the screen raises nothing, a born node or the hold's own staging is the
+ * hold's world, D-27 — posture is never inherited, the new seat/slot agrees
+ * with the old deciders) live in `core/seat.ts` — they record into a registry rather
+ * than throw, so a differential run reports every class of disagreement
+ * (`shadowReport`, `SEAT_SHADOW_REPORT`); `__SEAT_SHADOW_STRICT__` throws.
  */
 
 type AnyNode = Signal<any> | Computed<any>;
