@@ -41,7 +41,6 @@
  */
 import {
   CAUGHT_REARMED,
-  CONFIG_AUTO_DISPOSE,
   CONFIG_REDERIVE,
   CONFIG_STAGED_ERROR,
   CONFIG_FRAME,
@@ -850,12 +849,13 @@ function fallback<T>(b: Boundary): T {
   // Lazy, so its first pass runs in the output's read below: the pass that
   // creates it is the output's, and born held asks the output — what it read
   // — not the owner the fallback lives in (D-27; #4428: an enclosing pass that
-  // joined a hold, while the output read nothing held). Owned for life, like
-  // an eager memo: not released when unobserved.
+  // joined a hold, while the output read nothing held). (Lazy also releases
+  // it when its one reader, the output, stops reading it: where `drop` below
+  // disposes it, or with the commit of a held swap.)
   if (b._fb === null)
-    (b._fb = runWithOwner(out._parent, () =>
+    b._fb = runWithOwner(out._parent, () =>
       computed(() => b._show(b), { id: out.id, lazy: true })
-    )!)._config &= ~CONFIG_AUTO_DISPOSE;
+    )!;
   // The swap is structure (#3540): what the fallback reads ahead — a
   // verdict (`latest()`), a lane — is the fallback's display-ahead, not the
   // swap's: the output's pass stays where it was (F-6 stays inside the
