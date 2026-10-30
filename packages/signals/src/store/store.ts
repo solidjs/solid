@@ -283,6 +283,9 @@ export function sameKey(a: any, b: any): boolean {
  * revert against it by row identity — by key when the family has one
  * (the server's object for a guessed row is the same row). */
 export class LaneView {
+  /** The rows the setter wrote, kept across re-bases: each composes from
+   * them over the latest truth (optimistic.ts `_laneRebase`, #4441). */
+  declare g?: any[];
   constructor(
     public rows: Record<PropertyKey, any>,
     /** The backing the guess is shown over: the committed one at the
