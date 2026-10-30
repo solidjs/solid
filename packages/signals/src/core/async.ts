@@ -369,7 +369,8 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // L2: a landing resumes the transaction waiting on it (maintainer: "it
       // resumes the sync frame") — a held reader's re-pass over the landed
       // value is that transaction's work, and the flush that carries it
-      // parks into it.
+      // parks into it. A lane's held reader is the lane's (D-37): the flush
+      // never takes a lane as its transaction (#4440).
       if (node._config & CONFIG_HELD) joinFuture(txOf(node));
       if (node._x?._blocked) {
         enqueueSub(node);
@@ -583,7 +584,13 @@ export function handleAsync<T>(
     // If the node was dirtied by a newer write (optimistic override or regular),
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
-    if (el._flags & REACTIVE_DIRTY) return;
+    // Not a first answer (D-22, F-9): it resolved before the write — only its
+    // reaction ran after — so it is a produced value, and the flush that
+    // re-asks lands it first (the node is answered, then re-asked). Only
+    // `latest`/`isPending` tell such a node from one with no value, so the
+    // landing is the verdict engine's (`holdWorkHook`).
+    if (el._flags & REACTIVE_DIRTY && !(holdWorkHook && el._statusFlags & STATUS_UNINITIALIZED))
+      return;
     const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
     landStatus(el);
     // Attribution hook: lets the engine snapshot state before the landing
