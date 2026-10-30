@@ -533,6 +533,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const wasPendingSource = el._x?._pendingSources?.has(el);
   // D-41: this pass's error is staged, not published (`stageError`).
   let stagedErr = false;
+  // A first pass held with no boundary catching it (the arms below, #4417).
+  let uncaught = false;
   // A19 exc. 2: a `refresh()` re-asks the question already answered — quiet
   // for the verdict — unless the question in flight is a new one, which the
   // re-ask does not launder (a poll during a quiet confirm stays quiet).
@@ -752,7 +754,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // flight is the lane's); false: the pass left the lane (lanes.ts).
   const errored = !!el._x?._error || stagedErr;
   if (laneStageHook && lane !== null) {
-    if (laneStageHook(el, lane, create, errored)) setPassLane(lane);
+    if (laneStageHook(el, lane, create, errored, joined)) setPassLane(lane);
     else lane = null;
   }
 
@@ -920,7 +922,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           // #3851): the mount is part of the hold, and the boundary appears
           // at its commit, its fallback never seen (D-13, U-3) — a `<Show>`
           // mounting it over a landing included.
-          freshHook?.(el, !mount && flushTransaction);
+          uncaught = !freshHook?.(el, !mount && flushTransaction);
         }
         if (__DEV__) devTrackHeldPending(el);
       }
@@ -966,8 +968,23 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // re-armed by `on` owns what it collects outright (D-14): not held.
   if (create && lane === null && joined && el._statusFlags & STATUS_PENDING) {
     const t = flushTransaction ?? passTx;
-    if (t && !t._lane && freshHook?.(el) !== CAUGHT_REARMED) holdNode(el, t);
+    if (t && !t._lane) {
+      const caught = freshHook?.(el);
+      if (caught !== CAUGHT_REARMED) holdNode(el, t);
+      uncaught = !caught;
+    }
   }
+  // A verdict lane's mount whose render effect is held (born held above, or
+  // pending) and caught by no boundary is the hold's, and so is the pass
+  // that mounted it (F-2, D-27, #4417): the structure it returns holds a
+  // binding with no first run before the commit — shown with the lane it
+  // would be an empty slot. The creator leaves the lane (`laneStage`) and
+  // stages with the hold, as a pass that joined before its verdict read
+  // stays the frame's (`enterLane`). A memo held this way decides nothing:
+  // its reader does (`joinPass`) — a boundary created after it may catch it
+  // (#3851).
+  if (uncaught && mount && isEffect === EFFECT_RENDER)
+    creatorPass(oldcontext)!._flags |= REACTIVE_JOINED;
   // Dependencies are the committed frame's until it is replaced (A30, #3410):
   // a pass that staged its value leaves the previous pass's tail linked for
   // `commitPendingNode` to trim, so a write to a dependency the committed

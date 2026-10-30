@@ -378,15 +378,23 @@ export function verdictLane(t: Transaction): Transaction {
  * the lane). A pass interrupted before it got there (pending, errored) did
  * not leave (A30: it never got there). A first pass under a lane is the
  * lane's (ruling A); a guess is written, not derived — it never leaves this
- * way. `errored`: the pass has no answer — or, a lane pass's pending
- * propagation (async.ts `propagateStatus`), the node gone pending. */
+ * way. A verdict lane's pass that joined the hold (REACTIVE_JOINED: a mount
+ * it made was born held, core.ts) leaves too — its result is the hold's,
+ * as a pass that joined before its verdict read never entered (`enterLane`;
+ * F-2, D-27, #4417). `errored`: the pass has no answer — or, a lane pass's
+ * pending propagation (async.ts `propagateStatus`), the node gone pending. */
 export function laneStage(
   el: Computed<any>,
   l: Transaction,
   create: boolean,
-  errored: boolean | Computed<any>
+  errored: boolean | Computed<any>,
+  joined?: boolean
 ): boolean {
-  if (!(create || errored || el._flags & REACTIVE_LANE_READ || el._config & CONFIG_GUESS)) {
+  if (
+    !(create || errored) &&
+    (!(el._flags & REACTIVE_LANE_READ || el._config & CONFIG_GUESS) ||
+      (joined && l._parent!._verdict === l))
+  ) {
     const x = el._x;
     if (x !== null) {
       const tx = x._transaction;

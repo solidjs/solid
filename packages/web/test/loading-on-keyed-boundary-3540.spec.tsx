@@ -148,7 +148,18 @@ describe("Loading `on` beside a keyed Show around the boundary; a boundary is ne
   ];
   for (const [variant, midFlight, expectedMounts, expectedCodes] of matrix) {
     const remounted = expectedMounts[1] > expectedMounts[0];
-    // Known bug #4417: the park re-derive voids the provisional owner, so the same key mounts again ([1,3,3]). Target [1,2,2] via in-place re-derive (reader-seat S1).
+    // Known bug #4417 (the mount-count half; the empty-slot attach half is
+    // fixed, S-46): the condition's first pass reads `latest(count)` before
+    // the frame has a transaction, so it is the frame's and Show's mount is
+    // the frame's held frame; the park re-derives the condition
+    // (`laneSeams`), its head replaces the held frame on the spot
+    // (`recompute`, #3404/#4378: `insertSubs` on the voided staging) and the
+    // value memo re-runs as the verdict lane's work, mounting the same key
+    // again ([1,3,3]). One mount AND the early fallback need the frame's
+    // mount re-seated into the lane — the adoption route (+274 B brotli,
+    // 19 D-37 cases; `documentation/plans/reader-seat-rebuild.md`, part 8) — which needs the D-37
+    // ruling first; the other reading accepts the remount as R-5's price
+    // (#4393) and re-pins [1,3,3]. Pinned at [1,2,2] until ruled.
     const it = variant.startsWith("show-") && variant.endsWith("-latest") ? test.fails : test;
     it(`${variant}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "held"}, A ${
       remounted ? "remounted" : "not remounted"

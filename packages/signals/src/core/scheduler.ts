@@ -69,7 +69,8 @@ export let laneStageHook:
       el: Computed<any>,
       l: Transaction,
       create: boolean,
-      errored: boolean | Computed<any>
+      errored: boolean | Computed<any>,
+      joined?: boolean
     ) => boolean)
   | null = null;
 export let laneOutcomeHook:
