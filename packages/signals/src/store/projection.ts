@@ -170,12 +170,17 @@ function wakeFamily(fam: StoreFamily): void {
 }
 
 /** The derive's flight rejected: every live reader of the family
- * re-derives (its pull throws the derive's error). */
-function errorFamily(fam: StoreFamily): void {
+ * re-derives (its pull throws the derive's error) — but a reader that
+ * already shows this very `error` has had its answer: re-run, its error arm
+ * would see the one error twice (D-41: the arm runs once, at the reveal; as
+ * core `propagateStatus` re-notifies no reader of an error it carries). A
+ * re-run of the derive meets an upstream error again, the same object, when
+ * a reader's pull retries it or a held error's commit dirties it (#4457). */
+function errorFamily(fam: StoreFamily, error?: unknown): void {
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
     forEachDependent(n as unknown as Computed<any>, sub => {
-      enqueueSub(sub);
+      (sub._statusFlags & STATUS_ERROR && sub._x!._error === error) || enqueueSub(sub);
     });
   });
   schedule();
@@ -202,6 +207,8 @@ function settleFamily(fam: StoreFamily): void {
  * pass's own throw. */
 function familyStatus(this: StoreFamily, status: number): void {
   if (status & STATUS_PENDING) wakeFamily(this);
+  // (No error to compare: core propagates to the derive only an error it does
+  // not already carry, so its readers learn it here first.)
   else if (status & STATUS_ERROR) errorFamily(this);
 }
 
@@ -303,7 +310,7 @@ export function runProjectionComputed<T extends object>(
           // later tracked re-read may retry (core `read`).
           if (first && owner._statusFlags & STATUS_UNINITIALIZED) return;
           if (pending) wakeFamily(fam);
-          else errorFamily(fam);
+          else errorFamily(fam, error);
         });
         // (The status is the one before this pass: `recompute` sets it after.)
         if (!owner._loading)
@@ -319,7 +326,7 @@ export function runProjectionComputed<T extends object>(
     // they do not subscribe to the derive.
     // A synchronous error the same way (#3956: a rerun that finds the
     // entry failed throws): every live reader re-derives and meets it.
-    if (!first) e instanceof NotReadyError ? wakeFamily(fam) : errorFamily(fam);
+    if (!first) e instanceof NotReadyError ? wakeFamily(fam) : errorFamily(fam, e);
     throw e;
   }
   // A pass that returned with a flight up (an iterator's sync first yield):
