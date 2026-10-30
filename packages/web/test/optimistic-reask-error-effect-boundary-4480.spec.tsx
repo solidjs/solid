@@ -20,10 +20,12 @@ import {
   createSignal,
   createMemo,
   createEffect,
-  createErrorBoundary,
   flush,
   untrack
 } from "solid-js";
+// The primitive behind `Errored` (ReactiveScript lowers `e catch (x) => alt`
+// to it): typed for renderers through `solid-js/internal`.
+import { createErrorBoundary } from "solid-js/internal";
 import { render } from "../src/index.js";
 
 const tick = async () => {
