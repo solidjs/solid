@@ -1117,8 +1117,9 @@ module.exports = [
     // 14.89 KB, recorded minified 43,874 -> 43,875 B; CI-measured at 14,875 B
     // (43,875 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "14.89 KB",
-    capMinified: 43875,
+    // A derived store's derive re-runs when a source it pends on settles (async-gen rerun #1/#9, 2026-10-30, over next @ 7135a77a): 14.89 -> 14.96 KB, recorded minified 43,875 -> 43,886 B, measured locally (linux) at 14,945 B brotli / 43,886 B minified (+11 B minified over next). A derive pending by propagation, its pass not re-run, now marks itself blocked so the source's settle re-runs it, as it does a pass that threw; the readers parked on the derive are retired at its commit (F-9, F-12). Store engine only. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "14.96 KB",
+    capMinified: 43886,
     alias
   },
   {
@@ -2729,11 +2730,12 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): cap unchanged, recorded minified 98,588 -> 98,607 B, measured in CI at 32,416 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
     // A held memo's parked reader re-derives at the seam (#4439, 2026-10-30, over next @ b249ad96): 32.42 KB -> 32.45 KB, recorded minified 98,607 -> 98,689 B (+82 B), measured locally (linux) at 32,433 B brotli. `laneSeams` also re-derives a reader whose pass read a held node, so `isPending` of a memo parked behind a held one turns true. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "32.45 KB",
+    // A derived store's derive re-runs when a source it pends on settles (async-gen rerun #1/#9, 2026-10-30, over next @ 7135a77a): 32.45 -> 32.49 KB, recorded minified 98,689 -> 98,700 B, measured locally (linux) at 32,476 B brotli / 98,700 B minified (+11 B minified over next). A derive pending by propagation, its pass not re-run, now marks itself blocked so the source's settle re-runs it, as it does a pass that threw; the readers parked on the derive are retired at its commit (F-9, F-12). Store engine only. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.49 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 96,989 -> 97,047 B (+58 B minified over next's record), measured locally (linux) at 31,811 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 97,024 -> 97,045 B (+21 B minified over next's record), measured locally (linux) at 31,798 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 97,045 -> 97,426 B (+240 B minified over next), measured locally (linux) at 31,976 B brotli (+109 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 98689,
+    capMinified: 98700,
     alias
   },
   {
@@ -4128,8 +4130,9 @@ module.exports = [
     // 26.27 KB, recorded minified 79,985 -> 79,986 B; CI-measured at 26,257 B
     // (79,986 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "26.27 KB",
-    capMinified: 79986,
+    // A derived store's derive re-runs when a source it pends on settles (async-gen rerun #1/#9, 2026-10-30, over next @ 7135a77a): 26.27 -> 26.32 KB, recorded minified 79,986 -> 79,997 B, measured locally (linux) at 26,306 B brotli / 79,997 B minified (+11 B minified over next). A derive pending by propagation, its pass not re-run, now marks itself blocked so the source's settle re-runs it, as it does a pass that threw; the readers parked on the derive are retired at its commit (F-9, F-12). Store engine only. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "26.32 KB",
+    capMinified: 79997,
     alias
   },
   {
@@ -4301,8 +4304,9 @@ module.exports = [
     // 32.43 KB, recorded minified 100,729 -> 100,748 B; CI-measured at 32,419 B
     // (100,748 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "32.43 KB",
-    capMinified: 100748,
+    // A derived store's derive re-runs when a source it pends on settles (async-gen rerun #1/#9, 2026-10-30, over next @ 7135a77a): 32.43 -> 32.50 KB, recorded minified 100,748 -> 100,759 B, measured locally (linux) at 32,482 B brotli / 100,759 B minified (+11 B minified over next). A derive pending by propagation, its pass not re-run, now marks itself blocked so the source's settle re-runs it, as it does a pass that threw; the readers parked on the derive are retired at its commit (F-9, F-12). Store engine only. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.50 KB",
+    capMinified: 100759,
     alias
   },
   {
