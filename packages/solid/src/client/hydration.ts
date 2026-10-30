@@ -39,7 +39,7 @@ import {
   type StoreOptions,
   type StoreSetter,
   type RevealOrder,
-  createOwner,
+  createScopeOwner,
   createRoot as coreRoot,
   getContext,
   setContext,
@@ -3120,7 +3120,7 @@ function hydratedCreateLoadingBoundary<T, U>(
  * ```
  */
 export function NoHydration(props: { children: SolidElement }): SolidElement {
-  const o = createOwner();
+  const o = createScopeOwner();
   return runWithOwner(o, () => {
     setContext(NoHydrateContext, true);
     // Claiming, not the bare flag: a rejected fragment's fresh render

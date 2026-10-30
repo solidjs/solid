@@ -38,6 +38,15 @@ export {
  * outside dev builds.
  */
 export { setConsoleFooter } from "./core/index.js";
+/**
+ * @internal `createOwner` as the runtimes in this repo use it (`NoHydration`,
+ * `Portal`, a frame's fill): its `dispose` is the shared `this`-reading
+ * method, not the bound one the exported `createOwner` gives (#4444). They
+ * dispose it as `o.dispose()` or with its parent, so apps that never call
+ * `createOwner` pay no bind. Client runtime only: the server has its own
+ * owners.
+ */
+export { createOwner as createScopeOwner } from "./core/index.js";
 /** @internal The flush round counter (scheduler.ts): hydration's served pass tells its own round from a later one. */
 export { clock } from "./core/index.js";
 /** @internal Dev duplicate-copy check: solid-js marks components and context reads. */

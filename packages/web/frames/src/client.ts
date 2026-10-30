@@ -19,7 +19,6 @@
 import {
   OBSERVE,
   createMemo,
-  createOwner,
   createRenderEffect,
   createSignal,
   getOwner,
@@ -71,7 +70,8 @@ import {
   setWriteHook,
   signalName,
   sharedConfig,
-  storeName
+  storeName,
+  createScopeOwner
 } from "solid-js/internal";
 
 // The container tier (DR-2 case 3): server projections cross the border as
@@ -766,8 +766,8 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // hydrate pass consumes no id from the adopting component's counter
           // (a keyed sibling after the frame keys the same whether a fill
           // mounted at t=0 or after a hold; the claim window has its own id).
-          const fillOwner = streamInvoke ? createOwner() : null;
-          const owner = fillOwner || createOwner({ transparent: true });
+          const fillOwner = streamInvoke ? createScopeOwner() : null;
+          const owner = fillOwner || createScopeOwner({ transparent: true });
           fillScopes.set(key, owner);
           ctx.onCleanup(() => {
             if (fillScopes.get(key) === owner) fillScopes.delete(key);
@@ -825,7 +825,7 @@ function slotsFor(props: Record<string, any>, scope?: ClaimScope) {
           // re-call with existing nodes must render for real — claiming would
           // no-op its inserts and silently drop whatever the re-call
           // displaced, e.g. moved-out {$frame} region ranges (#547).
-          const claim = adopted && runWithOwner(owner, () => createOwner({ id: prefix }));
+          const claim = adopted && runWithOwner(owner, () => createScopeOwner({ id: prefix }));
           const value = adopted
             ? claimRender(prefix, claim, ctx.existing, evaluate, scope)
             : fillOwner

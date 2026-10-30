@@ -13,7 +13,6 @@ import {
 import {
   createComponent,
   createMemo,
-  createOwner,
   createRoot,
   createSignal,
   getOwner,
@@ -28,7 +27,7 @@ import {
   type Setter,
   type DynamicOptions
 } from "solid-js";
-import { dynamicCore, sharedConfig } from "solid-js/internal";
+import { createScopeOwner, dynamicCore, sharedConfig } from "solid-js/internal";
 import type { JSX } from "../jsx/jsx.js";
 
 export * from "./client.js";
@@ -135,7 +134,7 @@ export function Portal(props: { mount?: Element; children: JSX.Element }): JSX.E
   // child-id counter and shift every hydration id after the portal. Both
   // sides consume exactly one slot from the parent instead — the owner
   // here, `getNextChildId` in the server Portal.
-  return runWithOwner(createOwner(), () => portalImpl(props)) as unknown as JSX.Element;
+  return runWithOwner(createScopeOwner(), () => portalImpl(props)) as unknown as JSX.Element;
 }
 
 function portalImpl(props: { mount?: Element; children: JSX.Element }): JSX.Element {

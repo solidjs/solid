@@ -61,7 +61,8 @@ export {
   SOURCE_PROXY,
   SOURCE_MEMO,
   SOURCE_MERGE,
-  type SourceKind
+  type SourceKind,
+  createScopeOwner
 } from "@solidjs/signals";
 
 /**
