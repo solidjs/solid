@@ -203,9 +203,13 @@ function caught(b: Boundary, node: Computed<any>, error: unknown, source = node)
   // the display until what the fallback waits on answers (D-39) — the
   // error boundary waits on it too.
   // (`_type`: STATUS_PENDING 1 < STATUS_ERROR 2 — an error boundary above a
-  // loading one.)
-  for (let p: Boundary | null = b; (p = p._parent); )
-    if (p._fallback && p._type > b._type) record(p, node);
+  // loading one.) Only a boundary that was already there (`_output` is null
+  // during its first pass): one born in the recovery pass — mounted by the
+  // content the healing error boundary is about to show — keeps its own
+  // flight (F-4, D-21; #4425).
+  if (b._output)
+    for (let p: Boundary | null = b; (p = p._parent); )
+      if (p._fallback && p._type > b._type) record(p, node);
   if (b._armed) flip(b);
   // Already showing the fallback: one more reader to wait on changes
   // nothing on screen. The fallback is instantiated once per show — a later

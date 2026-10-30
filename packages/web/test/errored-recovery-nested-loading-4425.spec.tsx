@@ -14,7 +14,16 @@
  * refresh landing is the new answer (D-39).
  */
 import { expect, test } from "vitest";
-import { Errored, For, Loading, Show, createMemo, flush, refresh, type Refreshable } from "solid-js";
+import {
+  Errored,
+  For,
+  Loading,
+  Show,
+  createMemo,
+  flush,
+  refresh,
+  type Refreshable
+} from "solid-js";
 import { render } from "../src/index.js";
 
 const tick = async () => {
@@ -85,12 +94,12 @@ async function run(nested: boolean) {
 
 test("nested=false: the recovery lands as the new answer", () => run(false));
 
-// #4425, pinned as a known bug (F-4, D-21, D-39, boundary-not-born-held-3540).
-// Regressed by #4401 (5f22701a): `caught()` in signals/src/boundaries.ts walks
-// from the catching Loading to every parent boundary showing its fallback and
-// records the pending reader there too (meant for D-39: a Loading hidden
-// behind an error whose reader re-asks the memo the error came through). The
-// nested Loading here is mounted by the recovery pass itself, so its search
-// flight lands on the healing Errored, which then waits for it. Expected
-// "Crashfinding"; observed "err not found" until the search answers.
-test.fails("nested=true: the recovery lands with the nested Loading's fallback", () => run(true));
+// #4425 (F-4, D-21, D-39, boundary-not-born-held-3540). Regressed by #4401
+// (5f22701a): `caught()` in signals/src/boundaries.ts walks from the catching
+// Loading to every parent boundary showing its fallback and records the
+// pending reader there too (D-39: a Loading hidden behind an error whose
+// reader re-asks the memo the error came through). The nested Loading here is
+// mounted by the recovery pass itself (its `_output` is still null), so the
+// walk must not fire: its search flight is its own, not the healing
+// Errored's. Was "err not found" until the search answered.
+test("nested=true: the recovery lands with the nested Loading's fallback", () => run(true));
