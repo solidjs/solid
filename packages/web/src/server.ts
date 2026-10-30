@@ -158,17 +158,26 @@ export type PreloadLink = PreloadLinkAttributes &
  * (unknown fields pass through untyped), but any bundler integration can
  * produce it. Only these fields are ever read: `preloads` is Solid's
  * extension slot for explicit typed links the integration selects.
+ *
+ * Keys are module ids, except `_`-prefixed metadata strings: `_base` (the
+ * public base joined with every `file`), plus any an integration stamps,
+ * such as the vite plugin's `_entry`. The index signature carries both
+ * (solidjs/solid#4502), so a read by key is an entry only once narrowed,
+ * e.g. `typeof entry === "object"`.
  */
-export type AssetManifest = Record<
-  string,
-  {
-    file: string;
-    css?: string[];
-    isEntry?: boolean;
-    imports?: string[];
-    preloads?: PreloadLink[];
-  }
-> & { _base?: string };
+export type AssetManifest = {
+  [key: string]:
+    | {
+        file: string;
+        css?: string[];
+        isEntry?: boolean;
+        imports?: string[];
+        preloads?: PreloadLink[];
+      }
+    | string
+    | undefined;
+  _base?: string;
+};
 
 /** Inline style content, e.g. dev CSS collected from a bundler's module graph. */
 export type InlineStyleAsset = {
@@ -437,8 +446,9 @@ function hasWidthDescriptor(srcset) {
 function resolveAssets(moduleUrl, manifest) {
   if (!manifest) return null;
   const base = manifest._base;
+  // Entries are objects; `_`-prefixed keys hold metadata strings (#4502).
   const entry = manifest[moduleUrl];
-  if (!entry) return null;
+  if (!entry || typeof entry !== "object") return null;
   const css = [];
   const js = [];
   let preloads;
@@ -447,7 +457,7 @@ function resolveAssets(moduleUrl, manifest) {
     if (visited.has(key)) return;
     visited.add(key);
     const e = manifest[key];
-    if (!e) return;
+    if (!e || typeof e !== "object") return;
     js.push(joinAssetPath(base, e.file));
     if (e.css) for (let i = 0; i < e.css.length; i++) css.push(joinAssetPath(base, e.css[i]));
     if (e.preloads) {
@@ -491,7 +501,9 @@ function registerEntryAssets(manifest) {
   const ctx = sharedConfig.context;
   if (!ctx?.registerAsset) return;
   for (const key in manifest) {
-    if (manifest[key].isEntry) {
+    // Metadata keys (`_base`, `_entry`) hold strings, or `undefined` (#4502).
+    const entry = manifest[key];
+    if (entry && entry.isEntry) {
       const assets = resolveAssets(key, manifest);
       if (assets) {
         if (assets.preloads)
