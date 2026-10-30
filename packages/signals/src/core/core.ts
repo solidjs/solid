@@ -2526,10 +2526,13 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // every netted test (`_pendingValue === _value`) see writes that made no
   // proposal. (Unstaged, the gate above already compared it.)
   // The netted test reads it only with the verdict engine (`isPending`,
-  // `latest`): a build without it stages `v` as written.
+  // `latest`): a build without it stages `v` as written. Under the default
+  // comparator only the committed object itself is equal, and `v` is already
+  // it, so a rewrite loop pays one load before the comparator runs.
   el._pendingValue =
     observeFlightHook &&
     wasStaged &&
+    el._equals !== isEqual &&
     !((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED || el._x?._shownError) &&
     isSame(el, el._value, v)
       ? el._value
