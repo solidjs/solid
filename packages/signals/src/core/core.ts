@@ -1964,17 +1964,20 @@ export function devRead(el: Signal<any> | Computed<any>): void {
  * D-22 (amended 2026-10-30), F-9: `el`'s first value was staged this flush
  * and `el` (`owner`) went pending on a re-ask in it — an async first answer
  * landing in the tick a write re-asks it: answered, then re-asked. A memo
- * `c` with no value, waiting on `el` (on the source a read of `el` parks on:
- * `el` itself, or the async it derives from — at any depth), derives from
- * that value, as a flush of the answer alone would have let it, then runs
+ * `c` with no value — waiting on `el` (on the source a read of `el` parks
+ * on: `el` itself, or the async it derives from — at any depth), or not
+ * waiting at all (its wait released by the landing, or a first pass) —
+ * derives from that value, as a flush of the answer alone would have let it
+ * (whether the landing ran before the re-ask reached `c` is the flush's
+ * order, not the reader's: D-22, at any depth), then runs
  * again (the missed-wake latch) and waits on the re-ask holding it:
  * `latest`/`isPending` of it read as of `el`. One pass: every read of it is
  * served (the latch marks it); its wait on `el` is dropped, so the re-run
  * throws and waits on `el` afresh. One served pass a flush (`_served`): a
  * pass that throws anyway, on a read beside it, parks on `el` again, and its
  * re-run is not served — served, it would re-run without end. Not a reader
- * that does not wait on `el` (a first pass: no first load to have been
- * answered), a render effect (the frame: its plain read throws), lane work
+ * waiting on another source, a render effect (the frame: its plain read
+ * throws), lane work
  * or a verdict lane's pass (D-37: the screen plus the lane's own guesses),
  * or a held node (the staging is the hold's). A plain read of such a memo
  * throws as one of a memo with no value; only `latest`/`isPending` tell them
@@ -1991,8 +1994,9 @@ function servesStaged(c: Computed<any>, el: Signal<any> | Computed<any>, owner: 
     (c._flags & REACTIVE_MISSED_WAKE ||
       (c._pendingValue === NOT_PENDING &&
         c._x?._served !== clock &&
-        c._x?._pendingSources?.delete((owner._x!._error as NotReadyError).source) &&
-        ((c._x!._served = clock), (c._flags |= REACTIVE_MISSED_WAKE))))
+        (!(c._statusFlags & STATUS_PENDING) ||
+          c._x?._pendingSources?.delete((owner._x!._error as NotReadyError).source)) &&
+        ((ext(c)._served = clock), (c._flags |= REACTIVE_MISSED_WAKE))))
   );
 }
 

@@ -919,8 +919,9 @@ export function slot(
     // D-22 (amended 2026-10-30), F-9: a first answer staged this flush and
     // re-asked in it — answered, then re-asked. A pass with no value of its
     // own, waiting on it (on the source a read of it parks on — the node,
-    // or the async it derives from, at any depth), derives from it, once a
-    // flush (`read`). Not lane work or a verdict lane's pass (D-37).
+    // or the async it derives from, at any depth) or not waiting at all (its
+    // wait released by the landing, or a first pass), derives from it, once
+    // a flush (`read`). Not lane work or a verdict lane's pass (D-37).
     if (
       observeFlightHook &&
       cUninit &&
@@ -933,7 +934,8 @@ export function slot(
       (c!._flags & REACTIVE_MISSED_WAKE ||
         (c!._pendingValue === NOT_PENDING &&
           c!._x?._served !== clock &&
-          !!c!._x?._pendingSources?.has(((el as Computed<any>)._x!._error as any).source)))
+          (!(c!._statusFlags & STATUS_PENDING) ||
+            !!c!._x?._pendingSources?.has(((el as Computed<any>)._x!._error as any).source))))
     )
       return carry(pred(rowBase + "D3'", SLOT_P));
     return carry(pred(leaf ? "L5" : rowBase + "D3", SLOT_NR)); // F-2 D-28 / F-2 D-9
