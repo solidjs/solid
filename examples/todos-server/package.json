@@ -1,7 +1,7 @@
 {
   "name": "todos-server-example",
   "description": "TodoMVC as a Solid Server Component — the list is server markup whose every control is a form that works without JavaScript; with it, a submission's aria-busy mark shows the intent through CSS and typed errors come back through useSubmissions",
-  "version": "0.0.1-rc.6",
+  "version": "0.0.1-rc.8",
   "private": true,
   "author": "Ryan Carniato",
   "license": "MIT",

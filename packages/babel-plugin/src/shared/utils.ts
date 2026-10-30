@@ -759,6 +759,18 @@ const templateEscapes = new Map([
   ["\u2029", "\\u2029"]
 ]);
 
+// A NumericLiteral for any evaluated number, so `-1` and `NaN` stay static
+// literals downstream. @babel/types 8's builder rejects negative and
+// non-finite values (`t.valueToNode` builds `-1` / `0 / 0` expressions
+// instead), so those are built as plain nodes; generators print them as
+// `-1` / `NaN` / `Infinity`, as Babel 7's builder did.
+export function numberLiteral(value: number): t.NumericLiteral {
+  if (value >= 0 && Number.isFinite(value) && !Object.is(value, -0)) return t.numericLiteral(value);
+  const node = { type: "NumericLiteral", value } as t.NumericLiteral;
+  if (Object.is(value, -0)) node.extra = { raw: "-0", rawValue: -0 };
+  return node;
+}
+
 export function evaluateAndInline(
   value: EvaluateAndInlineNode | null | undefined,
   valueNode: NodePath<EvaluateAndInlineNode>
@@ -786,7 +798,7 @@ export function evaluateAndInline(
       if (typeof r.value === "string") {
         valueNode.replaceWith(t.stringLiteral(r.value));
       } else if (typeof r.value === "number") {
-        valueNode.replaceWith(t.valueToNode(r.value));
+        valueNode.replaceWith(numberLiteral(r.value));
       } else if (typeof r.value === "boolean") {
         valueNode.replaceWith(t.booleanLiteral(r.value));
       }

@@ -289,7 +289,8 @@ describe("C12 (c) server half — a rejected server <Loading> inside a server co
       const html = await collectDocument(() => <App />);
       const tpls = templates(html);
       const key = Object.keys(tpls).find(k => !k.startsWith("pl-"))!;
-      expect(tpls[key]).toBe(" ");
+      // Empty: a rejected template carries the outcome alone (#4287).
+      expect(tpls[key]).toBe("");
       expect(html).not.toContain("app-fallback");
     });
   });

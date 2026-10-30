@@ -24,33 +24,35 @@
  * 2026-08-31b continuation half) is not built here; the matrix decides.
  */
 import {
-  CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   EFFECT_RENDER,
   NOT_PENDING,
-  STATUS_PENDING
+  REACTIVE_REASK
 } from "../core/constants.js";
-import { computed, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
-import { laneValueOf, optimisticWrite, pendingGuessOf } from "../core/lanes.js";
-import { getOwner } from "../core/owner.js";
+import { ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
+import { laneValueOf, optimisticWrite, pendingGuessOf, take } from "../core/lanes.js";
 import {
+  clock,
   GlobalQueue,
   insertSubs,
   joinFuture,
   laneDirty,
   list,
+  merge,
   notifyEpoch,
   passLane,
   resolveTx,
   schedule,
-  txOf
+  txOf,
+  type Transaction
 } from "../core/scheduler.js";
 import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
-import { runProjectionComputed } from "./projection.js";
+import { createProjectionInternal } from "./projection.js";
+import { reconcileState } from "./reconcile.js";
 import {
   cloneRaw,
   committed,
@@ -58,21 +60,18 @@ import {
   getHasNode,
   getNode,
   LaneView,
-  nameStore,
   resolveChainedRaw,
   sameKey,
   storeSetter,
   targetsEqual,
-  unwrapValue,
-  wrap
+  unwrapValue
 } from "./store.js";
 import { installOptHooks } from "./hooks.js";
-import { $OWNER, type StoreFamily, type StoreTarget } from "./target.js";
+import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
   $TRACK,
   isWrappable,
-  markRawIngest,
   type NoArray,
   type NoFn,
   type ProjectionOptions,
@@ -202,22 +201,24 @@ function arrangement(t: StoreTarget, a: any, b: any): boolean {
   const av = a instanceof LaneView;
   const bv = b instanceof LaneView;
   if (!av && !bv) return false;
-  return arrangementEqual(av ? a.rows : a, bv ? b.rows : b, t.fam?.key ?? null);
+  return arrangementEqual(av ? a.rows : a, bv ? b.rows : b, t.fam!);
 }
 
-function rowSame(a: any, b: any, keyFn: ((item: any) => any) | null): boolean {
+function rowSame(a: any, b: any, fam: StoreFamily): boolean {
   if (isEqual(a, b) || targetsEqual(a, b)) return true;
-  if (keyFn === null || !isWrappable(a) || !isWrappable(b)) return false;
-  const ka = keyFn(unwrapValue(a));
-  const kb = keyFn(unwrapValue(b));
-  // Keyless rows are identified by position — reconcile's fallback when the
-  // key is missing. The caller already paired these by index, so two keyless
-  // rows are the same row and the landing confirms the arrangement instead of
-  // dissolving it. Dissolving held an external echo under the action, and a
-  // mainline `until` then timed out on a source that already contained it
-  // (#3898). Keyed rows still match only on the key.
-  if (ka === undefined && kb === undefined) return true;
-  return ka !== undefined && sameKey(ka, kb);
+  const keyFn = fam.key;
+  if (!keyFn || !isWrappable(a) || !isWrappable(b)) return false;
+  // A row the store already serves is its proxy's row: a reader (a list)
+  // holds that proxy, so another object at the index is another row, by key
+  // or contents alike — a guess's fresh object wraps a new proxy. A landing's
+  // object has been adopted by the row it pairs with, so it serves that
+  // row's proxy. Only rows no proxy serves yet pair by key, keyless rows by
+  // position — reconcile's fallback (#3898).
+  const ta = lookupTarget((a = unwrapValue(a)), fam);
+  const tb = lookupTarget((b = unwrapValue(b)), fam);
+  if (ta || tb) return ta === tb;
+  // (Two keyless rows: `undefined` is the same key.)
+  return sameKey(keyFn(a), keyFn(b));
 }
 
 /** Whether reconcile would write anything into `a` from `b`: wrappable
@@ -247,12 +248,12 @@ GlobalQueue._echoes = (a, b) => {
 function arrangementEqual(
   a: Record<PropertyKey, any>,
   b: Record<PropertyKey, any>,
-  keyFn: ((item: any) => any) | null
+  fam: StoreFamily
 ): boolean {
   if (Array.isArray(a) !== Array.isArray(b)) return false;
   if (Array.isArray(a)) {
     if (a.length !== (b as any[]).length) return false;
-    for (let i = 0; i < a.length; i++) if (!rowSame(a[i], (b as any[])[i], keyFn)) return false;
+    for (let i = 0; i < a.length; i++) if (!rowSame(a[i], (b as any[])[i], fam)) return false;
     return true;
   }
   const ak = Reflect.ownKeys(a).filter(k => k !== $OWNER);
@@ -314,6 +315,33 @@ function reconcileDraft(draft: any, incoming: any, keyFn: KeyFn | null): void {
   for (const k of Object.keys(draft)) if (!(k in incoming)) delete draft[k];
 }
 
+/** Core asks (lanes `laneWrite`): the family's derive, re-asking in a lane of
+ * another action than the one that guessed this slot, writes it — that
+ * lane's new question, which the guess (over the old one) does not answer:
+ * the slot is the lane's derivation from here (F-6, #4336; lanes
+ * `laneStage` for a node's own pass). */
+GlobalQueue._slotTake = (n, back) => {
+  const t = (n as any)._host as StoreTarget | undefined;
+  if (back) {
+    // The guess comes back (lanes `endLanes`): on the slot's node now — the
+    // node itself, or the one a read made after it was released.
+    const k = (n as any)._key;
+    markOverlaid(t!);
+    return k === $TRACK
+      ? getContainerNode(t!)
+      : n._equals === isEqual
+        ? getHasNode(t!, k)
+        : getNode(t!, k);
+  }
+  const d = t?.fam?.node?._x?._transaction;
+  const g = txOf(n);
+  if (!d?._lane || sameAction(d, g)) return false;
+  // The re-ask takes the target's guess whole: the slot is the lane's
+  // derivation; its other guessed slots show their truth in the lane's
+  // world (lanes `take`).
+  for (const m of nodesOf(t!)) if (m?._config & CONFIG_GUESS && txOf(m) === g) take(m, d, m !== n);
+  return true;
+};
 /** Q-D (plan sec. 39): an OLDER question's truth landed beneath an arrangement
  * guess (`laneWrite` held it — another action's landing is not this guess's
  * answer). The guess is re-based over it: order from the guess, rows from
@@ -348,7 +376,10 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
   }
   const used = new Set<unknown>();
   const rows: any[] = [];
-  const guessed = view.rows as any[];
+  // From the guess as written, not an earlier re-base's composition: a
+  // derive's landing writes key by key, and a truth row one partial write
+  // showed must not stay appended once the landing drops it (#4441).
+  const guessed = (view.g ??= view.rows as any[]);
   for (let i = 0; i < guessed.length; i++) {
     const g = guessed[i];
     const k = isWrappable(g) ? keyFn(g) : undefined;
@@ -462,7 +493,31 @@ function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf
   }
 }
 
+/** D-34 for a per-key guess (#4329): the derive's draft wrote new objects
+ * over a target holding guessed rows (`d.length = 0; d.push(...rows)`, or
+ * `d.issues = rows`). The container on the way down to each guessed row
+ * reconciles the new object at its slot — in a keyed list, the one with
+ * the row's key — exactly as a returned landing would: rows match by key,
+ * a guessed row keeps its target, and its leaves are judged against their
+ * guesses. Rows nothing guessed are left as the draft wrote them. */
+function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
+  const keyFn = t.fam!.key;
+  for (let c of t.fam!.overlaid ?? []) {
+    // The guessed row, or its ancestor directly under `t` (none: skip).
+    while (c.u !== t) if ((c = c.u!) === null) break;
+    if (c === null) continue;
+    const k = keyFn?.(c.v);
+    const nv = Array.isArray(pb)
+      ? k !== undefined && pb.find(r => isWrappable(r) && sameKey(keyFn!(r), k))
+      : pb[c.pk!];
+    // A new object only: not `c`'s own, nor one another row serves
+    // (pairing it would alias the two).
+    if (isWrappable(nv) && !lookupTarget(nv, t.fam)) reconcileState(nv, c.px, keyFn, true);
+  }
+}
+
 installOptHooks({
+  pair: pairRows,
   draft: optimisticDraft,
   writes: notifyOptimisticWrites,
   arrangement,
@@ -471,8 +526,56 @@ installOptHooks({
     writer ? optimisticView(t, src, laneValueOf, true) : optimisticView(t, src),
   has: optimisticHas,
   descriptor: optimisticOwnDescriptor,
-  sweep: sweepOverlaid
+  sweep: sweepOverlaid,
+  // A new question (not a `refresh()`) asked over guesses an earlier frame
+  // opened, which answer the old one (D-34, #4336). Stamped on `fam.asked`
+  // with this flush's `clock`, so it lapses when the flush ends: `clock + 1`
+  // from mainline over a live guess — a frame still reading a guess at the
+  // seam shows it beside the new input, so the flush holds with the guess's
+  // action (`park`); `~clock` from a lane with no guess of its own, or with
+  // no live guess left — the lane waits for its answer (F-6), as for a
+  // guessed `createOptimistic` (lanes `laneStage`). The guess's own lane
+  // asks nothing new and stamps nothing.
+  ask: fam => {
+    if (fam.node!._flags & REACTIVE_REASK || !fam.overlaid?.size) return;
+    // Stamped with the flush (`clock`): it lapses when the flush ends.
+    let a = ~clock;
+    for (const g of fam.overlaid) {
+      const n = laneNodeOf(g);
+      if (n) {
+        if (passLane === null) a = clock + 1;
+        else if (sameAction(txOf(n), passLane)) return;
+      }
+    }
+    if ((fam.asked = a) > 0) joinFuture(null);
+  },
+  // Over a new question the guesses do not answer (`asked`): from mainline
+  // only a target carrying a guess stands in — a read of one with none is an
+  // ordinary pending read (F-2), so a keyed store's other keys wait for their
+  // answer, not for the guess's action; in a lane with no guess of its own,
+  // or with no live guess left, none does (F-6).
+  stands: t => {
+    const o = t.fam!.overlaid;
+    const a = t.fam!.asked;
+    return !!o?.size && (a !== clock + 1 || passLane !== null || o.has(t)) && a !== ~clock;
+  },
+  // Mainline hold (`clock + 1`): the flush joins the action of each guess a
+  // reader still reads at the seam; a reader that moved off it (a keyed
+  // store's other key) holds nothing.
+  park: t => {
+    for (const fam of overlaidFamilies)
+      if (fam.asked === clock + 1)
+        for (const g of fam.overlaid!) {
+          const n = laneNodeOf(g, true);
+          if (n) merge(txOf(n)._parent!, t);
+        }
+  }
 });
+
+/** Two lanes of one action (their parents resolved through merges). */
+function sameAction(a: Transaction, b: Transaction): boolean {
+  return resolveTx(a._parent!) === resolveTx(b._parent!);
+}
 
 function shallowKeys(o: Record<PropertyKey, any>): Record<PropertyKey, any> {
   const out: Record<PropertyKey, any> = {};
@@ -498,7 +601,7 @@ export function sweepOverlaid(): void {
   for (const fam of overlaidFamilies) {
     const set = fam.overlaid!;
     for (const t of set)
-      if (!carriesLane(t)) {
+      if (!laneNodeOf(t)) {
         set.delete(t);
         if (t.ch) rebaseChained(t);
         // The container shows its backing again (a shown arrangement guess
@@ -554,7 +657,7 @@ function rebaseChained(t: StoreTarget): void {
     k._notifiedAt !== notifyEpoch
   ) {
     const rows = Array.isArray(inner) ? untrack(() => (inner as any[]).map(unwrapValue)) : inner;
-    if (!arrangementEqual(k._value.rows, rows, t.fam?.key ?? null)) {
+    if (!arrangementEqual(k._value.rows, rows, t.fam!)) {
       insertSubs(k);
       changed = true;
     }
@@ -562,18 +665,21 @@ function rebaseChained(t: StoreTarget): void {
   if (changed) schedule();
 }
 
-function carriesLane(t: StoreTarget): boolean {
-  if (t.k !== null && t.k._config & CONFIG_OVERRIDE) return true;
-  if (t.dk !== null && t.dk._config & CONFIG_OVERRIDE) return true;
-  const nodes = t.n;
-  if (nodes !== null)
-    for (const key of Reflect.ownKeys(nodes))
-      if (nodes[key as any]._config & CONFIG_OVERRIDE) return true;
-  const has = t.h;
-  if (has !== null)
-    for (const key of Reflect.ownKeys(has))
-      if (has[key as any]._config & CONFIG_OVERRIDE) return true;
-  return false;
+/** `t`'s nodes (a missing container or deep node: null). */
+function nodesOf(t: StoreTarget): any[] {
+  const all = [t.k, t.dk];
+  for (const r of [t.n, t.h])
+    if (r !== null) for (const k of Reflect.ownKeys(r)) all.push(r[k as any]);
+  return all;
+}
+/** A node of `t` carrying a lane value, if any (`read`: one a reader's
+ * last pass read). */
+function laneNodeOf(t: StoreTarget, read?: boolean): Signal<any> | undefined {
+  for (const n of nodesOf(t))
+    if (n?._config & CONFIG_OVERRIDE) {
+      if (!read) return n;
+      for (let s = n._subs; s !== null; s = s._nextSub) if (s._gen === s._sub._depGen) return n;
+    }
 }
 
 function overlaid(t: StoreTarget): boolean {
@@ -689,42 +795,13 @@ export function createOptimisticStore<T extends object = {}>(
   third?: ProjectionOptions
 ): [get: Store<T>, set: StoreSetter<T>] {
   const derived = typeof first === "function";
-  const options = (derived ? third : second) as ProjectionOptions | undefined;
-  // Seedless derived form: the root starts as an empty record (see
-  // createProjectionInternal).
-  const initialValue = (derived ? second || {} : first) as T;
-  const keyOption = options?.key === undefined ? "id" : options.key;
-  const fam: StoreFamily = {
-    map: new WeakMap(),
-    node: null,
-    live: new Set(),
-    shallow: !!options?.shallow,
-    opt: true,
-    key:
-      typeof keyOption === "function"
-        ? keyOption
-        : keyOption === null
-          ? null
-          : (row: any) => (isWrappable(row) ? row[keyOption] : undefined)
-  };
-  const store = wrap(initialValue as any, null, null, fam) as Store<T>;
-  if (__OBSERVE__) nameStore(store, options?.name, options?.loc);
-  if (fam.shallow) {
-    ((store as any)[$TARGET] as StoreTarget).s = true;
-    markRawIngest(initialValue);
-  }
-  if (derived) {
-    const fn = first as (store: T) => void | T | Promise<void | T> | AsyncIterable<void | T>;
-    let nodeOptions: { name?: string; loc?: string; loadingValue?: void } | undefined;
-    if (options?.seedLoadingValue) nodeOptions = { loadingValue: undefined };
-    if (__OBSERVE__ && (options?.name || options?.loc))
-      nodeOptions = { ...nodeOptions, name: options.name, loc: options.loc };
-    const node = computed(() => {
-      if (!fam.node) fam.node = getOwner() as Computed<any>;
-      runProjectionComputed(store, fn, keyOption);
-    }, nodeOptions) as Computed<void>;
-    node._config &= ~CONFIG_AUTO_DISPOSE;
-    fam.node = node;
-  }
+  // A derived store's family (projection.ts): the derive's status reaches
+  // its leaves' readers as for `createStore(fn)` (F-12, #4437).
+  const store = createProjectionInternal(
+    (derived ? first : null) as any,
+    (derived ? second : first) as T,
+    (derived ? third : second) as ProjectionOptions,
+    true
+  );
   return [store, ((fn: (draft: T) => void) => storeSetter(store, fn)) as StoreSetter<T>];
 }

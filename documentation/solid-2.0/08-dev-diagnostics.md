@@ -140,6 +140,14 @@ render(
 
 **Scope:** the diagnostic only fires during the synchronous body of `render()` / `hydrate()`. Post-mount route transitions (including lazy route changes) run under their own transitions with the guard off, so they do not emit this warning.
 
+#### `LOADING_ON_ACCESSOR`
+
+**Message:** "[LOADING_ON_ACCESSOR] A Loading boundary's `on` received a function. `on` takes the dependency's value — `on={route()}`, or `on={[query(), page()]}` for several — and an accessor passed instead is never called, so nothing is read and the boundary never re-arms."
+
+**Severity:** `warn` (non-halting)
+
+`on` is read the way any JSX prop is: the compiler wraps `on={route()}` in a getter, so the boundary tracks `route` through it. `on={route}` or `on={() => route()}` hands the boundary the function itself, a value that never changes, and the boundary never calls it. Checked once, on the boundary's first run. `createLoadingBoundary(fn, fallback, { on })` reports the same shape when its `on` function returns a function.
+
 #### `LOADING_ON_OUTSIDE_HOLD`
 
 **Message:** "`on` re-armed a Loading boundary, but `comments` is also read outside it and holds the frame: the fallback can never be seen — the frame waits on the very source the boundary is waiting on. Move the outside read under the boundary so one hold owns the data. (Reading `latest()` in `on` shows the fallback now, beside the held frame.)"
@@ -967,6 +975,7 @@ The runtime derives a request's trace itself in every tier — the W3C `tracepar
 | `UNTRACKED_READ_AFTER_AWAIT`       | warn       | async          | Async computation first read a signal/memo/store key after an `await`; never a dependency (dev; V8 engines only)                                                  |
 | `PENDING_ASYNC_FORBIDDEN_SCOPE`    | warn       | async          | Pending async read in trackedEffect/onSettled                                                                                                                     |
 | `LOADING_ON_OUTSIDE_HOLD`          | warn       | async          | `<Loading on>` changed but its data is also read outside the boundary and holds the frame: the fallback can never be seen                                         |
+| `LOADING_ON_ACCESSOR`              | warn       | async          | `<Loading on>` received a function (an accessor) instead of the dependency's value; it is never called, so the boundary never re-arms                             |
 | `NO_OWNER_EFFECT`                  | warn       | lifecycle      | Effect created without reactive owner                                                                                                                             |
 | `NO_OWNER_CLEANUP`                 | warn       | lifecycle      | `onCleanup` called without owner                                                                                                                                  |
 | `NO_OWNER_BOUNDARY`                | warn       | lifecycle      | Boundary created without owner                                                                                                                                    |

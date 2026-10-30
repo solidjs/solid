@@ -2696,9 +2696,10 @@ export function renderToStream(code, options = {}) {
   // resume loops may be parked on promises that never settle), and pending
   // serialized values under the errored key would gate seroval's onDone the
   // same way. Settle both. Descendant `_fr` stubs resolve clean (not
-  // rejected) and abandoned data ids resolve undefined: the client re-renders
-  // the errored region fresh off the OUTER fragment's rejection, so nothing
-  // consumes these — a rejection would only raise unhandled-rejection noise.
+  // rejected) and abandoned data ids resolve undefined, and are unregistered
+  // on the client: it re-renders the errored region fresh off the OUTER
+  // fragment's rejection, so nothing consumes these — a rejection would only
+  // raise unhandled-rejection noise.
   //
   // A finding (`SSR_SUBTREE_ABANDONED`) when the discard took work with it —
   // nested fragments still rendering, serialized values still pending: the
@@ -2720,13 +2721,24 @@ export function renderToStream(code, options = {}) {
         fragments++;
       }
     }
+    const unregister = [];
     for (const [id, settle] of pendingSerialized) {
       if (id.startsWith(key)) {
         pendingSerialized.delete(id);
         settle();
         serialized++;
+        // Not yet on the wire: never registered. Otherwise the client drops
+        // it (below).
+        if (!stubBatch?.delete(id)) unregister.push(`delete _$HY.r[${JSON.stringify(id)}]`);
       }
     }
+    // The settle above only releases seroval: `undefined` is not the
+    // server's answer. The client renders this subtree fresh, adopting what
+    // the server sent by id, so an abandoned record must not be there to
+    // adopt: unregister it (a document task, ahead of the `_fr` rejection
+    // that triggers the fresh render) and the read computes. A frame sink
+    // has no reader for these records.
+    if (unregister.length && !options.sink) pushTask(unregister.join(";"));
     if ("_SOLID_OBSERVE_" && (fragments || serialized))
       emitFinding(
         {
@@ -3073,14 +3085,20 @@ export function renderToStream(code, options = {}) {
               // outcome — a server <Errored>'s fallback or the boundary's own
               // markup inside a server component (frames-rulings 3.3) — and
               // nothing outside one, where the client twin renders fresh over
-              // the blank.
-              sink.fragment(key, resolveSSRSelectValues(value !== undefined ? value : " "), {
-                styles,
-                revealGroup,
-                error: error
-                  ? ssrSanitizeError(error, null, undefined, undefined, errorScope)
-                  : error
-              });
+              // the blank: an empty template, so what its swap lists is the
+              // outcome alone (the client reads a listed outcome as the
+              // server's answer for the failure, #4287).
+              sink.fragment(
+                key,
+                resolveSSRSelectValues(value !== undefined ? value : error ? "" : " "),
+                {
+                  styles,
+                  revealGroup,
+                  error: error
+                    ? ssrSanitizeError(error, null, undefined, undefined, errorScope)
+                    : error
+                }
+              );
               item.resolve(error);
             }
           }

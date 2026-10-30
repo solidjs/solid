@@ -1480,10 +1480,14 @@ export function installHydrationRuntime() {
     // loose text positionally — elements recover through the registry, text
     // only has position. The region is `parent`'s children, or for
     // marker-bounded holes the nodes back to the matching `<!--$-->` start.
+    // A sole primitive (text the claim kept raw: a `<Loading>`'s string or
+    // number fallback, `0` included; only a markerless hole holds one)
+    // tracks no node, so it cannot tell a swap happened: the region is
+    // re-claimed (#4374).
     reclaimRegion(current, parent, marker) {
-      if (!sharedConfig.hydrating || !current || !parent.isConnected) return current;
+      if (!sharedConfig.hydrating || current == null || !parent.isConnected) return current;
       const first = Array.isArray(current) ? current[0] : current;
-      if (!first || !first.nodeType || first.isConnected) return current;
+      if (first == null || first.isConnected) return current;
       let nodes;
       if (marker) {
         nodes = [];
@@ -1824,10 +1828,10 @@ function trackAssetLoad(entry, adopted) {
   }
   entry.loadState = "pending";
   entry.loadPromise = new Promise(resolve => {
-    const settle = state => {
+    const settle = (entry.settle = state => {
       entry.loadState = state;
       resolve();
-    };
+    });
     el.addEventListener("load", () => settle("loaded"), { once: true });
     el.addEventListener("error", () => settle("errored"), { once: true });
   });
@@ -1962,6 +1966,11 @@ export function acquireAsset(descriptor) {
     entry.timer = setTimeout(() => {
       assetRegistry.delete(key);
       entry.element && entry.element.remove();
+      // A removed element fires neither load nor error, so a gate that
+      // warmed this entry inside the grace would wait on it forever. Release
+      // it the way an error does; its retry warms the sheet again, on a new
+      // entry.
+      if (entry.loadState === "pending") entry.settle("errored");
     }, ASSET_REMOVAL_GRACE);
   };
 }
@@ -2234,10 +2243,12 @@ function gateHeadResource(props) {
       // errored) sheet must acquire synchronously — cached sheets add zero
       // wait, adopted server-emitted sheets never stall — and even a
       // settled promise costs a microtask through the async machinery.
-      // Hydrating content is already visible; the server gated its reveal.
+      // Claimed content is already visible; the server gated its reveal. A
+      // fresh render under hydration (a rejected fragment's) gates like any
+      // client render.
       if (
         gateable &&
-        !sharedConfig.hydrating &&
+        !isHydrating() &&
         entry.loadState === "pending" &&
         typeof waitAsset === "function"
       )
@@ -2580,20 +2591,22 @@ export function hydrate(code, element, options = {}) {
 export function getNextElement(template?: () => Element): Element;
 
 export function getNextElement(template) {
-  let node,
-    key,
-    hydrating = isHydrating();
-  if (!hydrating || !(node = sharedConfig.registry.get((key = getHydrationKey())))) {
+  // The key is consumed whenever hydration is on, claiming or not: a
+  // rejected fragment's fresh render adopts its server answers by id, and
+  // the server spent one on this element, so ids after it line up.
+  let key = sharedConfig.hydrating && getHydrationKey(),
+    node = isHydrating() && sharedConfig.registry.get(key);
+  if (!node) {
     if (!template) {
       throw new Error(`Hydration Mismatch. Unable to find DOM nodes for hydration key: ${key}`);
     }
     // A key miss during the hydration walk is a real mismatch: fresh renders
-    // (portals, rejected fragments, post-hydration content) all run with the
-    // hydrating flag off, so there is no legitimate way to get here. The
+    // (portals, rejected fragments, post-hydration content) all run outside
+    // the claim, so there is no legitimate way to get here. The
     // detached element returned below keeps the render alive but never lands
     // in the document — without a report that reads as a silently frozen
     // page (solidjs/solid#3000).
-    if ("_SOLID_DEV_" && hydrating) {
+    if ("_SOLID_DEV_" && isHydrating()) {
       hydrationKeyMisses++;
       console.warn(
         `Hydration key miss for "${key}": no server-rendered element carries this key` +
@@ -2971,7 +2984,6 @@ function eventHandler(e, container, state) {
 
   let node = resumeNode || e.target;
   const key = EVENT_KEY + e.type;
-  const oriTarget = e.target;
   const retarget = value =>
     Object.defineProperty(e, "target", {
       configurable: true,
@@ -3036,8 +3048,9 @@ function eventHandler(e, container, state) {
   }
   // fallback for browsers that don't support composedPath
   else walkUpTree();
-  // Mixing portals and shadow dom can lead to a nonstandard target, so reset here.
-  retarget(oriTarget);
+  // Later native listeners (document, window, outer roots) see the real getters.
+  delete e.target;
+  delete e.currentTarget;
 }
 
 function insertExpression(parent, value, current, marker) {
@@ -3132,7 +3145,7 @@ function insertExpression(parent, value, current, marker) {
     } else {
       parent.appendChild(value);
     }
-    if (marker) value[$$SLOT] = marker;
+    if (marker || value[$$SLOT]) value[$$SLOT] = marker || parent;
   } else if (Array.isArray(value)) {
     const currentArray = Array.isArray(current);
     // Commit-time text materialization (normalize left primitives raw): a
@@ -3320,14 +3333,14 @@ function cleanChildren(parent, current, marker, replacement) {
       const el = current[i];
       if (replacement !== el) {
         const tag = el[$$SLOT];
-        const owns = el.parentNode === parent && (!tag || tag === marker);
+        const owns = el.parentNode === parent && (!tag || tag === (marker || parent));
         if (replacement && !inserted && !i)
           owns ? parent.replaceChild(replacement, el) : parent.insertBefore(replacement, marker);
         else if (owns) el.remove();
       } else inserted = true;
     }
   } else if (replacement) parent.insertBefore(replacement, marker);
-  if (replacement && marker) replacement[$$SLOT] = marker;
+  if (replacement && (marker || replacement[$$SLOT])) replacement[$$SLOT] = marker || parent;
 }
 
 function gatherHydratable(element, root) {

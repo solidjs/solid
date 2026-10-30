@@ -139,6 +139,8 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     /// Native elements marked pass-through by `escapeExpression` (Babel's
     /// `wontEscape`), identified by span.
     wont_escape_spans: std::vec::Vec<Span>,
+    /// Native children of a spread raw-text element, whose templates keep their characters.
+    raw_text_spans: std::vec::Vec<Span>,
     /// Span of the JSX root currently being lowered via the visitor entry.
     /// Babel keeps a raw `this` in the tag callee of the root element of each
     /// `transformJSX` call; only descendants use the `_self$` capture.
@@ -298,6 +300,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             component_child_depth: 0,
             var_scope_stack: std::vec::Vec::new(),
             wont_escape_spans: std::vec::Vec::new(),
+            raw_text_spans: std::vec::Vec::new(),
             jsx_root_span: None,
             deferring: false,
             iife_callee_addrs: std::vec::Vec::new(),
@@ -693,16 +696,26 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     /// by content, and returns the `_tmpl$N` local (Babel's `templates`
     /// program-scope data).
     fn register_template(&mut self, parts: &[String]) -> String {
+        let parts = crate::shared::utils::ascii_template_parts(parts);
+        self.register_template_parts(parts)
+    }
+
+    /// `register_template` for a spread raw-text element's child, left as written.
+    fn register_raw_template(&mut self, parts: &[String]) -> String {
+        self.register_template_parts(std::borrow::Cow::Borrowed(parts))
+    }
+
+    fn register_template_parts(&mut self, parts: std::borrow::Cow<'_, [String]>) -> String {
         if let Some((_, name)) = self
             .templates
             .iter()
-            .find(|(existing, _)| existing == parts)
+            .find(|(existing, _)| existing[..] == parts[..])
         {
             return name.clone();
         }
         let name =
             crate::shared::utils::next_unique_template_id(&mut self.template_index, &self.bindings);
-        self.templates.push((parts.to_vec(), name.clone()));
+        self.templates.push((parts.into_owned(), name.clone()));
         name
     }
 
@@ -912,7 +925,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 )));
             }
         }
-        let template_local = self.register_template(&template.parts);
+        let template_local = if self.raw_text_spans.contains(&element.span) {
+            self.register_raw_template(&template.parts)
+        } else {
+            self.register_template(&template.parts)
+        };
         // A pass-through element (already inside `_$escape`) with a static
         // template needs no `ssr()` wrapper — the raw HTML template reference
         // suffices (Babel returns the `_tmpl$` id directly).
@@ -1919,6 +1936,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     // Nested natives render their own template/ssrElement —
                     // no escaping or markers (Babel: `child.exprs` is empty
                     // for templates, `spreadElement` skips both).
+                    if crate::shared::utils::raw_text_close(tag_name).is_some() {
+                        self.raw_text_spans.push(child_element.span);
+                    }
                     nodes.push(self.lower_element_impl(child_element, false)?);
                 }
                 JSXChild::ExpressionContainer(container) => {
@@ -1936,7 +1956,11 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         if text.is_empty() {
                             continue;
                         }
-                        let local = self.register_template(std::slice::from_ref(&text));
+                        let local = if crate::shared::utils::raw_text_close(tag_name).is_some() {
+                            self.register_raw_template(std::slice::from_ref(&text))
+                        } else {
+                            self.register_template(std::slice::from_ref(&text))
+                        };
                         self.uses_ssr = true;
                         nodes.push(self.ssr_call(container.span, &local, 1, std::vec::Vec::new()));
                         continue;
@@ -3868,7 +3892,9 @@ impl<'a> AstSsrTransform<'a, '_> {
             }
             Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => return None,
         }
-        Some(TailPart::Text(markup))
+        Some(TailPart::Text(
+            crate::shared::utils::ascii_attribute_markup(markup),
+        ))
     }
 
     /// The attribute-string argument for a tail: a string literal when every

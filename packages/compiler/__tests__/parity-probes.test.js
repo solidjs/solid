@@ -474,6 +474,17 @@ const a = <div>{value() ?? "fallback"}</div>;
   "exotic literal holes": `
 const a = <div a={1n} b={/re?g/g} c={-1} d={NaN}>{0}{-0}{1n}{true}{undefined}{null}</div>;
 `,
+  // #4322: numbers print as JS `String(number)` does (exponent form at 1e21
+  // and above and below 1e-6, no i64 saturation), and a child hole folds
+  // the same arithmetic an attribute does. `-1e21` and `1 / 0` sit in
+  // child position: as attributes, Babel keeps negative and non-finite
+  // values dynamic in SSR and universal until #4321 lands.
+  "number attribute spellings": `
+const a = <div a={1e21} b={1e19} c={1e-7} d={1.5e-7} e={123456789012345680000} f={0.1 + 0.2} />;
+`,
+  "number child spellings and folding": `
+const a = <div>{1e21}{1e19}{1e-7}{1.5e-7}{123456789012345680000}{-1e21}{1 / 0}{-1 / 0}{2 * 3}{5 - 1}</div>;
+`,
   "tagged template in hole": `
 const a = <div title={tag\`x \${y()}\`}>{tag\`body\`}</div>;
 `,

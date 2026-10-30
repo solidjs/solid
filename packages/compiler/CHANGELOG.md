@@ -1,5 +1,22 @@
 # @solidjs/compiler
 
+## 2.0.0-rc.20
+
+### Patch Changes
+
+- 56683ea: SSR templates write characters above U+00FF in static text and quoted attribute values as numeric character references (`→` becomes `&#8594;`), as do the static attributes baked into a spread element's attribute string. One character above U+00FF in a template made V8 store the whole rendered page as a two-byte string, which roughly doubled the cost of flattening and UTF-8 encoding the response (#4328). Latin-1 characters stay literal. Tag internals, comments, raw-text bodies such as `<script>` and `<style>`, and the children of a spread `<script>` or `<style>` keep their characters, since browsers do not decode references there. Client output is unchanged.
+
+## 2.0.0-rc.19
+
+### Patch Changes
+
+- ade599a: The Rust compiler core exports `compile_program`, an entry point that compiles an Oxc `Program` the caller has already built instead of source text. It is `compile` with the parse step split off: the program goes through the same `dom` / `ssr` / `universal` / `dynamic` back ends, with the same `requireImportSource` gate and coverage-pragma handling, so a frontend that produces an AST (rather than projecting to JSX text) gets the shared lowering and source maps on its own authored positions. `source` must be the program's `source_text`. Additive and Rust-only: `compile` and the Node `transform()` are unchanged (the shared back half is factored out of `compile_inner`; the TSRX route reaches it with its extracted stylesheet as before).
+- 838b74b: The Rust compiler core exports TSRX's scoped-CSS engine as `solidjs_compiler::style`, moved from `src/tsrx/style/` to `src/style/` so it is available without the `tsrx` feature: `compile_style`, `compile_style_with_class_map_selectors`, and their input and output types (`StyleInput`, `StyleLocation`, `StyleKind`, `Element`, `ElementKind`, `ElementChild`, `Attribute`, `AttributeValue`, `StyleOutput`, `ClassMapEntry`, `StyleError`). The engine already had no dependency on the TSRX frontend; exporting it lets another frontend (one that does not use TSRX at all) scope a `<style>` block over its own elements and get the same stylesheet and hash a `.tsrx` file gets. Additive and Rust-only: the TSRX route and the Node `transform()` are unchanged.
+- b989693: Numbers inlined into templates now print the way JS `String(number)` does, as Babel's output does. Before, any whole number of 2^63 or more saturated to `9223372036854775807`, and very large or very small values never switched to exponent form. Now `{1e21}` prints `1e+21`, `{1e19}` prints `10000000000000000000` and `{1e-7}` prints `1e-7`. A child hole now also folds `-`, `*` and `/` the way an attribute does, so `<div>{1 / 0}</div>` puts `Infinity` in the template instead of inserting `1 / 0` at runtime (#4322).
+- 0c6db49: The secondary passes (`transformDirectives`, the lazy and refresh passes, source names) accept a filename with any extension. They run on code that is already lowered to JavaScript, so the filename is metadata rather than a parser choice: a known extension still picks its dialect, and any other (`App.rx`, from another front end) is parsed as TSX instead of failing with "Unknown file extension". This matters for server functions, whose IDs hash the filename: a front end can now pass the module's real path, so the ID matches the one `moduleForFunctionId` computes for that module. The JSX transform itself is unchanged.
+- 9e1edbc: A lone dynamic spread on an SSR element (`<label {...props()} />`) now defers behind a thunk like a spread beside other attributes, so it runs after the element's hydration key. A spread that created a memo shifted the element's key on the server only, and hydration missed the element (#4240).
+- 4b836ab: Validate SSR templates rooted at an SVG or MathML element (such as `<image>` or `<g>` under control flow, in a fragment, or as a component root) inside their `<svg>`/`<math>` owner, as DOM templates already are, so valid SVG partials no longer fail the `validate` check.
+
 ## 2.0.0-rc.18
 
 ### Patch Changes

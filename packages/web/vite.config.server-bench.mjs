@@ -40,6 +40,11 @@ export default defineConfig({
   resolve: {
     conditions: ["node"],
     alias: {
+      // as in vite.config.server.mjs: the server-function runtime and the
+      // codec subpaths it imports, ahead of the bare "@solidjs/web" alias
+      "@solidjs/web/server-functions/server": resolve(rootDir, "server-functions/dist/server.js"),
+      "@solidjs/web/serialization/decode": resolve(rootDir, "serialization/dist/decode.js"),
+      "@solidjs/web/serialization": resolve(rootDir, "serialization/dist/serialization.js"),
       "@solidjs/web": resolve(rootDir, "src/index.server.ts"),
       // Before "solid-js": a string alias prefix-matches its subpaths.
       "solid-js/internal": resolve(rootDir, "../solid/src/internal.ts"),

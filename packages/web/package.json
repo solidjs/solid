@@ -1,7 +1,7 @@
 {
   "name": "@solidjs/web",
   "description": "Solid's web runtime: client rendering, hydration, SSR, and DOM-specific control flow (Portal, Dynamic).",
-  "version": "2.0.0-rc.18",
+  "version": "2.0.0-rc.20",
   "author": "Ryan Carniato",
   "license": "MIT",
   "homepage": "https://solidjs.com",
@@ -367,6 +367,8 @@
     "test": "vitest run && vitest run --config vite.config.server.mjs && vitest run --config vite.config.hydrate.mjs",
     "test:server": "vitest run --config vite.config.server.mjs",
     "consistency:fuzz": "CONSISTENCY_FUZZ=1 vitest run --config vite.config.hydrate.mjs test/consistency/harness",
+    "async-gen": "ASYNC_GEN=1 vitest run test/async-gen",
+    "async-gen:hydrate": "ASYNC_GEN_HY=1 vitest run --config vite.config.server.mjs test/server/async-gen.gen.spec.tsx && ASYNC_GEN_HY=1 vitest run --config vite.config.hydrate.mjs test/consistency/async-gen",
     "coverage": "vitest run --coverage",
     "bench": "vitest bench --run",
     "bench:server": "vitest bench --run --config vite.config.server-bench.mjs",
@@ -377,7 +379,7 @@
     "seroval-plugins": "1.7.0"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.0-rc.18"
+    "solid-js": "^2.0.0-rc.20"
   },
   "devDependencies": {
     "@codspeed/vitest-plugin": "^5.4.0",

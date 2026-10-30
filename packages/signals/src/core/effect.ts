@@ -79,7 +79,8 @@ export function effect<T>(
     !node._x?._transaction?._lane &&
     (node._type === EFFECT_USER || options?.schedule
       ? globalQueue.enqueue(node._type, runEffect.bind(null, node))
-      : runEffect(node, node._type));
+      : // Type 0: the synchronous first render, not a queued run (D-19).
+        runEffect(node, 0));
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
@@ -119,11 +120,12 @@ function notifyEffectStatus(this: Effect<any>): void {
       return;
     }
     // Dev locates the halt at the node that threw: the StatusError's
-    // source, upstream of this effect when a computed failed.
+    // source, upstream of this effect when a computed failed. The rethrow is
+    // the user's error, not the wrapper: the wrapper's `source` is a node, and
+    // a reporter that serializes the throw walks the reactive graph.
     escalate(
       this,
       unwrapStatusError(actualError),
-      actualError,
       __DEV__ && actualError instanceof StatusError ? actualError.source : this
     );
   } else if (this._type === EFFECT_RENDER) {
@@ -156,16 +158,11 @@ function notifyEffectStatus(this: Effect<any>): void {
 }
 
 /** An effect's error no boundary takes halts the system (boundary-or-halt):
- * halted with `cause`, `thrown` rethrown; dev locates it at `subject`. */
-function escalate(
-  node: Effect<any>,
-  cause: unknown,
-  thrown: unknown = cause,
-  subject: DiagnosticSubject = node
-): void {
+ * halted with `cause` and rethrown; dev locates it at `subject`. */
+function escalate(node: Effect<any>, cause: unknown, subject: DiagnosticSubject = node): void {
   if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
     __DEV__ ? haltReactivityAt(cause, subject) : haltReactivity(cause);
-    throw thrown;
+    throw cause;
   }
 }
 
@@ -176,10 +173,12 @@ function runEffect(node: Effect<any>, type: number): void {
   // effect's update too (maintainer, 2026-10-02: "we held the queue but let
   // the sync renders through… we definitely shouldn't be showing portals
   // early") — a Portal's or head-tag's render effect writes outside the
-  // hidden subtree. The synchronous first render on creation is not a queued
-  // run and goes through. `_modified` stays set; the boundary re-queues the
-  // run (`release`).
-  if (heldRunHook?.(node)) return;
+  // hidden subtree. The synchronous first render on creation (`type` 0) is
+  // not a queued run and goes through, whichever boundary above is on its
+  // fallback then — an outer one about to reveal in this flush included
+  // (#4343). `_modified` stays set; the boundary re-queues the run
+  // (`release`).
+  if (type && heldRunHook?.(node)) return;
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in
   // this same imperative, writable scope. Unwrap the StatusError used for

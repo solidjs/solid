@@ -32,7 +32,7 @@ use oxc_parser::{ParseOptions, Parser};
 use oxc_semantic::SemanticBuilder;
 use oxc_span::{GetSpan, Span};
 
-use crate::config::{TransformResult, source_type_for_filename};
+use crate::config::{TransformResult, secondary_source_type};
 
 pub const LAZY_PLACEHOLDER_PREFIX: &str = "__SOLID_LAZY_MODULE__:";
 
@@ -60,7 +60,7 @@ pub fn transform_lazy(
         });
     };
 
-    let source_type = source_type_for_filename(Some(filename))?;
+    let source_type = secondary_source_type(Some(filename));
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &code, source_type)
         .with_options(ParseOptions {

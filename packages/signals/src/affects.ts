@@ -5,7 +5,8 @@
 // A mark is a declared in-flight change: the marked node — and everything
 // derived from it — reads pending (`isPending` → true) from the declaration
 // until the surrounding transaction lands (an ambient mark, declared outside
-// one, releases at the next seam). The marked values stay readable: no reader
+// one, releases at the next seam; either, on a node whose own flight is
+// still up then, at the seam after that flight lands). The marked values stay readable: no reader
 // suspends on a mark, a mark holds nothing and entangles nothing — it is not
 // a node of its transaction (`blocked` never sees it), and a reader of marked
 // data joins nothing through it. A mark is never a re-ask, so a declared
@@ -65,8 +66,9 @@ function register(node: Marked): void {
 /**
  * Declares that in-flight work will change the targeted data: the source —
  * and everything derived from it — reads as pending (`isPending` → `true`)
- * from the declaration until the surrounding transaction settles. A mark is
- * a promise of change, not an absence of value: the marked values stay
+ * from the declaration until the surrounding transaction settles — or, if
+ * the source's own fetch is still in flight then (a declared reload's
+ * `refresh()`), until that fetch lands. A mark is a promise of change, not an absence of value: the marked values stay
  * readable, no reader suspends on one, and it holds nothing — the
  * transaction's completion never waits on a mark. Pendingness is additive:
  * a mark can turn pending on for data the graph cannot see changing yet
@@ -128,30 +130,42 @@ function invalid(detail: string): never {
   throw new Error(message);
 }
 
-installMarkHooks(release, parked => {
-  if (ambient.length === 0) return;
-  // The flush parked: the declaration's window is the frame's — the marks
-  // are its transaction's ("nothing async below ⇒ no window").
-  if (parked !== null) {
-    const list = (parked._marks ??= []);
-    for (let i = 0; i < ambient.length; i++) list.push(ambient[i]);
-    ambient.length = 0;
-    return;
+installMarkHooks(
+  nodes => {
+    // A landing's mark on a node whose own flight is up (a declared reload's
+    // quiet re-ask the action did not wait for) stays to the seam after
+    // that flight lands, as an ambient one does: the reload's window is the
+    // flight's (#4349). The rest release with the transaction.
+    const done: Marked[] = [];
+    for (let i = 0; i < nodes.length; i++) (inFlight(nodes[i]) ? ambient : done).push(nodes[i]);
+    nodes.length = 0;
+    release(done);
+  },
+  parked => {
+    if (ambient.length === 0) return;
+    // The flush parked: the declaration's window is the frame's — the marks
+    // are its transaction's ("nothing async below ⇒ no window").
+    if (parked !== null) {
+      const list = (parked._marks ??= []);
+      for (let i = 0; i < ambient.length; i++) list.push(ambient[i]);
+      ambient.length = 0;
+      return;
+    }
+    // Nothing parked, but a marked node's own flight is up (a declared
+    // reload's quiet re-ask — the node's, or a store leaf's family derive):
+    // the window is the flight's; the mark stays to the seam after the
+    // landing. The rest release: verdict-only, nothing to show.
+    let kept = 0;
+    const done: Marked[] = [];
+    for (let i = 0; i < ambient.length; i++) {
+      const n = ambient[i];
+      if (inFlight(n)) ambient[kept++] = n;
+      else done.push(n);
+    }
+    ambient.length = kept;
+    if (done.length !== 0) release(done);
   }
-  // Nothing parked, but a marked node's own flight is up (a declared
-  // reload's quiet re-ask — the node's, or a store leaf's family derive):
-  // the window is the flight's; the mark stays to the seam after the
-  // landing. The rest release: verdict-only, nothing to show.
-  let kept = 0;
-  const done: Marked[] = [];
-  for (let i = 0; i < ambient.length; i++) {
-    const n = ambient[i];
-    if (inFlight(n)) ambient[kept++] = n;
-    else done.push(n);
-  }
-  ambient.length = kept;
-  if (done.length !== 0) release(done);
-});
+);
 function inFlight(n: Marked): boolean {
   return (
     ((n as Computed<any>)._statusFlags & STATUS_PENDING) !== 0 ||

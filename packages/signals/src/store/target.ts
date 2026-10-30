@@ -26,6 +26,11 @@ export interface StoreFamily {
   /** Targets carrying a lane value on one of their nodes (reads compose the
    * view over the truth — optimistic.ts); dropped lazily once none is. */
   overlaid?: Set<StoreTarget>;
+  /** The derive asked a new question over the family's guesses, stamped
+   * with that flush's clock (#4336, optimistic.ts `ask`): `clock + 1` from
+   * mainline over a live guess, `~clock` otherwise (a lane's work over no
+   * guess of its own, or no live guess left). */
+  asked?: number;
   /** Normalized row-key fn (`options.key`, "id" default, null = unkeyed). */
   key?: ((item: any) => any) | null;
   map: WeakMap<object, StoreTarget>;
@@ -36,7 +41,7 @@ export interface StoreFamily {
    * per-leaf chain; a target leaves it with its last node. */
   live: Set<StoreTarget>;
   /** A source's status reaching the derive by propagation (`familyStatus`). */
-  st?: (status: number, error: unknown) => void;
+  st?: (status: number, error?: unknown) => void;
   shallow?: boolean;
   /** Derive run counter (proj R37): the run whose draft is live. */
   run?: number;

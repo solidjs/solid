@@ -112,7 +112,7 @@ describe("server components authored with Solid JSX", () => {
     // Shell flushes with the boundary's placeholder range, fallback in the
     // template — Solid's Loading drives registerFragment through the sink.
     expect(html).toContain("<h1>Story</h1>");
-    expect(html).toMatch(/<template id="pl-[^"]+">.*loading…/);
+    expect(html).toMatch(/<template id="pl-[^"]+">.*loading&#8230;/);
     expect(html).not.toContain("Comments loaded");
     const [[fragKey, frag]] = records(chunks, "seg:").filter(([key]) => /^seg:[^:]+$/.test(key));
     expect(frag.value).toContain("Comments loaded");

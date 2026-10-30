@@ -421,14 +421,15 @@ _Pinned: `loading-on-frame-following-3540.test.ts` §3. Ruled 2026-10-09._
 
 ### S-20. The action outlasts the data: a race the fallback lost, not reported — D-16
 
-_Pinned: `loading-on-frame-following-3540.test.ts` §5._
+_Pinned: `loading-on-frame-following-3540.test.ts` §5; `loading-on-latest-fallback-4337.test.ts` (the fallback reads `latest`)._
 
-| #   | Action                                                        | Screen                                               | Notes                                                     |
-| --- | ------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------- |
-| 1   | `action(function* () { setId(2); yield longer; })(); flush()` | `A` (held)                                           | entered: the fallback is the display, and it is not shown |
-| 2   | `comments(2)` lands                                           | — (the action is still open)                         |                                                           |
-| 3   | the action ends                                               | `B \| comments-B` — the fallback was never displayed | legitimate; nothing reported                              |
-| 1′  | the action ends _before_ `comments(2)` lands                  | `B \| spinner` with the commit, then `comments-B`    | the race the fallback won                                 |
+| #   | Action                                                        | Screen                                               | Notes                                                        |
+| --- | ------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------ |
+| 1   | `action(function* () { setId(2); yield longer; })(); flush()` | `A` (held)                                           | entered: the fallback is the display, and it is not shown    |
+| 2   | `comments(2)` lands                                           | — (the action is still open)                         |                                                              |
+| 3   | the action ends                                               | `B \| comments-B` — the fallback was never displayed | legitimate; nothing reported                                 |
+| 1′  | the action ends _before_ `comments(2)` lands                  | `B \| spinner` with the commit, then `comments-B`    | the race the fallback won                                    |
+| 1″  | the fallback reads `latest(id)`                               | as 1–3: `A` held, then `B \| comments-B`             | the fallback's `latest` does not pull the swap ahead (#4337) |
 
 ### S-21. A display-ahead read in `on` shows the fallback now, beside the held frame — D-17
 
@@ -635,6 +636,31 @@ const save = action(function* () { setX(1); yield gate; });
 | 2   | `gate`, body returns | `1 \| content 1`                                                                                                                                                  |       |
 | ✗   |                      | after 1: `0 \| content 1` (the torn frame #3869 fixed)                                                                                                            |       |
 
+### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-27, D-37
+
+_Ruled 2026-10-30 ("actions aren't special — they are a way to extend the hold"). Pinned: `tests/display-ahead-plain-write-content.test.ts` (signals, passes) and `web/test/display-ahead-plain-write-content-s46.spec.tsx` (through `Show` + `insert`; the plain row is `test.fails` — today the branch attaches with its text hole empty, `selected: ` and nothing, F-2's empty slot and #4417's mechanism). S-31's rule in the plain-write, no-boundary form: a write to `id` is held because an async memo over it is on screen; no action, no `Loading`._
+
+```tsx
+const [id, setId] = createSignal(0);
+const detail = createMemo(() => fetchDetail(id()));
+<p>{id()}</p> <p>{detail()}</p>
+<Show when={latest(id) > 0} fallback="none">
+  <p>selected: {id()}</p>          {/* a plain read, under the display-ahead Show */}
+</Show>
+// primed: detail answered for id = 0
+```
+
+| #   | Action                                           | Screen                                                                                                                                                                                                       | Notes                                                                |
+| --- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| 0   | primed                                           | `0 \| none \| d0`                                                                                                                                                                                            |                                                                      |
+| 1   | `setId(1); flush()` — `fetchDetail(1)` in flight | `0 \| none \| d0` — the `Show` opens ahead (`latest` asked), but the branch is a mount whose first pass read the staging plainly: born held (D-27), it does not attach until the landing; the fallback stays | a plain `id()` means one thing on the whole screen — the `0` outside |
+| 1′  | same, content `selected: {latest(id)}`           | `0 \| selected: 1 \| d0`                                                                                                                                                                                     | the read that asks sees ahead, at its own site                       |
+| 1″  | same, content inside a `<Loading fallback>`      | `0 \| [fallback] \| d0`                                                                                                                                                                                      | S-31's form: the boundary catches the born-held read                 |
+| 2   | `fetchDetail(1)` lands                           | `1 \| selected: 1 \| d1`                                                                                                                                                                                     |                                                                      |
+| ✗   |                                                  | after 1: `0 \| selected: 1 \| d0` — two plain reads of one signal disagreeing on one screen                                                                                                                  |                                                                      |
+| ✗   |                                                  | after 1: `0 \| selected: 0 \| d0` — the branch attached with the committed value; a mount under a display-ahead reader is born held, not a D-3 leaf                                                          |                                                                      |
+| ✗   |                                                  | after 1: `0 \| selected: (empty) \| d0` — the branch attached with its hole empty (F-2: never an empty slot). Today's screen through `Show` + `insert`                                                       |                                                                      |
+
 ### S-39. A later unread value still throws — D-28
 
 _Ruled 2026-10-09. The `n0`-first order already holds the mount. The `latest`-first order still publishes the empty slot; that is the violation._
@@ -671,6 +697,25 @@ _Ruled 2026-10-09, from the read-order brief's sibling case (416). Not D-28: thi
 | 2   | `n0(1)` lands            | sibling `1 \| 1`            |                                                                                   |
 | ✗   |                          | sibling `0`, slot `(empty)` | neither the fallback nor `1` — the boundary waited on `n0`, which it did not read |
 | ✗   |                          | sibling `0 \| loading`      | the same wait, shown as a fallback                                                |
+
+### S-45. A first answer landing in the same tick as an action that writes its input: `latest` shows it, the plain read waits — D-22, F-9 (async generator E9)
+
+_Ruled 2026-10-28. The leaf form and the through-a-memo form show the same screen; today the leaf keeps the fallback up until the action ends — that is the ✗ row._
+
+```tsx
+const m0 = createMemo(() => fetch(s0()));              // first load, no committed value
+<p>{s0()}</p>
+<Loading fallback="loading">{latest(m0)}</Loading>     // or: {L()} with L = createMemo(() => latest(m0))
+const save = action(function* () { setS0(1); yield gate; });
+```
+
+| #   | Action                                                       | Screen                  | Notes                                                                                                                    |
+| --- | ------------------------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 0   | mount                                                        | `0 \| loading`          | first load                                                                                                               |
+| 1   | `save()` and `m0`'s first answer `2` land in one tick; flush | `0 \| 2`                | the answer is the action's (D-4) and `latest` returns it (D-22): the committed `s0 = 0` beside its own answer, one frame |
+| 2   | `gate`, body returns; `m0(1)` lands                          | `1 \| m0(1)`            |                                                                                                                          |
+| ✗   |                                                              | after 1: `0 \| loading` | the leaf waited on the action it did not read; a `Loading` reading only `latest` shows what it has (S-40)                |
+| —   | the same with `{m0()}` in place of `latest(m0)`              | `0 \| loading` until 2  | a plain read of a first load is loading (F-9); the fallback is right there                                               |
 
 ---
 
@@ -755,9 +800,41 @@ _Pinned: `tests/optimistic-lane-release.test.ts`, `tests/body-end-supersession-v
 | 2   | the body returns                                                                                          | `5` (display unchanged until the commit) | `latest(guess)` = committed truth · `isPending(guess)` true iff it differs | the correction starts now, not after an obsolete derived flight |
 | 3   | the hold commits                                                                                          | the truth                                | false                                                                      |                                                                 |
 
+### S-44. An outside input change under a guess is held with the guess's action — D-34, F-1 (#4336)
+
+_Pinned: `tests/optimistic-question-change-4336.test.ts`, `tests/optimistic-layered-filter-4336.test.ts`, `tests/optimistic-held-write-leak.test.ts`, `tests/loading-on-latest-fallback-4337.test.ts`._
+
+```tsx
+const [sel, setSel] = createSignal(3);
+const [comments, setComments] = createOptimistic(() => fetchComments(sel())); // or createOptimisticStore
+<p>
+  #{sel()}: {comments().join(" | ")}
+</p>;
+const post = action(function* (text) {
+  setComments(c => [...c, `${text} (sending)`]);
+  yield api.post(text);
+  refresh(comments);
+});
+```
+
+| #   | Action                                                                                          | Screen                                                                                                             | `latest` / `isPending`                                 | Notes                                                       |
+| --- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | ----------------------------------------------------------- |
+| 0   | primed; `post("mine")`                                                                          | `#3: dana \| mine (sending)`                                                                                       | `isPending(comments)` false (verdict-inert)            |                                                             |
+| 1   | outside: `setSel(1)`; `flush()`                                                                 | `#3: dana \| mine (sending)` — the change is held with the post                                                    | `latest(sel)` 1 · `isPending(comments)` true           | a new question, not the guess's source answering            |
+| 2   | issue 1's answer `[]` lands                                                                     | `#3: dana \| mine (sending)`                                                                                       | `latest(comments)` `[]` · true · untracked: the screen |                                                             |
+| 3   | the post settles; its `refresh` re-asks 1                                                       | `#3: dana \| mine (sending)`                                                                                       | true                                                   | the action's refresh after the change stays pending (F-9)   |
+| 4   | issue 1's answer `["mine"]` lands                                                               | `#1: mine` — one frame                                                                                             | false                                                  |                                                             |
+| 1′  | `refresh(comments)` instead of `setSel(1)`                                                      | `#3: dana \| mine (sending)` until the post commits                                                                | `isPending(comments)` false                            | the same question: nothing new is held (#4329)              |
+| 1″  | `sel` a `createOptimistic` over the saved selection; `action { setSel(1); yield; setSaved(1) }` | `#3: dana \| mine (sending)` until issue 1's answer, then `#1: ` — the input's lane waits for its own answer (F-6) |                                                        | the post's guess does not answer issue 1                    |
+| 1⁗  | as 1″, but the action ends without `setSaved` (a pure revert)                                   | `#1: ` until issue 3's re-ask lands, then `#3: dana \| mine (sending)` — one frame; the post lands later as usual  |                                                        | the displaced guess comes back with the revert (D-33)       |
+| 1‴  | keyed: `comments[id] = rows`, the post guessed on `comments[3]`; `setSel(1)`                    | `#1: ` once issue 1's answer lands, not waiting for the post; back on 3: `#3: dana \| mine (sending)`              |                                                        | a key with no guess is an ordinary pending read (F-2)       |
+| ✗   |                                                                                                 | any `#1:` frame before 4, e.g. `#1: dana \| mine (sending)`                                                        |                                                        | the same with `#{sel()}` and the list in two render effects |
+
+Layered: action A guesses `milk`, action B sets a filter optimistically over it. The filter shows at once in both settle orders, `milk` stays until A commits, and when B settles first nothing on screen changes (D-33, D-35). A held write read before the action's first lane read (`setG("b"); yield go; setOther(1)`) shows only at the commit. Boundary (#4337): a keyed list under `<Loading on={filter()}>` whose fallback reads `latest(filter)`, an action that guesses a row and refreshes, and `filter` set outside: the change is held with the action (row 3's guess is still read) and the boundary never leaves its content for it — no `loading` frame beside the held `filter`, toggled back or not; without the hold the fallback shows with the change and clears at its answer (S-20, D-17). Pinned by `tests/loading-on-latest-fallback-4337.test.ts`.
+
 ---
 
-## E. First loads, stores, errors (D-6, D-30, D-38, D-39, D-41)
+## E. First loads, stores, errors (D-6, D-30, D-38, D-39, D-41, D-42)
 
 ### S-36. A declared first paint is loading, not pending — D-30 (A27)
 
@@ -838,6 +915,40 @@ createEffect(data, { effect: v => log(v), error: e => log(e) });
 | ✗   |                          | after 2: `1 \| Error 2 \| 1` with the arm already run — the screen before D-41, F-1's torn frame |                    |                   |                  |              |                                                               |
 
 The hold did not wait on the rejection: step 3 lands as soon as `slow(2)` does, whether `data(2)` rejected before or after it.
+
+### S-47. `try/catch` around a reactive read: caught on one pass, bypassed on the next — D-42, F-12
+
+_Pinned: `tests/try-catch-reactive-read.test.ts` (the bypass as it is; not a target)._ (S-46 is #4466's.)
+
+```tsx
+const [id, setId] = createSignal(0);
+const data = createMemo(() => fetchData(id())); // async
+const guarded = createMemo(() => {
+  try {
+    return data();
+  } catch {
+    return "caught"; // written as if `data()` were an `await`
+  }
+});
+<p>{guarded()}</p>;
+```
+
+| #   | Action               | Screen            | `guarded` ran | Notes                                                                                                                                        |
+| --- | -------------------- | ----------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | mount                | `caught`          | yes           | the first pass read `data` loading; the catch fired and the memo completed — the first load is masked: no fallback, no hold                  |
+| 1   | `fetchData(0)` lands | `d0`              | yes           | the dependency registered before the throw, so the memo re-runs at the landing                                                               |
+| 2   | `setId(1); flush()`  | `d0` — held       | **no**        | `data` goes pending; `guarded` is marked pending by propagation, not run. The catch never sees it; the write is held through `guarded` (F-2) |
+| 3   | `fetchData(1)` lands | `d1`              | yes           |                                                                                                                                              |
+| ✗   |                      | after 2: `caught` | —             | what the author expected: the catch to run on every pending. It runs only on a pass that happens to execute while the source is pending      |
+
+The error twin, under `<Errored fallback={e => ...}>` with a sync `source` that throws when `mode() === 1`:
+
+| #   | Action                          | Screen         | `guarded` ran | Notes                                                                                                                                 |
+| --- | ------------------------------- | -------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | mount, `mode = 0`               | `m0`           | yes           |                                                                                                                                       |
+| 1   | `setMode(1); flush()`           | `errored:boom` | **no**        | `source` errors; `guarded` is marked errored, not run; the error reaches `<Errored>` as if the catch were not there                   |
+| 2   | `setMode(2); flush()`           | `m2`           | yes           |                                                                                                                                       |
+| 0′  | mounted with `mode = 1` already | `caught`       | yes           | the same code, the other outcome: the pass ran while the source was already errored, so the catch fired and the boundary never saw it |
 
 ### S-43. A held recovery keeps the shown error; recovering to the last good value is a change — D-41, D-39 (#3886)
 

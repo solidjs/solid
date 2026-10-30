@@ -269,6 +269,8 @@ const user = createMemo(() => {
 // `Promise.resolve(value)` inside the compute is the fake too, and never settles either.
 ```
 
+A cached dynamic `import()` hangs the same way ([#4332](https://github.com/solidjs/solid/issues/4332)). In a Vite build every `import()` goes through `__vitePreload`, which starts from `Promise.resolve()` read off the global at call time, so the module promise stored in a de-duplication map during the tracking run is the fake. The memo itself hydrates from the server's value, so the page looks right; the next caller that hits the map (a later mount, a navigation) waits forever and no request for the chunk is made. Use `lazy()` for components (it already refuses to cache a load made during a trace), and keep a module cache out of hydrated computes or apply the rule below.
+
 The rule for a cache seeded from hydration data: while `isHydrating()` (`solid-js`) is true, treat the seeded value as fresh, and do not populate the cache by running the fetcher. To wrap a hydrated value in a real promise, capture the constructor at module load. The fakes only replace the global inside the window.
 
 ```js

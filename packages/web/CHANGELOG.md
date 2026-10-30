@@ -1,5 +1,65 @@
 # @solidjs/web
 
+## 2.0.0-rc.20
+
+### Patch Changes
+
+- 122797e: A direct server-function call no longer copies every plain object and array in its result. The carrier walk that binds deferred bodies to the call's request scope now builds a container's shallow-rebuilt shell only when a value inside it is bound or a cycle reaches it. Before, it built one for every container up front and discarded it when nothing changed. A call returning 1,000 plain rows walks in 0.56 ms instead of 0.91 ms.
+- 56eb192: A hydrating client that boots mid-stream shows a `<Loading>`'s streamed content once when the boundary's fallback was a bare string (#4374). The hole holding the fallback kept it as a raw string, which tracks no node, so the hole never noticed that the fragment had swapped in and reconciled against a fallback it no longer had: a text node of the server's content stayed beside the client's copy (a nested `<Errored>`'s fallback drawn twice, text after an element repeated), or was replaced instead of adopted. While hydrating, a hole holding a raw string now re-claims its region, as it does when the nodes it tracks are gone.
+- Updated dependencies [178605c]
+- Updated dependencies [17ec571]
+- Updated dependencies [178605c]
+- Updated dependencies [df2ba6c]
+- Updated dependencies [c7f4403]
+- Updated dependencies [ffe0c1c]
+- Updated dependencies [bd95616]
+- Updated dependencies [38e0c49]
+- Updated dependencies [1f558e5]
+- Updated dependencies [56a982c]
+- Updated dependencies [5d57e12]
+  - solid-js@2.0.0-rc.20
+
+## 2.0.0-rc.19
+
+### Patch Changes
+
+- 2c9fdd9: A streamed boundary that fails on the server can leave nested reads still pending. The server abandons those reads, and their records used to settle as `undefined`, which the client's fresh render of the failed fragment would then adopt as the server's answer. The server now unregisters abandoned records, so those reads compute on the client. The fresh render also spends an id on each element's hydration key, as the server did, so its reads line up with the server's records by id.
+- 2a0da2f: fix(web): refuse an async memo that resolves to an element (#4242)
+
+  On the server, an async memo (or async iterable source) whose value is rendered output — JSX, a component's result, a `<Loading>`/`<Errored>` boundary — can no longer reach the hydration serializer. A boundary's output failed in seroval, so its record never resolved and the hydrating client waited on the memo forever (streamed, the boundary reverted to its fallback); a template object crossed as data, duplicating the markup, and streamed the client could not insert it (`UNRECOGNIZED_INSERT_VALUE`). The memo now rejects where its value lands, with the new diagnostic `ASYNC_MEMO_ELEMENT` (recorded on the observe channel; the dev message says what to do instead, other tiers carry the code), and its boundary contains the error like any render error: the nearest `<Errored>` renders its fallback and the client hydrates it; with none, the `<Loading>` fragment rejects and the client renders the subtree. Return data from the async memo and render the JSX from it. Ordinary data is never refused (only plain objects in the SSR template shape, boundary outputs and fragment arrays holding them count as rendered output), and content that never hydrates (`<NoHydration>`) is untouched.
+
+  Also, a fragment failing while a boundary registered under an undefined key (one created inside an async memo's continuation) is pending no longer fails the whole request in `renderToStream`.
+
+- 76e9094: Delegated dispatch removes its `currentTarget` and `target` overrides from the native event when its walk ends. Native listeners that run later in the same dispatch, such as ones on `document`, `window` or an element above the render root, read their own `currentTarget` again instead of the last node Solid visited.
+- f5cf675: An `<Errored>` around a `<Loading>` whose async read fails during a streamed render now shows its fallback in the server HTML outside server components too, and the client adopts it. Before, the boundary's HTML was empty until hydration (neither the loading nor the error fallback), and the hydrating client rendered the failed boundary from scratch: it asked again and showed the loading fallback. Now, when the `<Loading>` is all of the `<Errored>`'s content, the server draws the error fallback in its place (in the shell, or in the streamed fragment after the shell) and serializes the error at the `<Errored>`, so a client that hydrates after the failure arrived claims that markup and adopts its data without asking again, and recovers when the content's inputs change, as for any hydrated failure (#4273). A client that hydrated before the failure arrived renders it once, with nothing of the server's swap left beside it. With markup between the two boundaries the server still leaves the position blank and the client renders the failure (#4287).
+- 542ff6f: An `<Errored>` whose fallback reads async data, around a `<Loading>` that fails after the shell, now streams its fallback once that data is ready, and a client hydrating after it arrived claims it. Before, the failure landed while the fallback's read was still pending, so the server had no markup for it. On its own, the boundary swapped to a blank and the client rendered the failure itself, asking for the failed read again. Inside an outer `<Loading>` still pending, the outer fragment arrived with the Errored region blank, and the client hydrated against the blank with warnings and showed nothing there. Now the failure waits for the fallback, as a swap to a fallback waits for the fallback to be ready: the loading placeholder stays until the finished fallback replaces it (carried by the outer fragment when that is still pending), and the error is serialized with it (#4306).
+- 2f7dc84: First mounts of a multi-node insert skip `reconcileArrays`' diff setup (spa-navigation mounts ~3%). The once-per-pass focus read from #4261 still applies, so a focused node arriving from another list keeps its focus.
+- 2c9fdd9: A boundary whose server render failed is rendered fresh on the client while adopting the server's records. Inside that render, a `<Dynamic>` tag now creates its element instead of throwing a hydration mismatch, and a `<Portal>` mounts. Hydration also completes when the adopted error has no client boundary to catch it.
+- e0e4224: A client hydrating mid-stream no longer asks again for an async read whose server answer was an error, nor flashes back to the `<Loading>` fallback after the failure showed (#4287, #4306). The content of a hydrated failure (a hydrated `<Errored>`'s content run, or a rejected fragment's fresh render over the `<Errored>` fallback the server drew) reads a shell memo a cycle after its error landed, and a later tracked read retries an errored async node; the serialized-value latch took that rerun for a client write and computed. Inside such a content run the rerun now re-serves the server's answer and arms nothing. A rejected fragment with no outcome streams an empty template (it was a lone space), so the nodes its swap lists are the server's outcome alone.
+- b1b0667: A node that moves into a hole with no marker (a sole child, or the last child) no longer keeps the `$$SLOT` tag of the hole it came from. The markerless hole now retags it with its parent, so a later removal from that hole takes the node out of the DOM instead of skipping it as another slot's. Untagged nodes in markerless holes stay untagged, so lists like a `<For>` under `<tbody>` take the same path as before.
+- 5601848: The focused node keeps focus when the runtime moves it, where the browser has `Element.moveBefore()` (#3997). List reconciliation moves the node that holds `document.activeElement` with `moveBefore()`, so a focused row survives a reorder, and a move into a list that updates before the one it leaves. While focus is in the list, the reconcile's `replaceChild` path inserts instead, leaving the old row in place until the pass places it. Focus is read once per pass, and not at all without `moveBefore()` or with focus on the body; every other node keeps plain `insertBefore()`, so reorders cost the same as before. Browsers without `moveBefore()` behave as before, with no focus restore. Array inserts into an empty slot now go through the same reconcile.
+- 88ea86c: Each event replayed after hydration is its own instant, as it would have been live (#4285). `runHydrationEvents` now flushes after every replayed event, so a handler reads the writes of the events before it: two clicks on a counter queued before the client loaded bump it twice, not once.
+- 4eb570e: Avoid retaining the first value-bound select and its form through the shared option-insertion hook.
+- e8b0b15: `renderToStream`: a value that fails to serialize no longer leaves the other pre-shell hydration values pending on the client (#4242). Pending promises registered before the shell (async sources and Loading boundaries' `<key>_fr` completion flags) were handed to seroval as one object write. Since seroval 1.7, a value that fails to serialize ends the write it belongs to, so one failure stopped every value in that write. An async memo that resolves to an element, such as a nested `<Loading>`, left both boundaries unresolved and hydration never finished. The stubs are still held until the shell and handed over at the same point, in the same order, but each is now its own keyed write, so a failure only affects its own key, as on rc.17.
+- Updated dependencies [2a0da2f]
+- Updated dependencies [0090fe3]
+- Updated dependencies [ee94440]
+- Updated dependencies [f5cf675]
+- Updated dependencies [8f1d9d2]
+- Updated dependencies [8f1d9d2]
+- Updated dependencies [0856fee]
+- Updated dependencies [542ff6f]
+- Updated dependencies [2c9fdd9]
+- Updated dependencies [e0e4224]
+- Updated dependencies [e0e4224]
+- Updated dependencies [1d6c40f]
+- Updated dependencies [8f1d9d2]
+- Updated dependencies [6d6f03f]
+- Updated dependencies [e0e4224]
+- Updated dependencies [87934c1]
+- Updated dependencies [2c9fdd9]
+  - solid-js@2.0.0-rc.19
+
 ## 2.0.0-rc.18
 
 ### Patch Changes

@@ -4,6 +4,8 @@ Solid 2.0's Babel compiler integration. Configure this plugin once in a Babel pi
 
 The native Oxc compiler — [`@solidjs/compiler`](../compiler) — is the default in `vite-plugin-solid`. Use this plugin when you need a Babel pipeline (or as the JavaScript fallback).
 
+It runs on `@babel/core` 7 (7.20.12 or later) and 8.
+
 > **Solid 2.0 (Release Candidate).** Pin exact versions.
 
 ## Features

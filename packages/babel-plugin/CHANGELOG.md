@@ -1,5 +1,19 @@
 # @solidjs/babel-plugin
 
+## 2.0.0-rc.20
+
+### Patch Changes
+
+- 56683ea: SSR templates write characters above U+00FF in static text and quoted attribute values as numeric character references (`→` becomes `&#8594;`), as do the static attributes baked into a spread element's attribute string. One character above U+00FF in a template made V8 store the whole rendered page as a two-byte string, which roughly doubled the cost of flattening and UTF-8 encoding the response (#4328). Latin-1 characters stay literal. Tag internals, comments, raw-text bodies such as `<script>` and `<style>`, and the children of a spread `<script>` or `<style>` keep their characters, since browsers do not decode references there. Client output is unchanged.
+
+## 2.0.0-rc.19
+
+### Patch Changes
+
+- 8cff139: Evaluated negative and non-finite numbers (`c={-1}`, `d={NaN}`) are static again. Since Babel 8 support, `evaluateAndInline` built them with `t.valueToNode`, which gives `-1` / `0 / 0` expressions rather than numeric literals, so they stopped being inlined into templates (SSR emitted `ssrAttribute("c", -1)` instead of `c="-1"`) and diverged from `@solidjs/compiler` (the parity probes' "exotic literal holes"). They are now NumericLiteral nodes again, built directly where @babel/types 8's builder would reject the value; both Babel majors print them as before.
+- 55c7329: Support `@babel/core` 8 alongside 7: the peer range is now `^7.20.12 || ^8.0.0`. SSR no longer reads `Scope#uids` (removed in Babel 8), evaluated negative or non-finite numbers are built with `valueToNode`, `import()` parsed as `ImportExpression` stays dynamic, and TSRX emits the AST shape of the running Babel major (type arguments, type parameter names, `import()`, enums, heritage). TSRX also keeps `import()` options and class method type parameters, which it dropped before.
+- 9e1edbc: A lone dynamic spread on an SSR element (`<label {...props()} />`) now defers behind a thunk like a spread beside other attributes, so it runs after the element's hydration key. A spread that created a memo shifted the element's key on the server only, and hydration missed the element (#4240).
+
 ## 2.0.0-rc.18
 
 ## 2.0.0-rc.17

@@ -263,6 +263,14 @@ source, so the fallback cannot appear. Move the outside read under the boundary.
 If the fallback should appear immediately beside the held frame, use a
 `latest()` read in `on`.
 
+### LOADING_ON_ACCESSOR
+
+A Loading boundary's `on` received a function, such as `on={route}` or
+`on={() => route()}`. `on` takes the dependency's value, so pass
+`on={route()}`, or `on={[query(), page()]}` for several dependencies. An
+accessor passed instead is never called, nothing is read, and the boundary
+never re-arms.
+
 ## Hard failures
 
 ### REACTIVITY_HALTED
