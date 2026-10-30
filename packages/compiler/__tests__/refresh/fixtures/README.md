@@ -91,6 +91,12 @@ pass's intended output, not the plugin's):
   module and takes the `@refresh reload` path (decline block, render fix
   still applied, no registration) so saving the file fetches a fresh
   server render instead of silently doing nothing.
+- **Variadic functions** (vite-plugin-solid#214; `variadic-functions`): the
+  plugin counts a rest parameter as one parameter, so a capitalized
+  `function Format(...parts)` passes the one-parameter component check and
+  is wrapped, and the proxy then calls it with only its first argument
+  (`props`). A component takes at most its props, so the native pass
+  leaves any function with a rest parameter unwrapped.
 - **Member-expression refs** (solid-refresh#77; `ref-member-passthrough`):
   not a divergence but a documented non-bug — the crash lives in the
   plugin's `jsx: true` extraction (`extractJSXExpressionFromRef`

@@ -1537,17 +1537,24 @@ fn function_is_component(function: &Function<'_>) -> bool {
     is_componentish(id.name.as_str())
         && !function.generator
         && !function.r#async
-        && function.params.items.len() + usize::from(function.params.rest.is_some()) < 2
+        && takes_props(&function.params)
 }
 
 fn arrow_is_component(arrow: &ArrowFunctionExpression<'_>) -> bool {
-    !arrow.r#async && arrow.params.items.len() + usize::from(arrow.params.rest.is_some()) < 2
+    !arrow.r#async && takes_props(&arrow.params)
 }
 
 fn function_expression_is_component(function: &Function<'_>) -> bool {
-    !function.generator
-        && !function.r#async
-        && function.params.items.len() + usize::from(function.params.rest.is_some()) < 2
+    !function.generator && !function.r#async && takes_props(&function.params)
+}
+
+/// A component takes at most one parameter, its props. A rest parameter
+/// takes every argument, so a variadic function is a helper: wrapping it
+/// would pass it only the first argument, the proxy's `props`
+/// (vite-plugin-solid#214). The Babel plugin counts the rest parameter as
+/// one parameter and wraps it.
+fn takes_props(params: &FormalParameters<'_>) -> bool {
+    params.rest.is_none() && params.items.len() < 2
 }
 
 /// Babel's `unwrapNode(node, ...)` through TS wrappers.
