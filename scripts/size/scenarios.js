@@ -1117,8 +1117,9 @@ module.exports = [
     // 14.89 KB, recorded minified 43,874 -> 43,875 B; CI-measured at 14,875 B
     // (43,875 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "14.89 KB",
-    capMinified: 43875,
+    // createOptimisticStore(fn) reuses the projection family (#4437, 2026-10-30, over next @ 7135a77a): 14.89 -> 14.98 KB, recorded minified 43,875 -> 43,867 B, measured locally (linux) at 14,964 B brotli / 43,867 B minified (-8 B minified over next). createOptimisticStore built its own family without the projection's status hook, so an upstream memo's error never reached the store's readers (F-12); it now calls createProjectionInternal. Minified shrinks; the brotli move is layout noise. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "14.98 KB",
+    capMinified: 43867,
     alias
   },
   {
@@ -4301,8 +4302,9 @@ module.exports = [
     // 32.43 KB, recorded minified 100,729 -> 100,748 B; CI-measured at 32,419 B
     // (100,748 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "32.43 KB",
-    capMinified: 100748,
+    // createOptimisticStore(fn) reuses the projection family (#4437, 2026-10-30, over next @ 7135a77a): 32.43 -> 32.53 KB, recorded minified 100,748 -> 100,740 B, measured locally (linux) at 32,518 B brotli / 100,740 B minified (-8 B minified over next). createOptimisticStore built its own family without the projection's status hook, so an upstream memo's error never reached the store's readers (F-12); it now calls createProjectionInternal. Minified shrinks; the brotli move is layout noise. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.53 KB",
+    capMinified: 100740,
     alias
   },
   {
