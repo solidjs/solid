@@ -205,11 +205,11 @@ function settleFamily(fam: StoreFamily): void {
 /** A source's status reached the derive by propagation (core
  * `propagateStatus`), its pass not re-run: the family learns it as from the
  * pass's own throw. */
-function familyStatus(this: StoreFamily, status: number): void {
+function familyStatus(this: StoreFamily, status: number, error?: unknown): void {
   if (status & STATUS_PENDING) wakeFamily(this);
-  // (No error to compare: core propagates to the derive only an error it does
-  // not already carry, so its readers learn it here first.)
-  else if (status & STATUS_ERROR) errorFamily(this);
+  // The error rides along: a reader the derive's own pass already handed it
+  // (a sync derive re-run in the same flush) is not handed it again.
+  else if (status & STATUS_ERROR) errorFamily(this, error);
 }
 
 function forEachFamilyNode(fam: StoreFamily, fn: (n: Signal<any>) => void): void {
