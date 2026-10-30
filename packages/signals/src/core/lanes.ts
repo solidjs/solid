@@ -286,7 +286,17 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // does not break it out — it stays the frame's, as the same read inline
     // does (verdict.ts `markVerdictReader`, `route`; D-25, D-26). An
     // effect's own reads do not count (its `_type`, 1–3, carries neither bit).
-    if (!(verdict && creatorReads(c, (c as any)._type || f))) {
+    // Nor by a member of the frame a held pass of that lane's hold built,
+    // on any later run (CONFIG_HELD_FRAME, `bornInto`): born in the hold's
+    // world, it is the hold's own work and its run is the frame's, at the
+    // landing (D-25, D-27) — as `route` keeps it for the inline `latest()`.
+    if (
+      !(
+        verdict &&
+        (creatorReads(c, (c as any)._type || f) ||
+          (c._config & CONFIG_HELD_FRAME && bornInto(c, resolveTx(l._parent!))))
+      )
+    ) {
       setPassLane(l);
       // The pass read a held write before its first lane read (it joined the
       // frame's future as mainline would): lane work sees the screen — the
