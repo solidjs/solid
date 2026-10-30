@@ -67,7 +67,10 @@ function retainedFrom(retained: string[], names: string[]): string[] {
   return names.filter(name => retained.some(id => id.includes(name)));
 }
 
-describe("pay-for-use tree-shaking (#2883)", () => {
+// Every test runs a full Vite build of a fixture, and the first one pays the
+// bundler's cold start: under the whole suite's load on CI it ran past
+// vitest's 5 s default (5,295 ms) while asserting nothing wrong.
+describe("pay-for-use tree-shaking (#2883)", { timeout: 30_000 }, () => {
   it("core floor sheds every optional feature module", async () => {
     const { minifiedBytes, retained } = await bundleFixture(
       `export { createSignal, createMemo, createEffect, createRoot, flush } from "sigsrc";`
