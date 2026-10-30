@@ -936,13 +936,38 @@ Landed or to be extracted on their own, each measured on its own:
   scenarios equal in brotli and minified). It keeps the deciders honest
   from CI without changing them.
 - **The #4417 fix** (M3b's D-2 re-derive in place / `adoptReaders`) and
-  the **two `next` bugs** it closes (3289 #464, 91501 #8991) — extracted
-  from the swap as their own change against today's deciders, with the
-  50k pair check (the #45702 regression came with this change in S1 and
-  must not come with the extraction).
-- **The `lanes-core` / `lanes` split** (M4, 97ed6a00e: `+ isPending/latest`
-  −1,661 B, live page −1,662 B) — measured in isolation on `next`, without
-  the seat, before it is proposed.
+  the **two `next` bugs** it closes (3289 #464, 91501 #411) — extracted
+  from the swap as its own change against today's deciders
+  (`salvage/4417-park-adoption`, 8ccab0f71, no seat). **Not opened.** The
+  four #3540 pins flip and every suite is green, but: size `+ isPending/latest`
+  +274 B brotli / +870 B minified, `page: live server components` (frozen
+  floor) +273 / +858 — the adoption's three walks are ≈ 700 B minified of
+  lane code against a ≈ 20 B floor budget; and 50k × 3 against `next`
+  gives 9 / 8 / 5 differing cases: the two bugs closed, **19 cases of the
+  D-37 class** (lane work under a display-ahead `<Show when={latest(x)}>`
+  shows the committed value where `next` shows the staged one — 7 #9846
+  #13595 #19106 #20324 #21348 #39486 #42058 #48845; 3289 #3598 #12559
+  #22669 #28591 #30977 #34631 #49646; 91501 #3494 #5871 #14705 #45722),
+  and **the #45702 regression** (7, E9: `latest()` through a memo shows
+  an empty span pair at settles 8–9 where the leaf form and `next` show
+  nothing). So the M3b signature belongs to the adoption, not the seat:
+  the D-37 class needs a ruling (is lane work under a display-ahead `Show`
+  entitled to the staged value, or the committed one?) before #4417 can
+  be fixed this way, and the fix itself is a membership change written as
+  mechanism — the §8.4 pattern.
+- **The `lanes-core` / `lanes` split** (M4, 97ed6a00e) — measured in
+  isolation on `next` (`salvage/lanes-split`, b3926358b: pure move plus
+  `installOptimisticHooks` / `installGuessHooks`). **Not opened under the
+  ≤ 0-everywhere gate; it is a trade.** `+ isPending/latest` **−539 B
+  brotli / −1,666 B minified**; `page: live server components` −539 /
+  −1,677; compiled live −618 / −1,708; live + router −641 / −1,716; every
+  scenario without lanes 0 B minified (brotli ±noise). But `app: hydrating
+  + every store primitive family` — the one scenario with both halves,
+  optimistic store and `isPending` — **+49 B brotli / +197 B minified**,
+  39 B over its cap: the hook indirection paid when both are present.
+  ≈ 80–100 B of that is shaveable; not to ≤ 0. Whether −540 B on every
+  `isPending`/`latest` app is worth +49 B on apps that also use
+  `createOptimistic` is the maintainer's call.
 
 Not salvaged: M2, M3a, the floor split and levers, the two deletions
 (their justification was the table being live). `seat/s1-swap` stays as
