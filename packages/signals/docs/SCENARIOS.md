@@ -918,7 +918,7 @@ The hold did not wait on the rejection: step 3 lands as soon as `slow(2)` does, 
 
 ### S-47. `try/catch` around a reactive read: caught on one pass, bypassed on the next — D-42, F-12
 
-_Pinned: `tests/try-catch-reactive-read.test.ts` (the bypass as it is; not a target)._ (S-46 is #4466's.)
+_Pinned: `tests/try-catch-reactive-read.test.ts` (the not-ready bypass as it is; not a target) and `tests/errored-reader-4486.test.ts` (the error twin's ruled screens, `it.fails` today)._ (S-46 is #4466's.)
 
 ```tsx
 const [id, setId] = createSignal(0);
@@ -941,14 +941,14 @@ const guarded = createMemo(() => {
 | 3   | `fetchData(1)` lands | `d1`              | yes           |                                                                                                                                              |
 | ✗   |                      | after 2: `caught` | —             | what the author expected: the catch to run on every pending. It runs only on a pass that happens to execute while the source is pending      |
 
-The error twin, under `<Errored fallback={e => ...}>` with a sync `source` that throws when `mode() === 1`:
+The error twin, under `<Errored fallback={e => ...}>` with a sync `source` that throws when `mode() === 1`. For errors the catch is fully inert (F-12, #4410 amendment, confirmed 2026-10-30 on #4486): a reader of an errored memo is errored with it whether or not it catches — on the change and on a pass that runs over the already-errored source alike. The two halves differ until ruled otherwise: for not-ready the catch is bypassed on the change and masks on the pass.
 
-| #   | Action                          | Screen         | `guarded` ran | Notes                                                                                                                                 |
-| --- | ------------------------------- | -------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | mount, `mode = 0`               | `m0`           | yes           |                                                                                                                                       |
-| 1   | `setMode(1); flush()`           | `errored:boom` | **no**        | `source` errors; `guarded` is marked errored, not run; the error reaches `<Errored>` as if the catch were not there                   |
-| 2   | `setMode(2); flush()`           | `m2`           | yes           |                                                                                                                                       |
-| 0′  | mounted with `mode = 1` already | `caught`       | yes           | the same code, the other outcome: the pass ran while the source was already errored, so the catch fired and the boundary never saw it |
+| #   | Action                          | Screen         | `guarded` ran | Notes                                                                                                                                                                                                                                                                                                  |
+| --- | ------------------------------- | -------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0   | mount, `mode = 0`               | `m0`           | yes           |                                                                                                                                                                                                                                                                                                        |
+| 1   | `setMode(1); flush()`           | `errored:boom` | **no**        | `source` errors; `guarded` is marked errored, not run; the error reaches `<Errored>` as if the catch were not there                                                                                                                                                                                    |
+| 2   | `setMode(2); flush()`           | `m2`           | yes           |                                                                                                                                                                                                                                                                                                        |
+| 0′  | mounted with `mode = 1` already | `errored:boom` | yes           | the same code, the same outcome: a reader of an errored memo is errored with it whether or not it catches (#4410, #4486). Deviation today: `caught` at mount and on the first re-run; on the second the boundary errors (a halt, without one) with the memo still reading `caught` — pinned `it.fails` |
 
 ### S-43. A held recovery keeps the shown error; recovering to the last good value is a change — D-41, D-39 (#3886)
 
