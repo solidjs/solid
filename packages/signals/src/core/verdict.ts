@@ -247,7 +247,16 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
       // verdict lane's now, as a plain read of a flight makes it
       // (`observeFlight`). Its frame pass re-derived in the lane (R5) asked
       // its question again (F-9, #4397). A staging's is the seam's (#4365).
-      if (!probing) joinFuture(null);
+      // A probe in a transaction only that opened is the lane's too, with no
+      // re-run at its landing: nothing it holds flips the verdict — the
+      // flight's own landing re-derives the reader — and it lands at this
+      // seam, where a re-run would open it again, every flush (F-6, D-23).
+      // (The mark is the transaction's own — `Transaction.latest` — so
+      // nothing outlives its landing.)
+      if (!probing)
+        flushTransaction ||
+          (joinFuture(null), ((flushTransaction as Transaction | null)!.latest = 1));
+      else if (flushTransaction?.latest) return route(c, flushTransaction);
       provisionalVerdict(c, false); // decided above
     }
   }
