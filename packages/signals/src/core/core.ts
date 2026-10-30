@@ -2323,7 +2323,13 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     if (__TEST__) shadowActual(SLOT_C);
     return el._value;
   }
-  stagedRead(c!, el);
+  // D-8 (#4452), as `read`'s fast block: a signal's staging equal to its
+  // committed value is writes that netted — no proposal, not a read of the
+  // frame's future. Only the strict `untrack` read skips the fast block in
+  // dev (its `strictRead` test); a hydration snapshot or a promoted write
+  // reaches here in dev and prod alike, and keeps the mark.
+  if (!(__DEV__ && strictRead) || (el as Computed<any>)._fn || el._pendingValue !== el._value)
+    stagedRead(c!, el);
   // D-41: the staged answer is an error (`stageError`).
   if (el._config & CONFIG_STAGED_ERROR) throw el._pendingValue;
   if (__TEST__) shadowActual(SLOT_P);
