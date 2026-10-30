@@ -294,9 +294,10 @@ export class LaneView {
     /** The backing the guess is shown over: the committed one at the
      * guess, the composed arrangement after a re-base (optimistic.ts). */
     public base: Record<PropertyKey, any>,
-    /** Keys the setter REMOVED from the view it saw (a deliberate delete,
-     * not a row the truth has yet to show): a re-base does not restore
-     * them. `null` when none. */
+    /** A keyed list's guess: the keys of the view the setter saw that are
+     * not the guess's own rows — removed by it, or only carried over from
+     * the truth beneath. A re-base takes them from the new truth
+     * (optimistic.ts). `null` when not keyed. */
     public removed: Set<unknown> | null = null
   ) {}
 }
@@ -2466,6 +2467,15 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   writeScopes.add(scopeKey(target));
   const prevUser = userWrite;
   userWrite = guard;
+  // An outermost setter's exit notifies the targets it wrote. A
+  // write-override write (a derive's continuation after an `await`, no
+  // setter open) is notified at once by its trap but stays listed (its keys
+  // share one written set while the continuation writes): dropped here, or
+  // this setter's exit would notify the derive's staging as its own — a
+  // user's, on an optimistic family, as guesses (#4484). Read before the
+  // clear: the list is empty here but for those, and clearing an empty set
+  // allocates.
+  if (writing === 0 && pendingNotify.size) pendingNotify.clear();
   writing++;
   let result: any;
   try {
