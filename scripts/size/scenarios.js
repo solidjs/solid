@@ -4317,8 +4317,9 @@ module.exports = [
     // 0.01 KB; recorded minified never raised.
     // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 32.43 -> 32.52 KB, recorded minified 100,748 -> 100,761 B (+13 B), measured locally (linux) at 32,508 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Batch re-record (2026-10-30, over next @ 563b6b0): cap unchanged, recorded minified 100,761 -> 100,797 B (+36 B), measured locally (linux) at 32,473 B brotli. Growth is the 2026-10-30 merges (#4454, #4457, #4461). Recorded minified = measured.
-    limit: "32.52 KB",
-    capMinified: 100797,
+    // A propagated error reaches a derived store's readers once (#4463, 2026-10-30, over next @ 131ceb8c): 32.52 KB -> 32.54 KB, recorded minified 100,797 -> 100,803 B (+6 B), measured locally (linux) at 32,522 B brotli. familyStatus hands the error to errorFamily so a reader its derive's pass already handed it is skipped; the brotli move is layout from +2 B minified. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.54 KB",
+    capMinified: 100803,
     alias
   },
   {
@@ -6140,8 +6141,9 @@ module.exports = [
     // at measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): 41.16 KB -> 41.23 KB, recorded minified 125,416 -> 125,435 B, measured in CI at 41,215 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
     // Batch re-record (2026-10-30, over next @ 563b6b0): cap unchanged, recorded minified 125,435 -> 125,468 B (+33 B), measured locally (linux) at 41,178 B brotli. Growth is the 2026-10-30 merges (#4454, #4457, #4461). Recorded minified = measured.
-    limit: "41.23 KB",
-    capMinified: 125468,
+    // A propagated error reaches a derived store's readers once (#4463, 2026-10-30, over next @ 131ceb8c): 41.23 KB -> 41.25 KB, recorded minified 125,468 -> 125,470 B (+2 B), measured locally (linux) at 41,231 B brotli. familyStatus hands the error to errorFamily so a reader its derive's pass already handed it is skipped; the brotli move is layout from +2 B minified. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "41.25 KB",
+    capMinified: 125470,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
