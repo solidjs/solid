@@ -80,7 +80,11 @@ describe("heap marking stays incremental across mid-tick pulls", () => {
       ratio = Math.min(ratio, large / small);
     }
     expect(ratio).toBeLessThan(24);
-  });
+    // 30 s, not vitest's 5 s: under coverage the reader-seat shadow (S0,
+    // `__TEST__` only — it compares every read and every pass against the
+    // deciders) puts the three rounds of 8,000-row mounts past 5 s. The
+    // ratio is what is asserted; the clock is only a hang guard.
+  }, 30_000);
 
   it("a write landing between two mid-tick pulls is visible through a memo chain in the same pass", () => {
     // The first sync render effect's read marks the heap; the row's write

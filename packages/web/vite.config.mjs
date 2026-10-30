@@ -26,7 +26,15 @@ export default defineConfig({
     environment: "jsdom",
     pool: "threads",
     globals: true,
-    setupFiles: ["test/setup-frames-eager.ts"],
+    setupFiles: [
+      "test/setup-frames-eager.ts",
+      // Reader-seat shadow (S0): the signals dist built with
+      // SIGNALS_TEST_DEFINE=true records per-file mismatches when
+      // SEAT_SHADOW_REPORT=<file> is set.
+      ...(process.env.SEAT_SHADOW_REPORT
+        ? [resolve(rootDir, "../signals/tests/setup/seat-shadow-report.ts")]
+        : [])
+    ],
     exclude: [
       "**/node_modules/**",
       "wip_tests/**",

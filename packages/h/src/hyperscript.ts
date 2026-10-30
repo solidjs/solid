@@ -159,9 +159,12 @@ function materialize(args: any[]): ExpandableNode | ExpandableNode[] {
       for (const k in d) {
         if (k === "class" && classes.length !== 0) {
           const staticClasses = classes;
-          const cls = d[k].value;
+          // An accessor `class` (e.g. a forwarded component prop) is read
+          // through `l`, so the merged value becomes a getter that tracks it.
+          const { get, set, ...desc } = d[k];
+          const cls = get ? () => l[k] : desc.value;
           d[k] = {
-            ...d[k],
+            ...desc,
             value:
               typeof cls === "function" ? () => [...staticClasses, cls()] : [...staticClasses, l[k]]
           };
