@@ -81,12 +81,16 @@ export let laneApplyHook:
 /** The lane slots served (lanes.ts `laneServe`): Lv, Dv, T, a fold. */
 export let laneServeHook: ((el: Signal<any> | Computed<any>, slot: number) => unknown) | null =
   null;
+/** A lane pass's node at its tail (lanes.ts `laneStage`); `provisional`: the
+ * hold whose verdict reader's provisional staging this pass re-derived
+ * (D-2, #4417) — `l` may be null then: no lane seats the pass. */
 export let laneStageHook:
   | ((
       el: Computed<any>,
-      l: Transaction,
+      l: Transaction | null,
       create: boolean,
-      errored: boolean | Computed<any>
+      errored: boolean | Computed<any>,
+      provisional?: Transaction | null
     ) => boolean)
   | null = null;
 export let laneOutcomeHook:
@@ -102,11 +106,13 @@ export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
  * of a reader adopts the flight instead (true: adopted, nothing to queue). */
 export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
 /** D-2's re-derive in place (core.ts `recompute`, #4417): a verdict reader
- * re-derived the value it staged provisionally — the readers that derived
- * from the staging are adopted into the hold's verdict lane `l` with their
- * frames (lanes.ts `adoptReaders`). */
-export let adoptReadersHook: ((el: Computed<any>, l: Transaction, t: Transaction) => void) | null =
-  null;
+ * seated in the hold's verdict lane `l` re-derived the `value` it staged
+ * provisionally under `t` — it is the lane's, and the readers that derived
+ * from the staging are adopted into the lane with their frames (lanes.ts
+ * `adoptReaders`). */
+export let adoptReadersHook:
+  | ((el: Computed<any>, l: Transaction, t: Transaction, value: unknown) => void)
+  | null = null;
 /** core.ts `frameRead` served lane work or a verdict reader a held node's
  * committed value (lanes.ts `laneServed`). */
 export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =

@@ -540,11 +540,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // A verdict reader's staging is D-2's provisional answer (it read
         // a staging of the flush that parked, as a verdict reader; this
         // pass is its one re-derive): kept as this pass's previous value
-        // and judged at the tail — equal, and the pass the hold's verdict
-        // reader, the readers that derived from it are the verdict lane's
-        // with their frames (`adoptReadersHook`, #4417: a keyed Show mounts
-        // once); else published mainline as below. (Only the verdict engine
-        // stages one: without it the arm folds to the publish.)
+        // and judged at the tail by the lane engine (`laneStage`): seated
+        // in the hold's verdict lane, it is the lane's value — equal, the
+        // readers that derived from it are the lane's with their frames
+        // (`adoptReadersHook`, #4417: a keyed Show mounts once); else
+        // superseded as below. (Only the verdict engine stages one: without
+        // it the arm folds to the publish.)
         if (el._pendingValue !== NOT_PENDING) {
           if (verdictApplyHook !== null && el._config & CONFIG_VERDICT && !isEffect)
             provisional = tx;
@@ -815,19 +816,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // Listed before its staging, a pending pass included (the lane's own
   // flight is the lane's); false: the pass left the lane (lanes.ts).
   const errored = !!el._x?._error || stagedErr;
-  // (The provisional staging, before `laneStage` voids the slot.)
-  const staged = provisional !== null ? el._pendingValue : NOT_PENDING;
-  if (laneStageHook && lane !== null) {
-    if (laneStageHook(el, lane, create, errored)) setPassLane(lane);
-    else lane = null;
-  }
-  // The provisional staging (above) of a pass that is not the hold's verdict
-  // reader after all (no verdict lane seats it) is superseded as any other:
-  // published mainline, its readers re-derive (#4378).
-  if (provisional !== null && (lane === null || errored)) {
-    insertSubs(el);
-    el._pendingValue = NOT_PENDING;
-    provisional = null;
+  // (A provisional pass is the engine's to judge with or without a lane:
+  // seated to the end, its staging is the lane's value — the slot this
+  // pass compares against —; else superseded, its readers re-derive, #4378.)
+  if (laneStageHook && (lane !== null || provisional !== null)) {
+    if (laneStageHook(el, lane, create, errored, provisional)) setPassLane(lane!);
+    else lane = provisional = null;
   }
 
   if (!errored) {
@@ -850,16 +844,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // INV-11 (#3330): the equality gate compares against the slot this run
     // publishes to — the staged `_pendingValue` when staged; a lane node's
     // lane value (a node entering the lane this pass has none yet — its
-    // committed value, `laneStage` having voided a frame staging).
-    // (A provisional staging the pass re-derives is what it compares to.)
+    // committed value, `laneStage` having voided a frame staging — or, a
+    // provisional pass's, the staging it re-derives, seated as the lane's
+    // value).
     const compareValue =
-      provisional !== null
-        ? staged
-        : el._pendingValue !== NOT_PENDING
-          ? el._pendingValue
-          : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
-            ? el._x!._lane
-            : el._value;
+      el._pendingValue !== NOT_PENDING
+        ? el._pendingValue
+        : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
+          ? el._x!._lane
+          : el._value;
     // A throwing comparator is contained inside `isSame` (A3, #2837; #4111).
     // A pass replacing an error this node staged is a new answer, even the
     // committed value (D-41: a recovery equal to the last good value is a
@@ -1015,9 +1008,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // the value is the lane's (as a changed one would be, above), and the
       // readers that derived from the staging are the lane's with their
       // frames, revealed at its seam instead of re-run (lanes.ts).
-      if (lane!._shown) el._pendingValue = value;
-      else el._x!._lane = value;
-      adoptReadersHook!(el, lane!, provisional);
+      adoptReadersHook!(el, lane!, provisional, value);
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) insertIntoHeapHeight(s._sub, dirtyQueue);
     }

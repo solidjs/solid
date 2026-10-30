@@ -389,13 +389,26 @@ export function verdictLane(t: Transaction): Transaction {
  * not leave (A30: it never got there). A first pass under a lane is the
  * lane's (ruling A); a guess is written, not derived — it never leaves this
  * way. `errored`: the pass has no answer — or, a lane pass's pending
- * propagation (async.ts `propagateStatus`), the node gone pending. */
+ * propagation (async.ts `propagateStatus`), the node gone pending.
+ * `provisional`: the hold whose verdict reader's provisional staging this
+ * pass re-derived (D-2, #4417; core.ts `recompute`'s head kept it as the
+ * pass's previous value) — superseded here, its readers re-deriving
+ * (#4378), unless the lane seats the pass to the end with an answer: then
+ * the staging is the lane's value meanwhile — what the pass compares
+ * against; the lane's at the seam if the value stands (`adoptReaders`),
+ * replaced if not. `l` is null for a provisional pass no lane seats. */
 export function laneStage(
   el: Computed<any>,
-  l: Transaction,
+  l: Transaction | null,
   create: boolean,
-  errored: boolean | Computed<any>
+  errored: boolean | Computed<any>,
+  provisional: Transaction | null = null
 ): boolean {
+  if (provisional !== null && (l === null || errored || !(el._flags & REACTIVE_LANE_READ))) {
+    insertSubs(el);
+    el._pendingValue = NOT_PENDING;
+  }
+  if (l === null) return false;
   if (!(create || errored || el._flags & REACTIVE_LANE_READ || el._config & CONFIG_GUESS)) {
     const x = el._x;
     if (x !== null) {
@@ -422,9 +435,17 @@ export function laneStage(
   }
   if (!(el as any)._type) {
     if (!(el._config & CONFIG_OVERRIDE)) {
+      const staged = el._pendingValue;
       el._pendingValue = NOT_PENDING;
       el._config = (el._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_OVERRIDE;
       ext(el);
+      // A provisional pass seated to the end: the staging is the lane's
+      // value for now — in the lane's slot while the lane has not shown,
+      // as a lane pass's would be (`recompute`), as its staging once it has.
+      if (provisional !== null && !errored) {
+        if (l._shown) el._pendingValue = staged;
+        else el._x!._lane = staged;
+      }
     }
     // A written guess whose own pass is the lane's work — its source is a
     // derivation of another guess (a guess over `config().courier` under a
@@ -1483,8 +1504,17 @@ const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => 
  * lane's to re-derive — it re-runs as today, as does every leaf (its run
  * is the lane's; the one the park stashed with `t` is the frame's) and
  * every reader with nothing staged. The notify is `insertSubs` +
- * `laneDirty`'s, the adopted taken back out of the heap. */
-function adoptReaders(el: Computed<any>, l: Transaction, t: Transaction): void {
+ * `laneDirty`'s, the adopted taken back out of the heap. `value`: the
+ * re-derived value — the lane's, as a changed one would be (`recompute`'s
+ * lane arm; `laneStage` seated the staging there meanwhile). */
+function adoptReaders(el: Computed<any>, l: Transaction, t: Transaction, value: unknown): void {
+  if (l._shown) el._pendingValue = value;
+  else el._x!._lane = value;
+  adoptSubs(el, l, t);
+}
+/** The readers of `el` held by `t` that derived from its staging alone are
+ * the lane's with their frames, recursively (`adoptReaders`). */
+function adoptSubs(el: Computed<any>, l: Transaction, t: Transaction): void {
   insertSubs(el);
   laneDirty(el, l);
   for (let s = el._subs; s !== null; s = s._nextSub) {
@@ -1518,7 +1548,7 @@ function adoptReaders(el: Computed<any>, l: Transaction, t: Transaction): void {
       r._pendingValue = NOT_PENDING;
     }
     adoptFrame(r, el, l);
-    adoptReaders(r, l, t);
+    adoptSubs(r, l, t);
   }
 }
 /** Every source of `r` is `el`, the lane's, or neither held nor staged. */
