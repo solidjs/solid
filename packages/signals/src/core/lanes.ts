@@ -32,10 +32,12 @@
 import {
   CONFIG_AUTHORITATIVE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_FRAME,
   CONFIG_GUESS,
   CONFIG_HELD,
   CONFIG_HELD_FRAME,
   CONFIG_INPUTS_PUBLISHED,
+  CONFIG_LAGS,
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   CONFIG_STAGED,
@@ -290,10 +292,25 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // on any later run (CONFIG_HELD_FRAME, `bornInto`): born in the hold's
     // world, it is the hold's own work and its run is the frame's, at the
     // landing (D-25, D-27) — as `route` keeps it for the inline `latest()`.
+    // Nor by a pass that re-entered the hold holding its node at its head
+    // (core.ts `recompute`: held, with no verdict posture — an async memo's
+    // was dropped there — not a frame, not lagging, not a lane's node), when
+    // `l` is another hold's verdict lane: re-run by the write its hold
+    // holds, the pass is that hold's work and reads plainly in either read
+    // order (D-25), as it does reading its hold's staging before `l`'s
+    // value. Moved into `l`, it read its own hold's landing as the screen
+    // (D-26) and asked a question already asked (#4399: `m1:15` again, over
+    // `m0b`'s committed value beside the landing of its next question). Its
+    // own hold's verdict lane is its display-ahead read: it enters that one
+    // (D-25, #4050).
     if (
       !(
         verdict &&
         (creatorReads(c, (c as any)._type || f) ||
+          ((c._config &
+            (CONFIG_HELD | CONFIG_VERDICT | CONFIG_FRAME | CONFIG_LAGS | CONFIG_OVERRIDE)) ===
+            CONFIG_HELD &&
+            txOf(c) !== resolveTx(l._parent!)) ||
           (c._config & CONFIG_HELD_FRAME && bornInto(c, resolveTx(l._parent!))))
       )
     ) {
