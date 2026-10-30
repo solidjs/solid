@@ -93,6 +93,8 @@ import {
   insertSubs,
   joinFuture,
   joinPassTx,
+  list,
+  laneStageHook,
   passLane,
   queuePendingNode,
   schedule,
@@ -1880,6 +1882,21 @@ function pullFamily(target: StoreTarget): void {
  * classification, as core reads it — `heldNotFinal`). */
 function holdWithDerive(target: StoreTarget, node: Signal<any>): void {
   const fw = target.fam?.node;
+  // A pass that is a lane's work (a display-ahead read, F-6): its write is
+  // the lane's derivation, as a memo's value would be (D-25).
+  if (
+    laneStageHook &&
+    passLane !== null &&
+    !userWrite &&
+    node._pendingValue !== NOT_PENDING &&
+    !(node._config & CONFIG_OVERRIDE)
+  ) {
+    list(node, passLane);
+    node._x!._lane = node._pendingValue;
+    node._pendingValue = NOT_PENDING;
+    node._config |= CONFIG_OVERRIDE;
+    return;
+  }
   if (
     fw !== undefined &&
     fw !== null &&
