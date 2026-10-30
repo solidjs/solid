@@ -85,7 +85,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 |---|---|---|---|---|---|
 | V1 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:480` | seat.ts×5 | spec-async-semantics.test.ts×7 | - **V1 (violated A13) — FIXED.** A _resting_ optimistic node reported |
 | V2 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:490` | seat.ts×2 | spec-async-semantics.test.ts×2 | - **V2 (violated A7/A13) — FIXED.** `latest()`'s verdict in the window was |
-| V3 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:496` | seat.ts×3 | spec-async-semantics.test.ts×2 | - **V3 (violated A19) — FIXED.** After a reporter-less transition completed, |
+| V3 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:496` | seat.ts×5 | spec-async-semantics.test.ts×2 | - **V3 (violated A19) — FIXED.** After a reporter-less transition completed, |
 | V4 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:503` | seat.ts×3 | spec-async-semantics.test.ts×5 | - **V4 (violated the old A20's three-form algebra) — FIXED, then the rule it |
 | V5 | live | `docs/SPEC-ASYNC-SEMANTICS.md:515` | scheduler.ts×1 | spec-async-semantics.test.ts×3 | - **V5 (A17 corollary — found and fixed with the revert-target elimination, |
 ## B — tier B

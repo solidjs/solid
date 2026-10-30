@@ -886,10 +886,15 @@ export function slot(
     // (F-9, as D1/L1: a staging beneath a flight is not what the reader
     // sees — the flight decides below. The 50k differential's V3 finding.)
     if (!pending) {
+      // D1'' / L1'' / V3'' (D-8, #4452): a signal's staging equal to its
+      // committed value is writes that netted — no proposal, so the read
+      // is the screen's: the slot is still P (the same value), no mark.
+      const netted = !isFn && el._pendingValue === el._value;
       if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) {
         // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
         // staging before (the seam's verdict).
         if (stagedScreen) return carry(pred("V2", screen, MARK_ST, flushTransaction));
+        if (netted) return carry(pred("V3''", stagedSlot));
         return carry(pred("V3", stagedSlot, RAISE_FL | MARK_W, tickHold()));
       }
       if (inLane && seat!.lane!.folded && stagedScreen && !uninit)
@@ -897,8 +902,11 @@ export function slot(
       const row = renderLeaf ? "L1" : inLane ? rowBase + "D7" : rowBase + "D1";
       // A pass reading a node born staged (uninitialized) has no screen to
       // re-derive on: no Fl mark (#3969), the value is still the staging's.
-      const raise = uninit ? 0 : RAISE_FL | (inSeat || (isEffect && verdictReader) ? MARK_W : 0);
-      return carry(pred(row, stagedSlot, raise, null, inLane ? seat!.lane : null));
+      // Nor a netted signal's (D1'' / L1'', above).
+      const raise =
+        uninit || netted ? 0 : RAISE_FL | (inSeat || (isEffect && verdictReader) ? MARK_W : 0);
+      const lane = inLane ? seat!.lane : null;
+      return carry(pred(netted ? row + "''" : row, stagedSlot, raise, null, lane));
     }
   }
 
