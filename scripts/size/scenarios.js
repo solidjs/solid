@@ -3032,8 +3032,9 @@ module.exports = [
     // B; CI-measured at 13,416 B (37,014 B minified). Lower only: cap at
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): cap unchanged, recorded minified 37,014 -> 37,015 B, measured in CI at 13,423 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
-    limit: "13.43 KB",
-    capMinified: 37015,
+    // The Loading fallback memo is the output's creation (#4428, 2026-10-30, over next @ 7135a77a): 13.43 KB -> 13.45 KB, recorded minified 37,015 -> 37,023 B (+8 B), measured locally (linux) at 13,432 B brotli. `fallback()` creates its memo lazy, so its first pass runs in the output's read and born held asks the output, not the owner it lives in (D-27). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "13.45 KB",
+    capMinified: 37023,
     alias
   },
   {
@@ -3890,8 +3891,9 @@ module.exports = [
     // 29.74 KB, recorded minified 88,302 -> 88,303 B; CI-measured at 29,727 B
     // (88,303 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "29.74 KB",
-    capMinified: 88303,
+    // The Loading fallback memo is the output's creation (#4428, 2026-10-30, over next @ 7135a77a): 29.74 KB -> 29.78 KB, recorded minified 88,303 -> 88,311 B (+8 B), measured locally (linux) at 29,763 B brotli. `fallback()` creates its memo lazy, so its first pass runs in the output's read and born held asks the output, not the owner it lives in (D-27). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "29.78 KB",
+    capMinified: 88311,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -4128,8 +4130,9 @@ module.exports = [
     // 26.27 KB, recorded minified 79,985 -> 79,986 B; CI-measured at 26,257 B
     // (79,986 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "26.27 KB",
-    capMinified: 79986,
+    // The Loading fallback memo is the output's creation (#4428, 2026-10-30, over next @ 7135a77a): 26.27 KB -> 26.30 KB, recorded minified 79,986 -> 79,994 B (+8 B), measured locally (linux) at 26,283 B brotli. `fallback()` creates its memo lazy, so its first pass runs in the output's read and born held asks the output, not the owner it lives in (D-27). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "26.30 KB",
+    capMinified: 79994,
     alias
   },
   {
@@ -4301,8 +4304,9 @@ module.exports = [
     // 32.43 KB, recorded minified 100,729 -> 100,748 B; CI-measured at 32,419 B
     // (100,748 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "32.43 KB",
-    capMinified: 100748,
+    // The Loading fallback memo is the output's creation (#4428, 2026-10-30, over next @ 7135a77a): 32.43 KB -> 32.51 KB, recorded minified 100,748 -> 100,756 B (+8 B), measured locally (linux) at 32,493 B brotli. `fallback()` creates its memo lazy, so its first pass runs in the output's read and born held asks the output, not the owner it lives in (D-27). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.51 KB",
+    capMinified: 100756,
     alias
   },
   {
@@ -5761,8 +5765,9 @@ module.exports = [
     // 35.66 KB, recorded minified 107,955 -> 107,974 B; CI-measured at 35,645 B
     // (107,974 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "35.66 KB",
-    capMinified: 107974,
+    // The Loading fallback memo is the output's creation (#4428, 2026-10-30, over next @ 7135a77a): 35.66 KB -> 35.68 KB, recorded minified 107,974 -> 107,982 B (+8 B), measured locally (linux) at 35,662 B brotli. `fallback()` creates its memo lazy, so its first pass runs in the output's read and born held asks the output, not the owner it lives in (D-27). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "35.68 KB",
+    capMinified: 107982,
     alias: pageAlias
   },
   {
@@ -5904,11 +5909,12 @@ module.exports = [
     // Re-record after the 2026-10-29 afternoon batch (#4418, #4414; 2026-10-29, over next @ 5d57e12a): 42.62 KB -> 42.65 KB, recorded minified 125,165 -> 125,266 B (+101 B), measured in CI at 42,640 B brotli. Growth is #4414 (a truncated fragment's fresh render computes what the server never sent: the truncation sweep deletes unsettled records at DOMContentLoaded, +~100 B minified in solid's hydration client); the maintainer said merge (2026-10-29). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): cap unchanged, recorded minified 125,266 -> 125,285 B, measured in CI at 42,636 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
     // A held memo's parked reader re-derives at the seam (#4439, 2026-10-30, over next @ b249ad96): 42.65 KB -> 42.67 KB, recorded minified 125,285 -> 125,374 B (+89 B), measured locally (linux) at 42,655 B brotli. `laneSeams` also re-derives a reader whose pass read a held node, so `isPending` of a memo parked behind a held one turns true. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "42.67 KB",
+    // The Loading fallback memo is the output's creation (#4428, 2026-10-30, over next @ 7135a77a): 42.67 KB -> 42.70 KB, recorded minified 125,374 -> 125,382 B (+8 B), measured locally (linux) at 42,685 B brotli. `fallback()` creates its memo lazy, so its first pass runs in the output's read and born held asks the output, not the owner it lives in (D-27). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "42.70 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 123,191 -> 123,249 B (+58 B minified over next's record), measured locally (linux) at 41,899 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 123,203 -> 123,224 B (+21 B minified over next's record), measured locally (linux) at 41,966 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 123,224 -> 123,733 B (+403 B minified over next), measured locally (linux) at 42,119 B brotli (+169 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 125374,
+    capMinified: 125382,
     alias: pageAlias
   },
   {
