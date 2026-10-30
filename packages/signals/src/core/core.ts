@@ -463,8 +463,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // it joins nothing, so the write that reached it commits mainline.
       // `EFFECT_RENDER << 23` is CONFIG_FRAME (a render effect, a boundary's
       // tree and output), spelled from the effect type as at creation.
+      // A verdict reader born into `tx` (`bornInto`: never committed) is the
+      // hold's own work, whatever it asked before (D-25): it joins like any
+      // held pass, so what it mounts is the hold's (D-13, #4467).
       if (tx._lane || el._config & CONFIG_LAGS) {
-      } else if (!(el._config & (CONFIG_VERDICT | (EFFECT_RENDER << 23))))
+      } else if (
+        !(el._config & (CONFIG_VERDICT | (EFFECT_RENDER << 23))) ||
+        (observeFlightHook && !(el._config & (EFFECT_RENDER << 23)) && bornInto(el, tx))
+      )
         joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
       else if (
         tx !== flushTransaction &&
