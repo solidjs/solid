@@ -5598,6 +5598,7 @@ module.exports = [
     // (117,143 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
     // A held memo's parked reader re-derives at the seam (#4439, 2026-10-30, over next @ b249ad96): 38.74 KB -> 38.76 KB, recorded minified 117,143 -> 117,227 B (+84 B), measured locally (linux) at 38,741 B brotli. `laneSeams` also re-derives a reader whose pass read a held node, so `isPending` of a memo parked behind a held one turns true. Correctness; a frozen floor, +15 B brotli is under the maintainer's 20 B flag line (2026-10-29), Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // A memo pulled inside isPending() computes as its own pass (#4429, 2026-10-30, over next @ 5f07d049): frozen floor 38.76 KB -> 38.80 KB, recorded minified 117,227 -> 117,328 B (+101 B: +13 B this fix, +88 B next's own growth since the floor was recorded), measured locally (linux) at 38,782 B brotli. `verdictValue` clears the probe's state for the pass it pulls, so a `latest()` there joins no hold through the probe and its reads do not answer the outer `isPending` (A31, F-vworld). Correctness; Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
