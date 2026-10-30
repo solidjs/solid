@@ -25,6 +25,7 @@ import {
   CONFIG_HAS_SNAPSHOT,
   CONFIG_NO_SNAPSHOT,
   CONFIG_PLUMBING,
+  CONFIG_REDERIVE,
   CONFIG_WIDE,
   CONFIG_SUPERSEDES,
   CONFIG_SLOT_NODE,
@@ -1812,7 +1813,7 @@ export function spectate<T>(fn: () => T): T {
 export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void {
   if (comp._flags & REACTIVE_LAZY) {
     comp._flags &= ~REACTIVE_LAZY;
-    recompute(comp as Computed<any>, true);
+    wake(comp as Computed<any>);
   } else if (comp._flags & REACTIVE_DISPOSED) {
     // Two disposal lifecycles share the flag (#3024). Observation-lifecycle
     // nodes (CONFIG_AUTO_DISPOSE) are dormant — torn down by unobserved()
@@ -1834,10 +1835,47 @@ export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void
         // live chain too.
         if (!(comp._flags & REACTIVE_ZOMBIE)) linkChild(parent, comp);
       }
-      recompute(comp as Computed<any>, true);
+      wake(comp as Computed<any>);
     }
   } else if (refresh) {
     updateIfNecessary(comp);
+  }
+}
+
+/** The memo a wake pass is running for (`wake`); `read` serves it a flight's
+ * committed value where a plain pass would throw. */
+let waking: Computed<any> | null = null;
+
+/**
+ * D-22 (#4474): laziness is never observable — a memo nobody read has still
+ * produced what the flushes it missed would have given it. A lazy or dormant
+ * memo released unread at its source's landing (#2934) wakes in a flush that
+ * has re-asked the source: its wake pass computes on the committed world —
+ * a source in flight with a committed value is served that value (`read`),
+ * the landing the memo missed — and then waits on the flight like any
+ * dependent (`propagateStatus`): pending beside its catch-up value, so
+ * `latest` of it is that value and `isPending` of it is `true`, the same
+ * screen as with a prior reader. A plain read of it in the same mount is a
+ * read of a flight with a committed value, as it would be (D-2, D-27). A
+ * source with no committed value throws as before (loading, F-9); a held
+ * source is the hold's (`joinPass`). An async memo's catch-up starts the
+ * flight the missed landing would have started; the re-ask's answer
+ * supersedes it as it would have (`asyncWrite`'s `_inFlight` check).
+ */
+function wake(comp: Computed<any>): void {
+  const prev = waking;
+  waking = comp;
+  recompute(comp, true);
+  waking = prev;
+  // A verdict reader or a boundary's output is re-derived by a source going
+  // pending, never marked (`propagateStatus`): the pass just ran.
+  if (comp._config & (CONFIG_VERDICT | CONFIG_REDERIVE)) return;
+  for (let d = comp._deps; d !== null; d = d._nextDep) {
+    const s = d._dep as Computed<any>;
+    if ((s._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING) {
+      if (!(comp._statusFlags & STATUS_PENDING)) queuePendingNode(comp);
+      notifyStatus(comp, STATUS_PENDING, s._x!._error);
+    }
   }
 }
 
@@ -2230,11 +2268,22 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
           if (__TEST__) shadowActual(SLOT_P);
           return el._pendingValue as T;
         }
-        // An untracked read of a pending node still re-runs its reader when
-        // the node settles — unless nobody is reading (`spectating`, #3528)
-        // or the reader is the node itself.
-        if (!tracking && !spectating && el !== c) link(el, c as Computed<any>);
-        throw owner._x?._error;
+        // D-22 (#4474): a woken memo's read of a flight with a committed
+        // value is served the flush's world (`serve`: the committed value, or
+        // a staging), the landing it missed — untracked too, as the landing
+        // would have served it; `wake` marks it pending on the flights it
+        // tracked after the pass. Not a held flight: the pass joined its hold
+        // above and derives from it as before.
+        if (
+          c !== waking ||
+          (owner._statusFlags & STATUS_UNINITIALIZED) | (el._config & CONFIG_HELD)
+        ) {
+          // An untracked read of a pending node still re-runs its reader when
+          // the node settles — unless nobody is reading (`spectating`, #3528)
+          // or the reader is the node itself.
+          if (!tracking && !spectating && el !== c) link(el, c as Computed<any>);
+          throw owner._x?._error;
+        }
       }
     } else if (owner._statusFlags & STATUS_UNINITIALIZED) {
       throw owner._x?._error;
