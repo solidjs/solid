@@ -445,6 +445,22 @@ export function createOwner(options?: { id?: string; transparent?: boolean }) {
 }
 
 /**
+ * The exported `createOwner` (see `createOwner` above): its `dispose` is bound
+ * to the owner, so it can be handed around as a plain function —
+ * `queueMicrotask(o.dispose)`, `setTimeout(o.dispose)` — as `createRoot`'s
+ * dispose can (#4444). Internal owners (a `mapArray` row, a boundary) keep the
+ * shared `this`-reading method: they are only ever disposed as `o.dispose()`,
+ * and a bound function per row would be an allocation per row.
+ *
+ * @internal
+ */
+export function createPublicOwner(options?: { id?: string; transparent?: boolean }) {
+  const owner = createOwner(options);
+  owner.dispose = disposeRootSelf.bind(owner);
+  return owner;
+}
+
+/**
  * Creates a reactive root — an owner scope with its own `dispose()`. A root
  * created inside an existing owner is owned by it and is disposed when the
  * parent is disposed; call `dispose()` to tear it down earlier. To create a

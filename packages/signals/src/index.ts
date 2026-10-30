@@ -6,7 +6,7 @@ export {
   NotReadyError,
   TimeoutError,
   createContext,
-  createOwner,
+  createPublicOwner as createOwner,
   createRoot,
   runWithOwner,
   flush,

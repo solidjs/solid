@@ -27,6 +27,7 @@ export {
 } from "./external.js";
 export {
   createOwner,
+  createPublicOwner,
   createRoot,
   dispose,
   getNextChildId,
