@@ -49,7 +49,7 @@ import {
 import { warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { applyMarks, laneServe, verdictLane } from "./lanes.js";
+import { applyMarks, laneServe, verdictLane } from "./lanes-core.js";
 import { enqueueSub } from "./heap.js";
 import {
   clock,

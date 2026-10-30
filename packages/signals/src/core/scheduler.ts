@@ -59,9 +59,11 @@ import type { Computed, Owner, Signal } from "./types.js";
 // minifier folds every guarded call site (and the branch behind it) away.
 // Each module installs its own set at evaluation (pay-for-use).
 //
-// Lanes (lanes.ts; installed when `createOptimistic` — or verdict.ts — is
-// imported; every call site is behind a bit or a `passLane` nothing else sets).
-/** The engines' rows of the reader seat (lanes.ts `seatRows`): a lane's
+// Lanes — the sub-hold core (lanes-core.ts; installed when verdict.ts or
+// the optimistic layer is imported; every call site is behind a bit or a
+// `passLane` nothing else sets). The optimistic layer's own hooks (lanes.ts;
+// installed with `createOptimistic`) are `installGuessHooks`'s below.
+/** The engines' rows of the reader seat (lanes-core.ts `seatRows`): a lane's
  * node (`laneSlot`), a seated pass (lane work, a hold's verdict reader), a
  * verdict reader — a packed slot/raise. seat.ts `slot` dispatches here on
  * the three marks only an engine sets; the floor keeps the plain rows. */
@@ -73,21 +75,21 @@ export let seatRowsHook:
       spectate: boolean
     ) => number)
   | null = null;
-/** The lane bits of a raise applied (lanes.ts `laneApply`): the seat move,
+/** The lane bits of a raise applied (lanes-core.ts `laneApply`): the seat move,
  * the stale-of-a-lane mark, the leave, `entered`. */
 export let laneApplyHook:
   | ((c: Computed<any>, raise: number, lane: Transaction | null) => void)
   | null = null;
-/** An engine row's packed raise, applied to the reader (lanes.ts
+/** An engine row's packed raise, applied to the reader (lanes-core.ts
  * `applyMarks`): the plain rows fire their own (seat.ts), so only a build
  * with an engine ever has a raise to apply. */
 export let applyMarksHook:
   | ((c: Computed<any>, el: Signal<any> | Computed<any>, r: number) => void)
   | null = null;
-/** The lane slots served (lanes.ts `laneServe`): Lv, Dv, T, a fold. */
+/** The lane slots served (lanes-core.ts `laneServe`): Lv, Dv, T, a fold. */
 export let laneServeHook: ((el: Signal<any> | Computed<any>, slot: number) => unknown) | null =
   null;
-/** A lane pass's node at its tail (lanes.ts `laneStage`); `provisional`: the
+/** A lane pass's node at its tail (lanes-core.ts `laneStage`); `provisional`: the
  * hold whose verdict reader's provisional staging this pass re-derived
  * (D-2, #4417) — `l` may be null then: no lane seats the pass. */
 export let laneStageHook:
@@ -99,28 +101,23 @@ export let laneStageHook:
       provisional?: Transaction | null
     ) => boolean)
   | null = null;
-export let laneOutcomeHook:
-  | ((el: Computed<any>, value: unknown, errored: boolean) => boolean)
-  | null = null;
 export let laneWriteHook: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | null = null;
-export let applyGuessesHook: ((parent: Transaction | null) => void) | null = null;
 export let laneSeamsHook: ((t: Transaction | null) => void) | null = null;
-export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
-/** R5 (lanes.ts `laneSeams` parks a frame flight): the landing's re-derive
+/** R5 (lanes-core.ts `laneSeams` parks a frame flight): the landing's re-derive
  * of a reader adopts the flight instead (true: adopted, nothing to queue). */
 export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
 /** D-2's re-derive in place (core.ts `recompute`, #4417): a verdict reader
  * seated in the hold's verdict lane `l` re-derived the `value` it staged
  * provisionally under `t` — it is the lane's, and the readers that derived
- * from the staging are adopted into the lane with their frames (lanes.ts
- * `adoptReaders`). */
+ * from the staging are adopted into the lane with their frames
+ * (lanes-core.ts `adoptReaders`). */
 export let adoptReadersHook:
   | ((el: Computed<any>, l: Transaction, t: Transaction, value: unknown) => void)
   | null = null;
 /** core.ts `frameRead` served lane work or a verdict reader a held node's
- * committed value (lanes.ts `laneServed`). */
+ * committed value (lanes-core.ts `laneServed`). */
 export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
   null;
 /** A guess was written (lanes.ts `optimisticWrite`): the arms only a guess
@@ -136,11 +133,8 @@ export function installLaneHooks(
   apply: NonNullable<typeof laneApplyHook>,
   serve: NonNullable<typeof laneServeHook>,
   stage: NonNullable<typeof laneStageHook>,
-  outcome: NonNullable<typeof laneOutcomeHook>,
   write: NonNullable<typeof laneWriteHook>,
-  applyGuesses: NonNullable<typeof applyGuessesHook>,
   seams: NonNullable<typeof laneSeamsHook>,
-  corrections: NonNullable<typeof laneCorrectionsHook>,
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
   adopt: NonNullable<typeof laneAdoptHook>,
@@ -152,16 +146,31 @@ export function installLaneHooks(
   laneApplyHook = apply;
   laneServeHook = serve;
   laneStageHook = stage;
-  laneOutcomeHook = outcome;
   laneWriteHook = write;
-  applyGuessesHook = applyGuesses;
   laneSeamsHook = seams;
-  laneCorrectionsHook = corrections;
   endLanesHook = end;
   lanesBlockedHook = blocked;
   laneAdoptHook = adopt;
   laneServedHook = served;
   adoptReadersHook = adoptReaders;
+}
+// The optimistic layer (lanes.ts; installed when `createOptimistic` or
+// `createOptimisticStore` is imported): a written guess's own pass judged
+// (`laneOutcome`, core.ts `recompute`), the seam's guesses opening their
+// lanes (`applyGuessesAt`), the body-end corrections (`laneCorrections`).
+export let laneOutcomeHook:
+  | ((el: Computed<any>, value: unknown, errored: boolean) => boolean)
+  | null = null;
+export let applyGuessesHook: ((parent: Transaction | null) => void) | null = null;
+export let laneCorrectionsHook: (() => boolean) | null = null;
+export function installGuessHooks(
+  outcome: NonNullable<typeof laneOutcomeHook>,
+  applyGuesses: NonNullable<typeof applyGuessesHook>,
+  corrections: NonNullable<typeof laneCorrectionsHook>
+): void {
+  laneOutcomeHook = outcome;
+  applyGuessesHook = applyGuesses;
+  laneCorrectionsHook = corrections;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary
