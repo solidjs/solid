@@ -303,15 +303,16 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // `m0b`'s committed value beside the landing of its next question). Its
     // own hold's verdict lane is its display-ahead read: it enters that one
     // (D-25, #4050).
+    let hold: Transaction;
     if (
       !(
         verdict &&
         (creatorReads(c, (c as any)._type || f) ||
-          ((c._config &
+          ((hold = resolveTx(l._parent!)),
+          (c._config &
             (CONFIG_HELD | CONFIG_VERDICT | CONFIG_FRAME | CONFIG_LAGS | CONFIG_OVERRIDE)) ===
-            CONFIG_HELD &&
-            txOf(c) !== resolveTx(l._parent!)) ||
-          (c._config & CONFIG_HELD_FRAME && bornInto(c, resolveTx(l._parent!))))
+            CONFIG_HELD && txOf(c) !== hold) ||
+          (c._config & CONFIG_HELD_FRAME && bornInto(c, hold!)))
       )
     ) {
       setPassLane(l);
