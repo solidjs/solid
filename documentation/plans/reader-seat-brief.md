@@ -90,6 +90,11 @@ Baseline must be zero on E4/E5/E9 after §2 lands.
 
 ## 4. The carve: rebuild beside, then swap
 
+> **Stopped (2026-10-29).** S1 failed its gate (the 50k differential and
+> size) and the swap is not going ahead. S0 + M1 landed as a CI spec
+> (#4438). `reader-seat-rebuild.md` §8 is the record and supersedes this
+> section; what follows is the plan as it stood.
+
 The model and the table stand; the plan is no longer the nine-step fold.
 The design is `reader-seat-rebuild.md`: the seat and the slot table are
 built _beside_ the existing deciders as `core/seat.ts` (+ the display-ahead
