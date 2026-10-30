@@ -61,10 +61,11 @@ import type { Computed, Owner, Signal } from "./types.js";
 //
 // Lanes (lanes.ts; installed when `createOptimistic` — or verdict.ts — is
 // imported; every call site is behind a bit or a `passLane` nothing else sets).
-/** The lane rows of the reader seat (lanes.ts `laneSlot`): a packed
- * slot/raise, or the raise alone (slot 0) when the lane has nothing to serve
- * and the plain rows go on (seat.ts `slot`). */
-export let laneReadHook:
+/** The engines' rows of the reader seat (lanes.ts `seatRows`): a lane's
+ * node (`laneSlot`), a seated pass (lane work, a hold's verdict reader), a
+ * verdict reader — a packed slot/raise. seat.ts `slot` dispatches here on
+ * the three marks only an engine sets; the floor keeps the plain rows. */
+export let seatRowsHook:
   | ((
       c: Computed<any> | null,
       el: Signal<any> | Computed<any>,
@@ -118,7 +119,7 @@ export function armGuessing(): void {
   guessing = true;
 }
 export function installLaneHooks(
-  read: NonNullable<typeof laneReadHook>,
+  rows: NonNullable<typeof seatRowsHook>,
   apply: NonNullable<typeof laneApplyHook>,
   serve: NonNullable<typeof laneServeHook>,
   stage: NonNullable<typeof laneStageHook>,
@@ -133,7 +134,7 @@ export function installLaneHooks(
   served: NonNullable<typeof laneServedHook>,
   adoptReaders: NonNullable<typeof adoptReadersHook>
 ): void {
-  laneReadHook = read;
+  seatRowsHook = rows;
   laneApplyHook = apply;
   laneServeHook = serve;
   laneStageHook = stage;

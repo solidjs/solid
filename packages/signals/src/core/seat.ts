@@ -5,10 +5,15 @@
  * reader-seat-rebuild.md`): posture × node-state bits → a row of the table,
  * which names the slot the read is served from and the mechanisms the read
  * fires (the raise bits). The table decides; `read` (core.ts `applyMarks`,
- * `serveSlot`) applies. The rows for a lane's node live with the lane
- * engine (lanes.ts `laneSlot`, reached through `laneReadHook`) and the
- * rows inside a verdict window with the verdict engine (verdict.ts
- * `windowSlot`): a build without them retains neither.
+ * `serveSlot`) applies. This module is the floor's: the plain rows (U, F,
+ * L, D — the committed value, a staging, a hold, a flight, an error, for a
+ * pass in no seat). The rows of a SEATED pass (lane work, a hold's verdict
+ * reader) and of a verdict reader live with the lane engine (lanes.ts
+ * `seatRows`, reached through `seatRowsHook`; a lane's node's rows are
+ * `laneSlot` there) and the rows inside a verdict window with the verdict
+ * engine (verdict.ts `windowSlot`): a build without them retains neither —
+ * `slot` dispatches to the engine on the three things only an engine sets
+ * (`passLane`, CONFIG_OVERRIDE, CONFIG_VERDICT) and the floor pays the test.
  *
  * The SEAT this pass reads from is, at S1 M2, a view over the pass state
  * the old deciders kept (`passLane`, the pass's JOINED / STAGED_READ flags,
@@ -80,14 +85,12 @@ import {
   clock,
   flushTransaction,
   globalQueue,
-  laneReadHook,
-  latestOpened,
   passLane,
   passTx,
   resolveTx,
   sameLane,
+  seatRowsHook,
   txOf,
-  verdictApplyHook,
   type Transaction
 } from "./scheduler.js";
 import type { Computed, Signal } from "./types.js";
@@ -386,21 +389,16 @@ export function readerVhold(): Transaction | null {
   return passLane !== null && laneOf(passLane) === null ? resolveTx(passLane._parent!) : null;
 }
 
-/** The posture of a node from the node alone (INV-seat-2). `window`: the
- * WINDOW_* bits open (WINDOW_LATEST wins — `latest` inside `isPending` is
- * `latest`'s value). */
-export function postureOf(c: Computed<any> | null, window: number): number {
-  if (c === null) return window ? (window & WINDOW_LATEST ? POSTURE_VL : POSTURE_VP) : POSTURE_U;
+/** The posture of a node from the node alone (INV-seat-2), as the floor
+ * tells them apart: F (children-forbidden) > L (a render effect or
+ * CONFIG_FRAME) > D. A (authoritative) reads as D on every plain row; V (a
+ * verdict reader) is the verdict engine's — its rows live with the lane
+ * engine (lanes.ts `seatRows`), which tells V and A for itself; the window
+ * postures Vl/Vp are `windowSlot`'s (verdict.ts). (`seatPosture`, below,
+ * is the shadow's full ladder.) */
+export function postureOf(c: Computed<any> | null): number {
+  if (c === null) return POSTURE_U;
   if (c._config & CONFIG_CHILDREN_FORBIDDEN) return POSTURE_F;
-  if (c._config & CONFIG_AUTHORITATIVE) return POSTURE_A;
-  if (window) return window & WINDOW_LATEST ? POSTURE_VL : POSTURE_VP;
-  // A pass that asked (`latest`/`isPending`) is a verdict reader from the
-  // window on, and stays one on every re-run until a pass asks nothing
-  // (D-25 "a verdict posture outlives the pass that asked"): the sticky
-  // CONFIG_VERDICT, set at the window (`markVerdictReader`). (A verdict
-  // reader exists only with the verdict engine installed: a build without
-  // it folds the V rows away.)
-  if (verdictApplyHook !== null && c._config & CONFIG_VERDICT) return POSTURE_V;
   if ((c as any)._type === EFFECT_RENDER || c._config & CONFIG_FRAME) return POSTURE_L;
   return POSTURE_D;
 }
@@ -408,7 +406,7 @@ export function postureOf(c: Computed<any> | null, window: number): number {
 /** A28 — a write not yet flushed: the committed value is what the pass
  * sees, re-run in the flush that carries the write. (A held node rewritten
  * between flushes keeps its flushed stash — `stash`.) */
-function unflushed(el: AnyNode): boolean {
+export function unflushed(el: AnyNode): boolean {
   return (
     !globalQueue._running && el._pendingValue !== NOT_PENDING && !(el._config & CONFIG_PROMOTED)
   );
@@ -426,15 +424,18 @@ export function dispNP(el: AnyNode, uninit: boolean): boolean {
   return !(l._transaction!._shown && l._lane !== NOT_PENDING) && uninit;
 }
 
-// ─── The slot table (plain rows: U, F, A, L, D, V) ─────────────────────────
+// ─── The slot table (plain rows: U, F, L, D) ───────────────────────────────
 
 /**
  * The slot a plain read of `el` by `c` is served from, with the mechanisms
  * the row fires — `read`'s decision. Pure: nothing on `c` or `el` is
  * touched; `read` applies the raise (core.ts `applyMarks`) and serves the
- * slot (`serveSlot`). A lane's node dispatches to the lane rows first
- * (lanes.ts `laneSlot` through `laneReadHook`); a verdict window's read
- * never arrives here (verdict.ts `windowSlot`).
+ * slot (`serveSlot`). The engines' rows first (lanes.ts `seatRows`, through
+ * `seatRowsHook`): a lane's node (CONFIG_OVERRIDE), a seated pass
+ * (`passLane`: lane work, a hold's verdict reader), a verdict reader
+ * (CONFIG_VERDICT) — each exists only with its engine installed, and the
+ * engine's rows fall back to the plain ones below for the arms they share.
+ * A verdict window's read never arrives here (verdict.ts `windowSlot`).
  *
  * @param c the reader (null: no pass)
  * @param el the node read
@@ -447,34 +448,31 @@ export function slot(
   tracked: boolean,
   spectate: boolean
 ): number {
-  // Lane node (CONFIG_OVERRIDE, the lane engine's): the lane rows. Nothing
-  // to serve from the lane (a node with nothing in either view): the plain
-  // rows go on with the lane's side effects carried — the pass entered.
   seatTx = seatLane = null;
   if (__TEST__) seatRow = 0;
-  if (laneReadHook !== null && el._config & CONFIG_OVERRIDE) {
-    const r = laneReadHook(c, el, tracked, spectate);
-    if (r & SLOT_MASK) return r;
-    if (r !== 0) {
-      const row = seatRow;
-      const p = plainRows(c, el, tracked, spectate);
-      if (__TEST__) seatRow = `${row}→${seatRow}`;
-      return p | r;
-    }
-  }
+  if (
+    seatRowsHook !== null &&
+    (el._config & CONFIG_OVERRIDE ||
+      passLane !== null ||
+      (c !== null && c._config & CONFIG_VERDICT))
+  )
+    return seatRowsHook(c, el, tracked, spectate);
   return plainRows(c, el, tracked, spectate);
 }
 
-/** The plain rows (U, F, L, D, V; A as D) — every node but a lane's with a
- * value to serve. */
-function plainRows(
+/** The plain rows (U, F, L, D; A as D): a pass in no seat, no verdict
+ * reader, reading a node that is no lane's — the committed value, this
+ * flush's staging, a hold's, a flight, an error, in worlds S / Fl / H.
+ * The engine's rows (lanes.ts `seatRows`) decide their own arms and come
+ * here for the rest. */
+export function plainRows(
   c: Computed<any> | null,
   el: AnyNode,
   tracked: boolean,
   spectate: boolean
 ): number {
   const cfg = el._config;
-  const posture = postureOf(c, 0);
+  const posture = postureOf(c);
   const st = ((el as Computed<any>)._statusFlags as number | undefined) ?? 0;
   const isFn = typeof (el as Computed<any>)._fn === "function";
   const staged = el._pendingValue !== NOT_PENDING;
@@ -493,16 +491,6 @@ function plainRows(
   const screen = isFn && el._x?._shownError ? SLOT_ESHOWN : SLOT_C;
   /** f0: a flight with no value yet. */
   const firstFlight = pending && uninit;
-  /** The pass is lane work, or a hold's verdict reader (`passLane` — the
-   * lane engine's: without it no pass is seated, and the rows fold). */
-  const inSeat = laneReadHook !== null && passLane !== null;
-  const lane = inSeat ? laneOf(passLane) : null;
-  const inLane = lane !== null;
-  /** (The reader's own state matters to the seat and verdict rows alone.) */
-  const cUninit =
-    (inSeat || verdictApplyHook !== null) &&
-    c !== null &&
-    (c._statusFlags & STATUS_UNINITIALIZED) !== 0;
   /** D-41 (#2897): an errored derivation's retry — a tracked re-read on a
    * later cycle than the one that found the error re-runs it and reads
    * again. */
@@ -538,62 +526,23 @@ function plainRows(
     // nothing for the frame, A19 exc. 1 — no source.)
     if (firstFlight) return SLOT_NR | nrLink;
     if (uninit && staged) return SLOT_NR0;
-    // D-29: the committed value (lane work's frame reader over a flight:
-    // the screen, `throwShown`); over an unflushed write, the late re-run
-    // (a held node's: its stash).
-    if (pending && inSeat && !cUninit) return screen;
+    // (D-29's seated arm — lane work's frame reader over a flight sees the
+    // screen — is the engine's.) Over an unflushed write, the late re-run (a
+    // held node's: its stash).
     if (stash) return SLOT_STASH | late;
     return SLOT_C | (staged ? late : 0);
   }
 
-  // ── Common arms for L / D / V / A-as-D ─────────────────────────────────
-  // (An authoritative reader of a lane's node took the lane rows — `until`
-  // sees the truth, D-31; of any other node it reads as a derivation.)
+  // ── Common arms for L / D (A as D) ─────────────────────────────────────
   const leaf = posture === POSTURE_L;
-  // (A truth reader that is also a verdict reader — F-6's flag copy, a
-  // window of its own — reads a hold's node as a verdict reader does:
-  // `truthRead` is for lane nodes only.)
-  const verdictReader =
-    verdictApplyHook !== null &&
-    (posture === POSTURE_V || (posture === POSTURE_A && (c!._config & CONFIG_VERDICT) !== 0));
-  const rowBase = ROW && (posture === POSTURE_A ? "A1/" : "");
-  /** A verdict reader that is an effect (its pass re-derives once as a
-   * verdict reader if the flush parks, D-22). */
-  const vEffect = verdictReader && !!(c as any)._type;
+  const rowBase = ROW && (c!._config & CONFIG_AUTHORITATIVE ? "A1/" : "");
   /** A staging served to the pass (`stagedRead`): the pass derives from
-   * this flush (Fl) — and watches the seam when it is lane work, a hold's
-   * verdict reader, or a verdict reader that is a leaf (an effect). Not a
-   * node born staged (#3969: no screen to re-derive on). Over a write not
-   * yet flushed, the committed value (or the stash) and a late re-run
-   * instead (A28). */
-  const stagedServe = late ? MARK_LATE : uninit ? 0 : RAISE_FL | (inSeat || vEffect ? MARK_W : 0);
-  const latestOnly =
-    verdictApplyHook !== null &&
-    flushTransaction !== null &&
-    flushTransaction === latestOpened &&
-    !inSeat &&
-    !cUninit;
-  /** `stagedScreen`: a verdict reader's — or lane work's — plain read of a
-   * staging is the screen's once the frame has a hold, unless born into it
-   * — a stale reader of the hold. A hold a `latest()` alone opened holds
-   * nothing: the reader watches the seam (W) and is served the staging. */
-  const stagedScreen =
-    (verdictReader || inLane) &&
-    flushTransaction !== null &&
-    !(c !== null && bornInto(c, flushTransaction));
-  /** A verdict reader's staging read (`serve`'s verdict arm, then
-   * `stagedRead`): the screen and ST, or — under `latest()`'s hold alone,
-   * or with no hold — the staging, Fl, and W (for a `latest()`-only hold
-   * the seam watch comes from `stagedScreen` whoever the reader is). */
-  const verdictStaged = (slotOf: number): number => {
-    if (stagedScreen && !latestOnly) {
-      ROW && setRow("V2");
-      seatTx = flushTransaction;
-      return screen | MARK_ST;
-    }
-    ROW && setRow("V3");
-    return slotOf | RAISE_FL | (latestOnly || inSeat || vEffect ? MARK_W : 0);
-  };
+   * this flush (Fl). Not a node born staged (#3969: no screen to re-derive
+   * on). Over a write not yet flushed, the committed value (or the stash)
+   * and a late re-run instead (A28). (The seam watch, W, is the engine's: a
+   * seated pass's or a verdict-reader effect's — `seatRows` adds it to the
+   * staging served.) */
+  const stagedServe = late ? MARK_LATE : uninit ? 0 : RAISE_FL;
 
   // Error (D-41 #2897): the error — the retry re-reads. The hold arms run
   // first (`read`'s L2 block): a derivation of a held errored node joins
@@ -606,14 +555,8 @@ function plainRows(
     let s = retry ? SLOT_RETRY : SLOT_E;
     r &= ~(MARK_LINK | SLOT_MASK); // (the error is thrown, not NotReady)
     if (!retry && stagedError && !(r & MARK_ST)) {
-      if (verdictReader && c!._config & CONFIG_VERDICT && !uninit && !late) {
-        const v = verdictStaged(SLOT_ESTAGED);
-        r |= v & RAISE_MASK;
-        if ((v & SLOT_MASK) === SLOT_ESTAGED) s = SLOT_ESTAGED;
-      } else {
-        r |= stagedServe;
-        if (!late && !uninit) s = SLOT_ESTAGED;
-      }
+      r |= stagedServe;
+      if (!late && !uninit) s = SLOT_ESTAGED;
     }
     ROW && setRow(leaf ? "L8" : rowBase + "D5");
     return r | s;
@@ -627,7 +570,6 @@ function plainRows(
   function heldRow(err: boolean): number {
     const t = txOf(el);
     seatTx = t;
-    const own = t === flushTransaction || bornInto(c!, t);
     /** A row that joins and is served the staging (or NR in flight). */
     const join = (extra = 0): number =>
       pending
@@ -636,7 +578,6 @@ function plainRows(
           RAISE_H |
           extra |
           (staged && !err ? stagedServe : 0);
-    const stale = (served: boolean): number => screen | MARK_ST | (served ? MARK_SERVED : 0);
     if (leaf) {
       // L4 (D-9 D-2 D-27): inputs published, or born — the leaf has no
       // screen to fall back to; it joins the hold (D-4): its world is the
@@ -645,25 +586,12 @@ function plainRows(
       if (uninit) return (ROW && setRow("L4"), join(MARK_TICK));
       if (cfg & CONFIG_INPUTS_PUBLISHED) return (ROW && setRow("L4"), join());
       if (bornInto(c!, t)) return (ROW && setRow("L2"), join()); // D-2
-      if (inSeat) return (ROW && setRow("D6"), stale(true)); // lane work: the screen (D-37)
-      if (own) return (ROW && setRow("L2"), join()); // D-3 D-2
-      return (ROW && setRow("L3"), stale(false)); // D-3 D-9 D-26
+      // (Lane work's leaf sees the screen here — D6, the engine's.)
+      if (t === flushTransaction) return (ROW && setRow("L2"), join()); // D-3 D-2
+      return (ROW && setRow("L3"), screen | MARK_ST); // D-3 D-9 D-26: stale
     }
-    if (verdictReader) {
-      // V1 (D-23 A10 [R7]): a verdict reader is a frame reader — the
-      // screen, re-derived at the landing — unless born into t.
-      if (bornInto(c!, t)) return (ROW && setRow("V1'"), join());
-      if (uninit) return (ROW && setRow("V1''"), join()); // no screen to serve
-      return (ROW && setRow("V1"), stale(true));
-    }
-    if (inSeat) {
-      // D6 (D-37): lane work reading a hold's node — the screen, re-derived
-      // at that landing; a lane pass with no value yet over a flight enters.
-      if (!(cUninit && pending) && !uninit && !bornInto(c!, t))
-        return (ROW && setRow(rowBase + "D6"), stale(true));
-      return (ROW && setRow(rowBase + "D6'"), join());
-    }
-    // D2 (D-1 D-2 D-10): the pass derives from the hold.
+    // D2 (D-1 D-2 D-10): the pass derives from the hold. (A verdict
+    // reader's V1 and lane work's D6 — the screen — are the engine's.)
     return (ROW && setRow(rowBase + (pending ? "D2'" : "D2")), join());
   }
 
@@ -678,59 +606,38 @@ function plainRows(
     // (F-9, as D1/L1: a staging beneath a flight is not what the reader
     // sees — the flight decides below. The 50k differential's V3 finding.)
     if (!pending) {
-      // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
-      // staging before (the seam's verdict).
-      if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) return verdictStaged(stagedSlot);
-      if (inLane && lane!.folded && stagedScreen && !uninit) {
-        // Folded lane work reads the screen (D-34).
-        ROW && setRow(rowBase + "D7'");
-        seatTx = flushTransaction;
-        return SLOT_C | MARK_ST;
-      }
-      // (D-28's leaf treatment of a lane — lanes.ts L6/L7 — is a render
-      // effect's, the binding that shows: L1. A boundary's structure
-      // (CONFIG_FRAME, posture L per #4283) reads as a derivation does.)
-      ROW &&
-        setRow(
-          (c as any)._type === EFFECT_RENDER && (leaf || verdictReader)
-            ? "L1"
-            : inLane
-              ? rowBase + "D7"
-              : rowBase + "D1"
-        );
+      // D1/L1 (D-23 D-32): the staging. (The seam's verdict for a verdict
+      // reader — V2/V3 — and folded lane work's screen — D7' — are the
+      // engine's.) D-28's leaf treatment of a lane — lanes.ts L6/L7 — is a
+      // render effect's, the binding that shows: L1. A boundary's structure
+      // (CONFIG_FRAME, posture L per #4283) reads as a derivation does.
+      ROW && setRow((c as any)._type === EFFECT_RENDER && leaf ? "L1" : rowBase + "D1");
       return stagedSlot | stagedServe;
     }
   }
 
-  // A flight, not held.
-  if (pending) {
-    // D-37: not the lane's own, the pass has a value — and so does the
-    // node (a first load in flight has no screen: NR, F-2).
-    if (inSeat && !cUninit && !uninit) return (ROW && setRow(rowBase + "D8"), screen);
-    if (verdictReader && !uninit) {
-      if (cfg & CONFIG_INPUTS_PUBLISHED) {
-        ROW && setRow("V4'");
-        seatTx = flushTransaction;
-        return SLOT_NR | nrLink;
-      }
-      // D-23 D-9: the screen; in a flush the pass is the hold's verdict
-      // reader and a stale reader of the flight (`observeFlight`: the
-      // flush's hold opens if none has, and the flight nobody holds is
-      // queued for the seam).
-      ROW && setRow("V4");
-      if (globalQueue._running) {
-        seatTx = flushTransaction;
-        return screen | MARK_ST | MARK_AH | MARK_JF0 | MARK_OBS;
-      }
-      return screen;
-    }
-    return (ROW && setRow(leaf ? "L5" : rowBase + "D3"), SLOT_NR | nrLink); // F-2 D-28 / F-2 D-9
-  }
+  // A flight, not held: NR (F-2 D-28 / F-2 D-9). (A seated pass's screen —
+  // D8 — and a verdict reader's — V4 — are the engine's.)
+  if (pending) return (ROW && setRow(leaf ? "L5" : rowBase + "D3"), SLOT_NR | nrLink);
 
   return (ROW && setRow(leaf ? "L0" : rowBase + "D0"), SLOT_C); // committed only
 }
 
 // ─── The shadow seat (module state the swap's M3 makes the seat) ──────────
+
+/** The full posture ladder (shadow): F > A > V (Vl/Vp inside a window;
+ * the sticky CONFIG_VERDICT — D-25 "a verdict posture outlives the pass
+ * that asked", set at the window by `markVerdictReader`) > L > D; U for no
+ * pass. `window`: the WINDOW_* bits open (WINDOW_LATEST wins — `latest`
+ * inside `isPending` is `latest`'s value). */
+export function seatPosture(c: Computed<any> | null, window: number): number {
+  if (c === null) return window ? (window & WINDOW_LATEST ? POSTURE_VL : POSTURE_VP) : POSTURE_U;
+  if (c._config & CONFIG_CHILDREN_FORBIDDEN) return POSTURE_F;
+  if (c._config & CONFIG_AUTHORITATIVE) return POSTURE_A;
+  if (window) return window & WINDOW_LATEST ? POSTURE_VL : POSTURE_VP;
+  if (c._config & CONFIG_VERDICT) return POSTURE_V;
+  return postureOf(c);
+}
 
 export interface Prediction {
   row: string;
@@ -898,7 +805,7 @@ export function openSeat(
     known: false
   };
   seats[++depth] = seat;
-  seat.posture = postureOf(el, 0);
+  seat.posture = seatPosture(el, 0);
   return seat;
 }
 
@@ -1215,7 +1122,7 @@ export function shadowDecided(
   };
   f.c = c;
   f.el = el;
-  f.posture = postureOf(c, window);
+  f.posture = seatPosture(c, window);
   f.prediction = p;
   const o = oldSlot(c, el, tracked, window, spectate);
   const seat = currentSeat();
@@ -1613,7 +1520,7 @@ export function shadowSeatOpen(
       0
     );
   // INV-seat-2: posture is the node's own.
-  if (seat.posture !== postureOf(el, 0))
+  if (seat.posture !== seatPosture(el, 0))
     report("INV-seat-2", "B1", el, null, "posture inherited", 0, 0);
   // Old "ahead" for a first pass: the mount (creator's lane or its mount's).
   // Old inherited world: the owner's computed's JOINED (F-mount reading B;
@@ -1713,7 +1620,7 @@ export function shadowSeatClose(
   }
   // (A boundary's output sets its own CONFIG_FRAME at the head of its body,
   // and a probe sets CONFIG_VERDICT: the node's own transitions.)
-  const posture = postureOf(el, 0);
+  const posture = seatPosture(el, 0);
   if (
     seat.posture !== posture &&
     !(el._config & CONFIG_VERDICT) &&

@@ -511,6 +511,53 @@ a tear); and a 91501 #1282 E6 regression (an adopted node left with
 both a staging and a lane value, `latest()` serving the staging) fixed
 by the promotion rule above.
 
+### 4.7 Results (S1 floor split, 2026-10-29)
+
+Ruling 2 (size clause (c) not relaxed): `seat.ts` is the floor's — the
+plain rows only (U, F, L, D; A as D) — and the rows of a seated pass
+(lane work, a hold's verdict reader) and of a verdict reader moved to the
+lane engine (lanes.ts `seatRows` → `seatedRows`), installed through the
+hook that carried `laneSlot` (`seatRowsHook`, was `laneReadHook`). `slot`
+dispatches on the three marks only an engine sets (`passLane`,
+CONFIG_OVERRIDE, CONFIG_VERDICT) and the floor pays that test. The
+engine's rows decide their own arms in the table's order — the screen for
+lane work and a verdict reader over a hold (D6/V1: stale, served), the
+seam's verdict on a staging (V2/V3), folded lane work's screen (D7'), a
+seated frame reader's screen over a flight (F1 D-29), a seated pass's
+screen over a flight (D8), a verdict reader's flight (V4/V4'), and the
+seam watch (W) on a staging served to a seated pass or a verdict-reader
+effect — and come to `plainRows` for the rest, so the plain arms exist
+once. `postureOf` is the floor's ladder (U/F/L/D); the shadow's full
+ladder is `seatPosture`. `latestOpened`, `verdictApplyHook` and
+`laneReadHook` are no longer read by seat.ts.
+
+Behaviour-neutral: the same runs as §4.6 — signals 965,371 reads /
+242,303 passes / 0 classes; solid 2,388 / 0; web 43,729 / 0; generator
+2k × 7 / 3289 / 91501 0 classes (#4426 ×10 known), `ASYNC_GEN_DIFF` the
+same two cases as §4.6 and nothing else.
+
+Bytes (`scripts/size`, prod build, vs `next` @ 5e68925cc; minified /
+brotli): core floor **20,721 / 7,842 (+813 / +427)** — M3a was +710 /
++390, M3b added its arms, the split took 574 B back out of `seat.js`
+(1,690 → 1,116). Per module in the core floor: `seat.js` +1,116 (the
+plain table ≈ 780, `slot`'s dispatch ≈ 110, the seat state —
+`seatWorld`, `bornInto`, the raise helpers — ≈ 150, constants ≈ 75);
+`core.js` −383 (the old deciders gone at M3a, −705; M3b's in-place
+re-derive arms in `recompute` ≈ +320 — `verdictApplyHook !== null`
+guards do not fold); `scheduler.js` +44; `async.js` +16; the rest +18.
+The other floors: simple app +814 / +443, hydrating +961 / +515, base
+page +993 / +606 (the same modules), live page +3,899 / +1,679 (`lanes.js`
++2,359: `seatRows` ≈ 900, M3b's `adoptReaders` ≈ 650, M2's lane rows;
+`seat.js` +1,752), server floors 0. Not reached: every floor but the
+server's is above base. What the floor still carries and why: the held
+rows (`heldRow`, ≈ 200 B) and the seat state's save/restore around
+`recompute` — holds are the floor's in `next` too (`async.js` 3,561 B and
+the park seam are in the base core floor; base's `read` L2 block and
+born-held are floor code), so no module outside the floor exists to
+install them; the packed-result convention (`slot` → `applyMarks` +
+`serveSlot`) against base's inline early returns; M3b's arms. Stopped
+here for the budget call (ruling 2).
+
 ## 5. Swap plan
 
 Three to five PRs, serial, each in its own worktree (brief §4 item 4):

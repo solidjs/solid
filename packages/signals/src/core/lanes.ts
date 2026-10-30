@@ -32,6 +32,7 @@
 import {
   CONFIG_AUTHORITATIVE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_FRAME,
   CONFIG_GUESS,
   CONFIG_HELD,
   CONFIG_HELD_FRAME,
@@ -39,6 +40,7 @@ import {
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   CONFIG_STAGED,
+  CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
@@ -76,10 +78,12 @@ import {
   commitPendingNode,
   flushTransaction,
   GlobalQueue,
+  globalQueue,
   holdNode,
   insertSubs,
   joinFuture,
   laneDirty,
+  latestOpened,
   list,
   stagedReaders,
   staleReader,
@@ -103,35 +107,53 @@ import {
   armGuessing
 } from "./scheduler.js";
 import {
+  MARK_AH,
   MARK_ENTERED,
+  MARK_JF0,
   MARK_LANE_READ,
+  MARK_LATE,
   MARK_LEAVE,
   MARK_LINK,
   MARK_LST,
+  MARK_OBS,
+  MARK_SERVED,
+  MARK_ST,
   MARK_W,
   RAISE_FL,
   RAISE_H,
   RAISE_HAT,
   RAISE_LANE,
+  RAISE_MASK,
   RAISE_VSEAT,
   ROW,
+  SLOT_C,
   SLOT_DV,
+  SLOT_E,
+  SLOT_ESHOWN,
+  SLOT_ESTAGED,
   SLOT_FOLD,
   SLOT_LV,
+  SLOT_MASK,
   SLOT_NONE,
   SLOT_NR,
   SLOT_NR0,
   SLOT_P,
+  SLOT_RETRY,
   SLOT_T,
   bornInto,
   dispNP,
   laneNP,
+  laneOf,
   carry,
+  plainRows,
   setRow,
   readerVhold,
   SEAT_BORN,
   SEAT_READ,
-  seatWorld
+  seatLane,
+  seatRow,
+  seatWorld,
+  unflushed
 } from "./seat.js";
 import type { Computed, Owner, Signal } from "./types.js";
 
@@ -795,6 +817,213 @@ export function laneSlot(
   return SLOT_NONE | enter;
 }
 
+/** The engines' rows of the reader seat (seat.ts `slot` dispatches here
+ * through `seatRowsHook` for a lane's node, a seated pass, a verdict
+ * reader): a lane's node takes the lane rows first (`laneSlot`); the raise
+ * alone (slot 0) means the lane has nothing to serve and the seated rows
+ * go on with it carried — the pass entered. */
+function seatRows(
+  c: Computed<any> | null,
+  el: Signal<any> | Computed<any>,
+  tracked: boolean,
+  spectate: boolean
+): number {
+  if (el._config & CONFIG_OVERRIDE) {
+    const r = laneSlot(c, el, tracked, spectate);
+    if (r & SLOT_MASK) return r;
+    if (r !== 0) {
+      const row = seatRow;
+      const p = seatedRows(c, el, tracked, spectate);
+      if (__TEST__) setRow(`${row}→${seatRow}`);
+      return p | r;
+    }
+  }
+  return seatedRows(c, el, tracked, spectate);
+}
+
+/** The rows of a SEATED pass (`passLane`: lane work, or a hold's verdict
+ * reader) and of a verdict reader (CONFIG_VERDICT; posture V, or A with the
+ * window's flag — F-6's copy), over a node that is no lane's with a value to
+ * serve. The engine decides the arms that are its own — the screen for lane
+ * work and a verdict reader (D-37, D-23: stale, served), the seam's verdict
+ * on a staging (V2/V3), a verdict reader's flight (V4), the seam watch on a
+ * staging served (W) — and comes to the plain rows (seat.ts `plainRows`)
+ * for the rest, in the table's order. */
+function seatedRows(
+  c: Computed<any> | null,
+  el: Signal<any> | Computed<any>,
+  tracked: boolean,
+  spectate: boolean
+): number {
+  // (The U rows have no seat; neither has a children-forbidden reader
+  // but for one arm, below.)
+  if (c === null) return plainRows(c, el, tracked, spectate);
+  const inSeat = passLane !== null;
+  const lane = inSeat ? laneOf(passLane) : null;
+  const ccfg = c._config;
+  const forbidden = (ccfg & CONFIG_CHILDREN_FORBIDDEN) !== 0;
+  /** Posture V, or A with the window's flag: a verdict reader. (A truth
+   * reader of a lane's node took the lane rows — `until` sees the truth,
+   * D-31; of any other node it reads as a derivation.) */
+  const vReader = !forbidden && (ccfg & CONFIG_VERDICT) !== 0;
+  if (!inSeat && !vReader) return plainRows(c, el, tracked, spectate);
+  const cfg = el._config;
+  const st = ((el as Computed<any>)._statusFlags as number | undefined) ?? 0;
+  const isFn = typeof (el as Computed<any>)._fn === "function";
+  const staged = el._pendingValue !== NOT_PENDING;
+  const held = (cfg & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD;
+  const uninit = (st & STATUS_UNINITIALIZED) !== 0;
+  const pending = (st & STATUS_PENDING) !== 0;
+  const errored = isFn && (st & STATUS_ERROR) !== 0;
+  const stagedError = (cfg & CONFIG_STAGED_ERROR) !== 0;
+  const stagedSlot = stagedError ? SLOT_ESTAGED : SLOT_P;
+  const screen = isFn && el._x?._shownError ? SLOT_ESHOWN : SLOT_C;
+  const cUninit = (c._statusFlags & STATUS_UNINITIALIZED) !== 0;
+  const retry = errored && tracked && (el as Computed<any>)._time < clock;
+  const nrLink = !tracked && !spectate && el !== c ? MARK_LINK : 0;
+  const stash = held && unflushed(el) && el._x!._flushedAt === clock;
+  const late = (held ? stash : unflushed(el)) ? MARK_LATE : 0;
+  /** A staging served to a seated pass, or to a verdict reader that is an
+   * effect (its pass re-derives once as a verdict reader if the flush
+   * parks, D-22), watches the seam. */
+  const watch = inSeat || (vReader && !!(c as any)._type);
+  const seamWatch = (r: number): number => (watch && r & RAISE_FL ? r | MARK_W : r);
+
+  // ── F: children-forbidden (the frame; A32) ─────────────────────────────
+  if (forbidden) {
+    // D-29: lane work's (or a hold's verdict reader's) frame reader over a
+    // flight — the pass has a value, and so has the node — sees the screen
+    // (`throwShown`). (An error, a first flight: the plain row.)
+    if (pending && !uninit && !errored && !cUninit) return (ROW && setRow("F1"), screen);
+    return plainRows(c, el, tracked, spectate);
+  }
+
+  // ── Common arms for L / D / V / A-as-D ─────────────────────────────────
+  const leaf =
+    !vReader &&
+    !(ccfg & CONFIG_AUTHORITATIVE) &&
+    ((c as any)._type === EFFECT_RENDER || (ccfg & CONFIG_FRAME) !== 0);
+  const rowBase = ROW && (ccfg & CONFIG_AUTHORITATIVE ? "A1/" : "");
+  const stagedServe = late ? MARK_LATE : uninit ? 0 : RAISE_FL | (watch ? MARK_W : 0);
+  /** A hold a `latest()` alone opened holds nothing (D-22, F-10): the
+   * staging is the frame's read, and the reader watches the seam. */
+  const latestOnly =
+    flushTransaction !== null && flushTransaction === latestOpened && !inSeat && !cUninit;
+  /** `stagedScreen`: a verdict reader's — or lane work's — plain read of a
+   * staging is the screen's once the frame has a hold, unless born into it
+   * — a stale reader of the hold. */
+  const stagedScreen = flushTransaction !== null && !bornInto(c, flushTransaction);
+  /** A verdict reader's staging read (`serve`'s verdict arm, then
+   * `stagedRead`): the screen and ST, or — under `latest()`'s hold alone,
+   * or with no hold — the staging, Fl, and W (for a `latest()`-only hold
+   * the seam watch comes from `stagedScreen` whoever the reader is). */
+  const verdictStaged = (slotOf: number): number => {
+    if (stagedScreen && !latestOnly) {
+      ROW && setRow("V2");
+      carry(flushTransaction, seatLane);
+      return screen | MARK_ST;
+    }
+    ROW && setRow("V3");
+    return slotOf | RAISE_FL | (latestOnly || watch ? MARK_W : 0);
+  };
+  /** The held rows the engine owns: the screen, a stale reader of the hold,
+   * served (`laneServed`) — lane work's (D6, D-37), and a verdict reader's
+   * (V1: a frame reader, re-derived at the landing, D-23 A10). Not a pass
+   * with no screen to serve (born into the hold, uninitialized — the join,
+   * V1'/V1''/D6'), nor a leaf's L4/L2 arms before it (the plain rows). */
+  const t = held ? txOf(el) : null;
+  const staleServed =
+    held &&
+    !uninit &&
+    !bornInto(c, t!) &&
+    (leaf ? inSeat && !(cfg & CONFIG_INPUTS_PUBLISHED) : vReader || !(cUninit && pending));
+
+  // Error (D-41 #2897): the hold arms first, then a staged error served as
+  // the staging would be (seat.ts).
+  if (errored) {
+    if (held && staleServed) {
+      carry(t, seatLane);
+      let r = MARK_ST | MARK_SERVED; // (stale, served; the screen's slot is the error's)
+      const s = retry ? SLOT_RETRY : SLOT_E;
+      // (`!(r & MARK_ST)`: a reader served the screen throws the shown one.)
+      ROW && setRow(leaf ? "L8" : rowBase + "D5");
+      return r | s;
+    }
+    if (vReader && stagedError && !retry && !uninit && !late) {
+      // V2/V3 for the staged error (D-41): the screen and ST, or the staged
+      // error and Fl.
+      let r = 0;
+      if (held) {
+        carry(t, seatLane);
+        r = RAISE_H;
+      }
+      const v = verdictStaged(SLOT_ESTAGED);
+      ROW && setRow(rowBase + "D5");
+      return r | (v & RAISE_MASK) | ((v & SLOT_MASK) === SLOT_ESTAGED ? SLOT_ESTAGED : SLOT_E);
+    }
+    return seamWatch(plainRows(c, el, tracked, spectate));
+  }
+
+  // Held node.
+  if (held) {
+    if (staleServed) {
+      carry(t, seatLane);
+      ROW && setRow(leaf ? "D6" : vReader ? "V1" : rowBase + "D6");
+      return screen | MARK_ST | MARK_SERVED;
+    }
+    const p = seamWatch(plainRows(c, el, tracked, spectate));
+    if (ROW && !leaf) setRow(vReader ? (bornInto(c, t!) ? "V1'" : "V1''") : rowBase + "D6'");
+    return p;
+  }
+
+  // Staged this flush, not held — the seam's verdict (V2/V3, D-23 D-32
+  // [R5]): the screen once the tick has a hold, the staging before; folded
+  // lane work reads the screen (D-34, D7'). (An unflushed write, a node born
+  // staged read by a spectator, a staging beneath a flight: the plain rows.)
+  if (staged && !pending && !(late && !uninit) && !(uninit && spectate)) {
+    if (vReader && !uninit) return verdictStaged(stagedSlot);
+    if (lane !== null && lane.folded && stagedScreen && !uninit) {
+      ROW && setRow(rowBase + "D7'");
+      carry(flushTransaction, seatLane);
+      return SLOT_C | MARK_ST;
+    }
+    ROW &&
+      setRow(
+        (c as any)._type === EFFECT_RENDER && (leaf || vReader)
+          ? "L1"
+          : lane !== null
+            ? rowBase + "D7"
+            : rowBase + "D1"
+      );
+    return stagedSlot | stagedServe;
+  }
+
+  // A flight, not held.
+  if (pending && !(staged && late && !uninit)) {
+    // D-37: not the lane's own, the pass has a value — and so does the
+    // node (a first load in flight has no screen: NR, F-2).
+    if (inSeat && !cUninit && !uninit) return (ROW && setRow(rowBase + "D8"), screen);
+    if (vReader && !uninit) {
+      if (cfg & CONFIG_INPUTS_PUBLISHED) {
+        ROW && setRow("V4'");
+        carry(flushTransaction, seatLane);
+        return SLOT_NR | nrLink;
+      }
+      // D-23 D-9: the screen; in a flush the pass is the hold's verdict
+      // reader and a stale reader of the flight (`observeFlight`: the
+      // flush's hold opens if none has, and the flight nobody holds is
+      // queued for the seam).
+      ROW && setRow("V4");
+      if (globalQueue._running) {
+        carry(flushTransaction, seatLane);
+        return screen | MARK_ST | MARK_AH | MARK_JF0 | MARK_OBS;
+      }
+      return screen;
+    }
+  }
+  return seamWatch(plainRows(c, el, tracked, spectate));
+}
+
 /** The lane engine's bits of a raise (seat.ts LANE_BITS), applied to the
  * reader `c` (core.ts `applyMarks`): D-28's leave; the stale reader of the
  * lane (`_reruns`, once per pass — the pass may also be a stale reader of a
@@ -1344,7 +1573,7 @@ function adoptFrame(owner: Owner, el: Computed<any>, l: Transaction): void {
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
 installLaneHooks(
-  laneSlot,
+  seatRows,
   laneApply,
   laneServe,
   laneStage,

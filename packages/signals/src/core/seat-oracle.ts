@@ -41,7 +41,7 @@ import {
   flushTransaction,
   globalQueue,
   GlobalQueue,
-  laneReadHook,
+  seatRowsHook,
   laneSeamsHook,
   laneStageHook,
   latestOpened,
@@ -505,7 +505,7 @@ function oldRead(): OldDecision {
       else committed = true;
     }
   }
-  if (laneReadHook && cfg & CONFIG_OVERRIDE) {
+  if (seatRowsHook && cfg & CONFIG_OVERRIDE) {
     const v = laneRead();
     if (v !== SLOT_NONE) return decide(v);
   }
