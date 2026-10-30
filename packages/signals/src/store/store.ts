@@ -294,9 +294,10 @@ export class LaneView {
     /** The backing the guess is shown over: the committed one at the
      * guess, the composed arrangement after a re-base (optimistic.ts). */
     public base: Record<PropertyKey, any>,
-    /** Keys the setter REMOVED from the view it saw (a deliberate delete,
-     * not a row the truth has yet to show): a re-base does not restore
-     * them. `null` when none. */
+    /** A keyed list's guess: the keys of the view the setter saw that are
+     * not the guess's own rows — removed by it, or only carried over from
+     * the truth beneath. A re-base takes them from the new truth
+     * (optimistic.ts). `null` when not keyed. */
     public removed: Set<unknown> | null = null
   ) {}
 }
