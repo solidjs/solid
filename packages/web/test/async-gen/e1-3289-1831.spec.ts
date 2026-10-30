@@ -9,6 +9,13 @@
 // staging (D-22's frame read is for a pass that has a value to re-derive
 // on). Reading the staging there committed an answer that threw later, and
 // the grouped leaf ended on `[ROOT-E]` where the split one shows `[F]`.
+// After the write `s0 = 1`, `m0`'s new flight is up: `isPending(m0)` is
+// `true` (F-9), so the `Show` opens at once and its mount reads the screen
+// (D-27: `m0` = 1, `latest(m2)` = 4), until the flight lands and the screen
+// settles on `[F]`. The pin recorded `[F]` for that step: the condition memo
+// probed the flight before the frame joined, the frame parked with it, and
+// the seam ran the memo only at the landing — `isPending` read `false` for
+// the whole flight (#4439).
 import { expect, test } from "vitest";
 import fc from "fast-check";
 import { runScenario } from "./run.js";
@@ -52,11 +59,13 @@ const minimized = {
   steps: [{ t: "settle", pick: 5 }, { t: "task" }, { t: "write", s: 0, v: 1 }, { t: "task" }]
 } as any;
 
-test("minimized: grouped and split attributes show the same screens, ending on [F]", async () => {
+test("minimized: grouped and split attributes show the same screens, settling on [F]", async () => {
   const grouped = await runScenario(minimized, { grouped: true });
   const split = await runScenario(minimized, { split: true });
   expect(grouped.screens).toEqual(split.screens);
-  expect(grouped.screens.at(-1)).toBe("[F]");
+  expect(grouped.screens.at(-1)).toBe("<span data-a0=lm2:4  data-a1=vm0:1 ></span>");
+  expect(grouped.final).toBe("[F]");
+  expect(split.final).toBe("[F]");
 });
 
 test("the generated case: grouped, split, default and latest-through-a-memo agree", async () => {
