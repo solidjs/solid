@@ -57,8 +57,9 @@ describe("#4367 isPending(s) after an action, with s also written outside it", (
         // `set(3)` in the action and `set(2)` outside it are one tick's writes
         // to `s`, and they net to its committed value: no proposal, so `s` is
         // not held and pends nothing (D-8, #4485) — the screen stays `F`.
-        // (`s` lands at 2 without the later write.)
-        expect([...new Set(frames)]).toEqual([`F${v(2)}`]);
+        // (`s` lands at 2 without the later write.) The memo form's reader
+        // re-runs only when it reads `s()` beside the verdict.
+        expect(frames).toEqual(memo && !value ? ["F"] : [`F${v(2)}`, `F${v(2)}`]);
         set(3);
         flush();
         // Nothing differs from the action's write: not pending, in either form.
@@ -99,7 +100,7 @@ describe("#4367 isPending(s) after an action, with s also written outside it", (
     await tick();
     expect(isPending(s)).toBe(false);
     // The first tick's writes net (D-8, #4485): never pending.
-    expect([...new Set(frames)]).toEqual(["F"]);
+    expect(frames).toEqual(["F", "F"]);
     dispose();
   });
 });
