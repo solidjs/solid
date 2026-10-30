@@ -5,6 +5,7 @@ import { spread as _$spread } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
+import { group as _$group } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
 import { className as _$className } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
@@ -58,9 +59,9 @@ _$effect(
 const cls = _el$4;
 var _el$5 = _tmpl$3();
 _$effect(
-  () => ({
-    e: color(),
-    t: size()
+  _$group({
+    e: () => color(),
+    t: () => size()
   }),
   ({ e, t }, _p$) => {
     e !== _p$?.e && _$setStyleProperty(_el$5, "color", e);
@@ -86,9 +87,9 @@ _$effect(
 const classObject = _el$6;
 var _el$7 = _tmpl$3();
 _$effect(
-  () => ({
-    e: selected(),
-    t: width()
+  _$group({
+    e: () => selected(),
+    t: () => width()
   }),
   ({ e, t }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$7, "class:selected", e);
@@ -106,11 +107,11 @@ var _el$8 = _tmpl$4(),
   _el$9 = _el$8.firstChild,
   _el$0 = _el$9.firstChild;
 _$effect(
-  () => ({
-    e: _$readShallow(cls()),
-    t: title(),
-    a: off(),
-    o: label()
+  _$group({
+    e: () => _$readShallow(cls()),
+    t: () => title(),
+    a: () => off(),
+    o: () => label()
   }),
   ({ e, t, a, o }, _p$) => {
     _$className(_el$8, e, _p$?.e);
@@ -209,9 +210,9 @@ const spreadMixed = _el$20;
 var _el$21 = _tmpl$9(),
   _o$ = _$getOwner();
 _$effect(
-  () => ({
-    e: href(),
-    t: target()
+  _$group({
+    e: () => href(),
+    t: () => target()
   }),
   ({ e, t }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$21, "href", e);

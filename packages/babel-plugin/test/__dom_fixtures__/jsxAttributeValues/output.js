@@ -4,6 +4,7 @@ import { insert as _$insert } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { ref as _$ref } from "r-dom";
+import { group as _$group } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 var _tmpl$ = /*#__PURE__*/ _$template(`<div>after`),
@@ -41,17 +42,19 @@ _$effect(
 const iifeValue = _el$3;
 var _el$4 = _tmpl$2();
 _$effect(
-  () => ({
-    e: (() => {
-      var _el$1 = _tmpl$5();
-      _$insert(_el$1, () => state.first);
-      return _el$1;
-    })(),
-    t: (() => {
-      var _el$10 = _tmpl$6();
-      _$insert(_el$10, () => state.second);
-      return _el$10;
-    })()
+  _$group({
+    e: () =>
+      (() => {
+        var _el$1 = _tmpl$5();
+        _$insert(_el$1, () => state.first);
+        return _el$1;
+      })(),
+    t: () =>
+      (() => {
+        var _el$10 = _tmpl$6();
+        _$insert(_el$10, () => state.second);
+        return _el$10;
+      })()
   }),
   ({ e, t }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$4, "first", e);

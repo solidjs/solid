@@ -4,6 +4,7 @@ import { insert as _$insert } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
+import { group as _$group } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
 import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
@@ -45,12 +46,10 @@ _$effect(() => _$readShallow(active() ? "on" : "off"), (_v$, _$p) => {
 });
 const cls = _el$4;
 var _el$5 = _tmpl$3();
-_$effect(() => {
-	return {
-		e: color(),
-		t: size()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => color(),
+	t: () => size()
+}), ({ e, t }, _p$) => {
 	e !== _p$?.e && _$setStyleProperty(_el$5, "color", e);
 	t !== _p$?.t && _$setStyleProperty(_el$5, "font-size", t);
 }, {
@@ -67,12 +66,10 @@ _$effect(() => !!active(), (_v$) => {
 });
 const classObject = _el$6;
 var _el$7 = _tmpl$3();
-_$effect(() => {
-	return {
-		e: selected(),
-		t: width()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => selected(),
+	t: () => width()
+}), ({ e, t }, _p$) => {
 	e !== _p$?.e && _$setAttribute(_el$7, "class:selected", e);
 	t !== _p$?.t && _$setAttribute(_el$7, "style:width", t);
 }, {
@@ -83,14 +80,12 @@ const ns = _el$7;
 var _el$8 = _tmpl$4();
 var _el$9 = _el$8.firstChild;
 var _el$10 = _el$9.firstChild;
-_$effect(() => {
-	return {
-		e: _$readShallow(cls()),
-		t: title(),
-		a: off(),
-		o: label()
-	};
-}, ({ e, t, a, o }, _p$) => {
+_$effect(_$group({
+	e: () => _$readShallow(cls()),
+	t: () => title(),
+	a: () => off(),
+	o: () => label()
+}), ({ e, t, a, o }, _p$) => {
 	_$className(_el$8, e, _p$?.e);
 	t !== _p$?.t && _$setAttribute(_el$8, "title", t);
 	a !== _p$?.a && _$setAttribute(_el$8, "disabled", a);
@@ -153,12 +148,10 @@ _$spread(_el$22, [
 const spreadMixed = _el$22;
 var _el$23 = _tmpl$9();
 var _o$ = _$getOwner();
-_$effect(() => {
-	return {
-		e: href(),
-		t: target()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => href(),
+	t: () => target()
+}), ({ e, t }, _p$) => {
 	e !== _p$?.e && _$setAttribute(_el$23, "href", e);
 	t !== _p$?.t && _$setAttribute(_el$23, "target", t);
 	_$claimElement(_el$23, _o$);

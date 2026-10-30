@@ -3,6 +3,7 @@ import { memo as _$memo } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
+import { group as _$group } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { className as _$className } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
@@ -42,9 +43,9 @@ const nested = _$createComponent(
 // the first binding it lists.
 var _el$ = _tmpl$();
 _$effect(
-  () => ({
-    e: _$readShallow(cls()),
-    t: title()
+  _$group({
+    e: () => _$readShallow(cls()),
+    t: () => title()
   }),
   ({ e, t }, _p$) => {
     _$className(_el$, e, _p$?.e);

@@ -199,6 +199,10 @@ impl<'a> AstDomTransform<'a, '_> {
                 slot.value
             };
             let value = self.wrap_read_shallow(slot_span, &slot.key, value);
+            // Each binding is its own thunk: `group` reads them one by one,
+            // so a pending binding does not hide a later one's error (#4284,
+            // D-28).
+            let value = wrap_for_effect(self, slot_span, value);
             value_props.push(self.object_property(slot_span, &prop_name, value));
 
             let elem = self.identifier_expression(slot_span, &slot.elem);
@@ -285,7 +289,8 @@ impl<'a> AstDomTransform<'a, '_> {
         statements.extend(claim_statements);
 
         let values_object = self.ast().expression_object(span, value_props);
-        let getter = self.arrow_with_return(span, std::vec::Vec::new(), values_object);
+        self.template_state.uses_group = true;
+        let getter = self.call_identifier(span, "_$group", vec![values_object]);
         let setter = self.arrow_with_destructured_params(span, &param_names, "_p$", statements);
         let effect_local = self.effect_wrapper_local();
         let mut args = vec![getter, setter];

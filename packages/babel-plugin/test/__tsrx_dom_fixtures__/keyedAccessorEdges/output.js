@@ -1,5 +1,6 @@
 import { template as _$template } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
+import { group as _$group } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { insert as _$insert } from "r-dom";
@@ -24,9 +25,9 @@ export function Rows({ rows }) {
         _$insert(_el$2, () => row().name, _el$3);
         _$insert(_el$2, index, _el$4);
         _$effect(
-          () => ({
-            e: snapshot.name,
-            t: index()
+          _$group({
+            e: () => snapshot.name,
+            t: () => index()
           }),
           ({ e, t }, _p$) => {
             e !== _p$?.e && _$setAttribute(_el$2, "data-row", e);

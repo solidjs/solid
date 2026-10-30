@@ -1,5 +1,6 @@
 import { template as _$template } from "r-dom";
 import { spread as _$spread } from "r-dom";
+import { group as _$group } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
 import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
@@ -14,12 +15,10 @@ var _tmpl$4 = /* @__PURE__ */ _$template(`<video>`);
 var _tmpl$5 = /* @__PURE__ */ _$template(`<select><option>`);
 var _el$ = _tmpl$();
 _$addEvent(_el$, "change", commit);
-_$effect(() => {
-	return {
-		e: _$readShallow(cls()),
-		t: props.name
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => _$readShallow(cls()),
+	t: () => props.name
+}), ({ e, t }, _p$) => {
 	_$className(_el$, e, _p$?.e);
 	_$setStatefulProperty(_el$, "value", t ?? "");
 }, {
@@ -40,12 +39,10 @@ _$effect(() => text(), (_v$) => {
 });
 const lone = _el$2;
 var _el$3 = _tmpl$2();
-_$effect(() => {
-	return {
-		e: on(),
-		t: title()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => on(),
+	t: () => title()
+}), ({ e, t }, _p$) => {
 	_$setStatefulProperty(_el$3, "checked", e);
 	t !== _p$?.t && _$setAttribute(_el$3, "title", t);
 }, {
@@ -79,13 +76,11 @@ _$effect(() => muted(), (_v$) => {
 const media = _el$6;
 var _el$7 = _tmpl$5();
 var _el$8 = _el$7.firstChild;
-_$effect(() => {
-	return {
-		e: picked(),
-		t: first(),
-		a: isFirst()
-	};
-}, ({ e, t, a }, _p$) => {
+_$effect(_$group({
+	e: () => picked(),
+	t: () => first(),
+	a: () => isFirst()
+}), ({ e, t, a }, _p$) => {
 	_$setProperty(_el$7, "value", e);
 	_$setStatefulProperty(_el$8, "value", t);
 	_$setStatefulProperty(_el$8, "selected", a);
@@ -103,12 +98,10 @@ _$effect(() => text(), (_v$) => {
 });
 const explicitProp = _el$9;
 var _el$10 = _tmpl$();
-_$effect(() => {
-	return {
-		e: text(),
-		t: on()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => text(),
+	t: () => on()
+}), ({ e, t }, _p$) => {
 	e !== _p$?.e && (_el$10.defaultValue = e ?? "");
 	t !== _p$?.t && (_el$10.defaultChecked = t);
 }, {

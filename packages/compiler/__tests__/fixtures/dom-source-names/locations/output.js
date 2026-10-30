@@ -4,6 +4,7 @@ import { memo as _$memo } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
+import { group as _$group } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
 import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
@@ -25,12 +26,10 @@ const nested = _$createComponent(Layout, { get children() {
 	}, "Card", "locations/code.jsx:9:5");
 } }, "Layout", "locations/code.jsx:8:3");
 var _el$ = _tmpl$();
-_$effect(() => {
-	return {
-		e: _$readShallow(cls()),
-		t: title()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => _$readShallow(cls()),
+	t: () => title()
+}), ({ e, t }, _p$) => {
 	_$className(_el$, e, _p$?.e);
 	t !== _p$?.t && _$setAttribute(_el$, "title", t);
 }, {

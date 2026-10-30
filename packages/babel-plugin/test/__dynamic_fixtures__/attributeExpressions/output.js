@@ -6,6 +6,7 @@ import { createElement as _$createElement } from "r-custom";
 import { setProperty as _$setProperty } from "r-custom";
 import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-custom";
+import { group as _$group } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 import { style as _$style } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
@@ -250,13 +251,13 @@ _$addEvent(_el$24, "input", doSomething, true);
 _$addEvent(_el$25, "input", doSomethingElse, true);
 _$setAttribute(_el$25, "readonly", value);
 _$effect(
-  () => ({
-    e: s(),
-    t: min(),
-    a: max(),
-    o: s2(),
-    i: min(),
-    n: max()
+  _$group({
+    e: () => s(),
+    t: () => min(),
+    a: () => max(),
+    o: () => s2(),
+    i: () => min(),
+    n: () => max()
   }),
   ({ e, t, a, o, i, n }, _p$) => {
     _el$24.value = e ?? "";
@@ -441,10 +442,10 @@ var _el$53 = _tmpl$21(),
   _el$54 = _el$53.firstChild,
   _el$55 = _el$54.nextSibling;
 _$effect(
-  () => ({
-    e: state.color,
-    t: Color.Red,
-    a: Color.Blue
+  _$group({
+    e: () => state.color,
+    t: () => Color.Red,
+    a: () => Color.Blue
   }),
   ({ e, t, a }, _p$) => {
     _$setProperty(_el$53, "value", e);
@@ -679,10 +680,10 @@ const style = {
 var _el$107 = _tmpl$43();
 _$insert(_el$107, count);
 _$effect(
-  () => ({
-    e: count(),
-    t: _$readShallow(style),
-    a: _$readShallow(style)
+  _$group({
+    e: () => count(),
+    t: () => _$readShallow(style),
+    a: () => _$readShallow(style)
   }),
   ({ e, t, a }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$107, "aria-label", e);

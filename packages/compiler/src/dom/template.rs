@@ -33,6 +33,7 @@ pub(crate) struct DomTemplateState {
     pub(crate) uses_style: bool,
     pub(crate) uses_set_style_property: bool,
     pub(crate) uses_read_shallow: bool,
+    pub(crate) uses_group: bool,
     pub(crate) uses_class_name: bool,
     pub(crate) uses_effect: bool,
     pub(crate) uses_set_attribute: bool,
@@ -152,6 +153,7 @@ impl DomTemplateState {
             uses_style: false,
             uses_set_style_property: false,
             uses_read_shallow: false,
+            uses_group: false,
             uses_class_name: false,
             uses_effect: false,
             uses_set_attribute: false,
@@ -223,6 +225,9 @@ impl<'a> AstDomTransform<'a, '_> {
         }
         if self.template_state.uses_set_style_property {
             statements.push(self.import_named("setStyleProperty", "_$setStyleProperty"));
+        }
+        if self.template_state.uses_group {
+            statements.push(self.import_named("group", "_$group"));
         }
         if self.template_state.uses_read_shallow {
             statements.push(self.import_named("readShallow", "_$readShallow"));

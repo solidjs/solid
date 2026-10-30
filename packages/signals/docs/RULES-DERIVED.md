@@ -238,6 +238,8 @@ A read that has nothing to show throws, and a throw ends the pass, so the pass i
 
 Order is not irrelevant. A throw means the rest of the pass does not run, so the two orders are different computations. What must not depend on order is the throw. The empty slot — control on, child absent — is that throw going missing: `latest(s)` put the reader in the lane and `n0()` waited as lane work instead of throwing.
 
+The pass is the binding as written. The compiler folds a template's attribute bindings into one render effect, but each binding is its own pass inside it (`group`): a binding's pending read ends that binding and is thrown after the others ran, and a binding's error throws at once. So `<span title={m1()} data-x={m0()}>`, with `m1` a first load in flight and `m0` throwing, shows `m0`'s error, in either attribute order and as split effects do (#4284: grouping never changes the result). Inside one binding the order stands: `title={[n0(), latest(s)]}` is one pass, and nothing after its throw runs.
+
 **Collapses:** `read-order-ruling-brief.md` case 827 (the brief's "order never changes what a mount shows" was the wrong statement of this), `rewrite-bugs-rulings.md` item 1. **Status:** standing, ruled 2026-10-09. The `latest`-first order still suppresses the throw today. A fresh `<Loading>` that reads only `latest(s)` beside a sibling reading `n0()` never reads the throwing value, so it is not this rule (D-12, F-6, S-40).
 
 ### D-29. `createTrackedEffect` and `onSettled` callbacks see the screen

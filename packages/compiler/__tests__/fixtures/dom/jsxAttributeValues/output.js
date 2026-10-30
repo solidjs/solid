@@ -3,6 +3,7 @@ import { insert as _$insert } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { ref as _$ref } from "r-dom";
+import { group as _$group } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
@@ -35,24 +36,22 @@ _$effect((() => state.compute()), (_v$) => {
 });
 const iifeValue = _el$3;
 var _el$4 = _tmpl$2();
-_$effect(() => {
-	return {
-		e: (() => {
-			var _el$11 = _tmpl$5();
-			_$insert(_el$11, () => {
-				return state.first;
-			});
-			return _el$11;
-		})(),
-		t: (() => {
-			var _el$12 = _tmpl$6();
-			_$insert(_el$12, () => {
-				return state.second;
-			});
-			return _el$12;
-		})()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => (() => {
+		var _el$11 = _tmpl$5();
+		_$insert(_el$11, () => {
+			return state.first;
+		});
+		return _el$11;
+	})(),
+	t: () => (() => {
+		var _el$12 = _tmpl$6();
+		_$insert(_el$12, () => {
+			return state.second;
+		});
+		return _el$12;
+	})()
+}), ({ e, t }, _p$) => {
 	e !== _p$?.e && _$setAttribute(_el$4, "first", e);
 	t !== _p$?.t && _$setAttribute(_el$4, "second", t);
 });

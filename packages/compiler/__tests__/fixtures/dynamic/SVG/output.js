@@ -2,6 +2,7 @@ import { template as _$template } from "r-dom";
 import { createComponent as _$createComponent } from "r-custom";
 import { spread as _$spread } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
+import { group as _$group } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
 import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-custom";
@@ -16,15 +17,13 @@ var _tmpl$6 = /* @__PURE__ */ _$template(`<svg viewBox="0 0 160 40"><text x=10 y
 const template = _tmpl$();
 var _el$2 = _tmpl$2();
 var _el$3 = _el$2.firstChild;
-_$effect(() => {
-	return {
-		e: _$readShallow(state.name),
-		t: state.width,
-		a: state.x,
-		o: state.y,
-		i: props.stroke
-	};
-}, ({ e, t, a, o, i }, _p$) => {
+_$effect(_$group({
+	e: () => _$readShallow(state.name),
+	t: () => state.width,
+	a: () => state.x,
+	o: () => state.y,
+	i: () => props.stroke
+}), ({ e, t, a, o, i }, _p$) => {
 	_$className(_el$3, e, _p$?.e);
 	t !== _p$?.t && _$setAttribute(_el$3, "stroke-width", t);
 	a !== _p$?.a && _$setAttribute(_el$3, "x", a);

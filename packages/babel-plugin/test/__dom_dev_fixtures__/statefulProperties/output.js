@@ -2,6 +2,7 @@ import { template as _$template } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { setProperty as _$setProperty } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
+import { group as _$group } from "r-dom";
 import { setStatefulProperty as _$setStatefulProperty } from "r-dom";
 import { className as _$className } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
@@ -15,9 +16,9 @@ var _tmpl$ = /*#__PURE__*/ _$template(`<input>`),
 var _el$ = _tmpl$();
 _$addEvent(_el$, "change", commit);
 _$effect(
-  () => ({
-    e: _$readShallow(cls()),
-    t: props.name
+  _$group({
+    e: () => _$readShallow(cls()),
+    t: () => props.name
   }),
   ({ e, t }, _p$) => {
     _$className(_el$, e, _p$?.e);
@@ -47,9 +48,9 @@ _$effect(
 const lone = _el$2;
 var _el$3 = _tmpl$2();
 _$effect(
-  () => ({
-    e: on(),
-    t: title()
+  _$group({
+    e: () => on(),
+    t: () => title()
   }),
   ({ e, t }, _p$) => {
     _$setStatefulProperty(_el$3, "checked", e);
@@ -100,10 +101,10 @@ const media = _el$6;
 var _el$7 = _tmpl$5(),
   _el$8 = _el$7.firstChild;
 _$effect(
-  () => ({
-    e: picked(),
-    t: first(),
-    a: isFirst()
+  _$group({
+    e: () => picked(),
+    t: () => first(),
+    a: () => isFirst()
   }),
   ({ e, t, a }, _p$) => {
     _$setProperty(_el$7, "value", e);
@@ -130,9 +131,9 @@ _$effect(
 const explicitProp = _el$9;
 var _el$0 = _tmpl$();
 _$effect(
-  () => ({
-    e: text(),
-    t: on()
+  _$group({
+    e: () => text(),
+    t: () => on()
   }),
   ({ e, t }, _p$) => {
     e !== _p$?.e && (_el$0.defaultValue = e ?? "");

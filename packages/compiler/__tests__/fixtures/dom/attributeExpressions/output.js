@@ -7,6 +7,7 @@ import { applyRef as _$applyRef } from "r-dom";
 import { ref as _$ref } from "r-dom";
 import { style as _$style } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
+import { group as _$group } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
 import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
@@ -223,16 +224,14 @@ var _el$27 = _el$26.nextSibling;
 _$addEvent(_el$26, "input", doSomething, true);
 _$addEvent(_el$27, "input", doSomethingElse, true);
 _$setAttribute(_el$27, "readonly", value);
-_$effect(() => {
-	return {
-		e: s(),
-		t: min(),
-		a: max(),
-		o: s2(),
-		i: min(),
-		n: max()
-	};
-}, ({ e, t, a, o, i, n }, _p$) => {
+_$effect(_$group({
+	e: () => s(),
+	t: () => min(),
+	a: () => max(),
+	o: () => s2(),
+	i: () => min(),
+	n: () => max()
+}), ({ e, t, a, o, i, n }, _p$) => {
 	_el$26.value = e ?? "";
 	t !== _p$?.t && _$setAttribute(_el$26, "min", t);
 	a !== _p$?.a && _$setAttribute(_el$26, "max", a);
@@ -366,13 +365,11 @@ const template40 = _el$54;
 var _el$55 = _tmpl$23();
 var _el$56 = _el$55.firstChild;
 var _el$57 = _el$56.nextSibling;
-_$effect(() => {
-	return {
-		e: state.color,
-		t: Color.Red,
-		a: Color.Blue
-	};
-}, ({ e, t, a }, _p$) => {
+_$effect(_$group({
+	e: () => state.color,
+	t: () => Color.Red,
+	a: () => Color.Blue
+}), ({ e, t, a }, _p$) => {
 	_$setProperty(_el$55, "value", e);
 	_el$56.value = t;
 	_el$57.value = a;
@@ -557,13 +554,11 @@ const style = {
 };
 var _el$104 = _tmpl$47();
 _$insert(_el$104, count);
-_$effect(() => {
-	return {
-		e: count(),
-		t: _$readShallow(style),
-		a: _$readShallow(style)
-	};
-}, ({ e, t, a }, _p$) => {
+_$effect(_$group({
+	e: () => count(),
+	t: () => _$readShallow(style),
+	a: () => _$readShallow(style)
+}), ({ e, t, a }, _p$) => {
 	e !== _p$?.e && _$setAttribute(_el$104, "aria-label", e);
 	_$style(_el$104, t, _p$?.t);
 	_$className(_el$104, a, _p$?.a);
@@ -625,14 +620,12 @@ var _el$115 = _el$114.nextSibling;
 var _el$116 = _el$115.nextSibling;
 var _el$117 = _el$116.nextSibling;
 var _el$118 = _el$117.nextSibling;
-_$effect(() => {
-	return {
-		e: dynamicProperty(),
-		t: dynamicProperty(),
-		a: dynamicAttribute(),
-		o: dynamicProperty()
-	};
-}, ({ e, t, a, o }, _p$) => {
+_$effect(_$group({
+	e: () => dynamicProperty(),
+	t: () => dynamicProperty(),
+	a: () => dynamicAttribute(),
+	o: () => dynamicProperty()
+}), ({ e, t, a, o }, _p$) => {
 	_el$116.muted = e;
 	_el$117.muted = t;
 	a !== _p$?.a && (_el$118.defaultMuted = a);
@@ -709,12 +702,10 @@ _$effect(() => value(), (_v$) => {
 });
 const template103 = _el$129;
 var _el$130 = _tmpl$58();
-_$effect(() => {
-	return {
-		e: kind(),
-		t: value()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => kind(),
+	t: () => value()
+}), ({ e, t }, _p$) => {
 	e !== _p$?.e && _$setAttribute(_el$130, "type", e);
 	_$setProperty(_el$130, "value", t);
 });
@@ -723,23 +714,19 @@ var _el$131 = _tmpl$59();
 _$setProperty(_el$131, "value", value);
 const template105 = _el$131;
 var _el$132 = _tmpl$9();
-_$effect(() => {
-	return {
-		e: value(),
-		t: other()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => value(),
+	t: () => other()
+}), ({ e, t }, _p$) => {
 	_$setProperty(_el$132, "value", e);
 	t !== _p$?.t && _$setProperty(_el$132, "defaultValue", t);
 });
 const template106 = _el$132;
 var _el$133 = _tmpl$60();
-_$effect(() => {
-	return {
-		e: value(),
-		t: other()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => value(),
+	t: () => other()
+}), ({ e, t }, _p$) => {
 	_el$133.value = e ?? "";
 	t !== _p$?.t && (_el$133.defaultValue = t ?? "");
 });

@@ -1,4 +1,5 @@
 import { template as _$template } from "r-dom";
+import { group as _$group } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { getOwner as _$getOwner } from "r-dom";
@@ -17,11 +18,11 @@ const template = _el$;
 var _el$2 = _$getNextElement(_tmpl$);
 _el$2._$owner = _$getOwner();
 _$effect(
-  () => ({
-    e: state.name,
-    t: state.data,
-    a: state.data,
-    o: state.data
+  _$group({
+    e: () => state.name,
+    t: () => state.data,
+    a: () => state.data,
+    o: () => state.data
   }),
   ({ e, t, a, o }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$2, "some-attr", e);

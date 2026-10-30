@@ -6,6 +6,7 @@ import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { ref as _$ref } from "r-dom";
 import { runHydrationEvents as _$runHydrationEvents } from "r-dom";
+import { group as _$group } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
@@ -47,23 +48,25 @@ _$effect(
 const iifeValue = _el$3;
 var _el$4 = _$getNextElement(_tmpl$2);
 _$effect(
-  () => ({
-    e: (() => {
-      var _el$1 = _$getNextElement(_tmpl$5);
-      _$insert(
-        _el$1,
-        _$scope(() => state.first)
-      );
-      return _el$1;
-    })(),
-    t: (() => {
-      var _el$10 = _$getNextElement(_tmpl$6);
-      _$insert(
-        _el$10,
-        _$scope(() => state.second)
-      );
-      return _el$10;
-    })()
+  _$group({
+    e: () =>
+      (() => {
+        var _el$1 = _$getNextElement(_tmpl$5);
+        _$insert(
+          _el$1,
+          _$scope(() => state.first)
+        );
+        return _el$1;
+      })(),
+    t: () =>
+      (() => {
+        var _el$10 = _$getNextElement(_tmpl$6);
+        _$insert(
+          _el$10,
+          _$scope(() => state.second)
+        );
+        return _el$10;
+      })()
   }),
   ({ e, t }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$4, "first", e);

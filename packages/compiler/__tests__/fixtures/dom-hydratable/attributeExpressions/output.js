@@ -8,6 +8,7 @@ import { spread as _$spread } from "r-dom";
 import { ref as _$ref } from "r-dom";
 import { style as _$style } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
+import { group as _$group } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
 import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
@@ -225,16 +226,14 @@ var _el$27 = _el$26.nextSibling;
 _$addEvent(_el$26, "input", doSomething, true);
 _$addEvent(_el$27, "input", doSomethingElse, true);
 _$setAttribute(_el$27, "readonly", value);
-_$effect(() => {
-	return {
-		e: s(),
-		t: min(),
-		a: max(),
-		o: s2(),
-		i: min(),
-		n: max()
-	};
-}, ({ e, t, a, o, i, n }, _p$) => {
+_$effect(_$group({
+	e: () => s(),
+	t: () => min(),
+	a: () => max(),
+	o: () => s2(),
+	i: () => min(),
+	n: () => max()
+}), ({ e, t, a, o, i, n }, _p$) => {
 	_$setProperty(_el$26, "value", e);
 	t !== _p$?.t && _$setAttribute(_el$26, "min", t);
 	a !== _p$?.a && _$setAttribute(_el$26, "max", a);
@@ -378,13 +377,11 @@ const template40 = _el$60;
 var _el$61 = _$getNextElement(_tmpl$23);
 var _el$62 = _el$61.firstChild;
 var _el$63 = _el$62.nextSibling;
-_$effect(() => {
-	return {
-		e: state.color,
-		t: Color.Red,
-		a: Color.Blue
-	};
-}, ({ e, t, a }, _p$) => {
+_$effect(_$group({
+	e: () => state.color,
+	t: () => Color.Red,
+	a: () => Color.Blue
+}), ({ e, t, a }, _p$) => {
 	_$setProperty(_el$61, "value", e);
 	_$setProperty(_el$62, "value", t);
 	_$setProperty(_el$63, "value", a);
@@ -576,13 +573,11 @@ var _el$110 = _$getNextElement(_tmpl$47);
 _$insert(_el$110, _$scope(() => {
 	return count();
 }));
-_$effect(() => {
-	return {
-		e: count(),
-		t: _$readShallow(style),
-		a: _$readShallow(style)
-	};
-}, ({ e, t, a }, _p$) => {
+_$effect(_$group({
+	e: () => count(),
+	t: () => _$readShallow(style),
+	a: () => _$readShallow(style)
+}), ({ e, t, a }, _p$) => {
 	e !== _p$?.e && _$setAttribute(_el$110, "aria-label", e);
 	_$style(_el$110, t, _p$?.t);
 	_$className(_el$110, a, _p$?.a);

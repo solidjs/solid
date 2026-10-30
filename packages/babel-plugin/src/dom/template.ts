@@ -290,7 +290,9 @@ function wrapDynamics(
     }
 
     properties.push(propIdent);
-    values.push(t.objectProperty(propIdent, wrapReadShallow(path, key, value)));
+    // Each binding is its own thunk: `group` reads them one by one, so a
+    // pending binding does not hide a later one's error (#4284, D-28).
+    values.push(t.objectProperty(propIdent, wrapForEffect(wrapReadShallow(path, key, value))));
 
     if (key === "class" || key === "style" || isStatefulDOMProperty(tagName, key)) {
       statements.push(
@@ -330,7 +332,10 @@ function wrapDynamics(
 
   return t.expressionStatement(
     t.callExpression(effectWrapperId, [
-      t.arrowFunctionExpression([], t.objectExpression(values)),
+      t.callExpression(
+        registerImportMethod(path, "group", getRendererConfig(path, "dom").moduleName),
+        [t.objectExpression(values)]
+      ),
       t.arrowFunctionExpression(
         [t.objectPattern(properties.map(id => t.objectProperty(id, id, false, true))), prevId],
         t.blockStatement([...statements, ...claimStatements])

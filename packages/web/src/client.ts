@@ -35,7 +35,7 @@ import {
   SOURCE_PROXY,
   SOURCE_MEMO
 } from "solid-js/internal";
-import { effect, memo, setSpreadName, spreadLoc, spreadName, tagElement } from "./render.js";
+import { effect, group, memo, setSpreadName, spreadLoc, spreadName, tagElement } from "./render.js";
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -262,7 +262,7 @@ export function HydrationScript(_props?: { nonce?: CSPNonce; eventNames?: string
   return null;
 }
 
-export { effect, memo, untrack, getOwner, createComponent };
+export { effect, group, memo, untrack, getOwner, createComponent };
 /**
  * Compiler-emitted prop-spread helper. The JSX transform emits
  * `mergeProps(...)` when compiling prop spreads on components — not a

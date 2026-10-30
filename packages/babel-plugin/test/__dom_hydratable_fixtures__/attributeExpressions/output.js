@@ -4,6 +4,7 @@ import { getNextMarker as _$getNextMarker } from "r-dom";
 import { scope as _$scope } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-dom";
+import { group as _$group } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
 import { style as _$style } from "r-dom";
 import { readShallow as _$readShallow } from "r-dom";
@@ -261,13 +262,13 @@ _$addEvent(_el$24, "input", doSomething, true);
 _$addEvent(_el$25, "input", doSomethingElse, true);
 _$setAttribute(_el$25, "readonly", value);
 _$effect(
-  () => ({
-    e: s(),
-    t: min(),
-    a: max(),
-    o: s2(),
-    i: min(),
-    n: max()
+  _$group({
+    e: () => s(),
+    t: () => min(),
+    a: () => max(),
+    o: () => s2(),
+    i: () => min(),
+    n: () => max()
   }),
   ({ e, t, a, o, i, n }, _p$) => {
     _$setProperty(_el$24, "value", e);
@@ -467,10 +468,10 @@ var _el$57 = _$getNextElement(_tmpl$21),
   _el$58 = _el$57.firstChild,
   _el$59 = _el$58.nextSibling;
 _$effect(
-  () => ({
-    e: state.color,
-    t: Color.Red,
-    a: Color.Blue
+  _$group({
+    e: () => state.color,
+    t: () => Color.Red,
+    a: () => Color.Blue
   }),
   ({ e, t, a }, _p$) => {
     _$setProperty(_el$57, "value", e);
@@ -701,10 +702,10 @@ _$insert(
   _$scope(() => count())
 );
 _$effect(
-  () => ({
-    e: count(),
-    t: _$readShallow(style),
-    a: _$readShallow(style)
+  _$group({
+    e: () => count(),
+    t: () => _$readShallow(style),
+    a: () => _$readShallow(style)
   }),
   ({ e, t, a }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$106, "aria-label", e);

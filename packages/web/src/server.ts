@@ -7289,6 +7289,7 @@ export {
   notSup as ref,
   notSup as setStyleProperty,
   notSup as readShallow,
+  notSup as group,
   notSup as acquireAsset
 };
 

@@ -3,6 +3,7 @@ import { getNextElement as _$getNextElement } from "r-dom";
 import { getOwner as _$getOwner } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { ref as _$ref } from "r-dom";
+import { group as _$group } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { claimElement as _$claimElement } from "r-dom";
@@ -42,13 +43,11 @@ _$effect(() => href(), (_v$) => {
 const oneBinding = _el$3;
 var _el$4 = _$getNextElement(_tmpl$4);
 var _o$2 = _$getOwner();
-_$effect(() => {
-	return {
-		e: target(),
-		t: rel(),
-		a: download()
-	};
-}, ({ e, t, a }, _p$) => {
+_$effect(_$group({
+	e: () => target(),
+	t: () => rel(),
+	a: () => download()
+}), ({ e, t, a }, _p$) => {
 	e !== _p$?.e && _$setAttribute(_el$4, "target", e);
 	t !== _p$?.t && _$setAttribute(_el$4, "rel", t);
 	a !== _p$?.a && _$setAttribute(_el$4, "download", a);
@@ -63,12 +62,10 @@ var _el$7 = _el$6.nextSibling;
 var _el$8 = _el$7.nextSibling;
 var _o$3 = _$getOwner();
 _$claimElement(_el$8);
-_$effect(() => {
-	return {
-		e: first(),
-		t: title()
-	};
-}, ({ e, t }, _p$) => {
+_$effect(_$group({
+	e: () => first(),
+	t: () => title()
+}), ({ e, t }, _p$) => {
 	e !== _p$?.e && _$setAttribute(_el$6, "href", e);
 	t !== _p$?.t && _$setAttribute(_el$7, "title", t);
 	_$claimElement(_el$6, _o$3);

@@ -1,6 +1,7 @@
 import { template as _$template } from "r-dom";
 import { runHydrationEvents as _$runHydrationEvents } from "r-dom";
 import { spread as _$spread } from "r-dom";
+import { group as _$group } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { getOwner as _$getOwner } from "r-dom";
 import { ref as _$ref } from "r-dom";
@@ -50,10 +51,10 @@ const oneBinding = _el$3;
 var _el$4 = _$getNextElement(_tmpl$4),
   _o$2 = _$getOwner();
 _$effect(
-  () => ({
-    e: target(),
-    t: rel(),
-    a: download()
+  _$group({
+    e: () => target(),
+    t: () => rel(),
+    a: () => download()
   }),
   ({ e, t, a }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$4, "target", e);
@@ -73,9 +74,9 @@ var _el$5 = _$getNextElement(_tmpl$5),
   _o$3 = _$getOwner();
 _$claimElement(_el$8);
 _$effect(
-  () => ({
-    e: first(),
-    t: title()
+  _$group({
+    e: () => first(),
+    t: () => title()
   }),
   ({ e, t }, _p$) => {
     e !== _p$?.e && _$setAttribute(_el$6, "href", e);

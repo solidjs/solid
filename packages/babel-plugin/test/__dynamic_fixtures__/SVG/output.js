@@ -2,6 +2,7 @@ import { template as _$template } from "r-dom";
 import { setAttributeNS as _$setAttributeNS } from "r-dom";
 import { createComponent as _$createComponent } from "r-custom";
 import { spread as _$spread } from "r-dom";
+import { group as _$group } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { className as _$className } from "r-dom";
@@ -21,12 +22,12 @@ const template = _tmpl$();
 var _el$2 = _tmpl$2(),
   _el$3 = _el$2.firstChild;
 _$effect(
-  () => ({
-    e: _$readShallow(state.name),
-    t: state.width,
-    a: state.x,
-    o: state.y,
-    i: props.stroke
+  _$group({
+    e: () => _$readShallow(state.name),
+    t: () => state.width,
+    a: () => state.x,
+    o: () => state.y,
+    i: () => props.stroke
   }),
   ({ e, t, a, o, i }, _p$) => {
     _$className(_el$3, e, _p$?.e);

@@ -1,4 +1,4 @@
-import { createMemo, createRenderEffect, getOwner } from "solid-js";
+import { createMemo, createRenderEffect, getOwner, NotReadyError } from "solid-js";
 
 // Replaced with a boolean literal by the build (see rollup.config.js); the cast
 // keeps the typed module honest about it being a build-time flag.
@@ -81,6 +81,36 @@ export function effect<T>(
     return;
   }
   createRenderEffect(fn, effectFn, nodeOptions);
+}
+
+/** Compiler-emitted primitive; not for hand-written code. @internal
+ *
+ * The compute half of a grouped binding effect (one effect, several
+ * attributes of a template): each binding is its own thunk and reads on its
+ * own, as it would in an effect of its own (#4284: grouping never changes
+ * the result). A binding's error throws at once; a pending one (NotReady)
+ * ends that binding only and is thrown after the rest ran, so a later
+ * binding's error is found in the same pass, as in split effects (D-28: a
+ * read throws on its own, and a throw ends the pass — here the pass is the
+ * binding). The first pending read is the one thrown. */
+export function group<T extends Record<string, () => unknown>>(
+  fns: T
+): () => { [K in keyof T]: ReturnType<T[K]> };
+export function group(fns: Record<string, () => unknown>) {
+  return () => {
+    let out: Record<string, unknown> = {},
+      pending: unknown;
+    // `(0, fns[k])()`: a thunk is called bare, as the effect would call it.
+    for (let k in fns)
+      try {
+        out[k] = (0, fns[k])();
+      } catch (e) {
+        if (!(e instanceof NotReadyError)) throw e;
+        pending ||= e;
+      }
+    if (pending) throw pending;
+    return out;
+  };
 }
 
 // NOT transparent, despite the temptation (#3033): the compiler emits

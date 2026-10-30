@@ -26,7 +26,7 @@ import {
   latest,
   resetErrorHalt
 } from "solid-js";
-import { createComponent, effect, insert, render, setAttribute } from "../../src/index.js";
+import { createComponent, effect, group, insert, render, setAttribute } from "../../src/index.js";
 import { describeScenario, type Node, type Read, type Scenario, type SrcRef } from "./scenario.js";
 
 export type Finding = {
@@ -238,10 +238,14 @@ function buildApp(
         }
         const grouped = variant.split ? false : variant.grouped ? true : n.grouped;
         if (grouped && n.attrs.length) {
+          // The compiled shape of a grouped binding effect: one thunk per
+          // attribute, read by `group` (#4284).
           effect(
-            () => n.attrs.map(text),
-            (vals: string[], prev?: string[]) => {
-              vals.forEach((v, j) => v !== prev?.[j] && setAttribute(span, `data-a${j}`, v));
+            group(Object.fromEntries(n.attrs.map((r, j) => [j, () => text(r)]))),
+            (vals: Record<number, string>, prev?: Record<number, string>) => {
+              n.attrs.forEach(
+                (_, j) => vals[j] !== prev?.[j] && setAttribute(span, `data-a${j}`, vals[j])
+              );
             }
           );
         } else {
