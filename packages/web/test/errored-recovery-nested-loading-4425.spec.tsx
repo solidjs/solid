@@ -14,16 +14,7 @@
  * refresh landing is the new answer (D-39).
  */
 import { expect, test } from "vitest";
-import {
-  Errored,
-  For,
-  Loading,
-  Show,
-  createMemo,
-  flush,
-  refresh,
-  type Refreshable
-} from "solid-js";
+import { Errored, For, Loading, Show, createMemo, flush, refresh, type Refreshable } from "solid-js";
 import { render } from "../src/index.js";
 
 const tick = async () => {
