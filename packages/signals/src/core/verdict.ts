@@ -235,6 +235,10 @@ function heldNotFinal(owner: Computed<any>): boolean {
   );
 }
 
+/** The flush's transaction when `latest` of an unheld flight opened it
+ * (`pendingVerdict`): it holds nothing of that flight. */
+let latestJoined: Transaction | null = null;
+
 /** `isPending`'s answer for an unheld node whose flight is up (cause ii). */
 function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
   if (probing && !quietPending(el)) probeFound = true;
@@ -246,7 +250,12 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
       // verdict lane's now, as a plain read of a flight makes it
       // (`observeFlight`). Its frame pass re-derived in the lane (R5) asked
       // its question again (F-9, #4397). A staging's is the seam's (#4365).
-      if (!probing) joinFuture(null);
+      // A probe in a transaction only that opened is the lane's too, with no
+      // re-run at its landing: nothing it holds flips the verdict — the
+      // flight's own landing re-derives the reader — and it lands at this
+      // seam, where a re-run would open it again, every flush (F-6, D-23).
+      if (!probing) flushTransaction || (joinFuture(null), (latestJoined = flushTransaction));
+      else if (latestJoined && latestJoined === flushTransaction) return route(c, latestJoined);
       provisionalVerdict(c, false); // decided above
     }
   }

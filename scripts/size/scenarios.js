@@ -1117,8 +1117,9 @@ module.exports = [
     // 14.89 KB, recorded minified 43,874 -> 43,875 B; CI-measured at 14,875 B
     // (43,875 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    limit: "14.89 KB",
-    capMinified: 43875,
+    // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 14.89 -> 14.95 KB, recorded minified 43,875 -> 43,888 B (+13 B), measured locally (linux) at 14,932 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "14.95 KB",
+    capMinified: 43888,
     alias
   },
   {
@@ -1438,10 +1439,11 @@ module.exports = [
     // (30,408 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
     // A held memo's parked reader re-derives at the seam (#4439, 2026-10-30, over next @ b249ad96): 11.04 KB -> 11.07 KB, recorded minified 30,408 -> 30,492 B (+84 B), measured locally (linux) at 11,057 B brotli. `laneSeams` also re-derives a reader whose pass read a held node, so `isPending` of a memo parked behind a held one turns true. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // A first answer landing in the tick a write re-asks it is answered, then re-asked (D-22 amended 2026-10-30, F-9; 2026-10-30, over next @ 7135a77a): 11.07 KB -> 11.11 KB, recorded minified 30,492 -> 30,643 B (+151 B), measured locally (linux) at 11,094 B brotli. `read`'s pending path serves a first answer staged in the flush that re-asks it to a memo with no value (once, then the missed-wake latch re-runs it onto the re-ask), behind the verdict engine's hook; `isPending` of it reads the re-ask. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "11.11 KB",
+    // A probe beside `latest()` outside any Loading no longer loops on a refetch (F-6, D-23; 2026-10-30, over next @ 7135a77a): 11.07 KB -> 11.10 KB, recorded minified 30,492 -> 30,569 B (+77 B), measured locally (linux) at 11,085 B brotli. `pendingVerdict` remembers the transaction a `latest` read of an unheld flight opened, and a probe in it joins the verdict lane without asking to re-run at its landing (the re-run re-opened it every flush). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // A first answer landing in the tick a write re-asks it is answered, then re-asked (#4459, D-22 amended 2026-10-30, F-9; over next @ 5f07d04f): 11.10 KB -> 11.15 KB, recorded minified 30,569 -> 30,730 B (+161 B), measured locally (linux) at 11,137 B brotli. `read`'s pending path serves a first answer staged in the flush that re-asks it to a memo with no value, behind the verdict engine's hook; `isPending` of it reads the re-ask. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "11.15 KB",
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 28,693 -> 29,086 B (+343 B minified over next), measured locally (linux) at 10,565 B brotli (+135 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 30643,
+    capMinified: 30730,
     alias
   },
   {
@@ -1752,6 +1754,7 @@ module.exports = [
     // 9.78 KB, recorded minified 26,738 -> 26,739 B; CI-measured at 9,769 B
     // (26,739 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
+    // A first answer landing in the tick a write re-asks it is answered, then re-asked (#4459, D-22 amended 2026-10-30, F-9; over next @ 5f07d04f): 9.78 KB -> 9.80 KB, recorded minified 26,739 -> 26,762 B, measured locally (linux) at 9,784 B brotli. +10 B minified on every floor (`handleAsync` lands a first answer a write dirtied), on top of next's +13 B over this floor's record (#4452). Correctness; a frozen floor, Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["app: render + one signal (the simple-app floor)"],
     capMinified: floorMinified["app: render + one signal (the simple-app floor)"],
     alias
@@ -2153,6 +2156,7 @@ module.exports = [
     // B; CI-measured at 18,701 B (53,566 B minified). Lower only: cap at
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): 18.72 KB -> 18.74 KB, recorded minified 53,566 -> 53,585 B, measured in CI at 18,726 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
+    // A first answer landing in the tick a write re-asks it is answered, then re-asked (#4459, D-22 amended 2026-10-30, F-9; over next @ 5f07d04f): 18.74 KB -> 18.78 KB, recorded minified 53,585 -> 53,608 B, measured locally (linux) at 18,766 B brotli. +10 B minified on every floor (`handleAsync` lands a first answer a write dirtied), on top of next's +13 B over this floor's record (#4452). Correctness; a frozen floor, Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -3033,8 +3037,9 @@ module.exports = [
     // B; CI-measured at 13,416 B (37,014 B minified). Lower only: cap at
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): cap unchanged, recorded minified 37,014 -> 37,015 B, measured in CI at 13,423 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
-    limit: "13.43 KB",
-    capMinified: 37015,
+    // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 13.43 -> 13.47 KB, recorded minified 37,015 -> 37,028 B (+13 B), measured locally (linux) at 13,451 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "13.47 KB",
+    capMinified: 37028,
     alias
   },
   {
@@ -3891,9 +3896,9 @@ module.exports = [
     // 29.74 KB, recorded minified 88,302 -> 88,303 B; CI-measured at 29,727 B
     // (88,303 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    // A first answer landing in the tick a write re-asks it is answered, then re-asked (D-22 amended 2026-10-30, F-9; 2026-10-30, over next @ 7135a77a): 29.74 KB -> 29.76 KB, recorded minified 88,303 -> 88,313 B (+10 B), measured locally (linux) at 29,746 B brotli. `handleAsync` lands a first answer a write dirtied (it resolved before the write): +10 B minified on every floor; the rest is brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "29.76 KB",
-    capMinified: 88313,
+    // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 29.74 -> 29.78 KB, recorded minified 88,303 -> 88,316 B (+13 B), measured locally (linux) at 29,762 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "29.78 KB",
+    capMinified: 88316,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -4130,9 +4135,9 @@ module.exports = [
     // 26.27 KB, recorded minified 79,985 -> 79,986 B; CI-measured at 26,257 B
     // (79,986 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    // A first answer landing in the tick a write re-asks it is answered, then re-asked (D-22 amended 2026-10-30, F-9; 2026-10-30, over next @ 7135a77a): 26.27 KB -> 26.32 KB, recorded minified 79,986 -> 79,996 B (+10 B), measured locally (linux) at 26,308 B brotli. `handleAsync` lands a first answer a write dirtied (it resolved before the write): +10 B minified on every floor; the rest is brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "26.32 KB",
-    capMinified: 79996,
+    // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 26.27 -> 26.31 KB, recorded minified 79,986 -> 79,999 B (+13 B), measured locally (linux) at 26,294 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "26.31 KB",
+    capMinified: 79999,
     alias
   },
   {
@@ -4304,9 +4309,9 @@ module.exports = [
     // 32.43 KB, recorded minified 100,729 -> 100,748 B; CI-measured at 32,419 B
     // (100,748 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    // A first answer landing in the tick a write re-asks it is answered, then re-asked (D-22 amended 2026-10-30, F-9; 2026-10-30, over next @ 7135a77a): 32.43 KB -> 32.48 KB, recorded minified 100,748 -> 100,758 B (+10 B), measured locally (linux) at 32,465 B brotli. `handleAsync` lands a first answer a write dirtied (it resolved before the write): +10 B minified on every floor; the rest is brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "32.48 KB",
-    capMinified: 100758,
+    // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 32.43 -> 32.52 KB, recorded minified 100,748 -> 100,761 B (+13 B), measured locally (linux) at 32,508 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.52 KB",
+    capMinified: 100761,
     alias
   },
   {
@@ -5242,6 +5247,7 @@ module.exports = [
     // 33.66 KB, recorded minified 101,586 -> 101,605 B; CI-measured at 33,645 B
     // (101,605 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
+    // A first answer landing in the tick a write re-asks it is answered, then re-asked (#4459, D-22 amended 2026-10-30, F-9; over next @ 5f07d04f): 33.66 KB -> 33.68 KB, recorded minified 101,605 -> 101,628 B, measured locally (linux) at 33,661 B brotli. +10 B minified on every floor (`handleAsync` lands a first answer a write dirtied), on top of next's +13 B over this floor's record (#4452). Correctness; a frozen floor, Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5596,7 +5602,7 @@ module.exports = [
     // (117,143 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
     // A held memo's parked reader re-derives at the seam (#4439, 2026-10-30, over next @ b249ad96): 38.74 KB -> 38.76 KB, recorded minified 117,143 -> 117,227 B (+84 B), measured locally (linux) at 38,741 B brotli. `laneSeams` also re-derives a reader whose pass read a held node, so `isPending` of a memo parked behind a held one turns true. Correctness; a frozen floor, +15 B brotli is under the maintainer's 20 B flag line (2026-10-29), Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // A first answer landing in the tick a plain write re-asks it is answered, then re-asked (D-22 amended 2026-10-30, over next @ 7135a77a): 38.76 KB -> 38.79 KB, recorded minified 117,227 -> 117,379 B (+152 B), measured locally (linux) at 38,778 B brotli. Correctness fix; a frozen floor, +37 B brotli, Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // A first answer landing in the tick a write re-asks it is answered, then re-asked (#4459, D-22 amended 2026-10-30, F-9; over next @ 5f07d04f): 38.79 KB -> 38.82 KB, recorded minified 117,379 -> 117,464 B, measured locally (linux) at 38,801 B brotli. `read`'s pending path serves the staged first answer to a reader with no value, behind the verdict hook, plus the +10 B floor guard. Correctness; a frozen floor, Size-Exception in the PR body. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
@@ -5766,9 +5772,8 @@ module.exports = [
     // 35.66 KB, recorded minified 107,955 -> 107,974 B; CI-measured at 35,645 B
     // (107,974 B minified). Lower only: cap at measured + 10 B rounded up to
     // 0.01 KB; recorded minified never raised.
-    // A first answer landing in the tick a write re-asks it is answered, then re-asked (D-22 amended 2026-10-30, F-9; 2026-10-30, over next @ 7135a77a): 35.66 KB -> 35.68 KB, recorded minified 107,974 -> 107,984 B (+10 B), measured locally (linux) at 35,668 B brotli. `handleAsync` lands a first answer a write dirtied (it resolved before the write): +10 B minified on every floor; the rest is brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "35.68 KB",
-    capMinified: 107984,
+    limit: "35.66 KB",
+    capMinified: 107974,
     alias: pageAlias
   },
   {
@@ -5910,12 +5915,13 @@ module.exports = [
     // Re-record after the 2026-10-29 afternoon batch (#4418, #4414; 2026-10-29, over next @ 5d57e12a): 42.62 KB -> 42.65 KB, recorded minified 125,165 -> 125,266 B (+101 B), measured in CI at 42,640 B brotli. Growth is #4414 (a truncated fragment's fresh render computes what the server never sent: the truncation sweep deletes unsettled records at DOMContentLoaded, +~100 B minified in solid's hydration client); the maintainer said merge (2026-10-29). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): cap unchanged, recorded minified 125,266 -> 125,285 B, measured in CI at 42,636 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
     // A held memo's parked reader re-derives at the seam (#4439, 2026-10-30, over next @ b249ad96): 42.65 KB -> 42.67 KB, recorded minified 125,285 -> 125,374 B (+89 B), measured locally (linux) at 42,655 B brotli. `laneSeams` also re-derives a reader whose pass read a held node, so `isPending` of a memo parked behind a held one turns true. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    // A first answer landing in the tick a write re-asks it is answered, then re-asked (D-22 amended 2026-10-30, F-9; 2026-10-30, over next @ 7135a77a): 42.67 KB -> 42.82 KB, recorded minified 125,374 -> 125,525 B (+151 B), measured locally (linux) at 42,801 B brotli. `read`'s pending path serves a first answer staged in the flush that re-asks it to a memo with no value (once, then the missed-wake latch re-runs it onto the re-ask), behind the verdict engine's hook; `isPending` of it reads the re-ask. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "42.82 KB",
+    // A probe beside `latest()` outside any Loading no longer loops on a refetch (F-6, D-23; 2026-10-30, over next @ 7135a77a): 42.67 KB -> 42.71 KB, recorded minified 125,374 -> 125,450 B (+76 B), measured locally (linux) at 42,693 B brotli. `pendingVerdict` remembers the transaction a `latest` read of an unheld flight opened, and a probe in it joins the verdict lane without asking to re-run at its landing (the re-run re-opened it every flush). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // A first answer landing in the tick a write re-asks it is answered, then re-asked (#4459, D-22 amended 2026-10-30, F-9; over next @ 5f07d04f): 42.71 KB -> 42.78 KB, recorded minified 125,450 -> 125,611 B (+161 B), measured locally (linux) at 42,765 B brotli. `read`'s pending path serves a first answer staged in the flush that re-asks it to a memo with no value, behind the verdict engine's hook; `isPending` of it reads the re-ask. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "42.78 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 123,191 -> 123,249 B (+58 B minified over next's record), measured locally (linux) at 41,899 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 123,203 -> 123,224 B (+21 B minified over next's record), measured locally (linux) at 41,966 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 123,224 -> 123,733 B (+403 B minified over next), measured locally (linux) at 42,119 B brotli (+169 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 125525,
+    capMinified: 125611,
     alias: pageAlias
   },
   {
@@ -6312,11 +6318,12 @@ module.exports = [
     // Re-record after the 2026-10-29 afternoon batch (#4418, #4414; 2026-10-29, over next @ 5d57e12a): 48.31 KB -> 48.31 KB (unchanged), recorded minified 142,427 -> 142,528 B (+101 B), measured in CI at 48,293 B brotli. Growth is #4414 (a truncated fragment's fresh render computes what the server never sent: the truncation sweep deletes unsettled records at DOMContentLoaded, +~100 B minified in solid's hydration client); the maintainer said merge (2026-10-29). Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): 48.31 KB -> 48.38 KB, recorded minified 142,528 -> 142,547 B, measured in CI at 48,368 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
     // A held memo's parked reader re-derives at the seam (#4439, 2026-10-30, over next @ b249ad96): 48.38 KB -> 48.42 KB, recorded minified 142,547 -> 142,631 B (+84 B), measured locally (linux) at 48,402 B brotli. `laneSeams` also re-derives a reader whose pass read a held node, so `isPending` of a memo parked behind a held one turns true. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
-    limit: "48.42 KB",
+    // A probe beside `latest()` outside any Loading no longer loops on a refetch (F-6, D-23; 2026-10-30, over next @ 7135a77a): 48.42 KB -> 48.44 KB, recorded minified 142,631 -> 142,706 B (+75 B), measured locally (linux) at 48,421 B brotli. `pendingVerdict` remembers the transaction a `latest` read of an unheld flight opened, and a probe in it joins the verdict lane without asking to re-run at its landing (the re-run re-opened it every flush). Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "48.44 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 140,451 -> 140,509 B (+58 B minified over next's record), measured locally (linux) at 47,516 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 140,463 -> 140,485 B (+22 B minified over next's record), measured locally (linux) at 47,547 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 140,485 -> 140,983 B (+405 B minified over next), measured locally (linux) at 47,722 B brotli (+162 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 142631,
+    capMinified: 142706,
     alias: pageAlias,
     conditions: solidConditions,
     compile: { hydratable: true }
