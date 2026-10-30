@@ -348,6 +348,12 @@ left where `__TEST__` blocks were removed (the minifier erases both).
 
 ## 5. Swap plan
 
+**Status 2026-10-29: stopped.** S1 was built through M5 on `seat/s1-swap`
+(#4430) and is not landing; §8 has the measurements and the decision. S0
+plus the M1 re-baseline — the table, the shadow, `INV-seat` — land alone
+as a CI spec (the "spec PR", #4438). S2–S4 below do not proceed as planned; the
+next step is a decision in §8.6, not a PR.
+
 Three to five PRs, serial, each in its own worktree (brief §4 item 4):
 
 | PR                   | Content                                                                                                                                                                                                                                                                                                         | Gate                                                                                                                                                                                                                                                                          |
@@ -749,3 +755,199 @@ p.ownWorld`; D-27's letter, "a node it creates during that pass").
     nothing of the hold but exists only in it (B), or only when the pass
     read the hold (A')? If B, the 14 suite shapes are `next` bugs to file;
     if A', #4428 stands as filed.
+
+## 8. S1 result and decision (2026-10-29)
+
+S1 was built in full on `seat/s1-swap` (#4430, head 2cc81e3b4; base
+`next` @ 5e68925cc with S0 merged on top): M2 made the table `read`'s
+decision and turned the old deciders into the shadow's oracle; M3a/M3b
+swapped the pass side (the seat as module state, born-held on F-transitive
+B, `creatorReads`/`route` gone, D-2's re-derive in place for #4417); the
+floor split and the two mandatory floor levers; M4 split `lanes.ts` into
+`lanes-core.ts` and `lanes.ts` and tried the brief's deletion list; M5 ran
+the gate. The suites are green and the shadow reads zero classes on every
+suite. The gate **failed** on the 50k differential and on size, and the
+swap is **stopped**. This section is the record; the numbers are the PR
+body's, measured as §4.3 describes (`pnpm build` with `__TEST__` false,
+`scripts/size` of the branch against each tree, each tree's own native
+compiler). The brief's §4 ("the carve") is superseded by this section.
+
+### 8.1 Size
+
+Columns: base `next` @ 5e68925cc (rc.20), S1 head (8ae8829e8), rc.19
+(d2323b077), L2 (1b9ceb679). brotli / minified bytes; "n/a" = the tree
+cannot bundle the scenario (L2 predates `dynamicComponent`). Floors in
+bold. Frames and the server scenarios are byte-identical to base.
+
+| scenario                                    | base rc.20 br / min | S1 head br / min | rc.19 br / min |  L2 br / min  | head − base   |
+| ------------------------------------------- | ------------------: | ---------------: | -------------: | :-----------: | ------------- |
+| **signals: core floor**                     |        7415 / 19908 |     7709 / 20404 |   7422 / 20018 | 7315 / 20022  | +294 / +496   |
+| signals: + createStore                      |       14875 / 43875 |    15252 / 44400 |  14876 / 43882 | 14517 / 44381 | +377 / +525   |
+| signals: + isPending/latest                 |       11026 / 30408 |    12087 / 32582 |  10376 / 28809 | 9438 / 26678  | +1061 / +2174 |
+| signals: + until/refresh                    |        8041 / 21719 |     8345 / 22220 |   8049 / 21823 | 7741 / 21258  | +304 / +501   |
+| **app: render + one signal**                |        9769 / 26739 |    10087 / 27240 |   9776 / 26850 | 9801 / 27576  | +318 / +501   |
+| app: hydrating                              |       18710 / 53567 |    19042 / 54194 |  18586 / 53368 | 17632 / 52417 | +332 / +627   |
+| app: hydrating + every store primitive      |       32410 / 98589 |   33949 / 102582 |  30941 / 95094 | 28770 / 91505 | +1539 / +3993 |
+| app: CSR with Show/For/Loading/Errored/lazy |       13423 / 37015 |    13746 / 37513 |  13358 / 36949 | 12807 / 36457 | +323 / +498   |
+| app: CSR, observe tier                      |       15193 / 41969 |    15503 / 42471 |  15115 / 41899 | 14378 / 40981 | +310 / +502   |
+| app: CSR, observe tier + attribution        |       29727 / 88303 |    30043 / 88803 |  29660 / 88239 | 28599 / 86287 | +316 / +500   |
+| **app: compiled floor**                     |        9961 / 27271 |    10290 / 27772 |   9968 / 27382 | 9990 / 28107  | +329 / +501   |
+| app: compiled CSR                           |       26257 / 79986 |    26633 / 80488 |  26162 / 79709 | 25069 / 78881 | +376 / +502   |
+| app: compiled hydrating                     |      32463 / 100730 |   32891 / 101356 | 32231 / 100323 | 30886 / 99141 | +428 / +626   |
+| frames: eager client consumer               |       11754 / 34886 |    11754 / 34886 |  11754 / 34886 | 12997 / 41048 | +0 / +0       |
+| page: base server components                |      33658 / 101587 |   34032 / 102210 | 33501 / 101310 |      n/a      | +374 / +623   |
+| page: live server components                |      38700 / 117125 |   39926 / 119464 | 37884 / 115166 |      n/a      | +1226 / +2339 |
+| page: compiled base server components       |      35664 / 107956 |   36040 / 108582 | 35533 / 107686 |      n/a      | +376 / +626   |
+| page: compiled live server components       |      42654 / 125267 |   44001 / 128194 | 41793 / 123161 |      n/a      | +1347 / +2927 |
+| page: base + router                         |      41167 / 125417 |   41502 / 126035 | 40951 / 125144 |      n/a      | +335 / +618   |
+| page: live + router                         |      48307 / 142529 |   49644 / 145411 | 47398 / 140419 |      n/a      | +1337 / +2882 |
+| **server: floor**                           |         1275 / 3255 |      1275 / 3255 |    1275 / 3255 |  1331 / 3324  | +0 / +0       |
+| **server: renderToString**                  |       22786 / 77473 |    22786 / 77473 |  22786 / 77473 | 20412 / 71813 | +0 / +0       |
+
+After the two levers every non-server floor is ≈ +500 B minified / ≈ +300 B
+brotli over base. Per module, core floor, minified (standalone-minified ×
+chunk scale; the chunk totals are authoritative):
+
+| module         |       base | before levers |  after (a) | after (b) = head                            | what remains                                                                                                                                                               |
+| -------------- | ---------: | ------------: | ---------: | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| chunk total    | **19,908** |    **20,721** | **20,599** | **20,411** (20,404 after `reruns` deletion) | +503                                                                                                                                                                       |
+| `seat.js`      |          0 |         1,116 |      1,113 | 1,104                                       | `plainRows` (direct side effects) 61 %, the seat state (`seatWorld`, `childBorn`, `bornInto`, `postureOf`, `unflushed`) 21 %, constants 11 %, `slot`'s engine dispatch 8 % |
+| `core.js`      |      7,144 |         6,761 |      6,676 | 6,603                                       | the old deciders gone (−705); `readSlow`'s serve switch + the `SLOT_SNAPSHOT` arm + `claim` ≈ +165                                                                         |
+| `scheduler.js` |      4,757 |         4,801 |      4,788 | 4,751                                       | `snapshotCaptureActive` moved here (−); hook declarations (+)                                                                                                              |
+| `async.js`     |      3,561 |         3,577 |      3,567 | 3,537                                       | identifier drift                                                                                                                                                           |
+| `owner.js`     |      1,273 |         1,278 |      1,275 | 1,264                                       | identifier drift                                                                                                                                                           |
+| others         |      3,173 |         3,188 |      3,180 | 3,152                                       | identifier drift                                                                                                                                                           |
+
+Lever (a): M3b's in-place re-derive arms run behind `verdictApplyHook`'s
+installer (−122 floor, +106 on engine scenarios). Lever (b): `plainRows`
+fires `joinPass` / `stagedRead` / `staleReader` / `markLateLinker` / `link`
+itself and returns the slot alone; the engine rows stay packed behind
+`applyMarksHook` (−188 floor; +211 `+ isPending/latest`, +110 live page).
+`+ isPending/latest` is +2,174 B minified over base: the engine's rows
+(`seatRows` ≈ 900, M3b's `adoptReaders` ≈ 650, the lane rows) net of the
+M4 split's −1,661.
+
+### 8.2 Deletions
+
+Each candidate of the brief's list was cut on the head and judged by the
+differential (signals suite + shadow; the subsumed set also by the full
+battery and the 50k gate). Bytes are `+ isPending/latest` / live page /
+floor, minified.
+
+| candidate                                                   | verdict                 | evidence                                                                                                                                                                                                             | bytes                    |
+| ----------------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| `laneServed` / `MARK_SERVED` / `laneServedHook`             | **deleted** (5ea7d894a) | base drops a served reader's pending source 24× in the signals suite; head 0× — the slot never leaves the source on the reader (the stale screen is served under `staleReader`'s mark)                               | −104 / −106 / 0          |
+| `reruns`' `if (!u._lane)` carve-out (`REACTIVE_FRAME_READ`) | **deleted** (23160e65d) | the carve-out retained the mark 141× on head (49 no-ops); clearing unconditionally changes no result — the re-read re-raises it through MARK_ST while the flight is up (#4397's test green)                          | −7 / −7 / −7             |
+| `heldBy` (`laneSeams`' `!blocked(t) \|\| heldBy(t, r)`)     | **kept — undecidable**  | its true arm fires 0× on base and 0× on head in the signals suite; the battery is identical with it cut. The differential cannot show the table subsumes code nothing exercises — dead since before S1, or unreached | would be −281 / −278 / 0 |
+| `holdWork` / `REACTIVE_WINDOW` / `CONFIG_ASYNC`             | kept — not subsumed     | cut: 32 failures (`latest-two-readers-one-ask-4393`, `verdict-memo-flight-no-reask`, `latest-first-one-pass-4402`, …) — pass scheduling, not a read decision                                                         | —                        |
+| `adoptParked`                                               | kept — not subsumed     | cut: 28 failures; it is M3b's #4417 answer on the pass side                                                                                                                                                          | —                        |
+| `revealing`                                                 | kept — not subsumed     | cut: 7 failures                                                                                                                                                                                                      | —                        |
+| `laneDirty` verdict render-effect arm                       | kept — not subsumed     | cut: 4 failures (`latest-memo-inline-parity`)                                                                                                                                                                        | —                        |
+| `laneSeams` verdict-lane arm / plain arm                    | kept — not subsumed     | cut: 11 / 6 failures                                                                                                                                                                                                 | —                        |
+| `stagedScreen`                                              | kept                    | store.ts still calls it (the store twins are S4)                                                                                                                                                                     | —                        |
+
+The read-side deciders (M2: `read`'s slow block, `frameRead`,
+`readerSeesCommitted`, `serve`, `throwShown`; `laneRead`, `enterLane`;
+`verdictRead`, `watchVerdict`, `provisionalVerdict`'s read arm,
+`pendingVerdict`, `observeFlight`, `staged`, `heldLatest`) and the pass-side
+ones (M3a: the one-level born-held arm, `creatorReads`, `route`) were
+replaced by rows and proven by the shadow at 0 classes on every suite. The
+verdict-lane node set stays (F-vset ruled reading 2: the reveal record).
+
+### 8.3 The 50k differential
+
+Generator 50,000 × seeds 7 / 3289 / 91501, every pair, screens diffed
+against a plain `next` recording (`ASYNC_GEN_DIFF`). 2k × 3 was clean at
+every milestone; at 50k **25 cases differ** (9 / 10 / 6). Against the
+recording every difference is a mid-hold screen; two of the cases also
+break an equivalence pair `next` kept — one of them at the pair's final,
+quiet screen. Replayed on base, M2, M3a, M3b and the head to attribute
+each to a milestone:
+
+| cases | shape                                                                                                                                                                                                                                                                                                                                                 | introduced at                           | status                                                                |
+| ----: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------- |
+|    20 | under a display-ahead `<Show when=latest(x)>` the lane work shows the committed value, or an inner `<Show when=x()>`'s fallback, where `next` showed the staged one (D-37's shape, 91501 #411; 7 #9846 #13595 #19106 #20324 #21348 #39486 #42058 #48845; 3289 #3598 #8992 #12559 #22669 #28591 #30977 #34631 #49646; 91501 #3494 #5871 #14705 #45722) | **M3b** (143d829bf, the #4417 adoption) | a class of 21 with #411 — listed for a ruling as a class, not assumed |
+|     2 | `next` bugs the adoption closes: 3289 #464 (E9) and 91501 #8991 (E9: `latest()` through a memo showed `lm0:3` where the leaf showed an empty span)                                                                                                                                                                                                    | M3b / M3a                               | closed by S1; to be extracted on their own                            |
+|     1 | **3289 #39609 (E8, remount)** — the reader born in the flush that applies the write ends with the inner `<Show when=m0()>` content missing from its **final, quiet** screen; the reader born before shows it                                                                                                                                          | **M3a** (b6ea9ceb1)                     | **regression** — S1 breaks a pair `next` kept; pinned `test.fails`    |
+|     1 | **7 #45702 (E9, latestDerive)** — `latest()` through a memo shows the content frame at one settle where the leaf form shows nothing; finals agree                                                                                                                                                                                                     | **M3b** (143d829bf)                     | **regression** — pinned `test.fails`                                  |
+
+M3a is the pass side: the seat as module state, born-held on F-transitive
+reading B, `creatorReads` deleted, `route` folded. B was moved on 2k × 3
+with "no screen moves"; #39609 is a final-screen move at 50k.
+
+The shadow itself at 50k: **19 / 13 / 15 classes** (0 in every suite),
+not traced to a milestone (a 50k shadow run per milestone is ≈ 95 min). Row
+V6 (a reader of a verdict-lane node) in four variants — slot `V6→L0` /
+`V6→D0` expected C got Lv, slot `V6` expected Lv got Dv, marks `LST` vs
+`leave+LST` and `laneRead` vs `leave+laneRead` (the oracle fires a `leave`
+the table does not); L4 expected P got C ×3; B2 born held ×7 (reading B's
+known class). #4427's known filter catches 54 of the V6 family; these are
+its unmatched variants.
+
+### 8.4 Decision
+
+The slot table does what it was built to do: it replaces the read and
+seating deciders — `core.js` shrinks by ≈ 540 B minified on the core floor
+(7,144 → 6,603) — and the shadow proves the replacement at 0 classes on
+every suite. But the bytes that grew on `next` between rc.19 and rc.20 are
+not the deciders'. They live in the seam / reveal / hold layer (the
+overnight batch: `lanes.ts`'s seams, +1,330 B minified), which the table
+does not touch, and which the 50k differential shows is load-bearing: the
+D-37 class and #45702 came with M3b's adoption of the provisional readers
+into the verdict lane (the reveal record), #39609 with M3a's pass side —
+every screen that moved, moved where the seat meets that layer. So S1 is
+**additive**: +294 B brotli on the core floor and +1,061 B on
+`+ isPending/latest` over rc.20, further from rc.19 (10.38 KB) and L2
+(9.44 KB) rather than closer. A rebuild that is bigger than what it
+replaces, and that moves two final screens, is not the carve the brief
+argued for. **The swap is stopped.** Nothing from M2 onward lands.
+
+### 8.5 Method
+
+- **2k generator cases are not evidence for a ruling.** F-transitive
+  reading B was moved on 2k × 3 seeds with zero screen differences (§7);
+  50k × 3 found a final-screen regression at that very milestone (3289
+  #39609). Every S0/M1 statement of the form "no screen moves" rested on
+  2k. Rulings — and the choices delegated to the agent on "no screen
+  change" — require 50k × 3 seeds, with a `next` recording to diff against,
+  before the decision is written down.
+- **Size claims require measurement before design.** The brief's byte
+  case for the carve was a module-split estimate; the first measured
+  number (M2: floors +570 B minified) arrived after the read side was
+  already swapped, and the levers that followed recovered 310 B of it.
+  Any future proposal that cites bytes carries a `scripts/size` table
+  measured on a scratch build of the proposal's shape, not an estimate.
+- **Attribute before fixing.** Replaying the 25 cases on every milestone
+  build is what separated one `next` bug, one class for ruling and two
+  regressions; without it the inventory would have been "25 differences".
+  The per-milestone shadow at 50k was not run (≈ 95 min each) and its 47
+  classes stay untraced — the cost of a differential is paid in full or it
+  is not a differential.
+
+### 8.6 Salvage and the next decision
+
+Landed or to be extracted on their own, each measured on its own:
+
+- **This spec PR** (#4438) — S0 + M1 (`seat/spec`): the table as an executable
+  spec under `__TEST__`, the shadow comparing every read and recompute
+  against the deciders, `INV-seat`, the shadow report and summary script.
+  Byte-identical in `dist` (§5.1 re-run on `next` @ 5e68925cc: 22 / 22
+  scenarios equal in brotli and minified). It keeps the deciders honest
+  from CI without changing them.
+- **The #4417 fix** (M3b's D-2 re-derive in place / `adoptReaders`) and
+  the **two `next` bugs** it closes (3289 #464, 91501 #8991) — extracted
+  from the swap as their own change against today's deciders, with the
+  50k pair check (the #45702 regression came with this change in S1 and
+  must not come with the extraction).
+- **The `lanes-core` / `lanes` split** (M4, 97ed6a00e: `+ isPending/latest`
+  −1,661 B, live page −1,662 B) — measured in isolation on `next`, without
+  the seat, before it is proposed.
+
+Not salvaged: M2, M3a, the floor split and levers, the two deletions
+(their justification was the table being live). `seat/s1-swap` stays as
+the record; #4430 is closed.
+
+The next decision is not a PR. It is whether to rebuild the seam / reveal /
+hold layer — the place the bytes and the regressions both live — and it is
+to be decided on these numbers (§8.1, §8.3) and a measured proposal (§8.5),
+not started.
