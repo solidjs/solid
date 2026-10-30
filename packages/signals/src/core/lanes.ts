@@ -69,7 +69,7 @@ import {
   removePendingSource
 } from "./async.js";
 import { laneValueOf } from "./truth.js";
-import { enqueueSub } from "./heap.js";
+import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
   blocked,
   clock,
@@ -92,6 +92,7 @@ import {
   queuePendingNode,
   releaseQueues,
   reruns,
+  dirtyQueue,
   resolveTx,
   sameLane,
   schedule,
@@ -132,7 +133,7 @@ import {
   SEAT_READ,
   seatWorld
 } from "./seat.js";
-import type { Computed, Signal } from "./types.js";
+import type { Computed, Owner, Signal } from "./types.js";
 
 export { laneValueOf };
 
@@ -1239,6 +1240,107 @@ const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => 
   const from = (el as Computed<any>)._x?._pendingSources;
   if (from && c._x?._pendingSources) for (const s of from) removePendingSource(c, s);
 };
+/** D-2's one re-derive, in place (#4417; core.ts `recompute`): a verdict
+ * reader whose provisional pass read a staging of a flush that parked has
+ * re-derived the value it staged, seated in the hold's verdict lane `l`.
+ * The readers that derived from that staging — held with the frame at the
+ * park (`holdNode`, `holdFrame`), their stagings and frames intact — are
+ * the lane's from here: the lane reveals the provisional frame at its seam
+ * (`laneSeam` promotes the staging, applies the frame) instead of re-running
+ * them, so a keyed Show mounts once. The frame each built is the lane's
+ * with it (ruling A), as a lane pass's children are (`laneStage`). Not a
+ * reader that also derived from another held write or another lane's
+ * value: lane work sees the screen of it (D-37), so its value is the
+ * lane's to re-derive — it re-runs as today, as does every leaf (its run
+ * is the lane's; the one the park stashed with `t` is the frame's) and
+ * every reader with nothing staged. The notify is `insertSubs` +
+ * `laneDirty`'s, the adopted taken back out of the heap. */
+function adoptReaders(el: Computed<any>, l: Transaction, t: Transaction): void {
+  insertSubs(el);
+  laneDirty(el, l);
+  for (let s = el._subs; s !== null; s = s._nextSub) {
+    const r = s._sub,
+      x = r._x;
+    if (
+      (r as any)._type ||
+      x === null ||
+      (r._config & (CONFIG_HELD | CONFIG_OVERRIDE)) !== CONFIG_HELD ||
+      r._flags & REACTIVE_DISPOSED ||
+      r._statusFlags & STATUS_PENDING ||
+      txOf(r) !== t ||
+      (r._pendingValue === NOT_PENDING &&
+        x._pendingFirstChild === null &&
+        x._pendingDisposal === null) ||
+      !onlyFrom(r, el, l)
+    )
+      continue;
+    deleteFromHeap(r, dirtyQueue);
+    r._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_LANE_DIRTY);
+    r._config = (r._config & ~(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_OVERRIDE;
+    list(r, l);
+    // Its staging is the lane's value — now, as a lane pass's is (`recompute`
+    // writes `_x._lane` under a lane not yet shown), or at the seam of a
+    // shown lane, which promotes it with the frame (reveal-together, D-23).
+    // A lane node never carries a staging the seam is not about to take:
+    // `latest()` and a later lane pass over it would read the staging over
+    // the lane's value.
+    if (!l._shown && r._pendingValue !== NOT_PENDING) {
+      x._lane = r._pendingValue;
+      r._pendingValue = NOT_PENDING;
+    }
+    adoptFrame(r, el, l);
+    adoptReaders(r, l, t);
+  }
+}
+/** Every source of `r` is `el`, the lane's, or neither held nor staged. */
+function onlyFrom(r: Computed<any>, el: Computed<any>, l: Transaction): boolean {
+  for (let d = r._deps; d !== null; d = d._nextDep) {
+    const n = d._dep;
+    if (n === el || n._x?._transaction === l) continue;
+    if (n._config & (CONFIG_HELD | CONFIG_OVERRIDE) || n._pendingValue !== NOT_PENDING)
+      return false;
+  }
+  return true;
+}
+/** The frame an adopted reader built is the lane's (`holdFrame`, the other
+ * way): each computed in it is listed on the lane — a derivation as a lane
+ * node carrying its value (as `laneStage` lists a lane pass's first pass),
+ * a leaf re-run as the lane's work (its stashed run is the frame's). Not a
+ * leaf left pending: its wait is the frame's, as a lane pass's pending leaf
+ * is (`laneStage`'s leaf arm, `queuePendingNode`) — the hold waits on it,
+ * the lane does not. */
+function adoptFrame(owner: Owner, el: Computed<any>, l: Transaction): void {
+  for (let c = owner._firstChild; c !== null; c = c._nextSibling) {
+    const n = c as Computed<any>;
+    if (n._x?._transaction?._lane) continue;
+    if (n._fn !== undefined) {
+      if ((n as any)._type) {
+        if (n._statusFlags & STATUS_PENDING) {
+          adoptFrame(c, el, l);
+          continue;
+        }
+        n._config &= ~(CONFIG_HELD | CONFIG_HELD_FRAME);
+        n._flags |= REACTIVE_LANE_DIRTY;
+        enqueueSub(n);
+      } else {
+        n._config &= ~(CONFIG_HELD | CONFIG_HELD_FRAME);
+        n._config |= CONFIG_OVERRIDE;
+        if (!onlyFrom(n, el, l)) {
+          // Derived from a held write or another lane's value in the hold's
+          // world: the lane's to re-derive (D-37), as lane work.
+          n._flags |= REACTIVE_LANE_DIRTY;
+          enqueueSub(n);
+        } else if (
+          n._pendingValue === NOT_PENDING &&
+          !(n._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED))
+        )
+          ext(n)._lane = n._value;
+      }
+      list(n, l);
+    }
+    adoptFrame(c, el, l);
+  }
+}
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
 installLaneHooks(
@@ -1254,7 +1356,8 @@ installLaneHooks(
   endLanes,
   lanesBlocked,
   adoptParked,
-  laneServed
+  laneServed,
+  adoptReaders
 );
 if (__OBSERVE__)
   GlobalQueue._laneGuesses = t => {

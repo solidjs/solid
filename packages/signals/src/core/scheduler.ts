@@ -100,6 +100,12 @@ export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
 /** R5 (lanes.ts `laneSeams` parks a frame flight): the landing's re-derive
  * of a reader adopts the flight instead (true: adopted, nothing to queue). */
 export let laneAdoptHook: ((r: Computed<any>) => boolean) | null = null;
+/** D-2's re-derive in place (core.ts `recompute`, #4417): a verdict reader
+ * re-derived the value it staged provisionally — the readers that derived
+ * from the staging are adopted into the hold's verdict lane `l` with their
+ * frames (lanes.ts `adoptReaders`). */
+export let adoptReadersHook: ((el: Computed<any>, l: Transaction, t: Transaction) => void) | null =
+  null;
 /** core.ts `frameRead` served lane work or a verdict reader a held node's
  * committed value (lanes.ts `laneServed`). */
 export let laneServedHook: ((c: Computed<any>, el: Signal<any> | Computed<any>) => void) | null =
@@ -124,7 +130,8 @@ export function installLaneHooks(
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
   adopt: NonNullable<typeof laneAdoptHook>,
-  served: NonNullable<typeof laneServedHook>
+  served: NonNullable<typeof laneServedHook>,
+  adoptReaders: NonNullable<typeof adoptReadersHook>
 ): void {
   laneReadHook = read;
   laneApplyHook = apply;
@@ -139,6 +146,7 @@ export function installLaneHooks(
   lanesBlockedHook = blocked;
   laneAdoptHook = adopt;
   laneServedHook = served;
+  adoptReadersHook = adoptReaders;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary

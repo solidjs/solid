@@ -458,6 +458,59 @@ floors: clause (c) is not reachable by deletion alone and needs a byte
 pass over `plainRows` (sharing the held rows across postures, hoisting
 the hook tests out of the row body) — recorded for M5.
 
+### 4.6 Results (S1 M3b in-place re-derive, 2026-10-29)
+
+D-2's one re-derive runs in place (#4417; F-vset ruled reading 2, §7).
+`recompute`'s head arm for a held re-pass of a verdict reader (non-effect)
+with a staging keeps the staging (`provisional = tx`) instead of
+`insertSubs` + drop; the tail compares the re-derived value against the
+staging. Unchanged and seated in a lane: the value is the lane's
+(`_x._lane`, or `_pendingValue` for a shown lane's seam) and the readers
+that derived from the staging are adopted into the lane (`adoptReaders`,
+lanes.ts, behind `adoptReadersHook`): held by `t`, not pending, with a
+staging or a pending frame, every source `el`, the lane's, or neither
+held nor staged (`onlyFrom`). Each is taken out of the heap, made a lane
+node (OVERRIDE; its staging promoted to `_x._lane` at once under a lane
+not yet shown, at the seam of a shown one — a lane node never carries a
+staging the seam is not about to take: `latest()` and a later lane pass
+over it would read the staging over the lane's value), its frame listed
+on the lane (`adoptFrame`: a derivation carries its value if it too is
+`onlyFrom`, else re-derives as lane work — D-37, the lane sees the
+screen; a leaf re-runs as the lane's work; a pending leaf's wait stays
+the frame's, as `laneStage`'s leaf arm has it), recursively. Changed, no
+lane or errored: today's publish-mainline path. Keyed `Show` over
+`latest()` mounts once (`[1, 2, 2]`; both #4417 pins flipped).
+
+Same runs as §4.5, with the shadow on the B model (`creatorsWorld =
+creatorWorld`) — the re-run ruling 3 asked for:
+
+| run                                     |     reads |    passes | classes | known     |
+| --------------------------------------- | --------: | --------: | ------: | --------- |
+| signals suite (393 files, green)        |   965,387 |   242,324 |       0 | —         |
+| solid suite (54 files, green)           |     2,388 |     1,546 |       0 | —         |
+| web suite (188 files, green)            |    43,729 |    24,261 |       0 | —         |
+| generator 2,000 × seed 7, every pair    |   856,773 |   856,070 |       0 | —         |
+| generator 2,000 × seed 3289, every pair | 1,066,045 |   965,544 |       0 | #4426 ×10 |
+| generator 2,000 × seed 91501            | 8,800,039 | 5,351,377 |       0 | —         |
+
+`ASYNC_GEN_DIFF` against the `next` recording: seed 7 identical; seeds
+3289 and 91501 **one case each**, both `next` bugs the equivalence
+oracle had flagged and the adoption closes (pinned in
+`adoption-3289-464-91501-411.spec.ts`): 3289 #464 — E9's memo form of
+`latest(s0)` revealed a torn frame mid-hold (`vm0:4` = s0 committed +
+latest(s0) staged, beside `vs0:0`); S1 shows the leaf form's empty
+screens in both. 91501 #411 — under a display-ahead `<Show
+when=latest(s0)>` the inner `<Show when=s0()>` is lane work and sees the
+screen (s0 = 0 → the fallback `[F]`); `next` showed `<span></span>`,
+the hold's frame with its leaf never run; E3's store form now agrees.
+Two intermediate shapes of the adoption each moved more screens and were
+fixed before this run: a pending leaf enqueued as lane work (three
+`<span></span>` → empty screens) and a frame derivation carried with the
+hold-world value it read (#411 as `<span data-a0=pm0:true>vs0:0</span>`,
+a tear); and a 91501 #1282 E6 regression (an adopted node left with
+both a staging and a lane value, `latest()` serving the staging) fixed
+by the promotion rule above.
+
 ## 5. Swap plan
 
 Three to five PRs, serial, each in its own worktree (brief §4 item 4):
@@ -928,8 +981,8 @@ p.ownWorld`; D-27's letter, "a node it creates during that pass").
     is on B, no known class needed — production and shadow read the same
     creator.)
 
-- **F-vset — the verdict lane's node set (OPEN, 2026-10-29; two
-  readings).** The brief (§4 S1): "`t._verdict` stays as the record;
+- **F-vset — the verdict lane's node set (two readings, 2026-10-29;
+  RULED the same day: reading 2).** The brief (§4 S1): "`t._verdict` stays as the record;
   verdict passes are seated by posture, not `passLane`; verdicts have no
   node set (`latest()` is read-level, D-27)"; the decided list: "verdict
   lanes have NO node set — posture persists as a sticky flag until a pass
@@ -997,3 +1050,17 @@ cleanup` ("#3444 latest() inside a branch a held Show is removing"),
     D-27 (plain read never display-ahead) and D-25 (posture is a sticky
     flag) are what the brief reads as "no set". None names the set; the
     conflict is design-vs-ruling, not rule-vs-rule. Not picked here.
+  * _Ruling (maintainer, 2026-10-29): reading 2._ Seating is by posture
+    (M3a); the verdict lane's node set stays as the lane record's content
+    — the display-ahead **reveal record** (`laneStage` listing, the seam's
+    reveal-together per F-6/D-23, `holdFrame`'s skip, rule-3 `_held`,
+    `dissolveLane`, #3444, #4284, R4). Today's screens by construction.
+    Reasoning: the brief's "no node set" was about _seating_ (a verdict
+    pass is not seated by its membership — done); D-25's "posture, not
+    membership" is about _posture_; a reveal record is forbidden by
+    neither, and its screens are pinned. Consequences: #4417 is fixed by
+    adoption — the provisional readers move into the verdict lane's set
+    when the re-derived value equals the staging (in place; the keyed
+    `Show` mounts once, `[1, 2, 2]`), pins flipped when green (M3b);
+    `verdictLane` and the set live in the sub-hold core at the M4 split
+    (§1.2 stands).
