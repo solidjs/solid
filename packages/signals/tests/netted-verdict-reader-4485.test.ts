@@ -1,10 +1,10 @@
-// #4485 (it.fails pin): writes that net to a signal's committed value in the
-// tick an action opens a hold made no proposal (D-8), so a verdict reader of
-// the signal shows `isPending(s)` false and is not re-run at the landing.
-// Today it shows `true` for the whole hold and re-runs at the landing: the
-// reader takes the seat table's `stagedScreen` row before any netted check,
-// which lists it as a stale reader of the flush's hold (D-23 Status, #4469's
-// family).
+// #4485: writes that net to a signal's committed value in the tick an action
+// opens a hold made no proposal (D-8), so a verdict reader of the signal
+// shows `isPending(s)` false and is not re-run at the landing. It showed
+// `true` for the whole hold and re-ran at the landing: its plain read took
+// the `stagedScreen` arm before any netted check, which listed it as a stale
+// reader of the flush's hold, and its probe was the seam's verdict
+// (`provisionalVerdict`), not final (D-23 Status, #4469's family).
 import { describe, expect, it } from "vitest";
 import {
   action,
@@ -56,7 +56,7 @@ describe("#4485: a verdict reader of a signal whose writes net", () => {
     return { held, runs };
   };
 
-  it.fails.each(["in-action", "before-action"] as const)(
+  it.each(["in-action", "before-action"] as const)(
     "pends nothing and is not re-run at the landing (%s)",
     async where => {
       const { held, runs } = await net(where);
