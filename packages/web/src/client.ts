@@ -487,8 +487,7 @@ export function template(html, flag) {
 export function delegateEvents(eventNames: string[]): void;
 
 export function delegateEvents(eventNames) {
-  for (let i = 0, l = eventNames.length; i < l; i++) {
-    const name = eventNames[i];
+  for (const name of eventNames) {
     if (!delegatedEvents.has(name)) {
       delegatedEvents.add(name);
       delegatedContainers.forEach((state, container) =>
@@ -635,9 +634,13 @@ export function getDelegatedRoot(node: MountableElement): MountableElement | und
 export function getDelegatedRoot(node) {
   while (node) {
     if (delegatedContainers.get(node)?.roots) return node;
-    node = node._$host || node.parentNode || node.host;
+    node = parentOf(node);
   }
 }
+
+// The delegated walk's next hop: a portal's mount host, the DOM parent, or a
+// shadow root's host.
+const parentOf = node => node._$host || node.parentNode || node.host;
 
 function findOwner(target, state) {
   let node = target;
@@ -645,7 +648,7 @@ function findOwner(target, state) {
   while (node) {
     if (state.owners.has(node)) return { owner: node, distance };
     distance++;
-    node = node._$host || node.parentNode || node.host;
+    node = parentOf(node);
   }
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function setProperty(node: Element, name: string, value: any): void;
@@ -3007,11 +3010,10 @@ function eventHandler(e, container, state) {
       retarget(node.host);
     return true;
   };
+  // The walk ends at the owner, the boundary of event delegation.
+  const atOwner = () => node === owner || node.parentNode === owner;
   const walkUpTree = () => {
-    while (node && handleNode()) {
-      if (node === owner || node.parentNode === owner) break;
-      node = node._$host || node.parentNode || node.host;
-    }
+    while (node && handleNode() && !atOwner()) node = parentOf(node);
   };
 
   // simulate currentTarget; the owner is the boundary of the walk
@@ -3024,8 +3026,7 @@ function eventHandler(e, container, state) {
   if (resumeNode) {
     // If the boundary was the target, the inner walk already fired it.
     // Resume above it so boundary handlers do not run twice.
-    if (resumeNode === e.target)
-      node = resumeNode._$host || resumeNode.parentNode || resumeNode.host;
+    if (resumeNode === e.target) node = parentOf(resumeNode);
     if (node && node !== owner) walkUpTree();
   } else if (e.composedPath) {
     const path = e.composedPath();
@@ -3040,9 +3041,7 @@ function eventHandler(e, container, state) {
           walkUpTree();
           break;
         }
-        if (node === owner || node.parentNode === owner) {
-          break; // don't bubble above root of event delegation
-        }
+        if (atOwner()) break; // don't bubble above root of event delegation
       }
     } else walkUpTree();
   }
