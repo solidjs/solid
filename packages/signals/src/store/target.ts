@@ -49,6 +49,10 @@ export interface StoreFamily {
    * landing has settled them yet: the next commit walks the family
    * (`settleFamily`). A sync commit with no wake behind it walks nothing. */
   _woke?: boolean;
+  /** A tracked reader of the leaves reads a flight the derive was served
+   * the committed value of (store.ts `pullFamily`, #4491): the derive's next
+   * pass reads plainly (projection.ts). */
+  w?: number;
 }
 
 /** One setter's written keys; `u` is the batch's earlier setters' (the

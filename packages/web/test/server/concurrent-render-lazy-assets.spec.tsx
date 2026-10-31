@@ -84,7 +84,9 @@ describe("lazy().preload() outside the component's render", () => {
     const { a, b } = await interleaved(owner => {
       runWithOwner(owner, () => LazyWidget.preload());
     });
-    expect(a).toContain('<link rel="modulepreload" href="/assets/Widget-A.js">');
+    expect(a).toContain(
+      '<link rel="modulepreload" href="/assets/Widget-A.js" fetchpriority="low">'
+    );
     expect(b).not.toContain("Widget-");
   });
 
@@ -114,7 +116,9 @@ describe("lazy().preload() outside the component's render", () => {
       },
       { manifest: manifestFor("A") }
     );
-    expect(a).toContain('<link rel="modulepreload" href="/assets/Widget-A.js">');
+    expect(a).toContain(
+      '<link rel="modulepreload" href="/assets/Widget-A.js" fetchpriority="low">'
+    );
     expect(await b).not.toContain("Widget-");
   });
 });
@@ -126,7 +130,9 @@ describe("lazy().moduleUrl read outside the component's render", () => {
       url = runWithOwner(owner, () => LazyWidget.moduleUrl);
     });
     expect(url).toBe("/assets/Widget-A.js");
-    expect(a).toContain('<link rel="modulepreload" href="/assets/Widget-A.js">');
+    expect(a).toContain(
+      '<link rel="modulepreload" href="/assets/Widget-A.js" fetchpriority="low">'
+    );
     expect(b).not.toContain("Widget-");
   });
 

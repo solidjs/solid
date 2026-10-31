@@ -59,7 +59,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./core/constants.js";
 import { computed, read, recompute, runWithOwner, setSignal, signal } from "./core/core.js";
-import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
+import { emitDiagnostic, forgetThrownRead, reportDiagnostic } from "./core/dev.js";
 import { shadowSeatRestore, shadowSeatSave, shadowSwapSeat } from "./core/seat.js";
 import { NotReadyError, unwrapStatusError } from "./core/error.js";
 import { reportClientError } from "./core/error-hooks.js";
@@ -406,8 +406,13 @@ function boundarySeam(): void {
     // (D-16, U-9): the content is ready when that hold commits (D-15). Not
     // only at the re-arm's own seam: readers pending then land, held, a
     // flush later (#4379 — the staged fallback otherwise commits with the
-    // hold, and a quiet refresh then caught keeps it up, F-9).
+    // hold, and a quiet refresh then caught keeps it up, F-9). A loading
+    // fallback only: what an error boundary still waits on after `prune` is
+    // an error, staged into that hold (D-41) — the fallback is the hold's
+    // content and reveals with it; folding back re-derived the output into
+    // the error again every round (#4480).
     if (
+      b._type & STATUS_PENDING &&
       !b._initialized &&
       o._config & CONFIG_HELD &&
       [...b._readers].every(
@@ -639,6 +644,8 @@ function createBoundary<T>(
           const deps = onFn();
           if (__DEV__ && !mounted && typeof deps === "function") reportOnAccessor(b);
         } catch (e) {
+          // (D-42, dev: this catch is the re-arm's mechanism, not a user's.)
+          if (__DEV__) forgetThrownRead();
           if (!(e instanceof NotReadyError)) {
             if (!globalQueue.notify(getOwner() as Computed<any>, STATUS_ERROR, STATUS_ERROR, e)) {
               if (__DEV__) haltReactivityAt(e, getOwner()!);
@@ -746,6 +753,8 @@ function createBoundary<T>(
       } catch (e) {
         if (e instanceof NotReadyError ? type === STATUS_PENDING : type === STATUS_ERROR) {
           if (isCollecting(b)) {
+            // (D-42, dev: the boundary IS the catcher the throw is addressed to.)
+            if (__DEV__) forgetThrownRead();
             caught(b, tree, e);
             return fallback(b);
           }

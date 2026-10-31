@@ -164,14 +164,19 @@ export function notifyOptimisticWrites(
   }
   if (structural) {
     const rows = isArr ? (pb as any[]).map(unwrapValue) : shallowKeys(pb);
-    // The rows the setter removed from the view it saw, by key: a later
-    // re-base over another action's truth must not bring them back. A set
-    // (empty or not) marks a keyed arrangement guess (`fold`).
+    // The keys of the view the setter saw that are not the guess's own
+    // rows, which a re-base over another truth takes from that truth
+    // (`_laneRebase`): the rows the setter removed, which it never brings
+    // back, and the rows it only carried over from the truth beneath (the
+    // committed row itself), which the new truth decides. Rows it added, or carried from another action's guess,
+    // are the guesses' own: their landings judge them. A set (empty or not)
+    // marks a keyed arrangement guess (`fold`).
     let removed: Set<unknown> | null = null;
     const keyFn = t._fam!.key;
     if (isArr && keyFn !== null && keyFn !== undefined) {
       removed = new Set();
       const kept = new Set<unknown>();
+      const truth = new Set(base as any[]);
       for (let i = 0; i < rows.length; i++) {
         const k = isWrappable(rows[i]) ? keyFn(rows[i]) : undefined;
         if (k !== undefined) kept.add(k);
@@ -179,7 +184,7 @@ export function notifyOptimisticWrites(
       for (let i = 0; i < (old as any[]).length; i++) {
         const r = unwrapValue((old as any[])[i]);
         const k = isWrappable(r) ? keyFn(r) : undefined;
-        if (k !== undefined && !kept.has(k)) removed.add(k);
+        if (k !== undefined && (!kept.has(k) || truth.has(r))) removed.add(k);
       }
     }
     optimisticWrite(getContainerNode(t), new LaneView(rows, base, removed) as any);
@@ -344,11 +349,15 @@ GlobalQueue._slotTake = (n, back) => {
 };
 /** Q-D (plan sec. 39): an OLDER question's truth landed beneath an arrangement
  * guess (`laneWrite` held it — another action's landing is not this guess's
- * answer). The guess is re-based over it: order from the guess, rows from
- * the truth by key (a guessed row the truth has is the truth's object — the
- * row target adopted it, its proxy survives), guessed rows the truth lacks
- * kept (the guess's own landing judges them), truth rows the guess lacks
- * appended. The composed arrangement becomes the lane's value on every
+ * answer). The guess's edit is re-based over it: order from the guess, rows
+ * from the truth by key (a guessed row the truth has is the truth's object —
+ * the row target adopted it, its proxy survives), rows the guess added — or
+ * carried from another action's guess — kept (their landings judge them),
+ * truth rows the guess lacks appended unless it removed them. A row the
+ * guess only carried over from the truth it was written on is that truth's,
+ * not the guess's: the new truth decides it, so after a new question the
+ * old list's rows never show beside the new one's (F-1, D-35, #4482;
+ * `removed`). The composed arrangement becomes the lane's value on every
  * index whose row the committed backing does not already show — compared
  * BY KEY, never by raw identity: the same key's new object is the same row
  * (its target adopted it) and the slot stays the committed backing's — (a
@@ -375,6 +384,7 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
     if (k !== undefined && !byKey.has(k)) byKey.set(k, r);
   }
   const used = new Set<unknown>();
+  const removed = view.removed!;
   const rows: any[] = [];
   // From the guess as written, not an earlier re-base's composition: a
   // derive's landing writes key by key, and a truth row one partial write
@@ -387,13 +397,12 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
     if (tr !== undefined) {
       rows.push(tr);
       used.add(k);
-    } else rows.push(g);
+    } else if (!removed.has(k)) rows.push(g);
   }
-  const removed = view.removed;
   for (let i = 0; i < truth.length; i++) {
     const r = truth[i];
     const k = isWrappable(r) ? keyFn(r) : undefined;
-    if (k !== undefined && !used.has(k) && (removed === null || !removed.has(k))) rows.push(r);
+    if (k !== undefined && !used.has(k) && !removed.has(k)) rows.push(r);
   }
   view.rows = rows;
   view.base = rows;

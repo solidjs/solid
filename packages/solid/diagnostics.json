@@ -54,6 +54,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/async-waterfall"
   },
   {
+    "code": "CAUGHT_REACTIVE_READ",
+    "kind": ["async"],
+    "severity": ["warn"],
+    "category": "async",
+    "trigger": "A computation caught a reactive read's throw (not ready, or the source's error) and completed with a value: the load is masked or the error hidden; once per node",
+    "repair": "A computation wrapped a reactive read in `try/catch` as it would an `await`, the read threw (not ready, or the source's error), the catch swallowed it, and the computation completed with a substitute value.",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/caught-reactive-read"
+  },
+  {
     "code": "CLEANUP_IN_FORBIDDEN_SCOPE",
     "kind": ["lifecycle"],
     "severity": ["error"],

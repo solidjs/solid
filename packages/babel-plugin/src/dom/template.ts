@@ -4,6 +4,7 @@ import {
   getConfig,
   getNumberedId,
   getRendererConfig,
+  getSetupStatement,
   isLockedDOMProperty,
   isStatementVariableInitializer,
   isStatefulDOMProperty,
@@ -68,7 +69,7 @@ export function createTemplate(
       const isVarInit = isStatementVariableInitializer(path);
 
       if (isReturnArg || isVarInit) {
-        path.getStatementParent()?.insertBefore(stmts as t.Statement[]);
+        getSetupStatement(path)?.insertBefore(stmts as t.Statement[]);
         return result.id;
       }
 

@@ -25,6 +25,7 @@ import {
   clearSignals,
   DEV,
   emitDiagnostic,
+  forgetThrownRead,
   registerRoot,
   unregisterRoot
 } from "./dev.js";
@@ -75,6 +76,9 @@ export function runCleanup(fn: () => void): void {
   try {
     fn();
   } catch (e) {
+    // (D-42, dev: collected and rethrown when the teardown is over — not a
+    // catch in the pass that happens to be disposing.)
+    if (__DEV__) forgetThrownRead();
     cleanupError ||= [e];
     schedule();
   }

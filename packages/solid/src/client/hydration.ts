@@ -43,6 +43,7 @@ import {
   createRoot as coreRoot,
   getContext,
   setContext,
+  forgetThrownRead,
   type Context
 } from "@solidjs/signals";
 import type { Element as SolidElement } from "../types.js";
@@ -574,6 +575,17 @@ export function subFetch<T>(fn: (prev?: T) => any, prev?: T) {
     // (#2997: server-rejected async adopted on the client) must be observed
     // here or it surfaces as an unhandled rejection.
     if (result && typeof result.then === "function") result.then(undefined, noop);
+    // D-42 (dev, CAUGHT_REACTIVE_READ): a flight-shaped trace result carries
+    // a read's throw as its rejection (an async body's, a generator's first
+    // pull) — the throw continuing, not a catch — and the discarded flight
+    // never settles against the node, so the served answer the wrapper
+    // returns instead must not be judged as the body's own.
+    if (
+      IS_DEV &&
+      result &&
+      (typeof result.then === "function" || typeof result[Symbol.asyncIterator] === "function")
+    )
+      forgetThrownRead();
     return result;
   } finally {
     window.fetch = ogFetch;

@@ -32,10 +32,12 @@
 import {
   CONFIG_AUTHORITATIVE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_FRAME,
   CONFIG_GUESS,
   CONFIG_HELD,
   CONFIG_HELD_FRAME,
   CONFIG_INPUTS_PUBLISHED,
+  CONFIG_LAGS,
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   CONFIG_STAGED,
@@ -286,7 +288,33 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     // does not break it out — it stays the frame's, as the same read inline
     // does (verdict.ts `markVerdictReader`, `route`; D-25, D-26). An
     // effect's own reads do not count (its `_type`, 1–3, carries neither bit).
-    if (!(verdict && creatorReads(c, (c as any)._type || f))) {
+    // Nor by a member of the frame a held pass of that lane's hold built,
+    // on any later run (CONFIG_HELD_FRAME, `bornInto`): born in the hold's
+    // world, it is the hold's own work and its run is the frame's, at the
+    // landing (D-25, D-27) — as `route` keeps it for the inline `latest()`.
+    // Nor by a pass that re-entered the hold holding its node at its head
+    // (core.ts `recompute`: held, with no verdict posture — an async memo's
+    // was dropped there — not a frame, not lagging, not a lane's node), when
+    // `l` is another hold's verdict lane: re-run by the write its hold
+    // holds, the pass is that hold's work and reads plainly in either read
+    // order (D-25), as it does reading its hold's staging before `l`'s
+    // value. Moved into `l`, it read its own hold's landing as the screen
+    // (D-26) and asked a question already asked (#4399: `m1:15` again, over
+    // `m0b`'s committed value beside the landing of its next question). Its
+    // own hold's verdict lane is its display-ahead read: it enters that one
+    // (D-25, #4050).
+    let hold: Transaction;
+    if (
+      !(
+        verdict &&
+        (creatorReads(c, (c as any)._type || f) ||
+          ((hold = resolveTx(l._parent!)),
+          (c._config &
+            (CONFIG_HELD | CONFIG_VERDICT | CONFIG_FRAME | CONFIG_LAGS | CONFIG_OVERRIDE)) ===
+            CONFIG_HELD && txOf(c) !== hold) ||
+          (c._config & CONFIG_HELD_FRAME && bornInto(c, hold!)))
+      )
+    ) {
       setPassLane(l);
       // The pass read a held write before its first lane read (it joined the
       // frame's future as mainline would): lane work sees the screen — the
@@ -713,17 +741,11 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // a flight — the pass leaves the lane, and its frame holds as if the
     // read had come first (S-39, #4275). Nor does a verdict lane's seat carry
     // the leaf into another lane (no link): it reads that lane as from the
-    // frame's seat (#4284). The seat is the hold's, not the lane object's: a
-    // transaction merged into the hold keeps its own verdict lane, and that
-    // lane is the same hold's (D-4 — merged holds are one; #4427).
+    // frame's seat (#4284).
     const p = passLane;
     const seated = p?._parent!._verdict === p;
-    if (
-      seated &&
-      (never || l._parent!._verdict !== l || resolveTx(l._parent!) !== resolveTx(p!._parent!))
-    )
-      setPassLane(null);
-    if (passLane === null || (!seated && !sameLane(passLane, l))) {
+    if (seated && (never || p !== l)) setPassLane(null);
+    if (passLane === null || !sameLane(passLane, l)) {
       // (A lane that has never shown: the screen is the committed value.)
       if (never && l._shown) return NOT_PENDING;
       if (
