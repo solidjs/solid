@@ -1321,7 +1321,17 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // Lane work and verdict readers are never the transaction's pass, whichever
   // flush runs it: a node T holds re-enters T when it re-runs (`recompute`'s
   // head), and the pass may then read a guess and become the lane's.
-  if ((t === flushTransaction && !lane && !verdict) || bornInto(c, t)) return false;
+  // PROBE (reading C, S-46 / #4417): a verdict lane's mount's render effect
+  // is a leaf even in the holder's own flush — served the screen, re-run at
+  // the landing — not the frame's pass.
+  if (
+    (t === flushTransaction &&
+      !lane &&
+      !verdict &&
+      !(laneRoot && (c as any)._type === EFFECT_RENDER)) ||
+    bornInto(c, t)
+  )
+    return false;
   staleReader(c, t);
   // Lane work or a verdict reader no longer waits on `el`'s flight (lanes.ts
   // `laneServed`, A15).
@@ -2097,7 +2107,14 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // lane (D-34), once the frame has a transaction, reads the screen too.
     if (
       el._pendingValue === el._value ||
-      (((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
+      (((observeFlightHook && c._config & CONFIG_VERDICT) ||
+        // PROBE (reading C, S-46 / #4417): a render effect a verdict lane's
+        // mount creates is a leaf of the screen (D-3): the staging it reads
+        // is served committed and it re-derives at the landing (`_reruns`),
+        // instead of being born held (D-27's arm, `recompute`'s tail).
+        (laneStageHook &&
+          (passLane?.folded ||
+            (laneRoot && passLane === null && (c as any)._type === EFFECT_RENDER)))) &&
         stagedScreen(c as Computed<any>, el))
     ) {
       if (__TEST__) shadowActual(el._pendingValue === el._value ? SLOT_P : SLOT_C);

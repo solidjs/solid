@@ -76,12 +76,21 @@ async function run(content: Content) {
 
 describe("S-46 (web): the content a display-ahead Show opens reads the screen", () => {
   // primed | after the write's flush | a task later, still in flight | landed
-  test.fails(
-    "plain `id()` inside: born held, the fallback stays until the landing — today the branch attaches with its hole empty (`selected: `), F-2's empty slot and #4417's mechanism",
-    async () => {
-      expect(await run("plain")).toEqual(["0d0none", "0d0none", "0d0none", "1d1selected: 1"]);
-    }
-  );
+  //
+  // PROBE — reading C (probe/s46-reading-c), NOT the ruled screen. Reading A
+  // (ruled 2026-10-30/31) is `0d0none` until the landing: the branch is born
+  // held. Reading C attaches the branch with the committed value — the hole
+  // is a D-3 leaf served the screen — and re-derives it at the landing. This
+  // row is pinned at C's screen only to measure what C costs; S-46's ✗2 row
+  // in SCENARIOS.md is this very screen.
+  test("plain `id()` inside — READING C (probe): the branch attaches with the committed `0` and re-derives at the landing", async () => {
+    expect(await run("plain")).toEqual([
+      "0d0none",
+      "0d0selected: 0",
+      "0d0selected: 0",
+      "1d1selected: 1"
+    ]);
+  });
 
   test("`latest(id)` inside: the held value now (D-27: the read that asks sees ahead, at its own site)", async () => {
     expect(await run("latest")).toEqual([
