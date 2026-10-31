@@ -1885,6 +1885,11 @@ function pullFamily(target: StoreTarget): void {
     // flight the family has — not over a new question they do not answer
     // (optimistic.ts `stands`, #4336).
     if (verdict === null && fw._statusFlags & STATUS_PENDING && optHooks?.stands(target)) return;
+    // A pass the pull throws a staged error (D-41) is linked to the derive,
+    // untracked too — `handleAsync` asking a returned proxy whether it is a
+    // flight: the pass carries the error, and the re-ask or answer that
+    // supersedes it must reach it (#4527; a tracked read links anyway, #4519).
+    if (c && fw._config & CONFIG_STAGED_ERROR) link(fw, c);
     readNode(fw);
   } else {
     untrack(() => readNode(fw));
