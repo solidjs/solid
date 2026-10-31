@@ -983,7 +983,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // through such a reader (`blockedBy`, #4542).
   if (create && lane === null && joined && el._statusFlags & STATUS_PENDING) {
     const t = flushTransaction ?? passTx;
-    if (t && !t._lane && (!isEffect || freshHook?.(el) !== CAUGHT_REARMED)) holdNode(el, t);
+    t && !t._lane && ((isEffect && freshHook?.(el) === CAUGHT_REARMED) || holdNode(el, t));
   }
   // Dependencies are the committed frame's until it is replaced (A30, #3410):
   // a pass that staged its value leaves the previous pass's tail linked for
