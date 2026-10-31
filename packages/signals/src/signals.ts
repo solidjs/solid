@@ -27,7 +27,7 @@ import {
   CONFIG_REDERIVE,
   CONFIG_AUTHORITATIVE
 } from "./core/index.js";
-import { emitDiagnostic, registerGraph, reportDiagnostic } from "./core/dev.js";
+import { emitDiagnostic, forgetThrownRead, registerGraph, reportDiagnostic } from "./core/dev.js";
 import {
   dirtyQueue,
   flushTransaction,
@@ -814,6 +814,8 @@ function watch<T>(
       } catch (e) {
         if (e instanceof NotReadyError) throw e;
         // An error is an answer (D-41): delivered by the same frame rule.
+        // (D-42, dev: the runtime's catch, not a user's.)
+        if (__DEV__) forgetThrownRead();
         v = unwrapStatusError(e) as T;
         failed = true;
       }

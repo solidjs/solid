@@ -59,7 +59,7 @@ import {
   STATUS_UNINITIALIZED
 } from "./core/constants.js";
 import { computed, read, recompute, runWithOwner, setSignal, signal } from "./core/core.js";
-import { emitDiagnostic, reportDiagnostic } from "./core/dev.js";
+import { emitDiagnostic, forgetThrownRead, reportDiagnostic } from "./core/dev.js";
 import { shadowSeatRestore, shadowSeatSave, shadowSwapSeat } from "./core/seat.js";
 import { NotReadyError, unwrapStatusError } from "./core/error.js";
 import { reportClientError } from "./core/error-hooks.js";
@@ -255,13 +255,17 @@ function catchStatus(
     // effect reporting its own status. An error boundary records an effect
     // only while it is errored, and a staged error keeps STATUS_ERROR on a
     // node that had it (`stageError`), so `prune`'s CONFIG_STAGED_ERROR case
-    // cannot reach this path (#4364).
-    if (collecting.size !== 0)
+    // cannot reach this path (#4364). "Last" is judged as the seam would
+    // (`prune`): readers the same held pass disposed — a list re-mapped
+    // under its parked pass drops the rows that read the error — are gone,
+    // and left for the seam, they revealed the stale content outside the
+    // hold (#4526).
+    if (collecting.size)
       for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent)
         if (
           !((b._readers.get(node)?._statusFlags as number) & (b._type | STATUS_PENDING)) &&
           b._readers.delete(node) &&
-          b._readers.size === 0
+          !prune(b, 0)
         ) {
           if (b._fallback) redraw(b);
           if (revealHooks && b._reveal !== null) revealHooks._changed(b._reveal);
@@ -339,8 +343,13 @@ function release(b: Boundary): void {
  * source. A reader pending again after the source that threw answered (it
  * re-asks through a memo that carried the error) has no new answer yet: the
  * error stays the display (D-39: a pending is not a value; async-gen 91501
- * #1831). */
-export function prune(b: Boundary, pass: boolean): number {
+ * #1831).
+ *
+ * `pass` 0: a reader clearing asks whether it was the last (`catchStatus`),
+ * once per clear. The first reader kept by its status ends the walk — one
+ * is left — and the ones behind it wait for a later prune, so a recovery of
+ * N readers walks each once, not N²/2 times (#4526). */
+export function prune(b: Boundary, pass?: boolean | 0): number {
   const mask = b._type | STATUS_PENDING;
   for (const [r, s] of b._readers) {
     if (!((r._flags | s._flags) & REACTIVE_DISPOSED)) {
@@ -351,8 +360,10 @@ export function prune(b: Boundary, pass: boolean): number {
       if (
         (r._statusFlags | s._statusFlags) & mask ||
         (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR)
-      )
+      ) {
+        if (pass === 0) break;
         continue;
+      }
       if (
         (s !== b._tree || b._armed) &&
         (s._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
@@ -363,7 +374,11 @@ export function prune(b: Boundary, pass: boolean): number {
         // lane's reader reveals with the lane, this round.) A boundary that
         // has not shown content catches it instead: the fallback stays until
         // the reader is committed (#3540: what a fresh boundary catches holds
-        // nothing outside it).
+        // nothing outside it). Not an error boundary (born `_initialized`):
+        // what it caught in a hold was that hold's staged error (D-41), and an
+        // answer landing in the same hold replaces it there — the content
+        // reveals with the commit, and nothing ever shows the superseded
+        // error (D-39, #4527).
         if (!pass || !b._initialized) continue;
         joinFuture(txOf(s));
       }
@@ -384,7 +399,7 @@ export function ready(b: Boundary): boolean {
         b._tree._config & CONFIG_HELD &&
         (b._output === null || b._output._statusFlags & STATUS_UNINITIALIZED)
       ) &&
-      prune(b, false) === 0)
+      prune(b) === 0)
   );
 }
 
@@ -400,7 +415,7 @@ function boundarySeam(): void {
     }
     // A parked frame's boundary (zombie) keeps its state for its revival.
     if (flags & REACTIVE_ZOMBIE) continue;
-    prune(b, false);
+    prune(b);
     const o = b._output!;
     // A fallback staged into the very hold its readers landed in folds back
     // (D-16, U-9): the content is ready when that hold commits (D-15). Not
@@ -612,7 +627,8 @@ function createBoundary<T>(
     _tree: null!,
     _output: null,
     _readers: new Map(),
-    _initialized: false,
+    // Loading only: an error boundary has no first-content wait (`prune`).
+    _initialized: type === STATUS_ERROR,
     _armed: false,
     _armLane: null,
     _lane: null,
@@ -644,6 +660,8 @@ function createBoundary<T>(
           const deps = onFn();
           if (__DEV__ && !mounted && typeof deps === "function") reportOnAccessor(b);
         } catch (e) {
+          // (D-42, dev: this catch is the re-arm's mechanism, not a user's.)
+          if (__DEV__) forgetThrownRead();
           if (!(e instanceof NotReadyError)) {
             if (!globalQueue.notify(getOwner() as Computed<any>, STATUS_ERROR, STATUS_ERROR, e)) {
               if (__DEV__) haltReactivityAt(e, getOwner()!);
@@ -751,6 +769,8 @@ function createBoundary<T>(
       } catch (e) {
         if (e instanceof NotReadyError ? type === STATUS_PENDING : type === STATUS_ERROR) {
           if (isCollecting(b)) {
+            // (D-42, dev: the boundary IS the catcher the throw is addressed to.)
+            if (__DEV__) forgetThrownRead();
             caught(b, tree, e);
             return fallback(b);
           }

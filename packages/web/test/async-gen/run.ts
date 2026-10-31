@@ -16,6 +16,7 @@
 import {
   Errored,
   Loading,
+  NotReadyError,
   Show,
   action,
   createMemo,
@@ -66,10 +67,23 @@ export interface Result {
   settled: boolean[];
   /** Whether nothing was in flight at each screen. */
   quiet: boolean[];
+  /** At each screen, what the passes last did (see `Passes`). */
+  passes: Passes[];
   final: string;
   expected: string;
   description: string;
 }
+/**
+ * `held`: each grouped attribute effect (by leaf path) whose last pass ended
+ * on a first load (NotReady from a memo the tree has not read a value of
+ * yet), with the memos its unread later bindings read. `memos`: how each
+ * memo's last computation ended (`error` also for a rejected flight,
+ * `pending` for a flight or a NotReady read). Used by E1's D-28 check.
+ */
+export type Passes = {
+  held: Record<string, number[]>;
+  memos: Record<number, "value" | "error" | "pending">;
+};
 
 type Flight = {
   label: string;
@@ -111,7 +125,8 @@ function buildApp(
   fresh: boolean,
   flights: Flight[],
   variant: Variant,
-  errors: string[]
+  errors: string[],
+  passes: Passes = { held: {}, memos: {} }
 ) {
   const sigs = values.map(v => createSignal(v));
   const memos: (() => any)[] = [];
@@ -119,6 +134,10 @@ function buildApp(
   // What the tree reads a memo through: the memo, an identity memo of it, or
   // a derived store's `v`.
   const views: (() => any)[] = [];
+  // Memos the tree has read a value of (`x()` or `latest(x)` returned).
+  const shown = new Set<number>();
+  const ended = (i: number, e: unknown) =>
+    (passes.memos[i] = e instanceof NotReadyError ? "pending" : "error");
   const view = (r: SrcRef): (() => any) => (r.k === "s" ? sigs[r.i][0] : views[r.i]);
   const makeMemos = () =>
     sc.memos.forEach((m, i) => {
@@ -130,14 +149,27 @@ function buildApp(
       if (m.async && !fresh) {
         memos.push(
           createMemo(() => {
-            const v = input();
+            let v: number;
+            try {
+              v = input();
+            } catch (e) {
+              ended(i, e);
+              throw e;
+            }
+            passes.memos[i] = "pending";
             return new Promise<number>((resolve, reject) => {
               flights.push({
                 label: `m${i}:${v}`,
                 value: v,
                 rejects: poisoned(m.poison, v),
-                resolve,
-                reject
+                resolve: v => {
+                  passes.memos[i] = "value";
+                  resolve(v);
+                },
+                reject: e => {
+                  passes.memos[i] = "error";
+                  reject(e);
+                }
               });
             });
           })
@@ -145,9 +177,15 @@ function buildApp(
       } else {
         memos.push(
           createMemo(() => {
-            const v = input();
-            if (poisoned(m.poison, v)) throw new Error(`m${i}:${v}`);
-            return v;
+            try {
+              const v = input();
+              if (poisoned(m.poison, v)) throw new Error(`m${i}:${v}`);
+              passes.memos[i] = "value";
+              return v;
+            } catch (e) {
+              ended(i, e);
+              throw e;
+            }
           })
         );
       }
@@ -193,28 +231,56 @@ function buildApp(
   }
   const read = (r: Read) => {
     const x = view(r.src);
-    if (r.how === "latest" && variant.latestDerive)
-      return latestViews.get(`${r.src.k}${r.src.i}`)!();
-    return r.how === "plain" ? x() : r.how === "latest" ? latest(x) : isPending(x);
+    const v =
+      r.how === "latest" && variant.latestDerive
+        ? latestViews.get(`${r.src.k}${r.src.i}`)!()
+        : r.how === "plain"
+          ? x()
+          : r.how === "latest"
+            ? latest(x)
+            : isPending(x);
+    if (r.src.k === "m" && r.how !== "pending") shown.add(r.src.i);
+    return v;
   };
   const [epoch, setEpoch] = createSignal(1);
   const prefix = { plain: "v", latest: "l", pending: "p" } as const;
   const text = (r: Read) => `${prefix[r.how]}${r.src.k}${r.src.i}:${String(read(r))} `;
 
-  function renderNode(n: Node): any {
+  // A grouped effect's pass: the same reads in order, noting a pass that a
+  // first load ends before its later bindings are read (rethrows as is).
+  const groupPass = (id: string, attrs: Read[]) => {
+    let j = 0;
+    try {
+      const vals: string[] = [];
+      for (; j < attrs.length; j++) vals.push(text(attrs[j]));
+      delete passes.held[id];
+      return vals;
+    } catch (e) {
+      const src = attrs[j].src;
+      if (e instanceof NotReadyError && src.k === "m" && !shown.has(src.i))
+        passes.held[id] = attrs
+          .slice(j + 1)
+          .filter(r => r.how !== "pending" && r.src.k === "m")
+          .map(r => r.src.i);
+      else delete passes.held[id];
+      throw e;
+    }
+  };
+
+  function renderNode(n: Node, id = "r"): any {
     switch (n.t) {
       case "loading":
         return createComponent(Loading, {
           fallback: "[L]",
           get children() {
-            return renderNode(n.child);
+            return renderNode(n.child, `${id}.0`);
           }
         });
       case "errored":
         return createComponent(Errored, {
           fallback: (e: () => any) => (errors.push(errText(e)), "[E]"),
           get children() {
-            return renderNode(n.child);
+            return renderNode(n.child, `${id}.0`);
           }
         });
       case "show":
@@ -224,11 +290,11 @@ function buildApp(
           },
           fallback: n.fallback ? "[F]" : undefined,
           get children() {
-            return renderNode(n.child);
+            return renderNode(n.child, `${id}.0`);
           }
         } as any);
       case "group":
-        return n.kids.map(renderNode);
+        return n.kids.map((k, i) => renderNode(k, `${id}.${i}`));
       case "leaf": {
         const span = document.createElement("span");
         for (const r of n.text) {
@@ -239,7 +305,7 @@ function buildApp(
         const grouped = variant.split ? false : variant.grouped ? true : n.grouped;
         if (grouped && n.attrs.length) {
           effect(
-            () => n.attrs.map(text),
+            () => groupPass(id, n.attrs),
             (vals: string[], prev?: string[]) => {
               vals.forEach((v, j) => v !== prev?.[j] && setAttribute(span, `data-a${j}`, v));
             }
@@ -312,6 +378,9 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
   const screens: string[] = [];
   const settled: boolean[] = [];
   const quiet: boolean[] = [];
+  const passes: Passes[] = [];
+  const last: Passes = { held: {}, memos: {} };
+  const snapshot = () => passes.push(structuredClone(last));
   const flights: Flight[] = [];
   const values = [...sc.signals];
   const errors: string[] = [];
@@ -355,7 +424,7 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
   let final = "";
   let expected = "";
   try {
-    const { sigs, app, remount } = buildApp(sc, values, false, flights, variant, errors);
+    const { sigs, app, remount } = buildApp(sc, values, false, flights, variant, errors, last);
     const act = action(function* (s: number, v: number) {
       sigs[s][1](v);
       yield new Promise<number>(resolve => {
@@ -375,6 +444,7 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
     screens.push(serialize(el));
     settled.push(true);
     quiet.push(flights.length === 0);
+    snapshot();
 
     for (step = 0; step < sc.steps.length; step++) {
       const st = sc.steps[step];
@@ -419,6 +489,7 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
       screens.push(screen);
       settled.push(st.t === "task");
       quiet.push(flights.length === 0);
+      snapshot();
       // A read of an async value is its value or a throw (NotReady, the
       // error) — never undefined. NaN is undefined + 1 in a memo.
       if (/NaN|undefined/.test(screen) && !findings.some(f => f.law === "undefined-value"))
@@ -471,5 +542,14 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
     console.error = origError;
     console.warn = origWarn;
   }
-  return { findings, screens, settled, quiet, final, expected, description: describeScenario(sc) };
+  return {
+    findings,
+    screens,
+    settled,
+    quiet,
+    passes,
+    final,
+    expected,
+    description: describeScenario(sc)
+  };
 }

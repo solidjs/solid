@@ -30,6 +30,7 @@ import {
   CONFIG_SLOT_NODE,
   EFFECT_RENDER,
   NOT_PENDING,
+  STATUS_PENDING,
   REACTIVE_REASK
 } from "../core/constants.js";
 import { ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
@@ -172,7 +173,7 @@ export function notifyOptimisticWrites(
     // are the guesses' own: their landings judge them. A set (empty or not)
     // marks a keyed arrangement guess (`fold`).
     let removed: Set<unknown> | null = null;
-    const keyFn = t.fam!.key;
+    const keyFn = t._fam!.key;
     if (isArr && keyFn !== null && keyFn !== undefined) {
       removed = new Set();
       const kept = new Set<unknown>();
@@ -187,7 +188,15 @@ export function notifyOptimisticWrites(
         if (k !== undefined && (!kept.has(k) || truth.has(r))) removed.add(k);
       }
     }
-    optimisticWrite(getContainerNode(t), new LaneView(rows, base, removed) as any);
+    const view = new LaneView(rows, base, removed);
+    // Written while the derive asks a new question (an input changed, not a
+    // `refresh()`): the guess's base answers the old one, so the rows it only
+    // carried over are that answer's — the new answer re-bases it like an
+    // older truth instead of folding beneath it (`_laneRebase`, F-1, #4525).
+    const d = t._fam!.node;
+    if (removed && d?._statusFlags! & STATUS_PENDING && !(d!._flags & REACTIVE_REASK))
+      view.g = null;
+    optimisticWrite(getContainerNode(t), view as any);
   }
   if (t.dk !== null) optimisticWrite(t.dk, {} as any);
   markOverlaid(t);
@@ -206,7 +215,7 @@ function arrangement(t: StoreTarget, a: any, b: any): boolean {
   const av = a instanceof LaneView;
   const bv = b instanceof LaneView;
   if (!av && !bv) return false;
-  return arrangementEqual(av ? a.rows : a, bv ? b.rows : b, t.fam!);
+  return arrangementEqual(av ? a.rows : a, bv ? b.rows : b, t._fam!);
 }
 
 function rowSame(a: any, b: any, fam: StoreFamily): boolean {
@@ -338,7 +347,7 @@ GlobalQueue._slotTake = (n, back) => {
         ? getHasNode(t!, k)
         : getNode(t!, k);
   }
-  const d = t?.fam?.node?._x?._transaction;
+  const d = t?._fam?.node?._x?._transaction;
   const g = txOf(n);
   if (!d?._lane || sameAction(d, g)) return false;
   // The re-ask takes the target's guess whole: the slot is the lane's
@@ -364,19 +373,23 @@ GlobalQueue._slotTake = (n, back) => {
  * node is born for it as the lane's derivation), on `length` only when the
  * committed length differs, and as the `LaneView`'s base for structural
  * reads. Unkeyed families compose
- * positionally — the guess stands as written (the documented residue). */
+ * positionally — the guess stands as written (the documented residue).
+ * A current truth re-bases, the same way, a guess written while its
+ * question was being asked (`g` null, #4525): asked before the guess, it is
+ * the older question; its rows are held beneath the guess. True: the lane
+ * holds the landing (`laneWrite`). */
 GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
-  if (!older) return fold(el, truth);
   const t = (el as any)._host as StoreTarget | undefined;
-  if (t === undefined || (el as any)._key !== $TRACK) return;
+  if (!older && (t?.k?._x?._lane as LaneView)?.g !== null) return fold(el, truth);
+  if (!t || (el as any)._key !== $TRACK) return true;
   const view = el._x!._lane;
   if (!(view instanceof LaneView)) return;
   if (!Array.isArray(truth) || !Array.isArray(view.rows)) {
     view.base = truth as Record<PropertyKey, any>;
     return;
   }
-  const keyFn = t.fam?.key ?? null;
-  if (keyFn === null) return;
+  const keyFn = t._fam?.key;
+  if (!keyFn) return;
   const byKey = new Map<unknown, any>();
   for (let i = 0; i < truth.length; i++) {
     const r = truth[i];
@@ -429,6 +442,7 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
     if (len !== undefined && (len._config & CONFIG_OVERRIDE || base.length !== rows.length))
       laneSet(len, rows.length, lane);
   }
+  return true;
 };
 
 /** D-34 for a keyed arrangement guess: rows by key, not positions. A
@@ -446,10 +460,13 @@ function fold(el: Signal<any>, truth: unknown): boolean {
   if (!l._shown || !(k?._config! & CONFIG_OVERRIDE) || !(k!._x!._lane as LaneView)?.removed)
     return false;
   const guess = el._x!._lane;
-  if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth)) {
+  if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth))
     l.folded = foldedRead;
-    insertSubs(el);
-  } else GlobalQueue._confirmed?.(l);
+  else GlobalQueue._confirmed?.(l);
+  // A folded lane's `latest()` serves the truth beneath the guess
+  // (`foldedRead`): every truth landing there is news to its readers, a
+  // confirming one too — they re-derive from it (D-34, F-6).
+  if (l.folded) insertSubs(el);
   joinFuture(resolveTx(l._parent ?? l));
   return true;
 }
@@ -469,7 +486,7 @@ function foldedRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): u
       passLane !== null ||
       (c as any)._type === EFFECT_RENDER ||
       c._config & CONFIG_CHILDREN_FORBIDDEN ||
-      (el as any)._host?.fam?.node === c
+      (el as any)._host?._fam?.node === c
     )
       return NOT_PENDING;
     const l = txOf(el);
@@ -510,8 +527,8 @@ function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf
  * a guessed row keeps its target, and its leaves are judged against their
  * guesses. Rows nothing guessed are left as the draft wrote them. */
 function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
-  const keyFn = t.fam!.key;
-  for (let c of t.fam!.overlaid ?? []) {
+  const keyFn = t._fam!.key;
+  for (let c of t._fam!._overlaid ?? []) {
     // The guessed row, or its ancestor directly under `t` (none: skip).
     while (c.u !== t) if ((c = c.u!) === null) break;
     if (c === null) continue;
@@ -521,7 +538,7 @@ function pairRows(t: StoreTarget, pb: Record<PropertyKey, any>): void {
       : pb[c.pk!];
     // A new object only: not `c`'s own, nor one another row serves
     // (pairing it would alias the two).
-    if (isWrappable(nv) && !lookupTarget(nv, t.fam)) reconcileState(nv, c.px, keyFn, true);
+    if (isWrappable(nv) && !lookupTarget(nv, t._fam)) reconcileState(nv, c.px, keyFn, true);
   }
 }
 
@@ -537,7 +554,7 @@ installOptHooks({
   descriptor: optimisticOwnDescriptor,
   sweep: sweepOverlaid,
   // A new question (not a `refresh()`) asked over guesses an earlier frame
-  // opened, which answer the old one (D-34, #4336). Stamped on `fam.asked`
+  // opened, which answer the old one (D-34, #4336). Stamped on `fam._asked`
   // with this flush's `clock`, so it lapses when the flush ends: `clock + 1`
   // from mainline over a live guess — a frame still reading a guess at the
   // seam shows it beside the new input, so the flush holds with the guess's
@@ -546,26 +563,26 @@ installOptHooks({
   // guessed `createOptimistic` (lanes `laneStage`). The guess's own lane
   // asks nothing new and stamps nothing.
   ask: fam => {
-    if (fam.node!._flags & REACTIVE_REASK || !fam.overlaid?.size) return;
+    if (fam.node!._flags & REACTIVE_REASK || !fam._overlaid?.size) return;
     // Stamped with the flush (`clock`): it lapses when the flush ends.
     let a = ~clock;
-    for (const g of fam.overlaid) {
+    for (const g of fam._overlaid) {
       const n = laneNodeOf(g);
       if (n) {
         if (passLane === null) a = clock + 1;
         else if (sameAction(txOf(n), passLane)) return;
       }
     }
-    if ((fam.asked = a) > 0) joinFuture(null);
+    if ((fam._asked = a) > 0) joinFuture(null);
   },
-  // Over a new question the guesses do not answer (`asked`): from mainline
+  // Over a new question the guesses do not answer (`_asked`): from mainline
   // only a target carrying a guess stands in — a read of one with none is an
   // ordinary pending read (F-2), so a keyed store's other keys wait for their
   // answer, not for the guess's action; in a lane with no guess of its own,
   // or with no live guess left, none does (F-6).
   stands: t => {
-    const o = t.fam!.overlaid;
-    const a = t.fam!.asked;
+    const o = t._fam!._overlaid;
+    const a = t._fam!._asked;
     return !!o?.size && (a !== clock + 1 || passLane !== null || o.has(t)) && a !== ~clock;
   },
   // Mainline hold (`clock + 1`): the flush joins the action of each guess a
@@ -573,8 +590,8 @@ installOptHooks({
   // store's other key) holds nothing.
   park: t => {
     for (const fam of overlaidFamilies)
-      if (fam.asked === clock + 1)
-        for (const g of fam.overlaid!) {
+      if (fam._asked === clock + 1)
+        for (const g of fam._overlaid!) {
           const n = laneNodeOf(g, true);
           if (n) merge(txOf(n)._parent!, t);
         }
@@ -594,21 +611,21 @@ function shallowKeys(o: Record<PropertyKey, any>): Record<PropertyKey, any> {
 
 /** Families with a target carrying a lane value — swept at the flush's
  * commit (`sweepOverlaid`): a target none of whose nodes is a lane's any
- * more leaves its family's `overlaid`. (Not on the read path: a guess is
+ * more leaves its family's `_overlaid`. (Not on the read path: a guess is
  * pending between the setter and the seam, and a read in between must not
  * take the target for clean.) */
 const overlaidFamilies: Set<StoreFamily> = new Set();
 
 function markOverlaid(t: StoreTarget): void {
-  const fam = t.fam!;
-  (fam.overlaid ??= new Set()).add(t);
+  const fam = t._fam!;
+  (fam._overlaid ??= new Set()).add(t);
   overlaidFamilies.add(fam);
 }
 
 export function sweepOverlaid(): void {
   if (overlaidFamilies.size === 0) return;
   for (const fam of overlaidFamilies) {
-    const set = fam.overlaid!;
+    const set = fam._overlaid!;
     for (const t of set)
       if (!laneNodeOf(t)) {
         set.delete(t);
@@ -666,7 +683,7 @@ function rebaseChained(t: StoreTarget): void {
     k._notifiedAt !== notifyEpoch
   ) {
     const rows = Array.isArray(inner) ? untrack(() => (inner as any[]).map(unwrapValue)) : inner;
-    if (!arrangementEqual(k._value.rows, rows, t.fam!)) {
+    if (!arrangementEqual(k._value.rows, rows, t._fam!)) {
       insertSubs(k);
       changed = true;
     }
@@ -692,8 +709,8 @@ function laneNodeOf(t: StoreTarget, read?: boolean): Signal<any> | undefined {
 }
 
 function overlaid(t: StoreTarget): boolean {
-  const fam = t.fam;
-  return fam !== null && fam.opt === true && fam.overlaid !== undefined && fam.overlaid.has(t);
+  const fam = t._fam;
+  return fam !== null && fam.opt === true && fam._overlaid !== undefined && fam._overlaid.has(t);
 }
 
 /** What a lane node shows an untracked reader here: core's rule (`read`

@@ -29,7 +29,12 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
-import { emitDiagnostic, reportDiagnostic, watchAsyncTail } from "./dev.js";
+import {
+  caughtReadFlightSettled,
+  emitDiagnostic,
+  reportDiagnostic,
+  watchAsyncTail
+} from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
 import { trimStaleDeps, unobserved } from "./graph.js";
 import { enqueueSub } from "./heap.js";
@@ -202,7 +207,7 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
   if (
     !(
       el._config & CONFIG_HELD ||
-      (inPass && el._flags & REACTIVE_STAGED_READ && globalQueue._running && !(el as any).fam)
+      (inPass && el._flags & REACTIVE_STAGED_READ && globalQueue._running && !(el as any)._fam)
     ) ||
     passLane
   )
@@ -244,7 +249,7 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
     queuePendingNode(node);
     // A derived store's readers are its family's (store/projection.ts): they
     // re-derive from the staging, as from the derive's status (#4189).
-    (node as any).fam?.st(STATUS_ERROR);
+    (node as any)._fam?.st(STATUS_ERROR);
     settlePendingSource(node);
   }
 }
@@ -382,7 +387,7 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // its readers wait on the derive itself, not on this source, so they
       // settle with it, as a memo's would through its dependents (F-9, A9).
       // Only a store build has one (`storeParkHook`).
-      else if (storeParkHook) (node as any).fam?.st();
+      else if (storeParkHook) (node as any)._fam?.st();
       if (node._x !== null) node._x._blocked = false;
       // Fully settled with nobody watching: release candidate (#2934). Checked
       // again at release time — deferred so unobserved() can't unlink subs
@@ -534,6 +539,8 @@ export function handleAsync<T>(
 
   const handleError = (error: any) => {
     if (el._x?._inFlight !== result) return;
+    // D-42 (dev): a rejection is the read's throw continuing, not a catch.
+    if (__DEV__) caughtReadFlightSettled(el, result as object, false);
     // NotReadyError from rejected promises should be treated as pending, not error
     let stillPending = error instanceof NotReadyError;
     // Dev-only authorship diagnostic (#2987): no edge means a post-`await`
@@ -588,6 +595,9 @@ export function handleAsync<T>(
 
   const asyncWrite = (value: T, then?: () => void) => {
     if (el._x?._inFlight !== result) return;
+    // D-42 (dev): the flight landed a value after a read threw into the pass
+    // that started it — the body caught the throw (CAUGHT_REACTIVE_READ).
+    if (__DEV__) caughtReadFlightSettled(el, result as object, true);
     // If the node was dirtied by a newer write (optimistic override or regular),
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
@@ -918,6 +928,9 @@ export function handleAsync<T>(
     el._loading = false;
   }
 
+  // D-42 (dev): a flight that answered synchronously (a sync-settled
+  // thenable, a live first yield) landed a value like asyncWrite's.
+  if (__DEV__) caughtReadFlightSettled(el, result as object, true);
   return syncValue!;
 }
 
@@ -1122,7 +1135,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
       notifyStatus(sub, status, error);
       // A derived store's derive (store/projection.ts): marked, not re-run —
       // its leaves' readers are not its dependents, so the family walks them.
-      (sub as any).fam?.st(status, error);
+      (sub as any)._fam?.st(status, error);
     }
   });
 }

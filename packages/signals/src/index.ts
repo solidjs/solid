@@ -42,6 +42,8 @@ export { setConsoleFooter } from "./core/index.js";
 export { clock } from "./core/index.js";
 /** @internal Dev duplicate-copy check: solid-js marks components and context reads. */
 export { runAsSolidCopy, checkForeignOwnerless } from "./core/copies.js";
+/** @internal Dev CAUGHT_REACTIVE_READ (D-42): a runtime catch of a reactive read's throw — solid-js's hydration trace and warm-up — is not a user catch. A no-op outside dev builds. */
+export { forgetThrownRead } from "./core/dev.js";
 /** @internal The pre-write hook (`setWriteHook` in core/core.ts); the server-components client's deferred hydration. */
 /** @internal Plain-signal identities and the dev read watch (dependency edges; the server-components client). */
 export { setWriteHook, setSignalIdentities, setReadWatch, signalName } from "./core/index.js";
