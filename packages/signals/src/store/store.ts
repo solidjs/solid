@@ -36,6 +36,7 @@ import {
   CONFIG_MANUAL_WRITE,
   CONFIG_OVERRIDE,
   CONFIG_PROMOTED,
+  CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
@@ -1844,7 +1845,8 @@ function pullFamily(target: StoreTarget): void {
   // reader of a memo would — linked, so it re-runs at the landing (the
   // next settled pass pulls without linking and the stale link trims), a
   // verdict reader registered, a tracked pass suspended.
-  if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR)) {
+  // A staged error (D-41) throws at the pull, before any leaf would link the reader.
+  if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR) || fw._config & CONFIG_STAGED_ERROR) {
     // A render effect outside the flight's own flush is the frame, not a
     // derivation: it keeps what it shows and learns of the landing from the
     // leaves the landing changes (unchanged leaves say nothing — it is not a
@@ -1858,7 +1860,7 @@ function pullFamily(target: StoreTarget): void {
     if (
       c !== null &&
       c._type === EFFECT_RENDER &&
-      !(fw._statusFlags & STATUS_ERROR) &&
+      fw._statusFlags & STATUS_PENDING &&
       fw._config & CONFIG_HELD &&
       flushTransaction !== txOf(fw) &&
       !linkedTo(c, fw)
