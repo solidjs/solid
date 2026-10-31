@@ -64,8 +64,12 @@ import type { Computed, Link, Owner } from "./types.js";
 // created dual state whose migration invariant was easy to break: a third
 // overlapping source landed beside the Set and removePendingSource refused
 // to clear it, stranding the Set members' pending forever (#2893).
+export function hasPendingSource(el: Computed<any>, source: any): boolean | undefined {
+  return el._x?._pendingSources?.has(source);
+}
+
 export function addPendingSource(el: Computed<any>, source: Computed<any>): boolean {
-  if (el._x?._pendingSources?.has(source)) return false;
+  if (hasPendingSource(el, source)) return false;
   (ext(el)._pendingSources ??= new NewSet()).add(source);
   return true;
 }
@@ -91,7 +95,7 @@ function clearPendingSources(el: Computed<any>): void {
 export function retryReaches(el: Computed<any>, source: any): boolean {
   for (let d = el._deps; d; d = d._nextDep) {
     const dep = d._dep as Computed<any>;
-    if (dep === source || dep._x?._pendingSources?.has(source)) return true;
+    if (dep === source || hasPendingSource(dep, source)) return true;
   }
   return false;
 }
@@ -1098,7 +1102,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     // frame still passes through — its pass is the frame's (#3372, compiled
     // shape: the unmount it stages makes the observer a zombie whose say is
     // moot for this transaction, A15 #3463).
-    if (status === STATUS_PENDING && pendingSource && sub._x?._pendingSources?.has(pendingSource)) {
+    if (status === STATUS_PENDING && pendingSource && hasPendingSource(sub, pendingSource)) {
       if (
         passLane === null &&
         (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
