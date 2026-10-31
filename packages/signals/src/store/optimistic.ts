@@ -446,10 +446,13 @@ function fold(el: Signal<any>, truth: unknown): boolean {
   if (!l._shown || !(k?._config! & CONFIG_OVERRIDE) || !(k!._x!._lane as LaneView)?.removed)
     return false;
   const guess = el._x!._lane;
-  if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth)) {
+  if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth))
     l.folded = foldedRead;
-    insertSubs(el);
-  } else GlobalQueue._confirmed?.(l);
+  else GlobalQueue._confirmed?.(l);
+  // A folded lane's `latest()` serves the truth beneath the guess
+  // (`foldedRead`): every truth landing there is news to its readers, a
+  // confirming one too — they re-derive from it (D-34, F-6).
+  if (l.folded) insertSubs(el);
   joinFuture(resolveTx(l._parent ?? l));
   return true;
 }
