@@ -1488,23 +1488,37 @@ export function createMemo<T>(
   // after another request may have set its own, and everything the pass
   // creates — a sync memo it pulls, a slot's content — would take that
   // render's ids (#3972).
+  // Inlines runWithOwner + runWithObserver: one handler frame and no
+  // per-run closures (see runWithOwner on the cost of `finally`).
   const run = () => {
     resetOwnerForRerun(owner);
-    const prev = sharedConfig.context;
-    sharedConfig.context = ctx;
+    const prevContext = sharedConfig.context;
+    const prevOwner = currentOwner;
+    const prevObserver = Observer;
     const reads = asyncReads;
+    sharedConfig.context = ctx;
+    currentOwner = owner as unknown as SSROwner;
+    Observer = comp;
+    let result: ReturnType<typeof comp.compute>;
     try {
-      return runWithOwner(owner, () =>
-        runWithObserver(comp, () =>
-          edgeHooks !== null && edgeHooks.on()
-            ? edgeHooks.run(owner, () => comp.compute(comp.value))
-            : comp.compute(comp.value)
-        )
-      );
-    } finally {
-      sharedConfig.context = prev;
+      result =
+        edgeHooks !== null && edgeHooks.on()
+          ? edgeHooks.run(owner, () => comp.compute(comp.value))
+          : comp.compute(comp.value);
+    } catch (error) {
+      Observer = prevObserver;
+      currentOwner = prevOwner;
+      // Stamped before the context restore: it reads the render's _errorScope.
+      stampThrower(error, owner);
+      sharedConfig.context = prevContext;
       if (asyncReads !== reads) comp.moving = true;
+      throw error;
     }
+    Observer = prevObserver;
+    currentOwner = prevOwner;
+    sharedConfig.context = prevContext;
+    if (asyncReads !== reads) comp.moving = true;
+    return result;
   };
 
   function update() {
@@ -1923,6 +1937,18 @@ function processResult<T>(
   loadingState?: { value: T; served: boolean }
 ) {
   if (comp.disposed) return;
+  // Plain values skip the id, NoHydrate lookup and slot closure below.
+  if (
+    !loadingState?.served &&
+    (result === null ||
+      (typeof result !== "object" && typeof result !== "function") ||
+      (typeof result[Symbol.asyncIterator] !== "function" && !isThenable(result)))
+  ) {
+    comp.value = result;
+    comp.sync = true;
+    comp.epoch = ctx?.commitEpoch?.();
+    return;
+  }
   // The node's own owner, read after its compute unwound — never a swapped
   // hole scope (the swap is restored in `finally` before the result is seen).
   const id = ownerId(owner);
