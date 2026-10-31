@@ -520,7 +520,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (__DEV__) clearSignals(el);
   }
 
-  const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
+  // #4540: a first value already staged this frame is the slot this pass
+  // publishes to (INV-11): a re-pass equal to it changes nothing, though the
+  // node stays uninitialized until the commit.
+  const wasUninitialized =
+    el._statusFlags & STATUS_UNINITIALIZED && el._pendingValue === NOT_PENDING;
   // Capture both error and pending status before the compute clears them.
   // A conditional can drop its pending source and recover to an unchanged
   // value, leaving blocked dependents outside that source’s settle walk.
@@ -802,7 +806,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // change): the slot it publishes to held the error, and the readers that
     // derived from it — `latest()` throws it — re-derive (#4403).
     const valueChanged =
-      (!isEffect && wasUninitialized) ||
+      (!isEffect && !!wasUninitialized) ||
       !!el._x?._shownError ||
       !!replaced ||
       !isSame(el, compareValue, value);
