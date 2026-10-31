@@ -2093,19 +2093,17 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // proposal, so not a read of the frame's future — nor, for a verdict
     // reader, a stale read of the tick's hold re-run at its landing (#4485).
     // (A plain signal is never uninitialized — the carve-out is `serve`'s.)
-    if (el._pendingValue === el._value) {
-      // Serve the staging itself: `===` also identifies -0 and +0, which a
-      // custom comparator can admit as different values.
-      if (__TEST__) shadowActual(SLOT_P);
-      return el._pendingValue as T;
-    }
+    // `===` alone identifies opposite signed zeros. Require SameValue too;
+    // keep the strict check so an accepted NaN rewrite remains a proposal.
+    const netted = el._pendingValue === el._value && Object.is(el._pendingValue, el._value);
     // Lane work over a folded lane (D-34), once the frame has a transaction,
     // reads the screen too.
     if (
-      ((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
-      stagedScreen(c as Computed<any>, el)
+      netted ||
+      (((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
+        stagedScreen(c as Computed<any>, el))
     ) {
-      if (__TEST__) shadowActual(SLOT_C);
+      if (__TEST__) shadowActual(netted ? SLOT_P : SLOT_C);
       return el._value as T;
     }
     stagedRead(c as Computed<any>);
@@ -2402,7 +2400,12 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // frame's future. Only the strict `untrack` read skips the fast block in
   // dev (its `strictRead` test); a hydration snapshot or a promoted write
   // reaches here in dev and prod alike, and keeps the mark.
-  if (!(__DEV__ && strictRead) || (el as Computed<any>)._fn || el._pendingValue !== el._value)
+  if (
+    !(__DEV__ && strictRead) ||
+    (el as Computed<any>)._fn ||
+    el._pendingValue !== el._value ||
+    !Object.is(el._pendingValue, el._value)
+  )
     stagedRead(c!, el);
   // D-41: the staged answer is an error (`stageError`).
   if (el._config & CONFIG_STAGED_ERROR) {
