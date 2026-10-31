@@ -22,7 +22,12 @@ import {
   setEffectStatusNotify
 } from "./core.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { emitDiagnostic, reportDiagnostic, type DiagnosticSubject } from "./dev.js";
+import {
+  emitDiagnostic,
+  forgetThrownRead,
+  reportDiagnostic,
+  type DiagnosticSubject
+} from "./dev.js";
 import { StatusError, unwrapStatusError } from "./error.js";
 import { trimStaleDeps } from "./graph.js";
 import { enqueueSub } from "./heap.js";
@@ -202,6 +207,9 @@ function runEffect(node: Effect<any>, type: number): void {
           })
         : console.error(err);
     } catch (error) {
+      // (D-42, dev: escalated, not caught — and the running pass, if any, is
+      // the effect's creator, not a catcher.)
+      if (__DEV__) forgetThrownRead();
       escalate(node, error);
     }
     return;
@@ -237,6 +245,8 @@ function runEffect(node: Effect<any>, type: number): void {
     // The final cleanup is invoked by disposeChildren at true disposal.
     node._cleanup = nextCleanup as (() => void) | undefined;
   } catch (error) {
+    // (D-42, dev: as above — a boundary takes it or the system halts.)
+    if (__DEV__) forgetThrownRead();
     ext(node)._error = new StatusError(node, error);
     node._statusFlags |= STATUS_ERROR;
     escalate(node, error);

@@ -51,7 +51,7 @@ import {
   unflushedValue,
   verdict
 } from "./core.js";
-import { warnStrictReadUntracked } from "./dev.js";
+import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
 import { display, laneValueOf, verdictLane } from "./lanes.js";
@@ -370,6 +370,8 @@ export function isPending(fn: () => any): boolean {
     // verdict never throws anything else: a thunk that errors is simply not
     // pending.
     if (e instanceof NotReadyError && !probeFound && context !== null) throw e;
+    // D-42 (dev): the swallow is the probe's mechanism, not a user catch.
+    if (__DEV__) forgetThrownRead();
     return probeFound;
   } finally {
     probing = prevProbing;

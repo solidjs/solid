@@ -29,7 +29,12 @@ import {
 import { attrHooks } from "./attribution-hooks.js";
 import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
-import { emitDiagnostic, reportDiagnostic, watchAsyncTail } from "./dev.js";
+import {
+  caughtReadFlightSettled,
+  emitDiagnostic,
+  reportDiagnostic,
+  watchAsyncTail
+} from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
 import { trimStaleDeps, unobserved } from "./graph.js";
 import { enqueueSub } from "./heap.js";
@@ -534,6 +539,8 @@ export function handleAsync<T>(
 
   const handleError = (error: any) => {
     if (el._x?._inFlight !== result) return;
+    // D-42 (dev): a rejection is the read's throw continuing, not a catch.
+    if (__DEV__) caughtReadFlightSettled(el, result as object, false);
     // NotReadyError from rejected promises should be treated as pending, not error
     let stillPending = error instanceof NotReadyError;
     // Dev-only authorship diagnostic (#2987): no edge means a post-`await`
@@ -588,6 +595,9 @@ export function handleAsync<T>(
 
   const asyncWrite = (value: T, then?: () => void) => {
     if (el._x?._inFlight !== result) return;
+    // D-42 (dev): the flight landed a value after a read threw into the pass
+    // that started it — the body caught the throw (CAUGHT_REACTIVE_READ).
+    if (__DEV__) caughtReadFlightSettled(el, result as object, true);
     // If the node was dirtied by a newer write (optimistic override or regular),
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
@@ -918,6 +928,9 @@ export function handleAsync<T>(
     el._loading = false;
   }
 
+  // D-42 (dev): a flight that answered synchronously (a sync-settled
+  // thenable, a live first yield) landed a value like asyncWrite's.
+  if (__DEV__) caughtReadFlightSettled(el, result as object, true);
   return syncValue!;
 }
 
