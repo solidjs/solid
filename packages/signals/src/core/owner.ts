@@ -29,6 +29,7 @@ import {
   registerRoot,
   unregisterRoot
 } from "./dev.js";
+import { clearInFlight } from "./async.js";
 import { clearDeps, unobserved } from "./graph.js";
 import { deleteFromHeap } from "./heap.js";
 import { dirtyQueue, globalQueue, pendingNodes, schedule } from "./scheduler.js";
@@ -112,7 +113,7 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   }
   if (self && __DEV__) clearSignals(node);
   if (self && (node as any)._fn) {
-    if ((node as Computed<unknown>)._x !== null) (node as Computed<unknown>)._x!._inFlight = null;
+    clearInFlight(node as Computed<unknown>);
     // A death that can unblock the future (L2, `futureBlocked`): a held
     // flight's — a transaction's or a lane's (its `_x._transaction`) — or a
     // stale reader's (REACTIVE_FRAME_READ — a frame that derived from one).

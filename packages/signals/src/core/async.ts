@@ -81,6 +81,12 @@ export function removePendingSource(el: Computed<any>, source: Computed<any>): b
   return true;
 }
 
+// Drops a node's flight reference without touching anything else: the one
+// form shared by the disposal and loading-window sites.
+export function clearInFlight(el: Computed<any>): void {
+  if (el._x !== null) el._x._inFlight = null;
+}
+
 function clearPendingSources(el: Computed<any>): void {
   // This set is node-owned and never shared; dropping the sole reference
   // releases the set and every entry without a redundant clear() walk.
@@ -569,7 +575,7 @@ export function handleAsync<T>(
       // serving commit #0 — same parking as recompute's catch for sync
       // dependency throws. The dead flight is released so the clock-gated
       // error-retry pull (updateIfNecessary) can also re-ask.
-      if (el._x !== null) el._x._inFlight = null;
+      clearInFlight(el);
       parkLoadingWindow(el, error);
       el._time = clock;
       return;
