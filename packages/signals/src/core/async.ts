@@ -88,7 +88,7 @@ function clearPendingSources(el: Computed<any>): void {
 // edge: a dep that IS the source, or one whose own pending chain carries it
 // (pending sources propagate the origin node, so this covers any depth).
 // Also guards branch-local recovery: another dependency may still need the source.
-function retryReaches(el: Computed<any>, source: any): boolean {
+export function retryReaches(el: Computed<any>, source: any): boolean {
   for (let d = el._deps; d; d = d._nextDep) {
     const dep = d._dep as Computed<any>;
     if (dep === source || dep._x?._pendingSources?.has(source)) return true;
