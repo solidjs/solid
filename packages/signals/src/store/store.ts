@@ -1885,8 +1885,17 @@ function pullFamily(target: StoreTarget): void {
     // verdict window still asks it (`isPending` is true while the flight is
     // up). The family's, not the target's: the edit stands in for the one
     // flight the family has — not over a new question they do not answer
-    // (optimistic.ts `stands`, #4336).
-    if (verdict === null && fw._statusFlags & STATUS_PENDING && optHooks?.stands(target)) return;
+    // (optimistic.ts `stands`, #4336). A reader already observing the flight
+    // keeps that observation: dropping its link here can release a new
+    // question's held inputs beside a guess over the previous answer.
+    // The ordinary read below serves its committed frame or keeps it pending.
+    if (
+      verdict === null &&
+      fw._statusFlags & STATUS_PENDING &&
+      optHooks?.stands(target) &&
+      !(c?._deps && linkedTo(c, fw))
+    )
+      return;
     // A pass the pull throws a staged error (D-41) is linked to the derive,
     // untracked too — `handleAsync` asking a returned proxy whether it is a
     // flight: the pass carries the error, and the re-ask or answer that
