@@ -2173,6 +2173,7 @@ module.exports = [
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): 18.72 KB -> 18.74 KB, recorded minified 53,566 -> 53,585 B, measured in CI at 18,726 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
     // #4428 fallback memo lazy (+7 B over next, which sits +15 over this record): cap unchanged at 18.74 KB; minified 53,585 -> 53,607 (+22), brotli 18,752 (Size-Exception)
     // Batch re-record (2026-10-31, over next @ 6bde511: #4511 after #4514): 18.74 KB -> 18.80 KB, recorded minified 53,607 -> 53,611 B (+4 B), measured at 18,783 B brotli. Re-recorded once after the batch, per the batch process.
+    // Batch re-record (2026-10-31, over next @ 3a73a36: #4529, #4533, #4494, #4534, #4532): cap unchanged at 18.80 KB, recorded minified 53,611 -> 53,617 B (+6 B), measured locally (linux) at 18,755 B brotli. Re-recorded once after the batch, per the batch process.
     limit: floorCaps["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     capMinified: floorMinified["app: hydrating (no stores) with Show/For/Loading/Errored/lazy"],
     alias
@@ -3061,8 +3062,9 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): cap unchanged, recorded minified 37,014 -> 37,015 B, measured in CI at 13,423 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
     // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 13.43 -> 13.47 KB, recorded minified 37,015 -> 37,028 B (+13 B), measured locally (linux) at 13,451 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    // Batch re-record (2026-10-31, over next @ 3a73a36: #4529, #4533, #4494, #4534, #4532): cap unchanged at 13.47 KB, recorded minified 37,028 -> 37,047 B (+19 B), measured locally (linux) at 13,460 B brotli. Re-recorded once after the batch, per the batch process.
     limit: "13.47 KB",
-    capMinified: 37028,
+    capMinified: 37047,
     alias
   },
   {
@@ -3414,8 +3416,9 @@ module.exports = [
     // measured + 10 B rounded up to 0.01 KB; recorded minified never raised.
     // Batch re-record (2026-10-30, next @ 32163a9, size job 123956613767): cap unchanged, recorded minified 41,968 -> 41,969 B, measured in CI at 15,193 B brotli. Growth is the 2026-10-30 merges (#4424, #4436, #4416, #4442); #4416's truncation sweep is the +19 B minified on the hydrating scenarios. Cap at measured + 10 B rounded up to 0.01 KB where over; recorded minified = measured.
     // Batch re-record (2026-10-30, over next @ 563b6b0): cap unchanged, recorded minified 41,969 -> 41,982 B (+13 B), measured locally (linux) at 15,180 B brotli. Growth is the 2026-10-30 merges (#4454, #4457, #4461). Recorded minified = measured.
+    // Batch re-record (2026-10-31, over next @ 3a73a36: #4529, #4533, #4494, #4534, #4532): cap unchanged at 15.20 KB, recorded minified 41,982 -> 42,001 B (+19 B), measured locally (linux) at 15,178 B brotli. Re-recorded once after the batch, per the batch process.
     limit: "15.20 KB",
-    capMinified: 41982,
+    capMinified: 42001,
     alias: observeAlias
   },
   {
@@ -3922,8 +3925,9 @@ module.exports = [
     // 0.01 KB; recorded minified never raised.
     // A tick whose writes net to the committed value pends no errored re-run (D-8, async-gen rerun on 5e68925c) (2026-10-30, over next @ 7135a77a): 29.74 -> 29.78 KB, recorded minified 88,303 -> 88,316 B (+13 B), measured locally (linux) at 29,762 B brotli. A signal read whose staging equals its committed value is not a read of the frame's future (`read`): +13 B minified, the rest brotli layout. Correctness. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
     // Batch re-record (2026-10-31, over next @ 6bde511: #4511 after #4514): 29.78 KB -> 29.80 KB, recorded minified 88,316 -> 88,329 B (+13 B), measured at 29,784 B brotli. Re-recorded once after the batch, per the batch process.
+    // Batch re-record (2026-10-31, over next @ 3a73a36: #4529, #4533, #4494, #4534, #4532): cap unchanged at 29.80 KB, recorded minified 88,329 -> 88,335 B (+6 B), measured locally (linux) at 29,782 B brotli. Re-recorded once after the batch, per the batch process.
     limit: "29.80 KB",
-    capMinified: 88329,
+    capMinified: 88335,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above
@@ -4345,8 +4349,9 @@ module.exports = [
     // Batch re-record (2026-10-30, over next @ b5077ea: #4499, #4500, #4493, #4488, #4498): cap unchanged at 32.54 KB, recorded minified 100,803 -> 100,836 B (+33 B), measured at 32,484 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-10-31, over next @ 6bde511: #4511 after #4514): cap unchanged at 32.54 KB, recorded minified 100,836 -> 100,868 B (+32 B), measured at 32,498 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-10-31, over next @ ab3e844: #4519, #4523, #4450, #4522 after #4521): 32.54 KB -> 32.56 KB, recorded minified 100,868 -> 100,886 B (+18 B), measured at 32,542 B brotli. Re-recorded once after the batch, per the batch process.
-    limit: "32.56 KB",
-    capMinified: 100886,
+    // Batch re-record (2026-10-31, over next @ 3a73a36: #4529, #4533, #4494, #4534, #4532): 32.56 KB -> 32.61 KB, recorded minified 100,886 -> 100,851 B (-35 B), measured locally (linux) at 32,591 B brotli. Minified fell; the brotli rise is mangle-props layout from #4494's renamed store fields, not new code. Re-recorded once after the batch, per the batch process.
+    limit: "32.61 KB",
+    capMinified: 100851,
     alias
   },
   {
@@ -5287,6 +5292,7 @@ module.exports = [
     // Batch re-record (2026-10-30, over next @ b5077ea: #4499, #4500, #4493, #4488, #4498): cap unchanged at 33.77 KB, recorded minified 101,675 -> 101,706 B (+31 B), measured at 33,719 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-10-31, over next @ 6bde511: #4511 after #4514): 33.77 KB -> 33.81 KB, recorded minified 101,706 -> 101,710 B (+4 B), measured at 33,799 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-10-31, over next @ ab3e844: #4519, #4523, #4450, #4522 after #4521): cap unchanged at 33.81 KB, recorded minified 101,710 -> 101,740 B (+30 B), measured at 33,752 B brotli. Re-recorded once after the batch, per the batch process.
+    // Batch re-record (2026-10-31, over next @ 3a73a36: #4529, #4533, #4494, #4534, #4532): cap unchanged at 33.81 KB, recorded minified 101,740 -> 101,748 B (+8 B), measured locally (linux) at 33,793 B brotli. Re-recorded once after the batch, per the batch process.
     limit: floorCaps["page: base server components (hydrating + dynamic + frames + sf reference)"],
     capMinified:
       floorMinified["page: base server components (hydrating + dynamic + frames + sf reference)"],
@@ -5650,6 +5656,7 @@ module.exports = [
     // Batch re-record (2026-10-30, over next @ b5077ea: #4499, #4500, #4493, #4488, #4498): 38.98 KB -> 39.10 KB, recorded minified 117,858 -> 118,033 B (+175 B), measured at 39,089 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-10-30, over next @ 71a6a75: #4512, #4506, #4509): cap unchanged at 39.10 KB, recorded minified 118,033 -> 118,048 B (+15 B), measured at 39,046 B brotli. Re-recorded once after the batch, per the batch process.
     // #4510 (a committed memo keeps its posture over a pending verdict read; #4408, D-25), measured over next @ 6bde511 with #4510 merged in: cap unchanged at 39.10 KB, recorded minified 118,048 -> 118,123 B (+75 B), measured at 39,083 B brotli. Growth accepted by the maintainer (2026-10-31).
+    // Batch re-record (2026-10-31, over next @ 3a73a36: #4529, #4533, #4494, #4534, #4532): cap unchanged at 39.10 KB, recorded minified 118,123 -> 118,140 B (+17 B), measured locally (linux) at 39,095 B brotli. Re-recorded once after the batch, per the batch process.
     limit: floorCaps["page: live server components (base + live/GET + action + isPending/latest)"],
     capMinified:
       floorMinified["page: live server components (base + live/GET + action + isPending/latest)"],
