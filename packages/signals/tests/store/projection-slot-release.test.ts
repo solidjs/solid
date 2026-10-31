@@ -37,7 +37,7 @@ const row = (i: number): Row => ({ id: "n" + i, pos: { x: i, y: 0 } });
  * index). */
 function chain(proj: any): any[] {
   const out: any[] = [];
-  for (const t of proj[$TARGET].fam.live as Set<any>) {
+  for (const t of proj[$TARGET]._fam.live as Set<any>) {
     if (t.n) for (const k of Reflect.ownKeys(t.n)) out.push(t.n[k]);
     if (t.h) for (const k of Reflect.ownKeys(t.h)) out.push(t.h[k]);
     if (t.k) out.push(t.k);
