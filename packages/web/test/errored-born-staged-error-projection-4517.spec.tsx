@@ -1,9 +1,6 @@
 /**
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
- *
- * #4517: an <Errored> mounted in the change that errors its content, over a
- * keyed projection of a memo, shows the memo's next answer.
  */
 import { expect, test } from "vitest";
 import { render } from "../src/index.js";

@@ -1844,9 +1844,8 @@ function pullFamily(target: StoreTarget): void {
   // flight up (or errored): the reader observes the flight exactly as a
   // reader of a memo would — linked, so it re-runs at the landing (the
   // next settled pass pulls without linking and the stale link trims), a
-  // verdict reader registered, a tracked pass suspended. A derive carrying a
-  // staged error (`stageMark`) the same: the pull throws it before any leaf
-  // is read, and only the link lets the reader learn of the answer (#4517).
+  // verdict reader registered, a tracked pass suspended.
+  // A staged error (D-41) throws at the pull, before any leaf would link the reader.
   if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR) || fw._config & CONFIG_STAGED_ERROR) {
     // A render effect outside the flight's own flush is the frame, not a
     // derivation: it keeps what it shows and learns of the landing from the
