@@ -2089,19 +2089,21 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       if (__TEST__) shadowActual(SLOT_C);
       return el._value as T;
     }
-    // (A plain signal is never uninitialized — the carve-out is `serve`'s.)
-    // Lane work over a folded lane (D-34), once the frame has a
-    // transaction, reads the screen too.
+    // A staging equal to the committed value is writes that netted (D-8): no
+    // proposal, so not a read of the frame's future — nor, for a verdict
+    // reader, a stale read of the tick's hold re-run at its landing (#4485):
+    // the committed value is the staging. (A plain signal is never
+    // uninitialized — the carve-out is `serve`'s.) Lane work over a folded
+    // lane (D-34), once the frame has a transaction, reads the screen too.
     if (
-      ((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
-      stagedScreen(c as Computed<any>, el)
+      el._pendingValue === el._value ||
+      (((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
+        stagedScreen(c as Computed<any>, el))
     ) {
-      if (__TEST__) shadowActual(SLOT_C);
+      if (__TEST__) shadowActual(el._pendingValue === el._value ? SLOT_P : SLOT_C);
       return el._value as T;
     }
-    // A staging equal to the committed value is writes that netted (D-8): no
-    // proposal, so not a read of the frame's future.
-    if (el._pendingValue !== el._value) stagedRead(c as Computed<any>);
+    stagedRead(c as Computed<any>);
     if (__TEST__) shadowActual(SLOT_P);
     return el._pendingValue as T;
   }
@@ -2126,9 +2128,32 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // it probed inline: it reads held values as the screen and shows the
         // verdict now. Not an effect: a render effect is a frame reader
         // already, and a user effect's posture is its own reads'.
-        // (A verdict memo exists only with the verdict engine installed.)
+        // A read of a pending node hands on no posture to a pass that is
+        // the hold's own work and not a verdict reader already (#4504):
+        // such a read throws — it read no value, and a node whose flight is
+        // up is the hold's work, not a verdict reader (D-25, #3884). The
+        // hold's own work is a pass born in its world (uninitialized, D-27)
+        // or one over a pass of its own still staged for the commit.
+        // Stamped, its next run — the hold's re-run at the landing of a
+        // memo whose plain mount read held its reader (D-2, D-27) — was
+        // served the screen beside the answer its reader waited for (F-2,
+        // D-22). A memo with a committed value and none staged is no hold's
+        // work, and its posture lasts until a pass completes having read no
+        // verdict reader (D-25, ruled 2026-10-28) — a pass that threw on a
+        // pending read did not complete. Unstamped, `latest(m2)` over a
+        // verdict memo showed its re-run's staging ahead of the lane that
+        // staging lands with (#4408). A
+        // verdict reader keeps the posture it is served the screen with
+        // (`observeFlight`). (A verdict memo exists only with the verdict
+        // engine installed.)
         if (observeFlightHook && !(c as any)._type)
-          (c as Computed<any>)._flags |= owner._config & CONFIG_VERDICT;
+          (c as Computed<any>)._flags |=
+            owner._config &
+            CONFIG_VERDICT &
+            (owner._statusFlags & STATUS_PENDING &&
+            (c._config & CONFIG_STAGED || (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
+              ? c._config
+              : -1);
       }
     }
     if (__TEST__)
@@ -2587,10 +2612,17 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // user comparator must not run against `undefined` (matches recompute).
   // D-41: a write over a shown error is a change whatever the last good
   // value was — the error leaves at its commit (`commitPendingNode`).
+  // `custom`: with the verdict engine, whether `el` carries a comparator of
+  // its own — `isSame`'s fast-path test, taken once for this gate and D-8's
+  // netting below, so the default comparator's `===` runs inline and a
+  // rewrite loop pays nothing for the netting (CodSpeed `propagation:
+  // avoidable`). Without the engine it is `null`: the gate folds to the
+  // plain `isSame` call and the netting away, byte for byte as before.
+  const custom = observeFlightHook ? el._equals !== isEqual : null;
   const valueChanged =
     !!((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED) ||
     !!el._x?._shownError ||
-    !isSame(el, currentValue, v);
+    (custom === false ? currentValue !== v : !isSame(el, currentValue, v));
   if (!valueChanged) return v;
 
   // Attribution hook: this committed write is where a re-run chain begins.
@@ -2612,7 +2644,22 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
   // A28: a held node rewritten outside a flush keeps its flushed staging
   // for every reader until the flush that carries the rewrite.
   else if (el._config & CONFIG_HELD && !globalQueue._running) stashFlushed(el);
-  el._pendingValue = v;
+  // D-8 (#4483): a staged rewrite the comparator calls equal to the
+  // committed value nets to it; staging the committed value itself lets
+  // every netted test (`_pendingValue === _value`) see writes that made no
+  // proposal. (Unstaged, the gate above already compared it.)
+  // The netted test reads it only with the verdict engine (`isPending`,
+  // `latest`): a build without it stages `v` as written. Under the default
+  // comparator only the committed object itself is equal, and `v` is already
+  // it, so a rewrite loop pays one local test (`custom`, from the gate).
+  // (`custom` is truthy only with the engine installed.)
+  el._pendingValue =
+    custom &&
+    wasStaged &&
+    !((el as Computed<T>)._statusFlags & STATUS_UNINITIALIZED || el._x?._shownError) &&
+    isSame(el, el._value, v)
+      ? el._value
+      : v;
   // A28 arm, gated on the load the write already pays for (`context`); the
   // arm itself is a cold helper so setSignal stays within every setter's
   // inlining budget, ~300 B bytecode.

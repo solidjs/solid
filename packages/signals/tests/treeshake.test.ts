@@ -67,12 +67,9 @@ function retainedFrom(retained: string[], names: string[]): string[] {
   return names.filter(name => retained.some(id => id.includes(name)));
 }
 
-// 30 s per case, not vitest's 5 s: every case here runs a Vite/Rollup
-// build (the first pays the cold start too), and on a loaded CI runner under
-// `pnpm run test` + coverage the first bundle has gone past 5 s (CI run
-// 41101791777: "Test timed out in 5000ms", 697 ms locally). What is asserted
-// is the retained module set and the byte floor; the clock is only a hang
-// guard (precedent: heap-mark-incremental.test.ts, #4438).
+// Every test runs a full Vite build of a fixture, and the first one pays the
+// bundler's cold start: under the whole suite's load on CI it ran past
+// vitest's 5 s default (5,295 ms) while asserting nothing wrong.
 describe("pay-for-use tree-shaking (#2883)", { timeout: 30_000 }, () => {
   it("core floor sheds every optional feature module", async () => {
     const { minifiedBytes, retained } = await bundleFixture(

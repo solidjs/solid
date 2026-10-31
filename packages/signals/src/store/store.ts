@@ -32,10 +32,12 @@ import { attrHooks } from "../core/attribution-hooks.js";
 import {
   $REFRESH,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_GUESS,
   CONFIG_HELD,
   CONFIG_MANUAL_WRITE,
   CONFIG_OVERRIDE,
   CONFIG_PROMOTED,
+  CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
@@ -95,6 +97,7 @@ import {
   joinPassTx,
   list,
   laneStageHook,
+  observeFlightHook,
   passLane,
   queuePendingNode,
   schedule,
@@ -293,9 +296,10 @@ export class LaneView {
     /** The backing the guess is shown over: the committed one at the
      * guess, the composed arrangement after a re-base (optimistic.ts). */
     public base: Record<PropertyKey, any>,
-    /** Keys the setter REMOVED from the view it saw (a deliberate delete,
-     * not a row the truth has yet to show): a re-base does not restore
-     * them. `null` when none. */
+    /** A keyed list's guess: the keys of the view the setter saw that are
+     * not the guess's own rows — removed by it, or only carried over from
+     * the truth beneath. A re-base takes them from the new truth
+     * (optimistic.ts). `null` when not keyed. */
     public removed: Set<unknown> | null = null
   ) {}
 }
@@ -380,12 +384,22 @@ function bornStaged(target: StoreTarget, node: Signal<any>, staged: any, key: Pr
   node._pendingValue = staged;
   const k = target.k;
   if (k === null) return; // a node-less staging holds nothing (`stageOn`)
+  // The staging is a derive's lane pass's (`stageOn` → `holdWithDerive`
+  // listed the container in the lane, #4478), not a guess's: the leaf takes
+  // it as the lane's derivation, as the write would have left a leaf that
+  // existed then — a lane reader sees the lane's value, the frame the
+  // committed one, as a reader of the memo the derive reads does (E3,
+  // D-25). Born a staging instead, the park held it with the frame, and an
+  // Errored the memo's lane value heals stayed on its fallback over the
+  // store (#4451, D-39).
+  if (laneStageHook && (k._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE)
+    holdWithDerive(target, node, txOf(k));
   // Held by the container's transaction only for a key the HELD staging
   // changed — a mainline layer's change above it stages mainline. (A
   // container carrying a guess is a lane's: the flush's park decides —
   // unless a correction folded under the guess, D-34: the key is that
   // correction's hold's.)
-  if (k._config & CONFIG_HELD && heldKeyChanged(target, key)) {
+  else if (k._config & CONFIG_HELD && heldKeyChanged(target, key)) {
     const l = txOf(k);
     if (!(k._config & CONFIG_OVERRIDE) || l.folded) holdNode(node, resolveTx(l._parent ?? l));
   }
@@ -498,7 +512,7 @@ function stageOn(target: StoreTarget, pb: Record<PropertyKey, any>): void {
   // A28 (4): a write issued inside a pass outside a flush (a creation-time
   // derive) is promoted at the pass's end — the batch with it.
   if (context !== null) notePromotedWrite(k);
-  if (target.fam !== null) holdWithDerive(target, k);
+  if (target.fam !== null && !userWrite) holdWithDerive(target, k);
 }
 
 /** The projection's derive is held by a transaction and this is its own
@@ -1262,7 +1276,7 @@ function notifyWrites(t: StoreTarget): void {
       const node = has[key as any];
       if (node !== undefined) {
         setSignal(node, key in pb && !t.del?.has(key));
-        if (t.fam !== null) holdWithDerive(t, node);
+        if (t.fam !== null && !userWrite) holdWithDerive(t, node);
       }
     }
   }
@@ -1842,7 +1856,8 @@ function pullFamily(target: StoreTarget): void {
   // reader of a memo would — linked, so it re-runs at the landing (the
   // next settled pass pulls without linking and the stale link trims), a
   // verdict reader registered, a tracked pass suspended.
-  if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR)) {
+  // A staged error (D-41) throws at the pull, before any leaf would link the reader.
+  if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR) || fw._config & CONFIG_STAGED_ERROR) {
     // A render effect outside the flight's own flush is the frame, not a
     // derivation: it keeps what it shows and learns of the landing from the
     // leaves the landing changes (unchanged leaves say nothing — it is not a
@@ -1856,7 +1871,7 @@ function pullFamily(target: StoreTarget): void {
     if (
       c !== null &&
       c._type === EFFECT_RENDER &&
-      !(fw._statusFlags & STATUS_ERROR) &&
+      fw._statusFlags & STATUS_PENDING &&
       fw._config & CONFIG_HELD &&
       flushTransaction !== txOf(fw) &&
       !linkedTo(c, fw)
@@ -1871,7 +1886,38 @@ function pullFamily(target: StoreTarget): void {
     // (optimistic.ts `stands`, #4336).
     if (verdict === null && fw._statusFlags & STATUS_PENDING && optHooks?.stands(target)) return;
     readNode(fw);
-  } else untrack(() => readNode(fw));
+  } else {
+    untrack(() => readNode(fw));
+    // #4491: a derive that is a verdict reader only through what it reads (a
+    // verdict memo's value, D-25 / F-6; no window of its own) is served the
+    // committed value of a flight it reads (`observeFlight`, A15's stale
+    // reader) and settles over it: its leaves are the screen, not the
+    // flight's answer. A derived store reads like its memo (D-30): a tracked
+    // reader of the leaves reads that flight as the memo's reader would, so
+    // one that mounts mid-flight consumes unanswered async and is held (F-2)
+    // instead of shown the old question's answer. The derive is that hold's
+    // work until it answers (D-25): the read marks its next pass, which reads
+    // plainly (`fam.w`, projection.ts), so the landing it computes is the one
+    // the held reader shows. The mark is all it writes — the derive's posture
+    // stays its passes' own (core `recompute`) — and a read that finds no
+    // flight up clears it: a landing equal to the screen re-runs nothing, and
+    // the mark does not outlive the flight. Only the verdict engine makes a
+    // verdict reader (`observeFlightHook`: without it the branch folds away).
+    // (The window flag is REACTIVE_WINDOW, spelled from EFFECT_RENDER: an
+    // import of it keeps a dead copy in bundles without the store.)
+    if (
+      observeFlightHook &&
+      fw._config & CONFIG_VERDICT &&
+      !(fw._flags & (EFFECT_RENDER << 21)) &&
+      tracking
+    ) {
+      const fam = target.fam!;
+      fam.w = 0;
+      for (let l = fw._deps; l; l = l._nextDep)
+        if ((l._dep as Computed<any>)._statusFlags & STATUS_PENDING)
+          ((fam.w = 1), readNode(l._dep));
+    }
+  }
 }
 
 /** A projection's writes are its derive's: a staging made while the derive
@@ -1879,19 +1925,27 @@ function pullFamily(target: StoreTarget): void {
  * callback's late write) belongs to the derive's transaction and reveals
  * with it, never drained early — and answers the derive's question: a quiet
  * re-ask's landing is quiet through its reveal (A19 exc. 2; the leaf's own
- * classification, as core reads it — `heldNotFinal`). */
-function holdWithDerive(target: StoreTarget, node: Signal<any>): void {
+ * classification, as core reads it — `heldNotFinal`). Callers pass only the
+ * derive's own writes (its draft or landing), never a user setter's
+ * (`userWrite`): a user's is a proposal (A34 (3)'s discriminator). */
+function holdWithDerive(
+  target: StoreTarget,
+  node: Signal<any>,
+  // The lane the staging is work of: the pass's, or — a leaf born from a lane
+  // container's staging (`bornStaged`, #4451) — the container's.
+  lane: Transaction | null = passLane
+): void {
   const fw = target.fam?.node;
   // A pass that is a lane's work (a display-ahead read, F-6): its write is
-  // the lane's derivation, as a memo's value would be (D-25).
+  // the lane's derivation, as a memo's value would be (D-25) — the lane's
+  // value, the committed value untouched beneath; the lane's end commits it.
   if (
     laneStageHook &&
-    passLane !== null &&
-    !userWrite &&
+    lane !== null &&
     node._pendingValue !== NOT_PENDING &&
     !(node._config & CONFIG_OVERRIDE)
   ) {
-    list(node, passLane);
+    list(node, lane);
     node._x!._lane = node._pendingValue;
     node._pendingValue = NOT_PENDING;
     node._config |= CONFIG_OVERRIDE;
@@ -1900,7 +1954,6 @@ function holdWithDerive(target: StoreTarget, node: Signal<any>): void {
   if (
     fw !== undefined &&
     fw !== null &&
-    !userWrite && // the derive's own write (its draft or landing), not a user setter's
     fw._config & CONFIG_HELD &&
     node._pendingValue !== NOT_PENDING &&
     // A node carrying a guess is the lane's: its staging is the truth beneath
@@ -2434,6 +2487,15 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   writeScopes.add(scopeKey(target));
   const prevUser = userWrite;
   userWrite = guard;
+  // An outermost setter's exit notifies the targets it wrote. A
+  // write-override write (a derive's continuation after an `await`, no
+  // setter open) is notified at once by its trap but stays listed (its keys
+  // share one written set while the continuation writes): dropped here, or
+  // this setter's exit would notify the derive's staging as its own — a
+  // user's, on an optimistic family, as guesses (#4484). Read before the
+  // clear: the list is empty here but for those, and clearing an empty set
+  // allocates.
+  if (writing === 0 && pendingNotify.size) pendingNotify.clear();
   writing++;
   let result: any;
   try {

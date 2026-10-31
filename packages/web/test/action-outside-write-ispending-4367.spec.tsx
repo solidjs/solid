@@ -7,7 +7,9 @@
 // action's value ends the pending verdict; `<Show>`'s condition memo leaves
 // the verdict lane equal to its committed value. The screen must follow, as
 // it does for the inline `{isPending(s) ? … : …}` — and once the action
-// completes, the fallback shows for good.
+// completes, the fallback shows for good. (Re-pinned for #4485: the opening
+// tick's writes net to the committed value, so it never shows `pending`,
+// D-8.)
 import { expect, test } from "vitest";
 import { Show, action, createSignal, flush, isPending } from "solid-js";
 import { render } from "../src/index.js";
@@ -42,7 +44,10 @@ for (const shape of ["Show", "inline"] as const)
     set(2);
     await tick();
     flush();
-    expect(el.innerHTML).toBe("<span>pending</span>");
+    // `set(3)` in the action and `set(2)` outside it are one tick's writes to
+    // `s`, and they net to its committed value: no proposal, so `s` is not
+    // held and pends nothing (D-8, #4485).
+    expect(el.innerHTML).toBe("[F]");
     set(3);
     flush();
     // Nothing differs from the action's write any more: not pending.
