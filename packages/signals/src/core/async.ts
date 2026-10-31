@@ -41,6 +41,7 @@ import {
   joinFuture,
   MAINLINE_QUESTION,
   passLane,
+  pendingNodes,
   question,
   queuePendingNode,
   schedule,
@@ -48,7 +49,8 @@ import {
   freshHook,
   holdWorkHook,
   guessing,
-  laneStageHook
+  laneStageHook,
+  storeParkHook
 } from "./scheduler.js";
 import type { Computed, Link, Owner } from "./types.js";
 
@@ -214,10 +216,37 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
   el._pendingValue = error instanceof StatusError ? error : new StatusError(el, error);
   el._config |= CONFIG_STAGED | CONFIG_STAGED_ERROR;
   // Readers parked on the flight re-run and derive from the staging; the
-  // verdict readers the walk wakes need a flush (#4106).
+  // verdict readers the walk wakes need a flush (#4106); the derivations it
+  // reaches carry the staging (`settlePendingSource`).
   settlePendingSource(el);
   schedule();
   return true;
+}
+
+/** D-41: a derivation of a staged error carries it, staged with the same
+ * frame — marked, not re-run, as a published error marks it (a re-run would
+ * replace the frame its content owns) — and its own verdict readers
+ * re-derive (the settle walk). Only a verdict reads a derivation's staging
+ * before its commit, so only the verdict engine marks. Not a boundary's
+ * output, an async memo, an effect or a boundary's tree (`EFFECT_TRACKED <<
+ * 23` spans CONFIG_FRAME and every effect type), nor one already carrying a
+ * staged error: the commit's publish reaches them. A pending mark supersedes
+ * the staging (`propagateStatus`). */
+function stageMark(node: Computed<any>, el: Computed<any>): void {
+  if (
+    !(
+      node._config &
+      (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | CONFIG_ASYNC | (EFFECT_TRACKED << 23))
+    )
+  ) {
+    node._pendingValue = el._pendingValue;
+    node._config |= CONFIG_STAGED_ERROR;
+    queuePendingNode(node);
+    // A derived store's readers are its family's (store/projection.ts): they
+    // re-derive from the staging, as from the derive's status (#4189).
+    (node as any).fam?.st(STATUS_ERROR);
+    settlePendingSource(node);
+  }
 }
 
 export function settleErroredDependents(el: Computed<any>, error: any): void {
@@ -318,7 +347,13 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // equal to the committed value notifies nobody — the source settling
       // is its verdict changing: it runs again. (Verdict readers exist only
       // with the verdict engine installed.)
-      return holdWorkHook && node._config & CONFIG_VERDICT && enqueueSub(node);
+      // D-41: a derivation of a staged error carries it (`stageMark`).
+      return (
+        holdWorkHook &&
+        (node._config & CONFIG_VERDICT
+          ? enqueueSub(node)
+          : el._config & CONFIG_STAGED_ERROR && stageMark(node, el))
+      );
     visited.add(node);
     node._time = clock;
     const remaining = node._x?._pendingSources?.values().next().value;
@@ -336,12 +371,18 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // L2: a landing resumes the transaction waiting on it (maintainer: "it
       // resumes the sync frame") — a held reader's re-pass over the landed
       // value is that transaction's work, and the flush that carries it
-      // parks into it.
+      // parks into it. A lane's held reader is the lane's (D-37): the flush
+      // never takes a lane as its transaction (#4440).
       if (node._config & CONFIG_HELD) joinFuture(txOf(node));
       if (node._x?._blocked) {
         enqueueSub(node);
         scheduled = true;
       }
+      // A derived store's derive pending by propagation (its pass not re-run):
+      // its readers wait on the derive itself, not on this source, so they
+      // settle with it, as a memo's would through its dependents (F-9, A9).
+      // Only a store build has one (`storeParkHook`).
+      else if (storeParkHook) (node as any).fam?.st();
       if (node._x !== null) node._x._blocked = false;
       // Fully settled with nobody watching: release candidate (#2934). Checked
       // again at release time — deferred so unobserved() can't unlink subs
@@ -522,10 +563,10 @@ export function handleAsync<T>(
       el._time = clock;
       return;
     }
-    // D-41: a held node's error is staged (`stageError`). A derived store's
-    // readers learn its error through the family, not the derive's
-    // dependents: it publishes now.
-    if (stillPending || setter || !stageError(el, error)) {
+    // D-41: a held node's error is staged (`stageError`) — a derived
+    // store's derive's too: its family publishes it at the commit
+    // (store/projection.ts `errorFamily`, #4489).
+    if (stillPending || !stageError(el, error)) {
       notifyStatus(el, stillPending ? STATUS_PENDING : STATUS_ERROR, error);
       // The error is this pass's answer, published now: it replaces the shown
       // frame as a value's commit would (`commitPendingNode`), so the frame
@@ -550,7 +591,16 @@ export function handleAsync<T>(
     // If the node was dirtied by a newer write (optimistic override or regular),
     // skip this stale async result — the upcoming flush will recompute the node
     // with the new value, creating a fresh Promise that supersedes this one.
-    if (el._flags & REACTIVE_DIRTY) return;
+    // Not a first answer (D-22, F-9): it resolved before the write — only its
+    // reaction ran after — so it is a produced value, and the flush that
+    // re-asks lands it first (the node is answered, then re-asked). Only
+    // `latest`/`isPending` tell such a node from one with no value, so the
+    // landing is the verdict engine's (`holdWorkHook`).
+    if (el._flags & REACTIVE_DIRTY && !(holdWorkHook && el._statusFlags & STATUS_UNINITIALIZED))
+      return;
+    // A write whose flush is queued (before this landing stages its own): see
+    // the flush below (#4495). Not status bookkeeping queued with no value.
+    const carried = holdWorkHook && pendingNodes.some(n => n._pendingValue !== NOT_PENDING);
     const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
     landStatus(el);
     // Attribution hook: lets the engine snapshot state before the landing
@@ -611,7 +661,15 @@ export function handleAsync<T>(
     }
     settlePendingSource(el);
     schedule();
-    flush();
+    // An answer that lands while a write's flush is queued resolved before
+    // that flush was queued, with every answer whose reaction is queued ahead
+    // of it: the write's flush carries them all (F-10), each answered, then
+    // re-asked (D-22). Flushed here, it would re-ask the write's other async
+    // before their answers' reactions ran, and drop them (#4495). Only
+    // `latest`/`isPending` tell an answered-then-reasked node from one with
+    // no value, so it is the verdict engine's (`holdWorkHook`). A stream's
+    // next pull waits for its landing's flush.
+    if (then || !carried) flush();
     then?.();
   };
 
@@ -1006,9 +1064,14 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     // it is served the committed value it already derived from (A10) and
     // asks that question again. It waits on the source like any derivation
     // (F-9), and asks its next question once, at the landing (#4397).
+    // A node carrying a staged error re-derives on a pending mark: its
+    // source asks again, and the staging it carried is not the answer
+    // (#4109, `stageMark`).
     if (
       sub._config & CONFIG_REDERIVE ||
-      (holdWorkHook && sub._config & CONFIG_VERDICT && !(pendingSource && holdWorkHook(sub, el))) ||
+      (holdWorkHook &&
+        (sub._config & CONFIG_VERDICT || (pendingSource && sub._config & CONFIG_STAGED_ERROR)) &&
+        !(pendingSource && holdWorkHook(sub, el))) ||
       (status === STATUS_PENDING && link._gen !== sub._depGen)
     ) {
       enqueueSub(sub);

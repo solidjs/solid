@@ -9,7 +9,9 @@
 // `false` at that flush (D-17: a memo between `isPending` and its reader
 // behaves as the direct read does). A pass outside any transaction's flush
 // publishes to the screen: its readers re-derive at the seam whatever holds
-// the lane's frame.
+// the lane's frame. (Re-pinned for #4485: the opening tick's writes net to
+// the committed value, so that tick made no proposal and never shows
+// `pending` (D-8); the settle after the later writes is unchanged.)
 import { describe, expect, it } from "vitest";
 import {
   action,
@@ -52,7 +54,12 @@ describe("#4367 isPending(s) after an action, with s also written outside it", (
         act(3);
         set(2);
         await tick();
-        expect(frames).toEqual([`F${v(2)}`, `pending${v(2)}`]);
+        // `set(3)` in the action and `set(2)` outside it are one tick's writes
+        // to `s`, and they net to its committed value: no proposal, so `s` is
+        // not held and pends nothing (D-8, #4485) — the screen stays `F`.
+        // (`s` lands at 2 without the later write.) The memo form's reader
+        // re-runs only when it reads `s()` beside the verdict.
+        expect(frames).toEqual(memo && !value ? ["F"] : [`F${v(2)}`, `F${v(2)}`]);
         set(3);
         flush();
         // Nothing differs from the action's write: not pending, in either form.
@@ -92,7 +99,8 @@ describe("#4367 isPending(s) after an action, with s also written outside it", (
     release();
     await tick();
     expect(isPending(s)).toBe(false);
-    expect(frames).toEqual(["F", "pending", "F"]);
+    // The first tick's writes net (D-8, #4485): never pending.
+    expect(frames).toEqual(["F", "F"]);
     dispose();
   });
 });

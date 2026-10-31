@@ -1,5 +1,4 @@
-// Pins for what #4393 (R5, D-22) fixed beyond #4365, and one row it leaves
-// for the reader-seat carve.
+// Pins for what #4393 (R5, D-22) fixed beyond #4365, and #4399.
 //
 // - #4402: a pass that reads `latest(s)` before `s()` computes once per
 //   plain write, as `[s(), latest(s)]` does (D-22: one pass; it re-derives
@@ -7,9 +6,11 @@
 // - #4398: `[isPending(m1), m1()]` in one effect, split across two, or
 //   `m1()` alone show the same values when the write changes during the hold
 //   (D-26, F-6: a grouped read holds as a lone read; #4284).
-// - #4399 (it.fails, carve row): two actions, each holding a verdict
-//   memo's write, ask `m1:15` twice: once in A's verdict lane, once in B's
-//   transaction over the same inputs (F-9).
+// - #4399: two actions, each holding a verdict memo's write, ask `m1:15`
+//   once: in A's verdict lane. `m1`'s pass over `m0b`'s landing is the
+//   hold's work (D-25: re-run by the write its hold holds, it reads plainly
+//   in either read order) and stays out of A's lane; moved into it, it read
+//   the landing as the screen and asked `m1:15` again (F-9).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   action,
@@ -129,14 +130,13 @@ describe("#4398: grouping isPending(m1) with m1() shows the same values", () => 
 });
 
 describe("#4399: two actions, each holding a verdict memo's write", () => {
-  // F-9: a re-ask of the same question is no new question. A row for the
-  // reader-seat carve: telling B's pass apart from A's lane pass over the
-  // same inputs needs a per-pass check.
+  // F-9: a re-ask of the same question is no new question. D-25: `m1`'s
+  // pass over `m0b`'s landing is its hold's work, not A's verdict lane's
+  // (lanes.ts `holdsPass`).
   const once = async (reader: Reader) => {
     const { asks, values } = await run(reader, "two-actions");
     expect(new Set(asks).size, asks.join(" ")).toBe(asks.length);
     expect(values.at(-1)).toBe("26");
   };
-  it("each question asked once (pair)", () => once("pair"));
-  it.fails.each(["split", "value"] as const)("each question asked once (%s)", once);
+  it.each(["pair", "split", "value"] as const)("each question asked once (%s)", once);
 });

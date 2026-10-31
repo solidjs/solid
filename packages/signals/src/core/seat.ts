@@ -59,6 +59,7 @@ import {
   EFFECT_RENDER,
   NOT_PENDING,
   REACTIVE_JOINED,
+  REACTIVE_MISSED_WAKE,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
@@ -68,6 +69,7 @@ import {
 import {
   clock,
   flushTransaction,
+  observeFlightHook,
   globalQueue,
   GlobalQueue,
   latestOpened,
@@ -395,8 +397,17 @@ function applyRaise(seat: Seat, p: Prediction): void {
   if (seat.ownWorld > seat.world) seat.world = seat.ownWorld;
   // Display-ahead (today `route`): the pass is the hold's verdict reader
   // unless already seated, or already the frame's (it read the future or a
-  // staging: world > S).
-  if (p.raise & MARK_AH && p.tx !== null && !seated(seat) && seat.ownWorld === WORLD_S)
+  // staging: world > S), or a member of the frame a held pass of that hold
+  // built (the held-frame clause; D-25: born in the hold's world, it reads
+  // plainly — a probe does not rescue it; D-27: its runs are the frame's,
+  // which commits with the hold).
+  if (
+    p.raise & MARK_AH &&
+    p.tx !== null &&
+    !seated(seat) &&
+    seat.ownWorld === WORLD_S &&
+    !(seatBornInto(seat, p.tx) && seat.node!._config & CONFIG_HELD_FRAME)
+  )
     seat.vhold = resolveTx(p.tx);
   if (p.raise & RAISE_VSEAT && p.tx !== null) {
     // (A lane the pass sat in links to the verdict lane, `enterLane`.)
@@ -493,6 +504,11 @@ export function slot(
   const laneNode = (cfg & CONFIG_OVERRIDE) !== 0;
   const guess = (cfg & CONFIG_GUESS) !== 0;
   const stagedError = (cfg & CONFIG_STAGED_ERROR) !== 0;
+  /** D-8: a plain signal's staging equal to its committed value — writes
+   * that netted, no proposal (`read`'s plain arm; #4452, #4485). A window's
+   * read of it is the seam's verdict's rows below (`provisionalVerdict`
+   * answers it final and routes it as they say). */
+  const netted = staged && !isFn && !laneNode && el._pendingValue === el._value;
   /** The staging as a slot: its value, or the error it stages (D-41). */
   const stagedSlot = stagedError ? SLOT_E : SLOT_P;
   /** The screen as a slot: the committed value, or the error still shown
@@ -718,9 +734,15 @@ export function slot(
     // verdict lane's — the pass is the hold's verdict reader, unless its
     // branch exists only in the future (`creatorReads`: a pass whose
     // running creators, or itself when a memo, read the future or a
-    // staging — D-25, D-26, #4341).
+    // staging — D-25, D-26, #4341), or a member of the frame a held pass
+    // of the lane's hold built (the held-frame clause, D-25 D-27).
     const enter = vlane
-      ? inSeat || !(seat!.creatorsWorld > WORLD_S || (!isEffect && seat!.ownWorld > WORLD_S))
+      ? inSeat ||
+        !(
+          seat!.creatorsWorld > WORLD_S ||
+          (!isEffect && seat!.ownWorld > WORLD_S) ||
+          (seatBornInto(seat, l._parent!) && c!._config & CONFIG_HELD_FRAME)
+        )
         ? RAISE_VSEAT
         : 0
       : RAISE_LANE;
@@ -886,6 +908,12 @@ export function slot(
     // (F-9, as D1/L1: a staging beneath a flight is not what the reader
     // sees — the flight decides below. The 50k differential's V3 finding.)
     if (!pending) {
+      const row = renderLeaf ? "L1" : inLane ? rowBase + "D7" : rowBase + "D1";
+      // D1'' / L1'' / V3'' (D-8, #4452, #4485): writes that netted made no
+      // proposal — the staging (the screen's value) for every reader, raising
+      // nothing: not a read of the frame's future, nor a verdict reader's
+      // stale read of the tick's hold.
+      if (netted) return carry(pred(row + "''", SLOT_P));
       if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) {
         // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
         // staging before (the seam's verdict).
@@ -894,7 +922,6 @@ export function slot(
       }
       if (inLane && seat!.lane!.folded && stagedScreen && !uninit)
         return carry(pred(rowBase + "D7'", SLOT_C, MARK_ST, flushTransaction)); // folded lane work reads the screen (D-34)
-      const row = renderLeaf ? "L1" : inLane ? rowBase + "D7" : rowBase + "D1";
       // A pass reading a node born staged (uninitialized) has no screen to
       // re-derive on: no Fl mark (#3969), the value is still the staging's.
       const raise = uninit ? 0 : RAISE_FL | (inSeat || (isEffect && verdictReader) ? MARK_W : 0);
@@ -914,6 +941,28 @@ export function slot(
       if (running) return carry(pred("V4", screen, MARK_ST | MARK_AH, flushTransaction));
       return carry(pred("V4", screen));
     }
+    // D-22 (amended 2026-10-30), F-9: a first answer staged this flush and
+    // re-asked in it — answered, then re-asked. A pass with no value of its
+    // own, waiting on it (on the source a read of it parks on — the node,
+    // or the async it derives from, at any depth) or not waiting at all (its
+    // wait released by the landing, or a first pass), derives from it, once
+    // a flush (`read`). Not lane work or a verdict lane's pass (D-37).
+    if (
+      observeFlightHook &&
+      cUninit &&
+      uninit &&
+      staged &&
+      !held &&
+      !stagedError &&
+      !isEffect &&
+      !inSeat &&
+      (c!._flags & REACTIVE_MISSED_WAKE ||
+        (c!._pendingValue === NOT_PENDING &&
+          c!._x?._served !== clock &&
+          (!(c!._statusFlags & STATUS_PENDING) ||
+            !!c!._x?._pendingSources?.has(((el as Computed<any>)._x!._error as any).source))))
+    )
+      return carry(pred(rowBase + "D3'", SLOT_P));
     return carry(pred(leaf ? "L5" : rowBase + "D3", SLOT_NR)); // F-2 D-28 / F-2 D-9
   }
 
@@ -1264,56 +1313,6 @@ const known: KnownDifference[] = [
       flushTransaction !== null &&
       seatBornInto(seat, txOf(el!)) &&
       resolveTx(flushTransaction) !== resolveTx(txOf(el!))
-  },
-  {
-    // laneRead's D-28 reset compares verdict lanes by identity: a lane whose
-    // parent merged into the seat's hold reads as another hold's.
-    issue: 4427,
-    kind: "slot",
-    row: "V6",
-    expected: SLOT_LV,
-    actual: SLOT_P,
-    when: (c, el, seat) => {
-      const l = el!._x?._transaction;
-      return (
-        (c as any)._type === EFFECT_RENDER &&
-        seat.vhold !== null &&
-        !!l &&
-        l._lane &&
-        laneOf(l) === null &&
-        l._parent !== null &&
-        resolveTx(l._parent) !== l._parent &&
-        resolveTx(l._parent) === resolveTx(seat.vhold)
-      );
-    }
-  },
-  {
-    // `recompute`'s born-held test reads `creatorPass(oldcontext)`'s JOINED
-    // flag — the owner context of the creation, not the running pass. Under
-    // `runWithOwner` to an ancestor (`fallback`'s `b._fb`, created in
-    // `out._parent` while the output runs) that is a running ancestor that
-    // read the future itself, while the running pass (the output) did not:
-    // born held today, one level up the OWNER chain; not by the table's
-    // one-level running creator (F-mount reading A). The transitive reading
-    // (A29 / #4341: the branch exists only in the hold) agrees with today
-    // here and disagrees in 14 suite passes — design doc §7 F-transitive,
-    // pending the maintainer's ruling.
-    issue: 4428,
-    kind: "born",
-    row: "B2",
-    expected: 0,
-    actual: 1,
-    when: (c, _el, seat) => {
-      const o = shadowOldCreator;
-      return (
-        o !== null &&
-        (o._flags & REACTIVE_JOINED) !== 0 &&
-        (depth === 0 || seats[depth - 1].node !== o) &&
-        !(c._flags & REACTIVE_JOINED) &&
-        seat.creatorWorld < WORLD_H &&
-        seat.creatorsWorld === WORLD_H
-      );
-    }
   }
 ];
 const knownHits = new Map<number, number>();
