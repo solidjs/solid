@@ -16,8 +16,10 @@ import {
   REACTIVE_DIRTY,
   REACTIVE_WINDOW,
   REACTIVE_DISPOSED,
+  REACTIVE_IN_HEAP,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_REASK,
+  REACTIVE_RELEASE_AFTER,
   REACTIVE_STAGED_READ,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
@@ -146,13 +148,19 @@ export function forEachDependent(
 // forever with zero subscribers (#2934). The node's own promise/iterator
 // callbacks handle their own release (settleAutodispose in handleAsync); this
 // covers derivatively-pending dependents, which have no callbacks of their own.
+// A node whose pass is already queued (the settle walk re-enqueued a
+// `_blocked` reader) is released at that pass's tail, not before it: the
+// release would pull the pass back out of the heap, and the node would wake
+// later with no value for the landing it missed (D-22, #4474).
 export function releaseIfSettledUnobserved(node: Computed<any>): void {
-  (node as any)._fn &&
+  if (
+    (node as any)._fn &&
     node._config & CONFIG_AUTO_DISPOSE &&
     !node._subs &&
     !(node._flags & REACTIVE_ZOMBIE) &&
-    !(node._statusFlags & STATUS_PENDING) &&
-    unobserved(node);
+    !(node._statusFlags & STATUS_PENDING)
+  )
+    node._flags & REACTIVE_IN_HEAP ? (node._flags |= REACTIVE_RELEASE_AFTER) : unobserved(node);
 }
 
 // Error-path sweep: notifyStatus(STATUS_ERROR) clears dependents' pending
@@ -399,8 +407,10 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
 
   forEachDependent(el, settle);
 
-  // Release before the flush schedule below: unobserved() pulls the node back
-  // out of the heap, so the enqueueSub above never recomputes a released node.
+  // A node the enqueueSub above queued is released at that pass's tail
+  // (`releaseIfSettledUnobserved`, REACTIVE_RELEASE_AFTER): the landing's
+  // pass is its — released first, it woke later with no value for it
+  // (#4474).
   if (released) for (const node of released) releaseIfSettledUnobserved(node);
 
   if (scheduled) schedule();

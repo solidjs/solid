@@ -1,7 +1,7 @@
 {
   "signals: core floor (createSignal/Memo/Effect/Root/flush)": {
-    "cap": "7.43 KB",
-    "minified": 19923
+    "cap": "7.45 KB",
+    "minified": 19966
   },
   "app: render + one signal (the simple-app floor)": {
     "cap": "9.80 KB",
@@ -16,8 +16,8 @@
     "minified": 101740
   },
   "page: live server components (base + live/GET + action + isPending/latest)": {
-    "cap": "39.10 KB",
-    "minified": 118123
+    "cap": "39.18 KB",
+    "minified": 118188
   },
   "server: floor (getRequestEvent + isServer)": {
     "cap": "1.29 KB",
