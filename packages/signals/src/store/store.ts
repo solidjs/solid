@@ -1838,12 +1838,27 @@ function serveDataKey(
 
 /** Does `c` observe `n`'s flight: among its subscribers (any pass's link — a
  * kept tail included), or, with guesses written over its question (`w`),
- * pending on it? Walks `n`'s subs, not `c`'s deps: a reader of many leaves asks this
+ * pending on it as part of the frame's hold? Walks `n`'s subs, not `c`'s deps: a reader of many leaves asks this
  * per leaf, and the derive's subs are its few flight observers (#4536). */
 function observes(c: Computed<any>, n: Signal<any>, w: unknown): boolean {
-  if (w && c._statusFlags & STATUS_PENDING && c._x?._pendingSources?.has(n as Computed<any>))
+  if (
+    w &&
+    c._statusFlags & STATUS_PENDING &&
+    c._x?._pendingSources?.has(n as Computed<any>) &&
+    frames(c)
+  )
     return true;
   for (let s = n._subs; s !== null; s = s._nextSub) if (s._sub === c) return true;
+  return false;
+}
+
+/** Part of the frame's hold (scheduler.ts `blockedBy`): a render effect, or
+ * a derivation a pending render effect reads. A user effect is not. */
+function frames(c: any): boolean {
+  if (c._type === EFFECT_RENDER) return true;
+  for (let s = c._subs; s !== null; s = s._nextSub)
+    if ((s._sub as any)._type === EFFECT_RENDER && s._sub._statusFlags & STATUS_PENDING)
+      return true;
   return false;
 }
 
