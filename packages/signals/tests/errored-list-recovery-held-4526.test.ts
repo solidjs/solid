@@ -17,6 +17,7 @@ import { expect, it } from "vitest";
 import {
   action,
   createErrorBoundary,
+  createMemo,
   createOptimisticStore,
   createRenderEffect,
   createRoot,
@@ -104,5 +105,55 @@ it("#4526: an errored list's held recovery keeps the error until its frame revea
   // The action's refresh lands: its frame reveals.
   await settle("issues:closed", a => a.res([{ id: 1 }, { id: 2 }]));
   expect(screen()).toBe("[#1][#2]");
+  dispose();
+});
+
+it("#4526: a recovery's reader clears walk the boundary's readers once, not once per clear", () => {
+  // N render effects read one memo under the boundary; the memo errors and
+  // recovers. Each effect's clear asks whether it was the last reader: that
+  // must not re-walk the remaining readers (`prune`) every time — N²/2 steps.
+  // Counted as Map iteration steps during the recovery flush (deterministic).
+  const N = 1000;
+  const [bad, setBad] = createSignal(false);
+  let shown: unknown;
+  const dispose = createRoot(d => {
+    const m = createMemo(() => {
+      if (bad()) throw new Error("x");
+      return 1;
+    });
+    const view = createErrorBoundary(
+      () => {
+        for (let i = 0; i < N; i++) createRenderEffect(m, () => {});
+        return "ok";
+      },
+      () => "err"
+    );
+    createRenderEffect(view, v => void (shown = v));
+    return d;
+  });
+  flush();
+  setBad(true);
+  flush();
+  expect(shown).toBe("err");
+  const proto = Map.prototype as any;
+  const iterate = proto[Symbol.iterator];
+  let steps = 0;
+  proto[Symbol.iterator] = function (this: Map<unknown, unknown>) {
+    const it = iterate.call(this);
+    return {
+      next: () => (steps++, it.next()),
+      [Symbol.iterator]() {
+        return this;
+      }
+    };
+  };
+  try {
+    setBad(false);
+    flush();
+  } finally {
+    proto[Symbol.iterator] = iterate;
+  }
+  expect(shown).toBe("ok");
+  expect(steps).toBeLessThan(4 * N);
   dispose();
 });
