@@ -41,6 +41,7 @@ import {
   creatorReads,
   joinPass,
   markLateLinker,
+  markWakeRederives,
   prepareComputed,
   pullComputed,
   setVerdict,
@@ -49,7 +50,9 @@ import {
   strictReadActive,
   tracking,
   unflushedValue,
-  verdict
+  verdict,
+  wakeCatchUp,
+  waking
 } from "./core.js";
 import { warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
@@ -418,7 +421,7 @@ function heldLatest(el: Signal<any> | Computed<any>, c: Computed<any> | null): u
 function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null): unknown {
   const owner = el as Computed<any>;
   const owned = !!c && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
-  const tracked = owned && tracking;
+  const waked = wakeCatchUp && owned && tracking && c === waking;
   // A31: the pulled memo's pass is its own, not the probe's — it reads
   // outside the window, and the probe's read below answers for what the pass
   // produced. So is a lazy or dormant memo's wake (an unowned memo with no
@@ -443,6 +446,22 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   setVerdict(verdictValue);
   latestActive = prevLatest;
   probing = prevProbing;
+  // A catch-up's window reads the screen and routes the pass nowhere
+  // (core.ts `wake`, D-22 #4474): the pass is the landing the memo missed,
+  // its result the memo's committed value — made a verdict lane's work, it
+  // would leave the memo with no committed value at all. Opened on this
+  // flush's world (a flight, a staging), the memo re-derives over the
+  // catch-up as the pass a prior reader's memo ran this flush, a verdict
+  // reader then. Not a window on a source with no committed value (after
+  // the pull: a dormant source woken here may have one now): there is no
+  // screen to read — a first landing's staging is its only value and the
+  // pass is the landing's own, a verdict reader of it as the eager memo's
+  // pass was (display-ahead of the hold it parks in); a first flight has
+  // nothing to serve.
+  const wake = waked && !(owner._statusFlags & STATUS_UNINITIALIZED);
+  const tracked = owned && tracking && !wake;
+  if (wake && (owner._statusFlags & STATUS_PENDING || el._pendingValue !== NOT_PENDING))
+    markWakeRederives();
   // Shadow (S0): the window's decision point — the rows Vl*/Vp*.
   if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, false);
   // A live `affects()` mark on the node or a dependency (affects.ts): not
@@ -533,7 +552,9 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       }
       if (tracked) verdictRead(c!, t);
       if (probing && heldNotFinal(owner)) probeFound = true;
-      if (latestActive && el._pendingValue !== NOT_PENDING) {
+      // A catch-up reads the screen here too (core.ts `wake`): the held
+      // proposal is this flush's world, its re-derive's to show.
+      if (latestActive && el._pendingValue !== NOT_PENDING && !wake) {
         // An action body reading another transaction's proposal derives
         // from it: the two settle as one (A15; posture C, 2026-09-15). An
         // untracked read elsewhere has no transaction to entangle.
@@ -582,8 +603,9 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     if (latestActive) {
       // A28: an unflushed write is not what `latest` serves; a tracked
       // reader derived from the flushed world runs again in the carrying
-      // flush.
-      if (globalQueue._running) {
+      // flush. A catch-up reads the screen (core.ts `wake`): its re-derive
+      // serves the staging.
+      if (globalQueue._running && !wake) {
         if (__TEST__) shadowActual(SLOT_P);
         return staged(el);
       }

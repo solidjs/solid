@@ -25,6 +25,7 @@ import {
   CONFIG_HAS_SNAPSHOT,
   CONFIG_NO_SNAPSHOT,
   CONFIG_PLUMBING,
+  CONFIG_REDERIVE,
   CONFIG_WIDE,
   CONFIG_SUPERSEDES,
   CONFIG_SLOT_NODE,
@@ -640,7 +641,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // D-41: a pass of a held node, or one that read a staging of this
       // flush, stages its error (`stageError`).
       if (notReady || !(stagedErr = stageError(el, e, true))) {
-        if (notReady) ext(el)._blocked = true;
+        if (notReady) {
+          const x = ext(el);
+          x._blocked = true;
+          // The re-park carries this pass's source alone, as a pass that
+          // answered does (`clearStatus`): a source the earlier pass carried
+          // and this one did not reach is retired from the dependents below
+          // (#3456). Kept, it outlived its landing — a verdict reader
+          // re-derived past an errored one (A19) waited on it forever once
+          // its live source landed unchanged (#4474 fuzzer, 7 #6390).
+          x._pendingSources = undefined;
+        }
         notifyStatus(el, notReady ? STATUS_PENDING : STATUS_ERROR, e);
         // The replacement source is fully propagated now. If no new flight
         // re-owned self, retire the superseded flight and its dependent copies.
@@ -1811,6 +1822,9 @@ export function spectate<T>(fn: () => T): T {
  */
 export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void {
   if (comp._flags & REACTIVE_LAZY) {
+    // A `lazy` memo's first computation is on demand (its option's contract):
+    // a first pass of this flush's world, with no earlier world to catch up
+    // on. Released after it, it wakes as a dormant memo below.
     comp._flags &= ~REACTIVE_LAZY;
     recompute(comp as Computed<any>, true);
   } else if (comp._flags & REACTIVE_DISPOSED) {
@@ -1834,10 +1848,114 @@ export function prepareComputed(comp: Computed<unknown>, refresh: boolean): void
         // live chain too.
         if (!(comp._flags & REACTIVE_ZOMBIE)) linkChild(parent, comp);
       }
-      recompute(comp as Computed<any>, true);
+      wake(comp as Computed<any>);
     }
   } else if (refresh) {
     updateIfNecessary(comp);
+  }
+}
+
+/** The memo a wake pass is running for (`wake`); whether the pass is a
+ * catch-up; the flights `read` served it a committed value for, where a
+ * plain pass would have thrown; and whether it read this flush's world past
+ * the screen — a staging, or a flight through a window — and re-derives
+ * over it after the pass. */
+export let waking: Computed<any> | null = null;
+/** The wake pass is a catch-up: the memo has no committed value (released
+ * unread at its source's landing, before the retry that would have given
+ * it one), so its pass computes on the committed world — the screen. A
+ * dormant memo with a committed value re-runs on this flush's world as any
+ * pass does: its committed value is the world it was released in, and an
+ * async one's question is this flush's. */
+export let wakeCatchUp = false;
+let wakeServed: Computed<any>[] | null = null;
+let wakeRederives = false;
+/** verdict.ts: the catch-up opened a window on this flush's world. */
+export function markWakeRederives(): void {
+  wakeRederives = true;
+}
+
+/**
+ * D-22 (#4474): laziness is never observable — a memo nobody read has still
+ * produced what the flushes it missed would have given it. A dormant memo
+ * (CONFIG_AUTO_DISPOSE, released by `unobserved`) wakes at its next read:
+ *
+ * - Its plain read of a flight with a committed value is served that value
+ *   (`read`), the landing it missed, instead of throwing; after the pass the
+ *   memo waits on each flight so served, like any dependent
+ *   (`propagateStatus`): pending beside its value, so `latest` of it is that
+ *   value and `isPending` of it `true` — the screen a prior reader would
+ *   have kept. A flight with no committed value throws as before (loading,
+ *   F-9); a held flight is the hold's (`joinPass`, D-27).
+ * - A memo released unread at its source's landing (#2934: the settle walk
+ *   queued its retry, and the release took it) has no committed value
+ *   (`commitPendingNode` keeps it uninitialized): its pass is a catch-up on
+ *   the committed world. It reads the screen — a staging of this flush is
+ *   read as its committed value (`read`, `serve`), a window of its own
+ *   answers for the screen and routes the pass nowhere (verdict.ts
+ *   `verdictValue`): the pass commits, as the memo's committed value — and
+ *   then re-derives in this flush, as the memo a prior reader kept alive was
+ *   re-derived by the write's fan-out (a staging) or by its source going
+ *   pending (a window, A19): that pass stages, or is the verdict lane's,
+ *   over the catch-up. A verdict reader or a boundary's output
+ *   (CONFIG_VERDICT, CONFIG_REDERIVE) is re-derived rather than marked, as
+ *   `propagateStatus` treats it.
+ * - A catch-up that errored has no value to carry through a flight it was
+ *   served: it re-derives at the landing (`_blocked`, D-41).
+ * - An async memo's catch-up asks the flight the missed landing would have
+ *   asked; the re-ask's answer supersedes it as it would have (`asyncWrite`'s
+ *   `_inFlight` check).
+ *
+ * Not a `lazy` memo's first computation (`prepareComputed`): on demand by
+ * its option's contract, it is a first pass of this flush's world.
+ */
+function wake(comp: Computed<any>): void {
+  const prev = waking;
+  const prevCatchUp = wakeCatchUp;
+  const prevServed = wakeServed;
+  const prevRederives = wakeRederives;
+  waking = comp;
+  // Not a memo whose own landing is staged in this flush (released in
+  // flight, its answer queued for the commit): the staging is the value the
+  // missed world gave it, and the pass is this flush's, as the eager memo's
+  // re-derive over its landing would be.
+  wakeCatchUp =
+    (comp._statusFlags & STATUS_UNINITIALIZED) !== 0 && comp._pendingValue === NOT_PENDING;
+  wakeServed = null;
+  wakeRederives = false;
+  recompute(comp, true);
+  // Both set by the pass's reads (`read`, `serve`, `verdictValue`), which
+  // flow analysis does not see through `recompute`.
+  const served = wakeServed as Computed<any>[] | null;
+  const rederives = wakeRederives as boolean;
+  waking = prev;
+  wakeCatchUp = prevCatchUp;
+  wakeServed = prevServed;
+  wakeRederives = prevRederives;
+  if (comp._flags & REACTIVE_DISPOSED) return;
+  // A verdict reader, or a boundary's output, is re-derived by a source
+  // going pending, never marked (`propagateStatus`, A19): the pass it
+  // missed re-derives it now, over its catch-up (below).
+  const rederived = comp._config & (CONFIG_VERDICT | CONFIG_REDERIVE);
+  if (served !== null && !rederived)
+    for (const s of served) {
+      if (!(s._statusFlags & STATUS_PENDING)) continue;
+      if (!(comp._statusFlags & STATUS_PENDING)) queuePendingNode(comp);
+      // A catch-up that errored has no value to carry through the flight
+      // (the error leaves the display at the landing, D-41): it re-derives
+      // there, as a pass thrown on the flight would (`_blocked`) — the error
+      // again, or the landing's answer.
+      if (comp._statusFlags & STATUS_ERROR) comp._x!._blocked = true;
+      notifyStatus(comp, STATUS_PENDING, s._x!._error);
+    }
+  // The catch-up read the screen where this flush has a staging, or opened
+  // a window on a flight: the memo a prior reader kept alive was re-derived
+  // by this flush (the write's fan-out; `propagateStatus` for a verdict
+  // reader, A19) — this one is now, over its catch-up, as that pass: its
+  // staging the flush's, its verdict the lane's.
+  if (rederives || (served !== null && rederived)) {
+    enqueueSub(comp);
+    schedule();
   }
 }
 
@@ -2063,6 +2181,15 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       if (__TEST__) shadowActual(SLOT_C);
       return el._value as T;
     }
+    // D-22 (#4474): a catch-up computes on the committed world — the screen,
+    // as its sources stood before this flush's staging — and re-derives over
+    // the staging after (`wake`), as the memo a prior reader kept alive did
+    // in this flush.
+    if (wakeCatchUp && c === waking) {
+      wakeRederives = true;
+      if (__TEST__) shadowActual(SLOT_C);
+      return el._value as T;
+    }
     // A staging equal to the committed value is writes that netted (D-8): no
     // proposal, so not a read of the frame's future — nor, for a verdict
     // reader, a stale read of the tick's hold re-run at its landing (#4485):
@@ -2253,11 +2380,23 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
           if (__TEST__) shadowActual(SLOT_P);
           return el._pendingValue as T;
         }
-        // An untracked read of a pending node still re-runs its reader when
-        // the node settles — unless nobody is reading (`spectating`, #3528)
-        // or the reader is the node itself.
-        if (!tracking && !spectating && el !== c) link(el, c as Computed<any>);
-        throw owner._x?._error;
+        // D-22 (#4474): a woken memo's read of a flight with a committed
+        // value is served (`serve`: the committed value — a catch-up's screen
+        // — or a staging), the landing it missed — untracked too, as the
+        // landing would have served it; `wake` marks it pending on the
+        // flights served here after the pass. Not a held flight: the pass
+        // joined its hold above and derives from it as before.
+        if (
+          c !== waking ||
+          (owner._statusFlags & STATUS_UNINITIALIZED) | (el._config & CONFIG_HELD)
+        ) {
+          // An untracked read of a pending node still re-runs its reader when
+          // the node settles — unless nobody is reading (`spectating`, #3528)
+          // or the reader is the node itself.
+          if (!tracking && !spectating && el !== c) link(el, c as Computed<any>);
+          throw owner._x?._error;
+        }
+        (wakeServed ??= []).push(owner);
       }
     } else if (owner._statusFlags & STATUS_UNINITIALIZED) {
       throw owner._x?._error;
@@ -2342,6 +2481,21 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // (A held node's stash is its flushed staging: the staging's slot.)
     if (__TEST__) shadowActual(el._config & CONFIG_HELD ? SLOT_P : SLOT_C);
     return u;
+  }
+  // D-22 (#4474): a catch-up reads the screen and re-derives over the
+  // staging after (`wake`, as `read`'s fast block) — unless the node was
+  // born staged (a first landing): its staging is its only value, served
+  // below, and the pass that read it is the landing's own (no re-derive —
+  // an async catch-up would ask twice, and the first answer go unseen).
+  if (
+    wakeCatchUp &&
+    c === waking &&
+    el._pendingValue !== NOT_PENDING &&
+    !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
+  ) {
+    wakeRederives = true;
+    if (__TEST__) shadowActual(SLOT_C);
+    return el._value;
   }
   if (
     readerSeesCommitted(el, c) ||

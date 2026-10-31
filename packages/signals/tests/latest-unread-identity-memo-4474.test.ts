@@ -7,7 +7,7 @@
  * landing without re-running (#2934) and woke in the mount with no value: `latest(id)` returned
  * `undefined` beside `isPending(id) === true`.
  *
- * Ruled (pinned `it.fails` until built): a memo nobody has read has still produced what the flushes it missed would have given it.
+ * Ruled and built: a memo nobody has read has still produced what the flushes it missed would have given it.
  * The verdict read catches `id` up on the committed world (2), then it waits on the re-ask like any
  * dependent: `l:2 p:true`, then `l:3 p:false` at the landing. The screen is the same program's with
  * an unrelated prior reader of `id` (a user effect, which holds nothing). A plain `id()` in the
@@ -106,18 +106,15 @@ async function run(shape: Shape, plain: Plain, prior: boolean) {
 describe("#4474: latest() of an unread memo is what the flushes it missed gave it", () => {
   for (const shape of ["outside the root", "in a root", "an identity of an identity"] as const)
     for (const plain of ["none", "before", "after"] as const)
-      // Deviation today (D-22): a released memo wakes in the mount with no value, and `latest`
-      // reads it as `l:undefined p:true`, in every read order. Pinned at the ruled screen. (A memo
-      // in a root is never released: it re-runs at the landing.)
-      (shape !== "in a root" ? it.fails : it)(
-        `${shape}, plain read ${plain}: l:2 p:true, then l:3 p:false — as with a prior reader`,
-        async () => {
-          const screen = await run(shape, plain, false);
-          expect(screen.reasked.leaves).toEqual(["l:2 p:true"]);
-          expect(screen.landed.leaves).toEqual(["l:2 p:true", "l:3 p:false"]);
-          expect(screen.reasked.plains).toEqual([]);
-          expect(screen.landed.plains).toEqual(plain === "none" ? [] : ["p:3"]);
-          expect(screen).toEqual(await run(shape, plain, true));
-        }
-      );
+      // Built (D-22, `wake` in core.ts): the released memo's wake pass computes on the committed
+      // world and then waits on the re-ask, in every read order. (A memo in a root is never
+      // released: it re-runs at the landing — the control the released one must match.)
+      it(`${shape}, plain read ${plain}: l:2 p:true, then l:3 p:false — as with a prior reader`, async () => {
+        const screen = await run(shape, plain, false);
+        expect(screen.reasked.leaves).toEqual(["l:2 p:true"]);
+        expect(screen.landed.leaves).toEqual(["l:2 p:true", "l:3 p:false"]);
+        expect(screen.reasked.plains).toEqual([]);
+        expect(screen.landed.plains).toEqual(plain === "none" ? [] : ["p:3"]);
+        expect(screen).toEqual(await run(shape, plain, true));
+      });
 });
