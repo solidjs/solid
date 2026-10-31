@@ -255,13 +255,17 @@ function catchStatus(
     // effect reporting its own status. An error boundary records an effect
     // only while it is errored, and a staged error keeps STATUS_ERROR on a
     // node that had it (`stageError`), so `prune`'s CONFIG_STAGED_ERROR case
-    // cannot reach this path (#4364).
+    // cannot reach this path (#4364). "Last" is judged as the seam would
+    // (`prune`): readers the same held pass disposed — a list re-mapped
+    // under its parked pass drops the rows that read the error — are gone,
+    // and left for the seam, they revealed the stale content outside the
+    // hold (#4526).
     if (collecting.size !== 0)
       for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent)
         if (
           !((b._readers.get(node)?._statusFlags as number) & (b._type | STATUS_PENDING)) &&
           b._readers.delete(node) &&
-          b._readers.size === 0
+          prune(b, false) === 0
         ) {
           if (b._fallback) redraw(b);
           if (revealHooks && b._reveal !== null) revealHooks._changed(b._reveal);
