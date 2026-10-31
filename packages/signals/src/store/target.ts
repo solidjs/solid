@@ -54,9 +54,8 @@ export interface StoreFamily {
    * pass reads plainly (projection.ts). */
   w?: number;
   /** An arrangement guess was written while the derive asked a new question
-   * (optimistic.ts, #4525): the derive's `_time` then, so it lapses when that
-   * flight lands. Its readers pending on the flight keep observing it
-   * (store.ts `pullFamily`, #4536). */
+   * (optimistic.ts, #4525): the derive's `_time` then, so the mark lapses
+   * when the derive runs again (optimistic.ts `stands`, #4536). */
   g?: number;
 }
 

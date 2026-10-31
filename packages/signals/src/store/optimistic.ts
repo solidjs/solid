@@ -33,7 +33,7 @@ import {
   STATUS_PENDING,
   REACTIVE_REASK
 } from "../core/constants.js";
-import { ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
+import { context, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
 import { laneValueOf, optimisticWrite, pendingGuessOf, take } from "../core/lanes.js";
 import {
   clock,
@@ -584,10 +584,32 @@ installOptHooks({
   // ordinary pending read (F-2), so a keyed store's other keys wait for their
   // answer, not for the guess's action; in a lane with no guess of its own,
   // or with no live guess left, none does (F-6).
+  // A reader already observing the flight (linked) keeps observing it:
+  // served the guess, a re-run (the guess's own, the seam) would drop its
+  // link and release the hold beside a guess over the previous answer
+  // (F-1, #4536) — the ordinary read serves its committed frame or keeps it
+  // pending. So does a render effect pending on a flight the guess was
+  // written over (`fam.g`, the #4525 mark; D-34: the guess does not answer
+  // it): read here, as `pullFamily`'s own read would, since the frame's
+  // guard there returns early for an unlinked render effect.
   stands: t => {
-    const o = t._fam!._overlaid;
-    const a = t._fam!._asked;
-    return !!o?.size && (a !== clock + 1 || passLane !== null || o.has(t)) && a !== ~clock;
+    const f = t._fam!;
+    const o = f._overlaid;
+    const a = f._asked;
+    if (!(o?.size && (a !== clock + 1 || passLane !== null || o.has(t)) && a !== ~clock))
+      return false;
+    const c: any = context;
+    const d = f.node!;
+    if (c === null) return true;
+    for (let s = d._subs; s !== null; s = s._nextSub) if (s._sub === c) return false;
+    if (
+      f.g === d._time &&
+      c._type === EFFECT_RENDER &&
+      c._statusFlags & STATUS_PENDING &&
+      c._x?._pendingSources?.has(d)
+    )
+      readNode(d);
+    return true;
   },
   // Mainline hold (`clock + 1`): the flush joins the action of each guess a
   // reader still reads at the seam; a reader that moved off it (a keyed

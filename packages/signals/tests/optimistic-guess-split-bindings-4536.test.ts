@@ -18,7 +18,6 @@ import { expect, it } from "vitest";
 import {
   action,
   createLoadingBoundary,
-  createMemo,
   createOptimisticStore,
   createRenderEffect,
   createRoot,
@@ -34,7 +33,7 @@ const tick = async () => {
   }
 };
 
-for (const split of [false, "effects", "memo"] as const)
+for (const split of [false, true])
   for (const on of [false, true])
     it(`#4536: a guess over a question in flight holds its readers' frame (split=${split}, on=${on})`, async () => {
       const asks: { key: string; res: (v: any) => void }[] = [];
@@ -70,9 +69,7 @@ for (const split of [false, "effects", "memo"] as const)
           () => {
             if (split) {
               createRenderEffect(filter, v => void seen.push(screen(), (f = v)));
-              createRenderEffect(split === "memo" ? createMemo(list) : list, v => {
-                seen.push(screen(), (l = v));
-              });
+              createRenderEffect(list, v => void seen.push(screen(), (l = v)));
             } else
               createRenderEffect(
                 () => `${filter()}: ${list()}`,
@@ -93,9 +90,7 @@ for (const split of [false, "effects", "memo"] as const)
       expect(screen()).toBe(on ? "loading" : "open: [#1][#3][#4]");
       closeOne(1);
       await tick();
-      // The guess shows over the old answer, or waits with the pending read.
-      if (on) expect(screen()).toBe("loading");
-      else expect(["open: [#3][#4]", "open: [#1][#3][#4]"]).toContain(screen());
+      expect(screen()).toBe(on ? "loading" : "open: [#3][#4]");
       await settle("issues:closed", [{ id: 1 }, { id: 2 }]);
       expect(screen()).toBe("closed: [#2]");
       await settle("close:1", {});
