@@ -2,10 +2,12 @@ import { checkForeignRead, enterCopy, exitCopy } from "./copies.js";
 import {
   clearStatus,
   handleAsync,
+  hasPendingSource,
   notifyStatus,
   parkLoadingWindow,
   releaseFlightTeardown,
   releaseIfSettledUnobserved,
+  retryReaches,
   settleErroredDependents,
   settlePendingSource,
   stageError
@@ -533,7 +535,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // settles synchronously, those dependents settle HERE — asyncWrite's
   // settlePendingSource walk never runs for a landing that was preempted
   // (#3181).
-  const wasPendingSource = el._x?._pendingSources?.has(el);
+  const wasPendingSource = hasPendingSource(el, el);
   // D-41: this pass's error is staged, not published (`stageError`).
   let stagedErr = false;
   // A19 exc. 2: a `refresh()` re-asks the question already answered — quiet
@@ -668,10 +670,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // dependent then waits forever on a flight it has no path to. The
       // re-park twin of the unchanged-value recovery sweep below; dependents
       // with another path keep the source (retryReaches). A staged error
-      // answered what the pass carried: the same.
+      // answered what the pass carried: the same. A source still in the set
+      // is dropped too when no dep reaches it any more: a re-park that keeps
+      // the set adds to it, so a stale entry survives the pass — a first
+      // answer staged in place of its flight (uninitialized until its
+      // commit, so its own settle walk waits) leaves the copy here while the
+      // readers in between re-derive clean (#4541).
       if ((notReady || stagedErr) && outgoingPendingSources)
         for (const source of outgoingPendingSources)
-          if (source !== el && !el._x?._pendingSources?.has(source))
+          if (source !== el && (!hasPendingSource(el, source) || !retryReaches(el, source)))
             settlePendingSource(el, source);
     }
   } finally {
