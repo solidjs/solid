@@ -520,7 +520,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (__DEV__) clearSignals(el);
   }
 
-  const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
+  const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
   // Capture both error and pending status before the compute clears them.
   // A conditional can drop its pending source and recover to an unchanged
   // value, leaving blocked dependents outside that source’s settle walk.
@@ -805,7 +805,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // equal to it changes nothing, though the node stays uninitialized until
     // the commit (#4540).
     const valueChanged =
-      (!isEffect && wasUninitialized && unstaged) ||
+      (unstaged && wasUninitialized && !isEffect) ||
       !!el._x?._shownError ||
       !!replaced ||
       !isSame(el, compareValue, value);
@@ -813,7 +813,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A committed derived change becomes a cause for this node's subscribers,
     // chaining their attribution through this node to the root write.
     if (__OBSERVE__ && attrHooks !== null) {
-      devChanged = valueChanged && !el._x?._error;
+      devChanged = !!valueChanged && !el._x?._error;
       if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
     }
 
