@@ -508,7 +508,12 @@ export function slot(
    * that netted, no proposal (`read`'s plain arm; #4452, #4485). A window's
    * read of it is the seam's verdict's rows below (`provisionalVerdict`
    * answers it final and routes it as they say). */
-  const netted = staged && !isFn && !laneNode && el._pendingValue === el._value;
+  const netted =
+    staged &&
+    !isFn &&
+    !laneNode &&
+    el._pendingValue === el._value &&
+    Object.is(el._pendingValue, el._value);
   /** The staging as a slot: its value, or the error it stages (D-41). */
   const stagedSlot = stagedError ? SLOT_E : SLOT_P;
   /** The screen as a slot: the committed value, or the error still shown
