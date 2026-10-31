@@ -46,6 +46,19 @@ export function isStatementVariableInitializer(path: NodePath): boolean {
   );
 }
 
+/**
+ * The statement that generated setup for statement-position JSX goes before.
+ *
+ * For `return <JSX />` that is the return itself. `getStatementParent()` only
+ * stops at a statement inside a statement list, so for a braceless `if`,
+ * `else` or loop body it returns the whole `if` or loop: setup inserted there
+ * runs on every path, and outside the loop's bindings. Inserting before the
+ * return lets Babel wrap that body in a block.
+ */
+export function getSetupStatement(path: NodePath): NodePath | null {
+  return t.isReturnStatement(path.parent) ? path.parentPath : path.getStatementParent();
+}
+
 export function getConfig(path: NodePath): PluginConfig {
   return (path.hub as unknown as BabelHubWithMetadata).file.metadata.config as PluginConfig;
 }
