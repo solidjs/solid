@@ -195,7 +195,7 @@ export function notifyOptimisticWrites(
     // older truth instead of folding beneath it (`_laneRebase`, F-1, #4525).
     const d = t._fam!.node;
     if (removed && d?._statusFlags! & STATUS_PENDING && !(d!._flags & REACTIVE_REASK))
-      view.g = null;
+      ((view.g = null), (t._fam!.g = d!._time));
     optimisticWrite(getContainerNode(t), view as any);
   }
   if (t.dk !== null) optimisticWrite(t.dk, {} as any);
@@ -402,6 +402,10 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
   // From the guess as written, not an earlier re-base's composition: a
   // derive's landing writes key by key, and a truth row one partial write
   // showed must not stay appended once the landing drops it (#4441).
+  // The #4525 re-base (`g` null): the lane's rows are the new question's
+  // answer now; its work reads that question's hold as the hold's own
+  // flush does (core.ts `frameRead`, F-1, #4536).
+  if (view.g === null) txOf(el).over = t._fam!.node!._x!._transaction!;
   const guessed = (view.g ??= view.rows as any[]);
   for (let i = 0; i < guessed.length; i++) {
     const g = guessed[i];

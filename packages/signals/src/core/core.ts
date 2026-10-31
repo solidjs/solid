@@ -1321,7 +1321,10 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // Lane work and verdict readers are never the transaction's pass, whichever
   // flush runs it: a node T holds re-enters T when it re-runs (`recompute`'s
   // head), and the pass may then read a guess and become the lane's.
-  if ((t === flushTransaction && !lane && !verdict) || bornInto(c, t)) return false;
+  // Except a lane re-based over this transaction's answer, in its flush: its
+  // rows are that answer's, so its work reads the rest of it (#4536).
+  if ((t === flushTransaction && (!lane || passLane!.over === t) && !verdict) || bornInto(c, t))
+    return false;
   staleReader(c, t);
   // Lane work or a verdict reader no longer waits on `el`'s flight (lanes.ts
   // `laneServed`, A15).

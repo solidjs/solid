@@ -1836,9 +1836,14 @@ function serveDataKey(
   return draftServe(target, wrap(v, target, key as any));
 }
 
-/** Is `n` among `c`'s dependencies (any pass's — a kept tail included)? */
-function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
-  for (let d = c._deps; d !== null; d = d._nextDep) if (d._dep === n) return true;
+/** Does `c` observe `n`'s flight: among its subscribers (any pass's link — a
+ * kept tail included), or, with guesses written over its question (`w`),
+ * pending on it? Walks `n`'s subs, not `c`'s deps: a reader of many leaves asks this
+ * per leaf, and the derive's subs are its few flight observers (#4536). */
+function observes(c: Computed<any>, n: Signal<any>, w: unknown): boolean {
+  if (w && c._statusFlags & STATUS_PENDING && c._x?._pendingSources?.has(n as Computed<any>))
+    return true;
+  for (let s = n._subs; s !== null; s = s._nextSub) if (s._sub === c) return true;
   return false;
 }
 
@@ -1865,37 +1870,34 @@ function pullFamily(target: StoreTarget): void {
     // leaves the landing changes (unchanged leaves say nothing — it is not a
     // stale reader of the derive). Inside the flush it suspends like any.
     // One that already observes the flight (linked by the pass that saw it
-    // go up — the frame's hold, `blocked`) keeps observing it: a re-run for
-    // another reason (a guess it read, the seam) that dropped the link would
-    // release the hold with the flight still up. An errored derive has no
-    // landing to learn of: the error is what the frame shows.
-    const c: any = context;
-    if (
-      c !== null &&
-      c._type === EFFECT_RENDER &&
-      fw._statusFlags & STATUS_PENDING &&
-      fw._config & CONFIG_HELD &&
-      flushTransaction !== txOf(fw) &&
-      !linkedTo(c, fw)
-    )
-      return;
+    // go up, or waiting on it while guesses stand — the frame's hold,
+    // `blocked`) keeps observing it: a re-run for another reason (a guess it
+    // read, the seam) that dropped the link would release the hold with the
+    // flight still up, beside a guess over the previous answer (F-1, #4536).
+    // An errored derive has no landing to learn of: the error is what the
+    // frame shows.
     // An optimistic family carrying guesses that stand in for the flight
     // (A17): the guesses are the display — a reader is served the leaves
     // (committed plus the guesses) and does not suspend on the derive; a
     // verdict window still asks it (`isPending` is true while the flight is
     // up). The family's, not the target's: the edit stands in for the one
     // flight the family has — not over a new question they do not answer
-    // (optimistic.ts `stands`, #4336). A reader already observing the flight
-    // keeps that observation: dropping its link here can release a new
-    // question's held inputs beside a guess over the previous answer.
-    // The ordinary read below serves its committed frame or keeps it pending.
+    // (optimistic.ts `stands`, #4336). Not to a reader observing the flight:
+    // the ordinary read below serves its committed frame or keeps it pending.
+    const c: any = context;
+    const s = verdict === null && fw._statusFlags & STATUS_PENDING && optHooks?.stands(target);
+    // Guesses written over the question in flight, which they do not answer (D-34).
+    const w = s && target._fam!.g === fw._time;
     if (
-      verdict === null &&
+      c !== null &&
+      c._type === EFFECT_RENDER &&
       fw._statusFlags & STATUS_PENDING &&
-      optHooks?.stands(target) &&
-      !(c?._deps && linkedTo(c, fw))
+      fw._config & CONFIG_HELD &&
+      flushTransaction !== txOf(fw) &&
+      !observes(c, fw, w)
     )
       return;
+    if (s && !(c && observes(c, fw, w))) return;
     // A pass the pull throws a staged error (D-41) is linked to the derive,
     // untracked too — `handleAsync` asking a returned proxy whether it is a
     // flight: the pass carries the error, and the re-ask or answer that

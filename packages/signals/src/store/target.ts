@@ -53,6 +53,11 @@ export interface StoreFamily {
    * the committed value of (store.ts `pullFamily`, #4491): the derive's next
    * pass reads plainly (projection.ts). */
   w?: number;
+  /** An arrangement guess was written while the derive asked a new question
+   * (optimistic.ts, #4525): the derive's `_time` then, so it lapses when that
+   * flight lands. Its readers pending on the flight keep observing it
+   * (store.ts `pullFamily`, #4536). */
+  g?: number;
 }
 
 /** One setter's written keys; `u` is the batch's earlier setters' (the

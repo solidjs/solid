@@ -81,9 +81,15 @@ for (const order of ["question first", "list first"] as const)
         await settle("close:1", {});
         await settle("issues:closed", [{ id: 2 }]);
         expect(frames.at(-1)).toBe("closed: [#2]");
-        expect(frames.filter(frame => frame.startsWith("closed") && /#3|#4/.test(frame))).toEqual(
-          []
-        );
+        // Never the new question beside the old answer's rows, nor the old
+        // question beside the new answer's (F-1).
+        expect(
+          frames.filter(
+            frame =>
+              (frame.startsWith("closed") && /#3|#4/.test(frame)) ||
+              (frame.startsWith("open") && /#2/.test(frame))
+          )
+        ).toEqual([]);
       } finally {
         dispose();
       }
