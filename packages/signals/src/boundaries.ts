@@ -363,11 +363,12 @@ export function prune(b: Boundary, pass: boolean): number {
         // lane's reader reveals with the lane, this round.) A boundary that
         // has not shown content catches it instead: the fallback stays until
         // the reader is committed (#3540: what a fresh boundary catches holds
-        // nothing outside it). Not an error boundary: what it caught in a hold
-        // was that hold's staged error (D-41), and an answer landing in the
-        // same hold replaces it there — the content reveals with the commit,
-        // and nothing ever shows the superseded error (D-39, #4527).
-        if (!pass || (!b._initialized && b._type & STATUS_PENDING)) continue;
+        // nothing outside it). Not an error boundary (born `_initialized`):
+        // what it caught in a hold was that hold's staged error (D-41), and an
+        // answer landing in the same hold replaces it there — the content
+        // reveals with the commit, and nothing ever shows the superseded
+        // error (D-39, #4527).
+        if (!pass || !b._initialized) continue;
         joinFuture(txOf(s));
       }
     }
@@ -615,7 +616,8 @@ function createBoundary<T>(
     _tree: null!,
     _output: null,
     _readers: new Map(),
-    _initialized: false,
+    // Loading only: an error boundary has no first-content wait (`prune`).
+    _initialized: type === STATUS_ERROR,
     _armed: false,
     _armLane: null,
     _lane: null,
