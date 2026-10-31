@@ -1,5 +1,19 @@
 # @solidjs/web
 
+## 2.0.0-rc.21
+
+### Patch Changes
+
+- 32163a9: A stylesheet released while it is still loading no longer hangs a gate that warmed it again inside the removal grace. The release schedules the element's removal 100 ms later; a mount in between (a `useHead` stylesheet under `<Loading>`) warmed the same registry entry and waited on that element's load, and the removal took the element out before it loaded. A removed link fires neither load nor error, so the boundary stayed on its fallback. The removal now settles a pending load the way an error does, and the gate warms the sheet again on a new element and waits on that one.
+- bb51da6: `AssetManifest` admits a manifest that sets `_base` (#4502). It was `Record<string, Entry> & { _base?: string }`, and since `_base` also falls under the string index signature it had to be an entry too, so a manifest literal with `_base: "/"` did not type-check. The index signature now carries entries, metadata strings (`_base`, and any an integration stamps, such as the vite plugin's `_entry`) and `undefined`, so a read by key is an entry once narrowed (`typeof entry === "object"`). The server renderer narrows the same way: a metadata key enumerated while registering entry assets, or asked for by `resolveAssets`, is skipped instead of throwing.
+- 61bb177: `createOwner` leaves solid-js's public types: it is typed only through `solid-js/internal`, like the boundary primitives behind `Errored`, `Loading` and `Reveal` (#3709). It stays a runtime export for the renderers. Solid 1.x had no `createOwner`, and application code that used it in an RC should host a scope with `createRoot()` (its `dispose` argument can be passed around as a plain function) and re-enter one with `runWithOwner()`. A detached `owner.dispose` keeps throwing, since it is a method and not part of the public API (#4444).
+- 6b6b4da: Server-rendered `<link rel="modulepreload">` hints for modules outside the entry's static import closure (lazy and route chunks, and modules registered later through `registerAsset("module")`, streamed hints included) now carry `fetchpriority="low"`, so they yield bandwidth to the modules hydration waits on. The entry's static imports and modulepreload links written through the head API keep their default priority. `renderToString` and `renderToStream` take `lowPriorityPreloads: false` to turn the hint off. In an rc.15 app (Tailwind, five entry imports, four route chunks) patched the same way, Chrome under Lighthouse's devtools throttling hydrated about 310 ms sooner with an unchanged first paint.
+- Updated dependencies [46ab2dd]
+- Updated dependencies [61bb177]
+- Updated dependencies [0d4c5e0]
+- Updated dependencies [99d9821]
+  - solid-js@2.0.0-rc.21
+
 ## 2.0.0-rc.20
 
 ### Patch Changes

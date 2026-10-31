@@ -1,5 +1,19 @@
 # solid-element
 
+## 2.0.0-rc.21
+
+### Patch Changes
+
+- Updated dependencies [32163a9]
+- Updated dependencies [bb51da6]
+- Updated dependencies [46ab2dd]
+- Updated dependencies [61bb177]
+- Updated dependencies [6b6b4da]
+- Updated dependencies [0d4c5e0]
+- Updated dependencies [99d9821]
+  - @solidjs/web@2.0.0-rc.21
+  - solid-js@2.0.0-rc.21
+
 ## 2.0.0-rc.20
 
 ### Patch Changes
