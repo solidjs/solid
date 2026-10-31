@@ -74,3 +74,60 @@ it("control: defer skips the first run when the mount is not held", async () => 
 it("defer skips the first run when the mount is held by an async memo (#4543)", async () => {
   expect(await mountChild(true)).toEqual({ text: "B", runs: [], after: [[2], [2]] });
 });
+
+it("a change during the hold runs a deferred effect once, at the commit (#4543)", async () => {
+  const runs: unknown[] = [];
+  const renders: unknown[] = [];
+  let answerPath!: () => void;
+  let answerData!: () => void;
+  const [path, setPath] = createSignal("a");
+  const matched = createMemo(() => {
+    const p = path();
+    return p === "a" ? p : new Promise<string>(r => (answerPath = () => r(p)));
+  });
+  let bump: ((v: number) => void) | undefined;
+  function Child() {
+    const [local, setLocal] = createSignal(1);
+    const keys = createMemo(() => [local()]);
+    createEffect(
+      () => keys(),
+      k => void runs.push(k),
+      { defer: true }
+    );
+    createRenderEffect(
+      () => keys(),
+      k => void renders.push(k),
+      { defer: true }
+    );
+    bump = setLocal;
+    // A second async read keeps the mount held after `matched` answers.
+    const data = createMemo(() => new Promise<string>(r => (answerData = () => r("d"))));
+    return <p>B{data()}</p>;
+  }
+  const el = document.createElement("div");
+  const dispose = render(
+    () => (
+      <Loading fallback="root">
+        <Show when={matched() === "b"} fallback={<p>A</p>}>
+          <Child />
+        </Show>
+      </Loading>
+    ),
+    el
+  );
+  setPath("b");
+  flush();
+  answerPath();
+  await wait(0);
+  flush();
+  expect([el.textContent, !!bump]).toEqual(["A", true]);
+  bump!(3);
+  flush();
+  expect([runs, renders]).toEqual([[], []]);
+  answerData();
+  await wait(0);
+  flush();
+  expect(el.textContent).toBe("Bd");
+  expect([runs, renders]).toEqual([[[3]], [[3]]]);
+  dispose();
+});

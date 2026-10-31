@@ -79,15 +79,12 @@ export function effect<T>(
   // staged); the flush's commit replays this effect. Its first run is not this
   // creation's (A29). A lane's node likewise: its run is the lane's, queued
   // by the pass and released at the reveal (lanes.ts).
-  if (node._pendingValue !== NOT_PENDING || node._x?._transaction?._lane) {
-    // `defer` skips the first run (#4543): here that is the replay, so the
-    // replay applies the value without calling back.
-    if (options?.defer) {
-      const fn = node._effectFn;
-      node._effectFn = () => void (node._effectFn = fn);
-    }
-  } else
-    !options?.defer &&
+  // `defer` skips the first run, the commit's replay of a node born staged
+  // included (#4543): it drops the staging, so the commit replays nothing.
+  options?.defer
+    ? (node._pendingValue = NOT_PENDING)
+    : node._pendingValue === NOT_PENDING &&
+      !node._x?._transaction?._lane &&
       (node._type === EFFECT_USER || options?.schedule
         ? globalQueue.enqueue(node._type, runEffect.bind(null, node))
         : // Type 0: the synchronous first render, not a queued run (D-19).
