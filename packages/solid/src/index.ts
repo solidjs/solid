@@ -3,7 +3,6 @@ export {
   $TRACK,
   action,
   affects,
-  createOwner,
   createReaction,
   createTrackedEffect,
   deep,
@@ -41,6 +40,12 @@ export {
 } from "@solidjs/signals";
 /** @internal — the key a root owner carries `render`'s `onError` under, for the web runtime. */
 export { ROOT_ERROR_HOOK } from "@solidjs/signals";
+// `createOwner`: a bare owner, for the runtimes' own scopes (`NoHydration`,
+// `Portal`, a frame's fill). Exported at runtime (typed for renderers through
+// `solid-js/internal`), `@internal` because application code hosts a scope
+// with `createRoot()` and re-enters one with `runWithOwner()`, as in 1.x.
+/** @internal */
+export { createOwner } from "@solidjs/signals";
 export { from } from "./from.js";
 
 export type {

@@ -13,7 +13,6 @@ export {
   createDeferred,
   createOptimistic,
   createOptimisticStore,
-  createOwner,
   createProjection,
   createReaction,
   createRenderEffect,
@@ -58,6 +57,12 @@ export {
   ROOT_ERROR_HOOK
 } from "./signals.js";
 export type { ClientErrorContext, ClientErrorHook, ClientErrorsConfig } from "./signals.js";
+// `createOwner`: a bare owner, for the runtimes' own scopes (`NoHydration`,
+// `Portal`, a frame's fill). Exported at runtime (typed for renderers through
+// `solid-js/internal`), `@internal` because application code hosts a scope
+// with `createRoot()` and re-enters one with `runWithOwner()`, as in 1.x.
+/** @internal */
+export { createOwner } from "./signals.js";
 
 // All type re-exports from signals
 export type {

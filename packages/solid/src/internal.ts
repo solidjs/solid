@@ -25,7 +25,8 @@
  *    The boundary primitives behind `Errored`, `Loading`, and `Reveal` are
  *    read back the same way (real on both entries), for renderers that
  *    build boundaries without the components, and so are `sharedConfig`
- *    (the hydration/SSR coordination object) and the `$DEVCOMP` brand.
+ *    (the hydration/SSR coordination object), the `$DEVCOMP` brand and
+ *    `createOwner` (a bare owner for a runtime's own scope).
  *
  * Not here: the container-trace materializer. It lives in its own entry,
  * `solid-js/internal/container-trace`, so the store engine it builds on can
@@ -37,6 +38,7 @@ import type {
   Accessor,
   Component,
   DynamicOptions,
+  Owner,
   RevealOrder,
   ServerErrorHook,
   ServerErrorSite
@@ -170,6 +172,19 @@ export const getProjectionTrace: (
  */
 export const shareAsyncIterable: <T>(source: AsyncIterable<T>) => AsyncIterable<T> =
   core.shareAsyncIterable;
+
+/**
+ * A fresh owner under the current one (or a detached root if there is none),
+ * for a runtime's own scope: `NoHydration`, `Portal`, a frame's fill. `id`
+ * seeds the hydration ids of the tree it owns; `transparent` lets that tree
+ * draw ids from the parent's counter. Its `dispose` is a method
+ * (`owner.dispose()`), not a detached function. Not application API: an app
+ * hosts a scope with `createRoot()` and re-enters one with `runWithOwner()`.
+ */
+export const createOwner: (options?: {
+  id?: string;
+  transparent?: boolean;
+}) => Owner & { dispose(self?: boolean): void } = core.createOwner;
 
 /** The primitive behind `<Errored>`: `fn()`, or `fallback(error, reset)` once something under it throws. */
 export const createErrorBoundary: <T, U>(
