@@ -7,6 +7,7 @@ import {
   createMemo,
   createOwner,
   Owner,
+  resolveChildren,
   runWithOwner,
   Setter,
   Signal,
@@ -313,7 +314,7 @@ export function Switch(props: {
   fallback?: string;
   children: MatchProps<unknown> | MatchProps<unknown>[];
 }) {
-  let conditions = props.children;
+  let conditions = resolveChildren(props.children) as MatchProps<unknown> | MatchProps<unknown>[];
   Array.isArray(conditions) || (conditions = [conditions]);
 
   for (let i = 0; i < conditions.length; i++) {
