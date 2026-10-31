@@ -979,10 +979,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // and it is held all the same — its answer reveals no earlier than the
   // hold's commit (D-12) — but the hold does not wait for it: its only
   // readers are behind the fallback (`_hidden`; F-4, #3540). A boundary
-  // re-armed by `on` owns what it collects outright (D-14): not held.
+  // re-armed by `on` owns what it collects outright (D-14): not held. Only
+  // an effect is caught: a derivation left pending is no reader (Reader,
+  // D-12) — held, so its answer is the hold's and a render effect reading
+  // it joins, but it reaches no boundary, and the commit waits for it only
+  // through such a reader (`blockedBy`, #4542).
   if (create && lane === null && joined && el._statusFlags & STATUS_PENDING) {
     const t = flushTransaction ?? passTx;
-    if (t && !t._lane && freshHook?.(el) !== CAUGHT_REARMED) holdNode(el, t);
+    if (t && !t._lane && (!isEffect || freshHook?.(el) !== CAUGHT_REARMED)) holdNode(el, t);
   }
   // Dependencies are the committed frame's until it is replaced (A30, #3410):
   // a pass that staged its value leaves the previous pass's tail linked for
@@ -2094,16 +2098,19 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     }
     // A staging equal to the committed value is writes that netted (D-8): no
     // proposal, so not a read of the frame's future — nor, for a verdict
-    // reader, a stale read of the tick's hold re-run at its landing (#4485):
-    // the committed value is the staging. (A plain signal is never
-    // uninitialized — the carve-out is `serve`'s.) Lane work over a folded
-    // lane (D-34), once the frame has a transaction, reads the screen too.
+    // reader, a stale read of the tick's hold re-run at its landing (#4485).
+    // (A plain signal is never uninitialized — the carve-out is `serve`'s.)
+    // `===` alone identifies opposite signed zeros. Require SameValue too;
+    // keep the strict check so an accepted NaN rewrite remains a proposal.
+    const netted = el._pendingValue === el._value && Object.is(el._pendingValue, el._value);
+    // Lane work over a folded lane (D-34), once the frame has a transaction,
+    // reads the screen too.
     if (
-      el._pendingValue === el._value ||
+      netted ||
       (((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
         stagedScreen(c as Computed<any>, el))
     ) {
-      if (__TEST__) shadowActual(el._pendingValue === el._value ? SLOT_P : SLOT_C);
+      if (__TEST__) shadowActual(netted ? SLOT_P : SLOT_C);
       return el._value as T;
     }
     stagedRead(c as Computed<any>);
@@ -2400,7 +2407,12 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // frame's future. Only the strict `untrack` read skips the fast block in
   // dev (its `strictRead` test); a hydration snapshot or a promoted write
   // reaches here in dev and prod alike, and keeps the mark.
-  if (!(__DEV__ && strictRead) || (el as Computed<any>)._fn || el._pendingValue !== el._value)
+  if (
+    !(__DEV__ && strictRead) ||
+    (el as Computed<any>)._fn ||
+    el._pendingValue !== el._value ||
+    !Object.is(el._pendingValue, el._value)
+  )
     stagedRead(c!, el);
   // D-41: the staged answer is an error (`stageError`).
   if (el._config & CONFIG_STAGED_ERROR) {
