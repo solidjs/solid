@@ -65,7 +65,6 @@ import { bornInto, creatorReads, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
 import {
   handleAsync,
-  hasPendingSource,
   isThenable,
   notifyStatus,
   releaseFlightTeardown,
@@ -600,7 +599,7 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
         slot === NOT_PENDING &&
         ((n as Computed<any>)._statusFlags & (STATUS_UNINITIALIZED | STATUS_PENDING)) ===
           (STATUS_UNINITIALIZED | STATUS_PENDING) &&
-        (x._inFlight || loading.some(q => hasPendingSource(n as Computed<any>, q)))
+        (x._inFlight || loading.some(q => x._pendingSources?.has(q)))
           ? loading.push(n as Computed<any>)
           : (n._pendingValue = latest);
       commitPendingNode(n);
@@ -1139,7 +1138,7 @@ const laneSeams = (t: Transaction | null): void => {
           for (let s = r._subs, n; s; s = s._nextSub)
             if (
               isThenable((n = s._sub)._x?._inFlight) &&
-              hasPendingSource(n, n) &&
+              n._x!._pendingSources?.has(n) &&
               n._config & CONFIG_HELD &&
               txOf(n) === t
             )

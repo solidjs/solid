@@ -3,7 +3,6 @@ import {
   clearInFlight,
   clearStatus,
   handleAsync,
-  hasPendingSource,
   notifyStatus,
   parkLoadingWindow,
   releaseFlightTeardown,
@@ -536,7 +535,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // settles synchronously, those dependents settle HERE — asyncWrite's
   // settlePendingSource walk never runs for a landing that was preempted
   // (#3181).
-  const wasPendingSource = hasPendingSource(el, el);
+  const wasPendingSource = el._x?._pendingSources?.has(el);
   // D-41: this pass's error is staged, not published (`stageError`).
   let stagedErr = false;
   // A19 exc. 2: a `refresh()` re-asks the question already answered — quiet
@@ -679,7 +678,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // readers in between re-derive clean (#4541).
       if ((notReady || stagedErr) && outgoingPendingSources)
         for (const source of outgoingPendingSources)
-          if (source !== el && (!hasPendingSource(el, source) || !retryReaches(el, source)))
+          if (source !== el && (!el._x?._pendingSources?.has(source) || !retryReaches(el, source)))
             settlePendingSource(el, source);
     }
   } finally {
