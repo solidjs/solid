@@ -289,8 +289,10 @@ export function sameKey(a: any, b: any): boolean {
  * (the server's object for a guessed row is the same row). */
 export class LaneView {
   /** The rows the setter wrote, kept across re-bases: each composes from
-   * them over the latest truth (optimistic.ts `_laneRebase`, #4441). */
-  declare g?: any[];
+   * them over the latest truth (optimistic.ts `_laneRebase`, #4441).
+   * `null` until the first re-base on a guess written while the derive
+   * asked a new question: that question's answer re-bases it (#4525). */
+  declare g?: any[] | null;
   constructor(
     public rows: Record<PropertyKey, any>,
     /** The backing the guess is shown over: the committed one at the

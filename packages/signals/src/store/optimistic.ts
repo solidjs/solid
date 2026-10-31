@@ -30,6 +30,7 @@ import {
   CONFIG_SLOT_NODE,
   EFFECT_RENDER,
   NOT_PENDING,
+  STATUS_PENDING,
   REACTIVE_REASK
 } from "../core/constants.js";
 import { ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
@@ -187,7 +188,15 @@ export function notifyOptimisticWrites(
         if (k !== undefined && (!kept.has(k) || truth.has(r))) removed.add(k);
       }
     }
-    optimisticWrite(getContainerNode(t), new LaneView(rows, base, removed) as any);
+    const view = new LaneView(rows, base, removed);
+    // Written while the derive asks a new question (an input changed, not a
+    // `refresh()`): the guess's base answers the old one, so the rows it only
+    // carried over are that answer's — the new answer re-bases it like an
+    // older truth instead of folding beneath it (`_laneRebase`, F-1, #4525).
+    const d = t.fam!.node;
+    if (removed && d?._statusFlags! & STATUS_PENDING && !(d!._flags & REACTIVE_REASK))
+      view.g = null;
+    optimisticWrite(getContainerNode(t), view as any);
   }
   if (t.dk !== null) optimisticWrite(t.dk, {} as any);
   markOverlaid(t);
@@ -364,19 +373,23 @@ GlobalQueue._slotTake = (n, back) => {
  * node is born for it as the lane's derivation), on `length` only when the
  * committed length differs, and as the `LaneView`'s base for structural
  * reads. Unkeyed families compose
- * positionally — the guess stands as written (the documented residue). */
+ * positionally — the guess stands as written (the documented residue).
+ * A current truth re-bases, the same way, a guess written while its
+ * question was being asked (`g` null, #4525): asked before the guess, it is
+ * the older question; its rows are held beneath the guess. True: the lane
+ * holds the landing (`laneWrite`). */
 GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
-  if (!older) return fold(el, truth);
   const t = (el as any)._host as StoreTarget | undefined;
-  if (t === undefined || (el as any)._key !== $TRACK) return;
+  if (!older && (t?.k?._x?._lane as LaneView)?.g !== null) return fold(el, truth);
+  if (!t || (el as any)._key !== $TRACK) return true;
   const view = el._x!._lane;
   if (!(view instanceof LaneView)) return;
   if (!Array.isArray(truth) || !Array.isArray(view.rows)) {
     view.base = truth as Record<PropertyKey, any>;
     return;
   }
-  const keyFn = t.fam?.key ?? null;
-  if (keyFn === null) return;
+  const keyFn = t.fam?.key;
+  if (!keyFn) return;
   const byKey = new Map<unknown, any>();
   for (let i = 0; i < truth.length; i++) {
     const r = truth[i];
@@ -429,6 +442,7 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
     if (len !== undefined && (len._config & CONFIG_OVERRIDE || base.length !== rows.length))
       laneSet(len, rows.length, lane);
   }
+  return true;
 };
 
 /** D-34 for a keyed arrangement guess: rows by key, not positions. A
