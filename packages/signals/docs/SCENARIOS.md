@@ -636,9 +636,9 @@ const save = action(function* () { setX(1); yield gate; });
 | 2   | `gate`, body returns | `1 \| content 1`                                                                                                                                                  |       |
 | ✗   |                      | after 1: `0 \| content 1` (the torn frame #3869 fixed)                                                                                                            |       |
 
-### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-27, D-37
+### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-27
 
-_Ruled 2026-10-30 ("actions aren't special — they are a way to extend the hold"). Pinned: `tests/display-ahead-plain-write-content.test.ts` (signals, passes) and `web/test/display-ahead-plain-write-content-s46.spec.tsx` (through `Show` + `insert`; the plain row is `test.fails` — today the branch attaches with its text hole empty, `selected: ` and nothing, F-2's empty slot and #4417's mechanism). S-31's rule in the plain-write, no-boundary form: a write to `id` is held because an async memo over it is on screen; no action, no `Loading`._
+_Ruled 2026-10-30 ("actions aren't special — they are a way to extend the hold"), reaffirmed 2026-10-31 (A over C: C would re-rule S-31). Pinned: `tests/display-ahead-plain-write-content.test.ts` (signals, passes) and `web/test/display-ahead-plain-write-content-s46.spec.tsx` (through `Show` + `insert`; the plain row is `test.fails` — today the branch attaches with its text hole empty, `selected: ` and nothing, F-2's empty slot and #4417's mechanism). S-31's rule in the plain-write, no-boundary form: a write to `id` is held because an async memo over it is on screen; no action, no `Loading`. Parked 2026-10-31: a fix was attempted and dropped (infinite loop on a generated case, four new findings — D-27 Status); no in-budget mechanism known, #4417 open._
 
 ```tsx
 const [id, setId] = createSignal(0);
