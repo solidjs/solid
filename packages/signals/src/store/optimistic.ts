@@ -195,7 +195,7 @@ export function notifyOptimisticWrites(
     // older truth instead of folding beneath it (`_laneRebase`, F-1, #4525).
     const d = t._fam!.node;
     if (removed && d?._statusFlags! & STATUS_PENDING && !(d!._flags & REACTIVE_REASK))
-      ((view.g = null), (t._fam!.g = d!._time));
+      view.g = null;
     optimisticWrite(getContainerNode(t), view as any);
   }
   if (t.dk !== null) optimisticWrite(t.dk, {} as any);
@@ -588,24 +588,22 @@ installOptHooks({
   // served the guess, a re-run (the guess's own, the seam) would drop its
   // link and release the hold beside a guess over the previous answer
   // (F-1, #4536) — the ordinary read serves its committed frame or keeps it
-  // pending. So does a render effect pending on a flight the guess was
-  // written over (`fam.g`, the #4525 mark; D-34: the guess does not answer
+  // pending. So does a render effect pending on a flight a list guess was
+  // written over (`g` null, the #4525 mark; D-34: the guess does not answer
   // it): read here, as `pullFamily`'s own read would, since the frame's
   // guard there returns early for an unlinked render effect.
   stands: t => {
     const f = t._fam!;
     const o = f._overlaid;
     const a = f._asked;
-    if (!(o?.size && (a !== clock + 1 || passLane !== null || o.has(t)) && a !== ~clock))
-      return false;
-    const c: any = context;
     const d = f.node!;
-    if (c === null) return true;
-    for (let s = d._subs; s !== null; s = s._nextSub) if (s._sub === c) return false;
+    const c: any = context;
+    if (!o?.size || (a === clock + 1 && passLane === null && !o.has(t)) || a === ~clock)
+      return false;
+    for (let s = d._subs; s; s = s._nextSub) if (s._sub === c) return false;
     if (
-      f.g === d._time &&
-      c._type === EFFECT_RENDER &&
-      c._statusFlags & STATUS_PENDING &&
+      (t.k?._x?._lane as LaneView)?.g === null &&
+      c?._type === EFFECT_RENDER &&
       c._x?._pendingSources?.has(d)
     )
       readNode(d);
