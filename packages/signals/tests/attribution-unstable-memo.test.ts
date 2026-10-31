@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { attribution } from "../src/attribution.js";
 import {
+  createContext,
   createEffect,
   createMemo,
   createRoot,
   createSignal,
   flush,
-  OBSERVE
+  getContext,
+  OBSERVE,
+  setContext
 } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
@@ -77,6 +80,134 @@ describe("UNSTABLE_MEMO_OUTPUT", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0].data).toMatchObject({ shape: "array" });
+  });
+
+  it.each(["object", "symbol", "array"])("does not evaluate %s accessors", shape => {
+    const getter = vi.fn(() => "lazy");
+    const events = captureUnstable();
+    const [n, setN] = createSignal(0);
+    const key = shape === "symbol" ? Symbol("children") : shape === "array" ? "0" : "children";
+    const dispose = createRoot(dispose => {
+      const view = createMemo(() => {
+        n();
+        return Object.defineProperty(shape === "array" ? [] : {}, key, {
+          enumerable: true,
+          get: getter
+        });
+      });
+      createEffect(view, () => {});
+      return dispose;
+    });
+    try {
+      flush();
+      for (let i = 1; i <= 8; i++) {
+        setN(i);
+        flush();
+      }
+
+      expect(getter).not.toHaveBeenCalled();
+      expect(events).toHaveLength(0);
+    } finally {
+      dispose();
+    }
+  });
+
+  it.each([false, true])("leaves lazy context reads alone with attribution=%s", enabled => {
+    if (enabled) captureUnstable();
+    const context = createContext<string>();
+    const [n, setN] = createSignal(0);
+    const getter = vi.fn(() => getContext(context));
+    const dispose = createRoot(dispose => {
+      setContext(context, "provided");
+      expect(getContext(context)).toBe("provided");
+      const view = createMemo(() => {
+        n();
+        return {
+          get children() {
+            return getter();
+          }
+        };
+      });
+      createEffect(view, () => {});
+      return dispose;
+    });
+    try {
+      flush();
+      setN(1);
+      expect(() => flush()).not.toThrow();
+      expect(getter).not.toHaveBeenCalled();
+    } finally {
+      dispose();
+    }
+  });
+
+  it("does not evaluate inherited array-index accessors", () => {
+    const getter = vi.fn(() => "inherited");
+    const prototype = Object.create(Array.prototype, { 0: { get: getter } });
+    const events = captureUnstable();
+    const [n, setN] = createSignal(0);
+    const dispose = createRoot(dispose => {
+      const view = createMemo(() => {
+        n();
+        return Object.setPrototypeOf(new Array(1), prototype);
+      });
+      createEffect(view, () => {});
+      return dispose;
+    });
+    try {
+      flush();
+      for (let i = 1; i <= 8; i++) {
+        setN(i);
+        flush();
+      }
+
+      expect(getter).not.toHaveBeenCalled();
+      expect(events).toHaveLength(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("distinguishes array holes from own undefined values", () => {
+    const events = captureUnstable();
+    const [n, setN] = createSignal(0);
+    const dispose = createRoot(dispose => {
+      const view = createMemo(() => (n() % 2 ? [undefined] : new Array(1)));
+      createEffect(view, () => {});
+      return dispose;
+    });
+    try {
+      flush();
+      for (let i = 1; i <= 8; i++) {
+        setN(i);
+        flush();
+      }
+
+      expect(events).toHaveLength(0);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("compares null-prototype objects", () => {
+    const events = captureUnstable();
+    const [n, setN] = createSignal(0);
+    const dispose = createRoot(dispose => {
+      const view = createMemo(() => (n(), Object.assign(Object.create(null), { on: true })));
+      createEffect(view, () => {});
+      return dispose;
+    });
+    try {
+      flush();
+      for (let i = 1; i <= 8; i++) {
+        setN(i);
+        flush();
+      }
+
+      expect(events).toHaveLength(1);
+    } finally {
+      dispose();
+    }
   });
 
   it("resets the streak when the output genuinely changes", () => {
