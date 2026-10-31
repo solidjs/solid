@@ -130,16 +130,16 @@ describe("#4393: two latest() readers under one async memo, t written during the
   };
   it("m1's lane pass is not re-derived over a staging that lands with it (value)", () =>
     notReDerived("value"));
-  // F-6 (amended 2026-10-28: the parent waits for the lane's flights) and
-  // D-26. Fails with #4397 merged (#4393 alone passed): #4397 makes `m1` a
-  // verdict reader between its flights (D-25), so m0's lane pass re-derives
-  // it into the s lane early; the lane is unshown when `m1:22` lands, nothing
-  // holds the t transaction, and `c1101` shows while `m1:1122` is in flight.
-  // A row for the reader-seat carve: telling "its hold re-runs it" (D-25)
-  // apart at that landing needs a per-pass check.
-  it.fails("m1's lane pass is not re-derived over a staging that lands with it (beside)", () =>
-    notReDerived("beside")
-  );
+  // #4408 — F-6 (amended 2026-10-28: the parent waits for the lane's
+  // flights) and D-26: the lane's readers show its answer together, so
+  // `c1101` never shows before `v1122`. `m1` waits on `m0`'s flight as the
+  // hold's work (D-25, verdict.ts `holdWork`): it is not re-derived into the
+  // s lane early, the lane shows, and `m1:22`'s landing holds the frame
+  // `m0b:1100` lands into. Re-derived early (#4397's verdict reader between
+  // its flights), the lane was unshown when `m1:22` landed, nothing held
+  // that frame, and `c1101` showed while `m1:1122` was in flight.
+  it("m1's lane pass is not re-derived over a staging that lands with it (beside, #4408)", () =>
+    notReDerived("beside"));
 
   // Its lane's own render effect shows m1 (pair): the staging's transaction
   // lands at the very seam, so the pass read the screen (one run).
