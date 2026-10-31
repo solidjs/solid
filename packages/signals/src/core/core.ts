@@ -976,10 +976,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // and it is held all the same — its answer reveals no earlier than the
   // hold's commit (D-12) — but the hold does not wait for it: its only
   // readers are behind the fallback (`_hidden`; F-4, #3540). A boundary
-  // re-armed by `on` owns what it collects outright (D-14): not held.
+  // re-armed by `on` owns what it collects outright (D-14): not held. Only
+  // an effect is caught: a derivation left pending is no reader (Reader,
+  // D-12) — held, so its answer is the hold's and a render effect reading
+  // it joins, but it reaches no boundary, and the commit waits for it only
+  // through such a reader (`blockedBy`, #4542).
   if (create && lane === null && joined && el._statusFlags & STATUS_PENDING) {
     const t = flushTransaction ?? passTx;
-    if (t && !t._lane && freshHook?.(el) !== CAUGHT_REARMED) holdNode(el, t);
+    if (t && !t._lane && (!isEffect || freshHook?.(el) !== CAUGHT_REARMED)) holdNode(el, t);
   }
   // Dependencies are the committed frame's until it is replaced (A30, #3410):
   // a pass that staged its value leaves the previous pass's tail linked for
