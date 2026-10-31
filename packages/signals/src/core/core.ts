@@ -933,7 +933,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           // #3851): the mount is part of the hold, and the boundary appears
           // at its commit, its fallback never seen (D-13, U-3) — a `<Show>`
           // mounting it over a landing included.
-          freshHook?.(el, !mount && flushTransaction);
+          // Uncaught under a verdict lane's mount, a render effect's first
+          // run is the hold's landing, while the lane's reveal would attach
+          // the branch around it now — an empty slot (F-2). The lane waits
+          // for the landing instead (lane rule 3, lanes.ts `laneSeam`;
+          // S-46, #4417): the branch attaches with its content.
+          if (!freshHook?.(el, !mount && flushTransaction) && mount && isEffect === EFFECT_RENDER)
+            mount.born = true;
         }
         if (__DEV__) devTrackHeldPending(el);
       }

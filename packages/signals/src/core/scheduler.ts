@@ -293,6 +293,12 @@ export interface Transaction {
    * its verdict lane's with no re-run at its landing (F-6, D-23). Unset
    * until then; not `_`-prefixed, as `folded`. */
   latest?: 1;
+  /** Verdict lane: a mount of it bore a render effect held, uncaught, by
+   * its parent (core.ts `recompute`, the born-held arm) — content the
+   * reveal would attach empty (F-2). The lane waits for the parent's
+   * landing (lanes.ts `laneSeam`, lane rule 3; S-46, #4417). Unset until
+   * then; not `_`-prefixed, as `folded`. */
+  born?: boolean;
   /** `affects()` marks declared in it (affects.ts): released at the landing.
    * Not nodes — a mark holds nothing (`blocked` never sees one). */
   _marks: Signal<any>[] | null;

@@ -842,8 +842,14 @@ function laneCorrections(): boolean {
 
 function laneSeam(l: Transaction, leaked: boolean): void {
   // Blocked — or one of its passes read a write the frame holds this seam:
-  // its runs wait, the pass re-derives on the screen next round.
-  if (leaked || blocked(l)) {
+  // its runs wait, the pass re-derives on the screen next round. Or a
+  // mount of it bore a render effect the parent holds (`born`, core.ts):
+  // that content first runs at the parent's landing (D-2), and revealed
+  // before it the branch would attach with an empty slot (F-2) — the lane
+  // waits for the landing, which ends it (lane rule 3; S-46, #4417). The
+  // parent is not judged by this: `blocked(l)` on its behalf sees nothing
+  // pending here.
+  if (leaked || l.born || blocked(l)) {
     l._held = true;
     return;
   }
