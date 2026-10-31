@@ -2737,15 +2737,29 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | nul
       if (outer !== undefined) t = outer;
     }
     if (t._fam !== null) fam = t._fam;
-    // R27: a snapshot sees the batch's pending backing — a held one (another
-    // transaction's future) only from its own draft.
+    // R27: a snapshot sees the batch's pending backing. A HELD one is a
+    // transaction's future, and whether this reader sees it is core's call
+    // on the container node — the same `read()` without a link a per-key
+    // read of a held key makes (`readSource`) and `deep()`'s own walk makes
+    // (`enumerationSource`): the hold's own pass (its landing flush, a memo
+    // or effect that joined it) composes the staging, a frame reader outside
+    // the hold's flush the committed frame and is re-derived at the landing
+    // (#3147). A flag test instead read the committed backing in the pass
+    // the hold lands in — the container is held until the seam — while the
+    // per-key reads beside it already served the landing (#4552).
     let backing = t.v;
-    if (
-      t.pb !== null &&
-      (inDraft(t) || writeOverride || t.k === null || !(t.k._config & CONFIG_HELD))
-    ) {
-      if (t.ovl) materializePB(t);
-      backing = t.pb!;
+    if (t.pb !== null) {
+      const k = t.k;
+      let usePB = true;
+      if (!inDraft(t) && !writeOverride && k !== null && k._config & CONFIG_HELD) {
+        const frame = untrack(() => readNode(k));
+        usePB = frame === k._pendingValue;
+        if (!usePB) backing = asBacking(frame);
+      }
+      if (usePB) {
+        if (t.ovl) materializePB(t);
+        backing = t.pb;
+      }
     }
     if (optHooks && optRead(t)) backing = optHooks.view(t, backing);
     if (backing === src) break;
