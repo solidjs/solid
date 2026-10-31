@@ -630,19 +630,32 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
  * no value, so its re-run re-asked the question it was answering. Unless
  * its own flight is up outside a lane on a new question of the source's:
  * its re-run supersedes a flight asked of a value the source has moved past
- * (re-asked by a `refresh()`, the source's question is the same one). */
+ * (re-asked by a `refresh()`, the source's question is the same one).
+ *
+ * Waiting, it is the hold's work until a pass of it reads a verdict again,
+ * so the verdict posture drops here, at the wait (the pass's own reads
+ * stamp it again, `read`). Kept, the source's next pending — its verdict
+ * lane's re-derive at the park (#4393) — re-derived the waiting memo as a
+ * verdict reader into that lane while the hold's flight it waits on was
+ * still up, and the pass the landing runs, its hold re-running it, read as
+ * a verdict reader: the head that drops the posture for such a pass sees
+ * neither pending (the landing settles the node first) nor held (a lane's
+ * node). #4408: `m1` entered the s lane early, the lane was unshown when
+ * `m1:22` landed, nothing held the frame `m0b:1100` landed into, and the
+ * lane's reader `latest(m2)` showed `c1101` while `m1:1122` was in flight. */
 function holdWork(n: Computed<any>, source: Computed<any>): unknown {
   // CONFIG_ASYNC records an async memo with no window of its own: its last
   // answering pass registered a flight (`handleAsync`) and called neither
   // `latest` nor `isPending`. A window (`markVerdictReader`), a sync answer or
   // an error clears it; a pass left pending keeps the last answer's.
-  const own = n._config & CONFIG_ASYNC;
-  return (
-    own &&
+  // Waiting drops the posture; the result stays truthy (CONFIG_ASYNC is kept).
+  if (
+    n._config & CONFIG_ASYNC &&
     (!(n._statusFlags & STATUS_PENDING) ||
       n._x!._transaction?._lane ||
       source._flags & REACTIVE_REASK)
-  );
+  )
+    return (n._config &= ~CONFIG_VERDICT);
 }
 
 // Installed at module evaluation — present exactly when something imports
