@@ -6,8 +6,8 @@
 // also when its subtree mounts under a held update and an inner Show's
 // condition reads a memo.
 import { describe, expect, test } from "vitest";
-import { render } from "@solidjs/web";
-import { createMemo, createSignal, type JSX, Loading, Show } from "solid-js";
+import { render, type JSX } from "@solidjs/web";
+import { createMemo, createSignal, Loading, Show } from "solid-js";
 
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
