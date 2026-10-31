@@ -61,6 +61,7 @@ import {
   getHasNode,
   getNode,
   LaneView,
+  linkedTo,
   resolveChainedRaw,
   sameKey,
   storeSetter,
@@ -600,11 +601,11 @@ installOptHooks({
     const c: any = context;
     if (!o?.size || (a === clock + 1 && passLane === null && !o.has(t)) || a === ~clock)
       return false;
-    for (let s = d._subs; s; s = s._nextSub) if (s._sub === c) return false;
+    if (linkedTo(c, d)) return false;
     if (
       (t.k?._x?._lane as LaneView)?.g === null &&
       c?._type === EFFECT_RENDER &&
-      c._x?._pendingSources?.has(d)
+      c._statusFlags & STATUS_PENDING
     )
       readNode(d);
     return true;

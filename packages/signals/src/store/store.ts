@@ -1838,7 +1838,7 @@ function serveDataKey(
 
 /** Is `c` among `n`'s subscribers (any pass's link — a kept tail included)?
  * `n`'s subs, not `c`'s deps: the derive's are its few flight observers. */
-function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
+export function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
   for (let s = n._subs; s !== null; s = s._nextSub) if (s._sub === c) return true;
   return false;
 }
