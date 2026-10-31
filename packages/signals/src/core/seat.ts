@@ -751,7 +751,7 @@ export function slot(
     const laneHas = !laneNP(el, guess, staged, uninit) && !flying;
     // A folded lane (D-34): a deriving pass outside the lane reads the
     // hold's world and joins it; lane work and leaves keep the guess.
-    if (l.folded && guess && !inLane && !leaf && (el as any)._host?.fam?.node !== c)
+    if (l.folded && guess && !inLane && !leaf && (el as any)._host?._fam?.node !== c)
       return pred(rowBase + "D4'", staged ? SLOT_P : SLOT_C, RAISE_H, resolveTx(l._parent ?? l));
     if (!tracked) {
       // An untracked read outside lane work: the screen (D4''); inside, the
