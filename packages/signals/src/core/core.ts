@@ -669,14 +669,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // dependent then waits forever on a flight it has no path to. The
       // re-park twin of the unchanged-value recovery sweep below; dependents
       // with another path keep the source (retryReaches). A staged error
-      // answered what the pass carried: the same. The pass's own throw adds
-      // to the set it carried, so "no longer reaches" is the deps' call: a
+      // answered what the pass carried: the same. "No longer reaches" is
+      // the deps' call — the pass's own throw adds to the set it carried: a
       // first answer staged in place of its flight (uninitialized until its
       // commit, so its own settle walk waits) leaves the copy here while
       // the readers in between re-derive clean (#4541).
       if ((notReady || stagedErr) && outgoingPendingSources)
         for (const source of outgoingPendingSources)
-          if (source !== el && (!el._x?._pendingSources?.has(source) || !retryReaches(el, source)))
+          if (source !== el && (stagedErr || !retryReaches(el, source)))
             settlePendingSource(el, source);
     }
   } finally {
