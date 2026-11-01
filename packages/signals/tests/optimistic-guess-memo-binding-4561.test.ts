@@ -123,13 +123,10 @@ for (const shape of ["memo", "mapArray", "for"] as const)
       expect(screen()).toBe(on ? "loading" : "open: [#1][#3][#4]");
       closeOne(1);
       await tick();
-      // A whole frame: the old input with the guess (D-34 ¶3). A flat memo over
-      // every row may instead keep waiting on the flight with the old answer
-      // (F-2, as #4536's shared-binding test allows) — never the new input
-      // beside the old answer's rows.
+      // A whole frame: the old input with the guess (D-34 ¶3: however the
+      // reads are grouped — a flat memo over every row too) — never the new
+      // input beside the old answer's rows (F-1).
       if (on) expect(screen()).toBe("loading");
-      else if (shape === "memo")
-        expect(["open: [#3][#4]", "open: [#1][#3][#4]"]).toContain(screen());
       else expect(screen()).toBe("open: [#3][#4]");
       await settle("issues:closed", [{ id: 1 }, { id: 2 }]);
       expect(screen()).toBe("closed: [#2]");
@@ -142,3 +139,84 @@ for (const shape of ["memo", "mapArray", "for"] as const)
         []
       );
     });
+
+// Derivation chains between the list and its binding: the hold is judged
+// through every hop (scheduler `blockedBy`'s frame readers, F-1).
+for (const chain of ["memo-memo", "memo-memo-memo", "mapArray-memo"] as const)
+  it(`#4561: a guess over a question in flight holds a ${chain} binding's frame`, async () => {
+    const asks: { key: string; res: (v: any) => void }[] = [];
+    const ask = (key: string) => new Promise<any>(res => asks.push({ key, res }));
+    const settle = async (key: string, v: any) => {
+      asks
+        .splice(
+          asks.findIndex(a => a.key === key),
+          1
+        )[0]
+        .res(v);
+      await tick();
+    };
+    let f = "",
+      l = "",
+      shown: unknown;
+    const screen = () => (shown === "content" ? `${f}: ${l}` : shown);
+    const seen: unknown[] = [];
+    let setFilter!: (f: string) => void, closeOne!: (id: number) => any;
+    createRoot(() => {
+      const [filter, sf] = createSignal("open");
+      setFilter = sf;
+      const [issues, set] = createOptimisticStore<any[]>(() => ask(`issues:${filter()}`), [], {
+        key: "id"
+      });
+      closeOne = action(function* (id: number) {
+        set(
+          list =>
+            void list.splice(
+              list.findIndex(t => t.id === id),
+              1
+            )
+        );
+        yield ask(`close:${id}`);
+        refresh(issues);
+      });
+      const out = createLoadingBoundary(
+        () => {
+          let b: () => string;
+          if (chain === "mapArray-memo") {
+            const rows = mapArray(
+              () => issues,
+              (it: any) => `[#${it.id}]`
+            );
+            b = createMemo(() => rows().join(""));
+          } else {
+            const a = createMemo(() => issues.map((it: any) => `[#${it.id}]`).join(""));
+            b = createMemo(() => a());
+            if (chain === "memo-memo-memo") {
+              const b0 = b;
+              b = createMemo(() => b0());
+            }
+          }
+          createRenderEffect(filter, v => void seen.push(screen(), (f = v)));
+          createRenderEffect(b, v => void seen.push(screen(), (l = v)));
+          return "content";
+        },
+        () => "loading"
+      );
+      createRenderEffect(out, v => void (shown = v));
+    });
+    await tick();
+    await settle("issues:open", [{ id: 1 }, { id: 3 }, { id: 4 }]);
+    setFilter("closed");
+    await tick();
+    expect(screen()).toBe("open: [#1][#3][#4]");
+    closeOne(1);
+    await tick();
+    // The old input with the guess (D-34 ¶3), never `closed: [#3][#4]` (F-1).
+    expect(screen()).toBe("open: [#3][#4]");
+    await settle("issues:closed", [{ id: 1 }, { id: 2 }]);
+    expect(screen()).toBe("closed: [#2]");
+    await settle("close:1", {});
+    await settle("issues:closed", [{ id: 2 }]);
+    expect(screen()).toBe("closed: [#2]");
+    seen.push(screen());
+    expect(seen.filter(s => String(s).startsWith("closed") && /#3|#4/.test(String(s)))).toEqual([]);
+  });

@@ -595,11 +595,13 @@ installOptHooks({
   // guess was written over (`g` null, the #4525 mark; D-34: the guess does
   // not answer it): a render effect is read here, as `pullFamily`'s own read
   // would, since the frame's guard there returns early for an unlinked one.
-  // A derivation a pending render effect reads (#4561) keeps observing a
-  // held flight as a stale reader of its hold — linked, re-derived at the
-  // landing, so the hold still sees its frame (`blockedBy`) — and is served
-  // the guess like lane work (a `<For>` keeps showing it, #4525); a flight
-  // no transaction holds (a `Loading on` fallback) it reads plainly.
+  // A derivation a pending render effect reads (#4561), through any chain
+  // of derivations (`held`), keeps observing a held flight as a stale reader
+  // of its hold — linked, re-derived at the landing, so the hold still sees
+  // its frame (`blockedBy`) — and is served the guess like lane work (a
+  // `<For>` keeps showing it, #4525), its every read this pass (D-34 ¶3:
+  // however the reads are grouped); a flight no transaction holds (a
+  // `Loading on` fallback) it reads plainly.
   stands: t => {
     const f = t._fam!;
     const o = f._overlaid;
@@ -608,10 +610,12 @@ installOptHooks({
     const c: any = context;
     if (!o?.size || (a === clock + 1 && passLane === null && !o.has(t)) || a === ~clock)
       return false;
-    if (linkedTo(c, d)) return false;
+    // Linked by this pass's hold (below): its other reads keep the guess.
+    if (linkedTo(c, d)) return heldAt === clock && heldBy.get(c) === 2;
     if ((t.k?._x?._lane as LaneView)?.g === null && c?._statusFlags & STATUS_PENDING)
       if (c._type === EFFECT_RENDER) readNode(d);
-      else if (held(c)) d._x?._transaction ? (link(d, c), staleReader(c, txOf(d))) : readNode(d);
+      else if (held(c))
+        d._x?._transaction ? (link(d, c), staleReader(c, txOf(d)), heldBy.set(c, 2)) : readNode(d);
     return true;
   },
   // Mainline hold (`clock + 1`): the flush joins the action of each guess a
@@ -628,12 +632,27 @@ installOptHooks({
 });
 
 /** A derivation in the frame's hold (scheduler.ts `blockedBy`): one a
- * pending render effect reads (#4561). */
-function held(c: any): true | undefined {
-  for (let s = c._subs; s; s = s._nextSub)
-    if ((s._sub as any)._type === EFFECT_RENDER && s._sub._statusFlags & STATUS_PENDING)
-      return true;
+ * pending render effect reads, through any chain of pending derivations
+ * (#4561: memo -> memo -> binding, `mapArray` -> memo -> binding). Judged
+ * once per reader per pass: stamped with the pass's `clock`, so a reader's
+ * every key read does not re-walk its subscribers. */
+function held(c: any): boolean | 2 {
+  if (heldAt !== clock) ((heldAt = clock), (heldBy = new Map()));
+  let h = heldBy.get(c);
+  if (h === undefined) {
+    heldBy.set(c, (h = false));
+    for (let s = c._subs; s && !h; s = s._nextSub) {
+      const r: any = s._sub;
+      h =
+        !!(r._statusFlags & STATUS_PENDING) &&
+        (r._type === EFFECT_RENDER || (!r._type && !!held(r)));
+    }
+    heldBy.set(c, h);
+  }
+  return h;
 }
+let heldAt = -1;
+let heldBy: Map<any, boolean | 2>;
 
 /** Two lanes of one action (their parents resolved through merges). */
 function sameAction(a: Transaction, b: Transaction): boolean {
