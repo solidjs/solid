@@ -615,22 +615,21 @@ export function syncThenable(value: any) {
  * write diverged it, and re-serves that answer (readSerializedOrCompute).
  * No client write is swallowed: the ones already made flush first, outside
  * the pass, and one made during it (an effect's) runs in a later round of
- * the flush, where a node it reaches computes. Runs from a settled promise,
- * outside any claim window.
+ * the flush, where a node it reaches computes — adopting, one to a node in
+ * the scope is held and replays at the scope's release, in the flush after
+ * the pass. Runs from a settled promise, outside any claim window.
  */
 const servedPass = (write: (x?: any) => void, adopt?: Owner) => (x?: any) => {
   flush();
-  // Adopting (`adopt`, the boundary's owner): hydration is on but nothing
-  // claims. The render reads the server's snapshot as a claim does
-  // (hydrateWindow), so a node it creates adopts the answer the server gave
-  // for those inputs, and a client write already made to one replays at the
-  // release below, where the node computes (#4588). Released here — the
-  // `hydrating` setter is bypassed — since a scope left open would hold
-  // every write made in it: a client-only node's gate (a <Portal>) never
-  // opening.
+  const capture = adopt && _hydrationDone;
   _hydratingValue = !!adopt;
   _snapshotRootOwner = adopt || null;
-  if (adopt) markSnapshotScope(adopt);
+  // Released in the finally below: the `hydrating` setter, which would release
+  // the scope, is bypassed here, and a scope left open holds every later write.
+  if (adopt) {
+    if (capture) setSnapshotCapture(true);
+    markSnapshotScope(adopt);
+  }
   _claimOwner = ~clock;
   // An uncaught error (no client boundary for a served error) leaves the
   // flush by throwing: the pass still ends, and hydration still completes
@@ -642,7 +641,10 @@ const servedPass = (write: (x?: any) => void, adopt?: Owner) => (x?: any) => {
     flush();
   } finally {
     _claimOwner = _hydratingValue = _snapshotRootOwner = null as any;
-    if (adopt) releaseSnapshotScope(adopt);
+    if (adopt) {
+      releaseSnapshotScope(adopt);
+      if (capture) clearSnapshots();
+    }
     checkHydrationComplete();
   }
 };

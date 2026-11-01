@@ -10,10 +10,8 @@
  * hydration reaches it and recovers with the content. A memo created in the
  * boundary's content (`inside`) first exists in the fresh render after the
  * rejection: that render reads the server's snapshot, so the memo adopts
- * the server's error for it and replays the write at release — it was
- * created against the written input and adopted the error for the old one,
- * and the write was lost. Replays the chunks
- * test/server/hydration-errored-write-4588.gen.spec.tsx renders.
+ * the server's error for it and replays the write at release. Replays the
+ * chunks test/server/hydration-errored-write-4588.gen.spec.tsx renders.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
