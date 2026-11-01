@@ -418,8 +418,13 @@ export function laneStage(
         // lane's), so this pass's answer — the frame's — is a change against
         // what is seen and reaches the screen with the frame's commit. (Only
         // a lane is ever `_shown`.)
+        // (The notify stamp is cleared with it: a pass that does notify —
+        // its answer a change against the committed value — has woken the
+        // readers itself, and the seam's wake would run them on nothing new:
+        // an effect has no comparator, #4557.)
         if (tx._shown)
-          if (!flushTransaction || !blocked(resolveTx(tx._parent!))) el._flags |= LEFT_SHOWN;
+          if (!flushTransaction || !blocked(resolveTx(tx._parent!)))
+            ((el._flags |= LEFT_SHOWN), (el._notifiedAt = -1));
           else el._value = display(el);
         x._transaction = null;
       }
@@ -854,14 +859,9 @@ function laneSeam(l: Transaction, leaked: boolean): void {
     const n = l._nodes[i] as Computed<any>;
     if (n._flags & LEFT_SHOWN) {
       n._flags ^= LEFT_SHOWN;
-      // Only a reader still showing the slot: an effect whose pass started
-      // after the one that left read the node's new answer already (that
-      // pass notified it — a change against the committed value). Woken
-      // again it re-ran on nothing new: an effect has no comparator (#4557,
-      // every effect of a lane-mounted view ran twice per write through a
-      // memo; D-37: a lane does not replay a run the screen made).
-      for (let s = n._subs; s !== null; s = s._nextSub)
-        ((s._sub as any)._type && s._sub._time >= n._time) || enqueueSub(s._sub);
+      // Unless a pass since has notified them (D-37: a lane does not replay
+      // a run the screen made).
+      if (n._notifiedAt < 0) insertSubs(n);
     }
     const x = n._x!;
     if (x._transaction !== l) continue;

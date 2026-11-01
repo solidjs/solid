@@ -66,7 +66,7 @@ export function effect<T>(
   error?: (err: unknown, cleanup: () => void) => void | (() => void),
   options?: NodeOptions<any> & { user?: boolean; defer?: boolean; schedule?: boolean }
 ): void {
-  const isUser = !!options?.user;
+  const isUser = options?.user;
   const node = createEffectNode<T>(
     compute,
     effect,
