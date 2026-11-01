@@ -5,7 +5,7 @@
  * walks (#4560) once skipped it, and the join re-showed its committed value
  * between the held error's staging and its commit (an extra "false:3").
  * Pins `next`'s diamond output. The chain's extra "false:3" is the separate
- * graph-shape question (see the linked issue), not pinned here.
+ * graph-shape question (#4562), not pinned here.
  */
 import { afterEach, expect, it } from "vitest";
 import {
