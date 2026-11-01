@@ -66,7 +66,7 @@ export function effect<T>(
   error?: (err: unknown, cleanup: () => void) => void | (() => void),
   options?: NodeOptions<any> & { user?: boolean; defer?: boolean; schedule?: boolean }
 ): void {
-  const isUser = options?.user;
+  const isUser = !!options?.user;
   const node = createEffectNode<T>(
     compute,
     effect,
@@ -86,8 +86,8 @@ export function effect<T>(
     ? (node._modified = !(node._pendingValue = NOT_PENDING))
     : node._pendingValue === NOT_PENDING &&
       !node._x?._transaction?._lane &&
-      (isUser || options?.schedule
-        ? globalQueue.enqueue(node._type, type => runEffect(node, type))
+      (node._type === EFFECT_USER || options?.schedule
+        ? globalQueue.enqueue(node._type, runEffect.bind(null, node))
         : // Type 0: the synchronous first render, not a queued run (D-19).
           runEffect(node, 0));
   if (__DEV__ && !node._parent) {
