@@ -51,6 +51,7 @@ import {
   EFFECT_TRACKED,
   EFFECT_USER,
   REACTIVE_DISPOSED,
+  REACTIVE_IN_HEAP,
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
   REACTIVE_ZOMBIE,
@@ -356,10 +357,15 @@ export function prune(b: Boundary, pass?: boolean | 0): number {
       // An error staged on its source (D-41, `stageError`) is not settled:
       // it publishes with the commit. A reader that threw it now (a lane
       // pass, a reader of a node born staged) reached the boundary first
-      // (#4364).
+      // (#4364). Nor a verdict reader queued to re-derive: its source
+      // settling retired the pending it carried, and its pass, not that
+      // retirement, is its answer (A19) — it may ask the next flight. Judged
+      // settled before it ran, a fresh boundary revealed into a hold its
+      // pass then went pending in, which waited on that flight (#4568).
       if (
         (r._statusFlags | s._statusFlags) & mask ||
-        (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR)
+        (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR) ||
+        (r._config & CONFIG_VERDICT && r._flags & REACTIVE_IN_HEAP)
       ) {
         if (pass === 0) break;
         continue;

@@ -2741,14 +2741,19 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | nul
     }
     if (t._fam !== null) fam = t._fam;
     // R27: a snapshot sees the batch's pending backing — a held one (another
-    // transaction's future) only from its own draft.
+    // transaction's future) only from its own draft, or from a pass the
+    // container node serves the future (its landing flush, a memo joining).
     let backing = t.v;
-    if (
-      t.pb !== null &&
-      (inDraft(t) || writeOverride || t.k === null || !(t.k._config & CONFIG_HELD))
-    ) {
-      if (t.ovl) materializePB(t);
-      backing = t.pb!;
+    const pb = t.pb;
+    if (pb !== null) {
+      const k = t.k;
+      backing =
+        inDraft(t) || writeOverride || k === null || !(k._config & CONFIG_HELD)
+          ? pb
+          : stagingReader() !== null
+            ? asBacking(untrack(() => readNode(k)))
+            : t.v;
+      if (backing === pb && t.ovl) backing = materializePB(t);
     }
     if (optHooks && optRead(t)) backing = optHooks.view(t, backing);
     if (backing === src) break;
