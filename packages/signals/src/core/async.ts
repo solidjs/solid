@@ -10,7 +10,6 @@ import {
   CONFIG_STAGED_ERROR,
   CONFIG_SYNC,
   CONFIG_VERDICT,
-  EFFECT_TRACKED,
   EFFECT_USER,
   NOT_PENDING,
   REACTIVE_DIRTY,
@@ -55,6 +54,7 @@ import {
   txOf,
   freshHook,
   holdWorkHook,
+  stageMarkHook,
   guessing,
   laneStageHook,
   storeParkHook
@@ -255,32 +255,6 @@ export function stageError(el: Computed<any>, error: any, inPass?: boolean): boo
   return true;
 }
 
-/** D-41: a derivation of a staged error carries it, staged with the same
- * frame — marked, not re-run, as a published error marks it (a re-run would
- * replace the frame its content owns) — and its own verdict readers
- * re-derive (the settle walk). Only a verdict reads a derivation's staging
- * before its commit, so only the verdict engine marks. Not a boundary's
- * output, an async memo, an effect or a boundary's tree (`EFFECT_TRACKED <<
- * 23` spans CONFIG_FRAME and every effect type), nor one already carrying a
- * staged error: the commit's publish reaches them. A pending mark supersedes
- * the staging (`propagateStatus`). */
-function stageMark(node: Computed<any>, el: Computed<any>): void {
-  if (
-    !(
-      node._config &
-      (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | CONFIG_ASYNC | (EFFECT_TRACKED << 23))
-    )
-  ) {
-    node._pendingValue = el._pendingValue;
-    node._config |= CONFIG_STAGED_ERROR;
-    queuePendingNode(node);
-    // A derived store's readers are its family's (store/projection.ts): they
-    // re-derive from the staging, as from the derive's status (#4189).
-    (node as any)._fam?.st(STATUS_ERROR);
-    settlePendingSource(node);
-  }
-}
-
 export function settleErroredDependents(el: Computed<any>, error: any): void {
   let scheduled = false;
   walkDependents(el, (node, seen) => {
@@ -376,12 +350,10 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // equal to the committed value notifies nobody — the source settling
       // is its verdict changing: it runs again. (Verdict readers exist only
       // with the verdict engine installed.)
-      // D-41: a derivation of a staged error carries it (`stageMark`).
+      // D-41: a derivation of a staged error carries it (verdict.ts `stageMark`).
       return (
         holdWorkHook &&
-          (node._config & CONFIG_VERDICT
-            ? enqueueSub(node)
-            : el._config & CONFIG_STAGED_ERROR && stageMark(node, el)),
+          (node._config & CONFIG_VERDICT ? enqueueSub(node) : stageMarkHook!(node, el)),
         false
       );
     node._time = clock;
@@ -417,6 +389,10 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // again at release time — deferred so unobserved() can't unlink subs
       // lists this walk is still iterating.
       if (!node._subs && node._config & CONFIG_AUTO_DISPOSE) (released ??= []).push(node);
+      // D-41: and a node fully settled here carries the staging as well — a
+      // chain's single arrival marks what a diamond's second arrival does
+      // (F-9, F-2: graph shape is not observable, #4562).
+      stageMarkHook?.(node, el);
     }
   });
 
