@@ -140,6 +140,7 @@ import {
   GlobalQueue,
   heldTrim,
   holdNode,
+  holdPull,
   insertSubs,
   joinFuture,
   passLane,
@@ -2177,6 +2178,25 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
             (c._config & CONFIG_STAGED || (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
               ? c._config
               : -1);
+        // #4544 (probe): a reader born into a hold reads a verdict memo in
+        // the hold's world — one whose last pass was served that hold's
+        // committed values (`frameRead`, a stale reader on its `_reruns`)
+        // is re-derived as the hold's work before it is served (`holdPull`).
+        // Not a lane's node (its lane value is the screen's), nor one with
+        // no answer to re-derive from.
+        if (
+          observeFlightHook &&
+          owner._config & CONFIG_VERDICT &&
+          owner._flags & REACTIVE_FRAME_READ &&
+          !(owner._config & CONFIG_OVERRIDE) &&
+          !(owner._statusFlags & (STATUS_PENDING | STATUS_ERROR | STATUS_UNINITIALIZED)) &&
+          c._config & CONFIG_HELD &&
+          ((c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ||
+            c._config & CONFIG_HELD_FRAME)
+        ) {
+          const t = txOf(c as Computed<any>);
+          if (t._reruns.indexOf(owner) !== -1) holdPull(owner, t);
+        }
       }
     }
     if (__TEST__)

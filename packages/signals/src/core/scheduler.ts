@@ -637,6 +637,33 @@ export function heldUnder(
   }
 }
 
+/** #4544 (probe): a pass that is hold `t`'s work read a verdict memo `el`
+ * whose last pass was served `t`'s committed values (a stale reader of `t`,
+ * `_reruns`): the reader pulls `el`'s landing derivation early — `el` is
+ * re-derived now as a member of `t`'s frame (`bornInto`: its plain reads of
+ * `t`'s held nodes see the staging, the flush joins nothing it has not), and
+ * the result is `t`'s staging of `el`. The screen-posture pass's own
+ * staging goes first: committed, when it is this flush's mainline staging
+ * (as the seam would commit it); dropped, when it is `t`'s (the landing's
+ * re-derive would replace it). `_value` stays the mainline derivation —
+ * mainline frame readers see exactly what they did. Re-run by a later
+ * mainline write, `el` leaves the hold as today (`recompute`'s head) and a
+ * held reader pulls it again. */
+export function holdPull(el: Computed<any>, t: Transaction): void {
+  const f = flushTransaction;
+  if (el._pendingValue !== NOT_PENDING && !(el._config & CONFIG_HELD) && f !== t)
+    commitPendingNode(el);
+  holdNode(el, t);
+  el._config |= CONFIG_HELD_FRAME;
+  flushTransaction = t;
+  try {
+    recompute(el);
+  } finally {
+    flushTransaction = f;
+    el._config &= ~CONFIG_HELD_FRAME;
+  }
+}
+
 /** `n` leaves the hold it was staged in: its next pass publishes mainline. */
 export function unhold(n: Signal<any>): void {
   n._x!._transaction = null;

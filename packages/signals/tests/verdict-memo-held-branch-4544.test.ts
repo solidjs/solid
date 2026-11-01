@@ -29,6 +29,17 @@
  *    hold is F-2 on a born-held branch that asked for async.
  *
  * Pinned `it.fails` at reading A's screen; invert to the ruled screen if B.
+ *
+ * Option 2 probe (2026-10-31, `probe/4544-option2`): a reader that is the
+ * hold's work reads a verdict memo in the hold's world (`holdPull`). The
+ * three unrelated-probe rows flip here (the reader is a render effect; the
+ * memo is a plain stale reader of the hold, re-derived as its work). The
+ * same-node row (`params` itself probes `session`) does not: the memo is
+ * the hold's verdict-lane node — its lane value IS the screen's derivation,
+ * and a node has no slot for a second, hold-world derivation. The web pin
+ * does not flip either: a JSX expression is a memo, a memo born into the
+ * hold joins the foreign flush at its head (L2), the probe's memo re-derives
+ * in the hold's verdict lane, and the same lane-node shape results.
  */
 import { expect, it } from "vitest";
 import {
@@ -49,7 +60,7 @@ const tick = async () => {
 };
 const NEVER = new Promise<never>(() => {});
 
-type Probe = "plain read" | "isPending" | "latest" | "inline isPending";
+type Probe = "plain read" | "isPending" | "latest" | "inline isPending" | "same-node isPending";
 
 async function arrive(probe: Probe): Promise<string> {
   const [session, setSession] = createSignal<string | undefined>(undefined);
@@ -73,7 +84,12 @@ async function arrive(probe: Probe): Promise<string> {
               : plan()
         );
         const params = createMemo(() => ({
-          plan: probe === "inline isPending" ? (isPending(plan), plan()) : chrome(),
+          plan:
+            probe === "inline isPending"
+              ? (isPending(plan), plan())
+              : probe === "same-node isPending"
+                ? (isPending(session), plan())
+                : chrome(),
           signedIn: session() !== undefined
         }));
         const signedOutOnly = createMemo(() => NEVER, { lazy: true });
@@ -132,8 +148,14 @@ async function arrive(probe: Probe): Promise<string> {
   }
 }
 
-for (const probe of ["plain read", "isPending", "latest", "inline isPending"] as Probe[])
-  (probe === "plain read" ? it : it.fails)(
+for (const probe of [
+  "plain read",
+  "isPending",
+  "latest",
+  "inline isPending",
+  "same-node isPending"
+] as Probe[])
+  (probe === "same-node isPending" ? it.fails : it)(
     `${probe} of an unrelated signal upstream: the branch the hold opens reads the hold's session and the hold lands`,
     async () => {
       expect(await arrive(probe)).toBe("1 rows");

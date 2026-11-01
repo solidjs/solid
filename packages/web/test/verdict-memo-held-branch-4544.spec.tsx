@@ -15,6 +15,15 @@
  * fallback never comes down either).
  *
  * Pinned `it.fails` at the reporter's screen; invert if the ruling is B.
+ *
+ * Option 2 probe (2026-10-31, `probe/4544-option2`, signals `holdPull`):
+ * still `it.fails` here. The `{params().signedIn ? …}` expression is a
+ * memo born into the hold; its head joins the `setPlan` flush to the hold
+ * (L2), so `plan`/`chrome` park with it, `chrome` re-derives as the hold's
+ * verdict-lane work and `params` follows it into the lane — a lane node,
+ * whose lane value is the screen's derivation; the probe has no slot for a
+ * hold-world derivation of a lane node. The branch reads
+ * `{ plan: false, signedIn: false }` from the lane and waits forever.
  */
 import { expect, it } from "vitest";
 import { Loading, Show, createMemo, createSignal, isPending, latest } from "solid-js";
