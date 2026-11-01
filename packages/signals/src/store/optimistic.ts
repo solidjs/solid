@@ -34,6 +34,7 @@ import {
   REACTIVE_REASK
 } from "../core/constants.js";
 import { context, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
+import { link } from "../core/graph.js";
 import { laneValueOf, optimisticWrite, pendingGuessOf, take } from "../core/lanes.js";
 import {
   clock,
@@ -47,6 +48,7 @@ import {
   passLane,
   resolveTx,
   schedule,
+  staleReader,
   txOf,
   type Transaction
 } from "../core/scheduler.js";
@@ -589,10 +591,15 @@ installOptHooks({
   // served the guess, a re-run (the guess's own, the seam) would drop its
   // link and release the hold beside a guess over the previous answer
   // (F-1, #4536) — the ordinary read serves its committed frame or keeps it
-  // pending. So does a render effect pending on a flight a list guess was
-  // written over (`g` null, the #4525 mark; D-34: the guess does not answer
-  // it): read here, as `pullFamily`'s own read would, since the frame's
-  // guard there returns early for an unlinked render effect.
+  // pending. So does a reader in the frame's hold pending on a flight a list
+  // guess was written over (`g` null, the #4525 mark; D-34: the guess does
+  // not answer it): a render effect is read here, as `pullFamily`'s own read
+  // would, since the frame's guard there returns early for an unlinked one.
+  // A derivation a pending render effect reads (#4561) keeps observing a
+  // held flight as a stale reader of its hold — linked, re-derived at the
+  // landing, so the hold still sees its frame (`blockedBy`) — and is served
+  // the guess like lane work (a `<For>` keeps showing it, #4525); a flight
+  // no transaction holds (a `Loading on` fallback) it reads plainly.
   stands: t => {
     const f = t._fam!;
     const o = f._overlaid;
@@ -602,12 +609,9 @@ installOptHooks({
     if (!o?.size || (a === clock + 1 && passLane === null && !o.has(t)) || a === ~clock)
       return false;
     if (linkedTo(c, d)) return false;
-    if (
-      (t.k?._x?._lane as LaneView)?.g === null &&
-      c?._type === EFFECT_RENDER &&
-      c._statusFlags & STATUS_PENDING
-    )
-      readNode(d);
+    if ((t.k?._x?._lane as LaneView)?.g === null && c?._statusFlags & STATUS_PENDING && held(c))
+      if (c._type === EFFECT_RENDER || !d._x?._transaction) readNode(d);
+      else (link(d, c), staleReader(c, txOf(d)));
     return true;
   },
   // Mainline hold (`clock + 1`): the flush joins the action of each guess a
@@ -622,6 +626,16 @@ installOptHooks({
         }
   }
 });
+
+/** In the frame's hold (scheduler.ts `blockedBy`): a render effect, or a
+ * derivation a pending render effect reads (#4561). */
+function held(c: any): boolean {
+  if (c._type === EFFECT_RENDER) return true;
+  for (let s = c._subs; s !== null; s = s._nextSub)
+    if ((s._sub as any)._type === EFFECT_RENDER && s._sub._statusFlags & STATUS_PENDING)
+      return true;
+  return false;
+}
 
 /** Two lanes of one action (their parents resolved through merges). */
 function sameAction(a: Transaction, b: Transaction): boolean {
