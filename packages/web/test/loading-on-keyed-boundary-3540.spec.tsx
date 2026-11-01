@@ -133,9 +133,11 @@ describe("Loading `on` beside a keyed Show around the boundary; a boundary is ne
   // parks on data. The parked flush re-derives the pass that read
   // `latest(count)` once, as a verdict reader (D-2, A10); `latest()` serves
   // the staging on both runs, so the key is the same and the one child stays
-  // mounted. Today the re-derive voids the provisional owner and compares
-  // against the last COMMITTED `when`, so the same key mounts again
-  // ([1, 3, 3]) — the known bug #4417, pinned as `test.fails` at its target.
+  // mounted: the re-derive runs in place — it compares against the
+  // provisional staging, and the readers that derived from it (`Show`, its
+  // frame) are adopted into the verdict lane and revealed at its seam
+  // (#4417; was [1, 3, 3] when the re-derive voided the provisional owner
+  // and compared against the last COMMITTED `when`).
   // (A zero-arg function child is an accessor — evaluated once, not remounted
   // per key — and is deliberately not pinned here.)
   const matrix: Array<[Variant, string, [number, number, number], string[]]> = [
@@ -148,9 +150,7 @@ describe("Loading `on` beside a keyed Show around the boundary; a boundary is ne
   ];
   for (const [variant, midFlight, expectedMounts, expectedCodes] of matrix) {
     const remounted = expectedMounts[1] > expectedMounts[0];
-    // Known bug #4417: the park re-derive voids the provisional owner, so the same key mounts again ([1,3,3]). Target [1,2,2] via in-place re-derive (reader-seat S1).
-    const it = variant.startsWith("show-") && variant.endsWith("-latest") ? test.fails : test;
-    it(`${variant}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "held"}, A ${
+    test(`${variant}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "held"}, A ${
       remounted ? "remounted" : "not remounted"
     } at the key change`, async () => {
       const { div, setCount, dispose, mounts } = setup(variant);
