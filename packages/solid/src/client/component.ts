@@ -100,8 +100,14 @@ export function createComponent<T extends Record<string, any>>(
     return runAsSolidCopy(() => observedComponent(Comp, props || ({} as T), name, loc));
   }
   if (IS_OBSERVE) return observedComponent(Comp, props || ({} as T), name, loc);
-  // Ownerless creation gets the root dev and observe always give, so context reads match.
-  return (getOwner() ? untrack : createRoot)(() => untrack(() => Comp(props || ({} as T))));
+  // Ownerless creation (module-scope JSX, a timer, after an await) gets the
+  // root dev and observe always give, so context reads match. The call runs
+  // again inside that root and takes the owned path, untrack included; the
+  // owned path stays a single closure, as before. createRoot's dispose lands
+  // in `name`, which production ignores.
+  return getOwner()
+    ? untrack(() => Comp(props || ({} as T)))
+    : createRoot((createComponent<T>).bind(null, Comp, props) as () => SolidElement);
 }
 
 /**
