@@ -1,5 +1,91 @@
 # test-integration
 
+## 2.0.0-rc.21
+
+### Patch Changes
+
+- Updated dependencies [32163a9]
+- Updated dependencies [bb51da6]
+- Updated dependencies [f509fe3]
+- Updated dependencies [d815fd4]
+- Updated dependencies [3c47d06]
+- Updated dependencies [46ab2dd]
+- Updated dependencies [61bb177]
+- Updated dependencies [f17cd09]
+- Updated dependencies [65da5de]
+- Updated dependencies [689347f]
+- Updated dependencies [20c115c]
+- Updated dependencies [5315127]
+- Updated dependencies [ecf3011]
+- Updated dependencies [bb7f9b5]
+- Updated dependencies [64fedc7]
+- Updated dependencies [e49b0c7]
+- Updated dependencies [6af149e]
+- Updated dependencies [19e0951]
+- Updated dependencies [ecf3011]
+- Updated dependencies [25fb7be]
+- Updated dependencies [39f951b]
+- Updated dependencies [3a73a36]
+- Updated dependencies [b773146]
+- Updated dependencies [ab3e844]
+- Updated dependencies [62745f6]
+- Updated dependencies [4a4803c]
+- Updated dependencies [6ec1613]
+- Updated dependencies [d9aa8f7]
+- Updated dependencies [480f522]
+- Updated dependencies [60d6307]
+- Updated dependencies [7135a77]
+- Updated dependencies [c8d6fd2]
+- Updated dependencies [64625bc]
+- Updated dependencies [2ba10bd]
+- Updated dependencies [8cac5f0]
+- Updated dependencies [42924f4]
+- Updated dependencies [9c4e4a8]
+- Updated dependencies [edd3c44]
+- Updated dependencies [77be406]
+- Updated dependencies [d9a97d0]
+- Updated dependencies [6b6b4da]
+- Updated dependencies [71a6a75]
+- Updated dependencies [2abf27d]
+- Updated dependencies [b5077ea]
+- Updated dependencies [3c47d06]
+- Updated dependencies [5315127]
+- Updated dependencies [5f07d04]
+- Updated dependencies [ecf3011]
+- Updated dependencies [9034647]
+- Updated dependencies [25b94f0]
+- Updated dependencies [e56a4a0]
+- Updated dependencies [e56a4a0]
+- Updated dependencies [8a8e950]
+- Updated dependencies [0d4c5e0]
+- Updated dependencies [74126b1]
+- Updated dependencies [2c9a1e3]
+- Updated dependencies [718ec9c]
+- Updated dependencies [643a7a7]
+- Updated dependencies [fda83a3]
+- Updated dependencies [f0471e8]
+- Updated dependencies [66c6f56]
+- Updated dependencies [749b0d7]
+- Updated dependencies [404d06a]
+- Updated dependencies [50dec1b]
+- Updated dependencies [e44f824]
+- Updated dependencies [ecf3011]
+- Updated dependencies [99d9821]
+- Updated dependencies [ef0aadd]
+- Updated dependencies [d0fc285]
+- Updated dependencies [62bf4c4]
+- Updated dependencies [663ecb0]
+- Updated dependencies [2e05808]
+- Updated dependencies [ab3d2ad]
+- Updated dependencies [131ceb8]
+  - @solidjs/web@2.0.0-rc.21
+  - @solidjs/signals@2.0.0-rc.21
+  - @solidjs/babel-plugin@2.0.0-rc.21
+  - solid-js@2.0.0-rc.21
+  - @solidjs/h@2.0.0-rc.21
+  - @solidjs/html@2.0.0-rc.21
+  - @solidjs/universal@2.0.0-rc.21
+
 ## 2.0.0-rc.20
 
 ### Patch Changes

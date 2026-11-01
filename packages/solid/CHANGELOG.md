@@ -1,5 +1,79 @@
 # solid-js
 
+## 2.0.0-rc.21
+
+### Patch Changes
+
+- 46ab2dd: Dev diagnostic `CAUGHT_REACTIVE_READ` (D-42 / S-47): warns once per computation when a reactive read's throw — `NotReadyError` or the source's error — was caught inside the computation's body and the pass completed with a value. An `async` computation is judged when its flight settles (a rejection is the throw continuing; a landed value is the catch). The runtime's own catches (boundaries, `isPending`, `watch`, comparator/cleanup/effect-callback routing, solid-js's hydration trace) never warn. Dev-only; no production bytes.
+- 61bb177: `createOwner` leaves solid-js's public types: it is typed only through `solid-js/internal`, like the boundary primitives behind `Errored`, `Loading` and `Reveal` (#3709). It stays a runtime export for the renderers. Solid 1.x had no `createOwner`, and application code that used it in an RC should host a scope with `createRoot()` (its `dispose` argument can be passed around as a plain function) and re-enter one with `runWithOwner()`. A detached `owner.dispose` keeps throwing, since it is a method and not part of the public API (#4444).
+- 25fb7be: fix(hydration): a content-input write made before a rejected fragment's chunks arrive recovers the hydrated `<Errored>` fallback (#4588)
+- 0d4c5e0: Hot reload: a PascalCase helper function that the refresh transform wraps now gets every argument when it is called directly, not only the first (#4513).
+- 99d9821: A stream cut short no longer hangs hydration when the client runtime starts after the parser finished (#2958). The truncation sweep only armed when `hydrate()` ran while `document.readyState` was still `"loading"`. An entry that ran later, such as one waiting on a route module that arrives after `DOMContentLoaded`, or a deferred module entry, left every unsettled `_fr` declaration pending, so its `<Loading>` kept the fallback and hydration never ended. When the document carries the in-render bootstrap (`<HydrationScript />`, which declares `_$HY.s`), a runtime that boots after parsing now runs the same sweep at boot: the records that can no longer settle leave the registry, the cut fragments are rejected, and a macrotask later the refs a keyed consumer already took are rejected. Documents with a host-placed bootstrap (`generateHydrationScript()`) are unchanged.
+- Updated dependencies [f509fe3]
+- Updated dependencies [46ab2dd]
+- Updated dependencies [f17cd09]
+- Updated dependencies [65da5de]
+- Updated dependencies [689347f]
+- Updated dependencies [20c115c]
+- Updated dependencies [5315127]
+- Updated dependencies [ecf3011]
+- Updated dependencies [bb7f9b5]
+- Updated dependencies [64fedc7]
+- Updated dependencies [e49b0c7]
+- Updated dependencies [6af149e]
+- Updated dependencies [19e0951]
+- Updated dependencies [ecf3011]
+- Updated dependencies [39f951b]
+- Updated dependencies [3a73a36]
+- Updated dependencies [b773146]
+- Updated dependencies [ab3e844]
+- Updated dependencies [62745f6]
+- Updated dependencies [4a4803c]
+- Updated dependencies [6ec1613]
+- Updated dependencies [d9aa8f7]
+- Updated dependencies [60d6307]
+- Updated dependencies [7135a77]
+- Updated dependencies [c8d6fd2]
+- Updated dependencies [64625bc]
+- Updated dependencies [2ba10bd]
+- Updated dependencies [8cac5f0]
+- Updated dependencies [42924f4]
+- Updated dependencies [9c4e4a8]
+- Updated dependencies [edd3c44]
+- Updated dependencies [77be406]
+- Updated dependencies [d9a97d0]
+- Updated dependencies [71a6a75]
+- Updated dependencies [2abf27d]
+- Updated dependencies [b5077ea]
+- Updated dependencies [5315127]
+- Updated dependencies [5f07d04]
+- Updated dependencies [ecf3011]
+- Updated dependencies [9034647]
+- Updated dependencies [25b94f0]
+- Updated dependencies [e56a4a0]
+- Updated dependencies [e56a4a0]
+- Updated dependencies [8a8e950]
+- Updated dependencies [74126b1]
+- Updated dependencies [2c9a1e3]
+- Updated dependencies [718ec9c]
+- Updated dependencies [643a7a7]
+- Updated dependencies [fda83a3]
+- Updated dependencies [f0471e8]
+- Updated dependencies [66c6f56]
+- Updated dependencies [749b0d7]
+- Updated dependencies [404d06a]
+- Updated dependencies [50dec1b]
+- Updated dependencies [e44f824]
+- Updated dependencies [ecf3011]
+- Updated dependencies [ef0aadd]
+- Updated dependencies [d0fc285]
+- Updated dependencies [62bf4c4]
+- Updated dependencies [663ecb0]
+- Updated dependencies [2e05808]
+- Updated dependencies [ab3d2ad]
+- Updated dependencies [131ceb8]
+  - @solidjs/signals@2.0.0-rc.21
+
 ## 2.0.0-rc.20
 
 ### Patch Changes
