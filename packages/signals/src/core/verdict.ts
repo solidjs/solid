@@ -17,6 +17,7 @@ import {
   CONFIG_HELD_FRAME,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
+  CONFIG_PROMOTED,
   CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
@@ -82,6 +83,89 @@ import {
   shadowWindow
 } from "./seat.js";
 import type { Computed, Signal } from "./types.js";
+
+/** Probe memory (D-25 as amended 2026-11-01 — a posture is per hold): the
+ * nodes the node's last asking pass asked about — its own window reads
+ * (`verdictValue`, tracked, by a pass whose creators read nothing of the
+ * future, #4341) and the probes a verdict memo it read handed on (#4050,
+ * core.ts `read`) or, a render effect, the memo whose re-staging re-ran it
+ * (scheduler.ts `laneDirty`). A pass's first contribution replaces what an
+ * earlier pass left (`_depGen` names the pass). The posture is read off it
+ * at use (`probesHeld`): CONFIG_VERDICT seats the pass as a verdict reader
+ * only while something it asked about is held — by the hold that held it
+ * at the probe, or any hold since (D-4's merge; a flight the frame will
+ * hold). The hold's landing releases it with nothing to walk: what the
+ * memory names is simply held by nobody then. A pass that completes having
+ * asked nothing drops CONFIG_VERDICT (core.ts `recompute`'s tail) and the
+ * memory lies inert until a pass asks again. */
+const probeMemory = new WeakMap<
+  Computed<any>,
+  { gen: number; nodes: (Signal<any> | Computed<any>)[] }
+>();
+/** The running pass's list: fresh for its first contribution. `next`: the
+ * pass to come (`laneDirty`, before the effect's head). */
+function probeList(c: Computed<any>, next?: boolean): (Signal<any> | Computed<any>)[] {
+  const gen = next ? c._depGen + 1 : c._depGen;
+  let m = probeMemory.get(c);
+  if (m === undefined || m.gen !== gen) probeMemory.set(c, (m = { gen, nodes: [] }));
+  return m.nodes;
+}
+/** `c` reads verdict memo `from`'s value (#4050) — or, `next`, is a render
+ * effect `from`'s lane re-staging re-runs (`laneDirty`, D-26 #4284): the
+ * posture handed on is toward whatever `from` asked about. */
+function inheritProbes(c: Computed<any>, from: Computed<any>, next: boolean): void {
+  const m = probeMemory.get(from);
+  if (m === undefined) return;
+  const into = probeList(c, next);
+  for (const p of m.nodes) if (into.indexOf(p) === -1) into.push(p);
+}
+/** A boundary's output reading its fallback (boundaries.ts `fallback`):
+ * what the fallback asks about is the fallback's display-ahead, not the
+ * output's — its memory is put back after the read, as its REACTIVE_PROBED
+ * is. `saved` undefined: snapshot; else: restore. */
+function probesBracket(c: Computed<any>, saved: unknown): unknown {
+  if (saved === undefined) {
+    const m = probeMemory.get(c);
+    return m === undefined ? null : { gen: m.gen, nodes: m.nodes.slice() };
+  }
+  if (saved === null) probeMemory.delete(c);
+  else probeMemory.set(c, saved as { gen: number; nodes: (Signal<any> | Computed<any>)[] });
+}
+/** What holds `p` now: 2 a live hold (its transaction; a lane's node, the
+ * hold its lane is under; a derived store's leaf, whatever holds its
+ * family's derive, D-30), 1 staged this flush or in flight and not held yet
+ * — the flush's hold to be, if it parks (`provisionalVerdict`,
+ * `observeFlight`) — 0 none: a probe of a node no hold holds earns no
+ * posture toward any hold (D-25). */
+function holdOf(p: Signal<any> | Computed<any>): number {
+  const fw = (p as any)._host?._fam?.node as Computed<any> | undefined;
+  if (fw != null && fw !== p) {
+    const h = holdOf(fw);
+    if (h !== 0) return h;
+  }
+  // (A lane always has a parent: the hold it is under.)
+  if (p._x?._transaction && p._config & (CONFIG_OVERRIDE | CONFIG_HELD)) return 2;
+  if (
+    globalQueue._running &&
+    ((p._pendingValue !== NOT_PENDING && !(p._config & CONFIG_PROMOTED)) ||
+      ((p as Computed<any>)._statusFlags ?? 0) & STATUS_PENDING)
+  )
+    return flushTransaction !== null ? 2 : 1;
+  return 0;
+}
+/** Is verdict reader `c`'s posture live — something its last asking pass
+ * asked about held now? `flush`: the read is of the flush's own proposal
+ * (a staging, a flight), so a probe of one the flush has not held yet
+ * counts too — the frame's hold to be holds both. */
+function probesHeld(c: Computed<any>, flush: boolean): boolean {
+  const m = probeMemory.get(c);
+  if (m !== undefined)
+    for (let i = 0; i < m.nodes.length; i++) {
+      const h = holdOf(m.nodes[i]);
+      if (h === 2 || (h === 1 && flush)) return true;
+    }
+  return false;
+}
 
 /** A verdict reader whose answer this flush could not give yet: the node it
  * asked about is staged and not held — whether it will be is the seam's
@@ -446,6 +530,15 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   setVerdict(verdictValue);
   latestActive = prevLatest;
   probing = prevProbing;
+  // Per hold (D-25): a tracked window read is a probe of `el`, remembered on
+  // the reader whatever holds `el` now — the posture is read off it at use
+  // (`probesHeld`). Not a pass whose running creators read the future or a
+  // staging (`markVerdictReader`, #4341): that world's pass, no hold's
+  // verdict reader.
+  if (tracked && !creatorReads(c!, 0)) {
+    const into = probeList(c!);
+    if (into.indexOf(el) === -1) into.push(el);
+  }
   // Shadow (S0): the window's decision point — the rows Vl*/Vp*.
   if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, false);
   // A live `affects()` mark on the node or a dependency (affects.ts): not
@@ -669,7 +762,7 @@ function holdWork(n: Computed<any>, source: Computed<any>): unknown {
 // Installed at module evaluation — present exactly when something imports
 // `latest` or `isPending`. (`read` dispatches to `verdictValue` through
 // `verdict`, set while a window is open.)
-installVerdictHooks(observeFlight, holdWork);
+installVerdictHooks(observeFlight, holdWork, probesHeld, inheritProbes, probesBracket);
 /** A store read inside an untracked `isPending` probe found a live mark on
  * a record with no node to carry it (store/affects.ts): not final. */
 GlobalQueue._witnessMark = () => {

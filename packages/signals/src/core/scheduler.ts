@@ -183,12 +183,32 @@ export let observeFlightHook: ((c: Computed<any>, el: Computed<any>) => boolean)
 /** D-25's hold work (verdict.ts `holdWork`): on `source` going pending,
  * whether verdict reader `n` waits on it instead of re-deriving. */
 export let holdWorkHook: ((n: Computed<any>, source: Computed<any>) => unknown) | null = null;
+/** D-25 per hold (verdict.ts `probesHeld`): is verdict reader `c`'s posture
+ * live — something its last asking pass asked about held now? `flush`: the
+ * read is of the flush's own proposal, so a probe of one the flush has not
+ * held yet counts. Consulted wherever CONFIG_VERDICT seats a pass. */
+export let probesHeldHook: ((c: Computed<any>, flush: boolean) => boolean) | null = null;
+/** (verdict.ts `inheritProbes`): `c` reads verdict memo `from` (#4050), or
+ * — `next`, a render effect — is re-run by its lane re-staging (`laneDirty`). */
+export let inheritProbesHook:
+  | ((c: Computed<any>, from: Computed<any>, next: boolean) => void)
+  | null = null;
+/** (verdict.ts `probesBracket`): snapshot (`saved` undefined) and restore
+ * a node's probe memory around a read that must not hand a posture on
+ * (boundaries.ts `fallback`). */
+export let probesBracketHook: ((c: Computed<any>, saved: unknown) => unknown) | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
-  holdWork: NonNullable<typeof holdWorkHook>
+  holdWork: NonNullable<typeof holdWorkHook>,
+  probesHeld: NonNullable<typeof probesHeldHook>,
+  inheritProbes: NonNullable<typeof inheritProbesHook>,
+  probesBracket: NonNullable<typeof probesBracketHook>
 ): void {
   observeFlightHook = observeFlight;
   holdWorkHook = holdWork;
+  probesHeldHook = probesHeld;
+  inheritProbesHook = inheritProbes;
+  probesBracketHook = probesBracket;
 }
 /** External-source bridge (wired by enableExternalSource(); undefined while
  * no config is active — including after _resetExternalSourceConfig()). */
@@ -1422,6 +1442,8 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
       t = c._x?._transaction;
     if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT) {
       ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
+      // Toward what the memo asked about (D-25 per hold), for that pass.
+      inheritProbesHook!(c, node as Computed<any>, true);
       if (__TEST__ && shadowLaneDirtyHook !== null) shadowLaneDirtyHook(c, node);
     }
     if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;

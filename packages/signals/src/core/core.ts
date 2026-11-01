@@ -168,8 +168,10 @@ import {
   laneSeamsHook,
   laneServedHook,
   holdWorkHook,
+  inheritProbesHook,
   laneWriteHook,
   observeFlightHook,
+  probesHeldHook,
   wireExternalSourceHook
 } from "./scheduler.js";
 import type { Transaction } from "./scheduler.js";
@@ -477,9 +479,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // A verdict reader born into `tx` (`bornInto`: never committed) is the
       // hold's own work, whatever it asked before (D-25): it joins like any
       // held pass, so what it mounts is the hold's (D-13, #4467).
+      // A verdict posture toward a live hold only (D-25 per hold): one whose
+      // probed hold has landed holds a mere staging here, and joins.
       if (tx._lane || el._config & CONFIG_LAGS) {
       } else if (
-        !(el._config & (CONFIG_VERDICT | (EFFECT_RENDER << 23))) ||
+        !(
+          el._config & (EFFECT_RENDER << 23) ||
+          (el._config & CONFIG_VERDICT && probesHeldHook!(el, false))
+        ) ||
         (observeFlightHook && !(el._config & (EFFECT_RENDER << 23)) && bornInto(el, tx))
       )
         joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
@@ -1341,8 +1348,10 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // does: structure, not a derivation of what it shows (#4283). A mount
   // under a hold still enters it: the content memo it reads is born held,
   // with no committed value to serve.
+  // A verdict reader toward a live hold only (D-25 per hold, `probesHeld`):
+  // one whose probed hold has landed is whatever its reads make it.
   // (Verdict readers and lanes exist only with their engines installed.)
-  const verdict = observeFlightHook && c._config & CONFIG_VERDICT;
+  const verdict = observeFlightHook && c._config & CONFIG_VERDICT && probesHeldHook!(c, false);
   const lane = laneStageHook && passLane !== null;
   if (
     (!lane ||
@@ -2139,7 +2148,10 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // reads the screen too.
     if (
       netted ||
-      (((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
+      (((observeFlightHook &&
+        c._config & CONFIG_VERDICT &&
+        probesHeldHook!(c as Computed<any>, true)) ||
+        (laneStageHook && passLane?.folded)) &&
         stagedScreen(c as Computed<any>, el))
     ) {
       if (__TEST__) shadowActual(netted ? SLOT_P : SLOT_C);
@@ -2188,14 +2200,21 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // verdict reader keeps the posture it is served the screen with
         // (`observeFlight`). (A verdict memo exists only with the verdict
         // engine installed.)
-        if (observeFlightHook && !(c as any)._type)
-          (c as Computed<any>)._flags |=
-            owner._config &
+        // Handed on with what the memo asked about (D-25 per hold,
+        // verdict.ts `inheritProbes`): the posture is toward those holds.
+        if (
+          observeFlightHook &&
+          !(c as any)._type &&
+          owner._config &
             CONFIG_VERDICT &
             (owner._statusFlags & STATUS_PENDING &&
             (c._config & CONFIG_STAGED || (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
               ? c._config
-              : -1);
+              : -1)
+        ) {
+          (c as Computed<any>)._flags |= REACTIVE_PROBED;
+          inheritProbesHook!(c as Computed<any>, owner, false);
+        }
       }
     }
     if (__TEST__)
@@ -2284,7 +2303,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // boundary a lane mounts shows its fallback (A29's boundary exemption).
     if (passLane !== null && !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED))
       committed = true;
-    else if (c !== null && c._config & CONFIG_VERDICT)
+    else if (c !== null && c._config & CONFIG_VERDICT && probesHeldHook!(c as Computed<any>, true))
       committed = observeFlightHook!(c as Computed<any>, owner);
   }
   if (owner._statusFlags & STATUS_PENDING && !committed) {
@@ -2428,6 +2447,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     (observeFlightHook &&
       c!._config & CONFIG_VERDICT &&
       !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
+      probesHeldHook!(c!, true) &&
       stagedScreen(c!, el) &&
       !throwShown(el))
   ) {
@@ -2497,7 +2517,11 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
     // if the flush parks (D-22; D-25: the probe decides the posture in either
     // read order). A memo's is the frame's derivation either way: a memo is
     // not a leaf (`frameRead`).
-    if (laneSeamsHook && (passLane !== null || ((c as any)._type && c._config & CONFIG_VERDICT)))
+    if (
+      laneSeamsHook &&
+      (passLane !== null ||
+        ((c as any)._type && c._config & CONFIG_VERDICT && probesHeldHook!(c, true)))
+    )
       stagedReaders.push(c);
   }
 }
