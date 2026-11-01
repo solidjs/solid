@@ -68,7 +68,8 @@ import {
   isThenable,
   notifyStatus,
   releaseFlightTeardown,
-  removePendingSource
+  removePendingSource,
+  settlePendingSource
 } from "./async.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
@@ -1099,14 +1100,21 @@ const laneSeams = (t: Transaction | null): void => {
       // parked: landing at this seam, what it read is the screen (one run,
       // D-22). Not one born into that frame (a held pass's child, ruling A):
       // it has no screen, its reads are the transaction's either way — it
-      // runs again at the landing, not now.
+      // runs again at the landing, not now. Nor lane work re-based over this
+      // frame's answer (#4536, merged since or not): its rows are that
+      // answer's, so its other reads are too (core.ts `frameRead`), and the
+      // lane holds while the frame does (`laneSeam`).
+      // Re-derived on the committed world, it paired the new rows with the
+      // old inputs, and the landing revealed that beside them (F-1, D-34 ¶3,
+      // #4577).
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
-          ? l._parent?._verdict === l &&
-            (r._config & CONFIG_VERDICT
-              ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
-              : !blocked(t!) || heldBy(t!, r))
+          ? (l._parent?._verdict === l &&
+              (r._config & CONFIG_VERDICT
+                ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
+                : !blocked(t!) || heldBy(t!, r))) ||
+            (l.over && liveTx(l.over) === t)
           : l &&
             !(
               r._flags & REACTIVE_PROBE_UNANSWERED ||
@@ -1196,10 +1204,14 @@ const adoptParked = (r: Computed<any>): boolean => {
  * included) is not this pass's — the landing re-derives it (`reruns`).
  * Kept, a pass that went pending on another source never woke when that
  * source settled (#4397). Only a reader something made pending has anything
- * to drop. */
+ * to drop. What the drop retires is retired from the dependents that carried
+ * it through `c` too: the source's own landing walk stops at `c`, which no
+ * longer has it, and a render effect left marked would hold its transaction
+ * on a flight that has landed (D-11, F-2, #4576; a nested action's refresh). */
 const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => {
   const from = (el as Computed<any>)._x?._pendingSources;
-  if (from && c._x?._pendingSources) for (const s of from) removePendingSource(c, s);
+  if (from && c._x?._pendingSources)
+    for (const s of from) if (removePendingSource(c, s)) settlePendingSource(c, s);
 };
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
