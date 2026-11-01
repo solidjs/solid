@@ -618,14 +618,19 @@ export function syncThenable(value: any) {
  * the flush, where a node it reaches computes. Runs from a settled promise,
  * outside any claim window.
  */
-const servedPass = (write: (x?: any) => void, adopt?: boolean) => (x?: any) => {
+const servedPass = (write: (x?: any) => void, adopt?: Owner) => (x?: any) => {
   flush();
-  // Adopting, hydration is on but nothing claims: the render is a client
-  // render, so it opens no snapshot scope either (the `hydrating` setter,
-  // which would release one, is bypassed here). A scope left open would hold
-  // every write made in it — a client-only node's gate (a <Portal>) never
+  // Adopting (`adopt`, the boundary's owner): hydration is on but nothing
+  // claims. The render reads the server's snapshot as a claim does
+  // (hydrateWindow), so a node it creates adopts the answer the server gave
+  // for those inputs, and a client write already made to one replays at the
+  // release below, where the node computes (#4588). Released here — the
+  // `hydrating` setter is bypassed — since a scope left open would hold
+  // every write made in it: a client-only node's gate (a <Portal>) never
   // opening.
-  _hydratingValue = _snapshotRootOwner = adopt as any;
+  _hydratingValue = !!adopt;
+  _snapshotRootOwner = adopt || null;
+  if (adopt) markSnapshotScope(adopt);
   _claimOwner = ~clock;
   // An uncaught error (no client boundary for a served error) leaves the
   // flush by throwing: the pass still ends, and hydration still completes
@@ -637,6 +642,7 @@ const servedPass = (write: (x?: any) => void, adopt?: boolean) => (x?: any) => {
     flush();
   } finally {
     _claimOwner = _hydratingValue = _snapshotRootOwner = null as any;
+    if (adopt) releaseSnapshotScope(adopt);
     checkHydrationComplete();
   }
 };
@@ -2393,7 +2399,7 @@ function resumeBoundaryHydration(
       // for it, if any (#4287), or an uncaught error — instead of asking
       // again. What the server never sent (a truncated ref is dropped from
       // the registry) computes.
-      servedPass(set, shouldHydrate === 0)();
+      servedPass(set, shouldHydrate === 0 ? o : undefined)();
   flush();
   checkHydrationComplete();
 }
