@@ -1068,12 +1068,12 @@ export class GlobalQueue implements IQueue {
     // This flush's own runs, the lanes' reveals, and the landings' held runs
     // are collected apart and ordered below.
     const own = this._queues;
-    const lanes: [QueueCallback[], QueueCallback[]] = [[], []];
+    let lanes: [QueueCallback[], QueueCallback[]] | null = null;
     // The passes that read this frame's stagings as the screen read held
     // writes if it parked: the lane seam re-derives them on the committed
     // world (a lane's runs wait this round).
     if (laneSeamsHook) {
-      this._queues = lanes;
+      this._queues = lanes = [[], []];
       laneSeamsHook(t);
       if (stagedReaders.length) stagedReaders.length = 0;
     }
@@ -1121,8 +1121,8 @@ export class GlobalQueue implements IQueue {
       // same array, not a copy; `run` takes it whole). Every other seam
       // builds the ordered queue above.
       this._queues[i] =
-        parked || lanes[i].length || this._queues[i].length
-          ? lanes[i].concat(parked ? [] : own[i], this._queues[i])
+        parked || lanes?.[i].length || this._queues[i].length
+          ? (lanes ? lanes[i] : []).concat(parked ? [] : own[i], this._queues[i])
           : own[i];
     }
     if (deferredZombies.length !== 0) {
