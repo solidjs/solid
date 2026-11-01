@@ -858,8 +858,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // Reuse one bound runner per effect — runEffect no-ops on a stale
       // `_modified`, so re-enqueueing the same function is harmless.
       // Lane work's run is the lane's (released at its reveal). A first
-      // pass's run is `effect()`'s to queue, a lane's node's too (its
-      // creator's pass is the lane's): `defer` skips it there (#4557).
+      // pass's run is `effect()`'s to queue, a lane's node's too (into this
+      // pass's lane, its transaction now): `defer` skips it there (#4557).
       if (!create)
         globalQueue.enqueue(
           isEffect,
