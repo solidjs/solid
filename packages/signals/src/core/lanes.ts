@@ -94,6 +94,7 @@ import {
   queuePendingNode,
   releaseQueues,
   reruns,
+  liveTx,
   resolveTx,
   sameLane,
   schedule,
@@ -843,7 +844,10 @@ function laneCorrections(): boolean {
 function laneSeam(l: Transaction, leaked: boolean): void {
   // Blocked — or one of its passes read a write the frame holds this seam:
   // its runs wait, the pass re-derives on the screen next round.
-  if (leaked || blocked(l)) {
+  // Re-based over a question still parked on another read (#4525): its rows
+  // are that answer's, shown only with the question (F-1, D-34 ¶3, #4559).
+  const over = l.over && liveTx(l.over);
+  if (leaked || blocked(l) || (over && blocked(over))) {
     l._held = true;
     return;
   }
