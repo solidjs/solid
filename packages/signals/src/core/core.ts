@@ -520,7 +520,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (__DEV__) clearSignals(el);
   }
 
-  const wasUninitialized = !!(el._statusFlags & STATUS_UNINITIALIZED);
+  const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
   // Capture both error and pending status before the compute clears them.
   // A conditional can drop its pending source and recover to an unchanged
   // value, leaving blocked dependents outside that source’s settle walk.
@@ -790,19 +790,22 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // publishes to — the staged `_pendingValue` when staged; a lane node's
     // lane value (a node entering the lane this pass has none yet — its
     // committed value, `laneStage` having voided a frame staging).
-    const compareValue =
-      el._pendingValue !== NOT_PENDING
-        ? el._pendingValue
-        : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
-          ? el._x!._lane
-          : el._value;
+    const unstaged = el._pendingValue === NOT_PENDING;
+    const compareValue = !unstaged
+      ? el._pendingValue
+      : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
+        ? el._x!._lane
+        : el._value;
     // A throwing comparator is contained inside `isSame` (A3, #2837; #4111).
     // A pass replacing an error this node staged is a new answer, even the
     // committed value (D-41: a recovery equal to the last good value is a
     // change): the slot it publishes to held the error, and the readers that
     // derived from it — `latest()` throws it — re-derive (#4403).
+    // A first value already staged this frame is that slot too: a re-pass
+    // equal to it changes nothing, though the node stays uninitialized until
+    // the commit (#4540).
     const valueChanged =
-      (!isEffect && wasUninitialized) ||
+      (unstaged && wasUninitialized && !isEffect) ||
       !!el._x?._shownError ||
       !!replaced ||
       !isSame(el, compareValue, value);
@@ -810,7 +813,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A committed derived change becomes a cause for this node's subscribers,
     // chaining their attribution through this node to the root write.
     if (__OBSERVE__ && attrHooks !== null) {
-      devChanged = valueChanged && !el._x?._error;
+      devChanged = !!valueChanged && !el._x?._error;
       if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
     }
 
@@ -830,7 +833,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         Object.is((el as any)._prevValue, value)
       ) &&
       // A re-staging pass owes no run: the commit replays the effect (#3802).
-      el._pendingValue === NOT_PENDING
+      unstaged
     ) {
       (el as any)._modified = !el._x?._error;
       // Reuse one bound runner per effect — runEffect no-ops on a stale
@@ -983,7 +986,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // through such a reader (`blockedBy`, #4542).
   if (create && lane === null && joined && el._statusFlags & STATUS_PENDING) {
     const t = flushTransaction ?? passTx;
-    if (t && !t._lane && (!isEffect || freshHook?.(el) !== CAUGHT_REARMED)) holdNode(el, t);
+    t && !t._lane && ((isEffect && freshHook?.(el) === CAUGHT_REARMED) || holdNode(el, t));
   }
   // Dependencies are the committed frame's until it is replaced (A30, #3410):
   // a pass that staged its value leaves the previous pass's tail linked for
@@ -1325,7 +1328,10 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // Lane work and verdict readers are never the transaction's pass, whichever
   // flush runs it: a node T holds re-enters T when it re-runs (`recompute`'s
   // head), and the pass may then read a guess and become the lane's.
-  if ((t === flushTransaction && !lane && !verdict) || bornInto(c, t)) return false;
+  // Except a lane re-based over this transaction's answer, in its flush: its
+  // rows are that answer's, so its work reads the rest of it (#4536).
+  if ((t === flushTransaction && (!lane || passLane!.over === t) && !verdict) || bornInto(c, t))
+    return false;
   staleReader(c, t);
   // Lane work or a verdict reader no longer waits on `el`'s flight (lanes.ts
   // `laneServed`, A15).
