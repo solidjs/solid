@@ -22,12 +22,14 @@ import {
   CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
+  NO_SNAPSHOT,
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
   REACTIVE_JOINED,
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
   REACTIVE_REASK,
+  REACTIVE_SNAPSHOT_STALE,
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_STAGED_READ,
   REACTIVE_WINDOW,
@@ -44,7 +46,6 @@ import {
   markLateLinker,
   prepareComputed,
   pullComputed,
-  servedSnapshot,
   setVerdict,
   snapshotCaptureActive,
   spectating,
@@ -79,6 +80,7 @@ import {
   SLOT_DV,
   SLOT_LV,
   SLOT_P,
+  SLOT_SNAPSHOT,
   shadowActual,
   shadowExpect,
   shadowWindow
@@ -449,26 +451,25 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   latestActive = prevLatest;
   probing = prevProbing;
   // A reader in a snapshot scope (a hydration claim) is served the value the
-  // server rendered with, as `read` serves a plain one (`servedSnapshot`):
-  // `latest(a)` beside `a()` in a claim shows the server's frame whole (F-1),
-  // not a client write's flight the markup never had — which would put a
-  // boundary over it in a fallback the server never rendered, claimed
-  // against nothing (#4570). `isPending` answers for that frame: nothing in
-  // flight.
-  const scoped = snapshotCaptureActive && c && c._config & CONFIG_IN_SNAPSHOT_SCOPE;
+  // server rendered with, as `read` serves a plain one: `latest(a)` beside
+  // `a()` in a claim shows the server's frame whole (F-1), not a client
+  // write's flight the markup never had — which would put a boundary over
+  // it in a fallback the server never rendered, claimed against nothing
+  // (#4570). `isPending` answers for that frame: nothing in flight. The
+  // reader replays at the scope's release.
+  const sv =
+      snapshotCaptureActive && c && c._config & CONFIG_IN_SNAPSHOT_SCOPE
+        ? el._x?._snapshotValue
+        : undefined,
+    served = sv !== undefined && !(owner._statusFlags & STATUS_ERROR);
   // Shadow (S0): the window's decision point — the rows Vl*/Vp*.
-  if (__TEST__)
-    shadowExpect(
-      c,
-      el,
-      tracking,
-      latestActive ? 2 : 1,
-      spectating,
-      !!scoped && el._x?._snapshotValue !== undefined && !(owner._statusFlags & STATUS_ERROR)
-    );
-  if (scoped) {
-    const v = servedSnapshot(el, c!);
-    if (v !== NOT_PENDING) return v;
+  if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, served);
+  if (served) {
+    const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
+    if ((el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) !== snapshot)
+      c!._flags |= REACTIVE_SNAPSHOT_STALE;
+    if (__TEST__) shadowActual(SLOT_SNAPSHOT);
+    return snapshot;
   }
   // A live `affects()` mark on the node or a dependency (affects.ts): not
   // final by declaration — the value itself is read as below. The verdict is

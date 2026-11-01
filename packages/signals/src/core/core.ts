@@ -2055,26 +2055,6 @@ function servesStaged(c: Computed<any>, el: Signal<any> | Computed<any>, owner: 
   );
 }
 
-/**
- * A reader in a snapshot scope (a hydration claim) is served the value the
- * server rendered with: a client write's recompute still in flight does not
- * pull the claim off the markup it adopts — the reader is marked stale and
- * replays at the scope's release. NOT_PENDING when there is nothing to
- * serve: no snapshot, or an errored node, which throws as for any reader.
- * Shared by `read` and the verdict window (`latest`/`isPending`, #4570);
- * callers check `snapshotCaptureActive` and the scope first, so builds that
- * never hydrate fold both sites away.
- */
-export function servedSnapshot(el: Signal<any> | Computed<any>, c: Computed<any>): unknown {
-  const sv = el._x?._snapshotValue;
-  if (sv === undefined || (el as Computed<any>)._statusFlags & STATUS_ERROR) return NOT_PENDING;
-  const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
-  if ((el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) !== snapshot)
-    c._flags |= REACTIVE_SNAPSHOT_STALE;
-  if (__TEST__) shadowActual(SLOT_SNAPSHOT);
-  return snapshot;
-}
-
 export function read<T>(el: Signal<T> | Computed<T>): T {
   // Shadow (S0): every read is run through `shadowRead`, which re-enters
   // here once (the bypass) and compares the slot the table predicts with
@@ -2258,10 +2238,19 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       nodeName: (owner as any)?._name
     });
 
-  // A reader in a snapshot scope (a hydration claim): `servedSnapshot`.
+  // A reader in a snapshot scope (a hydration claim) is served the value the
+  // server rendered with: a client write's recompute still in flight does
+  // not pull the claim off the markup it adopts — the reader replays at the
+  // scope's release. An errored node throws below as for any reader.
   if (snapshotCaptureActive && c && (c as Computed<any>)._config & CONFIG_IN_SNAPSHOT_SCOPE) {
-    const v = servedSnapshot(el, c as Computed<any>);
-    if (v !== NOT_PENDING) return v as T;
+    const sv = el._x?._snapshotValue;
+    if (sv !== undefined && !(owner._statusFlags & STATUS_ERROR)) {
+      const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
+      const current = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
+      if (current !== snapshot) (c as Computed<any>)._flags |= REACTIVE_SNAPSHOT_STALE;
+      if (__TEST__) shadowActual(SLOT_SNAPSHOT);
+      return snapshot as T;
+    }
   }
 
   // A stale reader of a held flight (rule 3, A15's reveal corollary) is served
