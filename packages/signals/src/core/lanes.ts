@@ -846,8 +846,7 @@ function laneSeam(l: Transaction, leaked: boolean): void {
   // its runs wait, the pass re-derives on the screen next round.
   // Re-based over a question still parked on another read (#4525): its rows
   // are that answer's, shown only with the question (F-1, D-34 ¶3, #4559).
-  const over = l.over && liveTx(l.over);
-  if (leaked || blocked(l) || (over && blocked(over))) {
+  if (leaked || blocked(l) || (l.over && blocked(liveTx(l.over) || l))) {
     l._held = true;
     return;
   }
