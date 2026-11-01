@@ -120,14 +120,13 @@ export function setPendingError(el: Computed<any>, source?: Computed<any>, error
     if (el._x !== null) el._x._error = null;
     return;
   }
-  if (error instanceof NotReadyError && error.source === source) {
-    ext(el)._error = error;
-    return;
-  }
-  const current = el._x?._error;
-  if (!(current instanceof NotReadyError) || current.source !== source) {
-    ext(el)._error = new NotReadyError(source);
-  }
+  // The given error when it names this source, else the current one when it
+  // does (rewritten unchanged), else a fresh one.
+  const current = error instanceof NotReadyError && error.source === source ? error : el._x?._error;
+  ext(el)._error =
+    current instanceof NotReadyError && current.source === source
+      ? current
+      : new NotReadyError(source);
 }
 
 export function forEachDependent(
@@ -135,6 +134,25 @@ export function forEachDependent(
   fn: (node: Computed<any>, link: Link) => void
 ): void {
   for (let s = el._subs; s !== null; s = s._nextSub) fn(s._sub, s);
+}
+
+/** Each dependent reachable from `el`, depth first. `fn` sees every arrival,
+ * `seen` when an earlier branch already walked the node (a diamond); the
+ * node's dependents are walked once, on its first arrival unless `fn`
+ * returns false (then it stays unmarked: a later branch may walk it). */
+function walkDependents(
+  el: Computed<any>,
+  fn: (node: Computed<any>, seen: boolean) => unknown
+): void {
+  const visited = new NewSet<Computed<any>>();
+  const visit = (node: Computed<any>) => {
+    const seen = visited.has(node);
+    if (fn(node, seen) !== false && !seen) {
+      visited.add(node);
+      forEachDependent(node, visit);
+    }
+  };
+  forEachDependent(el, visit);
 }
 
 // Queue a node to re-run on the next flush (used both when a pending source
@@ -169,14 +187,9 @@ export function releaseIfSettledUnobserved(node: Computed<any>): void {
 // Collect-then-release so unobserved() never unlinks under the walk.
 export function releaseSettledDependents(el: Computed<any>): void {
   let candidates: Computed<any>[] | undefined;
-  const visited = new NewSet<Computed<any>>();
-  const visit = (node: Computed<any>) => {
-    if (visited.has(node)) return;
-    visited.add(node);
-    if (!node._subs && node._config & CONFIG_AUTO_DISPOSE) (candidates ??= []).push(node);
-    forEachDependent(node, visit);
-  };
-  forEachDependent(el, visit);
+  walkDependents(el, (node, seen) => {
+    if (!seen && !node._subs && node._config & CONFIG_AUTO_DISPOSE) (candidates ??= []).push(node);
+  });
   if (candidates) for (const node of candidates) releaseIfSettledUnobserved(node);
 }
 
@@ -264,17 +277,12 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
 
 export function settleErroredDependents(el: Computed<any>, error: any): void {
   let scheduled = false;
-  const visited = new NewSet<Computed<any>>();
-  const visit = (node: Computed<any>) => {
-    if (visited.has(node)) return;
-    visited.add(node);
-    if (node._x?._error === error) {
+  walkDependents(el, (node, seen) => {
+    if (!seen && node._x?._error === error) {
       enqueueSub(node);
       scheduled = true;
     }
-    forEachDependent(node, visit);
-  };
-  forEachDependent(el, visit);
+  });
   if (scheduled) schedule();
 }
 
@@ -342,10 +350,12 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
   removePendingSource(el, source);
   let scheduled = false;
   let released: Computed<any>[] | undefined;
-  const visited = new NewSet<Computed<any>>();
-  const settle = (node: Computed<any>) => {
+  walkDependents(el, (node, seen) => {
     if (
-      visited.has(node) ||
+      // A node an earlier branch settled (a diamond) takes only this early
+      // return's verdict re-run / staged-error mark, as the walk did before
+      // it was shared.
+      seen ||
       // A conditional dropped this source, but another dependency can still
       // carry it. Only retire pending state inherited through the recovered
       // branch. Deliberately NOT marked visited on this early return: the
@@ -363,11 +373,11 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // D-41: a derivation of a staged error carries it (`stageMark`).
       return (
         holdWorkHook &&
-        (node._config & CONFIG_VERDICT
-          ? enqueueSub(node)
-          : el._config & CONFIG_STAGED_ERROR && stageMark(node, el))
+          (node._config & CONFIG_VERDICT
+            ? enqueueSub(node)
+            : el._config & CONFIG_STAGED_ERROR && stageMark(node, el)),
+        false
       );
-    visited.add(node);
     node._time = clock;
     const remaining = node._x?._pendingSources?.values().next().value;
     // STATUS_ERROR + pending sources only coexist via an errored loading
@@ -402,10 +412,7 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       // lists this walk is still iterating.
       if (!node._subs && node._config & CONFIG_AUTO_DISPOSE) (released ??= []).push(node);
     }
-    forEachDependent(node, settle);
-  };
-
-  forEachDependent(el, settle);
+  });
 
   // A node the enqueueSub above queued is released at that pass's tail
   // (`releaseIfSettledUnobserved`, REACTIVE_RELEASE_AFTER): the landing's
@@ -1000,34 +1007,27 @@ export function notifyStatus(el: Computed<any>, status: number, error?: any): vo
   const pendingSource = status === STATUS_PENDING && error instanceof NotReadyError && error.source;
   // (CARVE 2: the lane assignment went with the engine.)
 
-  if (status === STATUS_PENDING && pendingSource) {
+  if (pendingSource) {
     // D-41: a re-ask of a shown error keeps it the display (`_shownError`).
     if (el._statusFlags & STATUS_ERROR) el._x!._shownError = el._x!._error;
     addPendingSource(el, pendingSource);
-    // A re-ask of an error that answered the first read: still no value.
-    el._statusFlags =
-      STATUS_PENDING |
-      (el._statusFlags & STATUS_NO_VALUE
+  } else clearPendingSources(el);
+  // An error answering a node with no value marks it so; a re-ask of it
+  // (pending, from a source or not) is uninitialized again — still no
+  // value; a write (STATUS_NONE) gives it one.
+  el._statusFlags =
+    status |
+    (status === STATUS_ERROR
+      ? el._statusFlags & (STATUS_UNINITIALIZED | STATUS_NO_VALUE)
+        ? STATUS_NO_VALUE
+        : 0
+      : status === STATUS_PENDING && el._statusFlags & STATUS_NO_VALUE
         ? STATUS_UNINITIALIZED
         : el._statusFlags & STATUS_UNINITIALIZED);
-    // Preserve the current source on this propagation so readers park on
-    // the distinct pending source.
-    setPendingError(el, pendingSource, error);
-  } else {
-    clearPendingSources(el);
-    // An error answering a node with no value marks it so; a re-ask of it
-    // (pending) is uninitialized again; a write (STATUS_NONE) gives it one.
-    el._statusFlags =
-      status |
-      (status === STATUS_ERROR
-        ? el._statusFlags & (STATUS_UNINITIALIZED | STATUS_NO_VALUE)
-          ? STATUS_NO_VALUE
-          : 0
-        : status === STATUS_PENDING && el._statusFlags & STATUS_NO_VALUE
-          ? STATUS_UNINITIALIZED
-          : el._statusFlags & STATUS_UNINITIALIZED);
-    ext(el)._error = error;
-  }
+  // A propagated pending keeps its current source so readers park on the
+  // distinct pending source.
+  if (pendingSource) setPendingError(el, pendingSource, error);
+  else ext(el)._error = error;
 
   // Lanes: a written guess is an optimistic boundary (A17 — "the optimistic
   // future value until we know otherwise"). Its own source in flight is its
@@ -1108,7 +1108,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     // frame still passes through — its pass is the frame's (#3372, compiled
     // shape: the unmount it stages makes the observer a zombie whose say is
     // moot for this transaction, A15 #3463).
-    if (status === STATUS_PENDING && pendingSource && sub._x?._pendingSources?.has(pendingSource)) {
+    if (pendingSource && sub._x?._pendingSources?.has(pendingSource)) {
       if (
         passLane === null &&
         (sub._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
@@ -1119,7 +1119,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
       return;
     }
     if (
-      (status === STATUS_PENDING && pendingSource) ||
+      pendingSource ||
       (status !== STATUS_PENDING && (sub._x?._error !== error || sub._x?._pendingSources))
     ) {
       // The marked subscriber is queued for the commit sweep so its status

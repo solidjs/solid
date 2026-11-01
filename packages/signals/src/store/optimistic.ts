@@ -30,9 +30,10 @@ import {
   CONFIG_SLOT_NODE,
   EFFECT_RENDER,
   NOT_PENDING,
+  STATUS_PENDING,
   REACTIVE_REASK
 } from "../core/constants.js";
-import { ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
+import { context, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
 import { laneValueOf, optimisticWrite, pendingGuessOf, take } from "../core/lanes.js";
 import {
   clock,
@@ -60,6 +61,7 @@ import {
   getHasNode,
   getNode,
   LaneView,
+  linkedTo,
   resolveChainedRaw,
   sameKey,
   storeSetter,
@@ -187,7 +189,15 @@ export function notifyOptimisticWrites(
         if (k !== undefined && (!kept.has(k) || truth.has(r))) removed.add(k);
       }
     }
-    optimisticWrite(getContainerNode(t), new LaneView(rows, base, removed) as any);
+    const view = new LaneView(rows, base, removed);
+    // Written while the derive asks a new question (an input changed, not a
+    // `refresh()`): the guess's base answers the old one, so the rows it only
+    // carried over are that answer's — the new answer re-bases it like an
+    // older truth instead of folding beneath it (`_laneRebase`, F-1, #4525).
+    const d = t._fam!.node;
+    if (removed && d?._statusFlags! & STATUS_PENDING && !(d!._flags & REACTIVE_REASK))
+      view.g = null;
+    optimisticWrite(getContainerNode(t), view as any);
   }
   if (t.dk !== null) optimisticWrite(t.dk, {} as any);
   markOverlaid(t);
@@ -364,19 +374,23 @@ GlobalQueue._slotTake = (n, back) => {
  * node is born for it as the lane's derivation), on `length` only when the
  * committed length differs, and as the `LaneView`'s base for structural
  * reads. Unkeyed families compose
- * positionally — the guess stands as written (the documented residue). */
+ * positionally — the guess stands as written (the documented residue).
+ * A current truth re-bases, the same way, a guess written while its
+ * question was being asked (`g` null, #4525): asked before the guess, it is
+ * the older question; its rows are held beneath the guess. True: the lane
+ * holds the landing (`laneWrite`). */
 GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
-  if (!older) return fold(el, truth);
   const t = (el as any)._host as StoreTarget | undefined;
-  if (t === undefined || (el as any)._key !== $TRACK) return;
+  if (!older && (t?.k?._x?._lane as LaneView)?.g !== null) return fold(el, truth);
+  if (!t || (el as any)._key !== $TRACK) return true;
   const view = el._x!._lane;
   if (!(view instanceof LaneView)) return;
   if (!Array.isArray(truth) || !Array.isArray(view.rows)) {
     view.base = truth as Record<PropertyKey, any>;
     return;
   }
-  const keyFn = t._fam?.key ?? null;
-  if (keyFn === null) return;
+  const keyFn = t._fam?.key;
+  if (!keyFn) return;
   const byKey = new Map<unknown, any>();
   for (let i = 0; i < truth.length; i++) {
     const r = truth[i];
@@ -389,6 +403,10 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
   // From the guess as written, not an earlier re-base's composition: a
   // derive's landing writes key by key, and a truth row one partial write
   // showed must not stay appended once the landing drops it (#4441).
+  // The #4525 re-base (`g` null): the lane's rows are the new question's
+  // answer now; its work reads that question's hold as the hold's own
+  // flush does (core.ts `frameRead`, F-1, #4536).
+  if (view.g === null) txOf(el).over = t._fam!.node!._x!._transaction!;
   const guessed = (view.g ??= view.rows as any[]);
   for (let i = 0; i < guessed.length; i++) {
     const g = guessed[i];
@@ -429,6 +447,7 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
     if (len !== undefined && (len._config & CONFIG_OVERRIDE || base.length !== rows.length))
       laneSet(len, rows.length, lane);
   }
+  return true;
 };
 
 /** D-34 for a keyed arrangement guess: rows by key, not positions. A
@@ -566,10 +585,30 @@ installOptHooks({
   // ordinary pending read (F-2), so a keyed store's other keys wait for their
   // answer, not for the guess's action; in a lane with no guess of its own,
   // or with no live guess left, none does (F-6).
+  // A reader already observing the flight (linked) keeps observing it:
+  // served the guess, a re-run (the guess's own, the seam) would drop its
+  // link and release the hold beside a guess over the previous answer
+  // (F-1, #4536) — the ordinary read serves its committed frame or keeps it
+  // pending. So does a render effect pending on a flight a list guess was
+  // written over (`g` null, the #4525 mark; D-34: the guess does not answer
+  // it): read here, as `pullFamily`'s own read would, since the frame's
+  // guard there returns early for an unlinked render effect.
   stands: t => {
-    const o = t._fam!._overlaid;
-    const a = t._fam!._asked;
-    return !!o?.size && (a !== clock + 1 || passLane !== null || o.has(t)) && a !== ~clock;
+    const f = t._fam!;
+    const o = f._overlaid;
+    const a = f._asked;
+    const d = f.node!;
+    const c: any = context;
+    if (!o?.size || (a === clock + 1 && passLane === null && !o.has(t)) || a === ~clock)
+      return false;
+    if (linkedTo(c, d)) return false;
+    if (
+      (t.k?._x?._lane as LaneView)?.g === null &&
+      c?._type === EFFECT_RENDER &&
+      c._statusFlags & STATUS_PENDING
+    )
+      readNode(d);
+    return true;
   },
   // Mainline hold (`clock + 1`): the flush joins the action of each guess a
   // reader still reads at the seam; a reader that moved off it (a keyed

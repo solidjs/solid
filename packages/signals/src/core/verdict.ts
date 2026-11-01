@@ -572,7 +572,10 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // reader is still the tick's verdict reader, shown now (D-25: the
     // posture is the pass's). A signal's staging only, as `read`'s arm.
     else if (tracked && globalQueue._running)
-      flushTransaction && !(el as any)._fn && el._pendingValue === el._value
+      flushTransaction &&
+      !(el as any)._fn &&
+      el._pendingValue === el._value &&
+      Object.is(el._pendingValue, el._value)
         ? route(c!, flushTransaction)
         : provisionalVerdict(c!, !latestActive && !uninitialized);
     // Outside a flush, the staging is an unflushed write (A28): the probe

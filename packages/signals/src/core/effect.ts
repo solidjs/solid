@@ -35,6 +35,7 @@ import {
   _hitUnhandledAsync,
   GlobalQueue,
   globalQueue,
+  queueEffectRun,
   haltReactivity,
   haltReactivityAt,
   resetUnhandledAsync,
@@ -79,13 +80,16 @@ export function effect<T>(
   // staged); the flush's commit replays this effect. Its first run is not this
   // creation's (A29). A lane's node likewise: its run is the lane's, queued
   // by the pass and released at the reveal (lanes.ts).
-  !options?.defer &&
-    node._pendingValue === NOT_PENDING &&
-    !node._x?._transaction?._lane &&
-    (node._type === EFFECT_USER || options?.schedule
-      ? globalQueue.enqueue(node._type, runEffect.bind(null, node))
-      : // Type 0: the synchronous first render, not a queued run (D-19).
-        runEffect(node, 0));
+  // `defer` skips the first run, the commit's replay of a node born staged
+  // included (#4543): it drops the staging, so the commit replays nothing.
+  options?.defer
+    ? (node._pendingValue = NOT_PENDING)
+    : node._pendingValue === NOT_PENDING &&
+      !node._x?._transaction?._lane &&
+      (node._type === EFFECT_USER || options?.schedule
+        ? globalQueue.enqueue(node._type, runEffect.bind(null, node))
+        : // Type 0: the synchronous first render, not a queued run (D-19).
+          runEffect(node, 0));
   if (__DEV__ && !node._parent) {
     const message =
       "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed";
@@ -118,10 +122,7 @@ function notifyEffectStatus(this: Effect<any>): void {
       // and the runner dispatches on them, so a recovery before the effect
       // phase takes the success arm instead. (Re-read: the boundary
       // notify above can run a redraw.)
-      if (this._statusFlags & STATUS_ERROR) {
-        this._modified = true;
-        globalQueue.enqueue(this._type, (this._boundRunEffect ??= runEffect.bind(null, this)));
-      }
+      if (this._statusFlags & STATUS_ERROR) queueEffectRun(this);
       return;
     }
     // Dev locates the halt at the node that threw: the StatusError's
@@ -131,7 +132,7 @@ function notifyEffectStatus(this: Effect<any>): void {
     escalate(
       this,
       unwrapStatusError(actualError),
-      __DEV__ && actualError instanceof StatusError ? actualError.source : this
+      __DEV__ && actualError instanceof StatusError ? actualError.source : undefined
     );
   } else if (this._type === EFFECT_RENDER) {
     globalQueue.notify(this, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
@@ -163,10 +164,11 @@ function notifyEffectStatus(this: Effect<any>): void {
 }
 
 /** An effect's error no boundary takes halts the system (boundary-or-halt):
- * halted with `cause` and rethrown; dev locates it at `subject`. */
-function escalate(node: Effect<any>, cause: unknown, subject: DiagnosticSubject = node): void {
+ * halted with `cause` and rethrown; dev locates it at `subject` (default:
+ * the effect). */
+function escalate(node: Effect<any>, cause: unknown, subject?: DiagnosticSubject): void {
   if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
-    __DEV__ ? haltReactivityAt(cause, subject) : haltReactivity(cause);
+    __DEV__ ? haltReactivityAt(cause, subject ?? node) : haltReactivity(cause);
     throw cause;
   }
 }
