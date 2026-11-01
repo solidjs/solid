@@ -100,14 +100,13 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
   // cleanups never run and it stays subscribed, rerunning in a torn-down
   // tree (#3561). Death only (`self`): a re-pass leaves the frame reacting
   // until the commit.
-  if (
-    self &&
-    !zombie &&
-    node._x !== null &&
-    (node._x._pendingFirstChild !== null || node._x._pendingDisposal !== null)
-  )
-    disposeChildren(node, false, true);
   if (self) {
+    if (
+      !zombie &&
+      node._x !== null &&
+      (node._x._pendingFirstChild !== null || node._x._pendingDisposal !== null)
+    )
+      disposeChildren(node, false, true);
     (node as any)._flags = flags | REACTIVE_DISPOSED;
     if (__OBSERVE__ && node._parent === null && (node as Root)._root) unregisterRoot(node);
     if (__DEV__) clearSignals(node);

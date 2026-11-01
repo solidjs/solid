@@ -1836,9 +1836,10 @@ function serveDataKey(
   return draftServe(target, wrap(v, target, key as any));
 }
 
-/** Is `n` among `c`'s dependencies (any pass's — a kept tail included)? */
-function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
-  for (let d = c._deps; d !== null; d = d._nextDep) if (d._dep === n) return true;
+/** Is `c` among `n`'s subscribers (any pass's link — a kept tail included)?
+ * `n`'s subs, not `c`'s deps: the derive's are its few flight observers. */
+export function linkedTo(c: Computed<any>, n: Signal<any>): boolean {
+  for (let s = n._subs; s !== null; s = s._nextSub) if (s._sub === c) return true;
   return false;
 }
 
@@ -1860,6 +1861,16 @@ function pullFamily(target: StoreTarget): void {
   // verdict reader registered, a tracked pass suspended.
   // A staged error (D-41) throws at the pull, before any leaf would link the reader.
   if (fw._statusFlags & (STATUS_PENDING | STATUS_ERROR) || fw._config & CONFIG_STAGED_ERROR) {
+    // An optimistic family carrying guesses that stand in for the flight
+    // (A17): the guesses are the display — a reader is served the leaves
+    // (committed plus the guesses) and does not suspend on the derive; a
+    // verdict window still asks it (`isPending` is true while the flight is
+    // up). The family's, not the target's: the edit stands in for the one
+    // flight the family has — not over a new question they do not answer
+    // (optimistic.ts `stands`, #4336). A reader observing the flight keeps
+    // observing it (`stands`, #4536). Judged first: the hook sees the frame's
+    // readers too.
+    if (verdict === null && fw._statusFlags & STATUS_PENDING && optHooks?.stands(target)) return;
     // A render effect outside the flight's own flush is the frame, not a
     // derivation: it keeps what it shows and learns of the landing from the
     // leaves the landing changes (unchanged leaves say nothing — it is not a
@@ -1879,14 +1890,6 @@ function pullFamily(target: StoreTarget): void {
       !linkedTo(c, fw)
     )
       return;
-    // An optimistic family carrying guesses that stand in for the flight
-    // (A17): the guesses are the display — a reader is served the leaves
-    // (committed plus the guesses) and does not suspend on the derive; a
-    // verdict window still asks it (`isPending` is true while the flight is
-    // up). The family's, not the target's: the edit stands in for the one
-    // flight the family has — not over a new question they do not answer
-    // (optimistic.ts `stands`, #4336).
-    if (verdict === null && fw._statusFlags & STATUS_PENDING && optHooks?.stands(target)) return;
     // A pass the pull throws a staged error (D-41) is linked to the derive,
     // untracked too — `handleAsync` asking a returned proxy whether it is a
     // flight: the pass carries the error, and the re-ask or answer that
