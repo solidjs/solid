@@ -29,6 +29,7 @@ import {
   registerRoot,
   unregisterRoot
 } from "./dev.js";
+import { clearInFlight } from "./async.js";
 import { clearDeps, unobserved } from "./graph.js";
 import { deleteFromHeap } from "./heap.js";
 import { dirtyQueue, globalQueue, pendingNodes, schedule } from "./scheduler.js";
@@ -109,21 +110,21 @@ export function disposeChildren(node: Owner, self: boolean = false, zombie?: boo
     (node as any)._flags = flags | REACTIVE_DISPOSED;
     if (__OBSERVE__ && node._parent === null && (node as Root)._root) unregisterRoot(node);
     if (__DEV__) clearSignals(node);
-  }
-  if (self && (node as any)._fn) {
-    if ((node as Computed<unknown>)._x !== null) (node as Computed<unknown>)._x!._inFlight = null;
-    // A death that can unblock the future (L2, `futureBlocked`): a held
-    // flight's — a transaction's or a lane's (its `_x._transaction`) — or a
-    // stale reader's (REACTIVE_FRAME_READ — a frame that derived from one).
-    // An idle pending queue would also pin it until an unrelated flush.
-    // Nothing else re-examines a dead node, so make sure a seam comes.
-    if (
-      ((node as Computed<unknown>)._statusFlags & STATUS_PENDING &&
-        (node as Computed<unknown>)._x?._transaction != null) ||
-      flags & REACTIVE_FRAME_READ ||
-      pendingNodes.length
-    )
-      schedule();
+    if ((node as any)._fn) {
+      clearInFlight(node as Computed<unknown>);
+      // A death that can unblock the future (L2, `futureBlocked`): a held
+      // flight's — a transaction's or a lane's (its `_x._transaction`) — or a
+      // stale reader's (REACTIVE_FRAME_READ — a frame that derived from one).
+      // An idle pending queue would also pin it until an unrelated flush.
+      // Nothing else re-examines a dead node, so make sure a seam comes.
+      if (
+        ((node as Computed<unknown>)._statusFlags & STATUS_PENDING &&
+          (node as Computed<unknown>)._x?._transaction != null) ||
+        flags & REACTIVE_FRAME_READ ||
+        pendingNodes.length
+      )
+        schedule();
+    }
   }
   let child = zombie ? node._x!._pendingFirstChild : node._firstChild;
   if (zombie) node._x!._pendingFirstChild = null;
@@ -241,7 +242,7 @@ function childId(owner: Owner, consume: boolean): string {
   while (counter._config & CONFIG_TRANSPARENT && counter._parent) counter = counter._parent;
   if (counter.id != null)
     return formatId(counter.id, consume ? counter._childCount++ : counter._childCount);
-  throw new Error(__DEV__ ? "Cannot get child id from owner without an id" : "");
+  throw __DEV__ ? new Error("Cannot get child id from owner without an id") : new Error();
 }
 
 /**
