@@ -634,11 +634,15 @@ installOptHooks({
 
 /** A derivation in the frame's hold (scheduler.ts `blockedBy`): one a
  * pending render effect reads, through any chain of pending derivations
- * (#4561: memo -> memo -> binding, `mapArray` -> memo -> binding). */
-function held(c: any): true | undefined {
+ * (#4561: memo -> memo -> binding, `mapArray` -> memo -> binding). Each
+ * derivation is walked once (`seen`): a diamond graph stays linear. */
+function held(c: any, seen = new Set()): true | undefined {
   for (let s = c._subs; s; s = s._nextSub) {
     const r: any = s._sub;
-    if (r._statusFlags & STATUS_PENDING && (r._type === EFFECT_RENDER || (!r._type && held(r))))
+    if (
+      r._statusFlags & STATUS_PENDING &&
+      (r._type === EFFECT_RENDER || (!r._type && !seen.has(r) && (seen.add(r), held(r, seen))))
+    )
       return true;
   }
 }
