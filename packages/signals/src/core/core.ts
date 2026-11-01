@@ -1,11 +1,13 @@
 import { checkForeignRead, enterCopy, exitCopy } from "./copies.js";
 import {
+  clearInFlight,
   clearStatus,
   handleAsync,
   notifyStatus,
   parkLoadingWindow,
   releaseFlightTeardown,
   releaseIfSettledUnobserved,
+  retryReaches,
   settleErroredDependents,
   settlePendingSource,
   stageError
@@ -672,10 +674,23 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // dependent then waits forever on a flight it has no path to. The
       // re-park twin of the unchanged-value recovery sweep below; dependents
       // with another path keep the source (retryReaches). A staged error
-      // answered what the pass carried: the same.
+      // answered what the pass carried: the same. A source still in the set
+      // is dropped too once it is no longer pending and no dep reaches it: a
+      // re-park that keeps the set adds to it, so a stale entry survives the
+      // pass — a first answer staged in place of its flight (uninitialized
+      // until its commit, so its own settle walk waits) leaves the copy here
+      // while the readers in between re-derive clean (#4541). A still-pending
+      // source has its own settle walk to come, so it is kept without the
+      // deps walk (S carried × D deps per re-park otherwise).
       if ((notReady || stagedErr) && outgoingPendingSources)
         for (const source of outgoingPendingSources)
-          if (source !== el && !el._x?._pendingSources?.has(source))
+          if (
+            source !== el &&
+            !(
+              el._x?._pendingSources?.has(source) &&
+              (source._statusFlags & STATUS_PENDING || retryReaches(el, source))
+            )
+          )
             settlePendingSource(el, source);
     }
   } finally {
@@ -753,7 +768,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // attribution frame opened at the top is still closed.
   if (el._flags & REACTIVE_DISPOSED) {
     clearDeps(el);
-    if (el._x !== null) el._x._inFlight = null;
+    clearInFlight(el);
     if (__OBSERVE__ && attrHooks !== null)
       attrHooks.recomputeEnd(el, create, false, false, false, false);
     if (laneStageHook) setPassLane(prevLane);
