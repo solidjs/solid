@@ -1743,32 +1743,31 @@ function isPlainShape(v: unknown): v is object {
 
 /** Shallow structural equivalence, capped so hot paths stay cheap. */
 const UNSTABLE_KEY_CAP = 64;
-function equivalentDataProperty(a: object, b: object, key: PropertyKey): boolean {
-  const left = Object.getOwnPropertyDescriptor(a, key);
-  const right = Object.getOwnPropertyDescriptor(b, key);
-  if (!left || !right) return !left && !right;
-  // Accessors are not passive metadata: reading one can run user code.
-  return "value" in left && "value" in right && left.value === right.value;
+/**
+ * An own data property's value, or ACCESSOR for an accessor or a missing key:
+ * reading an accessor runs user code (#4548), so a diagnostic never does.
+ */
+const ACCESSOR = {};
+function ownData(o: object, key: PropertyKey): unknown {
+  const d = Object.getOwnPropertyDescriptor(o, key);
+  return d && "value" in d ? d.value : ACCESSOR;
 }
 
 function shallowEquivalent(a: object, b: object): boolean {
-  const aArr = Array.isArray(a);
-  if (aArr !== Array.isArray(b)) return false;
-  if (aArr) {
-    const arrA = a as unknown[];
-    const arrB = b as unknown[];
-    if (arrA.length !== arrB.length || arrA.length > UNSTABLE_KEY_CAP) return false;
-    for (let i = 0; i < arrA.length; i++) if (!equivalentDataProperty(a, b, i)) return false;
-    return true;
-  }
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
   // Every own key, symbols included: a symbol-keyed box holding a fresh value
   // each run (web's `dynamic` boxes its in-flight promise) is not equivalent.
+  // An array's indices and `length` are own keys too, so a hole stays a hole.
+  // Descriptors, not values: an accessor is never equivalent.
   const keys = Reflect.ownKeys(a);
-  if (keys.length > UNSTABLE_KEY_CAP || keys.length !== Reflect.ownKeys(b).length) return false;
-  for (const key of keys) {
-    if (!equivalentDataProperty(a, b, key)) return false;
-  }
-  return true;
+  return (
+    keys.length <= UNSTABLE_KEY_CAP &&
+    keys.length === Reflect.ownKeys(b).length &&
+    keys.every(key => {
+      const v = ownData(a, key);
+      return v !== ACCESSOR && v === ownData(b, key);
+    })
+  );
 }
 
 /**
@@ -2287,8 +2286,12 @@ const listIdentityWarned = new WeakSet<object>();
 
 function recordId(item: unknown): unknown {
   if (item === null || typeof item !== "object") return undefined;
-  const o = item as Record<string, unknown>;
-  return o.id ?? o.key ?? o._id ?? undefined;
+  // Own data properties only: an inherited or own getter is user code.
+  for (const key of ["id", "key", "_id"]) {
+    const v = ownData(item, key);
+    if (v !== ACCESSOR && v != null) return v;
+  }
+  return undefined;
 }
 
 function checkListIdentity(
