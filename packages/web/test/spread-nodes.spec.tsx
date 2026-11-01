@@ -12,7 +12,7 @@
  * inline (no memo, no hydration id) and honors a `skip` predicate.
  */
 import { describe, expect, test, vi } from "vitest";
-import { render, spread } from "@solidjs/web";
+import { memo, render, spread } from "@solidjs/web";
 import { createRoot, createSignal, createStore, flush, getOwner, merge, omit } from "solid-js";
 
 const mount = (el: () => any) => {
@@ -467,6 +467,133 @@ describe("existing contracts", () => {
     setProps({ id: "c" });
     flush();
     expect(m.el().id).toBe("c");
+    m.dispose();
+  });
+});
+
+describe("compiled condition getters in a spread", () => {
+  // What the compiler emits for `type={native() ? p.type : undefined}` on a
+  // component, reached through merge/omit layers and spread onto the element.
+  function conditionProps() {
+    const [as, setAs] = createSignal("button");
+    const [kind, setKind] = createSignal("submit");
+    const [label, setLabel] = createSignal("a");
+    const native = () => as() === "button";
+    const props = merge(
+      { type: "button" },
+      {
+        get type() {
+          return memo(() => !!native())() ? kind() : undefined;
+        },
+        get title() {
+          return label();
+        }
+      }
+    );
+    return { props, setAs, setKind, setLabel };
+  }
+
+  test("resolve inline: reruns leave no memo under the attribute effect", () => {
+    const { props, setLabel } = conditionProps();
+    let owner: any;
+    const dispose = createRoot(d => {
+      owner = getOwner();
+      spread(document.createElement("button"), props);
+      return d;
+    });
+    flush();
+    setLabel("b");
+    flush();
+    expect(ownerTotal(owner)).toBe(1);
+    dispose();
+  });
+
+  test("still track the condition and the chosen branch", () => {
+    const { props, setAs, setKind, setLabel } = conditionProps();
+    const m = mount(() => {
+      const el = document.createElement("button");
+      spread(el, props);
+      return el;
+    });
+    expect(m.el().getAttribute("type")).toBe("submit");
+    setKind("reset");
+    flush();
+    expect(m.el().getAttribute("type")).toBe("reset");
+    setAs("a");
+    flush();
+    expect(m.el().hasAttribute("type")).toBe(false);
+    setLabel("b");
+    flush();
+    expect(m.el().title).toBe("b");
+    setAs("button");
+    flush();
+    expect(m.el().getAttribute("type")).toBe("reset");
+    m.dispose();
+  });
+});
+
+describe("a view over plain objects", () => {
+  test("rewrites a stateful DOM property on every rerun, even when unchanged", () => {
+    const [value] = createSignal("v");
+    const [title, setTitle] = createSignal("t");
+    const props = merge(
+      {
+        get value() {
+          return value();
+        }
+      },
+      omit(
+        {
+          as: "input",
+          get title() {
+            return title();
+          }
+        },
+        "as"
+      )
+    );
+    const m = mount(() => {
+      const el = document.createElement("input");
+      spread(el, props);
+      return el;
+    });
+    const input = m.el() as HTMLInputElement;
+    expect(input.value).toBe("v");
+    input.value = "typed";
+    setTitle("u");
+    flush();
+    expect(input.title).toBe("u");
+    expect(input.value).toBe("v");
+    m.dispose();
+  });
+
+  test("removes an attribute whose getter turns undefined and restores it", () => {
+    const [on, setOn] = createSignal(true);
+    const props = merge(
+      { id: "x" },
+      omit(
+        {
+          as: "div",
+          get "data-on"() {
+            return on() ? "" : undefined;
+          }
+        },
+        "as"
+      )
+    );
+    const m = mount(() => {
+      const el = document.createElement("div");
+      spread(el, props);
+      return el;
+    });
+    expect(m.el().hasAttribute("data-on")).toBe(true);
+    setOn(false);
+    flush();
+    expect(m.el().hasAttribute("data-on")).toBe(false);
+    setOn(true);
+    flush();
+    expect(m.el().hasAttribute("data-on")).toBe(true);
+    expect(m.el().id).toBe("x");
     m.dispose();
   });
 });
