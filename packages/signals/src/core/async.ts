@@ -118,14 +118,13 @@ export function setPendingError(el: Computed<any>, source?: Computed<any>, error
     if (el._x !== null) el._x._error = null;
     return;
   }
-  if (error instanceof NotReadyError && error.source === source) {
-    ext(el)._error = error;
-    return;
-  }
-  const current = el._x?._error;
-  if (!(current instanceof NotReadyError) || current.source !== source) {
-    ext(el)._error = new NotReadyError(source);
-  }
+  // The given error when it names this source, else the current one when it
+  // does (rewritten unchanged), else a fresh one.
+  const current = error instanceof NotReadyError && error.source === source ? error : el._x?._error;
+  ext(el)._error =
+    current instanceof NotReadyError && current.source === source
+      ? current
+      : new NotReadyError(source);
 }
 
 export function forEachDependent(
@@ -1002,30 +1001,23 @@ export function notifyStatus(el: Computed<any>, status: number, error?: any): vo
     // D-41: a re-ask of a shown error keeps it the display (`_shownError`).
     if (el._statusFlags & STATUS_ERROR) el._x!._shownError = el._x!._error;
     addPendingSource(el, pendingSource);
-    // A re-ask of an error that answered the first read: still no value.
-    el._statusFlags =
-      STATUS_PENDING |
-      (el._statusFlags & STATUS_NO_VALUE
+  } else clearPendingSources(el);
+  // An error answering a node with no value marks it so; a re-ask of it
+  // (pending, from a source or not) is uninitialized again — still no
+  // value; a write (STATUS_NONE) gives it one.
+  el._statusFlags =
+    status |
+    (status === STATUS_ERROR
+      ? el._statusFlags & (STATUS_UNINITIALIZED | STATUS_NO_VALUE)
+        ? STATUS_NO_VALUE
+        : 0
+      : status === STATUS_PENDING && el._statusFlags & STATUS_NO_VALUE
         ? STATUS_UNINITIALIZED
         : el._statusFlags & STATUS_UNINITIALIZED);
-    // Preserve the current source on this propagation so readers park on
-    // the distinct pending source.
-    setPendingError(el, pendingSource, error);
-  } else {
-    clearPendingSources(el);
-    // An error answering a node with no value marks it so; a re-ask of it
-    // (pending) is uninitialized again; a write (STATUS_NONE) gives it one.
-    el._statusFlags =
-      status |
-      (status === STATUS_ERROR
-        ? el._statusFlags & (STATUS_UNINITIALIZED | STATUS_NO_VALUE)
-          ? STATUS_NO_VALUE
-          : 0
-        : status === STATUS_PENDING && el._statusFlags & STATUS_NO_VALUE
-          ? STATUS_UNINITIALIZED
-          : el._statusFlags & STATUS_UNINITIALIZED);
-    ext(el)._error = error;
-  }
+  // A propagated pending keeps its current source so readers park on the
+  // distinct pending source.
+  if (pendingSource) setPendingError(el, pendingSource, error);
+  else ext(el)._error = error;
 
   // Lanes: a written guess is an optimistic boundary (A17 — "the optimistic
   // future value until we know otherwise"). Its own source in flight is its
