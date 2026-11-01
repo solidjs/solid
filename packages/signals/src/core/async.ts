@@ -1079,6 +1079,16 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
         !(pendingSource && holdWorkHook(sub, el))) ||
       (status === STATUS_PENDING && link._gen !== sub._depGen)
     ) {
+      // A source that settled (an error, a sync value) is one the re-derived
+      // pass no longer waits on: retire it from the subscriber's pending
+      // sources here, as the marked path does through `notifyStatus` and a
+      // landing does through the settle walk. Left in place, the entry
+      // outlives the pass — a re-park on a second source keeps it (the
+      // re-park sweep in `recompute` sees the dep it still reads) — and that
+      // source's landing finds it as `remaining`: the subscriber stays
+      // pending on a source that will never settle, and its boundary never
+      // releases (found while shadowing the seat table).
+      if (status !== STATUS_PENDING) removePendingSource(sub, el);
       enqueueSub(sub);
       schedule();
       return;
