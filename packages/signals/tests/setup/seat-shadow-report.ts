@@ -9,7 +9,7 @@
  * instead (the failing test names the row).
  */
 import { appendFileSync } from "node:fs";
-import { afterAll, beforeAll, expect } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 
 const file = process.env.SEAT_SHADOW_REPORT;
 if (process.env.SEAT_SHADOW_STRICT) (globalThis as any).__SEAT_SHADOW_STRICT__ = true;
@@ -18,6 +18,11 @@ if (process.env.SEAT_SHADOW_TRACE)
 
 beforeAll(() => {
   (globalThis as any).__SEAT_SHADOW__?.reset();
+});
+
+// The test a disagreement is first seen in (the record's `case`).
+beforeEach(ctx => {
+  (globalThis as any).__SEAT_SHADOW_CASE__ = ctx.task.name;
 });
 
 afterAll(() => {

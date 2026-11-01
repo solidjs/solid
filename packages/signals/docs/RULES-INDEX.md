@@ -83,10 +83,10 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 
 | id | status | defined | cited in src | cited in tests | statement (at definition) |
 |---|---|---|---|---|---|
-| V1 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:480` | seat.ts×7 | spec-async-semantics.test.ts×7 | - **V1 (violated A13) — FIXED.** A _resting_ optimistic node reported |
-| V2 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:490` | seat.ts×3 | spec-async-semantics.test.ts×2 | - **V2 (violated A7/A13) — FIXED.** `latest()`'s verdict in the window was |
+| V1 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:480` | seat.ts×9 | spec-async-semantics.test.ts×7 | - **V1 (violated A13) — FIXED.** A _resting_ optimistic node reported |
+| V2 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:490` | seat.ts×5 | spec-async-semantics.test.ts×2 | - **V2 (violated A7/A13) — FIXED.** `latest()`'s verdict in the window was |
 | V3 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:496` | seat.ts×4 | spec-async-semantics.test.ts×2 | - **V3 (violated A19) — FIXED.** After a reporter-less transition completed, |
-| V4 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:503` | seat.ts×4 | spec-async-semantics.test.ts×5 | - **V4 (violated the old A20's three-form algebra) — FIXED, then the rule it |
+| V4 | fixed | `docs/SPEC-ASYNC-SEMANTICS.md:503` | seat.ts×6 | spec-async-semantics.test.ts×5 | - **V4 (violated the old A20's three-form algebra) — FIXED, then the rule it |
 | V5 | live | `docs/SPEC-ASYNC-SEMANTICS.md:515` | scheduler.ts×1 | spec-async-semantics.test.ts×3 | - **V5 (A17 corollary — found and fixed with the revert-target elimination, |
 ## B — tier B
 
@@ -380,7 +380,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 |---|---|---|---|---|---|
 | §1 | live | `docs/INTERNALS-STORE-STATE.md:27` | seat.ts×1 target.ts×1 | reveal-gating-contract.test.ts×1 | Storage model (the single-home rule) |
 | §2 | live | `docs/INTERNALS-STORE-STATE.md:81` | — | — | Read paths |
-| §3 | live | `docs/INTERNALS-STORE-STATE.md:116` | core.ts×2 seat.ts×5 optimistic.ts×1 reconcile.ts×1 store.ts×2 | seat-shadow-report.ts×1 | Write paths (all must stay equivalent) |
+| §3 | live | `docs/INTERNALS-STORE-STATE.md:116` | core.ts×2 seat.ts×7 optimistic.ts×1 reconcile.ts×1 store.ts×2 | seat-shadow-report.ts×1 | Write paths (all must stay equivalent) |
 | §4 | live | `docs/INTERNALS-STORE-STATE.md:200` | seat.ts×2 | seat-shadow-report.ts×1 | Identity rules |
 | §5 | live | `docs/INTERNALS-STORE-STATE.md:221` | store.ts×1 target.ts×1 | — | Laziness invariants (candidates for `__TEST__` assertions) |
 | §5b | live | `docs/INTERNALS-STORE-STATE.md:239` | target.ts×2 | — | Creation budget (phase-1 fitness) |

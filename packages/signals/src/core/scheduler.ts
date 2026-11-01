@@ -325,7 +325,16 @@ export function newTransaction(lane: boolean, parent: Transaction | null = null)
     _marks: null
   };
   if (!lane) transactions.push(t);
+  if (__TEST__ && shadowTxHook !== null && !lane) shadowTxHook(0, t);
   return t;
+}
+/** Shadow seat (seat.ts, `__TEST__`): a transaction opened (0) or landed
+ * (1) — the order of holds — and a flush ended (2): a probe made before the
+ * flush opened a hold resolves to the hold it opened, or to none. Set by
+ * seat.ts at load (no import here: seat.ts imports this module). */
+export let shadowTxHook: ((kind: 0 | 1 | 2, t: Transaction | null) => void) | null = null;
+export function setShadowTxHook(f: (kind: 0 | 1 | 2, t: Transaction | null) => void): void {
+  shadowTxHook = f;
 }
 
 // Lanes (plan sec. 28, 2026-10-02; lanes.ts). A lane is "a new base of a transition":
@@ -941,6 +950,7 @@ export class GlobalQueue implements IQueue {
     } finally {
       this._running = false;
       passTx = null;
+      if (__TEST__ && shadowTxHook !== null) shadowTxHook(2, null);
     }
   }
   /** L2 — the seam: end of the pure phase. Commit this flush's staged nodes,
@@ -1082,6 +1092,7 @@ export class GlobalQueue implements IQueue {
       const u = transactions[k];
       if (blocked(u)) continue;
       transactions.splice(k, 1);
+      if (__TEST__ && shadowTxHook !== null) shadowTxHook(1, u);
       endLanesHook?.(u);
       land(u);
       // A landing's commits can dispose a zombie a transaction judged above
