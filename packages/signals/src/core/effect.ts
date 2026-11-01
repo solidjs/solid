@@ -35,6 +35,7 @@ import {
   _hitUnhandledAsync,
   GlobalQueue,
   globalQueue,
+  queueEffectRun,
   haltReactivity,
   haltReactivityAt,
   resetUnhandledAsync,
@@ -121,10 +122,7 @@ function notifyEffectStatus(this: Effect<any>): void {
       // and the runner dispatches on them, so a recovery before the effect
       // phase takes the success arm instead. (Re-read: the boundary
       // notify above can run a redraw.)
-      if (this._statusFlags & STATUS_ERROR) {
-        this._modified = true;
-        globalQueue.enqueue(this._type, (this._boundRunEffect ??= runEffect.bind(null, this)));
-      }
+      if (this._statusFlags & STATUS_ERROR) queueEffectRun(this);
       return;
     }
     // Dev locates the halt at the node that threw: the StatusError's
