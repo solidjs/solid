@@ -35,6 +35,7 @@ import {
   _hitUnhandledAsync,
   GlobalQueue,
   globalQueue,
+  queueEffectRun,
   haltReactivity,
   haltReactivityAt,
   resetUnhandledAsync,
@@ -124,10 +125,7 @@ function notifyEffectStatus(this: Effect<any>): void {
       // and the runner dispatches on them, so a recovery before the effect
       // phase takes the success arm instead. (Re-read: the boundary
       // notify above can run a redraw.)
-      if (this._statusFlags & STATUS_ERROR) {
-        this._modified = true;
-        globalQueue.enqueue(this._type, (this._boundRunEffect ??= runEffect.bind(null, this)));
-      }
+      if (this._statusFlags & STATUS_ERROR) queueEffectRun(this);
       return;
     }
     // Dev locates the halt at the node that threw: the StatusError's
@@ -137,7 +135,7 @@ function notifyEffectStatus(this: Effect<any>): void {
     escalate(
       this,
       unwrapStatusError(actualError),
-      __DEV__ && actualError instanceof StatusError ? actualError.source : this
+      __DEV__ && actualError instanceof StatusError ? actualError.source : undefined
     );
   } else if (this._type === EFFECT_RENDER) {
     globalQueue.notify(this, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);
@@ -169,10 +167,11 @@ function notifyEffectStatus(this: Effect<any>): void {
 }
 
 /** An effect's error no boundary takes halts the system (boundary-or-halt):
- * halted with `cause` and rethrown; dev locates it at `subject`. */
-function escalate(node: Effect<any>, cause: unknown, subject: DiagnosticSubject = node): void {
+ * halted with `cause` and rethrown; dev locates it at `subject` (default:
+ * the effect). */
+function escalate(node: Effect<any>, cause: unknown, subject?: DiagnosticSubject): void {
   if (!globalQueue.notify(node, STATUS_ERROR, STATUS_ERROR)) {
-    __DEV__ ? haltReactivityAt(cause, subject) : haltReactivity(cause);
+    __DEV__ ? haltReactivityAt(cause, subject ?? node) : haltReactivity(cause);
     throw cause;
   }
 }
