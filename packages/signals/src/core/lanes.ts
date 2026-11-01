@@ -1095,14 +1095,20 @@ const laneSeams = (t: Transaction | null): void => {
       // parked: landing at this seam, what it read is the screen (one run,
       // D-22). Not one born into that frame (a held pass's child, ruling A):
       // it has no screen, its reads are the transaction's either way — it
-      // runs again at the landing, not now.
+      // runs again at the landing, not now. Nor lane work re-based over this
+      // frame's answer (#4536): its rows are that answer's, so its other
+      // reads are too, and the lane holds while the frame does (`laneSeam`).
+      // Re-derived on the committed world, it paired the new rows with the
+      // old inputs, and the landing revealed that beside them (F-1, D-34 ¶3,
+      // #4577).
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
-          ? l._parent?._verdict === l &&
-            (r._config & CONFIG_VERDICT
-              ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
-              : !blocked(t!) || heldBy(t!, r))
+          ? (l._parent?._verdict === l &&
+              (r._config & CONFIG_VERDICT
+                ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
+                : !blocked(t!) || heldBy(t!, r))) ||
+            l.over === t
           : l &&
             !(
               r._flags & REACTIVE_PROBE_UNANSWERED ||
