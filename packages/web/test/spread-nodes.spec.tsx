@@ -12,7 +12,7 @@
  * inline (no memo, no hydration id) and honors a `skip` predicate.
  */
 import { describe, expect, test, vi } from "vitest";
-import { render, spread } from "@solidjs/web";
+import { memo, render, spread } from "@solidjs/web";
 import { createRoot, createSignal, createStore, flush, getOwner, merge, omit } from "solid-js";
 
 const mount = (el: () => any) => {
@@ -467,6 +467,67 @@ describe("existing contracts", () => {
     setProps({ id: "c" });
     flush();
     expect(m.el().id).toBe("c");
+    m.dispose();
+  });
+});
+
+describe("compiled condition getters in a spread", () => {
+  // What the compiler emits for `type={native() ? p.type : undefined}` on a
+  // component, reached through merge/omit layers and spread onto the element.
+  function conditionProps() {
+    const [as, setAs] = createSignal("button");
+    const [kind, setKind] = createSignal("submit");
+    const [label, setLabel] = createSignal("a");
+    const native = () => as() === "button";
+    const props = merge(
+      { type: "button" },
+      {
+        get type() {
+          return memo(() => !!native())() ? kind() : undefined;
+        },
+        get title() {
+          return label();
+        }
+      }
+    );
+    return { props, setAs, setKind, setLabel };
+  }
+
+  test("resolve inline: reruns leave no memo under the attribute effect", () => {
+    const { props, setLabel } = conditionProps();
+    let owner: any;
+    const dispose = createRoot(d => {
+      owner = getOwner();
+      spread(document.createElement("button"), props);
+      return d;
+    });
+    flush();
+    setLabel("b");
+    flush();
+    expect(ownerTotal(owner)).toBe(1);
+    dispose();
+  });
+
+  test("still track the condition and the chosen branch", () => {
+    const { props, setAs, setKind, setLabel } = conditionProps();
+    const m = mount(() => {
+      const el = document.createElement("button");
+      spread(el, props);
+      return el;
+    });
+    expect(m.el().getAttribute("type")).toBe("submit");
+    setKind("reset");
+    flush();
+    expect(m.el().getAttribute("type")).toBe("reset");
+    setAs("a");
+    flush();
+    expect(m.el().hasAttribute("type")).toBe(false);
+    setLabel("b");
+    flush();
+    expect(m.el().title).toBe("b");
+    setAs("button");
+    flush();
+    expect(m.el().getAttribute("type")).toBe("reset");
     m.dispose();
   });
 });

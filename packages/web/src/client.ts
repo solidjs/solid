@@ -35,7 +35,15 @@ import {
   SOURCE_PROXY,
   SOURCE_MEMO
 } from "solid-js/internal";
-import { effect, memo, setSpreadName, spreadLoc, spreadName, tagElement } from "./render.js";
+import {
+  effect,
+  memo,
+  setCollector,
+  setSpreadName,
+  spreadLoc,
+  spreadName,
+  tagElement
+} from "./render.js";
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -1225,32 +1233,39 @@ export function spread(node, props, skipChildren, skip, name, loc) {
     return prevProps;
   }
   effect(() => {
-    const source = resolveSource(props);
-    const newProps = {};
-    // A merge() proxy is read through its SOURCES, not through the proxy: a
-    // spread mixed with other attributes compiles to
-    // `spread(el, merge(statics, () => rest))`, and going through the proxy
-    // costs merge's `keys()` (a Set plus an own-enumerable scan of every
-    // source) and then, per key, a right-to-left `in` walk of the sources.
-    // The union of own string keys with later sources overriding earlier
-    // — Object.assign order, merge's own contract — is all a spread needs.
-    // An omit() proxy likewise is read through its VIEW RECORD — its source
-    // walked directly with the hidden keys filtered — never through its
-    // traps (a descriptor trap per key, allocating, on every rerun).
-    //
-    // A view over plain objects only has a RESOLVED TABLE — key → owning
-    // leaf, shadowing already applied — built once; on every rerun this
-    // effect then does exactly what it did over an eager copy: one read per
-    // key, no re-enumeration and no per-key walk of the later sources.
-    const table = resolvedTable(source);
-    if (table !== undefined) return collectTable(newProps, table, skip);
-    if (source != null) {
-      const view = viewOf(source);
-      if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT, skip);
-      else if (view !== undefined) collectSources(newProps, view.sources, view.kinds, skip);
-      else collectProps(newProps, source, $PROXY in source ? SOURCE_PROXY : SOURCE_PLAIN, skip);
+    // Condition memos the getters create resolve inline (see `setCollector`);
+    // hydration keeps them, for their ids.
+    const outer = setCollector(sharedConfig.hydrating ? null : getOwner());
+    try {
+      const source = resolveSource(props);
+      const newProps = {};
+      // A merge() proxy is read through its SOURCES, not through the proxy: a
+      // spread mixed with other attributes compiles to
+      // `spread(el, merge(statics, () => rest))`, and going through the proxy
+      // costs merge's `keys()` (a Set plus an own-enumerable scan of every
+      // source) and then, per key, a right-to-left `in` walk of the sources.
+      // The union of own string keys with later sources overriding earlier
+      // — Object.assign order, merge's own contract — is all a spread needs.
+      // An omit() proxy likewise is read through its VIEW RECORD — its source
+      // walked directly with the hidden keys filtered — never through its
+      // traps (a descriptor trap per key, allocating, on every rerun).
+      //
+      // A view over plain objects only has a RESOLVED TABLE — key → owning
+      // leaf, shadowing already applied — built once; on every rerun this
+      // effect then does exactly what it did over an eager copy: one read per
+      // key, no re-enumeration and no per-key walk of the later sources.
+      const table = resolvedTable(source);
+      if (table !== undefined) return collectTable(newProps, table, skip);
+      if (source != null) {
+        const view = viewOf(source);
+        if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT, skip);
+        else if (view !== undefined) collectSources(newProps, view.sources, view.kinds, skip);
+        else collectProps(newProps, source, $PROXY in source ? SOURCE_PROXY : SOURCE_PLAIN, skip);
+      }
+      return newProps;
+    } finally {
+      setCollector(outer);
     }
-    return newProps;
   }, apply);
   if ("_SOLID_DEV_") unscopedByDesign = node;
   if (!skipChildren && !(skip !== undefined && skip("children"))) {

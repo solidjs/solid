@@ -92,5 +92,17 @@ export function effect<T>(
 // onto the parent's live counter and breaks async-hole parity (pinned by the
 // async-cond-before-for harness scenario).
 export function memo<T>(fn: () => T): () => T {
+  if (collector !== null && getOwner() === collector) return fn;
   return createMemo(() => fn(), syncOptions);
+}
+
+// The spread effect collecting its props right now (client.ts `spread`), set
+// outside hydration only. A condition memo created directly under it — a
+// compiled getter's `memo(() => !!cond)()` — would be rebuilt on every rerun,
+// and the effect already reruns every getter, so it resolves inline instead.
+let collector: unknown = null;
+export function setCollector(owner: unknown): unknown {
+  const outer = collector;
+  collector = owner;
+  return outer;
 }
