@@ -123,21 +123,36 @@ describe("#4393: two latest() readers under one async memo, t written during the
     expect(asks.slice(-2)).toEqual(["m1:1122", "m1:1123"]);
     expect(values).toEqual(["1122", "1123"]);
     if (reader === "beside") {
+      // `c1101` is display-ahead of the hold `m1:1122` is the work of
+      // (below): shown once, before `v1122`, and nothing of `c` after it.
       const shown = out.indexOf("c1101");
-      expect(out.indexOf("v1122"), out.join(" ")).toBeLessThan(shown);
-      expect(out.slice(shown).filter(v => v[0] === "v")).toEqual(["v1123"]);
+      expect(shown, out.join(" ")).toBeLessThan(out.indexOf("v1122"));
+      expect(out.slice(shown).filter(v => v[0] === "c")).toEqual(["c1101"]);
     }
   };
   it("m1's lane pass is not re-derived over a staging that lands with it (value)", () =>
     notReDerived("value"));
-  // #4408 — F-6 (amended 2026-10-28: the parent waits for the lane's
-  // flights) and D-26: the lane's readers show its answer together, so
-  // `c1101` never shows before `v1122`. `m1` waits on `m0`'s flight as the
-  // hold's work (D-25, verdict.ts `holdWork`): it is not re-derived into the
-  // s lane early, the lane shows, and `m1:22`'s landing holds the frame
-  // `m0b:1100` lands into. Re-derived early (#4397's verdict reader between
-  // its flights), the lane was unshown when `m1:22` landed, nothing held
-  // that frame, and `c1101` showed while `m1:1122` was in flight.
+  // #4408 — `m1` waits on `m0`'s flight as the hold's work (D-25, verdict.ts
+  // `holdWork`): it is not re-derived into the s lane early, the lane shows,
+  // and `m1:22`'s landing holds the frame `m0b:1100` lands into, so `v22`
+  // never shows and `m1:1122` is asked once. Re-derived early (#4397's
+  // verdict reader between its flights), the lane was unshown when `m1:22`
+  // landed, nothing held that frame, and `m1` asked over `m0b = 0`.
+  //
+  // `c1101` shows before `v1122` (flipped 2026-11-01 with D-25 as amended —
+  // "a verdict posture ... is toward the hold it was earned against and is
+  // released when that hold lands; toward a later, separate hold U the
+  // node is whatever its reads make it — U's work if U's write dirtied it
+  // (D-2 in-flush)"): `m2 = m0b() + 1` had inherited `m0b`'s posture (#4050)
+  // from its probe of `t`, earned against the hold the t flush opened,
+  // which landed at that flush's seam (committing `t`). The frame
+  // `m0b:1100` lands into is a later hold, isolated from it: `m2` derives
+  // from the landing as that hold's work, and `latest(m2)` — F-6: a
+  // display-ahead reader "never waits for the hold it is reading ahead of"
+  // — shows `1101` now while the hold's own work `m1:1122` is in flight.
+  // Before the amendment the node-level posture made `m2` read `m0b` as the
+  // screen, and `c1101` waited for the landing to re-derive it (one of the
+  // 49 rows of the per-hold release, 4393 ×28).
   it("m1's lane pass is not re-derived over a staging that lands with it (beside, #4408)", () =>
     notReDerived("beside"));
 

@@ -91,6 +91,7 @@ import {
   nextQuestion,
   ownFlights,
   passLane,
+  probesHeldHook,
   question,
   queuePendingNode,
   releaseQueues,
@@ -313,9 +314,11 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
         verdict &&
         (creatorReads(c, (c as any)._type || f) ||
           ((hold = resolveTx(l._parent!)),
-          (c._config &
-            (CONFIG_HELD | CONFIG_VERDICT | CONFIG_FRAME | CONFIG_LAGS | CONFIG_OVERRIDE)) ===
-            CONFIG_HELD && txOf(c) !== hold) ||
+          (c._config & (CONFIG_HELD | CONFIG_FRAME | CONFIG_LAGS | CONFIG_OVERRIDE)) ===
+            CONFIG_HELD &&
+            // (A verdict posture toward a live hold only, D-25 per hold.)
+            !(c._config & CONFIG_VERDICT && probesHeldHook!(c, false)) &&
+            txOf(c) !== hold) ||
           (c._config & CONFIG_HELD_FRAME && bornInto(c, hold!)))
       )
     ) {
@@ -784,7 +787,8 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
       }
       // A verdict reader reads ahead of the seam's verdict: re-derived on the
       // screen if the lane holds (#4284).
-      if (c._config & CONFIG_VERDICT && l._parent!._verdict !== l) entered.push(c);
+      if (c._config & CONFIG_VERDICT && l._parent!._verdict !== l && probesHeldHook!(c, false))
+        entered.push(c);
     }
   }
   enterLane(l, c);

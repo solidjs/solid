@@ -76,8 +76,11 @@ import {
   haltReactivityAt,
   heldUnder,
   joinFuture,
+  observeFlightHook,
   passLane,
   passTx,
+  probesBracketHook,
+  probesHeldHook,
   resolveTx,
   schedule,
   setPassLane,
@@ -544,7 +547,9 @@ function arm(b: Boundary): void {
   if (
     lane === null &&
     globalQueue._running &&
-    (getOwner() as Computed<any>)._config & CONFIG_VERDICT
+    (getOwner() as Computed<any>)._config & CONFIG_VERDICT &&
+    // (Toward a live hold only — D-25 per hold.)
+    probesHeldHook!(getOwner() as Computed<any>, true)
   ) {
     joinFuture(null);
     lane = GlobalQueue._verdictLane!(flushTransaction!);
@@ -894,10 +899,14 @@ function fallback<T>(b: Boundary): T {
   // fallback, #4337).
   const p = passLane;
   const f = out._flags;
+  // (Its probe memory too, D-25 per hold: the fallback's probes are not
+  // the output's. Only the verdict engine keeps one.)
+  const m = observeFlightHook ? probesBracketHook!(out, undefined) : null;
   const saved = __TEST__ ? shadowSeatSave(out) : null;
   const v = read(b._fb) as T;
   setPassLane(p);
   if (__TEST__) shadowSeatRestore(out, saved);
+  if (observeFlightHook) probesBracketHook!(out, m);
   out._flags ^= (out._flags ^ f) & (REACTIVE_PROBED | REACTIVE_LANE_READ);
   return v;
 }
