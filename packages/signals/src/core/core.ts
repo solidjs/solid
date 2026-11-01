@@ -149,6 +149,7 @@ import {
   schedule,
   setPassLane,
   txOf,
+  resolveTx,
   inEffectCallback,
   effectCallbackEvent,
   ANY_EVENT,
@@ -1353,9 +1354,16 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // Lane work and verdict readers are never the transaction's pass, whichever
   // flush runs it: a node T holds re-enters T when it re-runs (`recompute`'s
   // head), and the pass may then read a guess and become the lane's.
-  // Except a lane re-based over this transaction's answer, in its flush: its
-  // rows are that answer's, so its work reads the rest of it (#4536).
-  if ((t === flushTransaction && (!lane || passLane!.over === t) && !verdict) || bornInto(c, t))
+  // Except a lane re-based over this transaction's answer (merged since or
+  // not), in whichever flush: its rows are that answer's, so its work reads
+  // the rest of it (#4536). Served the screen outside that flush, a refresh
+  // or another change's flush re-derived it over the old inputs, and the
+  // landing committed that beside the new ones (F-1, D-34 ¶3, #4576, #4577).
+  if (
+    ((lane ? passLane!.over && resolveTx(passLane!.over) === t : t === flushTransaction) &&
+      !verdict) ||
+    bornInto(c, t)
+  )
     return false;
   staleReader(c, t);
   // Lane work or a verdict reader no longer waits on `el`'s flight (lanes.ts
