@@ -1378,6 +1378,17 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
   if (__OBSERVE__ && fanOut >= GRAPH_SIZE_WARN_AT) noteFanOut(node, fanOut);
 }
 
+/** Shadow seat (seat.ts, `__TEST__`): told of the render effects
+ * `laneDirty` makes verdict readers. Set by seat.ts at load (no import
+ * here: seat.ts imports this module). */
+export let shadowLaneDirtyHook:
+  | ((c: Computed<any>, node: Signal<any> | Computed<any>) => void)
+  | null = null;
+export function setShadowLaneDirtyHook(
+  f: (c: Computed<any>, node: Signal<any> | Computed<any>) => void
+): void {
+  shadowLaneDirtyHook = f;
+}
 /** Lane work re-staged (lanes.ts; `recompute`): the lane's members among
  * its subscribers re-derive as the lane's work (REACTIVE_LANE_DIRTY), their
  * runs held with it — not as stale readers republishing the committed view
@@ -1398,8 +1409,10 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const c = s._sub,
       t = c._x?._transaction;
-    if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT)
+    if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT) {
       ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
+      if (__TEST__ && shadowLaneDirtyHook !== null) shadowLaneDirtyHook(c, node);
+    }
     if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
   }
 }

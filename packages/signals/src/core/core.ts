@@ -127,6 +127,7 @@ import {
   shadowEnter,
   shadowExpect,
   shadowLeave,
+  shadowHeadState,
   shadowSeatClose,
   shadowSeatOpen,
   shadowThrown
@@ -359,6 +360,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   bumpNotifyEpoch();
   const isEffect = (el as any)._type;
   let released: Computed<any>[] | undefined;
+  // Shadow seat, per hold: the node's own hold before the held re-pass arm
+  // below drops a verdict reader's staging (seat-per-hold.md §6).
+  if (__TEST__) shadowHeadState(el);
   // Lanes (plan sec. 28): the seat of a pass is its node's. A node carrying a lane's
   // derived value runs as the lane's whoever dirtied it — a sync write, a
   // boundary reset, a frame rerun — so its children and its result are the

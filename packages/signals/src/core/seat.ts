@@ -45,6 +45,7 @@
  * parent row cites and listed in the design document §6 for review.
  */
 import {
+  CONFIG_ASYNC,
   CONFIG_AUTHORITATIVE,
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_FRAME,
@@ -54,6 +55,7 @@ import {
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
   CONFIG_PROMOTED,
+  CONFIG_STAGED,
   CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
@@ -77,6 +79,7 @@ import {
   passTx,
   resolveTx,
   sameLane,
+  setShadowLaneDirtyHook,
   txOf,
   type Transaction
 } from "./scheduler.js";
@@ -201,6 +204,155 @@ export interface Seat {
   /** A known difference (filed) happened in this pass: the old seat and
    * the new have parted by construction; the pass's end is not compared. */
   known: boolean;
+  /** Per-hold seat (seat-per-hold.md §3, §6): the nodes this pass asked
+   * about (`latest`/`isPending` reads, tracked and owned) or inherited from
+   * a verdict memo it read (#4050), and the memory of the node's last pass
+   * that asked. The seat toward a hold T is read off them: a verdict reader
+   * of T if any such node is T-held now. */
+  probed: Set<AnyNode> | null;
+  memory: Set<AnyNode> | null;
+  /** Probes inherited for this pass only (D-26 #4284, `shadowLaneDirty`):
+   * not remembered on the node. */
+  passProbes: Set<AnyNode> | null;
+  /** The node's own hold at the pass's head, BEFORE `recompute`'s held
+   * re-pass arm (which drops a verdict reader's staging): held by `tx`,
+   * with a staging (`staged`) or a fetch in flight (`pending`). */
+  head: { tx: Transaction; staged: boolean; pending: boolean } | null;
+  /** A read of this pass threw NotReady: the pass did not complete. */
+  threw: boolean;
+}
+
+// ─── Per-hold seat ─────────────────────────────────────────────────────────
+
+export const SEAT_MAIN = 0;
+export const SEAT_WORK = 1;
+export const SEAT_VERDICT = 2;
+const SEAT_NAMES = ["main", "work", "verdict"];
+
+/** Probe memory per node: what its last pass that asked asked about (own
+ * window reads, and a verdict memo's probes it inherited, #4050). Replaced
+ * at the close of a pass that asked; cleared by one that completed having
+ * asked nothing (D-25 "a verdict posture outlives the pass that asked"). */
+const probeMemory = new WeakMap<Computed<any>, Set<AnyNode>>();
+
+/** The node's hold at `recompute`'s head, captured before the held re-pass
+ * arm (`shadowHeadState`), consumed by the next `openSeat`. */
+let headState: { tx: Transaction; staged: boolean; pending: boolean } | null = null;
+export function shadowHeadState(el: Computed<any>): void {
+  headState =
+    el._config & CONFIG_HELD && !(el._config & CONFIG_OVERRIDE) && el._x?._transaction
+      ? {
+          tx: el._x._transaction,
+          staged: el._pendingValue !== NOT_PENDING,
+          pending: (el._statusFlags & STATUS_PENDING) !== 0
+        }
+      : null;
+}
+
+/** D-26 #4284 (scheduler.ts `laneDirty`): a render effect re-run by a
+ * verdict memo's lane re-staging is, for that pass, the verdict reader the
+ * same read inline makes it — it inherits the memo's probes at its next
+ * head. Recorded here, consumed by `openSeat`. */
+const laneDirtyFrom = new WeakMap<Computed<any>, Set<AnyNode>>();
+export function shadowLaneDirty(c: Computed<any>, node: AnyNode): void {
+  const m = probeMemory.get(node as Computed<any>);
+  if (m === undefined || m.size === 0) return;
+  let into = laneDirtyFrom.get(c);
+  if (into === undefined) laneDirtyFrom.set(c, (into = new Set()));
+  for (const p of m) into.add(p);
+}
+
+/** The hold a probed node earns a posture toward: a held node's
+ * transaction; a lane node's the hold its lane is under (a verdict lane's
+ * hold, an optimistic lane's parent transition); none otherwise — "a probe
+ * of a node no hold holds earns no posture toward any hold" (D-25). */
+function holdOf(p: AnyNode): Transaction | null {
+  // D-30: a derived store's leaf is read like its memo — the family's
+  // derive (`_fam.node`) is what is in flight or held; a probe of the leaf
+  // is a probe of it (store.ts `pullFamily`).
+  const fw = famNode(p);
+  if (fw !== null && fw !== p) {
+    const h = holdOf(fw);
+    if (h !== null) return h;
+  }
+  const t = p._x?._transaction;
+  if (t && p._config & CONFIG_OVERRIDE) return t._parent !== null ? resolveTx(t._parent) : null;
+  if (t && p._config & CONFIG_HELD) return resolveTx(t);
+  // Staged this flush, or in flight, and not held yet: the flush's
+  // transaction holds it at the seam if the flush parks — the probe's
+  // reader is that transaction's verdict reader (`provisionalVerdict`,
+  // `pendingVerdict`, `observeFlight`); none opened yet: the flush's hold
+  // to be (`FLUSH_HOLD` — the read that needs one opens it, `joinFuture`).
+  if (
+    globalQueue._running &&
+    ((p._pendingValue !== NOT_PENDING && !(p._config & CONFIG_PROMOTED)) ||
+      ((p as Computed<any>)._statusFlags ?? 0) & STATUS_PENDING)
+  )
+    return flushHold();
+  return null;
+}
+
+/** The flush's hold: its transaction, or — none opened yet — a stand-in
+ * for the one a read that needs it opens (`joinFuture(null)`). */
+const FLUSH_HOLD = { _into: null } as unknown as Transaction;
+function flushHold(): Transaction {
+  return flushTransaction !== null ? resolveTx(flushTransaction) : FLUSH_HOLD;
+}
+
+/** The seat toward the flush's hold (opened or to be); mainline outside a
+ * flush. */
+export function seatTowardFlush(seat: Seat | null): number {
+  return globalQueue._running ? seatToward(seat, flushHold()) : SEAT_MAIN;
+}
+
+/** The derive of the store family `n` belongs to (a leaf's host's), or
+ * null. */
+function famNode(n: AnyNode): Computed<any> | null {
+  return ((n as any)._host?._fam?.node as Computed<any> | undefined) ?? null;
+}
+/** The same node for the probe memory: itself, or its store family's
+ * derive (D-30 — a leaf and its derive are one display). */
+function sameNode(a: AnyNode, b: AnyNode): boolean {
+  if (a === b) return true;
+  return (famNode(a) ?? a) === (famNode(b) ?? b);
+}
+
+function probedToward(seat: Seat, t: Transaction): boolean {
+  if (seat.probed !== null) for (const p of seat.probed) if (holdOf(p) === t) return true;
+  if (seat.memory !== null) for (const p of seat.memory) if (holdOf(p) === t) return true;
+  if (seat.passProbes !== null) for (const p of seat.passProbes) if (holdOf(p) === t) return true;
+  return false;
+}
+
+/** Did the pass ask about `el` itself (this pass or remembered)? */
+function probedNode(seat: Seat | null, el: AnyNode): boolean {
+  if (seat === null) return false;
+  if (seat.probed !== null) for (const p of seat.probed) if (sameNode(p, el)) return true;
+  if (seat.memory !== null) for (const p of seat.memory) if (sameNode(p, el)) return true;
+  if (seat.passProbes !== null) for (const p of seat.passProbes) if (sameNode(p, el)) return true;
+  return false;
+}
+
+/** The seat of the running pass toward hold `t` (seat-per-hold.md §3,
+ * D-25 as amended 2026-11-01), from the pass's head state and its probes:
+ * born into `t` → work; it probed a `t`-held node (now, or on its last
+ * asking pass — dropped for a pass whose own fetch is up, #3884 — or
+ * inherited from a verdict memo of `t`) → verdict reader; it holds a `t`
+ * staging, or runs in `t`'s flush having probed nothing of `t` → work;
+ * else mainline. */
+export function seatToward(seat: Seat | null, t: Transaction | null): number {
+  if (seat === null || t === null) return SEAT_MAIN;
+  t = resolveTx(t);
+  if (t !== FLUSH_HOLD && seatBornInto(seat, t)) return SEAT_WORK;
+  // Today's order, not §3's: a pass that probed T is T's verdict reader even
+  // when its node holds T's staging (4491/4504/4402 — the held re-pass arm
+  // drops the staging, #3884). §3 row 2 ("a held staging beats the verdict
+  // posture") would move 34 D-25 rows; see the step-2 report.
+  if (probedToward(seat, t)) return SEAT_VERDICT;
+  const h = seat.head;
+  if (h !== null && h.staged && resolveTx(h.tx) === t) return SEAT_WORK;
+  if (globalQueue._running && flushHold() === t) return SEAT_WORK;
+  return SEAT_MAIN;
 }
 
 const seats: Seat[] = [];
@@ -338,8 +490,29 @@ export function openSeat(
     bornLeaf: false,
     sawStaging: false,
     trail: [],
-    known: false
+    known: false,
+    probed: null,
+    // #3884 (D-25): a node whose fetch a hold waits on — pending, or a held
+    // async memo — re-runs as the hold's work whatever an earlier pass
+    // asked: its memory is dropped for this pass; a probe in the body
+    // seats it from there (today: CONFIG_VERDICT cleared at the head).
+    memory:
+      create ||
+      (((el as any)._type === undefined || !(el as any)._type) &&
+        (el._statusFlags & STATUS_PENDING ||
+          (el._config & (CONFIG_ASYNC | CONFIG_HELD)) === (CONFIG_ASYNC | CONFIG_HELD)))
+        ? null
+        : (probeMemory.get(el) ?? null),
+    head: headState,
+    threw: false,
+    passProbes: null
   };
+  headState = null;
+  const inherited = laneDirtyFrom.get(el);
+  if (inherited !== undefined) {
+    laneDirtyFrom.delete(el);
+    if ((el as any)._type === EFFECT_RENDER) seat.passProbes = inherited;
+  }
   seats[++depth] = seat;
   seat.posture = postureOf(el, 0);
   return seat;
@@ -716,6 +889,11 @@ export function slot(
   // reveal corollary forbids for every reader kind (l2-fuzz-existing-rules,
   // seed 3289 #922). Traced 2026-10-29 (S1 M1).
   const renderLeaf = cType === EFFECT_RENDER && (leaf || verdictReader);
+  /** Per hold (D-3 as amended): a render effect, or a boundary's structure
+   * (CONFIG_FRAME), is a leaf toward every hold it is not seated on — it
+   * reads the screen for their nodes — whatever its node-level posture. */
+  const leafLike =
+    leaf || cType === EFFECT_RENDER || (c !== null && (c._config & CONFIG_FRAME) !== 0);
   /** The lane rows' side effects, carried into the plain rows when the
    * lane has nothing to serve (`laneRead` returns NOT_PENDING and `read`
    * goes on). */
@@ -837,6 +1015,9 @@ export function slot(
    * opened), unless born into it. */
   const stagedScreen =
     flushTransaction !== null && !seatBornInto(seat, flushTransaction) && !latestOnly;
+  /** Per hold: the pass is the flush's hold's verdict reader — a staging of
+   * this flush is read as the screen (V2), not as the flush's work (D1). */
+  const verdictOfFlush = seatTowardFlush(seat) === SEAT_VERDICT;
 
   // Error (D-41 #2897): the error — the retry re-reads (compared on its
   // own). The hold arms run first (`read`'s L2 block): a derivation of a
@@ -853,7 +1034,7 @@ export function slot(
       stagedError &&
       !uninit &&
       !(p.raise & MARK_ST) &&
-      !(verdictReader && c!._config & CONFIG_VERDICT && stagedScreen)
+      !(verdictOfFlush && stagedScreen)
     )
       p.raise |= RAISE_FL;
     return carry(p);
@@ -862,44 +1043,56 @@ export function slot(
   // Held node.
   if (held) return carry(heldRow(""));
 
+  // Per hold (seat-per-hold.md §3; D-25 as amended 2026-11-01): the pass's
+  // seat toward the hold of the node it reads — work (the hold's world),
+  // verdict reader (the screen, re-derived at the landing), or mainline (a
+  // leaf reads the screen, a derivation joins, D-1). Node-level
+  // CONFIG_VERDICT no longer decides a slot: the probe memory does, per
+  // hold (`seatToward`).
   function heldRow(errRow: string): Prediction {
     const t = txOf(el);
-    const own = t === flushTransaction || seatBornInto(seat, t);
+    const sw = seatToward(seat, t);
+    /** The hold's world: its flight (NR), its staging, or the value it holds. */
+    const future = pending ? SLOT_NR : staged ? stagedSlot : SLOT_C;
     const r = (row: string, slot: number, raise = 0, tx: Transaction | null = t) =>
       pred(errRow || row, slot, raise, tx);
-    if (leaf) {
+    if (leafLike) {
       // L4 (D-9 D-2 D-27): inputs published, or born — the leaf has no
       // screen to fall back to; it joins the hold (D-4): its world is the
       // hold's and its children inherit it (INV-seat-1 as amended).
       // (A staged error throws, D-41 — the 50k differential's L4 finding.)
-      if (uninit)
-        return r("L4", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H | MARK_TICK);
-      if (cfg & CONFIG_INPUTS_PUBLISHED)
-        return r("L4", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H);
-      if (seatBornInto(seat, t))
-        return r("L2", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H); // D-2
-      if (inSeat && !(cUninit && pending)) return r("D6", screen, MARK_ST); // lane work: the screen (D-37)
-      if (own) return r("L2", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H); // D-3 D-2
+      if (uninit) return r("L4", future, RAISE_H | MARK_TICK);
+      if (cfg & CONFIG_INPUTS_PUBLISHED) return r("L4", future, RAISE_H);
+      if (seatBornInto(seat, t)) return r("L2", future, RAISE_H); // D-2
+      // L2 (D-2 D-3): the hold's work — dirtied by its flush, holding its
+      // staging — reads its world.
+      if (sw === SEAT_WORK) return r("L2", future, RAISE_H);
+      // V1 (A10 D-23): its verdict reader reads the screen (a leaf's L3 slot).
+      if (sw === SEAT_VERDICT) return r("V1", screen, MARK_ST);
+      if (inLane && !(cUninit && pending)) return r("D6", screen, MARK_ST); // lane work: the screen (D-37)
       return r("L3", screen, MARK_ST); // D-3 D-9 D-26
     }
-    if (verdictReader) {
-      // V1 (D-23 A10 [R7]): a verdict reader is a frame reader — the
-      // screen, re-derived at the landing — unless born into t.
-      if (seatBornInto(seat, t))
-        return r("V1'", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H);
-      if (uninit) return r("V1''", pending ? SLOT_NR : stagedSlot, RAISE_H); // no screen to serve
+    // Born into t (D-2 D-27): the hold's own, whatever it asked.
+    if (seatBornInto(seat, t)) return r(verdictReader ? "V1'" : rowBase + "D6'", future, RAISE_H);
+    // D2 (D-1 D-2 D-10 D-25): the hold's work derives from its world —
+    // dirtied by its flush having probed nothing of it, holding its staging
+    // or a fetch it waits on (#3884).
+    if (sw === SEAT_WORK) return r(rowBase + (pending ? "D2'" : "D2"), future, RAISE_H);
+    if (sw === SEAT_VERDICT) {
+      // V1 (D-23 A10 [R7]): a verdict reader of t is a frame reader — the
+      // screen, re-derived at the landing; a node with no screen: its world.
+      if (uninit) return r("V1''", pending ? SLOT_NR : stagedSlot, RAISE_H);
       return r("V1", screen, MARK_ST);
     }
-    if (inSeat) {
-      // D6 (D-37): lane work reading a hold's node — the screen, re-derived
-      // at that landing; a lane pass with no value yet over a flight enters.
-      if (!(cUninit && pending) && !uninit && !seatBornInto(seat, t))
-        return r(rowBase + "D6", screen, MARK_ST);
-      return r(rowBase + "D6'", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H);
+    if (inLane) {
+      // D6 (D-37): lane work reading another hold's node — the screen,
+      // re-derived at that landing; a lane pass with no value yet over a
+      // flight enters.
+      if (!(cUninit && pending) && !uninit) return r(rowBase + "D6", screen, MARK_ST);
+      return r(rowBase + "D6'", future, RAISE_H);
     }
-    // D2 (D-1 D-2 D-10): the pass derives from the hold.
-    if (pending) return r(rowBase + "D2'", SLOT_NR, RAISE_H);
-    return r(rowBase + "D2", staged ? stagedSlot : SLOT_C, RAISE_H);
+    // D2 (D-1): mainline toward t, a derivation joins the hold it reads.
+    return r(rowBase + (pending ? "D2'" : "D2"), future, RAISE_H);
   }
 
   // Staged this flush, not held.
@@ -919,9 +1112,11 @@ export function slot(
       // nothing: not a read of the frame's future, nor a verdict reader's
       // stale read of the tick's hold.
       if (netted) return carry(pred(row + "''", SLOT_P));
-      if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) {
-        // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
-        // staging before (the seam's verdict).
+      if (verdictOfFlush && !uninit) {
+        // V2/V3 (D-23 D-32 [R5]): the flush's hold's verdict reader reads
+        // the screen once the tick has a hold, the staging before (the
+        // seam's verdict). Not a verdict reader of another hold: toward
+        // this flush's it is the flush's work (D-2 in-flush, F-10) — D1.
         if (stagedScreen) return carry(pred("V2", screen, MARK_ST, flushTransaction));
         return carry(pred("V3", stagedSlot, RAISE_FL | MARK_W, tickHold()));
       }
@@ -938,8 +1133,12 @@ export function slot(
   if (pending) {
     // D-37: not the lane's own, the pass has a value — and so does the
     // node (a first load in flight has no screen: NR, F-2).
-    if (inSeat && !cUninit && !uninit) return carry(pred(rowBase + "D8", screen));
-    if (verdictReader && !uninit) {
+    if (inLane && !cUninit && !uninit) return carry(pred(rowBase + "D8", screen));
+    // V4 per hold: the pass asked about this flight (now or remembered), or
+    // is the flush's hold's verdict reader (the flight is held by it at the
+    // seam); else a plain read of a flight is NotReady (F-2) — a verdict
+    // reader of one hold is no frame reader of another's flight (F-10).
+    if ((probedNode(seat, el) || verdictOfFlush) && !uninit) {
       if (cfg & CONFIG_INPUTS_PUBLISHED) return carry(pred("V4'", SLOT_NR, 0, flushTransaction));
       // D-23 D-9: the screen; in a flush the pass is the hold's verdict
       // reader and a stale reader of the flight (`observeFlight`).
@@ -1065,6 +1264,26 @@ function stateOf(c: Computed<any> | null, el: AnyNode | null): string {
     if (seat.lane !== null) cbits.push("inLane");
     if (seat.vhold !== null) cbits.push("vseat");
     if (seat.ahead) cbits.push("ahead");
+    // Per hold: the seat toward the node's hold, and toward the flush's.
+    const h = holdOf(el);
+    if (h !== null) cbits.push(`tw:${SEAT_NAMES[seatToward(seat, h)]}`);
+    if (globalQueue._running) cbits.push(`twF:${SEAT_NAMES[seatTowardFlush(seat)]}`);
+    if (seat.probed !== null || seat.memory !== null || seat.passProbes !== null) {
+      const kinds = (set: Set<AnyNode> | null) =>
+        set === null
+          ? "-"
+          : [...set]
+              .map(p => {
+                const h = holdOf(p);
+                return `${nameOf(p).replace(/#.*$/, "")}${h === null ? "" : h === FLUSH_HOLD ? "@flush" : h === (flushTransaction && resolveTx(flushTransaction)) ? "@F" : "@T"}`;
+              })
+              .join("+");
+      cbits.push(
+        `probed[${kinds(seat.probed)}]/[${kinds(seat.memory)}]${seat.passProbes !== null ? `/lane[${kinds(seat.passProbes)}]` : ""}`
+      );
+    }
+    if (seat.head !== null)
+      cbits.push(`head:${seat.head.pending ? "f" : seat.head.staged ? "s" : "h"}`);
   }
   cbits.push(laneOf(passLane) !== null ? "oldLane" : passLane !== null ? "oldVlane" : "oldNoLane");
   if (flushTransaction !== null) {
@@ -1160,6 +1379,10 @@ interface ReadFrame {
   laneBefore: Transaction | null;
   posture: number;
   actual: number;
+  /** A tracked, owned read (the probe memory's and #4050's condition). */
+  tracked: boolean;
+  /** 0 none · 1 `isPending` · 2 `latest`. */
+  window: number;
 }
 const frames: ReadFrame[] = [];
 let readDepth = -1;
@@ -1175,11 +1398,15 @@ export function shadowEnter(): void {
     flagsBefore: 0,
     laneBefore: null,
     posture: POSTURE_U,
-    actual: SLOT_NONE
+    actual: SLOT_NONE,
+    tracked: false,
+    window: 0
   });
   f.c = f.el = null;
   f.prediction = null;
   f.actual = SLOT_NONE;
+  f.tracked = false;
+  f.window = 0;
   shadowBypass = true;
 }
 export function shadowConsumeBypass(): boolean {
@@ -1207,6 +1434,32 @@ export function shadowExpect(
   f.flagsBefore = c !== null ? c._flags : 0;
   f.laneBefore = passLane;
   f.posture = postureOf(c, window);
+  f.tracked = tracked && c !== null && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
+  f.window = window;
+  // #4050, per hold: a tracked read of a verdict memo hands its probes on —
+  // the reader is a verdict reader of every hold the memo is one of, from
+  // this read (not an effect — a render effect inherits only when a verdict
+  // memo's lane re-staging re-runs it, D-26 #4284, `shadowLaneDirty`; a
+  // user effect's posture is its own reads'). Before the prediction: the
+  // read of the memo itself is seated by it.
+  const seat = currentSeat();
+  if (
+    f.tracked &&
+    window === 0 &&
+    seat !== null &&
+    seat.node === c &&
+    !(c as any)._type &&
+    typeof (el as Computed<any>)._fn === "function"
+  ) {
+    const m = probeMemory.get(el as Computed<any>);
+    // A pending memo — its fetch in flight — is its hold's work, not a
+    // verdict reader (D-25 #3884): it hands on no posture; a pending read
+    // yields no value (#4504).
+    if (m !== undefined && m.size !== 0 && !((el as Computed<any>)._statusFlags & STATUS_PENDING)) {
+      seat.probed ??= new Set();
+      for (const p of m) seat.probed.add(p);
+    }
+  }
   f.prediction = slot(c, el, tracked, window, spectate, snapshot);
 }
 
@@ -1370,6 +1623,23 @@ export function shadowLeave(thrown: number): void {
     thrown !== SLOT_NONE ? (thrown === SLOT_NR && f.actual === SLOT_T ? SLOT_T : thrown) : f.actual;
   const posture = f.posture;
   const seat = currentSeat();
+  // Per hold: a tracked window read is a probe of `el` — remembered on the
+  // pass (and, at its close, on the node) whatever `el`'s hold is now; the
+  // seat toward a hold is read off it at every later read (`seatToward`).
+  // Not a pass whose running creators read the future or a staging (#4341,
+  // `creatorReads` in `markVerdictReader`): its branch exists only in their
+  // world; it is that world's pass, no hold's verdict reader.
+  if (
+    f.window !== 0 &&
+    f.tracked &&
+    seat !== null &&
+    c !== null &&
+    seat.node === c &&
+    el !== null &&
+    seat.creatorsWorld === WORLD_S
+  )
+    (seat.probed ??= new Set()).add(el);
+  if (thrown === SLOT_NR && seat !== null && c !== null && seat.node === c) seat.threw = true;
   // A known difference (filed): the read's side effects on the seat are
   // the table's (the swap's behaviour); the old seat is not compared after
   // it this pass, as the two have parted by construction.
@@ -1529,6 +1799,14 @@ export function shadowSeatClose(
     return;
   }
   const oldCreatorJoined = !!(oldCreator !== null && oldCreator._flags & REACTIVE_JOINED);
+  // Per hold: the node remembers what this pass asked about; a pass that
+  // completed having asked nothing clears the memory (D-25 "until one
+  // completes having asked nothing"); one that did not complete (its read
+  // threw NotReady: pending with no answer of its own) keeps it.
+  if (seat.probed !== null) {
+    if (seat.threw && seat.memory !== null) for (const p of seat.memory) seat.probed.add(p);
+    probeMemory.set(el, seat.probed);
+  } else if (!seat.threw) probeMemory.delete(el);
   // (A known difference in this pass: the two seats parted by construction.)
   if (seat.known) {
     seats[depth--] = null!;
@@ -1609,6 +1887,7 @@ export function shadowSeatClose(
 // record at exit (JSON lines) — the differential across solid/web/the
 // generator reads those.
 if (__TEST__) {
+  setShadowLaneDirtyHook(shadowLaneDirty);
   const g = globalThis as any;
   g.__SEAT_SHADOW__ = { report: shadowReport, reset: shadowReset };
   const proc = g.process;
