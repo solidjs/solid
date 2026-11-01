@@ -455,8 +455,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // `a()` in a claim shows the server's frame whole (F-1), not a client
   // write's flight the markup never had — which would put a boundary over
   // it in a fallback the server never rendered, claimed against nothing
-  // (#4570). `isPending` answers for that frame: nothing in flight. The
-  // reader replays at the scope's release.
+  // (#4570). `isPending` answers for that frame: nothing in flight.
   const sv =
       snapshotCaptureActive && c && c._config & CONFIG_IN_SNAPSHOT_SCOPE
         ? el._x?._snapshotValue
@@ -465,11 +464,11 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // Shadow (S0): the window's decision point — the rows Vl*/Vp*.
   if (__TEST__) shadowExpect(c, el, tracking, latestActive ? 2 : 1, spectating, served);
   if (served) {
-    const snapshot = sv === NO_SNAPSHOT ? undefined : sv;
-    if ((el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) !== snapshot)
-      c!._flags |= REACTIVE_SNAPSHOT_STALE;
+    // Marked stale unconditionally (`read` compares first): a verdict reader
+    // in a claim re-runs once at the scope's release — hydration only.
+    c!._flags |= REACTIVE_SNAPSHOT_STALE;
     if (__TEST__) shadowActual(SLOT_SNAPSHOT);
-    return snapshot;
+    return sv === NO_SNAPSHOT ? undefined : sv;
   }
   // A live `affects()` mark on the node or a dependency (affects.ts): not
   // final by declaration — the value itself is read as below. The verdict is
