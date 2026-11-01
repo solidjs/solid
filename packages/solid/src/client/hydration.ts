@@ -615,17 +615,21 @@ export function syncThenable(value: any) {
  * write diverged it, and re-serves that answer (readSerializedOrCompute).
  * No client write is swallowed: the ones already made flush first, outside
  * the pass, and one made during it (an effect's) runs in a later round of
- * the flush, where a node it reaches computes. Runs from a settled promise,
- * outside any claim window.
+ * the flush, where a node it reaches computes — adopting, one to a node in
+ * the scope is held and replays at the scope's release, in the flush after
+ * the pass. Runs from a settled promise, outside any claim window.
  */
-const servedPass = (write: (x?: any) => void, adopt?: boolean) => (x?: any) => {
+const servedPass = (write: (x?: any) => void, adopt?: Owner) => (x?: any) => {
   flush();
-  // Adopting, hydration is on but nothing claims: the render is a client
-  // render, so it opens no snapshot scope either (the `hydrating` setter,
-  // which would release one, is bypassed here). A scope left open would hold
-  // every write made in it — a client-only node's gate (a <Portal>) never
-  // opening.
-  _hydratingValue = _snapshotRootOwner = adopt as any;
+  const capture = adopt && _hydrationDone;
+  _hydratingValue = !!adopt;
+  _snapshotRootOwner = adopt || null;
+  // Released in the finally below: the `hydrating` setter, which would release
+  // the scope, is bypassed here, and a scope left open holds every later write.
+  if (adopt) {
+    if (capture) setSnapshotCapture(true);
+    markSnapshotScope(adopt);
+  }
   _claimOwner = ~clock;
   // An uncaught error (no client boundary for a served error) leaves the
   // flush by throwing: the pass still ends, and hydration still completes
@@ -637,6 +641,10 @@ const servedPass = (write: (x?: any) => void, adopt?: boolean) => (x?: any) => {
     flush();
   } finally {
     _claimOwner = _hydratingValue = _snapshotRootOwner = null as any;
+    if (adopt) {
+      releaseSnapshotScope(adopt);
+      if (capture) clearSnapshots();
+    }
     checkHydrationComplete();
   }
 };
@@ -2393,7 +2401,7 @@ function resumeBoundaryHydration(
       // for it, if any (#4287), or an uncaught error — instead of asking
       // again. What the server never sent (a truncated ref is dropped from
       // the registry) computes.
-      servedPass(set, shouldHydrate === 0)();
+      servedPass(set, shouldHydrate === 0 ? o : undefined)();
   flush();
   checkHydrationComplete();
 }
