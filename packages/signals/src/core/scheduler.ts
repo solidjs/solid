@@ -1068,12 +1068,12 @@ export class GlobalQueue implements IQueue {
     // This flush's own runs, the lanes' reveals, and the landings' held runs
     // are collected apart and ordered below.
     const own = this._queues;
-    const lanes: [QueueCallback[], QueueCallback[]] = [[], []];
+    let lanes: [QueueCallback[], QueueCallback[]] | null = null;
     // The passes that read this frame's stagings as the screen read held
     // writes if it parked: the lane seam re-derives them on the committed
     // world (a lane's runs wait this round).
     if (laneSeamsHook) {
-      this._queues = lanes;
+      this._queues = lanes = [[], []];
       laneSeamsHook(t);
       if (stagedReaders.length) stagedReaders.length = 0;
     }
@@ -1121,8 +1121,8 @@ export class GlobalQueue implements IQueue {
       // same array, not a copy; `run` takes it whole). Every other seam
       // builds the ordered queue above.
       this._queues[i] =
-        parked || lanes[i].length || this._queues[i].length
-          ? lanes[i].concat(parked ? [] : own[i], this._queues[i])
+        parked || lanes?.[i].length || this._queues[i].length
+          ? (lanes ? lanes[i] : []).concat(parked ? [] : own[i], this._queues[i])
           : own[i];
     }
     if (deferredZombies.length !== 0) {
@@ -1403,9 +1403,27 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
     if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
   }
 }
+
+/** An effect owes a run: marked, and its bound runner queued in its phase. */
+export function queueEffectRun(node: any): void {
+  node._modified = true;
+  globalQueue.enqueue(
+    node._type,
+    (node._boundRunEffect ??= GlobalQueue._runEffect.bind(null, node))
+  );
+}
+
 /** One lane, or two of one link group (#3335): one reveal unit. */
 export function sameLane(a: Transaction, b: Transaction): boolean {
   return a === b || (a._links !== null && a._links === b._links);
+}
+
+/** A staged value becomes the node's value: truthy when one was staged. */
+export function applyStaged(n: Signal<any>): unknown {
+  return (
+    n._pendingValue !== NOT_PENDING &&
+    ((n._value = n._pendingValue), (n._pendingValue = NOT_PENDING))
+  );
 }
 
 export function commitPendingNode(n: Signal<any>): void {
@@ -1417,10 +1435,7 @@ export function commitPendingNode(n: Signal<any>): void {
   // commits a value.
   if (!c._fn) {
     n._config &= ~(CONFIG_STAGED | CONFIG_HELD);
-    if (n._pendingValue !== NOT_PENDING) {
-      n._value = n._pendingValue as any;
-      n._pendingValue = NOT_PENDING;
-    }
+    applyStaged(n);
     return;
   }
   // Computeds only from here (`_statusFlags` is not a signal field). A
@@ -1449,9 +1464,7 @@ export function commitPendingNode(n: Signal<any>): void {
     n._pendingValue = NOT_PENDING;
     n._time = clock + 1;
     notifyStatus(c as Computed<unknown>, STATUS_ERROR, e);
-  } else if (n._pendingValue !== NOT_PENDING) {
-    n._value = n._pendingValue as any;
-    n._pendingValue = NOT_PENDING;
+  } else if (applyStaged(n)) {
     // A node born staged (recompute) initializes at this commit.
     c._statusFlags! &= ~STATUS_UNINITIALIZED;
     // A quiet re-ask's classification survives its landing and dies with
@@ -1461,13 +1474,7 @@ export function commitPendingNode(n: Signal<any>): void {
     if (c._x != null) ((c._x._reask = false), (c._x._flushed = NOT_PENDING));
     // An effect with a staged value was born held (L2): its first run is
     // this commit's, not its creation's (A29) — queue it now.
-    if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) {
-      (n as any)._modified = true;
-      globalQueue.enqueue(
-        (n as any)._type,
-        ((n as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, c as Computed<unknown>))
-      );
-    }
+    if ((n as any)._type && (n as any)._type !== EFFECT_TRACKED) queueEffectRun(n);
   }
   // The committed value is the first observable answer for a loading-window
   // node — the window closes here, not at compute time (#2990). Unconditional
