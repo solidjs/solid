@@ -609,9 +609,9 @@ installOptHooks({
     if (!o?.size || (a === clock + 1 && passLane === null && !o.has(t)) || a === ~clock)
       return false;
     if (linkedTo(c, d)) return false;
-    if ((t.k?._x?._lane as LaneView)?.g === null && c?._statusFlags & STATUS_PENDING && held(c))
-      if (c._type === EFFECT_RENDER || !d._x?._transaction) readNode(d);
-      else (link(d, c), staleReader(c, txOf(d)));
+    if ((t.k?._x?._lane as LaneView)?.g === null && c?._statusFlags & STATUS_PENDING)
+      if (c._type === EFFECT_RENDER) readNode(d);
+      else if (held(c)) d._x?._transaction ? (link(d, c), staleReader(c, txOf(d))) : readNode(d);
     return true;
   },
   // Mainline hold (`clock + 1`): the flush joins the action of each guess a
@@ -627,14 +627,12 @@ installOptHooks({
   }
 });
 
-/** In the frame's hold (scheduler.ts `blockedBy`): a render effect, or a
- * derivation a pending render effect reads (#4561). */
-function held(c: any): boolean {
-  if (c._type === EFFECT_RENDER) return true;
-  for (let s = c._subs; s !== null; s = s._nextSub)
+/** A derivation in the frame's hold (scheduler.ts `blockedBy`): one a
+ * pending render effect reads (#4561). */
+function held(c: any): true | undefined {
+  for (let s = c._subs; s; s = s._nextSub)
     if ((s._sub as any)._type === EFFECT_RENDER && s._sub._statusFlags & STATUS_PENDING)
       return true;
-  return false;
 }
 
 /** Two lanes of one action (their parents resolved through merges). */
