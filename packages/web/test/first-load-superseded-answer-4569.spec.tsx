@@ -2,29 +2,20 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  *
- * #4569 (F-9, D-22, D-23): a first load under `<Loading>` whose chain is
- * re-asked upstream while its own first flight is still up. Pinned at BOTH
- * candidate screens; the maintainer rules. The signals-only twin with the
- * full write-up, the 3-deep chain and the no-boundary form:
+ * #4569 (ruled 2026-10-31, today's behaviour; D-23, F-9, S-40; #3373, #4459, #4495): a first
+ * load under `<Loading>` whose chain is re-asked upstream while its own first
+ * flight is still up. `a2`'s question changes only when `a2` re-runs (#3373),
+ * so `a2:11`, landing while `a2` is pending by propagation from `a0`'s
+ * re-ask, initializes `a2`: committed and pending on `a0`. Content that reads
+ * only its verdict reveals with `pending` (S-40); content that reads `a2`
+ * holds until the chain settles (F-2 — no screen to keep).
+ *     loading, loading, loading, pending, pending, settled
+ * Rejected reading: `loading ×5, settled` (a first load stays loading until
+ * the chain settles) — needs a supersession-by-propagation no rule has and
+ * contradicts #4459/#4495's `p:true` first reveals.
+ * The signals-only twin carries the full write-up, the 3-deep chain, the
+ * no-boundary form and the plain-read controls:
  * `packages/signals/tests/first-load-superseded-answer-4569.test.ts`.
- *
- * R2 — today / #3373, #4459 (one question per node): `a2`'s question is still
- *   "given a0 = 11" until `a0` delivers, so `a2:11` is the current answer; it
- *   initializes `a2`, which stays pending on `a0`'s flight; the boundary
- *   reveals with `pending`.      loading ×3, pending, pending, settled
- * R1 — reporter: an answer landing after an upstream re-ask marked the node
- *   pending answers a superseded world; on a first load it does not
- *   initialize the node; the boundary holds until the chain settles and its
- *   first frame has no pending verdict (F-9: "a first load is loading, not
- *   pending", `isPending` "cannot be true on creation").
- *                                loading ×5, settled
- *   Scoped in time or it contradicts #4459's `p:true` first reveals: there
- *   the answer resolved BEFORE the write (answered, then re-asked); here it
- *   resolves after the re-ask's flush.
- * Crux: does an upstream re-ask that marks a node pending by propagation
- * change the node's question before the node itself re-runs (R1: the later
- * answer is to no current question), or only the node's own re-run (R2,
- * #3373: "nothing superseded it")?
  */
 import { render } from "../src/index.js";
 import { createMemo, createSignal, flush, isPending, Loading } from "solid-js";
@@ -63,7 +54,7 @@ async function run() {
   frames.push(el.textContent!); // asks a0:1; a2 (no value, a2:11 up) pending by propagation
   flights.get("a2:11")!(16);
   await tick();
-  frames.push(el.textContent!); // an answer to the old question lands on uninitialized a2
+  frames.push(el.textContent!); // a2:11 lands on the uninitialized a2: committed, pending on a0
   flights.get("a0:1")!(20);
   await tick();
   frames.push(el.textContent!); // asks a2:20
@@ -76,10 +67,6 @@ async function run() {
 
 const L = "loading";
 
-it("today / R2: the old answer initializes a2; the boundary reveals with `pending` (#4569)", async () => {
+it("a first load answered while pending by propagation is committed and pending; the verdict-only content reveals (#4569)", async () => {
   expect(await run()).toEqual([L, L, L, "pending", "pending", "settled"]);
-});
-
-it.fails("R1: a first load does not reveal with isPending() === true (#4569)", async () => {
-  expect(await run()).toEqual([L, L, L, L, L, "settled"]);
 });

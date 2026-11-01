@@ -698,6 +698,23 @@ _Ruled 2026-10-09, from the read-order brief's sibling case (416). Not D-28: thi
 | ✗   |                          | sibling `0`, slot `(empty)` | neither the fallback nor `1` — the boundary waited on `n0`, which it did not read |
 | ✗   |                          | sibling `0 \| loading`      | the same wait, shown as a fallback                                                |
 
+**The verdict form (ruled 2026-10-31, #4569; D-23, #3373):** a fresh `<Loading>` whose content reads only `isPending` of a first load reveals when the verdict exists. `a0 = async(s)`, `a2 = async(await a0())`; `a0:0` lands, `a2` asks `a2:11`; `setS(1)` re-asks `a0` and marks `a2` pending by propagation while `a2:11` is up and `a2` has no value; `a2:11` lands. `a2`'s question changes only when `a2` re-runs, so the answer is current: `a2` is committed and pending on `a0`. Content that reads `a2` holds (F-2: no screen to keep) — the asymmetry is the rule.
+
+```tsx
+<Loading fallback="loading">{isPending(() => a2()) ? "pending" : "settled"}</Loading>
+```
+
+| #   | Action                                   | verdict-only content | control: `{a2()}` — alone or beside the probe | Notes                                                                 |
+| --- | ---------------------------------------- | -------------------- | --------------------------------------------- | --------------------------------------------------------------------- |
+| 1   | mount; `a0:0` lands; `a2` asks `a2:11`   | `loading`            | `loading`                                     | first load                                                            |
+| 2   | `setS(1)` — re-asks `a0:1`               | `loading`            | `loading`                                     | `a2` pending by propagation, no value, own flight still current       |
+| 3   | `a2:11` lands                            | `pending`            | `loading`                                     | `a2` initializes, committed and pending on `a0`; the plain read waits |
+| 4   | `a0:1` lands; `a2` re-runs, asks `a2:20` | `pending`            | `loading`                                     |                                                                       |
+| 5   | `a2:20` lands                            | `settled`            | `21` / `21 settled`                           |                                                                       |
+| ✗   |                                          | after 3: `loading`   |                                               | rejected: a first load kept loading by a supersession no rule has     |
+
+Pinned: `tests/first-load-superseded-answer-4569.test.ts` (also a 3-deep chain and the no-boundary root, which attaches at 3 with `pending`), `packages/web/test/first-load-superseded-answer-4569.spec.tsx`.
+
 ### S-45. A first answer landing in the same tick as an action that writes its input: `latest` shows it, the plain read waits — D-22, F-9 (async generator E9)
 
 _Ruled 2026-10-28. The leaf form and the through-a-memo form show the same screen; today the leaf keeps the fallback up until the action ends — that is the ✗ row._
