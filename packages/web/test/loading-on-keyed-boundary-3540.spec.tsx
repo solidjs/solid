@@ -131,16 +131,21 @@ describe("Loading `on` beside a keyed Show around the boundary; a boundary is ne
   // transaction for its verdict (R-5, #4365), so the condition's first pass
   // is the frame's — `Show` mounts A for key 2 in the frame, and the frame
   // parks on data. The parked flush re-derives the pass that read
-  // `latest(count)` once, as a verdict reader (D-2, A10); `latest()` serves
-  // the staging on both runs, so the key is the same and the one child stays
-  // mounted. Today the re-derive voids the provisional owner and compares
-  // against the last COMMITTED `when`, so the same key mounts again
-  // ([1, 3, 3]) — the known bug #4417, pinned as `test.fails` at its target.
+  // `latest(count)` once, as a verdict reader (D-2, A10); the re-derive voids
+  // the provisional owner and compares against the last COMMITTED `when`, so
+  // the same key mounts again ([1, 3, 3]). Ruled 2026-11-01 (#4417 closed):
+  // that third mount is R-5's price (#4393) — the provisional mount is the
+  // frame's and the post-park mount the lane's; one mount AND the early
+  // fallback need the frame re-seated, which every mechanism tried bought at
+  // ≥100 B on a frozen floor (D-27 Status). Pinned at [1, 3, 3]; [1, 2, 2]
+  // stays the desired count if a mechanism ever comes free. The cost is a
+  // factory and its effects running once more on a key change, not a wrong
+  // screen.
   // (A zero-arg function child is an accessor — evaluated once, not remounted
   // per key — and is deliberately not pinned here.)
   const matrix: Array<[Variant, string, [number, number, number], string[]]> = [
-    ["show-static-latest", EARLY, [1, 2, 2], []],
-    ["show-callback-latest", EARLY, [1, 2, 2], []],
+    ["show-static-latest", EARLY, [1, 3, 3], []],
+    ["show-callback-latest", EARLY, [1, 3, 3], []],
     ["show-static-committed", HELD, [1, 2, 2], []],
     ["show-callback-committed", HELD, [1, 2, 2], []],
     ["on-committed", HELD, [0, 0, 0], ["LOADING_ON_OUTSIDE_HOLD"]],
@@ -148,9 +153,7 @@ describe("Loading `on` beside a keyed Show around the boundary; a boundary is ne
   ];
   for (const [variant, midFlight, expectedMounts, expectedCodes] of matrix) {
     const remounted = expectedMounts[1] > expectedMounts[0];
-    // Known bug #4417: the park re-derive voids the provisional owner, so the same key mounts again ([1,3,3]). Target [1,2,2] via in-place re-derive (reader-seat S1).
-    const it = variant.startsWith("show-") && variant.endsWith("-latest") ? test.fails : test;
-    it(`${variant}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "held"}, A ${
+    test(`${variant}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "held"}, A ${
       remounted ? "remounted" : "not remounted"
     } at the key change`, async () => {
       const { div, setCount, dispose, mounts } = setup(variant);
