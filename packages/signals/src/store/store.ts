@@ -2747,13 +2747,10 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | nul
     const pb = t.pb;
     if (pb !== null) {
       const k = t.k;
-      backing =
-        inDraft(t) || writeOverride || k === null || !(k._config & CONFIG_HELD)
-          ? pb
-          : stagingReader() !== null
-            ? asBacking(untrack(() => readNode(k)))
-            : t.v;
-      if (backing === pb && t.ovl) backing = materializePB(t);
+      if (inDraft(t) || writeOverride || k === null || !(k._config & CONFIG_HELD)) backing = pb;
+      else if (stagingReader() !== null) backing = asBacking(untrack(() => readNode(k)));
+      // materializePB is a no-op (returns pb) without an overlay.
+      if (backing === pb) backing = materializePB(t);
     }
     if (optHooks && optRead(t)) backing = optHooks.view(t, backing);
     if (backing === src) break;
