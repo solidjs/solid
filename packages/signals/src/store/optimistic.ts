@@ -611,11 +611,12 @@ installOptHooks({
     if (!o?.size || (a === clock + 1 && passLane === null && !o.has(t)) || a === ~clock)
       return false;
     // Linked by this pass's hold (below): its other reads keep the guess.
-    if (linkedTo(c, d)) return heldAt === clock && heldBy.get(c) === 2;
+    const j = heldC === c && heldAt === clock;
+    if (linkedTo(c, d)) return j && heldV > 1;
     if ((t.k?._x?._lane as LaneView)?.g === null && c?._statusFlags & STATUS_PENDING)
       if (c._type === EFFECT_RENDER) readNode(d);
-      else if (held(c))
-        d._x?._transaction ? (link(d, c), staleReader(c, txOf(d)), heldBy.set(c, 2)) : readNode(d);
+      else if (j ? heldV : ((heldC = c), (heldAt = clock), (heldV = held(c))))
+        d._x?._transaction ? (link(d, c), staleReader(c, txOf(d)), (heldV = 2)) : readNode(d);
     return true;
   },
   // Mainline hold (`clock + 1`): the flush joins the action of each guess a
@@ -633,26 +634,18 @@ installOptHooks({
 
 /** A derivation in the frame's hold (scheduler.ts `blockedBy`): one a
  * pending render effect reads, through any chain of pending derivations
- * (#4561: memo -> memo -> binding, `mapArray` -> memo -> binding). Judged
- * once per reader per pass: stamped with the pass's `clock`, so a reader's
- * every key read does not re-walk its subscribers. */
-function held(c: any): boolean | 2 {
-  if (heldAt !== clock) ((heldAt = clock), (heldBy = new Map()));
-  let h = heldBy.get(c);
-  if (h === undefined) {
-    heldBy.set(c, (h = false));
-    for (let s = c._subs; s && !h; s = s._nextSub) {
-      const r: any = s._sub;
-      h =
-        !!(r._statusFlags & STATUS_PENDING) &&
-        (r._type === EFFECT_RENDER || (!r._type && !!held(r)));
-    }
-    heldBy.set(c, h);
+ * (#4561: memo -> memo -> binding, `mapArray` -> memo -> binding). */
+function held(c: any): true | undefined {
+  for (let s = c._subs; s; s = s._nextSub) {
+    const r: any = s._sub;
+    if (r._statusFlags & STATUS_PENDING && (r._type === EFFECT_RENDER || (!r._type && held(r))))
+      return true;
   }
-  return h;
 }
-let heldAt = -1;
-let heldBy: Map<any, boolean | 2>;
+/** The last reader judged (`heldC`) this pass (`heldAt`, the pass's `clock`)
+ * and its verdict (`heldV`: 2 once this pass linked it): a reader's key reads
+ * come in one run, so each does not re-walk its subscribers. */
+let heldC: any, heldAt: number, heldV: any;
 
 /** Two lanes of one action (their parents resolved through merges). */
 function sameAction(a: Transaction, b: Transaction): boolean {
