@@ -35,7 +35,15 @@ import {
   SOURCE_PROXY,
   SOURCE_MEMO
 } from "solid-js/internal";
-import { effect, memo, setSpreadName, spreadLoc, spreadName, tagElement } from "./render.js";
+import {
+  effect,
+  memo,
+  setCollector,
+  setSpreadName,
+  spreadLoc,
+  spreadName,
+  tagElement
+} from "./render.js";
 
 import { JSX } from "../jsx/jsx.js";
 
@@ -1224,37 +1232,33 @@ export function spread(node, props, skipChildren, skip, name, loc) {
     if ("_SOLID_DEV_") unscopedByDesign = null;
     return prevProps;
   }
-  effect(() => {
-    const source = resolveSource(props);
-    const newProps = {};
-    // A merge() proxy is read through its SOURCES, not through the proxy: a
-    // spread mixed with other attributes compiles to
-    // `spread(el, merge(statics, () => rest))`, and going through the proxy
-    // costs merge's `keys()` (a Set plus an own-enumerable scan of every
-    // source) and then, per key, a right-to-left `in` walk of the sources.
-    // The union of own string keys with later sources overriding earlier
-    // — Object.assign order, merge's own contract — is all a spread needs.
-    // An omit() proxy likewise is read through its VIEW RECORD — its source
-    // walked directly with the hidden keys filtered — never through its
-    // traps (a descriptor trap per key, allocating, on every rerun).
-    //
-    // A view over plain objects only has a RESOLVED TABLE — key → owning
-    // leaf, shadowing already applied — built once; on every rerun this
-    // effect then does exactly what it did over an eager copy: one read per
-    // key, no re-enumeration and no per-key walk of the later sources.
-    const table = resolvedTable(source);
-    if (table !== undefined) return collectTable(newProps, table, skip);
-    if (source != null) {
-      const view = viewOf(source);
-      if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT, skip);
-      else if (view !== undefined) collectSources(newProps, view.sources, view.kinds, skip);
-      else collectProps(newProps, source, $PROXY in source ? SOURCE_PROXY : SOURCE_PLAIN, skip);
-    }
-    return newProps;
-  }, apply);
+  const fixed = typeof props !== "function" && props != null && hasStaticKeys(props);
+  const table = fixed ? resolvedTable(props) : undefined;
+  const nodeName = node.nodeName;
+  if (table !== undefined && !table.has("ref") && DOMWithState[nodeName] === undefined) {
+    // A view over plain objects keeps its keys and owning leaves for life:
+    // read values by position and apply only the changed ones, with no props
+    // object per run and no removal pass.
+    const entries = [...table].filter(
+      ([p]) => typeof p === "string" && p !== "children" && !(skip !== undefined && skip(p))
+    );
+    const prev = [];
+    effect(
+      () => collecting(() => entries.map(([p, leaf]) => readProp(p, leaf[p]))),
+      values => {
+        if ("_SOLID_DEV_") tagElement(node);
+        values.forEach((v, i) => {
+          const p = entries[i][0];
+          if (v !== prev[i])
+            prevProps[p] = prev[i] = assignProp(node, p, v, prev[i], true, nodeName);
+        });
+        if (owner !== undefined) claimElement(node, owner);
+      }
+    );
+  } else effect(() => collecting(() => collectSpread(props, skip)), apply);
   if ("_SOLID_DEV_") unscopedByDesign = node;
   if (!skipChildren && !(skip !== undefined && skip("children"))) {
-    if (typeof props !== "function" && props != null && hasStaticKeys(props)) {
+    if (fixed) {
       // A plain object's key set can't change reactively — nor can a
       // merge/omit view's over plain objects, and its descriptor trap tells
       // the truth about the owning leaf: no `children` key means nothing to
@@ -1278,16 +1282,59 @@ export function spread(node, props, skipChildren, skip, name, loc) {
   return prevProps;
 }
 
+function collectSpread(props, skip) {
+  const source = resolveSource(props);
+  const newProps = {};
+  // A merge() proxy is read through its SOURCES, not through the proxy: a
+  // spread mixed with other attributes compiles to
+  // `spread(el, merge(statics, () => rest))`, and going through the proxy
+  // costs merge's `keys()` (a Set plus an own-enumerable scan of every
+  // source) and then, per key, a right-to-left `in` walk of the sources.
+  // The union of own string keys with later sources overriding earlier
+  // — Object.assign order, merge's own contract — is all a spread needs.
+  // An omit() proxy likewise is read through its VIEW RECORD — its source
+  // walked directly with the hidden keys filtered — never through its
+  // traps (a descriptor trap per key, allocating, on every rerun).
+  //
+  // A view over plain objects only has a RESOLVED TABLE — key → owning
+  // leaf, shadowing already applied — built once; on every rerun this
+  // effect then does exactly what it did over an eager copy: one read per
+  // key, no re-enumeration and no per-key walk of the later sources.
+  const table = resolvedTable(source);
+  if (table !== undefined) return collectTable(newProps, table, skip);
+  if (source != null) {
+    const view = viewOf(source);
+    if (view instanceof OmitView) collectProps(newProps, view, SOURCE_OMIT, skip);
+    else if (view !== undefined) collectSources(newProps, view.sources, view.kinds, skip);
+    else collectProps(newProps, source, $PROXY in source ? SOURCE_PROXY : SOURCE_PLAIN, skip);
+  }
+  return newProps;
+}
+
 // A resolved view table (see `resolvedTable`) into `out`: the owning leaf's
 // value per key, children excluded, `skip` honored.
 function collectTable(out, table, skip) {
   for (const [prop, leaf] of table) {
     if (typeof prop !== "string" || prop === "children") continue;
     if (skip !== undefined && skip(prop)) continue;
-    const v = leaf[prop];
-    out[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
+    out[prop] = readProp(prop, leaf[prop]);
   }
   return out;
+}
+
+function readProp(prop, v) {
+  return prop === "style" || prop === "class" ? readShallow(v) : v;
+}
+
+// Runs a spread's collect with condition memos resolving inline (see
+// `setCollector`); hydration keeps them, for their ids.
+function collecting(fn) {
+  const outer = setCollector(sharedConfig.hydrating ? null : getOwner());
+  try {
+    return fn();
+  } finally {
+    setCollector(outer);
+  }
 }
 
 function resolveSource(s) {
@@ -1367,8 +1414,7 @@ function collectProps(out, s, kind, skip, later?, laterKinds?, from?) {
     if (later !== undefined)
       for (let j = from; j < later.length; j++)
         if (sourceHas(later[j], laterKinds[j], prop)) continue outer;
-    const v = sourceGet(s, kind, prop);
-    out[prop] = prop === "style" || prop === "class" ? readShallow(v) : v;
+    out[prop] = readProp(prop, sourceGet(s, kind, prop));
   }
 } /** Compiler-emitted primitive; not for hand-written code. @internal */
 export function dynamicProperty(props: unknown, key: string): unknown;
