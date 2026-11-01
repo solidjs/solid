@@ -1153,8 +1153,9 @@ export class GlobalQueue implements IQueue {
     // Lane work's runs are the lane's: they run at its reveal, not with
     // the frame (which may park). A lane pass that read the frame's own
     // staging is the frame's (`recompute` passes null): its run waits with
-    // the frame.
-    if (type) (lane !== null ? lane : this)._queues[type - 1].push(fn);
+    // the frame. So is a run given a transaction that is not a lane (a
+    // first run born held, `effect()`).
+    if (type) (lane?._lane ? lane : this)._queues[type - 1].push(fn);
     schedule();
   }
   /** Status reaching the root: pending is absorbed (the root mount defers —
