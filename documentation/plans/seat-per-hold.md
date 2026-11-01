@@ -1,0 +1,204 @@
+# Seat with hold identity, decided once at the pass head — design
+
+Base: `origin/next` @ `d1d6d51c0` (all `file:line` below are that tree; implemented on `39f951b84`, whose `core.ts`/`verdict.ts`/`scheduler.ts` are unchanged from it). Inspected read-only via worktrees. Branches cited by head SHA: `probe/4544-probed-held-bit` `d8acbf702`, `probe/4544-option2` `bcc036cdf`, `salvage/4417-park-adoption` `8ccab0f71`, `seat/s1-swap` `143d829bf` (PR #4430, closed), `fix/4417-display-ahead-attach-parked` `04c218537`, `probe/s46-rule3-block` `975223a5c`, `probe/s46-reading-c` `76aa6a75b`, `probe/4544-verdict-memo-held-branch` `a20627a44`. Paths are under `packages/signals/` unless prefixed; this document lives at `documentation/plans/seat-per-hold.md` beside `reader-seat-rebuild.md`.
+
+Terms. **T-held node**: a node `x` with `CONFIG_HELD` and `txOf(x) === T` (scheduler.ts:386), or `STATUS_PENDING` on a flight T waits for. **T staging**: `_pendingValue !== NOT_PENDING` listed in `T._nodes` with `!T._lane` (a _lane_ value lives in `_x._lane` under `CONFIG_OVERRIDE` and is not a staging). **Probe**: `isPending`/`latest`. "Posture" below always means posture _toward a named hold_.
+
+---
+
+## 1. The current model
+
+### 1.1 Three memories, no hold identity
+
+| memory                  | bit / slot                                                                                                                                                                                                | set                                                                                                                                                                                                                                                                      | cleared                                                                                                                            | hold identity                             |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| verdict posture         | `CONFIG_VERDICT` = `REACTIVE_PROBED` promoted (constants.ts: "Set at the window, never cleared: a reader that stopped asking re-derives once…")                                                           | `markVerdictReader` verdict.ts:282–303 (`creatorReads(c,0) \|\| (c._config \|= CONFIG_VERDICT)`); re-stamped at every pass tail core.ts:731–732 `el._config = (el._config & ~CONFIG_VERDICT) \| (el._flags & REACTIVE_PROBED)`; inherited by #4050 arm core.ts:2163–2195 | head core.ts:433–439 (pending / held-async node), `holdWork` verdict.ts:651–664 ("the hold's work waits"), store/projection.ts:266 | **none**                                  |
+| verdict lane membership | `_x._transaction === verdictLane(T)` (lanes.ts:382 `t._verdict`) via `route` verdict.ts:105–113 → `setPassLane(verdictLane(t))`                                                                           | `enterLane` lanes.ts:280–334 / `laneStage` lanes.ts:401–481                                                                                                                                                                                                              | lane dissolves with T                                                                                                              | **one hold** (single slot)                |
+| work                    | `CONFIG_HELD` + `txOf(el)` + `_pendingValue`; `CONFIG_HELD_FRAME` (held re-pass frame, `holdFrame` scheduler.ts:615–624); born held = `STATUS_UNINITIALIZED`+`CONFIG_HELD` (`bornInto` core.ts:1372–1378) | `holdNode` scheduler.ts:587, publish core.ts:944–958, `joinPassTx` scheduler.ts:378–383                                                                                                                                                                                  | `land` scheduler.ts:1259–1288, `unhold` :641                                                                                       | **one hold** (`txOf`, merges via `_into`) |
+
+Per-pass flags: `REACTIVE_JOINED` / `REACTIVE_STAGED_READ` (set core.ts:715–722 `joined`, :1276/:1296, `stagedRead` :2486–2499), `REACTIVE_FRAME_READ` (`staleReader` scheduler.ts:1318–1323 → `T._reruns`), `REACTIVE_LANE_READ` (`route` :113), `REACTIVE_PROBE_UNANSWERED` (`watchVerdict` verdict.ts:91–94). `CONFIG_FRAME` = `EFFECT_RENDER << 23`. `creatorReads` core.ts:1393–1397 walks the creator chain for JOINED|STAGED_READ.
+
+### 1.2 Where the seat is decided today — at every site, from node bits
+
+| site                                 | decides                                                                                                                                                                           | from                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `recompute` head core.ts:380–406     | lane seat: node's own lane (`REACTIVE_LANE_DIRTY` or `CONFIG_OVERRIDE`) else creator's lane when not a verdict lane                                                               | node + creator pass                                          |
+| :433–439                             | clears `CONFIG_VERDICT` on a pending / held async node                                                                                                                            | node                                                         |
+| held re-pass arm :464–500            | **work vs not**: `joinPassTx(tx)` unless `CONFIG_VERDICT \| CONFIG_FRAME` (then drop staging, publish mainline) — `bornInto(el, tx)` overrides for non-render nodes               | node bits, `txOf(el)`                                        |
+| publish gate :916–922                | direct publish vs stage under `flushTransaction ?? passTx`                                                                                                                        | `joined`, `creatorPass(...)._flags & REACTIVE_JOINED`        |
+| `frameRead` :1325–1365               | staging vs committed for a frame/verdict reader: `(t === flushTransaction && (!lane \|\| passLane.over === t) && !verdict) \|\| bornInto(c,t)` → staging; else `staleReader(c,t)` | `CONFIG_VERDICT`, `passLane`, `flushTransaction`, `bornInto` |
+| `stagedScreen` :2514–2538            | same for a not-yet-held staging; `latestOpened` arm pushes `stagedReaders`                                                                                                        | same + `latestOpened`                                        |
+| #4050 arm :2163–2195                 | memo over verdict memo inherits `CONFIG_VERDICT` (flag, config only if creator-read)                                                                                              | owner bit                                                    |
+| pending arm :2272–2285               | `observeFlightHook(c, owner)` when `CONFIG_VERDICT`, else mark                                                                                                                    | node bit                                                     |
+| `enterLane` lanes.ts:280–334         | stays out of the verdict lane when `creatorReads` / held-no-verdict / `HELD_FRAME && bornInto`                                                                                    | node bits + `txOf(c) !== hold`                               |
+| `laneRead` lanes.ts:695–785          | lane value vs screen; render-effect leaf arms :733–779; `entered.push` :779 when `CONFIG_VERDICT`                                                                                 | node bits                                                    |
+| `laneSeams` lanes.ts:1053–1165       | judges `stagedReaders`: `heldBy` :1020–1047, `PROBE_UNANSWERED`, skips `bornInto(r,l)` :1105; adopts parked :1129–1146                                                            | per-pass flags                                               |
+| `propagateStatus` async.ts:1099–1108 | re-derive (enqueue) vs mark when `CONFIG_VERDICT \| CONFIG_REDERIVE` and `!holdWorkHook(sub, el)`                                                                                 | node bit                                                     |
+
+Consequence: posture has no hold identity, so the only expressible outcome is **frame reader toward every hold** — the probe branch's timing-edge row states it as "D-25's letter" (`tests/verdict-memo-held-branch-4544.test.ts` on `d8acbf702`, L270–330). The four #4417 attempts (the 2026-10-31 design brief: S1/M3 adoption, salvage adoption, display-ahead attach, #4474 wake catch-up) all re-decided the seat from the reader's side after the forward pipeline had already decided it; each fixed one site and moved another.
+
+### 1.3 The shadow seat table (`src/core/seat.ts`, `__TEST__` only)
+
+Vocabulary L1–45: worlds S/Fl/H, postures U/D/L/V/Vl/Vp/A/F, slots C/P/Lv/Dv/T/NR/E. `postureOf` L217–229 reads `CONFIG_VERDICT`; `openSeat` L237+ derives `bornTx`, one-level `creatorWorld`, and `vhold` **from the node's own verdict lane only** L316–322 — the single-slot limitation again. Rows: V1/V1′/V1″ L885–891, V2/V3 L922–926, V4/V4′ L942–947, L2–L4 L872–883, D2/D2′ L900–902; `shadowKnown` #4426 V1′ L1309. Reusable: the vocabulary and the row discipline; `vhold` must become a set.
+
+### 1.4 `documentation/plans/reader-seat-rebuild.md`
+
+S1 (#4395, PR #4430) replaced the per-site decisions with a seat stack computed once per pass and was **stopped 2026-10-29 on size** (§8.1: core floor +294 br / +496 min; `+ isPending/latest` +1061 / +2174; live page +1226 / +2339) after the 50k differential (§8.3: 20 D-37-class cases fixed by adoption; 3289 #39609 and 7 #45702 regressions). Salvaged: spec PR #4438 (landed); park adoption ported as `salvage/4417-park-adoption` `8ccab0f71` (+2 B min on floors, behind `adoptReadersHook`); the lanes split (−539 br on isPending, +49 br on store+isPending). Rulings §7 that this design **inherits unchanged**: F-vlane (reading A, posture persists), F-leaf (A), F-mount (A: the running creator), F-vworld (marks, not raises); **F-transitive is reopened** (one-level world inheritance) — §6 below rules on it for the per-hold seat only. What this design does _not_ reuse: the seat stack as a runtime structure (that is where the bytes went).
+
+---
+
+## 2. Rule text (diff-style)
+
+No F-tier change is unavoidable: F-6 already says a probe "decides the pass's posture" and D-25 says "toward the hold it probed" by implication; the per-hold reading is a D-tier sharpening. One F "What it does not say" line each on F-6 and F-10 removes the "toward every hold" reading.
+
+**RULES-FUNDAMENTALS.md, F-6 "What it does not say" (L87), append:**
+
+```diff
++ It does not say a display-ahead posture is toward *every* hold: a pass is a verdict reader of the hold whose node it probed (or whose verdict memo it read), and toward another hold it is whatever its reads make it — that hold's work if the hold's write dirtied it or it holds that hold's staging, mainline otherwise (D-25, D-27).
+```
+
+**F-10 "What it does not say" (L109), append:**
+
+```diff
++ It does not say a verdict reader of one hold is a frame reader of a write another hold carries: a pass dirtied by T's flush that probed only U's node reads T's staging plainly (D-2 in-flush, D-25).
+```
+
+**RULES-DERIVED.md D-2, L25 in-flush sentence:**
+
+```diff
+- **Inside a flush**, a first pass that reads a value this same flush staged (not yet held) is treated as the frame's: it publishes with the flush, and if the flush parks it re-derives on the committed values; only a mount made under a display-ahead reader whose first pass read such a staging is born held (D-27).
++ **Inside a flush**, a pass that reads a value this same flush staged (not yet held) is that flush's work (its "seat" toward the flush's hold, D-25): it publishes with the flush, and if the flush parks it is held with it — unless it is that hold's verdict reader (D-25), in which case it keeps the staging it read as its provisional value and re-derives once at the landing (#4417: an unchanged re-derive adopts the readers that derived from it). A mount made under a display-ahead reader whose first pass read such a staging is born held (D-27), and so are the children of any pass seated as the hold's work (D-27 "a joined pass's children").
+```
+
+**D-3 (L35), after "a pass belongs to whoever dirtied it":**
+
+```diff
++ — toward each hold separately: a render effect dirtied by T's write is T's work and reads T's staging; the same pass is a leaf toward every other hold and reads the screen for their nodes (D-25).
+```
+
+**D-25 L207, replace the "unless" clause:**
+
+```diff
+- — unless the pass is the hold's own work: born in its world (D-27, #4341) or re-run by the write it holds (#3884 above). Those two read plainly; a probe does not rescue them.
++ — unless the pass is **that** hold's own work: holding a staging of its or a fetch it waits on (#3884), born in its world (D-27, #4341), or dirtied by its flush having probed nothing of it (D-2 in-flush). A pass dirtied by T's flush that *also* probes T is T's verdict reader — the probe decides (F-6), and only an existing staging or birth overrides it. Work beats verdict, per hold: the seat of a pass toward a hold T is decided once, when the pass starts, as exactly one of *T's work*, *T's verdict reader* (it probed a T-held node or inherited that from a verdict memo of T, #4050, and is not T's work), or *mainline toward T*. A pass may hold different seats toward different holds (U's verdict reader and T's work: #4544 timing edge). A probe of a node no hold holds earns no posture toward any hold (#4544).
+```
+
+**D-25 L209, replace "Today two memories carry this…":**
+
+```diff
+- Today two memories carry this — `CONFIG_VERDICT` left on the node by the pass that probed, and the node's listing in the hold's verdict lane (`fallback`'s `b._lane`, `recompute`'s head) — and the rule is the posture, not the membership.
++ The posture is remembered per (node, hold): the node carries which holds it is a verdict reader of, and the node-level memory (`CONFIG_VERDICT`) remains only for what is not per hold — the probed node is read either-order in the same pass, and a dependency going pending re-derives the reader instead of marking it. Membership in a verdict lane follows the posture; it does not define it.
+```
+
+**D-26 (L217), after "`[s(), L()]` … shows `v:0 l:1`":**
+
+```diff
++ Toward a hold T the lane work did not probe and whose write dirtied it, lane work is T's work: it reads T's staging and publishes it as T's (the lane's displayed value is untouched until T lands).
+```
+
+**D-27 L229 "A joined pass's children are the hold's", generalise:**
+
+```diff
+- A node it creates during that pass is born held: its value commits with the frame
++ A node it creates during that pass inherits the creating pass's seat toward every hold it is seated on (D-25): a child of T's work is born into T (held, commits with T's frame); a child of T's verdict reader is a mainline mount toward T (the first paragraph); a child of a pass mainline toward T is mainline toward T. Its value commits with the frame
+```
+
+**D-37 (L321), append:**
+
+```diff
++ A lane pass is seated per hold like any other: a lane node dirtied by a parent-side hold T's flush is T's work on that pass — the staging it publishes is T's, revealed at T's landing, while the lane keeps showing its own value.
+```
+
+---
+
+## 3. Decision table — seat of pass `c` toward hold T
+
+Inputs are evaluated **at the pass head, once**. "Inherited T posture" = read a memo seated as T's verdict reader (#4050 arm) _on this or an earlier pass_; it is remembered per (node, T).
+
+| dirtied by T's write                         | holds a T staging | probed T-held node (now or remembered) | inherited T posture | created by T-work pass | created by T-verdict pass | **seat w.r.t. T**                                                                                                               | plain read of T node                                                                   | `isPending(T node)`                            | at T's landing                                                          |
+| -------------------------------------------- | ----------------- | -------------------------------------- | ------------------- | ---------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| ✓                                            | –                 | –                                      | –                   | –                      | –                         | **work**                                                                                                                        | staging                                                                                | `true` (own work, probe does not rescue: D-25) | commits with T                                                          |
+| –                                            | ✓                 | any                                    | any                 | –                      | –                         | **work** (#3884; work beats verdict)                                                                                            | staging                                                                                | `true`                                         | commits                                                                 |
+| ✓                                            | –                 | ✓                                      | –                   | –                      | –                         | **verdict** (F-6: the probe decides; D-25 L209 "whoever dirtied it"; #3884 is about a held staging/fetch, not a dirtying write) | committed                                                                              | `true`                                         | re-derives once                                                         |
+| –                                            | –                 | ✓                                      | –                   | –                      | –                         | **verdict**                                                                                                                     | committed (`frameRead` → `staleReader`)                                                | `true`                                         | re-derives once (`_reruns`), posture persists until a pass asks nothing |
+| –                                            | –                 | –                                      | ✓                   | –                      | –                         | **verdict** (#4050)                                                                                                             | committed                                                                              | `true`                                         | re-derives once                                                         |
+| –                                            | –                 | –                                      | –                   | ✓                      | –                         | **work** (born into T; D-27 joined-children, S-46 reading A)                                                                    | staging; untracked read throws                                                         | `true`                                         | attaches / commits                                                      |
+| –                                            | –                 | –                                      | –                   | –                      | ✓                         | **mainline** toward T (D-27 ¶1: "a verdict reader's mount is a mainline mount")                                                 | committed; if a read is of a _staging_ this flush → row 1 applies next (in-flush work) | `true`                                         | nothing unless row 1                                                    |
+| –                                            | –                 | –                                      | –                   | –                      | –                         | **mainline**                                                                                                                    | committed, `staleReader`                                                               | `true`                                         | re-derives (stale reader, D-3)                                          |
+| multi-hold: dirtied by T, probed U-held node | –                 | (toward U ✓)                           | –                   | –                      | –                         | **T: work · U: verdict**                                                                                                        | T's staging; U's node committed                                                        | `isPending(T)`=`true`, `isPending(U)`=`true`   | T: commits; U: re-derives once                                          |
+| multi-hold: holds U staging, dirtied by T    | ✓(U)              | –                                      | –                   | –                      | –                         | **U: work · T: work** → D-4 merge (`merge` scheduler.ts:414+)                                                                   | both stagings                                                                          | `true`/`true`                                  | lands with merged tx                                                    |
+
+Node-level `CONFIG_VERDICT` is still stamped at every window (`markVerdictReader`) regardless of what the probe finds — it answers `propagateStatus`'s re-derive-vs-mark (async.ts:1099–1108: `isPending(x)` before `x`'s first flight must still flip) and the either-order read of the probed node itself. It no longer implies a seat toward any hold.
+
+---
+
+## 4. Predicted screens
+
+**#4417 — keyed `Show` over `latest()`, flush parks** (`tests/boundary-not-born-held-3540.test.ts` L305–370; `EARLY = "1|Loading A|1"`, `HELD = "1|1|1"`). Pass P₀ (the write's flush) reads `latest(x)` → P₀ is a verdict reader toward T (row 4); `Show`'s child mount M is created by a T-verdict pass → mainline toward T (row 7); M's first pass reads the staging this flush produced → row 1: **T's work**, born held. Flush parks: P₀ is T's verdict reader with a provisional staging → D-2 (amended): it keeps the staging, re-derives once at the landing; unchanged → the readers that derived from it (M) are adopted, not re-mounted. Screen: `seen = [1, 2, 2]` (one mount per key), EARLY row `"1|Loading A|1"` mid-flight (the boundary inside M shows its fallback: D-27 ¶1 "the boundary shows its fallback beside the committed `x = 0`"), final `2|2|2`. Forced by: D-2 amended + D-27 generalised. The `on` matrix row stays `[0,0,0]` (D-25 L209 unchanged).
+
+**#4544 Shapes** (`verdict-memo-held-branch-4544.test.ts`). Shape 1 (plain / `isPending` / `latest` / inline `isPending` of unheld `plan`): `chrome` probes `plan`, which no hold holds → no posture toward T. `params` dirtied by T's write (session) → T's work (row 1) → `signedIn: true`; branch born into T (row 6) shows `rows`; T lands `"1 rows"`. Mainline effect over `params` reads the screen → `{plan:false, signedIn:false}` — as pinned. After `setPlan(true)`: the write joins T through `params`'s T staging (D-4 / `joinFuture`), `plan` is T-held; `chrome` re-runs — toward T it is _dirtied by T's write_ (row 3: work beats verdict) → `plan()` **staged `true`**. Note: the pinned comment says "`chrome`'s plain `plan()` beside its probe is the screen's `false` once the `plan` write is held — A10" and the assertion is only `toMatchObject({ signedIn: true })`, so the pin passes either way; **the comment's A10 reading conflicts with row 3 and must be ruled** (§5). Shape 2 (same-node `isPending(session)`): `params` is dirtied by T's write → T's work → `signedIn: true`, `busy: true` — **conflicts with the ruled-as-today row** `{signedIn:false, busy:true}` / `"0 signed out"`. The refinement's "dirtied by T's write → work" overrides the probe, exactly as D-25 L207 already says for #3884; the Shape 2 ruling (A10, 2026-10-31) says the probe wins on the same node. **Resolution needed** — see §5 (the natural refinement: a pass that probes T _and_ is dirtied by T's write is T's work only if it _also_ holds a T staging or was born into T; a bare in-flush dirty with a probe of T is a verdict reader; this keeps Shape 2 and #3884 but makes row 3 "verdict"). I adopt that resolution in §6 and flag it. Shape 4 control unchanged (row 4/5). Timing edge: `params` is U's verdict reader (probed U-held `plan`) and dirtied by T's write with no probe of T → **T: work · U: verdict** → branch `{plan:false, signedIn:true}`, T lands on `rows` without waiting for U. **The probe branch pins `{plan:false, signedIn:false}` and T waiting for U** ("the letter … a frame reader toward every hold") — direct conflict; the maintainer's brief ("a pass can be U's verdict reader and T's work") rules for the refinement, and the unmerged row must be rewritten.
+
+**#4574 S-46** (SCENARIOS.md L639–662; web spec `packages/web/test/display-ahead-plain-write-content-s46.spec.tsx`, `test.fails` on the plain row). `<Show when={latest(id) > 0}>` pass is T's verdict reader; the branch mount is mainline toward T (row 7); its first pass (`insert` of `selected: {id()}`) reads T's staging this flush → T's work (row 1), born held; `Show`'s render effect that attaches the branch is created by the same pass and reads the born-held node → joined (D-27 L229) → T's work. Rows: 1 `0 | none | d0` (fallback stays), 1′ `0 | selected: 1 | d0` (`latest(id)` inside is the branch's own display-ahead), 1″ `0 | [fallback] | d0` (`Loading` inside), 2 `1 | selected: 1 | d1`. Never `selected: ` empty (F-2) — the hole's `insert` effect is T's work and attaches at T's landing, not now. S-31 (L619–637) is the same shape with `Loading`; memo vs render-effect forms agree because the seat is decided by _reads_, not node type (D-3 amended). Reading A (born held, attach at landing) is what the rows force; reading C (`probe/s46-reading-c`) is excluded by D-27 ¶1 unchanged.
+
+---
+
+## 5. Conflicts — pin families the refinement would move
+
+**D-25 either-order family (must not move).** `verdict-contract.test.ts` L156–203 (`${data()}:${isPending(data)}` plain-first; expects `["10:true"]` on `setQ(2)`), `latest-two-readers-one-ask-4393.test.ts` ×17, `verdict-memo-flight-no-reask` ×10, `latest-first-one-pass-4402`, `unread-derive-midflight-mount-4491` (`r:4`), `midflight-memo-over-reask-4504`, `held-branch-verdict-reader-4010`, `lane-render-effect-grouping-4284`, D-30 store rows (`derived-store-ispending-boundary-4269`, `derived-store-latest-seed-4355`, `derived-store-first-landing-verdict`). Row-by-row: each depends on (a) node-level `CONFIG_VERDICT` surviving a nothing-found probe so that the _next_ pass's plain-first read of the now-held node is screen-served, and (b) `propagateStatus` re-deriving a `CONFIG_VERDICT` reader. The refinement keeps both: `CONFIG_VERDICT` is still stamped at every window and still consulted by `propagateStatus` and by the either-order service of the **probed node itself**. What changes is only the per-hold seat for _other_ holds' nodes. The probed-held-bit probe flipped 50 pins across 15 files precisely because it dropped (a); this design does not. Verified by reading: 4393 "beside" row (L141, `v1122` then `v1123`) — `m1` probes `m0`/`m0b` whose holds A/B hold them → verdict toward A and B, unchanged. 4402 #4399 two-actions — `m0` holds A's staging → A's work (row 2), `h` async on `s` → A's work; unchanged. 4010 — the branch binding reads the condition memo that is T's verdict reader → #4050 inherit toward T → unchanged. 4504 — a _pending_ read hands on no posture (the #4050 arm's `owner PENDING && (c STAGED || c UNINIT)` mask) → unchanged. **Risk I could not verify without running**: the D-30 store rows go through `store.ts:1624–1639` (`CONFIG_VERDICT && stagedScreen(c)`), which under the refinement must consult the per-hold seat for the staging's hold; if the seat is "verdict toward that hold" the arm is unchanged, but store stagings resolve `txOf` through the family (`_fam`), which I did not trace.
+
+**#4510 (closed) rows — #4408/#4399, 74 flips under the worker's gate.** The worker's "head-joined stays joined" gate treated _any_ `CONFIG_HELD` at the head as work, including verdict-lane nodes (`CONFIG_OVERRIDE`, value in `_x._lane`), `CONFIG_HELD_FRAME` nodes, and held-with-nothing-staged nodes. The refinement's row 2 is narrower: **holds a T staging** = `_pendingValue !== NOT_PENDING && txOf(el) === T && !txOf(el)._lane`. In 4393's shapes `m0`/`m0b` are the _verdict lanes'_ nodes (their values in `_x._lane`), so they are not "work" by row 2 and stay verdict readers → the `v1122`/`c1101` ordering and the "lane answer reaches the screen" block (`v22`→`v23`, `v120`→`v220`) keep today's screen. #4399 two-actions: `m0`'s pass that holds A's staging is A's work (today too: head arm joins it) — unchanged. #4408 "beside": the reader that reads a verdict memo and a plain held node is verdict toward the memo's hold (inherit) — unchanged. I predict 0 of the 74 move, **but this is the family to re-run first** (§8 gate 2).
+
+**#4544 Shape 2 / row 3 / timing edge** (§4): three rulings to make: (i) Shape 2 same-node — keep "ruled as today" by narrowing row 3 as stated in §4 (recommended; it is also what makes `verdict-contract` L156 pass on the pass where `data` first goes pending: dirtied by T's write _and_ probing T → verdict); (ii) `chrome` after `setPlan(true)` in Shape 1 — comment vs row 3, same ruling; (iii) timing edge — rewrite the unmerged row to `{plan:false, signedIn:true}`, T lands first.
+
+**S-31 memo vs render-effect forms**: both forms are decided by reads (row 1 / row 6), so they agree; the memo form today passes and the render-effect form is the `test.fails` web row — the refinement moves the web row to passing, no signals pin moves.
+
+**The 19-case D-37 adoption signature** (reader-seat-rebuild §8.3): adoption makes a parked verdict reader's dependents lane work. Under this design adoption is the D-2 in-flush re-derive's landing step only (#4417); D-37 lane work dirtied by a parent hold is that hold's work (D-37 amended) rather than adopted. The 20 50k cases must be re-classified against the new D-37 line; I expect them to resolve the same way (lane sees screen + own guesses) but could not verify without the 50k run.
+
+---
+
+## 6. Mechanism sketch
+
+**Representation.** Per node: `_seats: Transaction[] | null` — holds the node is a _verdict reader_ of (resolved through `resolveTx` at use; merges fold by identity). Work needs no new slot: it is `txOf(el)` + a staging, or `flushTransaction` at the head (in-flush), or `bornInto`. Mainline is the absence. Node-level `CONFIG_VERDICT` stays with its two remaining jobs (§3). The probed-node either-order service stays as today (it is node-level by construction: the probe and the plain read are of the same node in the same pass; the next pass's `CONFIG_VERDICT` carries it — exactly what `verdict-contract` L156 pins).
+
+**Head decision** (`recompute`, replacing the scattered checks): compute once
+
+```
+work   = flushTransaction (in-flush) | (CONFIG_HELD && staging && txOf(el))  | bornTx(el)
+verdict= resolve(_seats) \ {work}          // work beats verdict, per hold
+```
+
+stored on the pass as `passWork: Transaction | null` (one — D-4 merges two) and `passVerdict: Transaction[] | null` (usually 0–1 entries). Toward every other hold the pass is mainline. The existing `passLane`/`laneRoot` seating (core.ts:380–406) stays; `setPassLane(verdictLane(t))` in `route` (verdict.ts:105–113) becomes a consequence of `passVerdict` containing `t`, not a separate decision. The head's held re-pass arm (:464–500) becomes: `work ? joinPassTx(work) : verdict-with-provisional (salvage 8ccab0f71's `provisional = tx` arm) : drop`.
+
+**Reads.** `frameRead(c, el)` → `t = txOf(el)`; `t === passWork || bornInto(c,t)` → staging; `passVerdict ∋ t` → committed + `staleReader`; else mainline (`staleReader`). The `(!lane || passLane.over === t)` clause (#4536) is subsumed: a lane pass dirtied by T's flush has `passWork === T`. `stagedScreen` same shape with `flushTransaction`. `laneRead` keeps lane-value-vs-screen but asks `passWork` before serving the screen for a T staging. #4050 arm: `c._seats ∪= owner._seats` (minus `passWork`), config `CONFIG_VERDICT` as today; the `creatorReads` exclusion stays. `enterLane` guard reads `passWork !== hold` instead of recomputing from bits. `propagateStatus` unchanged. **No downstream site re-decides.**
+
+**Inheritance (D-27 generalised; F-transitive ruled one-level for the per-hold seat).** A child created during a pass takes `bornTx = passWork` (born held into T) — this is `holdNode(el, flushTransaction ?? passTx)` core.ts:944–958 today with `passTx` replaced by `passWork`; a child of a verdict pass inherits nothing toward that hold (mainline, D-27 ¶1) — its own first-pass reads seat it. Transitive: a child's child sees only its own creator's `passWork` (one level, as `creatorWorld = p.ownWorld` in the rebuild §7).
+
+**#4050 carrying the hold.** `markVerdictReader(c, t)` gains the hold: `t = txOf(probed)` for held, the flight's tx for pending (`pendingVerdict` verdict.ts:252–274 already has it), `latestOpened` for a `latest()`-opened one. `_seats.push(t)` unless `creatorReads(c, 0)`.
+
+**In-place park re-derive keeping the provisional owner (#4417).** Exactly `salvage/4417-park-adoption` `8ccab0f71` core.ts hunks (head `provisional = tx` when `CONFIG_VERDICT && !isEffect`; `compareValue = staged`; tail `adoptReadersHook(el, lane, provisional)`), re-keyed on `passVerdict ∋ tx` instead of `CONFIG_VERDICT`. Children adopted are those with `bornTx === tx` — already T's work by inheritance, so adoption reduces to "do not re-mount; re-link".
+
+**Display-ahead mount's children becoming T's work (#4574).** Falls out of row 1 + row 6: the mount is mainline toward T, its first pass reads the in-flush staging → `passWork = T` → its `insert` effects are created with `bornTx = T`. The web `test.fails` row flips without a web change.
+
+**Release at landing.** `land` (scheduler.ts:1259–1288) walks `T._reruns` (verdict readers already listed by `staleReader`) and removes `T` from each `_seats`; a node never listed never had `T`. Merges: `_seats` entries resolve through `_into`; duplicates are harmless.
+
+**Byte class (estimates, not measured).** Core floor: **0 B** — `_seats`, `passWork`/`passVerdict` live behind `observeFlightHook`/`laneStageHook`; without them `frameRead` folds to today's `t === flushTransaction || bornInto`. `+ isPending/latest`: +60–120 B br (the array slot, `markVerdictReader(c, t)`, head fold, `land` release) **minus** the removed per-site checks (`frameRead`'s `!verdict`, `stagedScreen`'s arm, `enterLane`'s mask, `route`'s guard) — net plausibly +40–80 B br; the maintainer's stop line on the option-2 probe was +60 B, so this is at the line. Live page: same order (+80–150 B br). The S1 rebuild's +1061 br came from the seat _stack_ and its restores; this design has one array per probed node and two pass locals.
+
+**Relationship to #3905.** No fork: one held value per node (`_pendingValue` or `_x._lane`), one seat per (pass, hold). A lane node dirtied by T's flush (timing edge) publishes a T staging while its lane value stays displayed — two slots, but the lane slot is the _screen's_ for that node (D-37), not a second held value. What still needs #3905: a node that must hold two different _held_ values for two unmerged holds (D-4 makes them merge, so none today); a verdict reader of U whose U-lane value must differ from its T staging while _both_ are held — that is the merge case.
+
+---
+
+## 7. What it does not fix; risks
+
+Does not fix: the pending-read posture hand-off (#4504, by design); `on`'s fallback swap posture (D-25 L209, unchanged); `latest()` of an optimistic guess under a held lane (#4284, D-26 unchanged); the 623 untraced 50k instances (rebuild §8.3). Risks: (1) `_seats` memory on long-lived probed nodes — released at landing, but a node whose hold never lands keeps the entry (same lifetime as `_reruns` today). (2) Release correctness when T merges into U after the seat was taken (`resolveTx` at use covers reads; `land` must walk the merged `_reruns`). (3) D-4 multi-hold: a pass that is T's work and U's work merges T and U — today's behaviour, but the head now decides it once and `joinFuture` (scheduler.ts:402–410, "lane never flush tx") must not be reached with a verdict lane as `work`. (4) The Shape 2 narrowing (§5) is a rule the maintainer has not yet stated; if rejected, `verdict-contract` L156 moves.
+
+---
+
+## 8. Implementation plan and gates
+
+1. **Spec first**: land §2's amendments and the three #4544 rulings (§5) as a docs PR; rewrite the probe branch's timing-edge row. _Stop and ask_: the F-6/F-10 "does not say" lines (F-tier wording), Shape 2 narrowing, timing-edge rewrite.
+2. **Shadow**: extend `seat.ts` `vhold` → set, `postureOf` → per-hold; run the signals suite with the shadow asserting the §3 table against today's engine. _Gate_: the D-25 either-order family and the #4510 rows (#4393 ×17, #4402, #4399, #4408) report **no** shadow differences except the rows §5 names. If the #4510 rows differ, stop and bring the list.
+3. **Engine, read side**: `_seats` + `markVerdictReader(c, t)` + #4050 union + `frameRead`/`stagedScreen`/`laneRead`/`enterLane` reading `passWork`/`passVerdict`. _Gate_: full signals + web suites green except the known `test.fails` rows; size on `+ isPending/latest` ≤ +60 B br (stop and report if over).
+4. **Engine, head**: fold the held re-pass arm and `route` onto the head decision; port `8ccab0f71`'s provisional re-derive. _Gate_: #4417 `[1,2,2]`, S-46 web row flips to passing, #4544 Shapes 1/4/timing per §4; 50k differential against `d1d6d51c0` with the 19-case signature re-classified.
+5. **Measure** `scripts/size` on all floors (caps `scripts/size/floor-caps.json`: core floor 7.43 KB, live page 39.10 KB); report against the maintainer's budget before merge.
+
+Not verified: any size number (no build run); the D-30 store rows' `_fam` resolution; the exact 50-file list of the probe branch's flips (commit message says 15 files, not enumerated); whether `heldBy` (lanes.ts:1020–1047) needs `passWork` for the `stagedReaders` judging — I believe it does not (it inspects `_pendingSources`), but did not trace every caller.
