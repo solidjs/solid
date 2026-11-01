@@ -68,7 +68,8 @@ import {
   isThenable,
   notifyStatus,
   releaseFlightTeardown,
-  removePendingSource
+  removePendingSource,
+  settlePendingSource
 } from "./async.js";
 import { laneValueOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
@@ -1198,10 +1199,14 @@ const adoptParked = (r: Computed<any>): boolean => {
  * included) is not this pass's — the landing re-derives it (`reruns`).
  * Kept, a pass that went pending on another source never woke when that
  * source settled (#4397). Only a reader something made pending has anything
- * to drop. */
+ * to drop. What the drop retires is retired from the dependents that carried
+ * it through `c` too: the source's own landing walk stops at `c`, which no
+ * longer has it, and a render effect left marked would hold its transaction
+ * on a flight that has landed (D-11, F-2, #4576; a nested action's refresh). */
 const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => {
   const from = (el as Computed<any>)._x?._pendingSources;
-  if (from && c._x?._pendingSources) for (const s of from) removePendingSource(c, s);
+  if (from && c._x?._pendingSources)
+    for (const s of from) if (removePendingSource(c, s)) settlePendingSource(c, s);
 };
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
