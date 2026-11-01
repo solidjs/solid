@@ -413,19 +413,17 @@ export function render(code, element, init, options = {}) {
         // machinery is retained only by a boundary or the app's own
         // `configureClientErrors` import (see signals' error-hooks).
         if (options.onError) getOwner()[ROOT_ERROR_HOOK] = options.onError;
-        if (element === document) {
-          const tree = code();
+        const tree = code();
+        if (element === document)
           effect(
             () => flatten(tree),
             () => {}
           );
-        } else {
-          const tree = code();
+        else
           insert(element, () => tree, element.firstChild ? null : undefined, init, {
             ...options.insertOptions,
             schedule: true
           });
-        }
       },
       { id: options.renderId }
     );
@@ -463,7 +461,8 @@ function create(html, bypassGuard, flag) {
     );
   const t = document.createElement("template");
   t.innerHTML = html;
-  return flag === 2 ? t.content.firstChild.firstChild : t.content.firstChild;
+  const node = t.content.firstChild;
+  return flag === 2 ? node.firstChild : node;
 } /**
  * Compiler-emitted primitive; not for hand-written code.
  * @param flag
