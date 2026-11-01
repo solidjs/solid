@@ -606,9 +606,9 @@ export function syncThenable(value: any) {
 /**
  * A served pass: `write(x)` lands a served answer — the server's answer for a
  * node arriving (the async runtime writes it and flushes, synchronously),
- * or a boundary's fresh render (its trigger; `adopt`: hydrating, so what it
- * creates adopts its server answer by id, claiming nothing) — and the
- * flush round that carries it is
+ * or a boundary's fresh render (its trigger; `adopt`: the boundary's owner,
+ * hydrating, so what it creates adopts its server answer by id, claiming
+ * nothing) — and the flush round that carries it is
  * hydration's own pass over served answers (`_claimOwner`, that round). A
  * node that adopted its own server answer re-runs there because the
  * server's answer for something it reads arrived, not because a client
@@ -618,15 +618,22 @@ export function syncThenable(value: any) {
  * the flush, where a node it reaches computes. Runs from a settled promise,
  * outside any claim window.
  */
-const servedPass = (write: (x?: any) => void, adopt?: boolean) => (x?: any) => {
+const servedPass = (write: (x?: any) => void, adopt?: Owner | false) => (x?: any) => {
   flush();
   // Adopting, hydration is on but nothing claims: the render is a client
-  // render, so it opens no snapshot scope either (the `hydrating` setter,
-  // which would release one, is bypassed here). A scope left open would hold
-  // every write made in it — a client-only node's gate (a <Portal>) never
-  // opening.
-  _hydratingValue = _snapshotRootOwner = adopt as any;
+  // render, and opens no claim's scope (the `hydrating` setter, which would
+  // release one, is bypassed here). The boundary's owner is the pass's
+  // snapshot scope, released with it below: what the render adopts answers
+  // the inputs the server rendered with, so a client write made before the
+  // fragment arrived — none of its readers existed then — is served the
+  // snapshot here, marks its readers stale, and replays at the release: they
+  // compute against the client's value, as a claimed resume's do (D8,
+  // #4588). Not a refetch: the input changed (#4273). A scope left open
+  // would hold every write made in it — a client-only node's gate (a
+  // <Portal>) never opening.
+  _hydratingValue = _snapshotRootOwner = !!adopt as any;
   _claimOwner = ~clock;
+  if (adopt) markSnapshotScope(adopt);
   // An uncaught error (no client boundary for a served error) leaves the
   // flush by throwing: the pass still ends, and hydration still completes
   // — a boundary's fresh render is its resume, done all the same. (Outside
@@ -637,6 +644,7 @@ const servedPass = (write: (x?: any) => void, adopt?: boolean) => (x?: any) => {
     flush();
   } finally {
     _claimOwner = _hydratingValue = _snapshotRootOwner = null as any;
+    if (adopt) releaseSnapshotScope(adopt);
     checkHydrationComplete();
   }
 };
@@ -2393,7 +2401,7 @@ function resumeBoundaryHydration(
       // for it, if any (#4287), or an uncaught error — instead of asking
       // again. What the server never sent (a truncated ref is dropped from
       // the registry) computes.
-      servedPass(set, shouldHydrate === 0)();
+      servedPass(set, shouldHydrate === 0 && o)();
   flush();
   checkHydrationComplete();
 }
