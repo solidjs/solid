@@ -1637,7 +1637,7 @@ function readSource(
     // for this pass — a verdict reader sees the screen, any other derives
     // from the staging and is marked as having read it.
     if (k === null) {
-      if (c._config & CONFIG_VERDICT && probesHeldHook!(c, true) && stagedScreen(c))
+      if (c._config & CONFIG_VERDICT && probesHeldHook!(c, null) && stagedScreen(c))
         return committed(target);
       stagedRead(c);
       return pb;

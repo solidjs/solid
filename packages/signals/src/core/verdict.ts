@@ -98,10 +98,8 @@ import type { Computed, Signal } from "./types.js";
  * memory names is simply held by nobody then. A pass that completes having
  * asked nothing drops CONFIG_VERDICT (core.ts `recompute`'s tail) and the
  * memory lies inert until a pass asks again. */
-const probeMemory = new WeakMap<
-  Computed<any>,
-  { gen: number; nodes: (Signal<any> | Computed<any>)[] }
->();
+type ProbeMemory = { gen: number; nodes: (Signal<any> | Computed<any>)[] };
+const probeMemory = new WeakMap<Computed<any>, ProbeMemory>();
 /** The running pass's list: fresh for its first contribution. `next`: the
  * pass to come (`laneDirty`, before the effect's head). */
 function probeList(c: Computed<any>, next?: boolean): (Signal<any> | Computed<any>)[] {
@@ -129,41 +127,70 @@ function probesBracket(c: Computed<any>, saved: unknown): unknown {
     return m === undefined ? null : { gen: m.gen, nodes: m.nodes.slice() };
   }
   if (saved === null) probeMemory.delete(c);
-  else probeMemory.set(c, saved as { gen: number; nodes: (Signal<any> | Computed<any>)[] });
+  else probeMemory.set(c, saved as ProbeMemory);
 }
-/** What holds `p` now: 2 a live hold (its transaction; a lane's node, the
- * hold its lane is under; a derived store's leaf, whatever holds its
- * family's derive, D-30), 1 staged this flush or in flight and not held yet
- * — the flush's hold to be, if it parks (`provisionalVerdict`,
- * `observeFlight`) — 0 none: a probe of a node no hold holds earns no
- * posture toward any hold (D-25). */
-function holdOf(p: Signal<any> | Computed<any>): number {
+/** The hold a node is held by, as a key: its transaction, resolved through
+ * merges and up out of lanes (a lane's node is display-ahead work of the
+ * hold the lane is under; a derived store's leaf is held by whatever holds
+ * its family's derive, D-30); FLUSH for one the running flush has staged or
+ * sent pending with no transaction yet — the flush's hold to be, if it
+ * parks (`provisionalVerdict`, `observeFlight`), or the hold the flush runs
+ * as; null for one no hold holds: a probe of it earns no posture toward any
+ * hold (D-25). */
+const FLUSH = {} as Transaction;
+function holdOf(p: Signal<any> | Computed<any>): Transaction | null {
   const fw = (p as any)._host?._fam?.node as Computed<any> | undefined;
   if (fw != null && fw !== p) {
     const h = holdOf(fw);
-    if (h !== 0) return h;
+    if (h !== null) return h;
   }
-  // (A lane always has a parent: the hold it is under.)
-  if (p._x?._transaction && p._config & (CONFIG_OVERRIDE | CONFIG_HELD)) return 2;
+  if (p._x?._transaction && p._config & (CONFIG_OVERRIDE | CONFIG_HELD))
+    return holdOfTx(p._x._transaction);
   if (
     globalQueue._running &&
     ((p._pendingValue !== NOT_PENDING && !(p._config & CONFIG_PROMOTED)) ||
       ((p as Computed<any>)._statusFlags ?? 0) & STATUS_PENDING)
   )
-    return flushTransaction !== null ? 2 : 1;
-  return 0;
+    return flushTransaction !== null ? holdOfTx(flushTransaction) : FLUSH;
+  return null;
 }
-/** Is verdict reader `c`'s posture live — something its last asking pass
- * asked about held now? `flush`: the read is of the flush's own proposal
- * (a staging, a flight), so a probe of one the flush has not held yet
- * counts too — the frame's hold to be holds both. */
-function probesHeld(c: Computed<any>, flush: boolean): boolean {
+/** `t` as a hold key: resolved through merges, a lane to the hold it is
+ * under (a lane always has a parent). */
+function holdOfTx(t: Transaction): Transaction {
+  t = resolveTx(t);
+  while (t._lane) t = resolveTx(t._parent!);
+  return t;
+}
+/** Is verdict reader `c` one toward `toward` — did its last asking pass ask
+ * about something the same hold holds now? `toward`: the hold a pass is
+ * seated against (a transaction), the node a read is of (its hold, or the
+ * flush's hold to be when the flush has staged it), null for the flush's
+ * own proposal (a staging, a flight), or undefined for any live hold at all
+ * (one with a transaction: a staging the flush has not held is nobody's
+ * yet). A posture toward one hold is nothing toward another (#4544 timing
+ * edge: U's verdict reader, T's work), and nothing once its hold has landed
+ * (D-25 per hold). */
+function probesHeld(
+  c: Computed<any>,
+  toward: Signal<any> | Computed<any> | Transaction | null | undefined
+): boolean {
   const m = probeMemory.get(c);
-  if (m !== undefined)
-    for (let i = 0; i < m.nodes.length; i++) {
-      const h = holdOf(m.nodes[i]);
-      if (h === 2 || (h === 1 && flush)) return true;
-    }
+  if (m === undefined) return false;
+  const key =
+    toward === null
+      ? flushTransaction !== null
+        ? holdOfTx(flushTransaction)
+        : FLUSH
+      : toward === undefined
+        ? undefined
+        : (toward as Transaction)._nodes !== undefined
+          ? holdOfTx(toward as Transaction)
+          : holdOf(toward as Signal<any>);
+  if (key === null) return false;
+  for (let i = 0; i < m.nodes.length; i++) {
+    const h = holdOf(m.nodes[i]);
+    if (key === undefined ? h !== null && h !== FLUSH : h === key) return true;
+  }
   return false;
 }
 

@@ -167,6 +167,7 @@ import {
   laneStageHook,
   laneSeamsHook,
   laneServedHook,
+  adoptReadersHook,
   holdWorkHook,
   inheritProbesHook,
   laneWriteHook,
@@ -362,6 +363,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   bumpNotifyEpoch();
   const isEffect = (el as any)._type;
   let released: Computed<any>[] | undefined;
+  /** The hold whose verdict reader's provisional staging this pass
+   * re-derives (D-2; #4417), else null. */
+  let provisional: Transaction | null = null;
   // Shadow seat, per hold: the node's own hold before the held re-pass arm
   // below drops a verdict reader's staging (seat-per-hold.md §6).
   if (__TEST__) shadowHeadState(el);
@@ -481,16 +485,30 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // held pass, so what it mounts is the hold's (D-13, #4467).
       // A verdict posture toward a live hold only (D-25 per hold): one whose
       // probed hold has landed holds a mere staging here, and joins.
+      // (Only the verdict engine sets CONFIG_VERDICT: without it `verdict`
+      // folds to false.)
+      const verdict = el._config & CONFIG_VERDICT && probesHeldHook!(el, tx);
       if (tx._lane || el._config & CONFIG_LAGS) {
       } else if (
-        !(
-          el._config & (EFFECT_RENDER << 23) ||
-          (el._config & CONFIG_VERDICT && probesHeldHook!(el, false))
-        ) ||
+        !(el._config & (EFFECT_RENDER << 23) || verdict) ||
         (observeFlightHook && !(el._config & (EFFECT_RENDER << 23)) && bornInto(el, tx))
-      )
+      ) {
+        // Seated as `tx`'s work, decided here once (D-25 per hold): what an
+        // earlier pass asked about is no posture toward `tx` for this pass's
+        // reads, whatever the flush makes of it meanwhile — a staging the
+        // flush has not held yet becomes `tx`'s through this very join (L2),
+        // and the pass does not turn into `tx`'s verdict reader halfway
+        // (#4544 Shape 1: `params` over `chrome`'s probe of an unrelated
+        // write stays the hold's plain derivation, and the hold lands).
+        // A probe in the body re-stamps it: the pass's own probe wins over
+        // the staging it holds (D-25, ruled 2026-11-01). Kept while the
+        // memory names a node another live hold holds (asked before the
+        // join): the pass is that hold's verdict reader and `tx`'s work at
+        // once (the #4544 timing edge), its reads toward each told apart.
+        if (el._config & CONFIG_VERDICT && !probesHeldHook!(el, undefined))
+          el._config &= ~CONFIG_VERDICT;
         joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
-      else if (
+      } else if (
         tx !== flushTransaction &&
         !(el._statusFlags & STATUS_UNINITIALIZED || el._config & CONFIG_HELD_FRAME)
       ) {
@@ -505,8 +523,21 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // supersedes re-derive, even when it publishes the committed value
         // back (no change to notify them by): their held runs carry the
         // superseded frame, and the landing would apply them (#4378).
-        if (el._pendingValue !== NOT_PENDING) insertSubs(el);
-        el._pendingValue = NOT_PENDING;
+        // A verdict reader's staging is D-2's provisional answer (it read
+        // a staging of the flush that parked, as a verdict reader; this
+        // pass is its one re-derive): kept as this pass's previous value
+        // and judged at the tail — equal, and the pass the hold's verdict
+        // reader, the readers that derived from it are the verdict lane's
+        // with their frames (`adoptReadersHook`, #4417: a keyed Show mounts
+        // once); else published mainline as below. (Only the verdict engine
+        // stages one: without it the arm folds to the publish.)
+        if (el._pendingValue !== NOT_PENDING) {
+          if (observeFlightHook && verdict && !isEffect) provisional = tx;
+          else {
+            insertSubs(el);
+            el._pendingValue = NOT_PENDING;
+          }
+        }
         el._config &= ~CONFIG_HELD;
       }
     }
@@ -794,9 +825,21 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // Listed before its staging, a pending pass included (the lane's own
   // flight is the lane's); false: the pass left the lane (lanes.ts).
   const errored = !!el._x?._error || stagedErr;
+  // (The provisional staging, before `laneStage` voids the slot. Every
+  // `provisional` arm is behind the verdict engine's hook: without it the
+  // head arm never sets one, and the bundler folds these away with it.)
+  const staged = observeFlightHook && provisional !== null ? el._pendingValue : NOT_PENDING;
   if (laneStageHook && lane !== null) {
     if (laneStageHook(el, lane, create, errored)) setPassLane(lane);
     else lane = null;
+  }
+  // The provisional staging (above) of a pass that is not the hold's verdict
+  // reader after all (no verdict lane seats it) is superseded as any other:
+  // published mainline, its readers re-derive (#4378).
+  if (observeFlightHook && provisional !== null && (lane === null || errored)) {
+    insertSubs(el);
+    el._pendingValue = NOT_PENDING;
+    provisional = null;
   }
 
   if (!errored) {
@@ -820,12 +863,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // publishes to — the staged `_pendingValue` when staged; a lane node's
     // lane value (a node entering the lane this pass has none yet — its
     // committed value, `laneStage` having voided a frame staging).
+    // (A provisional staging the pass re-derives is what it compares to.)
     const unstaged = el._pendingValue === NOT_PENDING;
-    const compareValue = !unstaged
-      ? el._pendingValue
-      : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
-        ? el._x!._lane
-        : el._value;
+    const compareValue =
+      observeFlightHook && provisional !== null
+        ? staged
+        : !unstaged
+          ? el._pendingValue
+          : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
+            ? el._x!._lane
+            : el._value;
     // A throwing comparator is contained inside `isSame` (A3, #2837; #4111).
     // A pass replacing an error this node staged is a new answer, even the
     // committed value (D-41: a recovery equal to the last good value is a
@@ -978,6 +1025,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // Lane work re-staged: the lane's members re-derive as its work.
         if (lane !== null) laneDirty(el, lane);
       }
+    } else if (observeFlightHook && provisional !== null) {
+      // D-2's one re-derive, in place (#4417): the verdict reader staged this
+      // very value provisionally and the hold's verdict lane seats it now —
+      // the value is the lane's (as a changed one would be, above), and the
+      // readers that derived from the staging are the lane's with their
+      // frames, revealed at its seam instead of re-run (lanes.ts).
+      if (lane!._shown) el._pendingValue = value;
+      else el._x!._lane = value;
+      adoptReadersHook!(el, lane!, provisional);
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) insertIntoHeapHeight(s._sub, dirtyQueue);
     }
@@ -1351,7 +1407,7 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // A verdict reader toward a live hold only (D-25 per hold, `probesHeld`):
   // one whose probed hold has landed is whatever its reads make it.
   // (Verdict readers and lanes exist only with their engines installed.)
-  const verdict = observeFlightHook && c._config & CONFIG_VERDICT && probesHeldHook!(c, false);
+  const verdict = observeFlightHook && c._config & CONFIG_VERDICT && probesHeldHook!(c, el);
   const lane = laneStageHook && passLane !== null;
   if (
     (!lane ||
@@ -2150,7 +2206,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       netted ||
       (((observeFlightHook &&
         c._config & CONFIG_VERDICT &&
-        probesHeldHook!(c as Computed<any>, true)) ||
+        probesHeldHook!(c as Computed<any>, el)) ||
         (laneStageHook && passLane?.folded)) &&
         stagedScreen(c as Computed<any>, el))
     ) {
@@ -2303,7 +2359,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // boundary a lane mounts shows its fallback (A29's boundary exemption).
     if (passLane !== null && !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED))
       committed = true;
-    else if (c !== null && c._config & CONFIG_VERDICT && probesHeldHook!(c as Computed<any>, true))
+    else if (c !== null && c._config & CONFIG_VERDICT && probesHeldHook!(c as Computed<any>, owner))
       committed = observeFlightHook!(c as Computed<any>, owner);
   }
   if (owner._statusFlags & STATUS_PENDING && !committed) {
@@ -2447,7 +2503,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     (observeFlightHook &&
       c!._config & CONFIG_VERDICT &&
       !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
-      probesHeldHook!(c!, true) &&
+      probesHeldHook!(c!, el) &&
       stagedScreen(c!, el) &&
       !throwShown(el))
   ) {
@@ -2520,7 +2576,7 @@ export function stagedRead(c: Computed<any>, el?: Signal<any> | Computed<any>): 
     if (
       laneSeamsHook &&
       (passLane !== null ||
-        ((c as any)._type && c._config & CONFIG_VERDICT && probesHeldHook!(c, true)))
+        ((c as any)._type && c._config & CONFIG_VERDICT && probesHeldHook!(c, el ?? null)))
     )
       stagedReaders.push(c);
   }
