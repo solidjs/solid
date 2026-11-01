@@ -719,9 +719,20 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
     // A derived store's readers are its family's (store/projection.ts): they
     // re-derive from the staging, as from the derive's status (#4189).
     (node as any)._fam?.st(STATUS_ERROR);
-    settlePendingSource(node);
+    // Each marked node's own walk runs from the first mark's loop, not
+    // nested inside the walk that marked it: a long chain of derivations
+    // must not overflow the stack (#4587).
+    if (marking) marking.push(node);
+    else
+      try {
+        marking = [node];
+        for (let i = 0; i < marking.length; i++) settlePendingSource(marking[i]);
+      } finally {
+        marking = null;
+      }
   }
 }
+let marking: Computed<any>[] | null = null;
 
 installVerdictHooks(observeFlight, holdWork, stageMark);
 /** A store read inside an untracked `isPending` probe found a live mark on
