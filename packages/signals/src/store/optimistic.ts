@@ -34,6 +34,7 @@ import {
   REACTIVE_REASK
 } from "../core/constants.js";
 import { context, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
+import { link } from "../core/graph.js";
 import { laneValueOf, optimisticWrite, pendingGuessOf, take } from "../core/lanes.js";
 import {
   clock,
@@ -47,6 +48,7 @@ import {
   passLane,
   resolveTx,
   schedule,
+  staleReader,
   txOf,
   type Transaction
 } from "../core/scheduler.js";
@@ -589,10 +591,17 @@ installOptHooks({
   // served the guess, a re-run (the guess's own, the seam) would drop its
   // link and release the hold beside a guess over the previous answer
   // (F-1, #4536) — the ordinary read serves its committed frame or keeps it
-  // pending. So does a render effect pending on a flight a list guess was
-  // written over (`g` null, the #4525 mark; D-34: the guess does not answer
-  // it): read here, as `pullFamily`'s own read would, since the frame's
-  // guard there returns early for an unlinked render effect.
+  // pending. So does a reader in the frame's hold pending on a flight a list
+  // guess was written over (`g` null, the #4525 mark; D-34: the guess does
+  // not answer it): a render effect is read here, as `pullFamily`'s own read
+  // would, since the frame's guard there returns early for an unlinked one.
+  // A derivation a pending render effect reads (#4561), through any chain
+  // of derivations (`held`), keeps observing a held flight as a stale reader
+  // of its hold — linked, re-derived at the landing, so the hold still sees
+  // its frame (`blockedBy`) — and is served the guess like lane work (a
+  // `<For>` keeps showing it, #4525), its every read this pass (D-34 ¶3:
+  // however the reads are grouped); a flight no transaction holds (a
+  // `Loading on` fallback) it reads plainly.
   stands: t => {
     const f = t._fam!;
     const o = f._overlaid;
@@ -601,13 +610,13 @@ installOptHooks({
     const c: any = context;
     if (!o?.size || (a === clock + 1 && passLane === null && !o.has(t)) || a === ~clock)
       return false;
-    if (linkedTo(c, d)) return false;
-    if (
-      (t.k?._x?._lane as LaneView)?.g === null &&
-      c?._type === EFFECT_RENDER &&
-      c._statusFlags & STATUS_PENDING
-    )
-      readNode(d);
+    // Linked by this pass's hold (below): its other reads keep the guess.
+    const j = heldC === c && heldAt === clock;
+    if (linkedTo(c, d)) return j && heldV > 1;
+    if ((t.k?._x?._lane as LaneView)?.g === null && c?._statusFlags & STATUS_PENDING)
+      if (c._type === EFFECT_RENDER) readNode(d);
+      else if (j ? heldV : ((heldC = c), (heldAt = clock), (heldV = held(c))))
+        d._x?._transaction ? (link(d, c), staleReader(c, txOf(d)), (heldV = 2)) : readNode(d);
     return true;
   },
   // Mainline hold (`clock + 1`): the flush joins the action of each guess a
@@ -622,6 +631,25 @@ installOptHooks({
         }
   }
 });
+
+/** A derivation in the frame's hold (scheduler.ts `blockedBy`): one a
+ * pending render effect reads, through any chain of pending derivations
+ * (#4561: memo -> memo -> binding, `mapArray` -> memo -> binding). Each
+ * derivation is walked once (`seen`): a diamond graph stays linear. */
+function held(c: any, seen = new Set()): true | undefined {
+  for (let s = c._subs; s; s = s._nextSub) {
+    const r: any = s._sub;
+    if (
+      r._statusFlags & STATUS_PENDING &&
+      (r._type === EFFECT_RENDER || (!r._type && !seen.has(r) && (seen.add(r), held(r, seen))))
+    )
+      return true;
+  }
+}
+/** The last reader judged (`heldC`) this pass (`heldAt`, the pass's `clock`)
+ * and its verdict (`heldV`: 2 once this pass linked it): a reader's key reads
+ * come in one run, so each does not re-walk its subscribers. */
+let heldC: any, heldAt: number, heldV: any;
 
 /** Two lanes of one action (their parents resolved through merges). */
 function sameAction(a: Transaction, b: Transaction): boolean {
