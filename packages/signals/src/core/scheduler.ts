@@ -390,7 +390,7 @@ export function txOf(n: Signal<any> | Computed<any>): Transaction {
  * it has landed. */
 export function liveTx(t: Transaction): Transaction | null {
   t = resolveTx(t);
-  return transactions.includes(t) ? t : null;
+  return transactions.indexOf(t) !== -1 ? t : null;
 }
 export function resolveTx(t: Transaction): Transaction {
   while (t._into !== null) t = t._into;
@@ -1149,7 +1149,7 @@ export class GlobalQueue implements IQueue {
     // the frame (which may park). A lane pass that read the frame's own
     // staging is the frame's (`recompute` passes null): its run waits with
     // the frame.
-    if (type) (lane ?? this)._queues[type - 1].push(fn);
+    if (type) (lane !== null ? lane : this)._queues[type - 1].push(fn);
     schedule();
   }
   /** Status reaching the root: pending is absorbed (the root mount defers —
