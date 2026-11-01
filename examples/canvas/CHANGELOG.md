@@ -1,5 +1,23 @@
 # canvas-example
 
+## 0.0.1-rc.2
+
+### Patch Changes
+
+- Updated dependencies [32163a9]
+- Updated dependencies [bb51da6]
+- Updated dependencies [3c47d06]
+- Updated dependencies [46ab2dd]
+- Updated dependencies [61bb177]
+- Updated dependencies [25fb7be]
+- Updated dependencies [62745f6]
+- Updated dependencies [6b6b4da]
+- Updated dependencies [3c47d06]
+- Updated dependencies [0d4c5e0]
+- Updated dependencies [99d9821]
+  - @solidjs/web@2.0.0-rc.21
+  - solid-js@2.0.0-rc.21
+
 ## 0.0.1-rc.1
 
 ### Patch Changes
