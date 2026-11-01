@@ -17,9 +17,11 @@ import {
   CONFIG_HELD_FRAME,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
+  CONFIG_REDERIVE,
   CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
+  EFFECT_TRACKED,
   NOT_PENDING,
   REACTIVE_DISPOSED,
   REACTIVE_FRAME_READ,
@@ -51,6 +53,7 @@ import {
   unflushedValue,
   verdict
 } from "./core.js";
+import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
@@ -666,7 +669,37 @@ function holdWork(n: Computed<any>, source: Computed<any>): unknown {
 // Installed at module evaluation — present exactly when something imports
 // `latest` or `isPending`. (`read` dispatches to `verdictValue` through
 // `verdict`, set while a window is open.)
-installVerdictHooks(observeFlight, holdWork);
+/** D-41: a derivation of a staged error carries it, staged with the same
+ * frame — marked, not re-run, as a published error marks it (a re-run would
+ * replace the frame its content owns) — and its own verdict readers
+ * re-derive (the settle walk). Only a verdict reads a derivation's staging
+ * before its commit, so only the verdict engine marks. Not a boundary's
+ * output, an async memo, an effect or a boundary's tree (`EFFECT_TRACKED <<
+ * 23` spans CONFIG_FRAME and every effect type), nor one already carrying a
+ * staged error: the commit's publish reaches them. A pending mark supersedes
+ * the staging (`propagateStatus`). Installed as `stageMarkHook`: the settle
+ * walk (`settlePendingSource`) marks every node it reaches from a staged
+ * error — a diamond's revisited join and a chain's single arrival alike
+ * (#4562). */
+function stageMark(node: Computed<any>, el: Computed<any>): void {
+  if (
+    el._config & CONFIG_STAGED_ERROR &&
+    !(
+      node._config &
+      (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | CONFIG_ASYNC | (EFFECT_TRACKED << 23))
+    )
+  ) {
+    node._pendingValue = el._pendingValue;
+    node._config |= CONFIG_STAGED_ERROR;
+    queuePendingNode(node);
+    // A derived store's readers are its family's (store/projection.ts): they
+    // re-derive from the staging, as from the derive's status (#4189).
+    (node as any)._fam?.st(STATUS_ERROR);
+    settlePendingSource(node);
+  }
+}
+
+installVerdictHooks(observeFlight, holdWork, stageMark);
 /** A store read inside an untracked `isPending` probe found a live mark on
  * a record with no node to carry it (store/affects.ts): not final. */
 GlobalQueue._witnessMark = () => {
