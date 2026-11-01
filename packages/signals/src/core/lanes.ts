@@ -854,7 +854,14 @@ function laneSeam(l: Transaction, leaked: boolean): void {
     const n = l._nodes[i] as Computed<any>;
     if (n._flags & LEFT_SHOWN) {
       n._flags ^= LEFT_SHOWN;
-      insertSubs(n);
+      // Only a reader still showing the slot: an effect whose pass started
+      // after the one that left read the node's new answer already (that
+      // pass notified it — a change against the committed value). Woken
+      // again it re-ran on nothing new: an effect has no comparator (#4557,
+      // every effect of a lane-mounted view ran twice per write through a
+      // memo; D-37: a lane does not replay a run the screen made).
+      for (let s = n._subs; s !== null; s = s._nextSub)
+        ((s._sub as any)._type && s._sub._time >= n._time) || enqueueSub(s._sub);
     }
     const x = n._x!;
     if (x._transaction !== l) continue;
