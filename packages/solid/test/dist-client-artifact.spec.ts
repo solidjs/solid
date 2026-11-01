@@ -81,6 +81,35 @@ describe("solid-js client artifacts", () => {
     expect(read("solid.js")).not.toContain("._name = ");
   });
 
+  test.each([
+    ["prod", prod],
+    ["observe", observe],
+    ["dev", dev]
+  ])("%s: a component created outside any owner reads a context default", (_, artifact) => {
+    const Theme = artifact.createContext("light");
+    let seen: unknown;
+    function Badge() {
+      seen = artifact.useContext(Theme);
+      return null;
+    }
+    expect(getOwner()).toBeNull();
+    artifact.createComponent(Badge, {});
+    expect(seen).toBe("light");
+  });
+
+  test("prod: a component created under an owner runs in that owner, with no root of its own", () => {
+    let outer: unknown;
+    let inner: unknown;
+    prod.createRoot(() => {
+      outer = getOwner();
+      prod.createComponent(() => {
+        inner = getOwner();
+        return null;
+      }, {});
+    });
+    expect(inner).toBe(outer);
+  });
+
   test("the three artifacts export the same surface", () => {
     expect(Object.keys(observe).sort()).toEqual(Object.keys(prod).sort());
     expect(Object.keys(dev).sort()).toEqual(Object.keys(prod).sort());

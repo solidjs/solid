@@ -1,4 +1,4 @@
-import { untrack, createMemo, runAsSolidCopy } from "@solidjs/signals";
+import { untrack, createMemo, createRoot, getOwner, runAsSolidCopy } from "@solidjs/signals";
 import {
   IS_DEV,
   IS_OBSERVE,
@@ -100,7 +100,8 @@ export function createComponent<T extends Record<string, any>>(
     return runAsSolidCopy(() => observedComponent(Comp, props || ({} as T), name, loc));
   }
   if (IS_OBSERVE) return observedComponent(Comp, props || ({} as T), name, loc);
-  return untrack(() => Comp(props || ({} as T)));
+  // Ownerless creation gets the root dev and observe always give, so context reads match.
+  return (getOwner() ? untrack : createRoot)(() => untrack(() => Comp(props || ({} as T))));
 }
 
 /**
