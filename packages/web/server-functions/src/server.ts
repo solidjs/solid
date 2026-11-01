@@ -1714,9 +1714,9 @@ export function broadcast(fn) {
 // a BigInt throws), so two callers with different arguments would share one
 // render. Encodings that differ for equal values only cost sharing. A POST
 // body is keyed with its content type; one this dispatch didn't buffer has no
-// key, and the call is served per connection.
-function encodedArguments(request, argsEncoding, argumentBytes) {
-  if (request.method !== "POST") return argsEncoding || "";
+// key, and the call is served per connection. A read without args is keyed by its form query.
+function encodedArguments(request, url, argsEncoding, argumentBytes) {
+  if (request.method !== "POST") return argsEncoding || url.search;
   if (!argumentBytes) return undefined;
   return (
     (request.headers.get("content-type") || "") +
@@ -4880,7 +4880,7 @@ export async function handleServerFunctionRequest(request, options = {}) {
           id: functionId,
           live: !!live,
           broadcast: shared || undefined,
-          shareKey: shared ? encodedArguments(request, argsEncoding, argumentBytes) : undefined
+          shareKey: shared ? encodedArguments(request, url, argsEncoding, argumentBytes) : undefined
         });
         const run = () => serverFunction(...parsed);
         // Same observation as the direct leg (see `observeInvocation`): the
@@ -4986,11 +4986,8 @@ export async function handleServerFunctionRequest(request, options = {}) {
         // to prefer, a returned `null` passes through as the outcome it is
         // rather than eroding to `undefined` on the way to the flash (#3248).
         if (handleNoJS) {
-          return handleNoJS(
-            result == null && metadata !== undefined ? metadata : result,
-            request,
-            parsed
-          );
+          const outcome = result == null && metadata !== undefined ? metadata : result;
+          return withEnvelopeCookies(await handleNoJS(outcome, request, parsed), outcome, metadata);
         }
         if (result instanceof Response) return result;
         // the envelope's status forwards for unscripted callers too — this
@@ -5141,7 +5138,14 @@ export async function handleServerFunctionRequest(request, options = {}) {
           // `x` was nulled when the thrown Response had no body, but the no-JS
           // handler reads redirect metadata off the result — hand it the
           // original Response, matching what the returned path passes.
-          if (handleNoJS) return handleNoJS(x ?? metadata, request, parsed, true);
+          if (handleNoJS) {
+            const outcome = x ?? metadata;
+            return withEnvelopeCookies(
+              await handleNoJS(outcome, request, parsed, true),
+              outcome,
+              metadata
+            );
+          }
           if (x instanceof Response) return x;
         }
         if (scripted && status === 304) warnScripted304(functionId);
@@ -5247,6 +5251,19 @@ function eachDirective(value, visit) {
 function withholdTrace(event) {
   if (event.response && event.response.committed) return;
   traceForEvent(event).emit = false;
+}
+
+// The no-JS handler sees only an envelope's value, so carry its cookies.
+function withEnvelopeCookies(response, outcome, metadata) {
+  if (outcome === metadata || !metadata || !metadata.headers || !(response instanceof Response)) {
+    return response;
+  }
+  const cookies = metadata.headers.getSetCookie ? metadata.headers.getSetCookie() : [];
+  if (!cookies.length) return response;
+  const owned = ownResponse(response);
+  if (owned === response) return response;
+  for (const cookie of cookies) owned.headers.append("Set-Cookie", cookie);
+  return owned;
 }
 
 // A fresh Response around the same body: status, statusText and headers are

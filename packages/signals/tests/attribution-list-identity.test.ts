@@ -91,6 +91,34 @@ describe("UNSTABLE_LIST_IDENTITY", () => {
     expect(hits).toHaveLength(1);
   });
 
+  it("does not evaluate accessors while comparing rows", () => {
+    const hits = arm();
+    const getter = vi.fn(() => "lazy");
+    const records = () =>
+      rows(10).map(row =>
+        Object.defineProperty(row, "children", {
+          enumerable: true,
+          get: getter
+        })
+      );
+    const [items, setItems] = createSignal(records());
+    const dispose = createRoot(dispose => {
+      const mapped = mapArray(items, item => item.id, { name: "rows" });
+      createMemo(() => mapped().length);
+      return dispose;
+    });
+    try {
+      flush();
+      setItems(records());
+      flush();
+
+      expect(getter).not.toHaveBeenCalled();
+      expect(hits).toHaveLength(0);
+    } finally {
+      dispose();
+    }
+  });
+
   it("does not report a list keyed by a stable field", () => {
     const hits = arm();
     const { setItems, count } = listFixture(item => item.id);

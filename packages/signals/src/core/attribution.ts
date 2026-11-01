@@ -1743,6 +1743,14 @@ function isPlainShape(v: unknown): v is object {
 
 /** Shallow structural equivalence, capped so hot paths stay cheap. */
 const UNSTABLE_KEY_CAP = 64;
+function equivalentDataProperty(a: object, b: object, key: PropertyKey): boolean {
+  const left = Object.getOwnPropertyDescriptor(a, key);
+  const right = Object.getOwnPropertyDescriptor(b, key);
+  if (!left || !right) return !left && !right;
+  // Accessors are not passive metadata: reading one can run user code.
+  return "value" in left && "value" in right && left.value === right.value;
+}
+
 function shallowEquivalent(a: object, b: object): boolean {
   const aArr = Array.isArray(a);
   if (aArr !== Array.isArray(b)) return false;
@@ -1750,7 +1758,7 @@ function shallowEquivalent(a: object, b: object): boolean {
     const arrA = a as unknown[];
     const arrB = b as unknown[];
     if (arrA.length !== arrB.length || arrA.length > UNSTABLE_KEY_CAP) return false;
-    for (let i = 0; i < arrA.length; i++) if (arrA[i] !== arrB[i]) return false;
+    for (let i = 0; i < arrA.length; i++) if (!equivalentDataProperty(a, b, i)) return false;
     return true;
   }
   // Every own key, symbols included: a symbol-keyed box holding a fresh value
@@ -1758,11 +1766,7 @@ function shallowEquivalent(a: object, b: object): boolean {
   const keys = Reflect.ownKeys(a);
   if (keys.length > UNSTABLE_KEY_CAP || keys.length !== Reflect.ownKeys(b).length) return false;
   for (const key of keys) {
-    if (
-      !(key in b) ||
-      (a as Record<PropertyKey, unknown>)[key] !== (b as Record<PropertyKey, unknown>)[key]
-    )
-      return false;
+    if (!equivalentDataProperty(a, b, key)) return false;
   }
   return true;
 }
