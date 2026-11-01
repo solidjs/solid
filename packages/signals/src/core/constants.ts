@@ -71,7 +71,7 @@ export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
 /** The pass opened a verdict window of its own (`isPending`/`latest`) — not
  * only read a verdict memo (F-6, core.ts `read`). An async memo whose pass
  * did not is D-25's hold work while its flight is up (verdict.ts
- * `holdWork`). Per pass (1 << 20 is lanes.ts's LEFT_SHOWN). */
+ * `holdWork`). Per pass. */
 export const REACTIVE_WINDOW = 1 << 21;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.

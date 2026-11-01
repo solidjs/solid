@@ -87,7 +87,7 @@ export function effect<T>(
     : node._pendingValue === NOT_PENDING &&
       !node._x?._transaction?._lane &&
       (isUser || options?.schedule
-        ? globalQueue.enqueue(node._type, runEffect.bind(null, node))
+        ? globalQueue.enqueue(node._type, type => runEffect(node, type))
         : // Type 0: the synchronous first render, not a queued run (D-19).
           runEffect(node, 0));
   if (__DEV__ && !node._parent) {

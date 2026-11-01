@@ -110,8 +110,10 @@ export { laneValueOf };
 
 /** Live lanes (parented). Scanned at every seam while non-empty. */
 const lanes: Transaction[] = [];
-/** A pass left a shown slot the equality gate can no longer see (#3892). */
-const LEFT_SHOWN = 1 << 20;
+/** A pass left a shown slot the equality gate can no longer see (#3892):
+ * the node's notify stamp (`_notifiedAt`, never negative once it notifies —
+ * `insertSubs` overwrites it, so a pass that does notify clears the mark). */
+const LEFT_SHOWN = -2;
 function newLane(parent: Transaction): Transaction {
   const l = newTransaction(true, parent);
   lanes.push(l);
@@ -418,13 +420,12 @@ export function laneStage(
         // lane's), so this pass's answer — the frame's — is a change against
         // what is seen and reaches the screen with the frame's commit. (Only
         // a lane is ever `_shown`.)
-        // (The notify stamp is cleared with it: a pass that does notify —
-        // its answer a change against the committed value — has woken the
-        // readers itself, and the seam's wake would run them on nothing new:
-        // an effect has no comparator, #4557.)
+        // Marked on the notify stamp: a pass that does notify — its answer
+        // a change against the committed value — has woken the readers
+        // itself, and the seam's wake would run them on nothing new (an
+        // effect has no comparator, #4557).
         if (tx._shown)
-          if (!flushTransaction || !blocked(resolveTx(tx._parent!)))
-            ((el._flags |= LEFT_SHOWN), (el._notifiedAt = -1));
+          if (!flushTransaction || !blocked(resolveTx(tx._parent!))) el._notifiedAt = LEFT_SHOWN;
           else el._value = display(el);
         x._transaction = null;
       }
@@ -857,12 +858,9 @@ function laneSeam(l: Transaction, leaked: boolean): void {
   if (reruns(l)) revealing.push(resolveTx(l._parent!));
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i] as Computed<any>;
-    if (n._flags & LEFT_SHOWN) {
-      n._flags ^= LEFT_SHOWN;
-      // Unless a pass since has notified them (D-37: a lane does not replay
-      // a run the screen made).
-      if (n._notifiedAt < 0) insertSubs(n);
-    }
+    // (Not once a pass since has notified them — D-37: a lane does not
+    // replay a run the screen made.)
+    if (n._notifiedAt === LEFT_SHOWN) insertSubs(n);
     const x = n._x!;
     if (x._transaction !== l) continue;
     if (!(n._config & CONFIG_GUESS) && !(n as any)._type && n._pendingValue !== NOT_PENDING) {
