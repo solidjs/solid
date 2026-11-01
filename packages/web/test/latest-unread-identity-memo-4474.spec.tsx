@@ -14,13 +14,13 @@
  * `l:3 p:false` at the landing — the same screen as with a prior reader of
  * `id`, in either read order with a plain `{id()}` beside it.
  *
- * Deviation today (D-22 Status; the memo is unowned, not lazy, and the
- * settle walk's release at `m`'s landing deletes the retry it just queued —
- * fix in progress at the release): the mount reads `l:undefined p:true` —
- * the verdict-only row is pinned `test.fails` at the ruled screen. The two
- * rows with a plain `id()` beside the verdict reads
- * already show the ruled screen (the born-held reader keeps the mount on
- * `off` until the landing, F-5) and are the control.
+ * Built (D-22 Status): the memo is unowned, not lazy; the settle walk at
+ * `m`'s landing queues its retry and the release now waits for that pass
+ * (`releaseIfSettledUnobserved`, REACTIVE_RELEASE_AFTER) — before, the
+ * release deleted the retry and the mount read `l:undefined p:true`. The two
+ * rows with a plain `id()` beside the verdict reads showed the ruled screen
+ * already (the born-held reader keeps the mount on `off` until the landing,
+ * F-5) and are the control.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
@@ -103,14 +103,11 @@ async function run(plain: Plain, prior: boolean) {
 
 describe("#4474 (web): latest() of an unread identity memo first read in the flush that re-asks its source", () => {
   // primed (off) | m's 2 landed | re-asked + mounted | landed
-  test.fails(
-    "verdict reads only: l:2 p:true at the mount, l:3 p:false at the landing (#4474, ruled; today l:undefined p:true)",
-    async () => {
-      const lazy = await run("none", false);
-      expect(lazy).toEqual(["off", "off", "l:2 p:true", "l:3 p:false"]);
-      expect(lazy).toEqual(await run("none", true));
-    }
-  );
+  test("verdict reads only: l:2 p:true at the mount, l:3 p:false at the landing (#4474)", async () => {
+    const lazy = await run("none", false);
+    expect(lazy).toEqual(["off", "off", "l:2 p:true", "l:3 p:false"]);
+    expect(lazy).toEqual(await run("none", true));
+  });
 
   // A plain `id()` in the same mount is not display-ahead (D-27): its reader
   // is born held (D-2) and the mount — the boundary is disarmed, it showed

@@ -16,8 +16,10 @@ import {
   REACTIVE_DIRTY,
   REACTIVE_WINDOW,
   REACTIVE_DISPOSED,
+  REACTIVE_IN_HEAP,
   REACTIVE_RECOMPUTING_DEPS,
   REACTIVE_REASK,
+  REACTIVE_RELEASE_AFTER,
   REACTIVE_STAGED_READ,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
@@ -77,6 +79,12 @@ export function removePendingSource(el: Computed<any>, source: Computed<any>): b
   return true;
 }
 
+// Drops a node's flight reference without touching anything else: the one
+// form shared by the disposal and loading-window sites.
+export function clearInFlight(el: Computed<any>): void {
+  if (el._x !== null) el._x._inFlight = null;
+}
+
 function clearPendingSources(el: Computed<any>): void {
   // This set is node-owned and never shared; dropping the sole reference
   // releases the set and every entry without a redundant clear() walk.
@@ -88,7 +96,7 @@ function clearPendingSources(el: Computed<any>): void {
 // edge: a dep that IS the source, or one whose own pending chain carries it
 // (pending sources propagate the origin node, so this covers any depth).
 // Also guards branch-local recovery: another dependency may still need the source.
-function retryReaches(el: Computed<any>, source: any): boolean {
+export function retryReaches(el: Computed<any>, source: any): boolean {
   for (let d = el._deps; d; d = d._nextDep) {
     const dep = d._dep as Computed<any>;
     if (dep === source || dep._x?._pendingSources?.has(source)) return true;
@@ -164,13 +172,19 @@ function walkDependents(
 // forever with zero subscribers (#2934). The node's own promise/iterator
 // callbacks handle their own release (settleAutodispose in handleAsync); this
 // covers derivatively-pending dependents, which have no callbacks of their own.
+// A node whose pass is already queued (the settle walk re-enqueued a
+// `_blocked` reader) is released at that pass's tail, not before it: the
+// release would pull the pass back out of the heap, and the node would wake
+// later with no value for the landing it missed (D-22, #4474).
 export function releaseIfSettledUnobserved(node: Computed<any>): void {
-  (node as any)._fn &&
+  if (
+    (node as any)._fn &&
     node._config & CONFIG_AUTO_DISPOSE &&
     !node._subs &&
     !(node._flags & REACTIVE_ZOMBIE) &&
-    !(node._statusFlags & STATUS_PENDING) &&
-    unobserved(node);
+    !(node._statusFlags & STATUS_PENDING)
+  )
+    node._flags & REACTIVE_IN_HEAP ? (node._flags |= REACTIVE_RELEASE_AFTER) : unobserved(node);
 }
 
 // Error-path sweep: notifyStatus(STATUS_ERROR) clears dependents' pending
@@ -406,8 +420,10 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
     }
   });
 
-  // Release before the flush schedule below: unobserved() pulls the node back
-  // out of the heap, so the enqueueSub above never recomputes a released node.
+  // A node the enqueueSub above queued is released at that pass's tail
+  // (`releaseIfSettledUnobserved`, REACTIVE_RELEASE_AFTER): the landing's
+  // pass is its — released first, it woke later with no value for it
+  // (#4474).
   if (released) for (const node of released) releaseIfSettledUnobserved(node);
 
   if (scheduled) schedule();
@@ -572,7 +588,7 @@ export function handleAsync<T>(
       // serving commit #0 — same parking as recompute's catch for sync
       // dependency throws. The dead flight is released so the clock-gated
       // error-retry pull (updateIfNecessary) can also re-ask.
-      if (el._x !== null) el._x._inFlight = null;
+      clearInFlight(el);
       parkLoadingWindow(el, error);
       el._time = clock;
       return;

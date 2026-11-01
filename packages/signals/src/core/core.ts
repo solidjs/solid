@@ -1,11 +1,13 @@
 import { checkForeignRead, enterCopy, exitCopy } from "./copies.js";
 import {
+  clearInFlight,
   clearStatus,
   handleAsync,
   notifyStatus,
   parkLoadingWindow,
   releaseFlightTeardown,
   releaseIfSettledUnobserved,
+  retryReaches,
   settleErroredDependents,
   settlePendingSource,
   stageError
@@ -62,6 +64,7 @@ import {
   REACTIVE_NONE,
   REACTIVE_JOINED,
   REACTIVE_RECOMPUTING_DEPS,
+  REACTIVE_RELEASE_AFTER,
   REACTIVE_SNAPSHOT_STALE,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
@@ -569,6 +572,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // frame, and the splice/reawaken paths key off it. A zombie reruns for
   // live writes until the commit that disposes it, so every per-pass wipe
   // — here, the finally below, updateIfNecessary — carries it (#3543).
+  // A settle found this node unobserved while this pass was queued
+  // (REACTIVE_RELEASE_AFTER): the release is this pass's tail's (#4474).
+  const releaseAfter = el._flags & REACTIVE_RELEASE_AFTER;
   el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & (REACTIVE_ZOMBIE | REACTIVE_REASK));
   el._time = clock;
   // The pass's previous value: its staging, else a lane node's lane value
@@ -668,10 +674,23 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // dependent then waits forever on a flight it has no path to. The
       // re-park twin of the unchanged-value recovery sweep below; dependents
       // with another path keep the source (retryReaches). A staged error
-      // answered what the pass carried: the same.
+      // answered what the pass carried: the same. A source still in the set
+      // is dropped too once it is no longer pending and no dep reaches it: a
+      // re-park that keeps the set adds to it, so a stale entry survives the
+      // pass — a first answer staged in place of its flight (uninitialized
+      // until its commit, so its own settle walk waits) leaves the copy here
+      // while the readers in between re-derive clean (#4541). A still-pending
+      // source has its own settle walk to come, so it is kept without the
+      // deps walk (S carried × D deps per re-park otherwise).
       if ((notReady || stagedErr) && outgoingPendingSources)
         for (const source of outgoingPendingSources)
-          if (source !== el && !el._x?._pendingSources?.has(source))
+          if (
+            source !== el &&
+            !(
+              el._x?._pendingSources?.has(source) &&
+              (source._statusFlags & STATUS_PENDING || retryReaches(el, source))
+            )
+          )
             settlePendingSource(el, source);
     }
   } finally {
@@ -749,7 +768,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // attribution frame opened at the top is still closed.
   if (el._flags & REACTIVE_DISPOSED) {
     clearDeps(el);
-    if (el._x !== null) el._x._inFlight = null;
+    clearInFlight(el);
     if (__OBSERVE__ && attrHooks !== null)
       attrHooks.recomputeEnd(el, create, false, false, false, false);
     if (laneStageHook) setPassLane(prevLane);
@@ -1045,6 +1064,12 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     enqueueSub(el);
     schedule();
   }
+  // The release a settle deferred past this pass (#2934, #4474): the node
+  // has produced what the landing gave it — staged above, committed at the
+  // seam — and is reclaimed now if still unobserved and settled; a pass that
+  // went pending is an observer's again (its landing releases it), and one
+  // re-queued above is released at that pass's tail.
+  if (releaseAfter) releaseIfSettledUnobserved(el);
 }
 
 function updateIfNecessary(el: Computed<unknown>): void {

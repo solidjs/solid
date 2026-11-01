@@ -1418,6 +1418,14 @@ export function sameLane(a: Transaction, b: Transaction): boolean {
   return a === b || (a._links !== null && a._links === b._links);
 }
 
+/** A staged value becomes the node's value: truthy when one was staged. */
+export function applyStaged(n: Signal<any>): unknown {
+  return (
+    n._pendingValue !== NOT_PENDING &&
+    ((n._value = n._pendingValue), (n._pendingValue = NOT_PENDING))
+  );
+}
+
 export function commitPendingNode(n: Signal<any>): void {
   const c = n as Partial<Computed<unknown>>;
   // L2: the commit is where a pass, held or not, stops being uncommitted —
@@ -1427,10 +1435,7 @@ export function commitPendingNode(n: Signal<any>): void {
   // commits a value.
   if (!c._fn) {
     n._config &= ~(CONFIG_STAGED | CONFIG_HELD);
-    if (n._pendingValue !== NOT_PENDING) {
-      n._value = n._pendingValue as any;
-      n._pendingValue = NOT_PENDING;
-    }
+    applyStaged(n);
     return;
   }
   // Computeds only from here (`_statusFlags` is not a signal field). A
@@ -1459,9 +1464,7 @@ export function commitPendingNode(n: Signal<any>): void {
     n._pendingValue = NOT_PENDING;
     n._time = clock + 1;
     notifyStatus(c as Computed<unknown>, STATUS_ERROR, e);
-  } else if (n._pendingValue !== NOT_PENDING) {
-    n._value = n._pendingValue as any;
-    n._pendingValue = NOT_PENDING;
+  } else if (applyStaged(n)) {
     // A node born staged (recompute) initializes at this commit.
     c._statusFlags! &= ~STATUS_UNINITIALIZED;
     // A quiet re-ask's classification survives its landing and dies with

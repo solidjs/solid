@@ -73,6 +73,13 @@ export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
  * did not is D-25's hold work while its flight is up (verdict.ts
  * `holdWork`). Per pass (1 << 20 is lanes.ts's LEFT_SHOWN). */
 export const REACTIVE_WINDOW = 1 << 21;
+/** An observation-lifecycle node found unobserved by a settle (#2934) while
+ * a pass of it was already queued — a source's landing re-enqueued the
+ * `_blocked` reader it walks (`settlePendingSource`). The release waits for
+ * that pass: a memo nobody read has still produced what the flushes it
+ * missed gave it (D-22, #4474), so the queued pass runs, then `recompute`'s
+ * tail releases the node. Survives the head wipe; the tail consumes it. */
+export const REACTIVE_RELEASE_AFTER = 1 << 22;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;

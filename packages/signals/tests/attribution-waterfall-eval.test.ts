@@ -361,10 +361,13 @@ describe("ASYNC_WATERFALL", () => {
     // compute (and fetch) starts only after left lands. The detector's
     // create-run frame walk attributes right's flight through the page
     // effect's cause (left's landing): a real, provable 3-deep waterfall.
+    // `right` is a lazy memo (never run until read): an eager one, owned or
+    // not, blocks on `root` at creation and re-runs at root's landing beside
+    // `left` — parallel, no waterfall (D-22, #4474).
     const events = arm();
     const root = createMemo(() => sleep(12, "root"), { name: "root" });
     const left = createMemo(() => sleep(12, root() + "-L"), { name: "left" });
-    const right = createMemo(() => sleep(12, root() + "-R"), { name: "right" });
+    const right = createMemo(() => sleep(12, root() + "-R"), { name: "right", lazy: true });
     createRoot(() =>
       createEffect(
         () => [left(), right()],
