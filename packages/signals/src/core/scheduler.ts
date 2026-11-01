@@ -10,6 +10,7 @@ import {
   CONFIG_STAGED,
   CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
+  CONFIG_PROBED_HELD,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -1038,7 +1039,7 @@ export class GlobalQueue implements IQueue {
         for (let i = 0; i < zombies.length; i++)
           if (
             (zombies[i]._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE)) === REACTIVE_ZOMBIE &&
-            zombies[i]._config & CONFIG_VERDICT
+            zombies[i]._config & CONFIG_PROBED_HELD
           )
             recompute(zombies[i]);
       }
@@ -1399,7 +1400,8 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
     const c = s._sub,
       t = c._x?._transaction;
     if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT)
-      ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
+      ((c._config |= node._config & (CONFIG_VERDICT | CONFIG_PROBED_HELD)),
+        (c._flags &= ~REACTIVE_LANE_DIRTY));
     if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
   }
 }

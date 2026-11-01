@@ -55,7 +55,7 @@ import {
   CONFIG_OVERRIDE,
   CONFIG_PROMOTED,
   CONFIG_STAGED_ERROR,
-  CONFIG_VERDICT,
+  CONFIG_PROBED_HELD,
   EFFECT_RENDER,
   NOT_PENDING,
   REACTIVE_JOINED,
@@ -219,11 +219,14 @@ export function postureOf(c: Computed<any> | null, window: number): number {
   if (c._config & CONFIG_CHILDREN_FORBIDDEN) return POSTURE_F;
   if (c._config & CONFIG_AUTHORITATIVE) return POSTURE_A;
   if (window) return window === 2 ? POSTURE_VL : POSTURE_VP;
-  // A pass that asked (`latest`/`isPending`) is a verdict reader from the
-  // window on, and stays one on every re-run until a pass asks nothing
-  // (D-25 "a verdict posture outlives the pass that asked"): the sticky
-  // CONFIG_VERDICT, set at the window (`markVerdictReader`).
-  if (c._config & CONFIG_VERDICT) return POSTURE_V;
+  // A pass whose probe (`latest`/`isPending`) found something held is a
+  // frame reader from that read on, and stays one on every re-run until a
+  // pass's probe finds nothing (D-25 "a verdict posture outlives the pass
+  // that asked"; #4544: a probe of a node neither held nor pending earns no
+  // frame posture — the pass reads as D below, CONFIG_VERDICT's
+  // re-derive-on-pending half notwithstanding): the sticky
+  // CONFIG_PROBED_HELD, set by the probe (verdict.ts `probedHeld`).
+  if (c._config & CONFIG_PROBED_HELD) return POSTURE_V;
   if ((c as any)._type === EFFECT_RENDER || c._config & CONFIG_FRAME) return POSTURE_L;
   return POSTURE_D;
 }
@@ -703,7 +706,7 @@ export function slot(
   // window of its own — reads a hold's node as a verdict reader does:
   // `truthRead` is for lane nodes only.)
   const verdictReader =
-    posture === POSTURE_V || (posture === POSTURE_A && (c!._config & CONFIG_VERDICT) !== 0);
+    posture === POSTURE_V || (posture === POSTURE_A && (c!._config & CONFIG_PROBED_HELD) !== 0);
   const rowBase = posture === POSTURE_A ? "A1/" : "";
   const isEffect = !!cType;
   // D-28's leaf treatment of a lane (L6/L7: a stale reader of the lane,
@@ -853,7 +856,7 @@ export function slot(
       stagedError &&
       !uninit &&
       !(p.raise & MARK_ST) &&
-      !(verdictReader && c!._config & CONFIG_VERDICT && stagedScreen)
+      !(verdictReader && c!._config & CONFIG_PROBED_HELD && stagedScreen)
     )
       p.raise |= RAISE_FL;
     return carry(p);
@@ -919,7 +922,7 @@ export function slot(
       // nothing: not a read of the frame's future, nor a verdict reader's
       // stale read of the tick's hold.
       if (netted) return carry(pred(row + "''", SLOT_P));
-      if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) {
+      if (verdictReader && !uninit && c!._config & CONFIG_PROBED_HELD) {
         // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
         // staging before (the seam's verdict).
         if (stagedScreen) return carry(pred("V2", screen, MARK_ST, flushTransaction));
@@ -1314,7 +1317,7 @@ const known: KnownDifference[] = [
     expected: SLOT_P,
     actual: SLOT_C,
     when: (c, el, seat) =>
-      (c._config & CONFIG_VERDICT) !== 0 &&
+      (c._config & CONFIG_PROBED_HELD) !== 0 &&
       flushTransaction !== null &&
       seatBornInto(seat, txOf(el!)) &&
       resolveTx(flushTransaction) !== resolveTx(txOf(el!))
@@ -1584,11 +1587,12 @@ export function shadowSeatClose(
       );
   }
   // (A boundary's output sets its own CONFIG_FRAME at the head of its body,
-  // and a probe sets CONFIG_VERDICT: the node's own transitions.)
+  // and a probe that finds something held sets CONFIG_PROBED_HELD: the
+  // node's own transitions.)
   const posture = postureOf(el, 0);
   if (
     seat.posture !== posture &&
-    !(el._config & CONFIG_VERDICT) &&
+    !(el._config & CONFIG_PROBED_HELD) &&
     seat.posture !== POSTURE_V &&
     posture !== POSTURE_L
   )

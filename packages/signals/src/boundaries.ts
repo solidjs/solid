@@ -46,13 +46,14 @@ import {
   CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_OVERRIDE,
-  CONFIG_VERDICT,
+  CONFIG_PROBED_HELD,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
   REACTIVE_DISPOSED,
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
+  REACTIVE_PROBED_HELD,
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
@@ -538,7 +539,7 @@ function arm(b: Boundary): void {
   if (
     lane === null &&
     globalQueue._running &&
-    (getOwner() as Computed<any>)._config & CONFIG_VERDICT
+    (getOwner() as Computed<any>)._config & CONFIG_PROBED_HELD
   ) {
     joinFuture(null);
     lane = GlobalQueue._verdictLane!(flushTransaction!);
@@ -892,7 +893,7 @@ function fallback<T>(b: Boundary): T {
   const v = read(b._fb) as T;
   setPassLane(p);
   if (__TEST__) shadowSeatRestore(out, saved);
-  out._flags ^= (out._flags ^ f) & (REACTIVE_PROBED | REACTIVE_LANE_READ);
+  out._flags ^= (out._flags ^ f) & (REACTIVE_PROBED | REACTIVE_PROBED_HELD | REACTIVE_LANE_READ);
   return v;
 }
 

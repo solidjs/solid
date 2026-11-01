@@ -36,9 +36,9 @@ import {
   CONFIG_HELD,
   CONFIG_MANUAL_WRITE,
   CONFIG_OVERRIDE,
+  CONFIG_PROBED_HELD,
   CONFIG_PROMOTED,
   CONFIG_STAGED_ERROR,
-  CONFIG_VERDICT,
   EFFECT_RENDER,
   NOT_PENDING,
   REACTIVE_CHECK,
@@ -1628,15 +1628,16 @@ function readSource(
     // `mapArray` over 1k shifted rows asked it 1k times).
     if (
       c._flags & REACTIVE_STAGED_READ &&
-      !(c._config & (CONFIG_VERDICT | CONFIG_CHILDREN_FORBIDDEN))
+      !(c._config & (CONFIG_PROBED_HELD | CONFIG_CHILDREN_FORBIDDEN))
     )
       return pb;
     if (key !== undefined && !keyChanged(target, key, shape)) return committed(target);
     // A node-less staging (`stageOn`): what `read()` of its node would do
-    // for this pass — a verdict reader sees the screen, any other derives
+    // for this pass — a verdict reader whose probe found something held
+    // sees the screen (CONFIG_PROBED_HELD, #4544), any other derives
     // from the staging and is marked as having read it.
     if (k === null) {
-      if (c._config & CONFIG_VERDICT && stagedScreen(c)) return committed(target);
+      if (c._config & CONFIG_PROBED_HELD && stagedScreen(c)) return committed(target);
       stagedRead(c);
       return pb;
     }
@@ -1917,7 +1918,7 @@ function pullFamily(target: StoreTarget): void {
     // import of it keeps a dead copy in bundles without the store.)
     if (
       observeFlightHook &&
-      fw._config & CONFIG_VERDICT &&
+      fw._config & CONFIG_PROBED_HELD &&
       !(fw._flags & (EFFECT_RENDER << 21)) &&
       tracking
     ) {

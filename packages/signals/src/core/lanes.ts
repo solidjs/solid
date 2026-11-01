@@ -42,6 +42,7 @@ import {
   CONFIG_SLOT_NODE,
   CONFIG_STAGED,
   CONFIG_VERDICT,
+  CONFIG_PROBED_HELD,
   EFFECT_RENDER,
   NOT_PENDING,
   REACTIVE_CHECK,
@@ -310,7 +311,7 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
         (creatorReads(c, (c as any)._type || f) ||
           ((hold = resolveTx(l._parent!)),
           (c._config &
-            (CONFIG_HELD | CONFIG_VERDICT | CONFIG_FRAME | CONFIG_LAGS | CONFIG_OVERRIDE)) ===
+            (CONFIG_HELD | CONFIG_PROBED_HELD | CONFIG_FRAME | CONFIG_LAGS | CONFIG_OVERRIDE)) ===
             CONFIG_HELD && txOf(c) !== hold) ||
           (c._config & CONFIG_HELD_FRAME && bornInto(c, hold!)))
       )
@@ -776,7 +777,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
       }
       // A verdict reader reads ahead of the seam's verdict: re-derived on the
       // screen if the lane holds (#4284).
-      if (c._config & CONFIG_VERDICT && l._parent!._verdict !== l) entered.push(c);
+      if (c._config & CONFIG_PROBED_HELD && l._parent!._verdict !== l) entered.push(c);
     }
   }
   enterLane(l, c);

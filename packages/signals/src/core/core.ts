@@ -20,6 +20,7 @@ import {
   CONFIG_FRESH_READ,
   CONFIG_GUESS,
   CONFIG_VERDICT,
+  CONFIG_PROBED_HELD,
   CONFIG_HELD,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_INPUTS_PUBLISHED,
@@ -59,6 +60,7 @@ import {
   REACTIVE_MANUAL_WRITE,
   REACTIVE_MISSED_WAKE,
   REACTIVE_PROBED,
+  REACTIVE_PROBED_HELD,
   REACTIVE_REASK,
   REACTIVE_STAGED_READ,
   REACTIVE_NONE,
@@ -436,7 +438,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       (el._statusFlags & STATUS_PENDING ||
         (el._config & (CONFIG_ASYNC | CONFIG_HELD)) === (CONFIG_ASYNC | CONFIG_HELD))
     )
-      el._config &= ~CONFIG_VERDICT;
+      el._config &= ~(CONFIG_VERDICT | CONFIG_PROBED_HELD);
     if (el._x !== null) {
       // The seam's re-derive runs with the parked flight still current; any
       // later pass asks its own question (`_parked`; only the lane engine
@@ -473,9 +475,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // A verdict reader born into `tx` (`bornInto`: never committed) is the
       // hold's own work, whatever it asked before (D-25): it joins like any
       // held pass, so what it mounts is the hold's (D-13, #4467).
+      // A verdict reader here is one whose probe found something held
+      // (CONFIG_PROBED_HELD, #4544): a pass whose probe found its node
+      // neither held nor pending has no frame posture and re-enters the
+      // hold like any held pass, whatever it asked.
       if (tx._lane || el._config & CONFIG_LAGS) {
       } else if (
-        !(el._config & (CONFIG_VERDICT | (EFFECT_RENDER << 23))) ||
+        !(el._config & (CONFIG_PROBED_HELD | (EFFECT_RENDER << 23))) ||
         (observeFlightHook && !(el._config & (EFFECT_RENDER << 23)) && bornInto(el, tx))
       )
         joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
@@ -725,11 +731,15 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (__TEST__) shadowSeatClose(el, !!isEffect, joined, creatorPass(oldcontext), mount);
     // A verdict reader is one for as long as it probes, or reads a memo
     // that does (`read`): a pass that did neither (REACTIVE_PROBED, the same
-    // bit) is an ordinary derivation again. Its async posture is the
-    // verdict engine's to keep (CONFIG_ASYNC, verdict.ts `holdWork`, D-25).
+    // bit) is an ordinary derivation again. A frame reader for as long as
+    // its probe finds something held (REACTIVE_PROBED_HELD, the same bit as
+    // CONFIG_PROBED_HELD; #4544). Its async posture is the verdict engine's
+    // to keep (CONFIG_ASYNC, verdict.ts `holdWork`, D-25).
     // (Only the verdict engine probes: without it the line folds away.)
     if (observeFlightHook)
-      el._config = (el._config & ~CONFIG_VERDICT) | (el._flags & REACTIVE_PROBED);
+      el._config =
+        (el._config & ~(CONFIG_VERDICT | CONFIG_PROBED_HELD)) |
+        (el._flags & (REACTIVE_PROBED | REACTIVE_PROBED_HELD));
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
     // own owner (a memo calling its root's `dispose()`, a cleanup doing so
     // #3601/#3606), and `disposeChildren` set the flag on this node
@@ -1323,9 +1333,11 @@ export function joinPassAt(c: Computed<any>, t: Transaction): void {
  * dissolves the lane, and the refetching pass is the parent's own, reading
  * the truth as a member (`joinPass`). */
 function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
-  // Frame readers: a render effect, a verdict reader (CONFIG_VERDICT — it
-  // reads the screen like one: `[isPending(x), x()]` never pairs the fresh
-  // value with pending, A10, because the reader never sees the fresh value),
+  // Frame readers: a render effect, a verdict reader whose probe found
+  // something held (CONFIG_PROBED_HELD — it reads the screen like one:
+  // `[isPending(x), x()]` never pairs the fresh value with pending, A10,
+  // because the reader never sees the fresh value; a probe that found its
+  // node neither held nor pending earns no frame posture, #4544),
   // and lane work (a lane sees the screen plus its own guesses). Not a
   // mount's memo (2026-10-02, considered and reverted): a memo is not a
   // leaf — the transaction's own later passes read it — so a mainline mount's
@@ -1338,7 +1350,7 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // under a hold still enters it: the content memo it reads is born held,
   // with no committed value to serve.
   // (Verdict readers and lanes exist only with their engines installed.)
-  const verdict = observeFlightHook && c._config & CONFIG_VERDICT;
+  const verdict = observeFlightHook && c._config & CONFIG_PROBED_HELD;
   const lane = laneStageHook && passLane !== null;
   if (
     (!lane ||
@@ -2135,7 +2147,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // reads the screen too.
     if (
       netted ||
-      (((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
+      (((observeFlightHook && c._config & CONFIG_PROBED_HELD) ||
+        (laneStageHook && passLane?.folded)) &&
         stagedScreen(c as Computed<any>, el))
     ) {
       if (__TEST__) shadowActual(netted ? SLOT_P : SLOT_C);
@@ -2182,16 +2195,29 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // verdict memo showed its re-run's staging ahead of the lane that
         // staging lands with (#4408). A
         // verdict reader keeps the posture it is served the screen with
-        // (`observeFlight`). (A verdict memo exists only with the verdict
-        // engine installed.)
-        if (observeFlightHook && !(c as any)._type)
-          (c as Computed<any>)._flags |=
+        // (`observeFlight`). The frame-reader half travels with it
+        // (CONFIG_PROBED_HELD, #4544): a memo over a verdict memo whose
+        // probe found nothing held is no frame reader either — and one
+        // over a verdict memo that did is a frame reader from this read on,
+        // as the inline probe makes the pass (verdict.ts `probedHeld`): its
+        // later plain reads in the same pass are the screen's (A10, either
+        // read order — `[V(), x()]` never pairs the verdict with the fresh
+        // value), unless its running creators read the future or a staging
+        // (`creatorReads`, #4341: then it is in their world until the pass
+        // ends). (A verdict memo exists only with the verdict engine
+        // installed.)
+        if (observeFlightHook && !(c as any)._type) {
+          const v =
             owner._config &
-            CONFIG_VERDICT &
+            (CONFIG_VERDICT | CONFIG_PROBED_HELD) &
             (owner._statusFlags & STATUS_PENDING &&
             (c._config & CONFIG_STAGED || (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
               ? c._config
               : -1);
+          (c as Computed<any>)._flags |= v;
+          if (v & CONFIG_PROBED_HELD && !creatorReads(c as Computed<any>, 0))
+            c._config |= CONFIG_PROBED_HELD;
+        }
       }
     }
     if (__TEST__)
@@ -2260,7 +2286,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
   // mainline's): a lane breaks out of its parent's hold and waits only on
   // what derives from the guess (A31: "under a lane, a pending node on no
   // lane serves its committed value").
-  // A verdict reader likewise (CONFIG_VERDICT): a frame reader sees the
+  // A verdict reader whose probe found something held likewise
+  // (CONFIG_PROBED_HELD, #4544): a frame reader sees the
   // screen, and for a flight the screen is the committed value — a render
   // effect keeps its DOM by throwing, a memo has no DOM and is handed the
   // value. `[isPending(x), x()]` reads `[true, stale]` in either order (A10)
@@ -2280,7 +2307,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // boundary a lane mounts shows its fallback (A29's boundary exemption).
     if (passLane !== null && !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED))
       committed = true;
-    else if (c !== null && c._config & CONFIG_VERDICT)
+    else if (c !== null && c._config & CONFIG_PROBED_HELD)
       committed = observeFlightHook!(c as Computed<any>, owner);
   }
   if (owner._statusFlags & STATUS_PENDING && !committed) {
@@ -2422,7 +2449,7 @@ export function serve(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   if (
     readerSeesCommitted(el, c) ||
     (observeFlightHook &&
-      c!._config & CONFIG_VERDICT &&
+      c!._config & CONFIG_PROBED_HELD &&
       !((el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED) &&
       stagedScreen(c!, el) &&
       !throwShown(el))

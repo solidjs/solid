@@ -17,6 +17,7 @@ import {
   CONFIG_HELD_FRAME,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
+  CONFIG_PROBED_HELD,
   CONFIG_STAGED_ERROR,
   CONFIG_VERDICT,
   EFFECT_RENDER,
@@ -26,6 +27,7 @@ import {
   REACTIVE_JOINED,
   REACTIVE_LANE_READ,
   REACTIVE_PROBED,
+  REACTIVE_PROBED_HELD,
   REACTIVE_REASK,
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_STAGED_READ,
@@ -90,7 +92,23 @@ import type { Computed, Signal } from "./types.js";
  * commits, the answer stood. */
 function watchVerdict(c: Computed<any>, unanswered = false): void {
   if (unanswered) c._flags |= REACTIVE_PROBE_UNANSWERED;
+  probedHeld(c);
   stagedReaders.push(c);
+}
+
+/** The probe found a node that is not the screen's — held, staged this
+ * flush, in flight, or a lane's: the pass is a frame reader toward that hold
+ * from here (#4544, D-25: the probe decides the pass's posture — toward the
+ * hold it probed). A probe of a node that is neither held nor pending sets
+ * nothing: the pass stays an ordinary derivation of whatever dirties it,
+ * CONFIG_VERDICT (the re-derive-on-pending half) notwithstanding. In the
+ * config at once, as the window stamps CONFIG_VERDICT — a plain read later
+ * in the same pass is the screen's (A10, either read order) — unless the
+ * window withheld it (`creatorReads`, #4341): then from the pass's end, with
+ * the posture. */
+function probedHeld(c: Computed<any>): void {
+  c._flags |= REACTIVE_PROBED_HELD;
+  if (c._config & CONFIG_VERDICT) c._config |= CONFIG_PROBED_HELD;
 }
 
 /** The reading pass is the holder's verdict lane's — unless already lane
@@ -168,7 +186,10 @@ let probeFound = false;
 function verdictRead(c: Computed<any>, t: Transaction, plain?: boolean): void {
   route(c, t);
   if (plain) staleReader(c, t);
-  else if (probing && t._reruns[t._reruns.length - 1] !== c) t._reruns.push(c);
+  else {
+    probedHeld(c);
+    if (probing && t._reruns[t._reruns.length - 1] !== c) t._reruns.push(c);
+  }
 }
 
 /** A verdict read of a node staged or in flight but not held yet: whether it
@@ -268,7 +289,7 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
       if (!probing)
         flushTransaction ||
           (joinFuture(null), ((flushTransaction as Transaction | null)!.latest = 1));
-      else if (flushTransaction?.latest) return route(c, flushTransaction);
+      else if (flushTransaction?.latest) return (probedHeld(c), route(c, flushTransaction));
       provisionalVerdict(c, false); // decided above
     }
   }
@@ -551,7 +572,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // the owner joins the hold (held with it, or caught by a boundary that
     // has not shown content) and answers for the commit, where it is final.
     if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
-      if (probing && owned) joinPass(c!, el);
+      if (probing && owned) (probedHeld(c!), joinPass(c!, el));
       if (__TEST__) shadowActual(SLOT_P);
       return staged(el);
     }
@@ -660,7 +681,7 @@ function holdWork(n: Computed<any>, source: Computed<any>): unknown {
       n._x!._transaction?._lane ||
       source._flags & REACTIVE_REASK)
   )
-    return (n._config &= ~CONFIG_VERDICT);
+    return (n._config &= ~(CONFIG_VERDICT | CONFIG_PROBED_HELD));
 }
 
 // Installed at module evaluation — present exactly when something imports

@@ -80,6 +80,16 @@ export const REACTIVE_WINDOW = 1 << 21;
  * missed gave it (D-22, #4474), so the queued pass runs, then `recompute`'s
  * tail releases the node. Survives the head wipe; the tail consumes it. */
 export const REACTIVE_RELEASE_AFTER = 1 << 22;
+/** The pass's probe (`isPending`/`latest`) found a node that is not the
+ * screen's — held, staged this flush, in flight, or a lane's (verdict.ts
+ * `probedHeld`) — or read a verdict memo that did (core.ts `read`, #4050).
+ * The frame-reader half of the verdict posture (#4544, ruled 2026-10-31): a
+ * probe of a node that is neither held nor pending earns the pass no frame
+ * posture — it stays an ordinary derivation of any hold that dirties it;
+ * a probe that finds one makes the pass that hold's verdict reader. The same
+ * bit as CONFIG_PROBED_HELD: carried into the config at the pass's end
+ * without a shift, as REACTIVE_PROBED is. Per pass. */
+export const REACTIVE_PROBED_HELD = 1 << 30;
 
 // Static configuration bits packed into Owner/Computed/Signal _config.
 export const CONFIG_OWNED_WRITE = 1 << 0;
@@ -150,6 +160,13 @@ export const CONFIG_GUESS = 1 << 13;
  * bit as REACTIVE_PROBED: a pass's probe (or a read of a verdict memo,
  * core.ts `read`) carries into the config at its end without a shift. */
 export const CONFIG_VERDICT = 1 << 15;
+/** The node's last pass probed something held (REACTIVE_PROBED_HELD, the
+ * same bit): the pass is a frame reader — its plain read of a held node is
+ * the screen's (`frameRead`, `stagedScreen`), a flight's committed value
+ * (`observeFlight`), and it joins no hold at its head (`recompute`). Only
+ * with CONFIG_VERDICT (the re-derive-on-pending half, stamped at the window
+ * whatever the probe finds); set, cleared and inherited beside it. */
+export const CONFIG_PROBED_HELD = 1 << 30;
 /** A dependency's status is a question for this node's pass, not a fact
  * about its current one: the propagation re-derives it instead of marking
  * it, for errors as for pending (as CONFIG_VERDICT). A boundary's output
