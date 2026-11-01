@@ -42,7 +42,8 @@ import {
   setTrackedQueueCallback,
   setEffectCallback,
   heldRunHook,
-  queueEvent
+  queueEvent,
+  applyStaged
 } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
@@ -80,9 +81,11 @@ export function effect<T>(
   // creation's (A29). A lane's node likewise: its run is the lane's, queued
   // by the pass and released at the reveal (lanes.ts).
   // `defer` skips the first run, the commit's replay of a node born staged
-  // included (#4543): it drops the staging, so the commit replays nothing.
+  // included (#4543): its staged first value applies now, so the commit
+  // replays nothing and the next pass gets it as `prev`, as on a plain mount
+  // (#4556; D-13).
   options?.defer
-    ? (node._pendingValue = NOT_PENDING)
+    ? applyStaged(node)
     : node._pendingValue === NOT_PENDING &&
       !node._x?._transaction?._lane &&
       (node._type === EFFECT_USER || options?.schedule
