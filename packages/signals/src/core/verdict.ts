@@ -86,6 +86,7 @@ import {
   SLOT_SNAPSHOT,
   shadowActual,
   shadowExpect,
+  shadowHoldWork,
   shadowWindow
 } from "./seat.js";
 import type { Computed, Signal } from "./types.js";
@@ -686,8 +687,10 @@ function holdWork(n: Computed<any>, source: Computed<any>): unknown {
     (!(n._statusFlags & STATUS_PENDING) ||
       n._x!._transaction?._lane ||
       source._flags & REACTIVE_REASK)
-  )
+  ) {
+    if (__TEST__) shadowHoldWork(n);
     return (n._config &= ~CONFIG_VERDICT);
+  }
 }
 
 // Installed at module evaluation — present exactly when something imports
