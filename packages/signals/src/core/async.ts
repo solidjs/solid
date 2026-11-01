@@ -135,13 +135,18 @@ export function forEachDependent(
   for (let s = el._subs; s !== null; s = s._nextSub) fn(s._sub, s);
 }
 
-/** Each dependent reachable from `el`, once, depth first. `fn` returning
- * false leaves the node unmarked and its dependents unwalked: a later branch
- * of the same walk may reach it again. */
-function walkDependents(el: Computed<any>, fn: (node: Computed<any>) => unknown): void {
+/** Each dependent reachable from `el`, depth first. `fn` sees every arrival,
+ * `seen` when an earlier branch already walked the node (a diamond); the
+ * node's dependents are walked once, on its first arrival unless `fn`
+ * returns false (then it stays unmarked: a later branch may walk it). */
+function walkDependents(
+  el: Computed<any>,
+  fn: (node: Computed<any>, seen: boolean) => unknown
+): void {
   const visited = new NewSet<Computed<any>>();
   const visit = (node: Computed<any>) => {
-    if (!visited.has(node) && fn(node) !== false) {
+    const seen = visited.has(node);
+    if (fn(node, seen) !== false && !seen) {
       visited.add(node);
       forEachDependent(node, visit);
     }
@@ -175,8 +180,8 @@ export function releaseIfSettledUnobserved(node: Computed<any>): void {
 // Collect-then-release so unobserved() never unlinks under the walk.
 export function releaseSettledDependents(el: Computed<any>): void {
   let candidates: Computed<any>[] | undefined;
-  walkDependents(el, node => {
-    if (!node._subs && node._config & CONFIG_AUTO_DISPOSE) (candidates ??= []).push(node);
+  walkDependents(el, (node, seen) => {
+    if (!seen && !node._subs && node._config & CONFIG_AUTO_DISPOSE) (candidates ??= []).push(node);
   });
   if (candidates) for (const node of candidates) releaseIfSettledUnobserved(node);
 }
@@ -265,8 +270,8 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
 
 export function settleErroredDependents(el: Computed<any>, error: any): void {
   let scheduled = false;
-  walkDependents(el, node => {
-    if (node._x?._error === error) {
+  walkDependents(el, (node, seen) => {
+    if (!seen && node._x?._error === error) {
       enqueueSub(node);
       scheduled = true;
     }
@@ -338,8 +343,12 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
   removePendingSource(el, source);
   let scheduled = false;
   let released: Computed<any>[] | undefined;
-  walkDependents(el, node => {
+  walkDependents(el, (node, seen) => {
     if (
+      // A node an earlier branch settled (a diamond) takes only this early
+      // return's verdict re-run / staged-error mark, as the walk did before
+      // it was shared.
+      seen ||
       // A conditional dropped this source, but another dependency can still
       // carry it. Only retire pending state inherited through the recovered
       // branch. Deliberately NOT marked visited on this early return: the
