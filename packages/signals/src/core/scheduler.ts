@@ -293,6 +293,11 @@ export interface Transaction {
    * its verdict lane's with no re-run at its landing (F-6, D-23). Unset
    * until then; not `_`-prefixed, as `folded`. */
   latest?: 1;
+  /** Lane: the transaction whose question's answer a keyed guess of it was
+   * re-based over (store/optimistic.ts `_laneRebase`, #4525): in that
+   * transaction's flush the lane's work reads its staging (core.ts
+   * `frameRead`, #4536). Unset until then; not `_`-prefixed, as `folded`. */
+  over?: Transaction;
   /** `affects()` marks declared in it (affects.ts): released at the landing.
    * Not nodes — a mark holds nothing (`blocked` never sees one). */
   _marks: Signal<any>[] | null;
