@@ -378,7 +378,7 @@ function caughtBelow(b: Boundary, r: Computed<any>, s: Computed<any>): boolean {
     s._statusFlags & STATUS_PENDING
   )
     return false;
-  for (let l = boundaryOf(r); l && l !== b; l = l._parent)
+  for (let l: Boundary | null | undefined = boundaryOf(r); l && l !== b; l = l._parent)
     if (l._type & STATUS_PENDING && isCollecting(l)) return true;
   return false;
 }
