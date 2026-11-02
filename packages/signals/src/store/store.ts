@@ -1329,6 +1329,18 @@ export function membershipChanged(
   return false;
 }
 
+/** An adoption's leaf write. A derive's pass that is a lane's work (a
+ * display-ahead pass, F-6) writes the lane's derivation (D-25), as its draft
+ * writes do (`notifyWrites` → `holdWithDerive`): the lane's value, the
+ * committed value — and a truth a transaction holds beneath — untouched
+ * (#4631: staged into the hold instead, the leaf showed the screen beside a
+ * container showing the lane). */
+function leafSet(node: Signal<any>, v: any): void {
+  setSignal(node, v);
+  if (passLane !== null && !userWrite && (node as any)._host._fam !== null)
+    holdWithDerive((node as any)._host, node);
+}
+
 /** One leaf's notification for an adoption diff (descriptor-aware). */
 export function notifyKeyDiff(
   node: Signal<any>,
@@ -1347,13 +1359,13 @@ export function notifyKeyDiff(
     // Data descriptors fall through, as in notifyWrites (#3949).
     if (!nd || nd.get || nd.set) {
       if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
-        setSignal(node, () => FORCE as any);
+        leafSet(node, () => FORCE as any);
       return;
     }
     const ov = od?.value;
     const nv = nd?.value;
     if (od?.get || od?.set || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
-      setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
+      leafSet(node, typeof nv === "function" ? () => nv : (nv as any));
   } else {
     const ov = old[key as any];
     const nv = neu[key as any];
@@ -1361,7 +1373,7 @@ export function notifyKeyDiff(
     // store's next frame, not what the node was last told: written, the
     // node's own equality judging it (#4361).
     if (old[$TARGET] || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
-      setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
+      leafSet(node, typeof nv === "function" ? () => nv : (nv as any));
   }
 }
 
@@ -1383,7 +1395,7 @@ export function notifyKeyValue(
     return;
   }
   if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
-    setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
+    leafSet(node, typeof nv === "function" ? () => nv : (nv as any));
 }
 
 /** The structural half of an adoption's notifications (reconcile does the
@@ -1416,7 +1428,7 @@ export function notifyFoldTail(
   const live: StoreTarget | undefined = (old as any)[$TARGET];
   if (has !== null) {
     for (const key of Reflect.ownKeys(has))
-      if (live || key in old !== key in neu) setSignal(has[key as any], key in neu);
+      if (live || key in old !== key in neu) leafSet(has[key as any], key in neu);
   }
   const k = t.k;
   if (k !== null && (k._subs !== null || k._config & CONFIG_OVERRIDE)) {
