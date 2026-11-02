@@ -35,7 +35,12 @@ test("a mainline effect reading a held lane runs at the lane's reveal, with its 
     setB(1);
     yield new Promise<void>(r => (gate = r));
   });
-  const slowB = createMemo(() => (b() === 0 ? 0 : wait(40).then(() => b())));
+  // B's derivation settles when the test opens it, not on a timer: under CI
+  // load a timer could fire before the mount-time assertion below.
+  let openB!: () => void;
+  const slowB = createMemo(() =>
+    b() === 0 ? 0 : new Promise<void>(r => (openB = r)).then(() => b())
+  );
   const log: [string, number, string][] = [];
   function Child() {
     createRenderEffect(
@@ -72,7 +77,8 @@ test("a mainline effect reading a held lane runs at the lane's reveal, with its 
   // world has shown, so no effect has run on `1`.
   expect(log.filter(([, x]) => x === 1)).toEqual([]);
 
-  await wait(60);
+  openB();
+  await wait(5);
   flush();
   // The reveal: the lane's runs, with the screen that shows `1`.
   expect(log).toEqual([
