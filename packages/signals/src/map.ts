@@ -4,6 +4,7 @@ import {
   CONFIG_AUTO_DISPOSE,
   createOwner,
   getOwner,
+  NOT_PENDING,
   runWithOwner,
   setSignal,
   signal,
@@ -386,13 +387,18 @@ function commitWindow<Item>(
   }
   for (j = start; j <= newEnd; j++) {
     nodes[j] = tempNodes[j - start];
-    if (liveRows) setSignal((liveRows[j] = rows![j - start]), newItems[j]);
+    if (liveRows) writeRow((liveRows[j] = rows![j - start]), newItems[j]);
     if (liveIndexes) setSignal((liveIndexes[j] = indexes![j - start]), j);
   }
   for (j = newEnd + 1; j < newLen; j++) {
-    if (liveRows) setSignal(liveRows[j], newItems[j]);
+    if (liveRows) writeRow(liveRows[j], newItems[j]);
     if (liveIndexes && dif !== 0) setSignal(liveIndexes[j], j);
   }
+}
+
+// Checks the row itself, not `_items`: an aborted pass can leave a row written or staged.
+function writeRow<Item>(row: Signal<Item>, v: Item): void {
+  if (row._value !== v || row._pendingValue !== NOT_PENDING) setSignal(row, v);
 }
 
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
@@ -525,10 +531,10 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       // (resolveOptimisticNodes, then cleanupCompletedLanes, both before the
       // completion wakes any recompute), so a pass that finds no lane live
       // knows the slots are clean and drops the mark — and an unmarked map
-      // takes `setSignal` directly. The engine is installed whenever a lane
+      // takes `writeRow` directly. The engine is installed whenever a lane
       // is active.
       // CARVE 2: the lane-slot arm (`_landOnOverride`, F1) went with the engine.
-      const write: <T>(el: Signal<T>, v: T) => unknown = setSignal;
+      const write: <T>(el: Signal<T>, v: T) => unknown = writeRow;
 
       // skip common prefix
       for (
