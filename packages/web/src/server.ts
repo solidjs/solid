@@ -5200,6 +5200,19 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   if (skipChildren) return { t: result + " />" };
   if (childOwner !== null) children = info.raw ? childOwner.children : escape(childOwner.children);
   if (typeof children === "function") children = children();
+  // `() => scope(fn)` children return the scope's evaluator: run it as resolveSSRNode would.
+  let thunk = null;
+  if (typeof children === "function" && (ctx === undefined || !ctx.liveHoles)) {
+    thunk = children;
+    ssrTextTail = false;
+    try {
+      children = thunk();
+    } catch (err) {
+      const res = { t: [""], h: [], p: [] };
+      pushSSRAsyncHole(res, err, thunk);
+      return ssr([result + ">", info.close], res);
+    }
+  }
   // The content most elements end up with — one string (a text child, escaped
   // above or by the compiler), a number, nothing, or one finished node — joins
   // in place. That is exactly what the general path below produces for these
@@ -5209,14 +5222,23 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // element is serialized here on every render, so that was the largest
   // single cost of the element path (profiled at a third of it on a
   // text-content-heavy page). The text-adjacency marker state
-  // (`ssrTextTail`) is not touched: the parent resets it on this element's
-  // finished node either way.
+  // (`ssrTextTail`) is left as the child left it: the parent resets it on this
+  // element's finished node either way.
   const ct = typeof children;
   if (ct === "string" || ct === "number") return { t: result + ">" + children + info.close };
   if (children == null || ct === "boolean") return { t: result + ">" + info.close };
   if (ct === "object" && !children.h && typeof children.t === "string")
     return { t: result + ">" + children.t + info.close };
-  return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
+  if (thunk === null)
+    return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
+  // Nested, as resolveSSRNode resolves a function's value: arrays keep their separators.
+  const res = { t: [""], h: [], p: [] };
+  try {
+    resolveSSRNode(children, res, false, true);
+  } catch (err) {
+    pushSSRAsyncHole(res, err, thunk);
+  }
+  return ssr([result + ">", info.close], res);
 }
 
 /**
@@ -6251,20 +6273,25 @@ export function resolveSSRNode(
       try {
         resolveSSRNode(node(), result, false, true);
       } catch (err) {
-        const wrap = buildAsyncWrap(err, node);
-        if (wrap) {
-          if (ssrTextTail) result.t[result.t.length - 1] += "<!--!$-->";
-          result.h.push(wrap.fn);
-          result.p.push(wrap.p);
-          result.t.push("");
-          ssrTextTail = true;
-        }
+        pushSSRAsyncHole(result, err, node);
       } finally {
         if (scope) live.scope = scope;
       }
     }
   }
   return result;
+}
+
+// A suspension becomes an async hole that re-pulls `node`, counted as text on both sides.
+function pushSSRAsyncHole(result, err, node) {
+  const wrap = buildAsyncWrap(err, node);
+  if (wrap) {
+    if (ssrTextTail) result.t[result.t.length - 1] += "<!--!$-->";
+    result.h.push(wrap.fn);
+    result.p.push(wrap.p);
+    result.t.push("");
+    ssrTextTail = true;
+  }
 }
 
 function resolveSSRSync(node) {
