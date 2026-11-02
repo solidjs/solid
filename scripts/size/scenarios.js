@@ -1126,8 +1126,9 @@ module.exports = [
     // Batch re-record (2026-11-01, over next @ 689347f, size job 124769765997 on #4563's head, whose non-test code is next's; batch #4546, #4563, test-only #4571): 14.99 KB -> 15.01 KB, recorded minified 43,999 -> 43,858 B (-141 B), measured at 14,997 B brotli. Minified shrank; the brotli over the old cap is mangle layout. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-01, over next @ 77be406, size job 124886513372: #4582, #4583, #4586, #4572, #4567, #4585, #4581): cap unchanged at 15.01 KB, recorded minified 43,858 -> 43,860 B (+2 B), measured at 14,982 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-02, over next @ a56b10b, size job 125156290178: #4596, #4601, #4602, #4603, #4608): cap unchanged at 15.01 KB, recorded minified 43,860 -> 43,875 B (+15 B), measured at 14,996 B brotli. Re-recorded once after the batch, per the batch process.
-    limit: "15.01 KB",
-    capMinified: 43875,
+    // Store writes skip per-call allocations (2026-11-02, over next @ 456e6d5): 15.01 KB -> 15.07 KB, recorded minified 43,875 -> 43,925 B, measured locally at 15,055 B brotli (+44 B brotli, +183 B minified over next, which has not re-recorded #4620's -133 B). One setter scope is held in a variable and a setter's first written key is kept bare, so a single-key write allocates no Set: write-floor -22%, input burst -9 to -14%, array writes -7%. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "15.07 KB",
+    capMinified: 43925,
     alias
   },
   {
@@ -2780,11 +2781,12 @@ module.exports = [
     // Batch re-record (2026-11-02, over next @ a56b10b, size job 125156290178: #4596, #4601, #4602, #4603, #4608): 32.77 KB -> 32.81 KB, recorded minified 98,962 -> 99,010 B (+48 B), measured at 32,795 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-02, over next @ 97e1826, size job 125171473550: #4611): 32.81 KB -> 32.90 KB, recorded minified 99,010 -> 99,155 B (+145 B), measured at 32,883 B brotli. #4611's growth was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-02, over next @ 7ea8706, size job 125205107698: #4614, #4615): cap unchanged at 32.90 KB, recorded minified 99,155 -> 99,163 B (+8 B), measured at 32,837 B brotli. The growth of #4614 and #4615 was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
-    limit: "32.90 KB",
+    // Store writes skip per-call allocations (2026-11-02, over next @ 456e6d5): 32.90 KB -> 32.96 KB, recorded minified 99,163 -> 99,218 B, measured locally at 32,947 B brotli (+89 B brotli, +188 B minified over next, which has not re-recorded #4620's -133 B). One setter scope is held in a variable and a setter's first written key is kept bare, so a single-key write allocates no Set: write-floor -22%, input burst -9 to -14%, array writes -7%. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.96 KB",
     // An Errored heals when the last reader that caught its error is disposed (#4373, #4384, 2026-10-28, re-recorded over next @ cbc0eebd): recorded minified 96,989 -> 97,047 B (+58 B minified over next's record), measured locally (linux) at 31,811 B brotli. Recorded minified = measured; CI re-bases.
     // Boundary readers keyed by the source they wait on (#4373), with enterLane's tail folded into one else-chain as an offset (-29 B on lane pages) (#4384, 2026-10-28, re-recorded over next @ 1b32ff2e): recorded minified 97,024 -> 97,045 B (+21 B minified over next's record), measured locally (linux) at 31,798 B brotli. Recorded minified = measured; CI re-bases.
     // latest() read inline and through a memo show the same screen (#4284 through a memo; a plain write beside an async memo), 2026-10-29, over next @ 7ebd4a32: recorded minified 97,045 -> 97,426 B (+240 B minified over next), measured locally (linux) at 31,976 B brotli (+109 B over next). A render effect a verdict memo's change re-runs reads as its verdict reader for that pass (`laneDirty`), a pass that read a staging before the frame had a transaction re-derives once as a verdict reader only if the frame parks, `latest()` of a first load in flight in a verdict lane is loading (also through an identity memo, a derived store and `isPending`), a lane's dissolution leaves such a load and the nodes pending on it uninitialized instead of committing `undefined`, a verdict lane born at a seam is judged at it, a pass born in a staged reader stays the frame's on a verdict-memo read (C4, #4010), a plain write beside `latest()` computes once (the seam re-derives a pre-transaction staged reader only if the frame parks), a verdict reader's plain read of a staging in a transaction only a `latest()` opened is the frame's read, so a memo of `latest()` computes once too (D-22; not a pass with no value yet, D-6), and an error stays the display while the memo it came through re-asks, a Loading fallback behind it included (D-39, async-gen 91501 #1831). recompute's CONFIG_VERDICT clear now sits behind the lane engine: -21 B minified on every floor. Correctness; the maintainer: "only flag me if brotli goes more than 20kb" (2026-10-29). Cap unchanged; recorded minified = measured.
-    capMinified: 99163,
+    capMinified: 99218,
     alias
   },
   {
@@ -4206,8 +4208,9 @@ module.exports = [
     // Batch re-record (2026-10-31, over next @ 6bde511: #4511 after #4514): cap unchanged at 26.36 KB, recorded minified 80,074 -> 80,106 B (+32 B), measured at 26,303 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-10-31, over next @ ab3e844: #4519, #4523, #4450, #4522 after #4521): cap unchanged at 26.36 KB, recorded minified 80,106 -> 80,127 B (+21 B), measured at 26,311 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-02, over next @ 97e1826, size job 125171473550: #4611): 26.36 KB -> 26.41 KB, recorded minified 80,127 -> 80,107 B (-20 B), measured at 26,396 B brotli. #4611's growth was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
-    limit: "26.41 KB",
-    capMinified: 80107,
+    // Store writes skip per-call allocations (2026-11-02, over next @ 456e6d5): 26.41 KB -> 26.50 KB, recorded minified 80,107 -> 80,161 B, measured locally at 26,482 B brotli (+80 B brotli, +188 B minified over next, which has not re-recorded #4620's -133 B). One setter scope is held in a variable and a setter's first written key is kept bare, so a single-key write allocates no Set: write-floor -22%, input burst -9 to -14%, array writes -7%. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "26.50 KB",
+    capMinified: 80161,
     alias
   },
   {
@@ -4387,8 +4390,9 @@ module.exports = [
     // Batch re-record (2026-10-31, over next @ ab3e844: #4519, #4523, #4450, #4522 after #4521): 32.54 KB -> 32.56 KB, recorded minified 100,868 -> 100,886 B (+18 B), measured at 32,542 B brotli. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-10-31, over next @ 3a73a36: #4529, #4533, #4494, #4534, #4532): 32.56 KB -> 32.61 KB, recorded minified 100,886 -> 100,851 B (-35 B), measured locally (linux) at 32,591 B brotli. Minified fell; the brotli rise is mangle-props layout from #4494's renamed store fields, not new code. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-02, over next @ 97e1826, size job 125171473550: #4611): 32.61 KB -> 32.66 KB, recorded minified 100,851 -> 100,825 B (-26 B), measured at 32,647 B brotli. #4611's growth was accepted by the maintainer. Re-recorded once after the batch, per the batch process.
-    limit: "32.66 KB",
-    capMinified: 100825,
+    // Store writes skip per-call allocations (2026-11-02, over next @ 456e6d5): 32.66 KB -> 32.79 KB, recorded minified 100,825 -> 100,867 B, measured locally at 32,773 B brotli (+143 B brotli, +188 B minified over next, which has not re-recorded #4620's -133 B). One setter scope is held in a variable and a setter's first written key is kept bare, so a single-key write allocates no Set: write-floor -22%, input burst -9 to -14%, array writes -7%. Cap at measured + 10 B rounded up to 0.01 KB; recorded minified = measured.
+    limit: "32.79 KB",
+    capMinified: 100867,
     alias
   },
   {

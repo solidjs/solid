@@ -56,9 +56,10 @@ export interface StoreFamily {
 }
 
 /** One setter's written keys; `u` is the batch's earlier setters' (the
- * fold's union), present only once a second setter writes the target. */
+ * fold's union, a set or a bare key), present only once a second setter
+ * writes the target. */
 export interface WrittenKeys extends Set<PropertyKey> {
-  u?: WrittenKeys;
+  u?: WrittenKeys | PropertyKey;
 }
 
 export interface StoreTarget {
@@ -85,8 +86,9 @@ export interface StoreTarget {
    * maps) would otherwise pay a full node scan on every write — and to THIS
    * setter's keys (D-8: a key an earlier setter of the batch wrote is told
    * once, #3743). null = no trap writes this batch (bulk paths fall back to
-   * the full scan); WK_ALL = bound unusable (array length write). */
-  wk: WrittenKeys | null;
+   * the full scan); WK_ALL = bound unusable (array length write); a bare
+   * key = this setter's only write, nothing chained. */
+  wk: WrittenKeys | PropertyKey | null;
   /** Lazy deep-witness node: `deep()` subscribes ONE node per record instead
    * of one per path; write paths bump it only when it exists. Separate from
    * `k` so $TRACK/mapArray never rerun on leaf value changes (R9). */

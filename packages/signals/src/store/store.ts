@@ -657,6 +657,9 @@ const OVERLAY_MIN_KEYS = 32;
 const OVERLAY_REBUILD_MAX_KEYS = 1024;
 const OVERLAY_REBUILD_MIN_ADDS = 16;
 const WK_ALL = new Set() as WrittenKeys;
+/** A bare written key iterates as a set of one. */
+const writtenList = (wk: WrittenKeys | PropertyKey | null): Iterable<PropertyKey> | null =>
+  typeof wk === "object" ? wk : [wk];
 
 const plainProto = (o: object): boolean => {
   const p = Object.getPrototypeOf(o);
@@ -669,7 +672,11 @@ function overlayRebuilds(t: StoreTarget, pb: Record<PropertyKey, any>): boolean 
   if (t.kc > OVERLAY_REBUILD_MAX_KEYS) return false;
   if (t.del?.size) return true;
   const wk = t.wk;
-  if (wk !== null && wk !== WK_ALL && wk.u === undefined && wk.size <= OVERLAY_REBUILD_MIN_ADDS)
+  if (
+    wk !== null &&
+    wk !== WK_ALL &&
+    (typeof wk !== "object" || (wk.u === undefined && wk.size <= OVERLAY_REBUILD_MIN_ADDS))
+  )
     return false;
   const v = t.v;
   let adds = 0;
@@ -1001,8 +1008,8 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
           const v = t.v;
           const wk = t.wk;
           if (wk !== null && wk !== WK_ALL) {
-            for (let w: WrittenKeys | undefined = wk; w !== undefined; w = w.u)
-              for (const key of w) {
+            for (let w: any = wk; w !== undefined; w = w.u)
+              for (const key of writtenList(w)!) {
                 if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
                 else delete (v as any)[key];
               }
@@ -1201,7 +1208,9 @@ function notifyWrites(t: StoreTarget): void {
   // a held node its unchanged value again would join this tick to the hold.
   const wk0 = t.wk;
   const writtenKeys =
-    wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
+    wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb)
+      ? null
+      : writtenList(wk0);
   if (__OBSERVE__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
   if (t._fam !== null && !heldDerivationHit && writtenKeys !== null)
     for (const key of writtenKeys)
@@ -1449,9 +1458,11 @@ export function notifyFold(
 // visibility
 
 let writing = 0;
-/** Roots of the stores with an open setter: reads of THEIR drafts are the
+/** Root of the store with an open setter: reads of ITS drafts are the
  * writer's (no tracking, pending backing served); every other store reads
  * normally — a derive's external reads are its dependencies (#3037). */
+let writeScope: any = null;
+/** Further scopes joined by a served child proxy of another store. */
 let writeScopes: Set<any> | null = null;
 const pendingNotify = new Set<StoreTarget>();
 
@@ -1462,7 +1473,11 @@ function scopeKey(target: StoreTarget): any {
   return t;
 }
 function inDraft(target: StoreTarget): boolean {
-  return writeScopes !== null && writeScopes.has(scopeKey(target));
+  let k;
+  return (
+    writeScope !== null &&
+    ((k = scopeKey(target)) === writeScope || (writeScopes !== null && writeScopes.has(k)))
+  );
 }
 
 /** Shallow store: values served verbatim (a nested store proxy still wraps
@@ -1474,9 +1489,12 @@ function serveShallow(target: StoreTarget, key: PropertyKey, v: any): any {
 }
 /** A child proxy served to a draft joins the draft's scope. */
 function draftServe(target: StoreTarget, proxy: any): any {
-  if (writeScopes !== null && inDraft(target)) {
+  if (inDraft(target)) {
     const ct: StoreTarget | undefined = proxy?.[$TARGET];
-    if (ct?.v !== undefined) writeScopes.add(scopeKey(ct));
+    if (ct?.v !== undefined) {
+      const k = scopeKey(ct);
+      if (k !== writeScope) (writeScopes ??= new Set()).add(k);
+    }
   }
   return proxy;
 }
@@ -2010,7 +2028,9 @@ function touch(target: StoreTarget, key: PropertyKey): void {
       target.wk = wk;
     }
   }
-  if (wk !== WK_ALL) (target.wk ??= new Set() as WrittenKeys).add(key);
+  if (wk === null || wk === key) target.wk = key;
+  else if (typeof wk !== "object") target.wk = (new Set() as WrittenKeys).add(wk).add(key);
+  else if (wk !== WK_ALL) wk.add(key);
 }
 
 /** Dev: targets (and their keys) already warned about for a write outside
@@ -2104,7 +2124,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     // beneath it, and any hold there, is not this reader's concern; a link
     // without one reads through below).
     const node0 = target.n?.[key as any];
-    if (writeScopes === null && !writeOverride) {
+    if (writeScope === null && !writeOverride) {
       const nodeH = node0;
       if (
         nodeH !== undefined &&
@@ -2480,9 +2500,10 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
   if (writeHook !== null) writeHook(proxy as object);
   if (__DEV__ && guard) devGuardStoreSetterWrite();
   const target: StoreTarget = (proxy as any)[$TARGET];
+  const prevScope = writeScope;
   const prevScopes = writeScopes;
-  writeScopes = new Set();
-  writeScopes.add(scopeKey(target));
+  writeScope = scopeKey(target);
+  writeScopes = null;
   const prevUser = userWrite;
   userWrite = guard;
   // An outermost setter's exit notifies the targets it wrote. A
@@ -2504,6 +2525,7 @@ export function storeSetter<T>(proxy: T, fn: (draft: T) => T | void, guard = tru
     result = fn(proxy);
   } finally {
     writing--;
+    writeScope = prevScope;
     writeScopes = prevScopes;
     // Outermost setter exit: emit write-time notifications (one node write
     // per changed observed key) so holds and lanes engage now.
@@ -2592,7 +2614,7 @@ export function createStore<T extends Record<PropertyKey, any>>(
  * keys, or a read inside a draft or write scope. Those keep the trap. */
 installShallowView(t => {
   // Any open write scope keeps the trap (it covers `inDraft`).
-  if (t?.s && !(t.ch || t.a || writeScopes || writeOverride || t._fam?.opt))
+  if (t?.s && !(t.ch || t.a || writeScope !== null || writeOverride || t._fam?.opt))
     return (t._fam && pullFamily(t), readSource(t) as any[]);
 });
 
