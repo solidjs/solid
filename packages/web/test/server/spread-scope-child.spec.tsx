@@ -11,7 +11,7 @@ const stripKeys = (html: string) => html.replace(/ _hk=[^\s>]+/g, "");
 const rest = { id: "a" };
 const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-const values = {
+const values: Record<string, () => any> = {
   text: () => "x < y",
   number: () => 42,
   array: () => ["a", "b", 3],
