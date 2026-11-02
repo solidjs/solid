@@ -65,7 +65,7 @@ it("a region disposed under an action's lane does not run again (#4613)", async 
       <For each={[filter()]}>
         {(f: string) => (
           <Loading fallback={<p>loading {f}</p>}>
-            <Errored fallback={e => <p>error {e().message}</p>}>
+            <Errored fallback={(e: any) => <p>error {e().message}</p>}>
               <For each={issues}>
                 {(it: any) => {
                   rows.push(`${f}:${it.id}`);
