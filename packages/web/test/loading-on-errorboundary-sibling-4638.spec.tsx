@@ -12,7 +12,8 @@
  * The signals-only twin: `packages/signals/tests/loading-on-errorboundary-sibling-4638.test.ts`.
  */
 import { expect, test } from "vitest";
-import { Loading, createErrorBoundary, createMemo, createSignal, flush, untrack } from "solid-js";
+import { Loading, createMemo, createSignal, flush, untrack } from "solid-js";
+import { createErrorBoundary } from "solid-js/internal";
 import { render } from "../src/index.js";
 
 const tick = async () => {
