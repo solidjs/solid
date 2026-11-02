@@ -34,7 +34,9 @@ const tick = async () => {
   }
 };
 
-function run(guessFirst = false) {
+type Read = "issuesFirst" | "guessFirst" | "viaMemo" | "viaMemoFirst";
+
+function run(read: Read = "issuesFirst") {
   const asks: { key: string; res: (v: any) => void; rej: (e: any) => void }[] = [];
   const ask = (key: string) => new Promise<any>((res, rej) => asks.push({ key, res, rej }));
   const settle = async (key: string, v: any, fail = false) => {
@@ -53,11 +55,24 @@ function run(guessFirst = false) {
     const issues = createMemo<Row[]>(() => ask("issues"));
     const [truth] = createSignal<Row[]>(() => []);
     const [assigning, guess] = createOptimistic<Row[]>(() => truth());
+    // The guess read straight, or through a memo derived from it (the held
+    // pass is then a grandchild of the guessed node).
+    const byId = createMemo(() => {
+      const m: Record<number, string> = {};
+      for (const x of assigning()) m[x.id] = x.a;
+      return m;
+    });
+    const guessed = () => {
+      if (read === "viaMemo" || read === "viaMemoFirst") return byId();
+      const m: Record<number, string> = {};
+      for (const x of assigning()) m[x.id] = x.a;
+      return m;
+    };
     const overlay = createMemo(() => {
-      const log = guessFirst ? assigning() : undefined;
+      const first = read === "guessFirst" || read === "viaMemoFirst" ? guessed() : undefined;
       return issues().map(i => {
-        const g = (log ?? assigning()).filter(x => x.id === i.id).pop();
-        return g ? { ...i, a: g.a } : i;
+        const a = (first ?? guessed())[i.id];
+        return a ? { ...i, a } : i;
       });
     });
     const rows = mapArray(overlay, (r: Row) => () => `[#${r.id} ${r.a}]`);
@@ -89,8 +104,8 @@ function run(guessFirst = false) {
   };
 }
 
-async function toSecondGuess(guessFirst?: boolean) {
-  const t = run(guessFirst);
+async function toSecondGuess(read?: Read) {
+  const t = run(read);
   flush();
   await tick();
   await t.settle("issues", t.snap());
@@ -125,11 +140,21 @@ describe("#4629: a second guess into a log beside the first action's re-ask (mem
   // D-28: whether a read throws is the read's own — not the order of the
   // reads around it. Reading the log before `issues` showed the guess at
   // once already.
-  it("either read order: the guess shows at once", async () => {
-    for (const guessFirst of [false, true]) {
-      const t = await toSecondGuess(guessFirst);
-      expect(t.screen).toBe("[#3 guest][#4 guest]");
+  it("either read order, read straight or through a memo: the guess shows at once", async () => {
+    for (const read of ["issuesFirst", "guessFirst", "viaMemo", "viaMemoFirst"] as const) {
+      const t = await toSecondGuess(read);
+      expect(t.screen, read).toBe("[#3 guest][#4 guest]");
+      await t.settle("issues", t.snap());
+      expect(t.screen, read).toBe("[#3 guest][#4 guest]");
     }
+  });
+
+  it("through a memo, a rejected second action reverts its row", async () => {
+    const t = await toSecondGuess("viaMemo");
+    expect(t.screen).toBe("[#3 guest][#4 guest]");
+    await t.settle("issues", t.snap());
+    await t.settle("assign:4", new Error("no"), true);
+    expect(t.screen).toBe("[#3 guest][#4 dana]");
   });
 
   it("a rejected second action reverts its row", async () => {

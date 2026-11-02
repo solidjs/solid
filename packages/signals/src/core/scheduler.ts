@@ -1426,8 +1426,25 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
  * `laneRead` re-derives it on the screen if that lane holds (`entered`). */
 export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): void {
   for (let s = node._subs; s !== null; s = s._nextSub) {
-    const c = s._sub,
-      t = c._x?._transaction;
+    const c = s._sub;
+    let t = c._x?._transaction;
+    // A reader the parent holds pending on its re-ask (a correction's
+    // re-derivation waiting on a refresh) re-derives from the guess as the
+    // lane's work, seated there before its pass: lane work reads the
+    // parent's flight as the screen (D-26, D-37), whether it reads the
+    // flight before the guess or after (D-28), and whether it reads the
+    // guess itself or a derivation of it — this walk runs at every lane
+    // node's change. Seated at the guess read, the earlier read threw the
+    // pass back into the hold (#4629).
+    if (
+      t &&
+      l._parent &&
+      !(c as any)._type &&
+      (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
+      (c._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
+      resolveTx(t) === resolveTx(l._parent)
+    )
+      list(c, (t = l));
     if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT)
       ((c._config |= CONFIG_VERDICT), (c._flags &= ~REACTIVE_LANE_DIRTY));
     if (t?._lane ? sameLane(t, l) : (c as any)._type) c._flags |= REACTIVE_LANE_DIRTY;
