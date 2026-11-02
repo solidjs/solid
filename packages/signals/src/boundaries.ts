@@ -427,6 +427,25 @@ function boundarySeam(): void {
     }
     // A parked frame's boundary (zombie) keeps its state for its revival.
     if (flags & REACTIVE_ZOMBIE) continue;
+    // A fresh boundary's content that derives from a write a hold keeps
+    // reveals with that hold's commit (F-7, D-12): the boundary waits on
+    // the held node, kept like a held reader until it commits (`prune`).
+    // The node a settled reader reads: an answer staged there — a staged
+    // error marks no frame reader (D-41) — left the reader settled on its
+    // stale committed value (#4591). The node a first load it waits on
+    // reads: the seam keeps a loading source out of every hold (#2937,
+    // D-6), so its answer landed mainline, torn from the frame a write's
+    // hold keeps on screen (F-1, #4593); under an open action it still
+    // reveals at its landing (#2937). Not a held reader: it reveals with its
+    // own commit.
+    if (!b._initialized)
+      for (const [r] of b._readers)
+        for (const n of r._statusFlags & STATUS_PENDING ? r._x?._pendingSources || [] : [r])
+          if (!(n._config & CONFIG_HELD))
+            for (let d = n._deps; d; d = d._nextDep) {
+              const h = d._dep as Computed<any>;
+              if (h._config & CONFIG_HELD && (n === r || !txOf(h)._open)) record(b, h);
+            }
     prune(b);
     const o = b._output!;
     // A fallback staged into the very hold its readers landed in folds back
