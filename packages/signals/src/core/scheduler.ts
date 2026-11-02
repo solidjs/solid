@@ -531,7 +531,9 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
       // nothing.
       if (
         (((r as any)._type === EFFECT_RENDER && r._statusFlags & STATUS_PENDING) ||
-          r._flags & REACTIVE_FRAME_READ ||
+          // Not a tracked effect's: it re-runs at the landing, but holds
+          // nothing (D-29, #4607).
+          (r._flags & REACTIVE_FRAME_READ && (r as any)._type !== EFFECT_TRACKED) ||
           (r._config & CONFIG_REDERIVE && r._statusFlags === STATUS_PENDING)) &&
         (s._gen === r._depGen || r._x?._error != null) &&
         !(r._flags & REACTIVE_DISPOSED) &&

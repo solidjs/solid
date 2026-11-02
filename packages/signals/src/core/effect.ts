@@ -41,7 +41,8 @@ import {
   haltReactivity,
   haltReactivityAt,
   notifyEpoch,
-  pendingNodes,
+  staleReader,
+  txOf,
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
@@ -309,19 +310,29 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     } finally {
       if (__DEV__) setTrackedQueueCallback(false);
     }
-    if (pendingNodes.length === 0) return;
-    // A dep staged before this run linked it commits without a notify.
+    // A dep this run was served the committed value of (D-29) while a
+    // different value is staged commits without a notify to it: its
+    // subscriber walk predates the link. Re-run where that value commits
+    // (F-1). Writes that net to the committed value stage no change.
     for (let d = node._deps; d !== null; d = d._nextDep) {
       const dep = d._dep;
       if (
         dep._pendingValue !== NOT_PENDING &&
-        dep._notifiedAt <= epoch &&
-        !(dep._config & (CONFIG_HELD | CONFIG_OVERRIDE)) &&
+        !(dep._config & CONFIG_OVERRIDE) &&
         (dep._pendingValue !== dep._value || !Object.is(dep._pendingValue, dep._value))
       ) {
-        enqueueSub(node);
-        schedule();
-        break;
+        // Held: it commits at its hold's landing, which re-derives the
+        // run as A15's stale reader (#4607). A run during the hold for
+        // another dep had consumed the queued run the landing replays.
+        if (dep._config & CONFIG_HELD) staleReader(node, txOf(dep));
+        // Staged this flush: the next round commits it. A memo is staged
+        // by this run's own pull (`read` links, then pulls), whose walk
+        // the recomputing run refuses (#4606); a signal written since the
+        // epoch is the run's own write, never observed (#3006).
+        else if (dep._notifiedAt <= epoch || (dep as Computed<unknown>)._fn) {
+          enqueueSub(node);
+          schedule();
+        }
       }
     }
   };
