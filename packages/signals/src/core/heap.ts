@@ -7,7 +7,7 @@ import {
   REACTIVE_RECOMPUTING_DEPS
 } from "./constants.js";
 import { dirtyQueue } from "./scheduler.js";
-import type { Computed, Root } from "./types.js";
+import type { Computed, Link, Root, Signal } from "./types.js";
 
 /**
  * Schedule one subscriber to re-run on the next flush: inserted into the
@@ -108,6 +108,23 @@ export function markHeap(heap: Heap) {
     for (let el = heap._heap[i]; el !== undefined; el = el._nextHeap) {
       if (el._flags & REACTIVE_IN_HEAP) markNode(el);
     }
+  }
+}
+
+/** Each dependent of `el`, and theirs where `fn` answers truthy, in the
+ * order recursion over the subs lists takes. The last link's dependent is
+ * walked by the loop, not a call (a tail call, so the order is the same):
+ * a long chain of dependents must not overflow the stack (#4587). */
+export function walkSubs(
+  el: Computed<any> | Signal<any> | undefined,
+  fn: (node: Computed<any>, link: Link) => unknown
+): void {
+  while (el) {
+    let link = el._subs;
+    for (el = undefined; link; link = link._nextSub)
+      if (fn(link._sub, link))
+        if (link._nextSub) walkSubs(link._sub, fn);
+        else el = link._sub;
   }
 }
 

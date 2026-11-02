@@ -6,7 +6,8 @@ import {
   createRoot,
   createSignal,
   flush,
-  isPending
+  isPending,
+  onCleanup
 } from "../src/index.js";
 
 // #4587: a long memo chain over an async source must not overflow the stack
@@ -83,4 +84,55 @@ describe("#4587: deep memo chain over an async source", () => {
       dispose();
     });
   }
+});
+
+// The walks stay depth first: a held diamond's memos commit (and so run
+// their cleanups) in the order the recursion gave.
+describe("#4587: the walks keep their depth-first order", () => {
+  const tick = async () => {
+    for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 0));
+      flush();
+    }
+  };
+  it("commit order of a held diamond's memos (onCleanup order) is unchanged", async () => {
+    const [s, setS] = createSignal(0);
+    const res: (() => void)[] = [];
+    const log: string[] = [];
+    const memo = (name: string, fn: () => any) =>
+      createMemo(() => {
+        onCleanup(() => log.push(name));
+        return fn();
+      });
+    const A = memo("A", () => {
+      const v = s();
+      return new Promise(r => res.push(() => r(v)));
+    });
+    const B = memo("B", () => A() + 1);
+    const X = memo("X", () => A() + 2);
+    const Y = memo("Y", () => B() + X());
+    const dispose = createRoot(d => {
+      createRenderEffect(
+        () => {
+          try {
+            return Y();
+          } catch {
+            return "p";
+          }
+        },
+        () => {}
+      );
+      return d;
+    });
+    flush();
+    res.shift()!();
+    await tick();
+    setS(1);
+    flush();
+    log.length = 0;
+    res.shift()!();
+    await tick();
+    expect(log).toEqual(["B", "Y", "X", "A"]);
+    dispose();
+  });
 });

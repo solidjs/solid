@@ -38,7 +38,7 @@ import {
 } from "./dev.js";
 import { NotReadyError, StatusError } from "./error.js";
 import { trimStaleDeps, unobserved } from "./graph.js";
-import { enqueueSub } from "./heap.js";
+import { enqueueSub, walkSubs } from "./heap.js";
 import { cleanup, disposeChildren } from "./owner.js";
 import {
   clock,
@@ -135,26 +135,21 @@ export function setPendingError(el: Computed<any>, source?: Computed<any>, error
       : new NotReadyError(source);
 }
 
-/** Each dependent reachable from `el`, breadth first. `fn` sees every
- * arrival (with the link it came by: `link._dep` is the node walked from),
+/** Each dependent reachable from `el`, depth first. `fn` sees every arrival,
  * `seen` when an earlier branch already walked the node (a diamond); the
  * node's dependents are walked once, on its first arrival unless `fn`
- * returns true (then it stays unmarked: a later branch may walk it). The
- * visited set is the walk's queue (a Set's loop reaches what is added to
- * it mid-loop), not recursion: a long chain of dependents must not
- * overflow the stack (#4587). `el` seeds it: no node is its own dependent.
- * Returned: `el` and every node walked, in walk order. */
+ * returns true (then it stays unmarked: a later branch may walk it). On
+ * `walkSubs`: a long chain must not overflow the stack (#4587). Returned:
+ * every node walked, in walk order. */
 function walkDependents(
   el: Computed<any>,
-  fn: (node: Computed<any>, seen: boolean, link: Link) => unknown
+  fn: (node: Computed<any>, seen: boolean) => unknown
 ): Set<Computed<any>> {
-  const visited = new NewSet<Computed<any>>([el]);
-  for (const from of visited)
-    for (let s = from._subs; s; s = s._nextSub) {
-      const node = s._sub,
-        seen = visited.has(node);
-      if (!fn(node, seen, s) && !seen) visited.add(node);
-    }
+  const visited = new NewSet<Computed<any>>();
+  walkSubs(el, node => {
+    const seen = visited.has(node);
+    if (!fn(node, seen) && !seen) return visited.add(node);
+  });
   return visited;
 }
 
@@ -191,8 +186,7 @@ export function releaseIfSettledUnobserved(node: Computed<any>): void {
 // The walk's visited set is the candidate list: each node once, in walk
 // order, and the release re-checks the subscriber-less / auto-dispose test.
 export function releaseSettledDependents(el: Computed<any>): void {
-  for (const node of walkDependents(el, () => {}))
-    if (node !== el) releaseIfSettledUnobserved(node);
+  for (const node of walkDependents(el, () => {})) releaseIfSettledUnobserved(node);
 }
 
 // Error-dimension twin of settlePendingSource's blocked re-enqueue (#2949):
@@ -1045,9 +1039,11 @@ export function notifyStatus(
  * (store/projection.ts `wakeFamily`), exactly as a memo's would reach its. */
 export function propagateStatus(el: Computed<any>, status: number, error: any): void {
   const pendingSource = status === STATUS_PENDING && error instanceof NotReadyError && error.source;
-  // One walk over every dependent reached, not a nested walk per marked
-  // node: a long chain of dependents must not overflow the stack (#4587).
-  walkDependents(el, (sub, _seen, link) => {
+  // On `walkSubs`: a marked node's dependents are the walk's, not a nested
+  // propagation's, so a long chain must not overflow the stack (#4587). A
+  // derived store's derive still propagates nested: its family hears the
+  // status after its dependents have.
+  walkSubs(el, (sub, link) => {
     sub._time = clock;
     // A pending mark on a kept-tail link re-derives the subscriber instead of
     // marking it (A30, #3494 review; fuzzer latest-1 #2141; #3519 review).
@@ -1086,7 +1082,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
     ) {
       enqueueSub(sub);
       schedule();
-      return true;
+      return;
     }
     // Already pending on this source (a re-ask of its flight): the status is
     // unchanged and nothing re-notifies. The re-asking write is held with the
@@ -1103,7 +1099,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
         !freshHook?.(sub, pendingSource._time === clock)
       )
         joinFuture(txOf(sub));
-      return true;
+      return;
     }
     if (
       pendingSource ||
@@ -1130,13 +1126,10 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
         )
           joinFuture(txOf(sub));
       }
-      // Its own dependents are this walk's, once it is marked.
-      const stop = !notifyStatus(sub, status, error, true);
+      if (notifyStatus(sub, status, error, !(sub as any)._fam)) return true;
       // A derived store's derive (store/projection.ts): marked, not re-run —
       // its leaves' readers are not its dependents, so the family walks them.
       (sub as any)._fam?.st(status, error);
-      return stop;
     }
-    return true;
   });
 }
