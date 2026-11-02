@@ -723,7 +723,26 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
   }
 }
 
-installVerdictHooks(observeFlight, holdWork, stageMark);
+/** #4544: pending value is this hold's write (a dep it holds has its own
+ * pending), not a park-seam `CONFIG_HELD` on a published verdict (Show's
+ * truthiness memo over `isPending`). An own window, or a probe of a
+ * not-yet-final node (`REACTIVE_PROBE_UNANSWERED`, Shape 2), still drops. */
+function holdStaging(el: Computed<any>): boolean {
+  if (
+    el._pendingValue === NOT_PENDING ||
+    el._flags & (REACTIVE_WINDOW | REACTIVE_PROBE_UNANSWERED) ||
+    el._x!._transaction?._lane
+  )
+    return false;
+  const t = txOf(el);
+  for (let d = el._deps; d !== null; d = d._nextDep) {
+    const n = d._dep;
+    if (n._pendingValue !== NOT_PENDING && n._config & CONFIG_HELD && txOf(n) === t) return true;
+  }
+  return false;
+}
+
+installVerdictHooks(observeFlight, holdWork, stageMark, holdStaging);
 /** A store read inside an untracked `isPending` probe found a live mark on
  * a record with no node to carry it (store/affects.ts): not final. */
 GlobalQueue._witnessMark = () => {

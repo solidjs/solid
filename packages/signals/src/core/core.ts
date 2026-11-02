@@ -167,6 +167,7 @@ import {
   laneStageHook,
   laneSeamsHook,
   laneServedHook,
+  holdStagingHook,
   holdWorkHook,
   laneWriteHook,
   observeFlightHook,
@@ -474,10 +475,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // A verdict reader born into `tx` (`bornInto`: never committed) is the
       // hold's own work, whatever it asked before (D-25): it joins like any
       // held pass, so what it mounts is the hold's (D-13, #4467).
+      // #4544: T's own staging stays T's work. An inherited CONFIG_VERDICT
+      // does not drop it; an own probe (`holdStagingHook`) still does.
       if (tx._lane || el._config & CONFIG_LAGS) {
       } else if (
         !(el._config & (CONFIG_VERDICT | (EFFECT_RENDER << 23))) ||
-        (observeFlightHook && !(el._config & (EFFECT_RENDER << 23)) && bornInto(el, tx))
+        (observeFlightHook && !(el._config & (EFFECT_RENDER << 23)) && bornInto(el, tx)) ||
+        (observeFlightHook && el._config & CONFIG_VERDICT && holdStagingHook?.(el))
       )
         joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
       else if (
@@ -1339,8 +1343,12 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // under a hold still enters it: the content memo it reads is born held,
   // with no committed value to serve.
   // (Verdict readers and lanes exist only with their engines installed.)
-  const verdict = observeFlightHook && c._config & CONFIG_VERDICT;
+  // #4544: a memo holding T's staging is not served T's committed value,
+  // including after `enterLane`. A frame still reads the screen.
+  const staging = (c._config & CONFIG_VERDICT) !== 0 && !!holdStagingHook?.(c);
+  const verdict = observeFlightHook && c._config & CONFIG_VERDICT && !staging;
   const lane = laneStageHook && passLane !== null;
+  if (staging && !(c._config & (EFFECT_RENDER << 23))) return false;
   if (
     (!lane ||
       (c._statusFlags & STATUS_UNINITIALIZED &&
