@@ -48,3 +48,22 @@ it("re-runs for a write the creator's onSettled makes", async () => {
   await settle();
   expect(log).toEqual([0, 1]);
 });
+
+it("does not re-run for writes that net to the committed value", async () => {
+  const log: number[] = [];
+  createRoot(() => {
+    const [s, setS] = createSignal(0);
+    createEffect(
+      () => 1,
+      () => {
+        setS(1);
+        setS(0);
+      }
+    );
+    createTrackedEffect(() => {
+      log.push(s());
+    });
+  });
+  await settle();
+  expect(log).toEqual([0]);
+});

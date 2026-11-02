@@ -41,6 +41,7 @@ import {
   haltReactivity,
   haltReactivityAt,
   notifyEpoch,
+  pendingNodes,
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
@@ -308,16 +309,15 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     } finally {
       if (__DEV__) setTrackedQueueCallback(false);
     }
-    // A dependency an earlier callback staged this flush walked its subscribers
-    // before this pass linked it (#4598): the pass read the committed value and
-    // the seam's commit notifies nobody, so run again after it. Not the pass's
-    // own write (walked after `epoch`, never observed: #3006), nor a held node.
+    if (pendingNodes.length === 0) return;
+    // A dep staged before this run linked it commits without a notify.
     for (let d = node._deps; d !== null; d = d._nextDep) {
       const dep = d._dep;
       if (
         dep._pendingValue !== NOT_PENDING &&
         dep._notifiedAt <= epoch &&
-        !(dep._config & (CONFIG_HELD | CONFIG_OVERRIDE))
+        !(dep._config & (CONFIG_HELD | CONFIG_OVERRIDE)) &&
+        (dep._pendingValue !== dep._value || !Object.is(dep._pendingValue, dep._value))
       ) {
         enqueueSub(node);
         schedule();
