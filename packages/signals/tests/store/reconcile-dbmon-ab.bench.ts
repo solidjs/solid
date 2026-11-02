@@ -49,8 +49,9 @@ function subscribeRows(state: any) {
 
 function setupNext() {
   let applyTick!: (fresh: any[]) => void;
+  const initial = makeData(ROWS, 0);
   const dispose = createRoot(d => {
-    const [state, setState] = createStore({ rows: makeData(ROWS, 0) });
+    const [state, setState] = createStore({ rows: initial });
     subscribeRows(state);
     applyTick = fresh =>
       setState((s: any) => {
@@ -59,17 +60,21 @@ function setupNext() {
     return d;
   });
   flush();
-  return { applyTick, dispose };
+  return { applyTick, dispose, last: initial };
 }
 
-function runTicks(applyTick: (fresh: any[]) => void, partial: boolean) {
+type Lane = { applyTick: (fresh: any[]) => void; last: any[] };
+
+function runTicks(lane: Lane, partial: boolean) {
   for (let frame = 1; frame <= 5; frame++) {
-    let fresh = makeData(ROWS, frame);
+    let fresh: any[];
     if (partial) {
-      const prev = makeData(ROWS, frame - 1);
-      fresh = prev.map((row, i) => (i < ROWS / 10 ? fresh[i] : row));
-    }
-    applyTick(fresh);
+      // Reuse the row objects the store holds now, so the other 90% hit the identity skip.
+      const changed = makeData(ROWS / 10, frame);
+      fresh = lane.last.map((row, i) => (i < changed.length ? changed[i] : row));
+    } else fresh = makeData(ROWS, frame);
+    lane.applyTick(fresh);
+    lane.last = fresh;
     flush();
   }
 }
@@ -82,14 +87,15 @@ function subscribeShallow(state: any) {
 
 function setupShallowNext() {
   let applyTick!: (fresh: any[]) => void;
+  const initial = makeData(ROWS, 0);
   const dispose = createRoot(d => {
-    const [state, setState] = createStore(makeData(ROWS, 0), { shallow: true } as any);
+    const [state, setState] = createStore(initial, { shallow: true } as any);
     subscribeShallow(state);
     applyTick = fresh => setState(reconcile(fresh, null) as any);
     return d;
   });
   flush();
-  return { applyTick, dispose };
+  return { applyTick, dispose, last: initial };
 }
 
 const next = setupNext();
@@ -98,7 +104,7 @@ const shallowNext = setupShallowNext();
 bench(
   "dbmon full tick",
   () => {
-    runTicks(next.applyTick, false);
+    runTicks(next, false);
   },
   { time: 4000, warmupIterations: 3 }
 );
@@ -106,7 +112,7 @@ bench(
 bench(
   "dbmon partial tick",
   () => {
-    runTicks(next.applyTick, true);
+    runTicks(next, true);
   },
   { time: 4000, warmupIterations: 3 }
 );
@@ -114,7 +120,7 @@ bench(
 bench(
   "dbmon shallow full tick",
   () => {
-    runTicks(shallowNext.applyTick, false);
+    runTicks(shallowNext, false);
   },
   { time: 3000, warmupIterations: 3 }
 );
