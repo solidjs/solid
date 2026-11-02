@@ -3,16 +3,13 @@
  * for that write. Inside, `params` reads `session` and `chrome`; `chrome`
  * reads an unrelated signal `plan`.
  *
- * The memo form and the inline form differ because a memo's value is one
- * slot under its own posture (A31 / D-25). `chrome` computes under the
- * probe in its own body. `params`, holding its own staging of the hold,
- * is that hold's work: an inherited verdict posture (it read `chrome`, it
- * did not probe the hold this pass) does not pull it out and does not drop
- * that staging (D-25, 2026-11-01). A probe in `params`'s own body still
- * does (D-25: the probe decides the pass).
- *
- * Shape 2 — `params` itself probes `session` — stays the screen a verdict
- * reader has today (A10): the committed `session` beside the verdict.
+ * `chrome` computes under the probe in its own body (A31 / D-25): `isPending`
+ * then `plan()` is the screen beside the probe. `params`, holding the hold's
+ * staging of `session`, is that hold's work. A probe in its own body does not
+ * pull that staging out (D-25: the hold's work reads plainly). The probed
+ * node still reads as the screen (A10). The branch the hold opened therefore
+ * reads `session` as signed in, returns `rows`, and the hold lands — a
+ * never-resolving signed-out fetch is not what it waits on.
  */
 import { expect, it } from "vitest";
 import {
@@ -44,8 +41,6 @@ function page(probe: Probe) {
   const branchSaw: Params[] = [];
   const chromeSaw: boolean[] = [];
   let signedOutIssued = false;
-  let resolveSignedOut: (v: string) => void = () => {};
-  const signedOut = new Promise<string>(r => (resolveSignedOut = r));
   const dispose = createRoot(dispose => {
     const held = createMemo(() => {
       const g = gate();
@@ -73,10 +68,7 @@ function page(probe: Probe) {
         );
         const signedOutOnly = createMemo(
           () => {
-            if (probe === "inline isPending") {
-              signedOutIssued = true;
-              return signedOut;
-            }
+            signedOutIssued = true;
             return new Promise<never>(() => {});
           },
           { lazy: true }
@@ -129,8 +121,7 @@ function page(probe: Probe) {
     setPlan,
     setGate,
     release: () => release(),
-    signedOutIssued: () => signedOutIssued,
-    resolveSignedOut: (v: string) => resolveSignedOut(v)
+    signedOutIssued: () => signedOutIssued
   };
 }
 
@@ -165,7 +156,7 @@ for (const probe of ["plain read", "isPending", "latest"] as Probe[])
     }
   });
 
-it("inline isPending: the pass's own probe wins, the signed-out fetch resolves, and the hold lands after it", async () => {
+it("inline isPending(plan): the branch reads the hold's session and the hold lands without the signed-out fetch", async () => {
   const p = page("inline isPending");
   try {
     flush();
@@ -175,10 +166,11 @@ it("inline isPending: the pass's own probe wins, the signed-out fetch resolves, 
     flush();
     p.setPlan(true);
     flush();
-    expect(p.branchSaw.at(-1)).toMatchObject({ plan: false, signedIn: false });
-    expect(p.signedOutIssued()).toBe(true);
-    expect(p.screen()).toBe("0 signed out");
-    p.resolveSignedOut("out");
+    // `isPending(plan)` then `plan()` is the screen. `session` is the hold's
+    // write, so the branch the hold opened stays signed in and never starts
+    // the signed-out fetch.
+    expect(p.branchSaw.at(-1)).toMatchObject({ plan: false, signedIn: true });
+    expect(p.signedOutIssued()).toBe(false);
     p.release();
     await tick();
     await tick();
@@ -188,7 +180,7 @@ it("inline isPending: the pass's own probe wins, the signed-out fetch resolves, 
   }
 });
 
-it("same-node isPending(session): a verdict reader of the hold sees the screen beside the verdict", async () => {
+it("same-node isPending(session): the branch reads the hold's session and the hold lands", async () => {
   const p = page("same-node isPending");
   try {
     flush();
@@ -197,11 +189,13 @@ it("same-node isPending(session): a verdict reader of the hold sees the screen b
     flush();
     p.setPlan(true);
     flush();
-    expect(p.branchSaw.at(-1)).toMatchObject({ signedIn: false, busy: true });
+    // The plain read of `session` is the hold's staging. The branch returns
+    // `rows` rather than waiting on the signed-out fetch.
+    expect(p.branchSaw.at(-1)).toMatchObject({ signedIn: true, busy: true });
     p.release();
     await tick();
     await tick();
-    expect(p.screen()).toBe("0 signed out");
+    expect(p.screen()).toBe("1 rows");
   } finally {
     p.dispose();
   }

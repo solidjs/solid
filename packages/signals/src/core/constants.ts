@@ -73,6 +73,10 @@ export const REACTIVE_PROBE_UNANSWERED = 1 << 19;
  * did not is D-25's hold work while its flight is up (verdict.ts
  * `holdWork`). Per pass. */
 export const REACTIVE_WINDOW = 1 << 21;
+/** #4544 — this pass already holds its transition's staging. Set once, after
+ * the head wipe, from `holdStaging` at `recompute`'s head; `frameRead` tests
+ * it and does not walk deps on the read. Per pass: the tail wipe clears it. */
+export const REACTIVE_HOLD_STAGING = 1 << 20;
 /** An observation-lifecycle node found unobserved by a settle (#2934) while
  * a pass of it was already queued — a source's landing re-enqueued the
  * `_blocked` reader it walks (`settlePendingSource`). The release waits for

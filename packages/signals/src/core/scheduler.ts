@@ -186,8 +186,10 @@ export let holdWorkHook: ((n: Computed<any>, source: Computed<any>) => unknown) 
 /** D-41's staged-error mark (verdict.ts `stageMark`): the settle walk's
  * reached node `n` carries staged error source `el`'s staging. */
 export let stageMarkHook: ((n: Computed<any>, el: Computed<any>) => void) | null = null;
-/** #4544 (verdict.ts). Null without the verdict engine. */
-export let holdStagingHook: ((el: Computed<any>) => boolean) | null = null;
+/** #4544 (verdict.ts). The pass's sync joined deps, or an empty list when it
+ * only holds a flight's source (join, but those reads stay the screen).
+ * Null: not this hold's staging. Null without the verdict engine. */
+export let holdStagingHook: ((el: Computed<any>) => object[] | null) | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
   holdWork: NonNullable<typeof holdWorkHook>,
@@ -307,6 +309,10 @@ export interface Transaction {
    * transaction's flush the lane's work reads its staging (core.ts
    * `frameRead`, #4536). Unset until then; not `_`-prefixed, as `folded`. */
   over?: Transaction;
+  /** The `flush()` call that opened it. A sync write parked then is that
+   * hold's on a later call; one parked in the call still running is the
+   * screen (#4544, #4365). Unset name is unprefixed, as `folded`. */
+  gen: number;
   /** `affects()` marks declared in it (affects.ts): released at the landing.
    * Not nodes — a mark holds nothing (`blocked` never sees one). */
   _marks: Signal<any>[] | null;
@@ -331,7 +337,8 @@ export function newTransaction(lane: boolean, parent: Transaction | null = null)
     _links: null,
     _shown: false,
     _held: false,
-    _marks: null
+    _marks: null,
+    gen: flushGen
   };
   if (!lane) transactions.push(t);
   return t;
@@ -660,6 +667,9 @@ export const dirtyQueue: Heap = {
 };
 
 export let clock = 0;
+/** One per draining `flush()` call. Transactions opened in that call share
+ * it (`Transaction.gen`). */
+export let flushGen = 0;
 let scheduled = false;
 let halted = false;
 let haltNotified = false;
@@ -1613,6 +1623,7 @@ export function flush<T>(fn?: () => T): T | void {
   // exactly when `flushEnd` below will. Outside every try (see the rule in
   // attribution-hooks.ts).
   if (__OBSERVE__ && attrHooks !== null && scheduled) attrHooks.flushStart();
+  if (scheduled) flushGen++;
   while (scheduled) {
     if (__DEV__ && ++count === 1e5) {
       rethrowCleanupError(true);

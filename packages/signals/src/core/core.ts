@@ -52,6 +52,7 @@ import {
   REACTIVE_IN_HEAP,
   REACTIVE_LANE_DIRTY,
   REACTIVE_LANE_READ,
+  REACTIVE_HOLD_STAGING,
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_SCREEN_READ,
   REACTIVE_IN_HEAP_HEIGHT,
@@ -361,6 +362,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   bumpNotifyEpoch();
   const isEffect = (el as any)._type;
   let released: Computed<any>[] | undefined;
+  // #4544: the head's sync-write deps, installed for the body after the flag
+  // wipe. A probe in the body does not recompute the list.
+  let stagedHold = false;
+  let syncDeps: object[] | null = null;
   // Lanes (plan sec. 28): the seat of a pass is its node's. A node carrying a lane's
   // derived value runs as the lane's whoever dirtied it — a sync write, a
   // boundary reset, a frame rerun — so its children and its result are the
@@ -463,6 +468,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A).
     // A boundary's structure (CONFIG_FRAME) is the frame like a render
     // effect: it publishes mainline outside its transaction's flush (#4283).
+    // #4544: a verdict memo's sync writes from an earlier flush() call.
+    // Computed even when this node was dropped from the hold — the read
+    // still has to agree with the branch that write opened.
+    if (observeFlightHook && el._config & CONFIG_VERDICT && !(el._config & (EFFECT_RENDER << 23))) {
+      syncDeps = holdStagingHook?.(el) ?? null;
+      if (syncDeps !== null && syncDeps.length !== 0) stagedHold = true;
+    }
     if (el._config & CONFIG_HELD) {
       const tx = txOf(el);
       // Held by a blocked lane: the frame joins nothing — a lane never holds
@@ -475,33 +487,38 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // A verdict reader born into `tx` (`bornInto`: never committed) is the
       // hold's own work, whatever it asked before (D-25): it joins like any
       // held pass, so what it mounts is the hold's (D-13, #4467).
-      // #4544: T's own staging stays T's work. An inherited CONFIG_VERDICT
-      // does not drop it; an own probe (`holdStagingHook`) still does.
+      // #4544: T's own staging stays T's work. A verdict posture does not pull
+      // it out — inherited, or this pass's own probe (D-25: the hold's work
+      // reads plainly; a probe does not rescue it). Computed once; the bit
+      // below is what `frameRead` tests.
       if (tx._lane || el._config & CONFIG_LAGS) {
-      } else if (
-        !(el._config & (CONFIG_VERDICT | (EFFECT_RENDER << 23))) ||
-        (observeFlightHook && !(el._config & (EFFECT_RENDER << 23)) && bornInto(el, tx)) ||
-        (observeFlightHook && el._config & CONFIG_VERDICT && holdStagingHook?.(el))
-      )
-        joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
-      else if (
-        tx !== flushTransaction &&
-        !(el._statusFlags & STATUS_UNINITIALIZED || el._config & CONFIG_HELD_FRAME)
-      ) {
-        // Published mainline, it is not held: the frame this pass builds is
-        // replaced on the spot (#3404) — this flush's commit retires the
-        // committed frame the held pass had parked (`commitPendingNode`),
-        // after the new frame's first runs, and the held pass's own
-        // children die below (`disposeChildren`). The landing re-derives a
-        // fresh held frame for the reveal (`_reruns`).
-        // Not held any more, whichever frame reader it is: its readers read
-        // the value this pass publishes — those that read the staging it
-        // supersedes re-derive, even when it publishes the committed value
-        // back (no change to notify them by): their held runs carry the
-        // superseded frame, and the landing would apply them (#4378).
-        if (el._pendingValue !== NOT_PENDING) insertSubs(el);
-        el._pendingValue = NOT_PENDING;
-        el._config &= ~CONFIG_HELD;
+      } else {
+        const staging = syncDeps;
+        if (
+          !(el._config & (CONFIG_VERDICT | (EFFECT_RENDER << 23))) ||
+          (observeFlightHook && !(el._config & (EFFECT_RENDER << 23)) && bornInto(el, tx)) ||
+          staging !== null
+        )
+          joinPassTx(tx, freshHook?.(el, el._statusFlags & STATUS_UNINITIALIZED));
+        else if (
+          tx !== flushTransaction &&
+          !(el._statusFlags & STATUS_UNINITIALIZED || el._config & CONFIG_HELD_FRAME)
+        ) {
+          // Published mainline, it is not held: the frame this pass builds is
+          // replaced on the spot (#3404) — this flush's commit retires the
+          // committed frame the held pass had parked (`commitPendingNode`),
+          // after the new frame's first runs, and the held pass's own
+          // children die below (`disposeChildren`). The landing re-derives a
+          // fresh held frame for the reveal (`_reruns`).
+          // Not held any more, whichever frame reader it is: its readers read
+          // the value this pass publishes — those that read the staging it
+          // supersedes re-derive, even when it publishes the committed value
+          // back (no change to notify them by): their held runs carry the
+          // superseded frame, and the landing would apply them (#4378).
+          if (el._pendingValue !== NOT_PENDING) insertSubs(el);
+          el._pendingValue = NOT_PENDING;
+          el._config &= ~CONFIG_HELD;
+        }
       }
     }
     // The previous pass's frame. If that pass is still awaiting its commit
@@ -581,6 +598,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // (REACTIVE_RELEASE_AFTER): the release is this pass's tail's (#4474).
   const releaseAfter = el._flags & REACTIVE_RELEASE_AFTER;
   el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & (REACTIVE_ZOMBIE | REACTIVE_REASK));
+  if (stagedHold) el._flags |= REACTIVE_HOLD_STAGING;
   el._time = clock;
   // The pass's previous value: its staging, else a lane node's lane value
   // when it has one (lanes.ts), else the committed one.
@@ -595,6 +613,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // L2: did this pass read the future (REACTIVE_JOINED, set by read) — or,
   // a lane's mount, a staging of this flush (#3851, #4166)?
   let joined = false;
+  // #4544: nodes this pass probes, while it holds the transition's staging.
+  // Nested passes save the outer list. Only a staging pass allocates one.
+  let prevHoldProbes: object[] | null = null;
+  let prevStagingDeps: object[] | null = null;
+  if (stagedHold) {
+    prevHoldProbes = holdProbes;
+    holdProbes = null;
+    prevStagingDeps = stagingDeps;
+    stagingDeps = syncDeps;
+  }
   let prevTracking = tracking;
   let prevStrictRead: string | false = false;
   if (__DEV__) {
@@ -699,6 +727,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
             settlePendingSource(el, source);
     }
   } finally {
+    if (stagedHold) {
+      holdProbes = prevHoldProbes;
+      stagingDeps = prevStagingDeps;
+    }
     tracking = prevTracking;
     if (laneStageHook) laneRoot = prevMount;
     if (__DEV__) {
@@ -1327,6 +1359,18 @@ export function joinPassAt(c: Computed<any>, t: Transaction): void {
  * the parent's flights is still up — needs none of this: the correction
  * dissolves the lane, and the refetching pass is the parent's own, reading
  * the truth as a member (`joinPass`). */
+/** Nodes the running pass probed while `REACTIVE_HOLD_STAGING` is set.
+ * `frameRead` serves those the screen (A10) and the pass's other held deps
+ * the staging. Null outside such a pass. */
+let holdProbes: object[] | null = null;
+/** Sync writes this pass holds. Plain reads of them see the staging; a dep
+ * a flight is waiting on is not in the list and stays the screen. */
+let stagingDeps: object[] | null = null;
+export function noteHoldProbe(el: Signal<any> | Computed<any>): void {
+  if (holdProbes === null) holdProbes = [el];
+  else holdProbes.push(el);
+}
+
 function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // Frame readers: a render effect, a verdict reader (CONFIG_VERDICT — it
   // reads the screen like one: `[isPending(x), x()]` never pairs the fresh
@@ -1344,10 +1388,28 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // with no committed value to serve.
   // (Verdict readers and lanes exist only with their engines installed.)
   // #4544: a memo holding T's staging is not served T's committed value.
-  // A frame still reads the screen. The hook sits behind `observeFlightHook`
-  // so a build without the verdict engine folds the call away.
+  // The bit was set once at this pass's head. A frame still reads the
+  // screen. Both checks sit behind `observeFlightHook` so a build without
+  // the verdict engine folds them away.
   const asked = observeFlightHook && c._config & CONFIG_VERDICT;
-  const staging = asked && holdStagingHook!(c);
+  // The bit is the pass. A node the pass probed still reads as the screen
+  // (A10): `[isPending(x), x()]` stays the committed `x`, even when another
+  // dep of this pass is the hold's staging.
+  let staging = !!(asked && c._flags & REACTIVE_HOLD_STAGING && stagingDeps !== null);
+  if (staging) {
+    staging = false;
+    for (let i = 0; i < stagingDeps!.length; i++)
+      if (stagingDeps![i] === el) {
+        staging = true;
+        break;
+      }
+  }
+  if (staging && holdProbes !== null)
+    for (let i = 0; i < holdProbes.length; i++)
+      if (holdProbes[i] === el) {
+        staging = false;
+        break;
+      }
   if (staging && !(c._config & (EFFECT_RENDER << 23))) return false;
   const verdict = !staging && asked;
   const lane = laneStageHook && passLane !== null;
@@ -2721,6 +2783,9 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     isSame(el, el._value, v)
       ? el._value
       : v;
+  // A held node written inside this flush: the pending value is this flush's,
+  // not a write parked on an earlier one (#4365 vs #4544). The extension
+  // already exists (`CONFIG_HELD`).
   // A28 arm, gated on the load the write already pays for (`context`); the
   // arm itself is a cold helper so setSignal stays within every setter's
   // inlining budget, ~300 B bytecode.

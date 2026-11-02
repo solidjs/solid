@@ -2,12 +2,11 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  */
-// #4544. The memo form and the inline form differ because a memo's value is
-// one slot under its own posture (A31 / D-25). `chrome` owns the probe of
-// an unrelated signal; `params`, holding the hold's staging of `session`,
-// is that hold's work — an inherited posture does not pull it out. A probe
-// in `params`'s own body still does, and the signed-out fetch it issues
-// resolves before the hold lands.
+// #4544. `chrome` owns the probe of an unrelated signal and computes under
+// that probe (A31 / D-25). `params`, holding the hold's staging of `session`,
+// is that hold's work: a probe in its own body does not pull that staging
+// out. The branch the hold opened reads `session` as signed in and the hold
+// lands, without waiting on the signed-out fetch.
 import { expect, test } from "vitest";
 import { render } from "@solidjs/web";
 import { createMemo, createSignal, flush, isPending, latest, Loading, Show } from "solid-js";
@@ -27,8 +26,6 @@ async function arrive(probe: Probe) {
   let release: () => void = () => {};
   const branchSaw: Params[] = [];
   let signedOutIssued = false;
-  let resolveSignedOut: (v: string) => void = () => {};
-  const signedOut = new Promise<string>(r => (resolveSignedOut = r));
   const el = document.createElement("div");
   const dispose = render(() => {
     const held = createMemo(() => {
@@ -44,10 +41,7 @@ async function arrive(probe: Probe) {
     }));
     const signedOutOnly = createMemo(
       () => {
-        if (probe === "inline isPending") {
-          signedOutIssued = true;
-          return signedOut;
-        }
+        signedOutIssued = true;
         return new Promise<never>(() => {});
       },
       { lazy: true }
@@ -75,7 +69,7 @@ async function arrive(probe: Probe) {
     flush();
     setPlan(true);
     flush();
-    return { el, branchSaw, signedOutIssued, resolveSignedOut, release, dispose };
+    return { el, branchSaw, signedOutIssued, release, dispose };
   } catch (e) {
     dispose();
     throw e;
@@ -99,13 +93,10 @@ for (const probe of ["plain read", "isPending", "latest"] as Probe[])
     }
   });
 
-test("inline isPending: the pass's own probe wins and the hold lands after the signed-out fetch", async () => {
+test("inline isPending(plan): the branch reads the hold's session and the hold lands without the signed-out fetch", async () => {
   const p = await arrive("inline isPending");
   try {
-    expect(p.branchSaw.at(-1)).toMatchObject({ plan: false, signedIn: false });
-    expect(p.signedOutIssued).toBe(true);
-    expect(p.el.textContent).toContain("signed out");
-    p.resolveSignedOut("out");
+    expect(p.branchSaw.at(-1)).toMatchObject({ plan: false, signedIn: true });
     p.release();
     await tick();
     await tick();

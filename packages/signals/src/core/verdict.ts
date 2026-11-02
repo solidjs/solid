@@ -32,6 +32,7 @@ import {
   REACTIVE_PROBED,
   REACTIVE_REASK,
   REACTIVE_SNAPSHOT_STALE,
+  REACTIVE_HOLD_STAGING,
   REACTIVE_PROBE_UNANSWERED,
   REACTIVE_STAGED_READ,
   REACTIVE_WINDOW,
@@ -46,6 +47,7 @@ import {
   creatorReads,
   joinPass,
   markLateLinker,
+  noteHoldProbe,
   prepareComputed,
   pullComputed,
   setVerdict,
@@ -64,6 +66,7 @@ import { link } from "./graph.js";
 import { display, laneValueOf, verdictLane } from "./lanes.js";
 import { enqueueSub } from "./heap.js";
 import {
+  flushGen,
   flushTransaction,
   globalQueue,
   GlobalQueue,
@@ -429,6 +432,11 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   const owner = el as Computed<any>;
   const owned = !!c && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
   const tracked = owned && tracking;
+  // #4544: a pass holding the transition's staging still reads a node it
+  // probes as the screen (A10). The plain read after the window asks
+  // `frameRead`, which would otherwise serve the staging.
+  if ((probing || latestActive) && c !== null && c._flags & REACTIVE_HOLD_STAGING)
+    noteHoldProbe(el);
   // A31: the pulled memo's pass is its own, not the probe's — it reads
   // outside the window, and the probe's read below answers for what the pass
   // produced. So is a lazy or dormant memo's wake (an unowned memo with no
@@ -723,23 +731,63 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
   }
 }
 
-/** #4544: pending value is this hold's write (a dep it holds has its own
- * pending), not a park-seam `CONFIG_HELD` on a published verdict (Show's
- * truthiness memo over `isPending`). An own window, or a probe of a
- * not-yet-final node (`REACTIVE_PROBE_UNANSWERED`, Shape 2), still drops. */
-function holdStaging(el: Computed<any>): boolean {
-  if (
-    el._pendingValue === NOT_PENDING ||
-    el._flags & (REACTIVE_WINDOW | REACTIVE_PROBE_UNANSWERED) ||
-    el._x!._transaction?._lane
-  )
-    return false;
-  const t = txOf(el);
-  for (let d = el._deps; d !== null; d = d._nextDep) {
-    const n = d._dep;
-    if (n._pendingValue !== NOT_PENDING && n._config & CONFIG_HELD && txOf(n) === t) return true;
+/** A held dep whose new value a flight in `t` is waiting on (`A` reads `s`
+ * and is pending). A plain read of it is the screen (#4365). A sync write
+ * that only joined `t` is not. */
+function feedsFlight(
+  n: Signal<any> | Computed<any>,
+  t: ReturnType<typeof txOf>,
+  self: Computed<any>
+): boolean {
+  if (n._statusFlags & STATUS_PENDING && txOf(n) === t) return true;
+  for (let s = n._subs; s !== null; s = s._nextSub) {
+    const sub = s._sub;
+    if (
+      sub !== self &&
+      sub._statusFlags & STATUS_PENDING &&
+      sub._config & CONFIG_HELD &&
+      txOf(sub) === t
+    )
+      return true;
   }
   return false;
+}
+
+/** #4544: deps whose pending value is this hold's sync write, not a
+ * park-seam `CONFIG_HELD` on a published verdict and not the source of a
+ * flight the hold waits on. Called once at the pass's head. An own probe
+ * does not drop a sync write (D-25); the probed node still reads as the
+ * screen (`noteHoldProbe`, A10). An unanswered probe drops a flight's source
+ * (#4365) and nothing else. A dep held by a lane is that lane's.
+ *
+ * `null`: not staging. `[]`: join, but every held dep feeds a flight so
+ * plain reads stay the screen. A non-empty list is the sync writes `frameRead`
+ * serves as staging. */
+function holdStaging(el: Computed<any>): object[] | null {
+  const unanswered = (el._flags & REACTIVE_PROBE_UNANSWERED) !== 0;
+  let sync: object[] | null = null;
+  let flight = false;
+  for (let d = el._deps; d !== null; d = d._nextDep) {
+    const n = d._dep;
+    if (n._pendingValue === NOT_PENDING || !(n._config & CONFIG_HELD)) continue;
+    const t = txOf(n);
+    if (t._lane) continue;
+    // An async memo's held answer, and a recovery sitting on a shown error,
+    // stay the screen (A10, D-41). A plain signal the hold parked does not.
+    if (n._config & CONFIG_ASYNC || n._x?._shownError || n._statusFlags & STATUS_ERROR) {
+      flight = true;
+      continue;
+    }
+    // Opened by an earlier flush() call: the hold's own sync write, whether
+    // or not this reader still carries a pending value. Opened by the call
+    // still running: the screen (#4365).
+    if (t.gen < flushGen && !feedsFlight(n, t, el)) (sync ??= []).push(n);
+    else flight = true;
+  }
+  if (sync) return sync;
+  // A flight's source joins only while this reader is already in the hold.
+  // An unanswered probe does not (#4365).
+  return flight && !unanswered && el._pendingValue !== NOT_PENDING ? [] : null;
 }
 
 installVerdictHooks(observeFlight, holdWork, stageMark, holdStaging);
