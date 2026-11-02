@@ -112,6 +112,10 @@ export interface NodeExtension {
   /** Provenance (A18, #3331): the question this node's guess or latest
    * flight answers (`scheduler.question`); 0 when unstamped. */
   _q: number;
+  /** #4544: the hold (or, before one, the flush clock) under which a verdict
+   * window read this node's staging (verdict.ts `holdStaging`). Stale once
+   * that hold lands or dissolves: nothing clears it. Unset until then. */
+  _askedIn?: Transaction | number;
   /** Lanes (plan sec. 28) — the lane's value for this node while CONFIG_OVERRIDE is
    * set: a written guess, or a lane pass's derivation. `NOT_PENDING` when
    * none. The screen shows it once the lane has revealed (`_shown`); a

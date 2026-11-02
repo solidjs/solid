@@ -1,4 +1,5 @@
 import {
+  CONFIG_AHEAD,
   CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_HELD_FRAME,
@@ -189,18 +190,24 @@ export let stageMarkHook: ((n: Computed<any>, el: Computed<any>) => void) | null
 /** #4417 (verdict.ts `keepReaders`); #4574 (verdict.ts `attachWaits`). */
 export let keepReadersHook: ((el: Computed<any>) => void) | null = null;
 export let attachHook: ((node: Computed<any>) => boolean) | null = null;
+/** #4544 (verdict.ts). Null without the verdict engine. */
+export let holdStagingHook:
+  | ((c: Computed<any>, el: Signal<any> | Computed<any>) => unknown)
+  | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
   holdWork: NonNullable<typeof holdWorkHook>,
   stageMark: NonNullable<typeof stageMarkHook>,
   keepReaders: NonNullable<typeof keepReadersHook>,
-  attach: NonNullable<typeof attachHook>
+  attach: NonNullable<typeof attachHook>,
+  holdStaging: NonNullable<typeof holdStagingHook>
 ): void {
   observeFlightHook = observeFlight;
   holdWorkHook = holdWork;
   stageMarkHook = stageMark;
   keepReadersHook = keepReaders;
   attachHook = attach;
+  holdStagingHook = holdStaging;
 }
 /** External-source bridge (wired by enableExternalSource(); undefined while
  * no config is active — including after _resetExternalSourceConfig()). */
@@ -520,7 +527,15 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
     // The frame's own pending observer (off screen: this one holds nothing;
     // the next listed node may).
     if ((n as any)._type === EFFECT_RENDER) {
-      if (onScreen(n, judge ?? owner)) return true;
+      // #4544 (F-6): a frame born into the hold that is pending on what a
+      // settled verdict reader's display-ahead value asked for (`read`,
+      // CONFIG_AHEAD) does not hold it; the reader re-derives at the
+      // landing, and the frame with it. A lane's reveal still waits (S-29).
+      if (
+        !(observeFlightHook && n._config & CONFIG_AHEAD && !owner._lane) &&
+        onScreen(n, judge ?? owner)
+      )
+        return true;
       continue;
     }
     for (let s = n._subs; s !== null; s = s._nextSub) {
@@ -537,7 +552,9 @@ function blockedBy(nodes: Signal<any>[], owner: Transaction, own = false): boole
       // shows nothing — a mount the frame has not revealed — and holds
       // nothing.
       if (
-        (((r as any)._type === EFFECT_RENDER && r._statusFlags & STATUS_PENDING) ||
+        (((r as any)._type === EFFECT_RENDER &&
+          r._statusFlags & STATUS_PENDING &&
+          !(observeFlightHook && r._config & CONFIG_AHEAD && !owner._lane)) ||
           r._flags & REACTIVE_FRAME_READ ||
           (r._config & CONFIG_REDERIVE && r._statusFlags === STATUS_PENDING)) &&
         (s._gen === r._depGen || r._x?._error != null) &&
