@@ -80,7 +80,6 @@ import {
   flushTransaction,
   GlobalQueue,
   holdNode,
-  holdStagingHook,
   insertSubs,
   joinFuture,
   laneDirty,
@@ -314,12 +313,9 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
         verdict &&
         (creatorReads(c, (c as any)._type || f) ||
           ((hold = resolveTx(l._parent!)),
-          ((c._config &
+          (c._config &
             (CONFIG_HELD | CONFIG_VERDICT | CONFIG_FRAME | CONFIG_LAGS | CONFIG_OVERRIDE)) ===
-            CONFIG_HELD &&
-            txOf(c) !== hold) ||
-            // #4544: inherited posture does not move T's staging into the lane.
-            holdStagingHook?.(c)) ||
+            CONFIG_HELD && txOf(c) !== hold) ||
           (c._config & CONFIG_HELD_FRAME && bornInto(c, hold!)))
       )
     ) {

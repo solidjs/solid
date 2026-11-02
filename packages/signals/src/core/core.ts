@@ -1343,12 +1343,14 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // under a hold still enters it: the content memo it reads is born held,
   // with no committed value to serve.
   // (Verdict readers and lanes exist only with their engines installed.)
-  // #4544: a memo holding T's staging is not served T's committed value,
-  // including after `enterLane`. A frame still reads the screen.
-  const staging = (c._config & CONFIG_VERDICT) !== 0 && !!holdStagingHook?.(c);
-  const verdict = observeFlightHook && c._config & CONFIG_VERDICT && !staging;
-  const lane = laneStageHook && passLane !== null;
+  // #4544: a memo holding T's staging is not served T's committed value.
+  // A frame still reads the screen. The hook sits behind `observeFlightHook`
+  // so a build without the verdict engine folds the call away.
+  const asked = observeFlightHook && c._config & CONFIG_VERDICT;
+  const staging = asked && holdStagingHook!(c);
   if (staging && !(c._config & (EFFECT_RENDER << 23))) return false;
+  const verdict = !staging && asked;
+  const lane = laneStageHook && passLane !== null;
   if (
     (!lane ||
       (c._statusFlags & STATUS_UNINITIALIZED &&
