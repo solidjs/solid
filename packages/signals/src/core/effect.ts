@@ -41,8 +41,6 @@ import {
   haltReactivity,
   haltReactivityAt,
   notifyEpoch,
-  pendingNodes,
-  transactions,
   txOf,
   resetUnhandledAsync,
   schedule,
@@ -317,8 +315,6 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     } finally {
       if (__DEV__) setTrackedQueueCallback(false);
     }
-    // Nothing staged and nothing held: no dep can commit unseen.
-    if (!pendingNodes.length && !transactions.length) return;
     // A dep this run was served the committed value of (D-29) while a
     // different value is staged commits without a notify to it: its
     // subscriber walk predates the link. Re-run where that value commits
