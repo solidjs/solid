@@ -169,10 +169,18 @@ const collecting = new Set<Boundary>();
 const boundaryOf = (node: Owner): Boundary | undefined =>
   node._context[BOUNDARY] as Boundary | undefined;
 
+/** An error boundary at or above `b` shows its fallback: content under it
+ * is not on screen. */
+const behindError = (b: Boundary | null): boolean =>
+  !!b && ((b._type === STATUS_ERROR && b._fallback) || behindError(b._parent));
+
 /** Catches what reaches it: an error boundary always; a loading one until it
- * has shown content, or while re-armed. */
+ * has shown content, or while re-armed. Behind an error fallback nothing is
+ * on screen, so the error boundary's recovery re-arms the subtree: a loading
+ * boundary there has not shown content (D-39, F-4, #4627) — a query; the
+ * boundary is fresh again once it catches (`caught`). */
 const isCollecting = (b: Boundary): boolean =>
-  b._type === STATUS_ERROR || !b._initialized || b._armed;
+  b._type === STATUS_ERROR || !b._initialized || b._armed || behindError(b._parent);
 
 /** A reader `b` waits on: recorded for its `on`, and `b` visited at the seam. */
 function record(b: Boundary, node: Computed<any>, source = node): void {
@@ -200,14 +208,14 @@ function caught(b: Boundary, node: Computed<any>, error: unknown, source = node)
     setSignal(b._error!, caught);
     reportClientError(caught, b._owner, source);
   }
+  // A loading boundary that catches has not shown content: fresh until it
+  // does — already so unless it caught behind an error fallback, which the
+  // recovery leaves catching (D-39, #4627); a re-arm's `flip` says it too.
+  else b._initialized = false;
   record(b, node, source);
-  // A loading fallback behind an error fallback is hidden: the error stays
-  // the display until what the fallback waits on answers (D-39) — the
-  // error boundary waits on it too.
-  // (`_type`: STATUS_PENDING 1 < STATUS_ERROR 2 — an error boundary above a
-  // loading one.)
-  for (let p: Boundary | null = b; (p = p._parent); )
-    if (p._fallback && p._type > b._type) record(p, node);
+  // A loading boundary behind an error fallback that catches a pending
+  // holds nothing above it: the error boundary's recovery shows its
+  // fallback beside the recovered content (D-39, #4627).
   if (b._armed) flip(b);
   // Already showing the fallback: one more reader to wait on changes
   // nothing on screen. The fallback is instantiated once per show — a later
@@ -347,6 +355,19 @@ function release(b: Boundary): void {
   b._runs = null;
 }
 
+/** `r`, held by error boundary `b` for the error `s` threw, is pending
+ * again after `s` answered, and a loading boundary between them that has
+ * not shown content catches it: that boundary is its display, beside the
+ * recovered content (D-39, F-4, #4627). Not while that boundary's swap to
+ * its fallback is staged in a hold (a recovery written in an action's tick):
+ * the error stays up until the hold reveals both (D-41, F-1). */
+function caughtBelow(b: Boundary, r: Computed<any>, s: Computed<any>): boolean {
+  if (!(s._statusFlags & (STATUS_ERROR | STATUS_PENDING) || r._statusFlags & STATUS_ERROR))
+    for (let l: Boundary | null | undefined = boundaryOf(r); l && l !== b; l = l._parent)
+      if (l._type & STATUS_PENDING && isCollecting(l)) return !(l._output!._config & CONFIG_HELD);
+  return false;
+}
+
 /** Drop the readers that settled or died. Settled: a loading reader no
  * longer pending; an error's source neither errored nor in flight. A reader
  * that landed but is held (its value staged in a transaction) is not: the
@@ -356,7 +377,9 @@ function release(b: Boundary): void {
  * error boundary (`_type` is the status it catches) — on the reader or its
  * source. A reader pending again after the source that threw answered (it
  * re-asks through a memo that carried the error) has no new answer yet: the
- * error stays the display (D-39: a pending is not a value; async-gen 91501
+ * error stays the display (D-39: a pending is not a value) — unless a loading
+ * boundary under the error one catches it (`caughtBelow`): the recovery shows
+ * with that boundary's fallback (ruled 2026-11-02, #4627; async-gen 91501
  * #1831).
  *
  * `pass` 0: a reader clearing asks whether it was the last (`catchStatus`),
@@ -376,7 +399,8 @@ export function prune(b: Boundary, pass?: boolean | 0): number {
       // settled before it ran, a fresh boundary revealed into a hold its
       // pass then went pending in, which waited on that flight (#4568).
       if (
-        (r._statusFlags | s._statusFlags) & mask ||
+        ((r._statusFlags | s._statusFlags) & mask &&
+          !(mask & STATUS_ERROR && caughtBelow(b, r, s))) ||
         (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR) ||
         (r._config & CONFIG_VERDICT && r._flags & REACTIVE_IN_HEAP)
       ) {

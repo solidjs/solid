@@ -909,6 +909,8 @@ const data = createMemo(() => fetchOrFail(count()));     // rejects for every co
 
 `<Errored>` never catches a pending: `ASYNC_OUTSIDE_LOADING_BOUNDARY` is a warning (A6).
 
+Row 1 holds because the errored source itself re-asks. Once it has its new answer, the recovery re-arms the subtree (#4627): the inner `<Loading>`, never shown — or shown before the error — catches what is still pending in the replacement frame, and its fallback shows beside the recovered content. A pending read directly under the `<Errored>` with no `<Loading>` between still keeps the error up, and a recovery held with an action reveals with it (D-41).
+
 ### S-42. A held rejection reveals with its frame — D-41 (#3886)
 
 _Pinned: `tests/error-is-an-answer.test.ts`._
