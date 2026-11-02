@@ -2,6 +2,8 @@ import { NOT_PENDING } from "./constants.js";
 import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_HELD,
+  CONFIG_OVERRIDE,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -38,6 +40,8 @@ import {
   queueEffectRun,
   haltReactivity,
   haltReactivityAt,
+  notifyEpoch,
+  pendingNodes,
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
@@ -298,11 +302,27 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
     if (heldRunHook?.(node)) return;
     if (__DEV__) setTrackedQueueCallback(true);
+    const epoch = notifyEpoch;
     try {
       node._modified = false;
       recompute(node);
     } finally {
       if (__DEV__) setTrackedQueueCallback(false);
+    }
+    if (pendingNodes.length === 0) return;
+    // A dep staged before this run linked it commits without a notify.
+    for (let d = node._deps; d !== null; d = d._nextDep) {
+      const dep = d._dep;
+      if (
+        dep._pendingValue !== NOT_PENDING &&
+        dep._notifiedAt <= epoch &&
+        !(dep._config & (CONFIG_HELD | CONFIG_OVERRIDE)) &&
+        (dep._pendingValue !== dep._value || !Object.is(dep._pendingValue, dep._value))
+      ) {
+        enqueueSub(node);
+        schedule();
+        break;
+      }
     }
   };
 
