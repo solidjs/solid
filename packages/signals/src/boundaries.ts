@@ -334,6 +334,27 @@ function release(b: Boundary): void {
   b._runs = null;
 }
 
+/** `b` waits on the first node `n` reads that a transaction holds (`n`
+ * itself not held), kept like a held reader until that commit (`prune`).
+ * `shown`: only when the screen shows that hold's old frame — a render
+ * effect it holds on screen, or a stale reader it re-derives — so the
+ * content would show beside it (F-1). */
+function waitHeld(b: Boundary, n: Computed<any>, shown?: boolean): void {
+  if (!(n._config & CONFIG_HELD))
+    for (let d = n._deps; d; d = d._nextDep) {
+      const h = d._dep as Computed<any>;
+      const t = (h._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD && txOf(h);
+      if (
+        t &&
+        !t._lane &&
+        (!shown ||
+          t._reruns.length ||
+          t._nodes.some(r => (r as any)._type === EFFECT_RENDER && !hiddenBy(r as Computed<any>)))
+      )
+        return record(b, h);
+    }
+}
+
 /** Drop the readers that settled or died. Settled: a loading reader no
  * longer pending; an error's source neither errored nor in flight. A reader
  * that landed but is held (its value staged in a transaction) is not: the
@@ -421,6 +442,24 @@ function boundarySeam(): void {
     }
     // A parked frame's boundary (zombie) keeps its state for its revival.
     if (flags & REACTIVE_ZOMBIE) continue;
+    // A fresh boundary's content that derives from a write a hold keeps
+    // belongs to that hold and reveals with its commit, not before (F-7,
+    // D-12): the boundary waits on the held node (`waitHeld`). A reader
+    // settled by an answer staged in the hold — a staged error marks no
+    // frame reader (D-41), and the reveal showed the content's committed,
+    // stale value beside the held write (#4591). A first load the write
+    // re-asked: the seam keeps a loading source out of every hold (#2937,
+    // D-6), so its answer lands mainline — beside a screen that still shows
+    // the frame before the write, a torn frame (F-1, #4593); with nothing
+    // on screen from that hold, it reveals at its landing (#2937). Not a
+    // held reader or a held swap: those reveal with their own commit.
+    if (!b._initialized && !(b._output!._config & CONFIG_HELD))
+      for (const [r] of b._readers)
+        if (!(r._statusFlags & STATUS_PENDING)) waitHeld(b, r);
+        else
+          r._x?._pendingSources?.forEach(
+            n => n._statusFlags & STATUS_UNINITIALIZED && waitHeld(b, n, true)
+          );
     prune(b);
     const o = b._output!;
     // A fallback staged into the very hold its readers landed in folds back
