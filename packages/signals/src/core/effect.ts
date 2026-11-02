@@ -2,6 +2,8 @@ import { NOT_PENDING } from "./constants.js";
 import {
   CONFIG_AUTO_DISPOSE,
   CONFIG_CHILDREN_FORBIDDEN,
+  CONFIG_HELD,
+  CONFIG_OVERRIDE,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
@@ -38,6 +40,7 @@ import {
   queueEffectRun,
   haltReactivity,
   haltReactivityAt,
+  notifyEpoch,
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
@@ -298,11 +301,28 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
     if (heldRunHook?.(node)) return;
     if (__DEV__) setTrackedQueueCallback(true);
+    const epoch = notifyEpoch;
     try {
       node._modified = false;
       recompute(node);
     } finally {
       if (__DEV__) setTrackedQueueCallback(false);
+    }
+    // A dependency an earlier callback staged this flush walked its subscribers
+    // before this pass linked it (#4598): the pass read the committed value and
+    // the seam's commit notifies nobody, so run again after it. Not the pass's
+    // own write (walked after `epoch`, never observed: #3006), nor a held node.
+    for (let d = node._deps; d !== null; d = d._nextDep) {
+      const dep = d._dep;
+      if (
+        dep._pendingValue !== NOT_PENDING &&
+        dep._notifiedAt <= epoch &&
+        !(dep._config & (CONFIG_HELD | CONFIG_OVERRIDE))
+      ) {
+        enqueueSub(node);
+        schedule();
+        break;
+      }
     }
   };
 
