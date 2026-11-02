@@ -8,6 +8,7 @@ import {
   createRoot,
   createSignal,
   flush,
+  latest,
   refresh
 } from "../src/index.js";
 
@@ -305,4 +306,73 @@ it("a recovery held by an action reveals with its commit, the inner fallback bes
     "[Fix][finding related]",
     "[Fix][related 3]"
   ]);
+});
+
+// async-gen seed 3289 #122: the recovery is written in the tick an action
+// opened, so it is the action's (O1) and held with it (D-41), and the error
+// stays up. The errored memo reads `latest()`, so its recovery runs in the
+// frame's verdict lane and the error boundary saw its source settled; the
+// re-armed inner Loading caught the pending render effect, but its swap to
+// the fallback was staged in the action's hold, and the error boundary's own
+// swap ran mainline the next round: the content attached with the Loading's
+// committed value and the render effect's run parked, a bare `content` with
+// no value (F-1). The error now stays until the hold reveals the Loading's
+// fallback, which then shows beside the recovered content (F-4).
+it("a recovery in an action's tick keeps the error up until the action ends, then shows the inner fallback (D-41, F-1, async-gen 3289 #122)", async () => {
+  const asks: { key: string; res: () => void }[] = [];
+  const settle = async (key: string) => {
+    const i = asks.findIndex(a => a.key === key);
+    expect(i, `flight ${key}`).toBeGreaterThan(-1);
+    asks.splice(i, 1)[0].res();
+    await tick();
+  };
+  const [s, setS] = createSignal(3);
+  let cell: unknown;
+  let shown: unknown;
+  const dispose = createRoot(dispose => {
+    const check = createMemo(() => {
+      const v = s() + latest(s);
+      if (v % 4 === 2) throw new Error("bad");
+      return v;
+    });
+    const data = createMemo(() => {
+      const v = s();
+      return new Promise<number>(res => asks.push({ key: `data:${v}`, res: () => res(v) }));
+    });
+    const view = createErrorBoundary(
+      () =>
+        createLoadingBoundary(
+          () => {
+            createRenderEffect(
+              () => `${check()}/${data()}`,
+              v => void (cell = v)
+            );
+            return "content";
+          },
+          () => "[L]"
+        ),
+      () => "[E]"
+    );
+    createRenderEffect(view, v => void (shown = v));
+    return dispose;
+  });
+  const act = action(function* () {
+    yield new Promise<void>(res => asks.push({ key: "act", res }));
+  });
+  const screen = () => (shown === "content" ? `content ${cell}` : String(shown));
+  const frames: string[] = [];
+  flush();
+  frames.push(screen());
+  act();
+  setS(0);
+  flush();
+  frames.push(screen());
+  await tick();
+  frames.push(screen());
+  await settle("act");
+  frames.push(screen());
+  await settle("data:0");
+  frames.push(screen());
+  dispose();
+  expect(frames).toEqual(["[E]", "[E]", "[E]", "[L]", "content 0/0"]);
 });

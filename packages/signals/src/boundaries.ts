@@ -169,15 +169,18 @@ const collecting = new Set<Boundary>();
 const boundaryOf = (node: Owner): Boundary | undefined =>
   node._context[BOUNDARY] as Boundary | undefined;
 
+/** An error boundary at or above `b` shows its fallback: content under it
+ * is not on screen. */
+const behindError = (b: Boundary | null): boolean =>
+  !!b && ((b._type === STATUS_ERROR && b._fallback) || behindError(b._parent));
+
 /** Catches what reaches it: an error boundary always; a loading one until it
  * has shown content, or while re-armed. Behind an error fallback nothing is
  * on screen, so the error boundary's recovery re-arms the subtree: a loading
- * boundary there has not shown content (D-39, F-4, #4627). */
+ * boundary there has not shown content (D-39, F-4, #4627) — a query; the
+ * boundary is fresh again once it catches (`caught`). */
 const isCollecting = (b: Boundary): boolean =>
-  b._type === STATUS_ERROR ||
-  !b._initialized ||
-  b._armed ||
-  (behindError(b) && !(b._initialized = false));
+  b._type === STATUS_ERROR || !b._initialized || b._armed || behindError(b._parent);
 
 /** A reader `b` waits on: recorded for its `on`, and `b` visited at the seam. */
 function record(b: Boundary, node: Computed<any>, source = node): void {
@@ -205,6 +208,10 @@ function caught(b: Boundary, node: Computed<any>, error: unknown, source = node)
     setSignal(b._error!, caught);
     reportClientError(caught, b._owner, source);
   }
+  // A loading boundary that catches has not shown content: fresh until it
+  // does — already so unless it caught behind an error fallback, which the
+  // recovery leaves catching (D-39, #4627); a re-arm's `flip` says it too.
+  else b._initialized = false;
   record(b, node, source);
   // A loading boundary behind an error fallback that catches a pending
   // holds nothing above it: the error boundary's recovery shows its
@@ -341,22 +348,16 @@ function release(b: Boundary): void {
   b._runs = null;
 }
 
-/** An error boundary above `b` shows its fallback: content `b` chooses is
- * not on screen. */
-function behindError(b: Boundary): boolean {
-  for (let p = b._parent; p; p = p._parent)
-    if (p._type === STATUS_ERROR && p._fallback) return true;
-  return false;
-}
-
 /** `r`, held by error boundary `b` for the error `s` threw, is pending
  * again after `s` answered, and a loading boundary between them that has
  * not shown content catches it: that boundary is its display, beside the
- * recovered content (D-39, F-4, #4627). */
+ * recovered content (D-39, F-4, #4627). Not while that boundary's swap to
+ * its fallback is staged in a hold (a recovery written in an action's tick):
+ * the error stays up until the hold reveals both (D-41, F-1). */
 function caughtBelow(b: Boundary, r: Computed<any>, s: Computed<any>): boolean {
   if (!(s._statusFlags & (STATUS_ERROR | STATUS_PENDING) || r._statusFlags & STATUS_ERROR))
     for (let l: Boundary | null | undefined = boundaryOf(r); l && l !== b; l = l._parent)
-      if (l._type & STATUS_PENDING && isCollecting(l)) return true;
+      if (l._type & STATUS_PENDING && isCollecting(l)) return !(l._output!._config & CONFIG_HELD);
   return false;
 }
 
