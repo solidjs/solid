@@ -302,7 +302,14 @@ function armedOver(node: Computed<any>): boolean | undefined {
 function hiddenBy(r: Computed<any>): Boundary | undefined {
   for (let b: Boundary | null | undefined = boundaryOf(r); b; b = b._parent)
     if (b._fallback) return b;
-  return undefined;
+  // A boundary output passing a pending by (CONFIG_REDERIVE: an error
+  // boundary, A6) is transparent: on screen only through its readers. Read
+  // only behind fallbacks — an error boundary built outside the `<Loading>`
+  // whose content reads it — it holds nothing (F-4, D-14, #4638).
+  let h: Boundary | undefined;
+  if (r._config & CONFIG_REDERIVE && !(r as any)._type)
+    for (let s = r._subs; s !== null; s = s._nextSub) if (!(h = hiddenBy(s._sub))) return;
+  return h;
 }
 
 /** `heldRunHook` (scheduler.ts): a queued run behind a fallback waits for the reveal
