@@ -13,10 +13,10 @@
  * `latest(id)` inside shows `1` now; a `<Loading>` inside shows its fallback
  * now (S-31's form). Never `0` outside beside `selected: 1` inside, and never
  * the branch attached with the committed values (`selected: 0`) while the
- * hold is open. Today the plain form attaches the branch with its text hole
- * empty (`selected: ` and nothing) — an empty slot (F-2), the display-ahead
- * branch form of #4417's mechanism; pinned `test.fails`. The signals pin
- * passes because one render effect has no per-hole inserts to leave empty.
+ * hold is open. An attach whose subtree contains a child born into the hold
+ * waits for the hold (#4574), so the plain form never shows an empty
+ * `selected:` hole. The signals pin passes because one render effect has no
+ * per-hole inserts to leave empty.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { Loading, Show, createMemo, createSignal, flush, latest } from "solid-js";
@@ -76,12 +76,9 @@ async function run(content: Content) {
 
 describe("S-46 (web): the content a display-ahead Show opens reads the screen", () => {
   // primed | after the write's flush | a task later, still in flight | landed
-  test.fails(
-    "plain `id()` inside: born held, the fallback stays until the landing — today the branch attaches with its hole empty (`selected: `), F-2's empty slot and #4417's mechanism",
-    async () => {
-      expect(await run("plain")).toEqual(["0d0none", "0d0none", "0d0none", "1d1selected: 1"]);
-    }
-  );
+  test("plain `id()` inside: born held, the fallback stays until the landing — an attach whose subtree contains a child born into the hold waits for the hold (#4574)", async () => {
+    expect(await run("plain")).toEqual(["0d0none", "0d0none", "0d0none", "1d1selected: 1"]);
+  });
 
   test("`latest(id)` inside: the held value now (D-27: the read that asks sees ahead, at its own site)", async () => {
     expect(await run("latest")).toEqual([

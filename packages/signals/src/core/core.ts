@@ -168,6 +168,7 @@ import {
   laneSeamsHook,
   laneServedHook,
   holdWorkHook,
+  hiddenHook,
   laneWriteHook,
   observeFlightHook,
   wireExternalSourceHook
@@ -355,6 +356,77 @@ export function clearSnapshots(): void {
   snapshotCaptureActive = false;
 }
 
+/** Dep values a staged verdict pass read, so a park re-derive can see that
+ * the provisional run already produced this frame (#4417). */
+let provisionalReads: WeakMap<Computed<any>, unknown[]> | null = null;
+
+function readSeen(dep: Signal<any> | Computed<any>): unknown {
+  return dep._pendingValue !== NOT_PENDING
+    ? dep._pendingValue
+    : dep._config & CONFIG_OVERRIDE && dep._x!._lane !== NOT_PENDING
+      ? dep._x!._lane
+      : dep._value;
+}
+
+/** The park re-derive's sources still serve the provisional pass's reads,
+ * and that pass owns a frame. Keep the owner and its children. */
+function unfinishedEffect(owner: Owner): boolean {
+  for (let c = owner._firstChild; c !== null; c = c._nextSibling) {
+    const n = c as Computed<any>;
+    if (hiddenHook?.(n)) continue;
+    if (
+      (n as any)._type === EFFECT_RENDER &&
+      n._statusFlags & STATUS_PENDING &&
+      n._pendingValue === NOT_PENDING
+    )
+      return true;
+    if (unfinishedEffect(c)) return true;
+  }
+  return false;
+}
+
+function keepProvisionalOwner(el: Computed<any>): boolean {
+  if ((el._config & (CONFIG_STAGED | CONFIG_VERDICT)) !== (CONFIG_STAGED | CONFIG_VERDICT))
+    return false;
+  // An effect in this frame that is still pending with no value has not
+  // finished (#1831). One behind a fallback is the boundary's (#4417).
+  if (unfinishedEffect(el)) return false;
+  const snap = provisionalReads?.get(el);
+  if (!snap || (el._firstChild === null && el._disposal == null)) return false;
+  let i = 0;
+  for (let d = el._deps; d !== null; d = d._nextDep) {
+    if (!Object.is(snap[i], readSeen(d._dep))) return false;
+    i++;
+    if (d === el._depsTail) break;
+  }
+  return i === snap.length;
+}
+
+/** The verdict lane a provisional pass's sources already sit in. */
+function provisionalLane(el: Computed<any>): Transaction | null {
+  for (let d = el._deps; d !== null; d = d._nextDep) {
+    const tx = d._dep._x?._transaction;
+    if (tx?._lane && tx._parent?._verdict === tx) return tx;
+    if (d === el._depsTail) break;
+  }
+  return null;
+}
+
+function noteProvisionalOwner(el: Computed<any>): void {
+  if (
+    (el._config & (CONFIG_STAGED | CONFIG_VERDICT)) !== (CONFIG_STAGED | CONFIG_VERDICT) ||
+    el._pendingValue === NOT_PENDING ||
+    (el._firstChild === null && el._disposal == null)
+  )
+    return;
+  const snap: unknown[] = [];
+  for (let d = el._deps; d !== null; d = d._nextDep) {
+    snap.push(readSeen(d._dep));
+    if (d === el._depsTail) break;
+  }
+  (provisionalReads ??= new WeakMap()).set(el, snap);
+}
+
 export function recompute(el: Computed<any>, create: boolean = false): void {
   // §12d: any recompute can clean a marked subscriber — invalidate skips.
   bumpNotifyEpoch();
@@ -417,7 +489,22 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // re-derivation, lane adoption through deps) went with the optimistic engine.
   // An error a pass staged, which this pass replaces (`valueChanged`).
   const replaced = el._config & CONFIG_STAGED_ERROR;
+  // Park re-derive whose sources still serve the provisional pass (#4417).
+  // The frame stays — pending children included — and the body does not run
+  // again, so a keyed child is that same child. The value still publishes
+  // against the commit, in the sources' verdict lane, so the attach runs.
+  let reuse = false;
+  let reused: unknown = NOT_PENDING;
   if (!create) {
+    reuse = keepProvisionalOwner(el);
+    if (reuse) {
+      reused = el._pendingValue;
+      el._pendingValue = NOT_PENDING;
+      el._config &= ~CONFIG_HELD;
+      el._flags &= ~(REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_LANE_DIRTY);
+      const lane = provisionalLane(el);
+      if (lane !== null) setPassLane(lane);
+    }
     deleteFromHeap(el, dirtyQueue);
     // A pending flight is the transition's own work (#3884), and so is a
     // held async memo's re-run with no verdict window of its own (D-25,
@@ -505,7 +592,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // frame parked before it stays parked. Otherwise they ARE the frame:
     // park them until this pass commits. Tracked effects run after the seam
     // and own nothing to park.
-    if (isEffect === EFFECT_TRACKED || el._config & CONFIG_STAGED) {
+    if (!reuse && (isEffect === EFFECT_TRACKED || el._config & CONFIG_STAGED)) {
       // A lazy node only those children read is released when this pass
       // ends, if the pass doesn't read it again (#4142). A cleanup or
       // `unobserved` hook that throws here neither stops the pass nor skips
@@ -514,7 +601,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       deferReleases((released = []));
       disposeChildren(el);
       deferReleases(prev);
-    } else if (el._firstChild !== null || el._disposal !== null) parkChildren(el);
+    } else if (!reuse && (el._firstChild !== null || el._disposal !== null)) parkChildren(el);
     // An error a pass staged (D-41) is replaced by this pass's answer: a
     // value, a flight, or an error of its own (#4109, #4145).
     if (el._config & CONFIG_STAGED_ERROR) {
@@ -567,8 +654,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     );
   const oldcontext = context;
   context = el;
-  el._depsTail = null;
-  el._depGen++;
+  // The provisional frame's links stay: the body does not re-read (#4417).
+  if (!reuse) {
+    el._depsTail = null;
+    el._depGen++;
+  }
   // REACTIVE_ZOMBIE is position: it says the node sits on its owner's parked
   // frame, and the splice/reawaken paths key off it. A zombie reruns for
   // live writes until the commit that disposes it, so every per-pass wipe
@@ -576,7 +666,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // A settle found this node unobserved while this pass was queued
   // (REACTIVE_RELEASE_AFTER): the release is this pass's tail's (#4474).
   const releaseAfter = el._flags & REACTIVE_RELEASE_AFTER;
-  el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & (REACTIVE_ZOMBIE | REACTIVE_REASK));
+  el._flags =
+    REACTIVE_RECOMPUTING_DEPS |
+    (el._flags & (REACTIVE_ZOMBIE | REACTIVE_REASK)) |
+    (reuse ? REACTIVE_PROBED | REACTIVE_LANE_READ : 0);
   el._time = clock;
   // The pass's previous value: its staging, else a lane node's lane value
   // when it has one (lanes.ts), else the committed one.
@@ -608,7 +701,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   try {
     // (The CONFIG_SYNC fast arm is prod-only: a dev build takes the general
     // arm for every node, so the D-42 check there sees sync nodes too.)
-    if (!__DEV__ && el._config & CONFIG_SYNC) {
+    if (reuse) value = reused;
+    else if (!__DEV__ && el._config & CONFIG_SYNC) {
       value = el._fn(value);
       if (el._x !== null) el._x._inFlight = null;
       el._loading = false;
@@ -1071,6 +1165,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // went pending is an observer's again (its landing releases it), and one
   // re-queued above is released at that pass's tail.
   if (releaseAfter) releaseIfSettledUnobserved(el);
+  noteProvisionalOwner(el);
 }
 
 function updateIfNecessary(el: Computed<unknown>): void {

@@ -4,12 +4,14 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_HELD,
   CONFIG_OVERRIDE,
+  CONFIG_VERDICT,
   EFFECT_RENDER,
   EFFECT_TRACKED,
   EFFECT_USER,
   REACTIVE_DISPOSED,
   STATUS_ERROR,
-  STATUS_PENDING
+  STATUS_PENDING,
+  STATUS_UNINITIALIZED
 } from "./constants.js";
 import {
   computed,
@@ -47,9 +49,13 @@ import {
   setTrackedQueueCallback,
   setEffectCallback,
   heldRunHook,
+  hiddenHook,
   queueEvent,
-  applyStaged
+  applyStaged,
+  blocked,
+  txOf
 } from "./scheduler.js";
+import type { Transaction } from "./scheduler.js";
 import type { Computed, NodeOptions, Owner } from "./types.js";
 
 export interface Effect<T> extends Computed<T>, Owner {
@@ -182,6 +188,49 @@ function escalate(node: Effect<any>, cause: unknown, subject?: DiagnosticSubject
   }
 }
 
+/** A render effect born into an open hold, not caught by a fallback (#4574).
+ * An attach that owns one waits for that hold instead of inserting the
+ * lane's empty shell. */
+function bornHeldOpen(owner: Owner | null): Transaction | null {
+  for (let c = owner?._firstChild ?? null; c !== null; c = c._nextSibling) {
+    const n = c as Effect<any>;
+    if (n._flags & REACTIVE_DISPOSED) continue;
+    if (hiddenHook?.(n)) continue;
+    if (
+      n._type === EFFECT_RENDER &&
+      n._statusFlags & STATUS_UNINITIALIZED &&
+      n._config & CONFIG_HELD &&
+      n._pendingValue !== NOT_PENDING
+    ) {
+      const t = txOf(n);
+      if (!t._lane && blocked(t)) return t;
+    }
+    const inner = bornHeldOpen(c);
+    if (inner) return inner;
+  }
+  return null;
+}
+
+/** The hold an attach must wait for: a child of this effect, or of a value
+ * it reads, was born into that hold and has not run. */
+function attachHold(node: Effect<any>): Transaction | null {
+  let t = bornHeldOpen(node);
+  for (let d = node._deps; d !== null && t === null; d = d._nextDep) {
+    t = bornHeldOpen(d._dep as Owner);
+    if (d === node._depsTail) break;
+  }
+  return t;
+}
+
+function valueInserts(v: unknown): boolean {
+  if (typeof v !== "object" || v === null) return false;
+  if (Array.isArray(v)) {
+    for (let i = 0; i < v.length; i++) if (valueInserts(v[i])) return true;
+    return false;
+  }
+  return (v as { nodeType?: number }).nodeType! > 0;
+}
+
 function runEffect(node: Effect<any>, type: number): void {
   if (!node._modified || node._flags & REACTIVE_DISPOSED) return;
   // A queued run behind a fallback (boundaries.ts) waits for the reveal: a
@@ -195,6 +244,23 @@ function runEffect(node: Effect<any>, type: number): void {
   // (#4343). `_modified` stays set; the boundary re-queues the run
   // (`release`).
   if (type && heldRunHook?.(node)) return;
+  // The lane's leaf would insert the shell now; the hole born into the hold
+  // has not written. Wait for that hold (#4574). Not the lane: only this attach.
+  // A lane leaf that inserts a node (the Show slot). An attribute effect's
+  // value is not a node, so it still runs. The hole it attaches was born
+  // into the hold and is not itself a verdict reader.
+  if (
+    type &&
+    node._type === EFFECT_RENDER &&
+    (node._config & CONFIG_VERDICT || node._x?._transaction?._lane) &&
+    valueInserts(node._pendingValue !== NOT_PENDING ? node._pendingValue : node._value)
+  ) {
+    const t = attachHold(node);
+    if (t !== null) {
+      t._queues[0].push((node._boundRunEffect ??= GlobalQueue._runEffect.bind(null, node)));
+      return;
+    }
+  }
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in
   // this same imperative, writable scope. Unwrap the StatusError used for
