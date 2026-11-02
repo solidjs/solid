@@ -5,9 +5,11 @@
  * #4592: `<Errored>` recovering while another memo in its content is still
  * asking for the new input. `a` and `b` both ask by `s`; `b:0` rejects and
  * the error fallback shows. `s` changes and both re-ask. `b:1` landing while
- * `a:1` is out must not reveal `a`'s answer for `s = 0` beside `s = 1`: the
- * error stays the display until the frame that replaces it is whole (F-1,
- * D-39, D-41's mirror).
+ * `a:1` is out must not reveal `a`'s answer for `s = 0` beside `s = 1` (F-1).
+ * With no boundary between, the error stays the display until the frame that
+ * replaces it is whole (D-39: a pending is not a value). Inside `<Loading>`,
+ * the recovery re-arms the subtree: the Loading has not shown content, so it
+ * catches `a:1` and shows its fallback (ruled 2026-11-02, #4627, D-39, F-4).
  */
 import { render } from "@solidjs/web";
 import { createMemo, createSignal, Errored, flush, Loading } from "solid-js";
@@ -71,6 +73,6 @@ it("no boundary: <Errored> recovery does not show a pending memo's stale value b
   expect(await run("none")).toEqual(["error", "error", "error", "s=1a=11b=21"]);
 });
 
-it("inside <Loading>: <Errored> recovery does not show a pending memo's stale value beside its new input", async () => {
-  expect(await run("loading")).toEqual(["error", "error", "error", "s=1a=11b=21"]);
+it("inside <Loading>: <Errored> recovery shows the Loading's fallback while a memo still asks (#4627)", async () => {
+  expect(await run("loading")).toEqual(["error", "error", "loading", "s=1a=11b=21"]);
 });
