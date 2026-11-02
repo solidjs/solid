@@ -70,6 +70,12 @@ function page(probe: Probe, withSecondHold = false) {
   const branchSaw: Params[] = [];
   const mainlineSaw: Params[] = [];
   let params!: () => Params;
+  // The inline form's own probe makes `params` T's verdict reader, so the
+  // branch issues the signed-out fetch. That fetch resolves; a never-resolving
+  // one would hold T forever and hide the landing.
+  let signedOutIssued = false;
+  let resolveSignedOut: (v: string) => void = () => {};
+  const signedOut = new Promise<string>(r => (resolveSignedOut = r));
   const dispose = createRoot(dispose => {
     const held = createMemo(() => {
       const g = gate();
@@ -97,7 +103,16 @@ function page(probe: Probe, withSecondHold = false) {
                 signedIn: session() !== undefined
               }
         );
-        const signedOutOnly = createMemo(() => NEVER, { lazy: true });
+        const signedOutOnly = createMemo(
+          () => {
+            if (probe === "inline isPending") {
+              signedOutIssued = true;
+              return signedOut;
+            }
+            return NEVER;
+          },
+          { lazy: true }
+        );
         // <Show when={session() !== undefined} fallback="signed out">
         //   <b>{params().signedIn ? "rows" : signedOutOnly()}</b>
         // </Show>
@@ -162,7 +177,9 @@ function page(probe: Probe, withSecondHold = false) {
     setGate,
     setGateU,
     release: () => release(),
-    releaseU: () => releaseU()
+    releaseU: () => releaseU(),
+    signedOutIssued: () => signedOutIssued,
+    resolveSignedOut: (v: string) => resolveSignedOut(v)
   };
 }
 
@@ -189,47 +206,64 @@ async function arrive(probe: Probe) {
   }
 }
 
-// Shape 1 (the reporter's): a probe of the unrelated, unheld `plan` — in a
-// memo upstream, or inline — leaves `params` the hold's plain derivation.
+// Shape 1. The memo form and the inline form differ because a memo's value
+// is one slot computed under its own posture (A31).
 //
-// The plain row passes. The three probe rows are pinned at the ruled screen
-// and FAIL today (`it.fails`), on the `plan` write's flush, by the rules as
-// amended — a conflict the maintainer must rule on, not a mechanism gap:
-// the `plan` write reaches `params`'s T staging and joins T (L2); `chrome`'s
-// probe of the staging is D-22's provisional verdict and re-derives at the
-// seam as T's verdict reader (`plan()` the screen's `false`, A10 — the
-// comment below); `params`, dirtied by that re-derive, inherits the posture
-// (#4050) while holding a T staging, and D-25's "a node holding a mere T
-// staging … is T's verdict reader: the probe wins" (ruled 2026-11-01;
-// `latest-first-one-pass-4402` pins it for inherited postures too) serves
-// it the committed `session` — the branch reads `signedIn: false`, asks
-// `signedOutOnly`, and T waits on it: `0 signed out`. Row 1 of the first
-// flush is right (`signedIn: true`, T's work), as is the seat decided at the
-// pass head (the join does not turn the pass into T's verdict reader
-// halfway, core.ts `recompute`); the conflict is between the ruling above
-// and D-25 as amended on the seam's re-pass.
-for (const probe of ["plain read", "isPending", "latest", "inline isPending"] as Probe[])
-  (probe === "plain read" ? it : it.fails)(
-    `${probe} of an unrelated signal upstream: the branch the hold opens reads the hold's session and the hold lands`,
-    async () => {
-      const r = await arrive(probe);
-      expect(r.screen).toBe("1 rows");
-      // The branch read the hold's world on every pass: `signedIn` true.
-      // (`plan` is `true` through `latest` and the plain reads; in the
-      // `isPending` row `chrome`'s plain `plan()` beside its probe is the
-      // screen's `false` once the `plan` write is held — a pass dirtied by
-      // T's flush that also probes T is T's verdict reader, D-25 L207 — and
-      // `params` over it reads that `false` as T's plain derivation.)
-      expect(r.duringHold.branch).toMatchObject(
-        probe === "isPending" ? { plan: false, signedIn: true } : { plan: true, signedIn: true }
-      );
-      // The mainline reader of `params` saw the screen: `params` is held with
-      // the write (D-1), so the mainline effect still shows the committed
-      // value — `signedIn` false, `plan` committed too (`params`'s later pass
-      // over the `plan` write stayed in the hold).
-      expect(r.duringHold.mainline).toMatchObject({ plan: false, signedIn: false });
-    }
-  );
+// Memo form (`isPending` / `latest` in `chrome`): `chrome`'s own probe of
+// `plan`, once the write has joined T, makes `chrome` T's verdict reader.
+// `params` holds its own staging of T. D-25: a node holding its own staging
+// of a hold is that hold's work; an inherited posture does not pull it out
+// (#4544). The branch reads `signedIn: true` and T lands on `rows`.
+for (const probe of ["plain read", "isPending", "latest"] as Probe[])
+  it(`${probe} of an unrelated signal upstream: the branch the hold opens reads the hold's session and the hold lands`, async () => {
+    const r = await arrive(probe);
+    expect(r.screen).toBe("1 rows");
+    // The branch read the hold's world on every pass: `signedIn` true.
+    // (`plan` is `true` through `latest` and the plain reads; in the
+    // `isPending` row `chrome`'s plain `plan()` beside its probe is the
+    // screen's `false` once the `plan` write is held — a probe in
+    // `chrome`'s own body decides, D-25 L209 / F-6 — and `params` over it
+    // reads that `false` as T's plain derivation.)
+    expect(r.duringHold.branch).toMatchObject(
+      probe === "isPending" ? { plan: false, signedIn: true } : { plan: true, signedIn: true }
+    );
+    // The mainline reader of `params` saw the screen: `params` is held with
+    // the write (D-1), so the mainline effect still shows the committed
+    // value — `signedIn` false, `plan` committed too (`params`'s later pass
+    // over the `plan` write stayed in the hold).
+    expect(r.duringHold.mainline).toMatchObject({ plan: false, signedIn: false });
+  });
+
+// Inline form: the probe is in `params`'s own body. D-25 L209 / F-6: a probe
+// in the pass's own body decides. `params` is T's verdict reader, so the
+// branch reads `{plan: false, signedIn: false}`, issues the signed-out
+// fetch, and T lands after that fetch resolves.
+it("inline isPending of an unrelated signal: the pass's own probe makes it the hold's verdict reader, and the hold lands after the signed-out fetch", async () => {
+  const p = page("inline isPending");
+  try {
+    flush();
+    expect(p.screen()).toBe("0 signed out");
+    p.setGate(1);
+    p.setSession("acc");
+    flush();
+    p.setPlan(true);
+    flush();
+    expect(p.branchSaw.at(-1)).toMatchObject({ plan: false, signedIn: false });
+    expect(p.mainlineSaw.at(-1)).toMatchObject({ plan: false, signedIn: false });
+    expect(p.signedOutIssued()).toBe(true);
+    expect(p.screen()).toBe("0 signed out");
+    p.resolveSignedOut("out");
+    p.release();
+    await tick();
+    await tick();
+    // T lands after the signed-out fetch: the verdict reader re-derives on
+    // the committed world and the branch shows `rows`.
+    expect(p.screen()).toBe("1 rows");
+    expect(p.branchSaw.at(-1)).toMatchObject({ plan: true, signedIn: true });
+  } finally {
+    p.dispose();
+  }
+});
 
 // Shape 2 — RULED AS TODAY (A10: a verdict reader checks the verdict before
 // trusting the value). `params` itself probes `session`: it IS the hold's
@@ -353,23 +387,15 @@ it("timing edge: a probe that finds its node held by U makes the pass U's verdic
   }
 });
 
-// The other half of that pass (D-37 as amended 2026-11-01: "a lane node
-// dirtied by a parent-side hold T's flush is T's work on that pass — the
-// staging it publishes is T's, revealed at T's landing, while the lane keeps
-// showing its own value"). `params` is U's verdict lane's node: what U's
-// readers — the mainline effect over it, re-run by the lane's re-staging —
-// see is the lane's value `{plan: false, signedIn: false}`, and T's
-// `signedIn: true` reaches them at T's landing only. Pinned at the ruled
-// screen and FAILING today (`it.fails`), on base and here alike: the node
-// has one lane slot, and the pass dirtied by T's write stages into it as
-// U's lane work (`recompute`'s head seats an override node in its lane;
-// `laneStage` keeps a pass that read a lane value), so `signedIn: true` is
-// shown through U's lane ahead of T's landing — a held value on screen
-// before its hold lands (F-1). The two-slot seat (the lane's value kept,
-// T's staging beside it) is the lane-engine half of the per-hold seat
-// (seat-per-hold.md "Relationship to #3905"), not built in this PR.
+// The lane's side of that pass is not this change. `params` is U's verdict
+// lane's node and has one lane slot: the pass T's write dirties stages into
+// it, so U's readers see `signedIn: true` before T lands. A two-slot seat
+// (the lane's value kept, T's staging beside it) is not built. The D-37
+// sentence that would have made that lane node T's work was not implemented
+// and is not in the rules. The row stays `it.fails` at the two-slot screen,
+// on base and here alike.
 it.fails(
-  "timing edge, the lane's side: U's readers of `params` keep seeing the lane's value while T holds its staging (D-37 as amended)",
+  "timing edge, the lane's side: not built — U's readers see T's staging through the one lane slot",
   async () => {
     const p = page("inline isPending", true);
     try {

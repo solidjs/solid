@@ -7,17 +7,12 @@
  * written up). A held update (an async memo under the root <Loading>)
  * writes `session` and opens `<Show when={session() !== undefined}>`. Inside,
  * a pre-existing `params` memo reads `session` and a `chrome` memo; `chrome`
- * reads an unrelated, unheld signal `plan`. Plain, `params` reads `"acc"` and
- * the hold lands on `rows`. With `isPending(plan)`/`latest(plan)` in `chrome`
- * the ruling (2026-10-31) is the same screen — a probe of a node no hold
- * holds earns no posture — and today's screen is still the reporter's: on
- * the `plan` write's flush `chrome` becomes the hold's verdict reader
- * (D-22's provisional verdict, the write having joined the hold through
- * `params`), `params` inherits the posture over the staging it holds (#4050,
- * D-25 as ruled 2026-11-01) and is served the committed `undefined`; the
- * born-held branch reads a never-resolving lazy memo and the hold never
- * lands. Pinned `it.fails` at the ruled screen; the conflict is the signals
- * pin's to describe.
+ * reads an unrelated, unheld signal `plan`. The memo form and the inline
+ * form differ because a memo's value is one slot computed under its own
+ * posture (A31). Here the probe is in `chrome`: D-25: a node holding its
+ * own staging of a hold is that hold's work; an inherited posture does not
+ * pull it out (#4544). `params` reads the hold's session and the hold lands
+ * on `rows`.
  */
 import { expect, it } from "vitest";
 import { Loading, Show, createMemo, createSignal, isPending, latest } from "solid-js";
@@ -77,9 +72,6 @@ async function arrive(probe: Probe): Promise<string | null | undefined> {
 }
 
 for (const probe of ["plain read", "isPending", "latest"] as Probe[])
-  (probe === "plain read" ? it : it.fails)(
-    `${probe} of an unrelated signal upstream: the branch the hold opens reads the hold's session and the hold lands`,
-    async () => {
-      expect(await arrive(probe)).toBe("rows");
-    }
-  );
+  it(`${probe} of an unrelated signal upstream: the branch the hold opens reads the hold's session and the hold lands`, async () => {
+    expect(await arrive(probe)).toBe("rows");
+  });

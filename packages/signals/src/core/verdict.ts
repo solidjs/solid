@@ -106,24 +106,35 @@ import type { Computed, Signal } from "./types.js";
  * memory names is simply held by nobody then. A pass that completes having
  * asked nothing drops CONFIG_VERDICT (core.ts `recompute`'s tail) and the
  * memory lies inert until a pass asks again. */
-type ProbeMemory = { gen: number; nodes: (Signal<any> | Computed<any>)[] };
+type Probes = (Signal<any> | Computed<any>)[];
+/** `nodes`: the node's own probes — its window reads, or the probes a
+ * verdict memo's lane re-staging handed a render effect it re-runs (D-26,
+ * that pass's own: seat-per-hold.md §3 rule 1); `inh`: the posture it
+ * inherited by reading a verdict memo's value (#4050, rule 4), kept apart
+ * (rule 3: an inherited posture never pulls a node out of a hold its own
+ * staging is in, #4544). */
+type ProbeMemory = { gen: number; nodes: Probes; inh: Probes };
 const probeMemory = new WeakMap<Computed<any>, ProbeMemory>();
-/** The running pass's list: fresh for its first contribution. `next`: the
+/** The running pass's memory: fresh for its first contribution. `next`: the
  * pass to come (`laneDirty`, before the effect's head). */
-function probeList(c: Computed<any>, next?: boolean): (Signal<any> | Computed<any>)[] {
+function probeList(c: Computed<any>, next?: boolean): ProbeMemory {
   const gen = next ? c._depGen + 1 : c._depGen;
   let m = probeMemory.get(c);
-  if (m === undefined || m.gen !== gen) probeMemory.set(c, (m = { gen, nodes: [] }));
-  return m.nodes;
+  if (m === undefined || m.gen !== gen) probeMemory.set(c, (m = { gen, nodes: [], inh: [] }));
+  return m;
 }
-/** `c` reads verdict memo `from`'s value (#4050) — or, `next`, is a render
- * effect `from`'s lane re-staging re-runs (`laneDirty`, D-26 #4284): the
- * posture handed on is toward whatever `from` asked about. */
+/** `c` reads verdict memo `from`'s value (#4050): the posture handed on is
+ * toward whatever `from` asked about or inherited, and is inherited. Or,
+ * `next`, `c` is a render effect `from`'s lane re-staging re-runs
+ * (`laneDirty`, D-26 #4284): the leaf is, for that pass, the verdict reader
+ * the same read inline makes it — the probes are that pass's own. */
 function inheritProbes(c: Computed<any>, from: Computed<any>, next: boolean): void {
   const m = probeMemory.get(from);
   if (m === undefined) return;
-  const into = probeList(c, next);
+  const to = probeList(c, next);
+  const into = next ? to.nodes : to.inh;
   for (const p of m.nodes) if (into.indexOf(p) === -1) into.push(p);
+  for (const p of m.inh) if (into.indexOf(p) === -1) into.push(p);
 }
 /** A boundary's output reading its fallback (boundaries.ts `fallback`):
  * what the fallback asks about is the fallback's display-ahead, not the
@@ -132,7 +143,7 @@ function inheritProbes(c: Computed<any>, from: Computed<any>, next: boolean): vo
 function probesBracket(c: Computed<any>, saved: unknown): unknown {
   if (saved === undefined) {
     const m = probeMemory.get(c);
-    return m === undefined ? null : { gen: m.gen, nodes: m.nodes.slice() };
+    return m === undefined ? null : { gen: m.gen, nodes: m.nodes.slice(), inh: m.inh.slice() };
   }
   if (saved === null) probeMemory.delete(c);
   else probeMemory.set(c, saved as ProbeMemory);
@@ -169,20 +180,28 @@ function holdOfTx(t: Transaction): Transaction {
   while (t._lane) t = resolveTx(t._parent!);
   return t;
 }
-/** Is verdict reader `c` one toward `toward` — did its last asking pass ask
- * about something the same hold holds now? `toward`: the hold a pass is
- * seated against (a transaction), the node a read is of (its hold, or the
- * flush's hold to be when the flush has staged it), null for the flush's
- * own proposal (a staging, a flight), or undefined for any live hold at all
- * (one with a transaction: a staging the flush has not held is nobody's
- * yet). A posture toward one hold is nothing toward another (#4544 timing
- * edge: U's verdict reader, T's work), and nothing once its hold has landed
- * (D-25 per hold). */
+/** Is `c` a verdict reader toward `toward` — the one decider of a pass's
+ * seat toward a hold (seat-per-hold.md §3, D-25 as amended 2026-11-01), at
+ * every site that reads one. `toward`: the hold a pass is seated against
+ * (a transaction), the node a read is of (its hold, or the flush's hold to
+ * be when the flush has staged it), null for the flush's own proposal (a
+ * staging, a flight), or undefined for any live hold at all (one with a
+ * transaction: a staging the flush has not held is nobody's yet). A posture
+ * toward one hold is nothing toward another (#4544 timing edge: U's verdict
+ * reader, T's work), and nothing once its hold has landed (D-25 per hold).
+ * The posture is read off the probe memory: a probe of the pass's own —
+ * this pass's (rule 1: nothing overrides it) or its last asking pass's
+ * (rule 4) — of a node the hold holds; an inherited one (#4050, rule 4)
+ * unless the node holds its own staging of that very hold (rule 3, Ruling
+ * 3, #4544: it is the hold's work, and reads the memo's value as a value).
+ * CONFIG_VERDICT is the memory's liveness: a pass that asked nothing drops
+ * it (core.ts `recompute`'s tail), as does the hold's work by its fetch
+ * (rule 2: the #3884 head clear, `holdWork`) — the memory lies inert. */
 function probesHeld(
   c: Computed<any>,
   toward: Signal<any> | Computed<any> | Transaction | null | undefined
 ): boolean {
-  const m = probeMemory.get(c);
+  const m = c._config & CONFIG_VERDICT ? probeMemory.get(c) : undefined;
   if (m === undefined) return false;
   const key =
     toward === null
@@ -195,9 +214,24 @@ function probesHeld(
           ? holdOfTx(toward as Transaction)
           : holdOf(toward as Signal<any>);
   if (key === null) return false;
-  for (let i = 0; i < m.nodes.length; i++) {
-    const h = holdOf(m.nodes[i]);
-    if (key === undefined ? h !== null && h !== FLUSH : h === key) return true;
+  return (
+    anyHeld(m.nodes, key, null) ||
+    anyHeld(
+      m.inh,
+      key,
+      (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
+        c._pendingValue !== NOT_PENDING
+        ? holdOfTx(c._x!._transaction!)
+        : null
+    )
+  );
+}
+/** Does `key` hold a node of `nodes` (undefined: any live hold does) — a
+ * hold other than `not`? */
+function anyHeld(nodes: Probes, key: Transaction | undefined, not: Transaction | null): boolean {
+  for (let i = 0; i < nodes.length; i++) {
+    const h = holdOf(nodes[i]);
+    if (h !== null && h !== not && (key === undefined ? h !== FLUSH : h === key)) return true;
   }
   return false;
 }
@@ -571,7 +605,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   // staging (`markVerdictReader`, #4341): that world's pass, no hold's
   // verdict reader.
   if (tracked && !creatorReads(c!, 0)) {
-    const into = probeList(c!);
+    const into = probeList(c!).nodes;
     if (into.indexOf(el) === -1) into.push(el);
   }
   // A reader in a snapshot scope (a hydration claim) is served the value the

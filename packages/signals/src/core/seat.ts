@@ -213,6 +213,8 @@ export interface Seat {
    * of T if any such node is T-held now. */
   probed: Probes | null;
   memory: Probes | null;
+  /** The inherited half of the node's memory (`inheritedMemory`). */
+  inhMemory: Probes | null;
   /** Probes inherited for this pass only (D-26 #4284, `shadowLaneDirty`):
    * not remembered on the node. */
   passProbes: Probes | null;
@@ -244,6 +246,7 @@ export interface Seat {
   /** The node's memory as remembered, before the #3884 drop: what the lane
    * pass (`headVhold`) re-derives as the verdict reader of. */
   laneMemory: Probes | null;
+  laneInhMemory: Probes | null;
   /** Pending at its head (waiting on a flight). */
   headPending: boolean;
   /** The node's own hold at the pass's head, BEFORE `recompute`'s held
@@ -292,6 +295,24 @@ function addProbe(into: Probes, p: AnyNode, h: Transaction | null): void {
  * at the close of a pass that asked; cleared by one that completed having
  * asked nothing (D-25 "a verdict posture outlives the pass that asked"). */
 const probeMemory = new WeakMap<Computed<any>, Probes>();
+/** The inherited half of the memory (#4050): what the verdict memos the
+ * node's last asking pass read had asked about — kept apart from its own
+ * probes because the two seat differently (Ruling 3, D-25 as amended
+ * 2026-11-01: an inherited posture never pulls a pass out of a hold its
+ * own staging, fetch or birth already makes it the work of; its own probe
+ * does, Ruling 2). */
+const inheritedMemory = new WeakMap<Computed<any>, Probes>();
+/** Both halves of a node's memory, for a hand-on (#4050, `laneDirty`) and
+ * the either-order service of the probed node itself. */
+function wholeMemory(n: Computed<any>): Probes | undefined {
+  const own = probeMemory.get(n),
+    inh = inheritedMemory.get(n);
+  if (inh === undefined || inh.size === 0) return own;
+  if (own === undefined || own.size === 0) return inh;
+  const m: Probes = new Map(own);
+  for (const [p, hs] of inh) for (const h of hs) addProbe(m, p, h);
+  return m;
+}
 /** The order of holds (`shadowTxHook`): when each transaction opened and
  * landed. A posture toward a landed hold T is released only toward holds
  * opened after T landed — isolated holds (ruled 2026-11-01); one opened
@@ -374,6 +395,7 @@ export function shadowHeadState(el: Computed<any>): void {
  * goes with it (today: `CONFIG_VERDICT` cleared there). */
 export function shadowHoldWork(n: Computed<any>): void {
   probeMemory.delete(n);
+  inheritedMemory.delete(n);
 }
 
 /** D-26 #4284 (scheduler.ts `laneDirty`): a render effect re-run by a
@@ -382,7 +404,7 @@ export function shadowHoldWork(n: Computed<any>): void {
  * head. Recorded here, consumed by `openSeat`. */
 const laneDirtyFrom = new WeakMap<Computed<any>, Probes>();
 export function shadowLaneDirty(c: Computed<any>, node: AnyNode): void {
-  const m = probeMemory.get(node as Computed<any>);
+  const m = wholeMemory(node as Computed<any>);
   if (m === undefined || m.size === 0) return;
   let into = laneDirtyFrom.get(c);
   if (into === undefined) laneDirtyFrom.set(c, (into = new Map()));
@@ -473,21 +495,47 @@ function inheritedToward(m: Probes | null, t: Transaction): boolean {
   for (const p of m.keys()) if (holdOf(p) === t) return true;
   return false;
 }
-function probedToward(seat: Seat, t: Transaction): boolean {
+/** Rule 1 (seat-per-hold.md §3, D-25 as amended 2026-11-01): a probe in
+ * the pass's own body of a node `t` holds — this pass's window reads, or
+ * the probes the re-staging that dirtied a render effect handed it (D-26,
+ * the same pass's). Nothing overrides a probe made this pass. */
+function bodyProbedToward(seat: Seat, t: Transaction): boolean {
+  return probesToward(seat.probed, t) || probesToward(seat.passProbes, t);
+}
+/** Rule 2: `t`'s work by the node's own hold at the head, against a
+ * remembered probe and an inherited posture alike (Ruling 4, 2026-11-01):
+ * `t`'s fetch it waits on (#3884), or birth into `t` (D-27). */
+function fetchOrBornToward(seat: Seat, t: Transaction): boolean {
   return (
-    probesToward(seat.probed, t) ||
-    // #3884 (§3 row 2): toward the hold whose fetch the node waits on at
-    // its head, what earlier passes asked is spent — the pass is that
-    // hold's work by its head; a probe in this pass's body seats it anew
-    // (the probe decides, F-6). Toward every other hold the postures
-    // stand (ruled 2026-11-01: released at their landing, not by a pass).
-    ((seat.fetchHold === null || resolveTx(seat.fetchHold) !== t) &&
-      probesToward(seat.memory, t)) ||
-    probesToward(seat.passProbes, t) ||
-    inheritedToward(seat.inherited, t)
+    (t !== FLUSH_HOLD && seatBornInto(seat, t)) ||
+    (seat.fetchHold !== null && resolveTx(seat.fetchHold) === t)
   );
 }
-
+/** A `t` staging the node holds at its head (rule 3's "own staging"). */
+function ownStagingToward(seat: Seat, t: Transaction): boolean {
+  const h = seat.head;
+  return h !== null && h.staged && resolveTx(h.tx) === t;
+}
+/** `t`'s work by its own hold at the head: fetch, birth or staging. */
+function ownWorkToward(seat: Seat, t: Transaction): boolean {
+  return fetchOrBornToward(seat, t) || ownStagingToward(seat, t);
+}
+/** Rule 4: a REMEMBERED probe of the node's own (its last asking pass) or
+ * an INHERITED posture (#4050: it read a verdict memo of `t`'s node, this
+ * pass or remembered) seats the pass as `t`'s verdict reader, released
+ * when `t` lands (Ruling 1) — unless rule 2 (fetch, birth) made it `t`'s
+ * work; and an inherited posture never pulls a node out of a hold its own
+ * staging is in (rule 3, Ruling 3, #4544), where a remembered probe of
+ * its own does (Ruling 2 as the engine carries it: the node bit at the
+ * head; 4491/4504/4402 pin it). */
+function rememberedToward(seat: Seat, t: Transaction): boolean {
+  if (fetchOrBornToward(seat, t)) return false;
+  return (
+    probesToward(seat.memory, t) ||
+    (!ownStagingToward(seat, t) &&
+      (inheritedToward(seat.inherited, t) || probesToward(seat.inhMemory, t)))
+  );
+}
 /** The boundary swap's posture (`shadowSwapSeat`) is toward `t`. */
 function swapToward(seat: Seat, t: Transaction): boolean {
   return seat.swapHold !== null && resolveTx(seat.swapHold) === t;
@@ -498,6 +546,10 @@ function probedNode(seat: Seat | null, el: AnyNode): boolean {
   if (seat === null) return false;
   if (seat.probed !== null) for (const p of seat.probed.keys()) if (sameNode(p, el)) return true;
   if (seat.memory !== null) for (const p of seat.memory.keys()) if (sameNode(p, el)) return true;
+  if (seat.inhMemory !== null)
+    for (const p of seat.inhMemory.keys()) if (sameNode(p, el)) return true;
+  if (seat.inherited !== null)
+    for (const p of seat.inherited.keys()) if (sameNode(p, el)) return true;
   if (seat.passProbes !== null)
     for (const p of seat.passProbes.keys()) if (sameNode(p, el)) return true;
   return false;
@@ -513,7 +565,13 @@ function probedNode(seat: Seat | null, el: AnyNode): boolean {
 export function seatToward(seat: Seat | null, t: Transaction | null): number {
   if (seat === null || t === null) return SEAT_MAIN;
   t = resolveTx(t);
-  if (t !== FLUSH_HOLD && seatBornInto(seat, t)) return SEAT_WORK;
+  // Rule 1: a probe in the pass's own body of a node `t` holds — nothing
+  // overrides it (F-6).
+  if (bodyProbedToward(seat, t)) return SEAT_VERDICT;
+  // Rule 2 (Ruling 4, 2026-11-01): a node whose fetch `t` waits on (#3884)
+  // or born into `t` (D-27) is `t`'s work against a remembered probe and
+  // an inherited posture alike.
+  if (fetchOrBornToward(seat, t)) return SEAT_WORK;
   // Seated in `t`'s verdict lane at the head and still `t`'s verdict
   // reader by what it remembers: the lane pass is the verdict re-derive
   // (D-25 L209 "membership follows the posture") — a held async memo's
@@ -521,10 +579,14 @@ export function seatToward(seat: Seat | null, t: Transaction | null): number {
   // the hold waits on (verdict-memo-flight-no-reask: `v120` then `v220`).
   // A membership the posture no longer backs (the probed hold landed,
   // isolated from `t`) seats nothing.
+  // (Ruling 3: a membership backed only by an inherited posture does not
+  // hold a pass that is `t`'s work by its own staging.)
   if (
     seat.headVhold !== null &&
     resolveTx(seat.headVhold) === t &&
-    (probesToward(seat.laneMemory, t) || swapToward(seat, t))
+    (probesToward(seat.laneMemory, t) ||
+      swapToward(seat, t) ||
+      (probesToward(seat.laneInhMemory, t) && !ownStagingToward(seat, t)))
   )
     return SEAT_VERDICT;
   // A boundary's display-ahead swap (#3540 `on: () => latest(id)`, #3528
@@ -533,13 +595,13 @@ export function seatToward(seat: Seat | null, t: Transaction | null): number {
   // it asked for is T's verdict reader's (D-23; the posture handed through
   // the boundary as a verdict memo hands it, #4050).
   if (swapToward(seat, t)) return SEAT_VERDICT;
-  // Ruled 2026-11-01 (D-25): a pass that probes T and whose node holds a
-  // mere T staging is T's verdict reader — the probe wins, the staging is
-  // dropped (the held re-pass arm), T's landing re-derives it as a stale
-  // reader. Only a fetch T waits on (#3884: the memory is dropped at the
-  // head, `openSeat`) or birth into T (above) stays T's work against its
-  // own probe. 4491/4504/4402 pin this order.
-  if (probedToward(seat, t)) return SEAT_VERDICT;
+  // Rules 3 and 4 (Rulings 2 and 3, 2026-11-01): a pass whose node holds a
+  // mere T staging and remembers its own probe of T is T's verdict reader
+  // — the probe wins, the staging is dropped (the held re-pass arm), T's
+  // landing re-derives it as a stale reader; an inherited posture (#4050)
+  // seats it so only if it is not T's work by its own staging (#4544).
+  // 4491/4504/4402/4544 pin this order.
+  if (rememberedToward(seat, t)) return SEAT_VERDICT;
   // In `t`'s verdict lane by a read of a node in it this pass (`laneHold`),
   // or — a render effect — at its head: the lane carried the per-pass
   // posture of the pass that seated it there (a verdict memo's re-staging
@@ -577,6 +639,7 @@ function seatWhy(seat: Seat, t: Transaction): string {
   t = resolveTx(t);
   const w: string[] = [];
   if (t !== FLUSH_HOLD && seatBornInto(seat, t)) w.push("born");
+  if (seat.fetchHold !== null && resolveTx(seat.fetchHold) === t) w.push("fetch");
   if (seat.headVhold !== null && resolveTx(seat.headVhold) === t) {
     w.push("hv");
     if (probesToward(seat.laneMemory, t)) w.push("hv-lm");
@@ -588,6 +651,8 @@ function seatWhy(seat: Seat, t: Transaction): string {
   if (probesToward(seat.memory, t)) w.push("mem");
   if (probesToward(seat.passProbes, t)) w.push("pp");
   if (inheritedToward(seat.inherited, t)) w.push("inh");
+  if (probesToward(seat.inhMemory, t)) w.push("inh-mem");
+  if (ownStagingToward(seat, t)) w.push("own-stg");
   return w.length ? `{${w.join(",")}}` : "";
 }
 
@@ -729,16 +794,19 @@ export function openSeat(
     known: false,
     probed: null,
     memory: create ? null : (probeMemory.get(el) ?? null),
-    // #3884 (D-25, §3 row 2): a node whose fetch a hold waits on — pending
-    // at the head, or a held async memo — re-runs as THAT hold's work
-    // whatever an earlier pass asked (the fetch beats the verdict); toward
-    // every other hold its postures stand (ruled 2026-11-01: released at
-    // their landing, not by a pass). (`CONFIG_HELD` as at the head,
+    inhMemory: create ? null : (inheritedMemory.get(el) ?? null),
+    // #3884 (D-25, §3 row 2; Ruling 4, order 1): a derivation whose fetch
+    // a hold waits on — pending at the head, or a held async memo — re-runs
+    // as THAT hold's work whatever its posture, its own probe or an
+    // inherited one (the fetch beats the verdict); toward every other hold
+    // its postures stand (ruled 2026-11-01: released at their landing, not
+    // by a pass). A leaf has no fetch of its own. (`CONFIG_HELD` as at the head,
     // `headState`: the held re-pass arm may have dropped it before this
     // seat opens. Today: CONFIG_VERDICT cleared at the head, node-level.)
     fetchHold:
       !create &&
       headState !== null &&
+      !(el as any)._type &&
       (headPending || (headConfig & (CONFIG_ASYNC | CONFIG_HELD)) === (CONFIG_ASYNC | CONFIG_HELD))
         ? headState.tx
         : null,
@@ -750,6 +818,7 @@ export function openSeat(
     swapHold: swapRemembered(el),
     laneHold: null,
     laneMemory: create ? null : (probeMemory.get(el) ?? null),
+    laneInhMemory: create ? null : (inheritedMemory.get(el) ?? null),
     headPending
   };
   headState = null;
@@ -1166,19 +1235,31 @@ export function slot(
     // running creators, or itself when a memo, read the future or a
     // staging — D-25, D-26, #4341), or a member of the frame a held pass
     // of the lane's hold built (the held-frame clause, D-25 D-27).
+    // Ruling 3 / Ruling 4 (D-25 as amended 2026-11-01, #4544): a
+    // derivation that is the hold's work at its head — by the fetch the
+    // hold waits on, its birth, or its own staging — reads the hold's
+    // verdict memo's value (a verdict memo's value is one slot, the lane's)
+    // without being pulled out of the hold: the inherited posture (#4050)
+    // never seats it in the hold's verdict lane. The lane has nothing to
+    // serve: the plain rows, as below.
+    const ownWork =
+      vlane && !isEffect && seat !== null && !inSeat && ownWorkToward(seat!, resolveTx(l._parent!));
     const enter = vlane
-      ? inSeat ||
-        !(
-          seat!.creatorsWorld > WORLD_S ||
-          (!isEffect && seat!.ownWorld > WORLD_S) ||
-          (seatBornInto(seat, l._parent!) && c!._config & CONFIG_HELD_FRAME)
-        )
-        ? RAISE_VSEAT
-        : 0
+      ? ownWork
+        ? 0
+        : inSeat ||
+            !(
+              seat!.creatorsWorld > WORLD_S ||
+              (!isEffect && seat!.ownWorld > WORLD_S) ||
+              (seatBornInto(seat, l._parent!) && c!._config & CONFIG_HELD_FRAME)
+            )
+          ? RAISE_VSEAT
+          : 0
       : RAISE_LANE;
     const enterTx = vlane ? l._parent : null;
     const enterInto = vlane ? null : l;
     const laneHas = !laneNP(el, guess, staged, uninit) && !flying;
+    if (ownWork && tracked && laneHas) return pred(rowBase + "D4r3", SLOT_LV);
     // A folded lane (D-34): a deriving pass outside the lane reads the
     // hold's world and joins it; lane work and leaves keep the guess.
     if (l.folded && guess && !inLane && !leaf && (el as any)._host?._fam?.node !== c)
@@ -1522,7 +1603,8 @@ function stateOf(c: Computed<any> | null, el: AnyNode | null): string {
       seat.probed !== null ||
       seat.memory !== null ||
       seat.passProbes !== null ||
-      seat.inherited !== null
+      seat.inherited !== null ||
+      seat.inhMemory !== null
     ) {
       const kinds = (set: Probes | null) =>
         set === null
@@ -1547,7 +1629,7 @@ function stateOf(c: Computed<any> | null, el: AnyNode | null): string {
               })
               .join("+");
       cbits.push(
-        `probed[${kinds(seat.probed)}]/[${kinds(seat.memory)}]${seat.passProbes !== null ? `/lane[${kinds(seat.passProbes)}]` : ""}${seat.inherited !== null ? `/inh[${kinds(seat.inherited)}]` : ""}`
+        `probed[${kinds(seat.probed)}]/[${kinds(seat.memory)}]${seat.passProbes !== null ? `/lane[${kinds(seat.passProbes)}]` : ""}${seat.inherited !== null ? `/inh[${kinds(seat.inherited)}]` : ""}${seat.inhMemory !== null ? `/inh-mem[${kinds(seat.inhMemory)}]` : ""}`
       );
     }
     if (seat.head !== null)
@@ -1719,7 +1801,7 @@ export function shadowExpect(
     !(c as any)._type &&
     typeof (el as Computed<any>)._fn === "function"
   ) {
-    const m = probeMemory.get(el as Computed<any>);
+    const m = wholeMemory(el as Computed<any>);
     // A pending memo — its fetch in flight — hands no posture on to a
     // reader with no value of its own yet (staged this flush, or never
     // run): a pending read yields no value (#4504, the #4050 arm's mask);
@@ -2120,32 +2202,41 @@ export function shadowSeatClose(
   // and inherited ones, up to a throw); a pass that asked nothing clears
   // the memory (D-25 "until one completes having asked nothing" — the
   // engine's tail re-stamp runs in `recompute`'s finally, a throw included).
-  if (seat.inherited !== null) {
-    seat.probed ??= new Map();
-    addProbes(seat.probed, seat.inherited);
+  // The two halves are kept apart (Ruling 3): own probes and inherited.
+  if (seat.probed !== null || seat.inherited !== null) {
+    const close = (
+      asked: Probes | null,
+      remembered: Probes | null,
+      into: WeakMap<Computed<any>, Probes>
+    ) => {
+      const m = asked ?? new Map<AnyNode, Set<Transaction | null>>();
+      // A probe made before the flush opened its hold is toward the hold it
+      // opened (`observeFlight` → `joinFuture(null)`); none opened: nothing.
+      for (const hs of m.values())
+        if (hs.has(FLUSH_HOLD)) {
+          if (flushTransaction !== null) {
+            hs.delete(FLUSH_HOLD);
+            hs.add(resolveTx(flushTransaction));
+          } else flushProbes.add(m);
+        }
+      // Per (node, hold): a posture earned against a hold still live
+      // outlives this pass (released at that hold's landing, D-25 ruled
+      // 2026-11-01); one against a landed hold is spent; a pass that asked
+      // nothing clears them all (D-25 "until one completes having asked
+      // nothing") — that is the `else` below.
+      if (remembered !== null)
+        for (const [p, hs] of remembered)
+          for (const h0 of hs)
+            if (h0 === FLUSH_HOLD || (h0 !== null && liveTx(h0) !== null)) addProbe(m, p, h0);
+      if (m.size !== 0) into.set(el, m);
+      else into.delete(el);
+    };
+    close(seat.probed, seat.memory, probeMemory);
+    close(seat.inherited, seat.inhMemory, inheritedMemory);
+  } else {
+    probeMemory.delete(el);
+    inheritedMemory.delete(el);
   }
-  if (seat.probed !== null) {
-    // A probe made before the flush opened its hold is toward the hold it
-    // opened (`observeFlight` → `joinFuture(null)`); none opened: nothing.
-    for (const hs of seat.probed.values())
-      if (hs.has(FLUSH_HOLD)) {
-        if (flushTransaction !== null) {
-          hs.delete(FLUSH_HOLD);
-          hs.add(resolveTx(flushTransaction));
-        } else flushProbes.add(seat.probed);
-      }
-    // Per (node, hold): a posture earned against a hold still live
-    // outlives this pass (released at that hold's landing, D-25 ruled
-    // 2026-11-01); one against a landed hold is spent; a pass that asked
-    // nothing clears them all (D-25 "until one completes having asked
-    // nothing") — that is the `else` below.
-    if (seat.memory !== null)
-      for (const [p, hs] of seat.memory)
-        for (const h0 of hs)
-          if (h0 === FLUSH_HOLD || (h0 !== null && liveTx(h0) !== null))
-            addProbe(seat.probed, p, h0);
-    probeMemory.set(el, seat.probed);
-  } else probeMemory.delete(el);
   // (A known difference in this pass: the two seats parted by construction.)
   if (seat.known) {
     seats[depth--] = null!;

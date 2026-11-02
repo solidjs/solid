@@ -547,9 +547,8 @@ function arm(b: Boundary): void {
   if (
     lane === null &&
     globalQueue._running &&
-    (getOwner() as Computed<any>)._config & CONFIG_VERDICT &&
     // (Toward a live hold only — D-25 per hold.)
-    probesHeldHook!(getOwner() as Computed<any>, null)
+    probesHeldHook?.(getOwner() as Computed<any>, null)
   ) {
     joinFuture(null);
     lane = GlobalQueue._verdictLane!(flushTransaction!);
