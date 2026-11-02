@@ -11,7 +11,7 @@
 //
 // The first two cases are the gap on `next`; the last two are the issue's
 // generator cases (seed 3289 #36981, seed 7 #46850), whose memo form heals
-// only once #4425 lands — the pair is the pin either way.
+// only once #4425 lands (it did, with #4627) — the pair is the pin either way.
 import { expect, test } from "vitest";
 import { runScenario } from "./run.js";
 

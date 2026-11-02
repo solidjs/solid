@@ -213,62 +213,72 @@ describe("a plain write beside latest() in JSX computes once", () => {
 
 // async-gen seed 91501 #1831 (E1): `<Errored><Loading><Loading>` over a leaf
 // reading `latest(s)` and `latest(m1)`, `m1` an async memo of `m0`, which
-// threw. The error stays the display while `m1` re-asks after `m0` recovers
-// (D-39: a pending is not a value), in either hole layout. Before, the
-// Errored healed at once and the inner Loading, revealed behind the error,
-// kept its content: grouped attributes showed nothing, split ones showed
-// `data-a` alone.
-describe("an error stays the display while the memo it came through re-asks", () => {
+// threw. Re-ruled 2026-11-02 (#4627, D-39): while the error fallback showed,
+// nothing under it was on screen, so once `m0` recovers the Errored re-arms
+// its subtree and the inner Loadings, not shown, catch `m1`'s re-ask: their
+// fallback shows beside the recovery (F-4), in either hole layout, until `m1`
+// lands. (Before #4401 the Errored healed with the inner Loading treated as
+// shown, keeping its content: grouped attributes showed nothing, split ones
+// showed `data-a` alone; #4401 then held the error until `m1` landed.)
+describe("an error gives way to the inner Loading's fallback while the memo it came through re-asks", () => {
+  const screensOf = async (form: "grouped" | "split") => {
+    const div = document.createElement("div");
+    const flights: { v: number; res: (v: number) => void }[] = [];
+    let set!: (v: number) => void;
+    const screens: string[] = [];
+    const dispose = render(() => {
+      const [s, _set] = createSignal(1);
+      set = _set;
+      const m0 = createMemo(() => {
+        const v = 1 + latest(s);
+        if (v % 4 === 1) throw new Error("m0:" + v);
+        return v;
+      });
+      const m1 = createMemo(() => {
+        const v = 1 + m0();
+        return new Promise<number>(res => flights.push({ v, res }));
+      });
+      return (
+        <Errored fallback="[E]">
+          <Loading fallback="[L]">
+            <Loading fallback="[L]">
+              {form === "grouped" ? (
+                <span data-a={latest(s)} data-b={latest(m1)} />
+              ) : (
+                <span data-a={latest(s)}>{latest(m1)}</span>
+              )}
+            </Loading>
+          </Loading>
+        </Errored>
+      );
+    }, div);
+    flush();
+    screens.push(div.innerHTML);
+    set(0);
+    await tick();
+    screens.push(div.innerHTML);
+    set(2);
+    await tick();
+    screens.push(div.innerHTML);
+    expect(flights.map(f => f.v)).toEqual([3, 4]);
+    flights[1].res(4);
+    await tick();
+    screens.push(div.innerHTML);
+    dispose();
+    return screens;
+  };
   for (const form of ["grouped", "split"] as const)
     test(form, async () => {
-      const div = document.createElement("div");
-      const flights: { v: number; res: (v: number) => void }[] = [];
-      let set!: (v: number) => void;
-      const screens: string[] = [];
-      const dispose = render(() => {
-        const [s, _set] = createSignal(1);
-        set = _set;
-        const m0 = createMemo(() => {
-          const v = 1 + latest(s);
-          if (v % 4 === 1) throw new Error("m0:" + v);
-          return v;
-        });
-        const m1 = createMemo(() => {
-          const v = 1 + m0();
-          return new Promise<number>(res => flights.push({ v, res }));
-        });
-        return (
-          <Errored fallback="[E]">
-            <Loading fallback="[L]">
-              <Loading fallback="[L]">
-                {form === "grouped" ? (
-                  <span data-a={latest(s)} data-b={latest(m1)} />
-                ) : (
-                  <span data-a={latest(s)}>{latest(m1)}</span>
-                )}
-              </Loading>
-            </Loading>
-          </Errored>
-        );
-      }, div);
-      flush();
-      screens.push(div.innerHTML);
-      set(0);
-      await tick();
-      screens.push(div.innerHTML);
-      set(2);
-      await tick();
-      screens.push(div.innerHTML);
-      expect(flights.map(f => f.v)).toEqual([3, 4]);
-      flights[1].res(4);
-      await tick();
-      screens.push(div.innerHTML);
-      expect(screens).toEqual([
+      expect(await screensOf(form)).toEqual([
         "[L]",
         "[E]",
-        "[E]",
+        "[L]",
         form === "grouped" ? '<span data-a="2" data-b="4"></span>' : '<span data-a="2">4</span>'
       ]);
-      dispose();
     });
+  test("grouped and split show the same screens until the leaf renders", async () => {
+    expect((await screensOf("grouped")).slice(0, 3)).toEqual(
+      (await screensOf("split")).slice(0, 3)
+    );
+  });
 });

@@ -436,88 +436,93 @@ describe("isPending() of a first load in flight in a verdict lane is loading", (
   });
 });
 
-// async-gen seed 91501 #1831 (E1, grouped vs split): an error caught from an
-// async memo whose source threw stays the display while that memo re-asks
-// (D-39: a pending is not a value). Before, the boundary healed the moment
-// the source answered, and the Loading inside — revealed behind the error,
-// never shown — kept its content with its readers still loading: one
+// async-gen seed 91501 #1831 (E1, grouped vs split), re-ruled 2026-11-02
+// (#4627, D-39): an error caught from an async memo whose source threw gives
+// way once that source answers. While the error fallback showed, nothing
+// under it was on screen: its recovery re-arms the subtree, and the Loading
+// inside has not shown content — it catches the memo's re-ask and shows its
+// fallback beside the recovered content (F-4, first-load behaviour), grouped
+// or split alike. (Before #4401 the boundary healed with that Loading
+// treated as shown, keeping its content with its readers still loading: one
 // grouped effect held every hole, split effects showed the ones that
-// answered (`latest()` of the first load is loading too since D-22 here; on
-// `next` it served `undefined`). Now the error stays until the re-ask lands,
-// grouped or split.
-describe("an error stays the display while the memo it came through re-asks", () => {
+// answered. #4401 then held the error until the re-ask landed; the ruling
+// replaces that with the inner fallback.)
+describe("an error gives way to the inner Loading's fallback while the memo it came through re-asks", () => {
+  const screensOf = async (form: "grouped" | "split") => {
+    const flights: { v: number; res: (v: number) => void }[] = [];
+    let set!: (v: number) => void;
+    const out: Record<string, string> = {};
+    const screens: string[] = [];
+    const dispose = createRoot(d => {
+      const [s, _set] = createSignal(1);
+      set = _set;
+      const m0 = createMemo(() => {
+        const v = 1 + s();
+        if (v % 4 === 1) throw new Error("m0:" + v);
+        return v;
+      });
+      const m1 = createMemo(() => {
+        const v = 1 + m0();
+        return new Promise<number>(res => flights.push({ v, res }));
+      });
+      const view = createErrorBoundary(
+        () =>
+          createLoadingBoundary(
+            () => {
+              if (form === "grouped")
+                createRenderEffect(
+                  () => [latest(s), latest(m1)],
+                  v => void ((out.a = String(v[0])), (out.b = String(v[1])))
+                );
+              else {
+                createRenderEffect(
+                  () => latest(s),
+                  v => void (out.a = String(v))
+                );
+                createRenderEffect(
+                  () => latest(m1),
+                  v => void (out.b = String(v))
+                );
+              }
+              return "content";
+            },
+            () => "[L]"
+          ),
+        () => "[E]"
+      );
+      createRenderEffect(view, v => void (out.view = String(v)));
+      return d;
+    });
+    const screen = () => screens.push(out.view === "content" ? `a=${out.a} b=${out.b}` : out.view);
+    flush();
+    screen();
+    set(0);
+    await tick();
+    screen();
+    set(2);
+    await tick();
+    screen();
+    expect(flights.map(f => f.v)).toEqual([3, 4]);
+    flights[1].res(4);
+    await tick();
+    screen();
+    dispose();
+    return screens;
+  };
   for (const form of ["grouped", "split"] as const)
     it(form, async () => {
-      const flights: { v: number; res: (v: number) => void }[] = [];
-      let set!: (v: number) => void;
-      const out: Record<string, string> = {};
-      const screens: string[] = [];
-      const dispose = createRoot(d => {
-        const [s, _set] = createSignal(1);
-        set = _set;
-        const m0 = createMemo(() => {
-          const v = 1 + s();
-          if (v % 4 === 1) throw new Error("m0:" + v);
-          return v;
-        });
-        const m1 = createMemo(() => {
-          const v = 1 + m0();
-          return new Promise<number>(res => flights.push({ v, res }));
-        });
-        const view = createErrorBoundary(
-          () =>
-            createLoadingBoundary(
-              () => {
-                if (form === "grouped")
-                  createRenderEffect(
-                    () => [latest(s), latest(m1)],
-                    v => void ((out.a = String(v[0])), (out.b = String(v[1])))
-                  );
-                else {
-                  createRenderEffect(
-                    () => latest(s),
-                    v => void (out.a = String(v))
-                  );
-                  createRenderEffect(
-                    () => latest(m1),
-                    v => void (out.b = String(v))
-                  );
-                }
-                return "content";
-              },
-              () => "[L]"
-            ),
-          () => "[E]"
-        );
-        createRenderEffect(view, v => void (out.view = String(v)));
-        return d;
-      });
-      const screen = () =>
-        screens.push(out.view === "content" ? `a=${out.a} b=${out.b}` : out.view);
-      flush();
-      screen();
-      set(0);
-      await tick();
-      screen();
-      set(2);
-      await tick();
-      screen();
-      expect(flights.map(f => f.v)).toEqual([3, 4]);
-      flights[1].res(4);
-      await tick();
-      screen();
-      expect(screens).toEqual(["[L]", "[E]", "[E]", "a=2 b=4"]);
-      dispose();
+      expect(await screensOf(form)).toEqual(["[L]", "[E]", "[L]", "a=2 b=4"]);
     });
+  it("grouped and split give the same screens", async () => {
+    expect(await screensOf("grouped")).toEqual(await screensOf("split"));
+  });
 });
 
 // The same re-ask read in the Loading boundary's body (its tree) rather than
-// in a render effect: the inner fallback is hidden behind the error (D-39,
-// "over `Errored > Loading(never shown)` ... the inner fallback is hidden
-// behind the error"): `[E]` stays until `m1` lands. Before, the Loading —
-// never shown, still collecting — caught the re-ask and the Errored healed
-// onto `[L]`.
-it("an error stays the display while a Loading body read of the memo it came through re-asks", async () => {
+// in a render effect, re-ruled 2026-11-02 (#4627, D-39): once `m0` answers,
+// the Errored's recovery re-arms its subtree and the Loading — not shown —
+// catches the re-ask: `[L]` until `m1` lands, as in a render effect.
+it("an error gives way to the inner Loading's fallback while a Loading body read of the memo it came through re-asks", async () => {
   const flights: { v: number; res: (v: number) => void }[] = [];
   let set!: (v: number) => void;
   let view = "";
@@ -557,6 +562,6 @@ it("an error stays the display while a Loading body read of the memo it came thr
   flights[1].res(4);
   await tick();
   screens.push(view);
-  expect(screens).toEqual(["[L]", "[E]", "[E]", "m1:4"]);
+  expect(screens).toEqual(["[L]", "[E]", "[L]", "m1:4"]);
   dispose();
 });

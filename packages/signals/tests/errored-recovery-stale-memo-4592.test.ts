@@ -11,8 +11,11 @@ import {
 
 // #4592: `a` and `b` both ask by `s`; `b:0` rejects and `<Errored>` shows
 // its fallback. `s` changes and both re-ask. `b:1` landing while `a:1` is
-// still out is not a whole frame: the error stays the display until every
-// reader the content puts on screen can answer the current `s` (D-39, F-1).
+// still out is not a whole frame (F-1). With no boundary between, the error
+// stays the display until every reader can answer the current `s` (D-39: a
+// pending is not a value). Inside a Loading, the recovery re-arms the
+// subtree: the Loading catches `a:1` and shows its fallback (ruled
+// 2026-11-02, #4627, D-39, F-4).
 const tick = async () => {
   for (let i = 0; i < 2; i++) {
     await new Promise(r => setTimeout(r, 0));
@@ -74,6 +77,6 @@ it("no Loading: the error stays until every reader answers the new input (#4592)
   expect(await run(false)).toEqual(["error", "error", "error", "s=1a=11b=21"]);
 });
 
-it("inside Loading: the error stays until every reader answers the new input (#4592)", async () => {
-  expect(await run(true)).toEqual(["error", "error", "error", "s=1a=11b=21"]);
+it("inside Loading: the recovery shows the Loading's fallback while a reader still asks (#4592, #4627)", async () => {
+  expect(await run(true)).toEqual(["error", "error", "loading", "s=1a=11b=21"]);
 });
