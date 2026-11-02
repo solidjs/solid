@@ -274,7 +274,13 @@ function catchStatus(
     return false;
   }
   for (let b: Boundary | null | undefined = boundaryOf(node); b; b = b._parent) {
-    if (!(b._type & flags)) continue;
+    if (!(b._type & flags)) {
+      // A pending passing an error fallback by (A6) is still a reader the
+      // content needs: the error stays the display until it answers too —
+      // revealed beside its stale value, the frame tears (D-39, F-1, #4592).
+      if (b._fallback && b._type > flags) record(b, node);
+      continue;
+    }
     if (isCollecting(b)) {
       caught(b, node, error);
       return b._armed ? CAUGHT_REARMED : true;
