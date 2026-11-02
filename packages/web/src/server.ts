@@ -3550,6 +3550,13 @@ export function renderToStream(code, options = {}) {
               // The wind-down already completed this consumer; a re-pull on
               // the disposed render would only find another failure.
               if (dead) return;
+              // Same restore doShell performs, for the same reason: re-pulled
+              // root holes re-enter render code that captures
+              // `sharedConfig.context` (a memo's settle ctx, lazy()'s asset
+              // registration), and the global is whichever render ran last —
+              // without it a resumed body creates and records into another
+              // concurrent request's context (#4595).
+              sharedConfig.context = context;
               // Same gates as doShell: pending root head props are shell
               // blockers, so flushEnd must not run ahead of them (their
               // source may not be serialized, so the serializer alone
