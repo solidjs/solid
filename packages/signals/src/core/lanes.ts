@@ -564,7 +564,12 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i];
     const x = n._x!;
-    if (n === except || x._transaction !== l) continue;
+    // A member disposed since it joined the lane is no reader any more
+    // (F-3, D-11): dead, it stays at its last committed value (#3024). Nothing
+    // here may queue it: recompute's head wipe would drop REACTIVE_DISPOSED
+    // and run it again in a torn-down tree (#4613).
+    if (n === except || x._transaction !== l || (n as Computed<any>)._flags & REACTIVE_DISPOSED)
+      continue;
     const effect = (n as any)._type;
     const guess = n._config & CONFIG_GUESS;
     const slot = x._lane;
