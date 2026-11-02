@@ -142,24 +142,25 @@ export function forEachDependent(
   for (let s = el._subs; s !== null; s = s._nextSub) fn(s._sub, s);
 }
 
-/** Each dependent reachable from `el`, depth first. `fn` sees every arrival,
+/** Each dependent reachable from `el`, breadth first. `fn` sees every
+ * arrival (with the link it came by: `link._dep` is the node walked from),
  * `seen` when an earlier branch already walked the node (a diamond); the
  * node's dependents are walked once, on its first arrival unless `fn`
- * returns false (then it stays unmarked: a later branch may walk it). */
+ * returns false (then it stays unmarked: a later branch may walk it). The
+ * visited set is the walk's queue (a Set's loop reaches what is added to
+ * it mid-loop), not recursion: a long chain of dependents must not
+ * overflow the stack (#4587). `el` seeds it: no node is its own dependent. */
 function walkDependents(
   el: Computed<any>,
-  fn: (node: Computed<any>, seen: boolean) => unknown
+  fn: (node: Computed<any>, seen: boolean, link: Link) => unknown
 ): void {
-  const visited = new NewSet<Computed<any>>();
-  const visit = (node: Computed<any>) => {
-    const seen = visited.has(node);
-    if (fn(node, seen) !== false && !seen) visited.add(node);
-  };
-  forEachDependent(el, visit);
-  // The visited set is the walk's queue (a Set's loop reaches what is added
-  // to it mid-loop), breadth first, not recursion: a long chain of
-  // dependents must not overflow the stack (#4587).
-  for (const node of visited) forEachDependent(node, visit);
+  const visited = new NewSet<Computed<any>>([el]);
+  for (const from of visited)
+    for (let s = from._subs; s; s = s._nextSub) {
+      const node = s._sub,
+        seen = visited.has(node);
+      if (fn(node, seen, s) !== false && !seen) visited.add(node);
+    }
 }
 
 // Queue a node to re-run on the next flush (used both when a pending source
@@ -978,7 +979,14 @@ function landStatus(el: Computed<any>, clearUninitialized: boolean = false): voi
   } else clearStatus(el, clearUninitialized);
 }
 
-export function notifyStatus(el: Computed<any>, status: number, error?: any): void {
+/** With `mark`, `el` alone: true when its dependents are still to hear the
+ * status (`propagateStatus` walks them itself, #4587). */
+export function notifyStatus(
+  el: Computed<any>,
+  status: number,
+  error?: any,
+  mark?: boolean
+): boolean | void {
   // Wrap regular errors to track source node
   if (
     status === STATUS_ERROR &&
@@ -1033,18 +1041,8 @@ export function notifyStatus(el: Computed<any>, status: number, error?: any): vo
     elNotify.call(el);
     return;
   }
-  // A dependent's own propagation runs from the outermost call's loop once
-  // its source's is done, not nested inside it: a long chain of dependents
-  // must not overflow the stack (#4587).
-  if (propagating) propagating.push([el, status, error]);
-  else
-    try {
-      for (const [n, s, e] of (propagating = [[el, status, error]])) propagateStatus(n, s, e);
-    } finally {
-      propagating = 0;
-    }
+  return mark || propagateStatus(el, status, error);
 }
-let propagating: [Computed<any>, number, any][] | 0 | undefined;
 
 /** The dependents' half of `notifyStatus`: `el`'s status reaches each
  * subscriber as a propagated mark (or a re-derive). On its own for a store
@@ -1053,7 +1051,9 @@ let propagating: [Computed<any>, number, any][] | 0 | undefined;
  * (store/projection.ts `wakeFamily`), exactly as a memo's would reach its. */
 export function propagateStatus(el: Computed<any>, status: number, error: any): void {
   const pendingSource = status === STATUS_PENDING && error instanceof NotReadyError && error.source;
-  forEachDependent(el, (sub, link) => {
+  // One walk over every dependent reached, not a nested walk per marked
+  // node: a long chain of dependents must not overflow the stack (#4587).
+  walkDependents(el, (sub, _seen, link) => {
     sub._time = clock;
     // A pending mark on a kept-tail link re-derives the subscriber instead of
     // marking it (A30, #3494 review; fuzzer latest-1 #2141; #3519 review).
@@ -1087,12 +1087,12 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
       sub._config & CONFIG_REDERIVE ||
       (holdWorkHook &&
         (sub._config & CONFIG_VERDICT || (pendingSource && sub._config & CONFIG_STAGED_ERROR)) &&
-        !(pendingSource && holdWorkHook(sub, el))) ||
+        !(pendingSource && holdWorkHook(sub, link._dep as Computed<any>))) ||
       (status === STATUS_PENDING && link._gen !== sub._depGen)
     ) {
       enqueueSub(sub);
       schedule();
-      return;
+      return false;
     }
     // Already pending on this source (a re-ask of its flight): the status is
     // unchanged and nothing re-notifies. The re-asking write is held with the
@@ -1109,7 +1109,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
         !freshHook?.(sub, pendingSource._time === clock)
       )
         joinFuture(txOf(sub));
-      return;
+      return false;
     }
     if (
       pendingSource ||
@@ -1120,7 +1120,8 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
       // — with the lane, when the pass propagating is the lane's work and
       // the dependent's pending is the lane's own flight (`laneStage`).
       // (No answer: a pending propagation leaves a written guess a guess.)
-      if (laneStageHook && passLane !== null) laneStageHook(sub, passLane, true, el);
+      if (laneStageHook && passLane !== null)
+        laneStageHook(sub, passLane, true, link._dep as Computed<any>);
       else {
         queuePendingNode(sub);
         // A15 (#3443): pending propagates onto a held memo without
@@ -1135,10 +1136,13 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
         )
           joinFuture(txOf(sub));
       }
-      notifyStatus(sub, status, error);
+      // Its own dependents are this walk's, once it is marked.
+      const down = !!notifyStatus(sub, status, error, true);
       // A derived store's derive (store/projection.ts): marked, not re-run —
       // its leaves' readers are not its dependents, so the family walks them.
       (sub as any)._fam?.st(status, error);
+      return down;
     }
+    return false;
   });
 }
