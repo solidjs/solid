@@ -94,12 +94,9 @@ async function run(nested: boolean) {
 
 test("nested=false: the recovery lands as the new answer", () => run(false));
 
-// #4425, pinned as a known bug (F-4, D-21, D-39, boundary-not-born-held-3540).
-// Regressed by #4401 (5f22701a): `caught()` in signals/src/boundaries.ts walks
-// from the catching Loading to every parent boundary showing its fallback and
-// records the pending reader there too (meant for D-39: a Loading hidden
-// behind an error whose reader re-asks the memo the error came through). The
-// nested Loading here is mounted by the recovery pass itself, so its search
-// flight lands on the healing Errored, which then waits for it. Expected
-// "Crashfinding"; observed "err not found" until the search answers.
-test.fails("nested=true: the recovery lands with the nested Loading's fallback", () => run(true));
+// #4425: the nested Loading the recovery pass mounts catches its search
+// flight, and the Errored recovers beside its fallback (ruled 2026-11-02 with
+// #4627, D-39: an Errored's recovery re-arms its subtree, and no Loading under
+// it has shown content). Pinned as a known bug since #4401, which recorded the
+// caught reader on the healing Errored too.
+test("nested=true: the recovery lands with the nested Loading's fallback", () => run(true));

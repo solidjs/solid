@@ -143,8 +143,9 @@ describe("a derived store heals with its Errored like the memo it derives from (
   it("a nested Loading born in the recovery shows its fallback over both forms", async () => {
     const memo = await run("memo", { loading: true, asyncLeaf: true });
     // (When the Errored heals here is #4425's: a Loading the recovery pass
-    // mounts is recorded on it. The pair is the pin; the flight is the
-    // lane's, so its landing reveals with the action's end.)
+    // mounts catches its flight, and holds nothing on the Errored — #4627.
+    // The pair is the pin; the flight is the lane's, so its landing reveals
+    // with the action's end.)
     expect(memo[0]).toBe("[E]");
     expect(memo.at(-1)).toBe("span 2 102");
     expect(await run("store", { loading: true, asyncLeaf: true })).toEqual(memo);
