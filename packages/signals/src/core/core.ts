@@ -168,6 +168,7 @@ import {
   laneSeamsHook,
   laneServedHook,
   holdWorkHook,
+  keepReadersHook,
   laneWriteHook,
   observeFlightHook,
   wireExternalSourceHook
@@ -360,6 +361,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   bumpNotifyEpoch();
   const isEffect = (el as any)._type;
   let released: Computed<any>[] | undefined;
+  let superseded: unknown = NOT_PENDING;
   // Lanes (plan sec. 28): the seat of a pass is its node's. A node carrying a lane's
   // derived value runs as the lane's whoever dirtied it — a sync write, a
   // boundary reset, a frame rerun — so its children and its result are the
@@ -495,7 +497,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // supersedes re-derive, even when it publishes the committed value
         // back (no change to notify them by): their held runs carry the
         // superseded frame, and the landing would apply them (#4378).
-        if (el._pendingValue !== NOT_PENDING) insertSubs(el);
+        if ((superseded = el._pendingValue) !== NOT_PENDING) insertSubs(el);
         el._pendingValue = NOT_PENDING;
         el._config &= ~CONFIG_HELD;
       }
@@ -1065,6 +1067,10 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     enqueueSub(el);
     schedule();
   }
+  // Re-derived to the staging it superseded (#4417): its held readers keep
+  // their pass and children, published as they are.
+  if (keepReadersHook && superseded !== NOT_PENDING && Object.is(value, superseded))
+    keepReadersHook(el);
   // The release a settle deferred past this pass (#2934, #4474): the node
   // has produced what the landing gave it — staged above, committed at the
   // seam — and is reclaimed now if still unobserved and settled; a pass that

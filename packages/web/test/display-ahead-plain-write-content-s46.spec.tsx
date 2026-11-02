@@ -76,7 +76,7 @@ async function run(content: Content) {
 
 describe("S-46 (web): the content a display-ahead Show opens reads the screen", () => {
   // primed | after the write's flush | a task later, still in flight | landed
-  test.fails(
+  test(
     "plain `id()` inside: born held, the fallback stays until the landing — today the branch attaches with its hole empty (`selected: `), F-2's empty slot and #4417's mechanism",
     async () => {
       expect(await run("plain")).toEqual(["0d0none", "0d0none", "0d0none", "1d1selected: 1"]);
