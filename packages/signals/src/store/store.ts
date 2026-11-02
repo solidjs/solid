@@ -2714,9 +2714,43 @@ export function deep<T>(value: T): T {
       walkT(ct);
     }
   };
+  // One pass where the tracked view is the snapshot's backing; else two walks.
+  const seen = new Map<object, any>();
+  const fast = (t: StoreTarget, raw: object): object | undefined => {
+    if (t._fam !== null || t.ch || t.ovl || (raw !== t.px && lookupTarget(raw, null) !== t)) return;
+    const src = enumerationSource(t);
+    if (src !== snapshotBacking(t) || visited.has(src) || seen.has(src) || !isWrappable(src))
+      return;
+    // snapshotWalk's resolution must stop at `src` too.
+    if (src !== raw) {
+      const st = lookupTarget(src, null);
+      if (st !== undefined && st !== t) return;
+    }
+    visited.add(src);
+    readNode(getDeepNode(t));
+    return src;
+  };
+  const step: DeepStep = (t, cv, key, trackOnly) => {
+    const ct = childTarget(t, cv, key);
+    const src = ct && !trackOnly ? fast(ct, cv) : undefined;
+    if (src) return snapshotRecord(src, seen, null, ct!, step);
+    if (ct) walkT(ct);
+    if (!trackOnly) return snapshotWalk(cv, seen, null);
+  };
+  try {
+    const src = fast(t0, value as object);
+    if (src) return snapshotRecord(src, seen, null, t0, step);
+  } catch (e) {
+    // A snapshot read threw mid-pass: subscribe the rest, as the two walks did.
+    visited.clear();
+    walkT(t0);
+    throw e;
+  }
   walkT(t0);
-  return snapshot(value);
+  return snapshotWalk(value, seen, t0._fam);
 }
+
+type DeepStep = (t: StoreTarget, cv: object, key: PropertyKey, trackOnly?: boolean) => any;
 
 /** Non-tracking snapshot: source identity for unowned subtrees (zero copy),
  * a copy for owned ones (they are by definition modified relative to the
@@ -2724,6 +2758,22 @@ export function deep<T>(value: T): T {
 export function snapshot<T>(value: T): T {
   const t: StoreTarget | undefined = (value as any)?.[$TARGET];
   return snapshotWalk(value, new Map(), t?._fam ?? null);
+}
+
+/** R27: a snapshot sees the batch's pending backing — a held one (another
+ * transaction's future) only from its own draft, or from a pass the
+ * container node serves the future (its landing flush, a memo joining). */
+function snapshotBacking(t: StoreTarget): Record<PropertyKey, any> {
+  let backing = t.v;
+  const pb = t.pb;
+  if (pb !== null) {
+    const k = t.k;
+    if (inDraft(t) || writeOverride || k === null || !(k._config & CONFIG_HELD)) backing = pb;
+    else if (stagingReader() !== null) backing = asBacking(untrack(() => readNode(k)));
+    // materializePB is a no-op (returns pb) without an overlay.
+    if (backing === pb) backing = materializePB(t);
+  }
+  return optHooks && optRead(t) ? optHooks.view(t, backing) : backing;
 }
 
 function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | null): any {
@@ -2740,25 +2790,23 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | nul
       if (outer !== undefined) t = outer;
     }
     if (t._fam !== null) fam = t._fam;
-    // R27: a snapshot sees the batch's pending backing — a held one (another
-    // transaction's future) only from its own draft, or from a pass the
-    // container node serves the future (its landing flush, a memo joining).
-    let backing = t.v;
-    const pb = t.pb;
-    if (pb !== null) {
-      const k = t.k;
-      if (inDraft(t) || writeOverride || k === null || !(k._config & CONFIG_HELD)) backing = pb;
-      else if (stagingReader() !== null) backing = asBacking(untrack(() => readNode(k)));
-      // materializePB is a no-op (returns pb) without an overlay.
-      if (backing === pb) backing = materializePB(t);
-    }
-    if (optHooks && optRead(t)) backing = optHooks.view(t, backing);
+    const backing = snapshotBacking(t);
     if (backing === src) break;
     src = backing;
   }
   if (!isWrappable(src)) return src;
   const cached = seen.get(src);
-  if (cached !== undefined) return cached;
+  return cached !== undefined ? cached : snapshotRecord(src, seen, fam, null, null);
+}
+
+/** `t`/`step` set: `deep()`'s one pass, which also tracks `t`'s children. */
+function snapshotRecord(
+  src: any,
+  seen: Map<object, any>,
+  fam: StoreFamily | null,
+  t: StoreTarget | null,
+  step: DeepStep | null
+): any {
   if (isOwned(src)) {
     const isArr = Array.isArray(src);
     const copy: any = isArr ? [] : Object.create(Object.getPrototypeOf(src));
@@ -2766,13 +2814,18 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | nul
     for (const key of Reflect.ownKeys(src)) {
       if ((isArr && key === "length") || key === $OWNER) continue;
       const desc = Object.getOwnPropertyDescriptor(src, key)!;
-      if (typeof key === "symbol" && !desc.enumerable) continue;
+      const cv = desc.value;
+      const obj = cv !== null && typeof cv === "object";
+      if (typeof key === "symbol" && !desc.enumerable) {
+        if (step && obj) step(t!, cv, key, true);
+        continue;
+      }
       if (desc.get || desc.set) {
+        if (t) t.a = true;
         Object.defineProperty(copy, key, desc);
         continue;
       }
-      const cv = desc.value;
-      const walked = cv !== null && typeof cv === "object" ? snapshotWalk(cv, seen, fam) : cv;
+      const walked = obj ? (step ? step(t!, cv, key) : snapshotWalk(cv, seen, fam)) : cv;
       if (desc.enumerable && desc.writable && desc.configurable) copy[key] = walked;
       else Object.defineProperty(copy, key, { ...desc, value: walked });
     }
@@ -2783,10 +2836,14 @@ function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | nul
   let copy: any = null;
   for (const key of Reflect.ownKeys(src)) {
     const desc = Object.getOwnPropertyDescriptor(src, key);
-    if (!desc || desc.get || desc.set) continue;
+    if (!desc) continue;
+    if (desc.get || desc.set) {
+      if (t) t.a = true;
+      continue;
+    }
     const cv = desc.value;
     if (cv === null || typeof cv !== "object") continue;
-    const walked = snapshotWalk(cv, seen, fam);
+    const walked = step ? step(t!, cv, key) : snapshotWalk(cv, seen, fam);
     if (walked !== cv) {
       if (copy === null) {
         copy = Array.isArray(src)
