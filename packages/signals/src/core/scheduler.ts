@@ -309,7 +309,7 @@ export interface Transaction {
 }
 /** Live transactions — opened, unmerged, not landed. Scanned at every seam
  * while non-empty; nothing on the plain path. */
-const transactions: Transaction[] = [];
+export const transactions: Transaction[] = [];
 /** Observe tier: this flush parked its transaction (`holdStart` fired). */
 let holding = false;
 /** A transaction (listed here) or a lane (lanes.ts lists its own). */
