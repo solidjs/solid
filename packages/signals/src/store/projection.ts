@@ -28,7 +28,6 @@ import { computed } from "../core/core.js";
 import { NotReadyError } from "../core/error.js";
 import {
   addPendingSource,
-  forEachDependent,
   handleAsync,
   propagateStatus,
   settlePendingSource
@@ -42,7 +41,7 @@ import {
   schedule,
   setQuestion
 } from "../core/scheduler.js";
-import type { Computed, Signal } from "../core/types.js";
+import type { Computed, Link, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { optHooks } from "./hooks.js";
 import { reconcileState } from "./reconcile.js";
@@ -186,9 +185,10 @@ function wakeFamily(fam: StoreFamily): void {
 function errorFamily(fam: StoreFamily, error?: unknown): void {
   forEachFamilyNode(fam, n => {
     if (n._subs === null) return;
-    forEachDependent(n as unknown as Computed<any>, sub => {
+    for (let s: Link | null = n._subs; s; s = s._nextSub) {
+      const sub = s._sub as Computed<any>;
       (sub._statusFlags & STATUS_ERROR && sub._x!._error === error) || enqueueSub(sub);
-    });
+    }
   });
   schedule();
 }
