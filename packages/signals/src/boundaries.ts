@@ -136,8 +136,6 @@ interface Boundary {
    * child: instantiated once per show and kept across the output's
    * re-derives while it shows (#3991). */
   _fb: Computed<unknown> | null;
-  /** The boundaries created directly under it (`unshow`). */
-  _kids: Set<Boundary>;
 }
 
 /** Context key: the nearest boundary of a node, inherited at creation. */
@@ -172,9 +170,14 @@ const boundaryOf = (node: Owner): Boundary | undefined =>
   node._context[BOUNDARY] as Boundary | undefined;
 
 /** Catches what reaches it: an error boundary always; a loading one until it
- * has shown content, or while re-armed. */
+ * has shown content, or while re-armed. Behind an error fallback nothing is
+ * on screen, so the error boundary's recovery re-arms the subtree: a loading
+ * boundary there has not shown content (D-39, F-4, #4627). */
 const isCollecting = (b: Boundary): boolean =>
-  b._type === STATUS_ERROR || !b._initialized || b._armed;
+  b._type === STATUS_ERROR ||
+  !b._initialized ||
+  b._armed ||
+  (behindError(b) && !(b._initialized = false));
 
 /** A reader `b` waits on: recorded for its `on`, and `b` visited at the seam. */
 function record(b: Boundary, node: Computed<any>, source = node): void {
@@ -338,27 +341,6 @@ function release(b: Boundary): void {
   b._runs = null;
 }
 
-/** An error boundary's fallback goes up: nothing under it is on screen, and
- * its recovery is a re-arm of the whole subtree. Every loading boundary
- * under it has not shown content (D-39, F-4, #4627). */
-function unshow(b: Boundary): void {
-  for (const k of b._kids) {
-    if (k._type & STATUS_PENDING) k._initialized = false;
-    unshow(k);
-  }
-}
-
-/** An error boundary's content is shown again: a loading boundary under it
- * that chose content behind the fallback, and is not behind a fallback
- * still up, has shown it (F-4). */
-function reshow(b: Boundary): void {
-  for (const k of b._kids)
-    if (!k._fallback && k._output !== null) {
-      if (k._type & STATUS_PENDING) k._initialized = k._readers.size === 0;
-      reshow(k);
-    }
-}
-
 /** An error boundary above `b` shows its fallback: content `b` chooses is
  * not on screen. */
 function behindError(b: Boundary): boolean {
@@ -372,14 +354,9 @@ function behindError(b: Boundary): boolean {
  * not shown content catches it: that boundary is its display, beside the
  * recovered content (D-39, F-4, #4627). */
 function caughtBelow(b: Boundary, r: Computed<any>, s: Computed<any>): boolean {
-  if (
-    s === r ||
-    (s._statusFlags | r._statusFlags) & STATUS_ERROR ||
-    s._statusFlags & STATUS_PENDING
-  )
-    return false;
-  for (let l: Boundary | null | undefined = boundaryOf(r); l && l !== b; l = l._parent)
-    if (l._type & STATUS_PENDING && isCollecting(l)) return true;
+  if (!(s._statusFlags & (STATUS_ERROR | STATUS_PENDING) || r._statusFlags & STATUS_ERROR))
+    for (let l: Boundary | null | undefined = boundaryOf(r); l && l !== b; l = l._parent)
+      if (l._type & STATUS_PENDING && isCollecting(l)) return true;
   return false;
 }
 
@@ -716,15 +693,12 @@ function createBoundary<T>(
     _collapsed: false,
     _error: type === STATUS_ERROR ? signal<unknown>(undefined, ERROR_SIGNAL) : null,
     _show: show,
-    _fb: null,
-    _kids: new Set()
+    _fb: null
   };
   const controller = type === STATUS_PENDING ? (owner._context[REVEAL] as object | null) : null;
-  b._parent?._kids.add(b);
   if (getOwner())
     cleanup(() => {
       collecting.delete(b);
-      b._parent?._kids.delete(b);
       if (revealHooks && controller) revealHooks._unregister(controller, b);
     });
   // The `on` dependencies live OUTSIDE the boundary, as the condition of a
@@ -864,11 +838,7 @@ function createBoundary<T>(
       // Readers under it still unready (caught before, or while the read
       // ran the content at a mount): the fallback.
       if (isCollecting(b) && b._readers.size !== 0) return fallback(b);
-      // Content chosen behind an error fallback is not on screen: shown with
-      // the error boundary's recovery (`reshow`, #4627).
-      if (type === STATUS_ERROR) {
-        if (b._fallback) reshow(b);
-      } else b._initialized = !behindError(b);
+      b._initialized = true;
       // Observe: the fallback stops showing (a hide before its commit means
       // it never displayed — the engine knows the swap it was staged with).
       if (__OBSERVE__ && b._fallback && b._type & STATUS_PENDING && attrHooks !== null)
@@ -943,7 +913,6 @@ function fallback<T>(b: Boundary): T {
     );
     if (!globalQueue._running) schedule();
   }
-  if (!b._fallback && b._type === STATUS_ERROR) unshow(b);
   b._fallback = true;
   // Built in its own scope, like `Show`'s function child, once per show
   // (D-39: the fallback is the display until a new answer replaces the
