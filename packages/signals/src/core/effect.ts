@@ -41,7 +41,7 @@ import {
   haltReactivity,
   haltReactivityAt,
   notifyEpoch,
-  pendingNodes,
+  txOf,
   resetUnhandledAsync,
   schedule,
   setTrackedQueueCallback,
@@ -295,6 +295,11 @@ export interface TrackedEffect extends Computed<void> {
  * Uses stale reads.
  */
 export function trackedEffect(fn: () => void | (() => void), options?: NodeOptions<any>): void {
+  // A run owed at a hold's landing (#4607): `land`, made on first need, is
+  // queued with the hold's stashed runs; `owed` dedups it, and a later run
+  // that reads nothing held clears it.
+  let owed = false,
+    land: (() => void) | undefined;
   const run = () => {
     // `_modified` is NOT redundant with the heap: the heap dedups within a
     // pass, but several passes in one flush each enqueue `_run` into the same
@@ -303,25 +308,51 @@ export function trackedEffect(fn: () => void | (() => void), options?: NodeOptio
     if (heldRunHook?.(node)) return;
     if (__DEV__) setTrackedQueueCallback(true);
     const epoch = notifyEpoch;
+    owed = false;
     try {
       node._modified = false;
       recompute(node);
     } finally {
       if (__DEV__) setTrackedQueueCallback(false);
     }
-    if (pendingNodes.length === 0) return;
-    // A dep staged before this run linked it commits without a notify.
+    // A dep this run was served the committed value of (D-29) while a
+    // different value is staged commits without a notify to it: its
+    // subscriber walk predates the link. Re-run where that value commits
+    // (F-1). Writes that net to the committed value stage no change.
     for (let d = node._deps; d !== null; d = d._nextDep) {
       const dep = d._dep;
       if (
         dep._pendingValue !== NOT_PENDING &&
-        dep._notifiedAt <= epoch &&
-        !(dep._config & (CONFIG_HELD | CONFIG_OVERRIDE)) &&
+        !(dep._config & CONFIG_OVERRIDE) &&
         (dep._pendingValue !== dep._value || !Object.is(dep._pendingValue, dep._value))
       ) {
-        enqueueSub(node);
-        schedule();
-        break;
+        // Held: it commits at its hold's landing, which runs the hold's
+        // stashed runs — but a run during the hold, for another dep, had
+        // consumed the one queued for it (#4607). Re-run there, as A15's
+        // stale reader would be; effect-phase code holds nothing (D-29).
+        if (dep._config & CONFIG_HELD) {
+          if (!owed) {
+            owed = true;
+            txOf(dep)._queues[EFFECT_USER - 1].push(
+              (land ||= () => {
+                if (owed) {
+                  node._modified = true;
+                  run();
+                }
+              })
+            );
+          }
+        }
+        // Staged this flush: the next round commits it. A memo is staged
+        // by this run's own pull (`read` links, then pulls), whose walk
+        // the recomputing run refuses (#4606); a signal written since the
+        // epoch is the run's own write, never observed (#3006).
+        else if (dep._notifiedAt <= epoch || (dep as Computed<unknown>)._fn) {
+          enqueueSub(node);
+          schedule();
+          // The re-run re-checks every dep, held ones included.
+          break;
+        }
       }
     }
   };
