@@ -136,3 +136,29 @@ describe("#4587: the walks keep their depth-first order", () => {
     dispose();
   });
 });
+
+// The dirty mark of a signal write (heap.ts `markNode`) walks the same way.
+describe("#4587: a write marks a deep chain without recursion", () => {
+  it("a write to the head of a 50,000-memo chain reaches its effect", () => {
+    const N = 50000;
+    const [s, set] = createSignal(0);
+    let seen = -1;
+    const dispose = createRoot(d => {
+      let last: () => number = s;
+      for (let i = 0; i < N; i++) {
+        const prev = last;
+        last = createMemo(() => prev() + 1);
+      }
+      createRenderEffect(last, v => {
+        seen = v;
+      });
+      return d;
+    });
+    flush();
+    expect(seen).toBe(N);
+    set(1);
+    flush();
+    expect(seen).toBe(N + 1);
+    dispose();
+  });
+});

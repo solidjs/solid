@@ -128,13 +128,20 @@ export function walkSubs(
   }
 }
 
+// A dependent of a marked node: CHECK unless already marked, and then its
+// own dependents are next.
+function markCheck(el: Computed<unknown>): boolean | void {
+  const flags = el._flags;
+  if (flags & (REACTIVE_CHECK | REACTIVE_DIRTY)) return;
+  el._flags = flags | REACTIVE_CHECK;
+  return true;
+}
+
 export function markNode(el: Computed<unknown>, newState = REACTIVE_DIRTY) {
   const flags = el._flags;
   if ((flags & (REACTIVE_CHECK | REACTIVE_DIRTY)) >= newState) return;
   el._flags = (flags & ~(REACTIVE_CHECK | REACTIVE_DIRTY)) | newState;
-  for (let link = el._subs; link !== null; link = link._nextSub) {
-    markNode(link._sub, REACTIVE_CHECK);
-  }
+  walkSubs(el, markCheck);
 }
 
 export function runHeap(heap: Heap, recompute: (el: Computed<unknown>) => void): void {
