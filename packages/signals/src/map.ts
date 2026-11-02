@@ -397,9 +397,8 @@ function commitWindow<Item>(
 }
 
 // Checks the row itself, not `_items`: an aborted pass can leave a row written or staged.
-function writeRow<Item>(row: Signal<Item>, v: Item): void {
-  if (row._value !== v || row._pendingValue !== NOT_PENDING) setSignal(row, v);
-}
+const writeRow = <Item>(row: Signal<Item>, v: Item) =>
+  (row._value === v && row._pendingValue === NOT_PENDING) || setSignal(row, v);
 
 function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
   // Untracked reads inside the internal owner resolve via _parentComputed:
@@ -534,7 +533,6 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
       // takes `writeRow` directly. The engine is installed whenever a lane
       // is active.
       // CARVE 2: the lane-slot arm (`_landOnOverride`, F1) went with the engine.
-      const write: <T>(el: Signal<T>, v: T) => unknown = writeRow;
 
       // skip common prefix
       for (
@@ -544,7 +542,7 @@ function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[
           (this._rows && compare(this._key, this._items[start], newItems[start])));
         start++
       ) {
-        if (this._rows) write(this._rows[start], newItems[start]);
+        if (this._rows) writeRow(this._rows[start], newItems[start]);
       }
 
       // skip common suffix — counted only; retained entries land in one pass
