@@ -85,14 +85,7 @@ export interface StoreTarget {
    * maps) would otherwise pay a full node scan on every write — and to THIS
    * setter's keys (D-8: a key an earlier setter of the batch wrote is told
    * once, #3743). null = no trap writes this batch (bulk paths fall back to
-   * the full scan); WK_ALL = bound unusable (array length write).
-   * LOAD-BEARING SHAPE RULE: array proxy targets carry their fields as named
-   * properties on a real array, and V8
-   * normalizes an array to dictionary properties as the named count grows
-   * (empirically at counts ≡ 0 mod 3 from 18 up on V8 13.x) — every trap
-   * field read then becomes a hash lookup (~15% uibench, tree suites
-   * worst). Future write-side state MUST ride an extension object, not new
-   * named fields. */
+   * the full scan); WK_ALL = bound unusable (array length write). */
   wk: WrittenKeys | null;
   /** Lazy deep-witness node: `deep()` subscribes ONE node per record instead
    * of one per path; write paths bump it only when it exists. Separate from

@@ -25,8 +25,8 @@
  * parity, RUL-1); the draft reads its own staging.
  *
  * Perf contracts (plan sec. 31.4): lazy nodes; one literal per node; O(written) per
- * setter (`wk`); overlay drafts for large plain records; no new named
- * fields on array targets; zero allocation for adopted-but-unread objects.
+ * setter (`wk`); overlay drafts for large plain records; zero allocation
+ * for adopted-but-unread objects.
  */
 import { attrHooks } from "../core/attribution-hooks.js";
 import {
@@ -147,44 +147,46 @@ const $DEEP: unique symbol = Symbol(__DEV__ ? "STORE_DEEP" : 0);
 // ---------------------------------------------------------------------------
 // wrap / dedupe
 
-/** Pre-shaped constructor for OBJECT proxy targets: V8 tips a bare `{}` into
+/** Pre-shaped constructor for store targets: V8 tips a bare `{}` into
  * dictionary mode once ~19 named properties are assigned onto it (the #3044
  * `ovl`/`del` fields crossed that line — every trap's field read became a
  * hash lookup, a 15% deep-dbmon tick regression). Declaring every field in a
  * constructor pre-allocates in-object slots so the map stays fast, with
- * headroom for future fields. The prototype is reset to `Object.prototype`
- * so proxy-forwarded semantics (getPrototypeOf, constructor) are exactly a
- * plain object's. Array targets keep the bare-`[]` path — they must carry
- * the array exotic class for `Array.isArray(proxy)`.
- *
- * ARRAY SHAPE RULE: arrays normalize their named properties to dictionary
- * mode as the count grows (V8 13.x: counts ≡ 0 mod 3 from 18 up), so the
- * target's named field count is capped at 20 — any future write-side state
- * beyond `wk` must ride an extension object (see target.ts), never new
- * named fields here. */
-function TargetShape(this: any) {
-  this.v = undefined;
-  this.ch = undefined;
-  this.pb = undefined;
-  this.n = undefined;
-  this.h = undefined;
-  this.k = undefined;
-  this.dk = undefined;
-  this.u = undefined;
-  this.pk = undefined;
-  this.px = undefined;
-  this.d = undefined;
-  this.a = undefined;
-  this.sc = undefined;
-  this.kc = undefined;
-  this.nc = undefined;
-  this._fam = undefined;
-  this.s = undefined;
-  this.ovl = undefined;
-  this.del = undefined;
-  this.wk = undefined;
+ * headroom for future fields. It is the proxy's handler: the traps live on
+ * its prototype and read it as `this`. */
+function TargetShape(
+  this: StoreTarget,
+  value: Record<PropertyKey, any>,
+  parent: StoreTarget | null,
+  parentKey: PropertyKey | null,
+  fam: StoreFamily | null
+) {
+  // Direct field assignment in one fixed order (no Object.assign literal
+  // copy): every target shares a hidden-class transition chain — createTarget
+  // was the #2 store cost in the uibench creation profile.
+  this.v = value;
+  // Chained-backing flag (backing IS another store's proxy, §7b) — cached so
+  // the hot read path never does a per-read symbol lookup on the backing.
+  this.ch = (value as any)[$TARGET] !== undefined;
+  this.pb = null;
+  this.n = null;
+  this.h = null;
+  this.k = null;
+  this.dk = null;
+  this.u = parent;
+  this.pk = parentKey;
+  this.px = null;
+  this.d = false;
+  this.a = false;
+  this.sc = 0;
+  this.kc = 0;
+  this.nc = 0;
+  this._fam = fam;
+  this.s = false;
+  this.ovl = false;
+  this.del = null;
+  this.wk = null;
 }
-TargetShape.prototype = Object.prototype;
 
 function createTarget(
   value: Record<PropertyKey, any>,
@@ -192,35 +194,9 @@ function createTarget(
   parentKey: PropertyKey | null,
   fam: StoreFamily | null = parent?._fam ?? null
 ): StoreTarget {
-  // The proxy target carries the array exotic class when the value is an
-  // array, so Array.isArray(proxy) is true; the fields live on it directly.
-  // Direct field assignment in one fixed order (no Object.assign literal
-  // copy): every target shares a hidden-class transition chain — createTarget
-  // was the #2 store cost in the uibench creation profile.
-  const t: StoreTarget = (Array.isArray(value) ? [] : new (TargetShape as any)()) as any;
-  t.v = value;
-  // Chained-backing flag (backing IS another store's proxy, §7b) — cached so
-  // the hot read path never does a per-read symbol lookup on the backing.
-  t.ch = (value as any)[$TARGET] !== undefined;
-  t.pb = null;
-  t.n = null;
-  t.h = null;
-  t.k = null;
-  t.dk = null;
-  t.wk = null;
-  t.u = parent;
-  t.pk = parentKey;
-  t.px = null;
-  t.d = false;
-  t.a = false;
-  t.sc = 0;
-  t.kc = 0;
-  t.nc = 0;
-  t._fam = fam;
-  t.s = false;
-  t.ovl = false;
-  t.del = null;
-  t.px = new Proxy(t, traps);
+  const t: StoreTarget = new (TargetShape as any)(value, parent, parentKey, fam);
+  // Empty: V8 checks trap results against the proxy target's own keys.
+  t.px = new Proxy(Array.isArray(value) ? [] : {}, t as ProxyHandler<object>);
   setLookup(value, t);
   if (__TEST__ && ingestedRaw && !isOwned(value)) ingestedRaw.add(value);
   return t;
@@ -886,7 +862,7 @@ export function adoptPB(
  * the fork, all of it this; plan sec. 43.2) — and for a store adopted
  * once, for its lifetime.
  *
- * The target carries no slot for its record (ARRAY SHAPE RULE, target.ts),
+ * The target carries no slot for its record,
  * so a lookup by target (`preBatch`: a container node born onto an open
  * staging, a committed-frame read of a node-less staging, a park) indexes
  * the list through a map built on first use per batch — the drain itself
@@ -2086,8 +2062,9 @@ function warnWriteOutsideSetter(
   );
 }
 
-const traps: ProxyHandler<StoreTarget> = {
-  get(target, key, receiver) {
+const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
+  get(_, key, receiver) {
+    const target = this;
     if (__DEV__ && getObserver() === null) checkForeignRead();
     // One typeof gates every brand-symbol compare off the hot string path.
     if (typeof key !== "string") {
@@ -2258,7 +2235,8 @@ const traps: ProxyHandler<StoreTarget> = {
     return serveDataKey(target, key, v, src, node0, accProbe);
   },
 
-  has(target, key) {
+  has(_, key) {
+    const target = this;
     if (key === $TARGET || key === $PROXY || key === $TRACK) return true;
     if (key === $OWNER || key === $RECORD) return false;
     // (The witness before the pull: a mark on an uninitialized derived
@@ -2288,14 +2266,16 @@ const traps: ProxyHandler<StoreTarget> = {
     return key in src && !(src === target.pb && target.del?.has(key));
   },
 
-  ownKeys(target) {
+  ownKeys() {
+    const target = this;
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, undefined);
     if (target._fam !== null) pullFamily(target);
     return visibleKeys(target, enumerationSource(target));
   },
 
-  getOwnPropertyDescriptor(target, key) {
+  getOwnPropertyDescriptor(shell, key) {
+    const target = this;
     if (key === $OWNER || key === $RECORD) return undefined;
     const obs = getObserver();
     if (verdict !== null && affectsHooks !== null && obs === null)
@@ -2329,11 +2309,12 @@ const traps: ProxyHandler<StoreTarget> = {
     }
     desc ??= visibleDescriptor(target, src, key);
     if (desc === undefined) return undefined;
-    if (!(key === "length" && Array.isArray(target))) desc.configurable = true;
+    if (!(key === "length" && Array.isArray(shell))) desc.configurable = true;
     return desc;
   },
 
-  set(target, key, value) {
+  set(_, key, value) {
+    const target = this;
     const draft = inDraft(target);
     if (!draft && !writeOverride) {
       if (__DEV__) warnWriteOutsideSetter(target, key, "set");
@@ -2378,7 +2359,8 @@ const traps: ProxyHandler<StoreTarget> = {
     return true;
   },
 
-  defineProperty(target, key, desc) {
+  defineProperty(_, key, desc) {
+    const target = this;
     const draft = inDraft(target);
     if (!draft && !writeOverride) {
       if (__DEV__) warnWriteOutsideSetter(target, key, "defineProperty");
@@ -2396,7 +2378,8 @@ const traps: ProxyHandler<StoreTarget> = {
     return true;
   },
 
-  deleteProperty(target, key) {
+  deleteProperty(_, key) {
+    const target = this;
     const draft = inDraft(target);
     if (!draft && !writeOverride) {
       if (__DEV__) warnWriteOutsideSetter(target, key, "deleteProperty");
@@ -2421,8 +2404,13 @@ const traps: ProxyHandler<StoreTarget> = {
     if (committed) (target.del ??= new Set()).add(key);
     if (!draft) notifyWrites(target); // a write-override write
     return true;
-  }
+  },
+
+  // The shell is empty: a store cannot be frozen or re-prototyped.
+  preventExtensions: () => false,
+  setPrototypeOf: () => false
 };
+TargetShape.prototype = traps;
 
 /** Is `obs` subscribed to the container BY THIS PASS (its enumerator holds
  * it)? A link left from a previous pass is stale — the reader must subscribe
