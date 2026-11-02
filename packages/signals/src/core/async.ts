@@ -151,23 +151,15 @@ function walkDependents(
   fn: (node: Computed<any>, seen: boolean) => unknown
 ): void {
   const visited = new NewSet<Computed<any>>();
-  // An explicit stack of the links whose subtree is being walked, not
-  // recursion: a long chain of dependents must not overflow (#4587).
-  const stack: Link[] = [];
-  for (let link = el._subs; ; ) {
-    if (link === null) {
-      if (!stack.length) return;
-      link = stack.pop()!._nextSub;
-      continue;
-    }
-    const node = link._sub,
-      seen = visited.has(node);
-    if (fn(node, seen) !== false && !seen) {
-      visited.add(node);
-      stack.push(link);
-      link = node._subs;
-    } else link = link._nextSub;
-  }
+  const visit = (node: Computed<any>) => {
+    const seen = visited.has(node);
+    if (fn(node, seen) !== false && !seen) visited.add(node);
+  };
+  forEachDependent(el, visit);
+  // The visited set is the walk's queue (a Set's loop reaches what is added
+  // to it mid-loop), breadth first, not recursion: a long chain of
+  // dependents must not overflow the stack (#4587).
+  for (const node of visited) forEachDependent(node, visit);
 }
 
 // Queue a node to re-run on the next flush (used both when a pending source
@@ -994,13 +986,7 @@ export function notifyStatus(el: Computed<any>, status: number, error?: any): vo
     !(error instanceof NotReadyError)
   )
     error = new StatusError(el, error);
-  if (markStatus(el, status, error)) propagateStatus(el, status, error);
-}
 
-/** `notifyStatus` on `el` alone, `error` already wrapped: true when the
- * status is still to reach `el`'s dependents (`propagateStatus` walks them
- * itself, so a long chain of dependents never recurses, #4587). */
-function markStatus(el: Computed<any>, status: number, error: any): boolean | void {
   const pendingSource = status === STATUS_PENDING && error instanceof NotReadyError && error.source;
   // (CARVE 2: the lane assignment went with the engine.)
 
@@ -1047,8 +1033,18 @@ function markStatus(el: Computed<any>, status: number, error: any): boolean | vo
     elNotify.call(el);
     return;
   }
-  return true;
+  // A dependent's own propagation runs from the outermost call's loop once
+  // its source's is done, not nested inside it: a long chain of dependents
+  // must not overflow the stack (#4587).
+  if (propagating) propagating.push([el, status, error]);
+  else
+    try {
+      for (const [n, s, e] of (propagating = [[el, status, error]])) propagateStatus(n, s, e);
+    } finally {
+      propagating = 0;
+    }
 }
+let propagating: [Computed<any>, number, any][] | 0 | undefined;
 
 /** The dependents' half of `notifyStatus`: `el`'s status reaches each
  * subscriber as a propagated mark (or a re-derive). On its own for a store
@@ -1057,20 +1053,7 @@ function markStatus(el: Computed<any>, status: number, error: any): boolean | vo
  * (store/projection.ts `wakeFamily`), exactly as a memo's would reach its. */
 export function propagateStatus(el: Computed<any>, status: number, error: any): void {
   const pendingSource = status === STATUS_PENDING && error instanceof NotReadyError && error.source;
-  // Depth first, as the recursion it replaces: a marked subscriber's
-  // dependents are walked before its next sibling, and its family hears the
-  // status after them. `stack` holds the links whose subtree is being walked.
-  const stack: Link[] = [];
-  for (let link = el._subs; ; ) {
-    if (link === null) {
-      if (!stack.length) return;
-      link = stack.pop()!;
-      (link._sub as any)._fam?.st(status, error);
-      link = link._nextSub;
-      continue;
-    }
-    const sub = link._sub,
-      dep = link._dep as Computed<any>;
+  forEachDependent(el, (sub, link) => {
     sub._time = clock;
     // A pending mark on a kept-tail link re-derives the subscriber instead of
     // marking it (A30, #3494 review; fuzzer latest-1 #2141; #3519 review).
@@ -1104,13 +1087,12 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
       sub._config & CONFIG_REDERIVE ||
       (holdWorkHook &&
         (sub._config & CONFIG_VERDICT || (pendingSource && sub._config & CONFIG_STAGED_ERROR)) &&
-        !(pendingSource && holdWorkHook(sub, dep))) ||
+        !(pendingSource && holdWorkHook(sub, el))) ||
       (status === STATUS_PENDING && link._gen !== sub._depGen)
     ) {
       enqueueSub(sub);
       schedule();
-      link = link._nextSub;
-      continue;
+      return;
     }
     // Already pending on this source (a re-ask of its flight): the status is
     // unchanged and nothing re-notifies. The re-asking write is held with the
@@ -1127,8 +1109,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
         !freshHook?.(sub, pendingSource._time === clock)
       )
         joinFuture(txOf(sub));
-      link = link._nextSub;
-      continue;
+      return;
     }
     if (
       pendingSource ||
@@ -1139,7 +1120,7 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
       // — with the lane, when the pass propagating is the lane's work and
       // the dependent's pending is the lane's own flight (`laneStage`).
       // (No answer: a pending propagation leaves a written guess a guess.)
-      if (laneStageHook && passLane !== null) laneStageHook(sub, passLane, true, dep);
+      if (laneStageHook && passLane !== null) laneStageHook(sub, passLane, true, el);
       else {
         queuePendingNode(sub);
         // A15 (#3443): pending propagates onto a held memo without
@@ -1154,15 +1135,10 @@ export function propagateStatus(el: Computed<any>, status: number, error: any): 
         )
           joinFuture(txOf(sub));
       }
-      if (markStatus(sub, status, error)) {
-        stack.push(link);
-        link = sub._subs;
-        continue;
-      }
+      notifyStatus(sub, status, error);
       // A derived store's derive (store/projection.ts): marked, not re-run —
       // its leaves' readers are not its dependents, so the family walks them.
       (sub as any)._fam?.st(status, error);
     }
-    link = link._nextSub;
-  }
+  });
 }

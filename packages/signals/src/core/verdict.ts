@@ -725,14 +725,13 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
     if (marking) marking.push(node);
     else
       try {
-        marking = [node];
-        for (let i = 0; i < marking.length; i++) settlePendingSource(marking[i]);
+        for (const n of (marking = [node])) settlePendingSource(n);
       } finally {
-        marking = null;
+        marking = 0;
       }
   }
 }
-let marking: Computed<any>[] | null = null;
+let marking: Computed<any>[] | 0 | undefined;
 
 installVerdictHooks(observeFlight, holdWork, stageMark);
 /** A store read inside an untracked `isPending` probe found a live mark on
