@@ -600,9 +600,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   let joined = false;
   let prevTracking = tracking;
   let prevStrictRead: string | false = false;
+  let prevStrictPending: string | false = false;
   if (__DEV__) {
     prevStrictRead = strictRead;
-    strictRead = false;
+    prevStrictPending = strictPending;
+    strictRead = strictPending = false;
   }
   const prevCopy = __DEV__ ? enterCopy() : undefined;
   tracking = true;
@@ -706,6 +708,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (laneStageHook) laneRoot = prevMount;
     if (__DEV__) {
       strictRead = prevStrictRead;
+      strictPending = prevStrictPending;
       exitCopy(prevCopy);
     }
     if (isStaleEffect) stale = prevStale;
@@ -1728,6 +1731,15 @@ export function setVerdict(fn: typeof verdict): void {
   verdict = fn;
 }
 export let strictRead: string | false = false;
+/**
+ * Dev-only: the label a plain `untrack(fn)` keeps from the strict scope it
+ * opens in (a component body), for one check: a pending read of a memo this
+ * same body created throws `PENDING_ASYNC_UNTRACKED_READ`. Its NotReady would
+ * re-run the body onto a fresh pending memo forever. A memo created outside
+ * the body is the sanctioned untracked read: its first load reaches the
+ * boundary (D-23), and sync untracked reads stay quiet.
+ */
+let strictPending: string | false = false;
 /** Dev-only: explicit untrack() nesting, so deliberate post-await reads stay quiet. */
 export let untrackDepth = 0;
 /**
@@ -1832,8 +1844,12 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
   const prevTracking = tracking;
   const prevStrictRead = strictRead;
   const prevStrictReadEvent = strictReadEvent;
+  const prevStrictPending = strictPending;
   tracking = false;
   if (__DEV__) {
+    if (strictReadLabel === undefined) {
+      if (strictReadActive()) strictPending = strictRead;
+    } else strictPending = false;
     strictRead = strictReadLabel || false;
     strictReadEvent = ANY_EVENT;
     untrackDepth++;
@@ -1846,6 +1862,7 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string | false): T {
     if (__DEV__) {
       strictRead = prevStrictRead;
       strictReadEvent = prevStrictReadEvent;
+      strictPending = prevStrictPending;
       untrackDepth--;
     }
   }
@@ -2172,8 +2189,12 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     return el._pendingValue as T;
   }
 
-  if (__DEV__ && strictRead && owner._statusFlags & STATUS_PENDING && strictReadActive())
-    throwPendingUntrackedRead(strictRead, {
+  if (
+    __DEV__ &&
+    owner._statusFlags & STATUS_PENDING &&
+    ((strictReadActive() && strictRead) || (strictPending && owner._parent === context))
+  )
+    throwPendingUntrackedRead(((strictReadActive() && strictRead) || strictPending) as string, {
       ownerId: c?.id,
       ownerName: (c as any)?._name,
       nodeName: (owner as any)?._name
