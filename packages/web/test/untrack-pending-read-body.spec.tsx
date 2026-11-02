@@ -1,3 +1,7 @@
+/**
+ * @jsxImportSource @solidjs/web
+ * @vitest-environment jsdom
+ */
 import { describe, expect, it } from "vitest";
 import { Loading, createMemo, createRoot, flush, untrack } from "solid-js";
 import { render } from "../src/index.js";
