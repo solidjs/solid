@@ -263,11 +263,28 @@ function applyGuesses(parent: Transaction | null): void {
     if (parent !== null && holder !== null) merge(parent, holder);
     ext(n)._q = pendingGuesses[i + 2];
     if (changed) {
+      const l = txOf(n);
+      // A reader the parent holds pending on its re-ask (a correction's
+      // re-derivation waiting on a refresh) re-derives from the guess as the
+      // lane's work, seated there from its first read: lane work reads the
+      // parent's flight as the screen (D-26, D-37), whether it reads the
+      // flight before the guess or after (D-28) — seated at the guess read,
+      // the earlier read threw the pass back into the hold (#4629).
+      for (let s = n._subs; s !== null; s = s._nextSub) {
+        const c = s._sub;
+        if (
+          !(c as any)._type &&
+          (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
+          (c._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
+          txOf(c) === resolveTx(l._parent!)
+        )
+          list(c, l);
+      }
       // The lane's members re-derive as its work (REACTIVE_LANE_DIRTY): a
       // blocked lane's re-guess does not re-run its render effects as stale
       // readers republishing the committed view (#3460).
       insertSubs(n);
-      laneDirty(n, txOf(n));
+      laneDirty(n, l);
     }
   }
   pendingGuesses.length = 0;
