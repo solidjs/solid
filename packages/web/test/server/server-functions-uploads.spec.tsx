@@ -167,24 +167,45 @@ describe("files in codec arguments", () => {
     }
   });
 
-  it("keeps a blob's type, and the blob arrives as a File named blob", async () => {
-    registerServerFunction("upload-blob", async (blob: Blob, label: string) => ({
+  it("keeps a blob a blob, with its type", async () => {
+    registerServerFunction("upload-blob", async (blob: Blob, empty: Blob, label: string) => ({
       isFile: blob instanceof File,
-      name: (blob as File).name,
       type: blob.type,
       text: await blob.text(),
+      emptyIsFile: empty instanceof File,
+      emptyType: empty.type,
       label
     }));
     const transport = connectTransport();
     try {
       const call = createServerReference("upload-blob");
-      expect(await call(new Blob(["bytes"], { type: "application/x-thing" }), "l")).toEqual({
-        isFile: true,
-        name: "blob",
+      // Every part arrives as a file, and an empty type as application/octet-stream.
+      expect(
+        await call(new Blob(["bytes"], { type: "application/x-thing" }), new Blob(["raw"]), "l")
+      ).toEqual({
+        isFile: false,
         type: "application/x-thing",
         text: "bytes",
+        emptyIsFile: false,
+        emptyType: "",
         label: "l"
       });
+    } finally {
+      transport.restore();
+    }
+  });
+
+  it("keeps the exact name and the lastModified of a file", async () => {
+    registerServerFunction("upload-file-meta", async (file: File, _n: number) => ({
+      name: file.name,
+      lastModified: file.lastModified
+    }));
+    const transport = connectTransport();
+    try {
+      const call = createServerReference("upload-file-meta");
+      // The form encoder escapes a quote as %22, and the parser decodes every %22.
+      const file = new File(["x"], 'a"b%22.txt', { type: "text/plain", lastModified: 1234 });
+      expect(await call(file, 1)).toEqual({ name: 'a"b%22.txt', lastModified: 1234 });
     } finally {
       transport.restore();
     }
@@ -310,5 +331,49 @@ describe("malformed uploads", () => {
     const args = form.get("args") as string;
     expect((await resend(request, args, SERIALIZED_FORMAT)).status).toBe(400);
     expect(ran()).toBe(1);
+  });
+});
+
+describe("uploads from older clients", () => {
+  it("reads a node with only the index as the part", async () => {
+    let received: { name: string; text: string } | undefined;
+    registerServerFunction("upload-legacy", async (file: File, _n: number) => {
+      received = { name: file.name, text: await file.text() };
+      return "ok";
+    });
+    const transport = connectTransport();
+    try {
+      const call = createServerReference("upload-legacy");
+      expect(await call(new File(["old"], "old.txt", { type: "text/plain" }), 1)).toBe("ok");
+    } finally {
+      transport.restore();
+    }
+    const request = transport.requests[0];
+    const form = await request.clone().formData();
+    // Drop the metadata fields from the upload node, as older clients never wrote them.
+    let stripped = 0;
+    const strip = (value: unknown) => {
+      if (typeof value !== "object" || value === null) return;
+      const node = value as Record<string, any>;
+      if (node.c === "solid/server-function-upload" && node.s) {
+        for (const key of ["t", "n", "l"]) {
+          if (key in node.s) {
+            delete node.s[key];
+            stripped++;
+          }
+        }
+      }
+      for (const key in node) strip(node[key]);
+    };
+    // The args part is one frame: `;0x` and the byte length in 8 hex digits, `;`, then JSON.
+    const args = JSON.parse((form.get("args") as string).slice(12));
+    strip(args);
+    expect(stripped).toBe(3);
+    const json = JSON.stringify(args);
+    const length = new TextEncoder().encode(json).length.toString(16).padStart(8, "0");
+    form.set("args", `;0x${length};${json}`);
+    received = undefined;
+    expect((await resend(request, form)).status).toBe(200);
+    expect(received).toEqual({ name: "old.txt", text: "old" });
   });
 });
