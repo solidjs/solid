@@ -1352,17 +1352,24 @@ export function notifyKeyDiff(
     }
     const ov = od?.value;
     const nv = nd?.value;
-    if (od?.get || od?.set || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
-      setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
+    if (od?.get || od?.set || (!isEqual(ov, nv) && !targetsEqual(ov, nv))) adoptLeaf(node, nv);
   } else {
     const ov = old[key as any];
     const nv = neu[key as any];
     // A live chained `old` (a store proxy, §7b) already reads the inner
     // store's next frame, not what the node was last told: written, the
     // node's own equality judging it (#4361).
-    if (old[$TARGET] || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
-      setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
+    if (old[$TARGET] || (!isEqual(ov, nv) && !targetsEqual(ov, nv))) adoptLeaf(node, nv);
   }
+}
+
+/** An adoption's leaf write. In a derive's lane pass it is the lane's
+ * derivation (`holdWithDerive`), as the container's staging and a draft
+ * write's are — not a staging of the frame the pass runs in (#4629). */
+function adoptLeaf(node: Signal<any>, nv: any): void {
+  setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
+  const t: StoreTarget = (node as any)._host;
+  if (passLane !== null && !userWrite && t._fam !== null) holdWithDerive(t, node);
 }
 
 export function hasAccessorFlag(node: Signal<any>): boolean {
@@ -1382,8 +1389,7 @@ export function notifyKeyValue(
     notifyKeyDiff(node, key, old, neu, false);
     return;
   }
-  if (!isEqual(ov, nv) && !targetsEqual(ov, nv))
-    setSignal(node, typeof nv === "function" ? () => nv : (nv as any));
+  if (!isEqual(ov, nv) && !targetsEqual(ov, nv)) adoptLeaf(node, nv);
 }
 
 /** The structural half of an adoption's notifications (reconcile does the
