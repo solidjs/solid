@@ -334,7 +334,7 @@ describe("Loading `on` beside a keyed Show around the boundary (#3540)", () => {
   ];
   for (const [form, key, midFlight] of matrix) {
     // Known bug #4417: the park re-derive voids the provisional owner, so the same key mounts again ([1,3,3]). Target [1,2,2] via in-place re-derive (reader-seat S1).
-    const it = form !== "on" && key === "latest" ? test.fails : test;
+    const it = test;
     it(`${form} over ${key}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "holds"}`, async () => {
       // `on` over committed warns LOADING_ON_OUTSIDE_HOLD (B reads data too).
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

@@ -186,14 +186,21 @@ export let holdWorkHook: ((n: Computed<any>, source: Computed<any>) => unknown) 
 /** D-41's staged-error mark (verdict.ts `stageMark`): the settle walk's
  * reached node `n` carries staged error source `el`'s staging. */
 export let stageMarkHook: ((n: Computed<any>, el: Computed<any>) => void) | null = null;
+/** #4417 (verdict.ts `keepReaders`); #4574 (verdict.ts `attachWaits`). */
+export let keepReadersHook: ((el: Computed<any>) => void) | null = null;
+export let attachHook: ((node: Computed<any>) => boolean) | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
   holdWork: NonNullable<typeof holdWorkHook>,
-  stageMark: NonNullable<typeof stageMarkHook>
+  stageMark: NonNullable<typeof stageMarkHook>,
+  keepReaders: NonNullable<typeof keepReadersHook>,
+  attach: NonNullable<typeof attachHook>
 ): void {
   observeFlightHook = observeFlight;
   holdWorkHook = holdWork;
   stageMarkHook = stageMark;
+  keepReadersHook = keepReaders;
+  attachHook = attach;
 }
 /** External-source bridge (wired by enableExternalSource(); undefined while
  * no config is active — including after _resetExternalSourceConfig()). */

@@ -149,7 +149,7 @@ describe("Loading `on` beside a keyed Show around the boundary; a boundary is ne
   for (const [variant, midFlight, expectedMounts, expectedCodes] of matrix) {
     const remounted = expectedMounts[1] > expectedMounts[0];
     // Known bug #4417: the park re-derive voids the provisional owner, so the same key mounts again ([1,3,3]). Target [1,2,2] via in-place re-derive (reader-seat S1).
-    const it = variant.startsWith("show-") && variant.endsWith("-latest") ? test.fails : test;
+    const it = test;
     it(`${variant}: mid-flight ${midFlight === EARLY ? "reveals fallback early" : "held"}, A ${
       remounted ? "remounted" : "not remounted"
     } at the key change`, async () => {

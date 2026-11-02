@@ -47,6 +47,7 @@ import {
   setTrackedQueueCallback,
   setEffectCallback,
   heldRunHook,
+  attachHook,
   queueEvent,
   applyStaged
 } from "./scheduler.js";
@@ -195,6 +196,9 @@ function runEffect(node: Effect<any>, type: number): void {
   // (#4343). `_modified` stays set; the boundary re-queues the run
   // (`release`).
   if (type && heldRunHook?.(node)) return;
+  // An attach whose subtree holds a hole born into an open hold waits for
+  // that hold (#4574, verdict.ts `attachWaits`).
+  if (type && attachHook?.(node)) return;
   // Error arm (#2840), user effects only: a compute-phase error that is still
   // the node's settled state at effect time runs the bundle's error handler in
   // this same imperative, writable scope. Unwrap the StatusError used for
