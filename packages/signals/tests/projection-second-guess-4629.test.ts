@@ -4,17 +4,17 @@
  * Action 1 is accepted and its `refresh(issues)` is in flight when action 2
  * guesses into the same log.
  *
- * The overlay's lane pass reads `issues`, which action 1's re-ask holds: a
- * lane's derivation that hits async holds the lane (F-6: "async derived from
- * a display-ahead read opens a hold of its own, in that lane"; F-1/F-2 apply
- * inside it), and the two guesses share one slot, so their lanes reveal as
- * one (D-33, A15 lanes corollary). So action 2's guess waits for action 1's
- * re-ask to land, then shows — `[#4 dana]` at (4), `[#4 guest]` at (5) —
- * and holds until its own action is answered (F-11).
+ * (4) The overlay's lane pass reads `issues`, which action 1's re-ask holds.
+ * `issues` is not derived from the guess, so F-6's lane hold does not apply:
+ * a plain read in lane work of a node the parent holds is the screen's value
+ * (D-26, clarified 2026-10-28), and the lane displays the screen plus its own
+ * guesses — `[#4 guest]` now, in both shapes. Today both shapes hold the
+ * guess until action 1's re-ask lands (`[#4 dana]`): a known deviation,
+ * pinned `it.fails` below.
  *
- * Through the projection the guess never showed before the server's answer:
- * the derive's pass that ran as the landing's (the frame's) work and was
- * judged leaked wrote the row's leaf through the reconcile channel as a
+ * (5) Through the projection the guess never showed before the server's
+ * answer: the derive's pass that ran as the landing's (the frame's) work and
+ * was judged leaked wrote the row's leaf through the reconcile channel as a
  * staging of that frame, not as the lane's derivation; the lane's re-derive
  * then wrote an equal value, which staged nothing, and the screen kept the
  * committed `dana` until the frame landed. An adoption's leaf write in a lane
@@ -106,34 +106,46 @@ function run(proj: boolean) {
 }
 
 describe("#4629: a second guess into a log while the first action's refresh is in flight", () => {
-  for (const proj of [false, true])
-    it(proj ? "through a keyed projection" : "through the overlay memo", async () => {
-      const t = run(proj);
-      flush();
-      await tick();
-      await t.settle("issues", t.snap());
-      expect(t.screen).toBe("[#3 -][#4 dana]");
-      t.assign(3);
-      await tick();
-      expect(t.screen).toBe("[#3 guest][#4 dana]");
-      t.server[0].a = "guest";
-      await t.settle("assign:3", {});
-      // action 1's refresh(issues) is in flight
-      t.assign(4);
-      await tick();
-      const f4 = t.screen;
-      await t.settle("issues", t.snap());
-      const f5 = t.screen;
-      t.server[1].a = "guest";
-      await t.settle("assign:4", {});
-      await t.settle("issues", t.snap());
-      const f6 = t.screen;
-      expect([f4, f5, f6]).toEqual([
-        "[#3 guest][#4 dana]",
+  const frames = async (proj: boolean) => {
+    const t = run(proj);
+    flush();
+    await tick();
+    await t.settle("issues", t.snap());
+    expect(t.screen).toBe("[#3 -][#4 dana]");
+    t.assign(3);
+    await tick();
+    expect(t.screen).toBe("[#3 guest][#4 dana]");
+    t.server[0].a = "guest";
+    await t.settle("assign:3", {});
+    // action 1's refresh(issues) is in flight
+    t.assign(4);
+    await tick();
+    const f4 = t.screen;
+    await t.settle("issues", t.snap());
+    const f5 = t.screen;
+    t.server[1].a = "guest";
+    await t.settle("assign:4", {});
+    await t.settle("issues", t.snap());
+    const f6 = t.screen;
+    return [f4, f5, f6];
+  };
+
+  for (const proj of [false, true]) {
+    const name = proj ? "through a keyed projection" : "through the overlay memo";
+    it(`${name}: the guess shows once action 1's re-ask lands`, async () => {
+      const [, f5, f6] = await frames(proj);
+      expect([f5, f6]).toEqual(["[#3 guest][#4 guest]", "[#3 guest][#4 guest]"]);
+    });
+
+    // Known deviation (D-26): the guess waits on action 1's re-ask.
+    it.fails(`${name}: the guess shows at once, beside the screen's issues (D-26)`, async () => {
+      expect(await frames(proj)).toEqual([
+        "[#3 guest][#4 guest]",
         "[#3 guest][#4 guest]",
         "[#3 guest][#4 guest]"
       ]);
     });
+  }
 
   it("through a keyed projection: a rejected second action reverts its row", async () => {
     const t = run(true);
