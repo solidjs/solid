@@ -59,6 +59,10 @@ import {
   REACTIVE_MANUAL_WRITE,
   REACTIVE_MISSED_WAKE,
   REACTIVE_PROBED,
+  REACTIVE_WINDOW,
+  REACTIVE_AHEAD,
+  CONFIG_OWN_PROBE,
+  CONFIG_AHEAD,
   REACTIVE_REASK,
   REACTIVE_STAGED_READ,
   REACTIVE_NONE,
@@ -167,6 +171,7 @@ import {
   laneStageHook,
   laneSeamsHook,
   laneServedHook,
+  holdStagingHook,
   holdWorkHook,
   keepReadersHook,
   laneWriteHook,
@@ -732,7 +737,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // verdict engine's to keep (CONFIG_ASYNC, verdict.ts `holdWork`, D-25).
     // (Only the verdict engine probes: without it the line folds away.)
     if (observeFlightHook)
-      el._config = (el._config & ~CONFIG_VERDICT) | (el._flags & REACTIVE_PROBED);
+      el._config =
+        (el._config & ~(CONFIG_VERDICT | CONFIG_OWN_PROBE | CONFIG_AHEAD)) |
+        (el._flags & REACTIVE_PROBED) |
+        ((el._flags & REACTIVE_WINDOW) << 9) |
+        ((el._flags & REACTIVE_AHEAD) << 11);
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
     // own owner (a memo calling its root's `dispose()`, a cleanup doing so
     // #3601/#3606), and `disposeChildren` set the flag on this node
@@ -1345,7 +1354,10 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // under a hold still enters it: the content memo it reads is born held,
   // with no committed value to serve.
   // (Verdict readers and lanes exist only with their engines installed.)
+  // #4544: nor a pass whose posture is only inherited, reading the hold's
+  // own write (verdict.ts `holdStaging`): it is the hold's work.
   const verdict = observeFlightHook && c._config & CONFIG_VERDICT;
+  if (verdict && holdStagingHook!(c, el)) return false;
   const lane = laneStageHook && passLane !== null;
   if (
     (!lane ||
@@ -2198,6 +2210,21 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
         // verdict reader keeps the posture it is served the screen with
         // (`observeFlight`). (A verdict memo exists only with the verdict
         // engine installed.)
+        // #4544 (F-6): a render effect never committed (uninitialized — held
+        // at the park if this flush parks — or of a held pass's frame;
+        // `blockedBy` asks only of one its hold holds) reading a settled verdict
+        // reader's value derives from a display-ahead read: what that value
+        // asks for does not hold the hold (scheduler.ts `blockedBy`).
+        if (
+          observeFlightHook &&
+          (c as any)._type === EFFECT_RENDER &&
+          owner._config & CONFIG_VERDICT &&
+          !(owner._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) &&
+          ((c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED
+            ? c._config & CONFIG_HELD || flushTransaction
+            : c._config & CONFIG_HELD_FRAME)
+        )
+          (c as Computed<any>)._flags |= REACTIVE_AHEAD;
         if (observeFlightHook && !(c as any)._type)
           (c as Computed<any>)._flags |=
             owner._config &
@@ -2529,7 +2556,10 @@ export function stagedScreen(c: Computed<any>, el?: Signal<any> | Computed<any>)
   if (
     flushTransaction === null ||
     bornInto(c, flushTransaction) ||
-    (el?._config! & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD
+    (el?._config! & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD ||
+    // #4544: this flush's own write, read by a pass whose posture is only
+    // inherited, is the frame's derivation, not a probe of it.
+    (observeFlightHook && holdStagingHook!(c, el!))
   )
     return false;
   // A transaction only a `latest()` read opened holds nothing: the staging

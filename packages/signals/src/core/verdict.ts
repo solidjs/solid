@@ -13,6 +13,8 @@ import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
   CONFIG_ASYNC,
+  CONFIG_OWN_PROBE,
+  CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_HELD_FRAME,
   CONFIG_IN_SNAPSHOT_SCOPE,
@@ -47,6 +49,7 @@ import {
   context,
   creatorPass,
   creatorReads,
+  ext,
   joinPass,
   markLateLinker,
   prepareComputed,
@@ -69,6 +72,7 @@ import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
   blocked,
   dirtyQueue,
+  clock,
   flushTransaction,
   globalQueue,
   GlobalQueue,
@@ -455,6 +459,9 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   prepareComputed(owner, false);
   if (c && tracking) {
     link(el, c);
+    // #4544: asked of this staging, under its hold or this flush.
+    if (el._pendingValue !== NOT_PENDING)
+      ext(el)._askedIn = el._config & CONFIG_HELD ? txOf(el) : flushTransaction || clock;
     if ((el as any)._fn) pullComputed(owner, c);
   }
   setVerdict(verdictValue);
@@ -797,7 +804,37 @@ function attachWaits(node: Computed<any>): boolean {
   return true;
 }
 
-installVerdictHooks(observeFlight, holdWork, stageMark, keepReaders, attachWaits);
+/** #4544: a verdict reader whose posture is only inherited (it read a
+ * verdict memo, and neither this pass nor its last opened a window,
+ * CONFIG_OWN_PROBE; no unanswered probe) is the hold's work where it reads
+ * the hold's own sync write: not an async memo's answer (a flight's, A10),
+ * not a lane's, and not a staging a window asked of under the hold that
+ * holds it, or in this flush (`_askedIn`: `[latest(x), x()]` through a memo
+ * stays atomic, D-26 — a mark that expires with that hold). It is served
+ * that staging — held (`frameRead`), or this flush's before it parks
+ * (`stagedScreen`), leaving the verdict lane an earlier read of the verdict
+ * memo seated it in (D-25: either read order). A frame (a render effect, a
+ * boundary's structure) reads the screen as before. */
+function holdStaging(c: Computed<any>, el: Signal<any> | Computed<any>): unknown {
+  const a = el._x?._askedIn;
+  return (
+    !(
+      c._config & (CONFIG_OWN_PROBE | CONFIG_FRAME) ||
+      c._flags & (REACTIVE_WINDOW | REACTIVE_PROBE_UNANSWERED)
+    ) &&
+    el._pendingValue !== NOT_PENDING &&
+    !(el._config & (CONFIG_ASYNC | CONFIG_OVERRIDE)) &&
+    a !== clock &&
+    !(
+      typeof a == "object" &&
+      resolveTx(a) ===
+        resolveTx(el._config & CONFIG_HELD ? el._x!._transaction! : flushTransaction!)
+    ) &&
+    (!passLane || (passLane._parent!._verdict === passLane && (setPassLane(null), true)))
+  );
+}
+
+installVerdictHooks(observeFlight, holdWork, stageMark, keepReaders, attachWaits, holdStaging);
 /** A store read inside an untracked `isPending` probe found a live mark on
  * a record with no node to carry it (store/affects.ts): not final. */
 GlobalQueue._witnessMark = () => {
