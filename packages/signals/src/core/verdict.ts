@@ -57,6 +57,7 @@ import {
   setVerdict,
   snapshotCaptureActive,
   spectating,
+  stagedRead,
   strictRead,
   strictReadActive,
   tracking,
@@ -440,6 +441,19 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   const owner = el as Computed<any>;
   const owned = !!c && !(c._config & CONFIG_CHILDREN_FORBIDDEN);
   const tracked = owned && tracking;
+  // F-10 (#4648): a probe in a derivation already in the frame's world —
+  // its pass, or one still running around it, read the future or a staging
+  // — and not a verdict reader (an untracked window, D-24; a pass born in
+  // that world, #4341) reads as its plain reads do: the staging, final in
+  // that frame (D-23: never `true` beside the fresh value). A verdict
+  // reader, a frame, an effect and lane work read the screen.
+  const inFrame =
+    owned &&
+    probing &&
+    !passLane &&
+    !(c!._config & CONFIG_VERDICT) &&
+    !(c as any)._type &&
+    creatorReads(c, c!._flags);
   // A31: the pulled memo's pass is its own, not the probe's — it reads
   // outside the window, and the probe's read below answers for what the pass
   // produced. So is a lazy or dormant memo's wake (an unowned memo with no
@@ -554,8 +568,13 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       nodeName: (owner as any)?._name
     });
   const uninitialized = (owner._statusFlags & STATUS_UNINITIALIZED) !== 0;
+  // Born into the future (below) or read by a pass in the frame's world.
+  const ownWorld =
+    el._pendingValue !== NOT_PENDING &&
+    !(owner._statusFlags & STATUS_PENDING) &&
+    (uninitialized || inFrame);
   if (el._config & CONFIG_HELD) {
-    if (!uninitialized) {
+    if (!uninitialized && !ownWorld) {
       const t = txOf(el);
       // A render effect re-run (or mounted) outside the verdict lane's flush
       // while the lane is blocked — its display held on its own derivation
@@ -591,7 +610,8 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // committed value, so no verdict: `isPending` reads it as its read does —
     // the owner joins the hold (held with it, or caught by a boundary that
     // has not shown content) and answers for the commit, where it is final.
-    if (el._pendingValue !== NOT_PENDING && !(owner._statusFlags & STATUS_PENDING)) {
+    // So does a pass in the frame's world (`inFrame`): it joins as its read.
+    if (ownWorld) {
       if (probing && owned) joinPass(c!, el);
       if (__TEST__) shadowActual(SLOT_P);
       return staged(el);
@@ -625,6 +645,19 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // flips if that flush parks (#3078). (The write's own fan-out ran before
     // the reader existed; nothing else would re-derive it.)
     else if (tracked && probing) watchVerdict(c!);
+    // A pass in the frame's world reads this flush's staging as its plain
+    // read does (`inFrame`; F-10: one frame for every channel) — so does any
+    // owned reader of a first value staged this flush: it has no screen
+    // (A29), and no verdict (D-23 exc. 1).
+    if (
+      (inFrame || (owned && uninitialized)) &&
+      !(owner._statusFlags & STATUS_PENDING) &&
+      globalQueue._running
+    ) {
+      stagedRead(c!, el);
+      if (__TEST__) shadowActual(SLOT_P);
+      return staged(el);
+    }
     if (latestActive) {
       // A28: an unflushed write is not what `latest` serves; a tracked
       // reader derived from the flushed world runs again in the carrying
