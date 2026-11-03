@@ -727,6 +727,16 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
       (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | CONFIG_ASYNC | (EFFECT_TRACKED << 23))
     )
   ) {
+    // Only a node that reads a staging carries it. The walk also reaches the
+    // readers of a node it does not mark (a boundary's output, whose pass
+    // decides content or fallback; an async memo, which the commit's publish
+    // reaches): what they get comes through that node, not as the staging.
+    // A memo over an error boundary's output is a plain reader of it (F-3:
+    // where the memo sits does not matter); marked, it threw the error past
+    // the boundary that caught it, and the commit halted (#4640).
+    let d = node._deps;
+    while (d !== null && !(d._dep._config & CONFIG_STAGED_ERROR)) d = d._nextDep;
+    if (d === null) return;
     node._pendingValue = el._pendingValue;
     node._config |= CONFIG_STAGED_ERROR;
     queuePendingNode(node);
@@ -744,7 +754,10 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
 function keepReaders(el: Computed<any>): void {
   for (let s = el._subs; s !== null; s = s._nextSub) {
     const r = s._sub;
-    if ((r._config & (CONFIG_HELD | CONFIG_STAGED)) !== (CONFIG_HELD | CONFIG_STAGED) || (r as any)._type)
+    if (
+      (r._config & (CONFIG_HELD | CONFIG_STAGED)) !== (CONFIG_HELD | CONFIG_STAGED) ||
+      (r as any)._type
+    )
       continue;
     let d = r._deps;
     while (d !== null && (d._dep === el || !(d._dep._config & CONFIG_HELD))) d = d._nextDep;
