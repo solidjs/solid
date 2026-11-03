@@ -16,7 +16,7 @@
  * nor `onCompleteAll` hears an abort.
  */
 import { describe, expect, test } from "vitest";
-import { renderToStream, createSSRResponse } from "@solidjs/web";
+import { renderToStream, createSSRResponse, createRequestEvent } from "@solidjs/web";
 import { createMemo, Loading, onCleanup } from "solid-js";
 import { watchEscapes } from "./stream-settle-harness.js";
 
@@ -189,6 +189,24 @@ describe("renderToStream: aborting the signal settles every consumer (#4646)", (
       });
       expect(escaped).toEqual([]);
     });
+
+  // The one write after an abort: a Location set after the head went out can
+  // only be honored client-side, so the abort-driven `end()` still appends
+  // the redirect script before it closes the 200 body.
+  test("createSSRResponse still appends the late-Location script when an abort ends the body", async () => {
+    const { r, c, calls } = start("aborted after the shell", true);
+    const event = createRequestEvent(new Request("http://localhost/"));
+    const res = await createSSRResponse(r, event);
+    expect(res.status).toBe(200);
+    event.response.headers.set("Location", "/next");
+    const body = await outcome(res.text());
+    expect(c.signal.aborted).toBe(true);
+    expect(body.state).toBe("resolved");
+    const html = (body as { value: string }).value;
+    expect(html).toContain("shell");
+    expect(html.endsWith('<script>window.location="/next"</script>')).toBe(true);
+    expect(calls).toEqual({ onError: 0, onCompleteAll: 0 });
+  });
 
   test("without an abort the awaited form still resolves with the full page", async () => {
     const html = await renderToStream(
