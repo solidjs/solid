@@ -5,9 +5,9 @@
  * down as a disconnect, but a disconnect skipped the consumer completions
  * the failure wind-down runs: `await renderToStream(...)` and `pipeTo`'s
  * promise never settled, holding the request forever. The awaited form
- * resolves with whatever HTML the render produced and never rejects
- * (renderToStream's JSDoc; 12-ssr-http.md). A disconnect still leaves the
- * sink alone: nothing more is written to it.
+ * rejects with `signal.reason` (renderToStream's `then` JSDoc; 12-ssr-http.md;
+ * #4649). The streaming forms only settle: `pipeTo`'s promise resolves, and
+ * a disconnect still leaves the sink alone — nothing more is written to it.
  */
 import { describe, expect, test } from "vitest";
 import { renderToStream, createSSRResponse } from "@solidjs/web";
@@ -15,12 +15,15 @@ import { createMemo } from "solid-js";
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-type Outcome = { state: "resolved"; value: unknown } | { state: "rejected" } | { state: "pending" };
+type Outcome =
+  | { state: "resolved"; value: unknown }
+  | { state: "rejected"; reason: unknown }
+  | { state: "pending" };
 const outcome = (p: PromiseLike<unknown>): Promise<Outcome> =>
   Promise.race([
     Promise.resolve(p).then(
       value => ({ state: "resolved" as const, value }),
-      () => ({ state: "rejected" as const })
+      (reason: unknown) => ({ state: "rejected" as const, reason })
     ),
     sleep(500).then(() => ({ state: "pending" as const }))
   ]);
@@ -34,8 +37,7 @@ const App = (never: boolean) => () => {
   return <p>{m()}</p>;
 };
 
-const start = (never: boolean, preAborted: boolean) => {
-  const c = new AbortController();
+const start = (never: boolean, preAborted: boolean, c = new AbortController()) => {
   if (preAborted) c.abort(new Error("gone"));
   const r = renderToStream(App(never), { signal: c.signal, onError() {} });
   if (!preAborted) setTimeout(() => c.abort(new Error("client disconnected")), 20);
@@ -47,11 +49,11 @@ describe("renderToStream: aborting the signal settles the consumer (#4646)", () 
     const source = never ? "a source that never settles" : "a source that settles later";
     for (const preAborted of [false, true]) {
       const when = preAborted ? "already aborted" : "aborted mid-render";
-      test(`await resolves, never rejects (${when}, ${source})`, async () => {
-        const r = await outcome(start(never, preAborted));
-        expect(r.state).toBe("resolved");
-        expect(typeof (r as { value: unknown }).value).toBe("string");
-        expect((r as { value: string }).value).not.toContain("loaded");
+      test(`await rejects with signal.reason (${when}, ${source})`, async () => {
+        const c = new AbortController();
+        const r = await outcome(start(never, preAborted, c));
+        expect(r.state).toBe("rejected");
+        expect((r as { reason: unknown }).reason).toBe(c.signal.reason);
       });
 
       test(`pipeTo's promise resolves and the writable gets nothing (${when}, ${source})`, async () => {

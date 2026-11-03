@@ -510,7 +510,8 @@ Verified against `next` (file:line as of 2026-09-06):
 Failure modes the server runtime already handles but reports nowhere
 structured — each is a candidate finding (§10):
 
-- `await renderToStream(...)` **never rejects**; render errors go to
+- `await renderToStream(...)` **never rejects for a render error**
+  (only an aborted `signal` rejects it, with `signal.reason`, #4646); render errors go to
   `onError` and the promise still resolves HTML (`server.ts:1579–1584`).
 - Stream **disconnect/abandon** → silent wind-down (`:1634–1644`,
   `:1698–1714`).

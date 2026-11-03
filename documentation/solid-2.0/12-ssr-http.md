@@ -24,7 +24,7 @@ Client (`@solidjs/web` in the browser):
 Server (`@solidjs/web` under the `node`/`deno`/`worker` conditions):
 
 - `renderToString(() => <App />)` — synchronous; async boundaries render their fallbacks.
-- `renderToStream(() => <App />, options?)` — the streaming renderer: the shell flushes first, and each async boundary streams its resolved fragment plus the activation script that swaps it in. A primitive marked `deferStream: true` (RFC 05) holds the shell flush until its first value resolves instead of letting the enclosing `<Loading>` fallback into the HTML. The returned stream is also a thenable: `await renderToStream(...)` resolves once the tree settles with the fully-resolved HTML string — the settled-string form of the render (what `renderToStringAsync` was before its removal).
+- `renderToStream(() => <App />, options?)` — the streaming renderer: the shell flushes first, and each async boundary streams its resolved fragment plus the activation script that swaps it in. A primitive marked `deferStream: true` (RFC 05) holds the shell flush until its first value resolves instead of letting the enclosing `<Loading>` fallback into the HTML. The returned stream is also a thenable: `await renderToStream(...)` resolves once the tree settles with the fully-resolved HTML string — the settled-string form of the render (what `renderToStringAsync` was before its removal). Render errors go to `onError` and the promise still resolves with whatever HTML the render produced; the one rejection is the `signal` option aborting, which rejects the awaited form with `signal.reason` ([#4646](https://github.com/solidjs/solid/issues/4646)).
 
 For hydration, the document needs the hydration script ahead of the app markup: `generateHydrationScript({ nonce?, eventNames? })` returns it as a string for hand-built documents, and `<HydrationScript />` renders it in JSX documents.
 
@@ -63,7 +63,7 @@ What the callback does and does not tell you:
 `renderToStream` returns a result with three consumption surfaces — **exactly one may be used per render** (a second consumer throws with a directed message):
 
 - `pipe(writable)` — Node-style writable streams.
-- `pipeTo(writable)` — web `WritableStream`; returns a promise that settles when the render has been fully written.
+- `pipeTo(writable)` — web `WritableStream`; returns a promise that settles when the render has been fully written. If the `signal` aborts, nothing more is written (the bytes already sent stay sent) and the promise resolves; it does not reject.
 - `readable` — a getter that builds a web `ReadableStream` internally and hands it back. The stream yields `Uint8Array` bytes, `Response`-body ready:
 
 ```tsx

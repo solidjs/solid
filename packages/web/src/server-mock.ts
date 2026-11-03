@@ -265,7 +265,9 @@ export function renderToStream<T>(
      * "signal"`); the one teardown handle for a host whose transport cannot
      * report a dead consumer through the sink or the readable view — pass
      * `request.signal`.
-     * Awaiting the render rejects with `signal.reason` when this signal aborts.
+     * Awaiting the render rejects with `signal.reason` when this signal aborts;
+     * the streaming forms only settle: `pipeTo`'s promise resolves, and
+     * neither `pipe` nor `pipeTo` writes to or ends the sink again (#4646).
      */
     signal?: AbortSignal;
   }

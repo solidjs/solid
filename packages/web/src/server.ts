@@ -2017,7 +2017,9 @@ export function renderToStream<T>(
      * consumed by a proxy — this is the one teardown handle; pass
      * `request.signal`. Idempotent with the sink and consumer paths: whichever
      * fires first tears down, the rest are no-ops.
-     * Awaiting the render rejects with `signal.reason` when this signal aborts.
+     * Awaiting the render rejects with `signal.reason` when this signal aborts;
+     * the streaming forms only settle: `pipeTo`'s promise resolves, and
+     * neither `pipe` nor `pipeTo` writes to or ends the sink again (#4646).
      */
     signal?: AbortSignal;
   }
@@ -2121,7 +2123,8 @@ export function renderToStream(code, options = {}) {
   // registration. A disconnect runs it too, with `gone` set: the sink is
   // left alone, but a promise still waiting on the render — the awaited
   // form, `pipeTo`, `createSSRResponse`'s shell (`SHELL_ABANDONED`) — must
-  // settle, or it hangs the caller the same way (#4646).
+  // settle, or it hangs the caller the same way (#4646): the awaited form
+  // rejects with `signal.reason` when the `signal` aborted, the rest resolve.
   let disconnected = false;
   let onFailed;
   // What the render still hands the serializer once it is torn down: a
@@ -3151,14 +3154,15 @@ export function renderToStream(code, options = {}) {
   // frame stream ending a plain response at its streaming bound (see
   // frame-sink's `frameStream`) — not a client that left: no abandonment
   // finding for it.
+  // `cancelled` is set before the wind-down runs: the awaited form's
+  // completion (see `then`) reads it to reject with `signal.reason` instead
+  // of resolving; the pipe paths only settle (#4646).
   let cancelled = false;
-  let onCancelled;
   const onAbort = signal
     ? () => {
         if (dead) return;
         cancelled = true;
         abandon("signal", !!(signal.reason && signal.reason.quiet === true));
-        onCancelled && onCancelled();
       }
     : undefined;
   // Dependency edges: the server's signal-naming hooks are installed while
@@ -3530,12 +3534,6 @@ export function renderToStream(code, options = {}) {
           commitResponseStub(requestEvent.response, { event: requestEvent });
       };
       const p = new Promise((resolve, reject) => {
-        if (cancelled) return reject(signal.reason);
-        const previousCancelled = onCancelled;
-        onCancelled = () => {
-          previousCancelled && previousCancelled();
-          reject(signal.reason);
-        };
         function complete() {
           freezeHead();
           dispose();
@@ -3556,8 +3554,10 @@ export function renderToStream(code, options = {}) {
         // the render died, its teardown
         // retracts the declarations as it always did, and the consumer
         // keeps a writable head for whatever error response it builds
-        // around the partial HTML.
-        onFailure(() => resolve(tmp));
+        // around the partial HTML. The signal aborting runs the same
+        // wind-down (a disconnect) and rejects with its reason instead —
+        // at registration too, when it aborted before `then` (#4646).
+        onFailure(() => (cancelled ? reject(signal.reason) : resolve(tmp)));
         function flush() {
           allSettled(blockingPromises).then(awaited => {
             scheduleFlush(() => {
