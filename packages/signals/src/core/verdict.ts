@@ -258,15 +258,16 @@ function quietPending(el: Computed<any>): boolean {
  * `isPending` asks whether the latest view is final). A member of a held
  * frame with neither is final. A24: pending iff a value change is in
  * flight — a staging equal to what is displayed changes nothing when it
- * lands: final now (maintainer, 2026-10-02). */
-function heldNotFinal(owner: Computed<any>): boolean {
+ * lands: final now (maintainer, 2026-10-02). Asked of a node with a
+ * committed value only (`verdictValue`'s held arm): a first landing never
+ * gets here. Truthy when not final. */
+function heldNotFinal(owner: Computed<any>): unknown {
   if ((owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner)) return true;
   return (
     owner._pendingValue !== NOT_PENDING &&
     !latestActive &&
     !owner._x!._reask &&
-    !(owner._statusFlags & STATUS_UNINITIALIZED) &&
-    (!!owner._x!._shownError ||
+    (owner._x!._shownError ||
       !owner._equals ||
       !owner._equals(owner._value as any, owner._pendingValue as any))
   );
@@ -585,12 +586,41 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         return el._value;
       }
       if (tracked) verdictRead(c!, t);
-      if (probing && heldNotFinal(owner)) probeFound = true;
+      // #4648: a pass the hold holds (it read the frame's staging) is the
+      // hold's work, shown at the landing: its probe is final there, never
+      // `true` beside the fresh value its plain read saw (D-23), in either
+      // read order. What the probe read is the committed value (maintainer,
+      // #4662: "during the hold, reads outside latest() get the committed
+      // value"), so the pass is a stale reader of it and re-derives on the
+      // landed world (A15, F-1). Not an async memo (`_q`, a flight asked):
+      // its re-run would ask the hold's question again (F-9).
+      if (probing)
+        if (c?._config! & CONFIG_HELD) {
+          // In the flush that lands the hold (nothing blocks it now: the
+          // pass is the hold's own work, D-25), the probe reads the landed
+          // world and the pass is final in the landing frame (F-1). If a
+          // later node blocks the hold again, the seam re-runs it, held, on
+          // the committed value (`watchVerdict`; ruling on #4662).
+          if (el._pendingValue !== NOT_PENDING && !blocked(t)) {
+            watchVerdict(c!);
+            if (__TEST__) shadowActual(SLOT_P);
+            return staged(el);
+          }
+          if (!c!._x!._q) staleReader(c!, t);
+        } else {
+          if (heldNotFinal(owner)) probeFound = true;
+          // A pass that first reads the held node in this flush is not held
+          // yet, in either read order: if the flush parks with it, it runs
+          // again next round, held, and its probe is final there (D-23). Not
+          // an async memo or a first pass (it may be async): F-9.
+          if (owned && !tracked && !c!._x?._q && !(c!._statusFlags & STATUS_UNINITIALIZED))
+            watchVerdict(c!);
+        }
       if (latestActive && el._pendingValue !== NOT_PENDING) {
         // An action body reading another transaction's proposal derives
         // from it: the two settle as one (A15; posture C, 2026-09-15). An
         // untracked read elsewhere has no transaction to entangle.
-        if (!tracked && flushTransaction && !globalQueue._running) joinFuture(txOf(el));
+        if (!tracked && flushTransaction && !globalQueue._running) joinFuture(t);
         if (__TEST__) shadowActual(SLOT_P);
         return heldLatest(el, tracked ? c : null);
       }
@@ -635,10 +665,14 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // flips if that flush parks (#3078). (The write's own fan-out ran before
     // the reader existed; nothing else would re-derive it.)
     else if (tracked && probing) watchVerdict(c!);
-    if (latestActive) {
+    if (latestActive || uninitialized || (owned && !tracked)) {
       // A28: an unflushed write is not what `latest` serves; a tracked
       // reader derived from the flushed world runs again in the carrying
-      // flush.
+      // flush. A probe in a pass reads as its plain read does (#4648): a
+      // first value staged this flush has no committed value (D-23 exc. 1,
+      // F-9), and an untracked read sees the flush's staging — the staging
+      // flush is a normal flush, not the hold (F-10, D-24; ruled 2026-11-03).
+      // If the flush parks, what the pass read is the hold's frame.
       if (globalQueue._running) {
         if (__TEST__) shadowActual(SLOT_P);
         return staged(el);
