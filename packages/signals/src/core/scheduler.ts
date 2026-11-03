@@ -900,6 +900,10 @@ export class GlobalQueue implements IQueue {
    * link's refreshed from the inner store, whose commits it never learned
    * while the guess served the reads (store/store.ts, §7b). */
   declare static _slotCovered: ((n: Signal<any>) => unknown) | undefined;
+  /** The truth beneath a store slot an optimistic lane composed with no
+   * guess on it (a keyed re-base, optimistic.ts): its backing's at its key;
+   * NOT_PENDING for a node that is no leaf. */
+  declare static _slotTruth: ((n: Signal<any>) => unknown) | undefined;
   /** The store's row judgment for a guessed slot (optimistic.ts): the truth
    * is the guess's echo when reconcile would write nothing into it. */
   declare static _echoes: ((guess: unknown, truth: unknown) => boolean) | undefined;

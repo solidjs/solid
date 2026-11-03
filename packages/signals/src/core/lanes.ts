@@ -561,6 +561,8 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
   }
   // First loads this dissolution leaves loading (below).
   const loading: Computed<any>[] = [];
+  // A composed store leaf's truth (`_slotTruth`, below).
+  let truth: unknown;
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i];
     const x = n._x!;
@@ -636,12 +638,20 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
         (x._error as StatusError).source === n
       )
         enqueueSub(n as Computed<any>);
-    } else if (guess) {
+    } else if (
+      guess ||
+      (n._config & CONFIG_SLOT_NODE &&
+        GlobalQueue._slotTruth !== undefined &&
+        (truth = GlobalQueue._slotTruth(n)) !== NOT_PENDING)
+    ) {
       // A guess of a dissolving lane: its truth — a landing held beneath it,
       // else the value it covered — is the parent's to land, and its readers
       // re-derive from it there. What the screen showed stays the screen
-      // until then (A18 (c)).
-      if (n._pendingValue === NOT_PENDING) n._pendingValue = covered(n);
+      // until then (A18 (c)). A store slot the lane composed (a keyed
+      // re-base) is no derivation anything re-derives: it lands the
+      // backing's truth beneath it the same way (D-34, #4642).
+      if (!guess) n._pendingValue = truth;
+      else if (n._pendingValue === NOT_PENDING) n._pendingValue = covered(n);
       if (l._shown) n._value = slot;
       holdNode(n, into);
       insertSubs(n);
@@ -654,6 +664,12 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       // answer — it re-asks from the truth (whose notification may not reach
       // it: an input's truth equal to its committed value is silent).
       x._transaction = null;
+      // A run the held lane parked is void (below) — but not an effect's
+      // first: born in that pass (a row a keyed list built, which stays the
+      // screen's), it has no other. It runs at the parent's landing (F-1,
+      // #4642). (A re-run is queued through `_boundRunEffect`.)
+      if (effect && l._shown && l._held && (n as any)._modified && !(n as any)._boundRunEffect)
+        into._queues[effect - 1].push(GlobalQueue._runEffect.bind(null, n as Computed<any>));
       if (!effect) {
         if (shown !== NOT_PENDING && l._shown) n._pendingValue = shown;
         if ((n as Computed<any>)._statusFlags & STATUS_PENDING) {

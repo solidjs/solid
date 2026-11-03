@@ -516,6 +516,10 @@ function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {
 function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf>): void {
   const x = ext(node);
   if (!(node._config & CONFIG_OVERRIDE)) {
+    // The frame's truth staged on it (a leaf born from a landing's staging,
+    // or written by it) is the backing's, beneath the lane: never the lane's
+    // latest, which its reveal would promote over the composed row (#4642).
+    node._pendingValue = NOT_PENDING;
     node._config |= CONFIG_OVERRIDE;
     list(node, lane);
   } else if (x._lane === value) return;
@@ -525,6 +529,17 @@ function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf
     laneDirty(node, lane);
   }
 }
+
+/** Core asks (lanes `dissolveLane`, a correction): a leaf a lane composed
+ * (`laneSet`) mirrors the backing and nothing re-derives it, so the truth
+ * it lands is the backing's at its key, never a staging it missed (#4642).
+ * Not a leaf (a presence or container node): NOT_PENDING, no answer. */
+GlobalQueue._slotTruth = n => {
+  const t = (n as any)._host as StoreTarget;
+  const key = (n as any)._key;
+  if (t.n?.[key] !== n) return NOT_PENDING;
+  return t.ch ? GlobalQueue._slotCovered!(n) : unwrapValue((t.pb ?? t.v)[key]);
+};
 
 /** D-34 for a per-key guess (#4329): the derive's draft wrote new objects
  * over a target holding guessed rows (`d.length = 0; d.push(...rows)`, or
@@ -824,7 +839,9 @@ export function optimisticView(
       if (node._config & CONFIG_OVERRIDE) ov = pick(node);
       else if (!writer || (ov = pendingGuessOf(node)) === NOT_PENDING) continue;
       if (key === "length" && Array.isArray(src)) {
-        if ((src as any[]).length !== ov) (ensure() as any[]).length = ov as number;
+        // Against the clone: a removal guess already written past the
+        // source's end extends it (#4642).
+        if ((out ?? src).length !== ov) (ensure() as any[]).length = ov as number;
       } else if (!isEqual(src[key as any], ov) || !hasOwn.call(src, key)) {
         ensure()[key as any] = ov;
       }
