@@ -8,9 +8,9 @@
  * `issues` is not derived from the guess, so F-6's lane hold does not apply:
  * a plain read in lane work of a node the parent holds is the screen's value
  * (D-26, clarified 2026-10-28), and the lane displays the screen plus its own
- * guesses — `[#4 guest]` now, in both shapes. Today both shapes hold the
- * guess until action 1's re-ask lands (`[#4 dana]`): a known deviation,
- * pinned `it.fails` below.
+ * guesses — `[#4 guest]` now, in both shapes. (Before #4637 both shapes held
+ * the guess until action 1's re-ask landed: the overlay's pass threw on its
+ * first, pending read before it reached the guess, D-28.)
  *
  * (5) Through the projection the guess never showed before the server's
  * answer: the derive's pass that ran as the landing's (the frame's) work and
@@ -137,8 +137,7 @@ describe("#4629: a second guess into a log while the first action's refresh is i
       expect([f5, f6]).toEqual(["[#3 guest][#4 guest]", "[#3 guest][#4 guest]"]);
     });
 
-    // Known deviation (D-26): the guess waits on action 1's re-ask.
-    it.fails(`${name}: the guess shows at once, beside the screen's issues (D-26)`, async () => {
+    it(`${name}: the guess shows at once, beside the screen's issues (D-26)`, async () => {
       expect(await frames(proj)).toEqual([
         "[#3 guest][#4 guest]",
         "[#3 guest][#4 guest]",
