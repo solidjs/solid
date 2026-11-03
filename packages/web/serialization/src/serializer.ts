@@ -220,8 +220,10 @@ export function createHydrationSerializer(options: HydrationSerializerOptions): 
 // keeps its session, even if a chunk replayed from a stream's buffer failed
 // before it, and settles on `onDone` like any later failure. Without
 // `onError` seroval throws out of the write, as before; the write still
-// settles, so a later `flush()` completes.
-function createKeyedSerializer(serialize, onError, onDone) {
+// settles, so a later `flush()` completes. A write that fails after its
+// initial chunk went out is handed to the codec's `onLate(key, value)` too,
+// so it can settle what the peer already holds for the key (#4647).
+function createKeyedSerializer(serialize, onError, onDone, onLate?) {
   const cancels = new Set();
   let pendingWrites = 0;
   let flushed = false;
@@ -261,6 +263,7 @@ function createKeyedSerializer(serialize, onError, onDone) {
               (err => {
                 failed = true;
                 onError(err);
+                if (started && !closed && onLate) onLate(key, value);
                 // seroval 1.7 ends a write at its first failure and never
                 // calls its `onDone`: a failure after the call returned
                 // settles the write here, disposed.
@@ -350,7 +353,36 @@ export function createHydrationSerializer({ onData, onDone, scopeId, onError, pl
         ...callbacks
       }),
     onError,
-    onDone
+    onDone,
+    // A promise whose resolved value fails to serialize (#4647): seroval
+    // ends the write without settling the promise it already declared, so
+    // the client's read of the key would stay pending forever. Reject it
+    // instead (Ryan's ruling, 2026-11-03), with an error that names the key;
+    // the failure's own text went to the error hook and is not sent. seroval
+    // 1.7 indexes a promise's resolver right after the promise
+    // (`parsePromise`). The promise is left unmarked (no `s`/`v`, which
+    // seroval's own failure call sets for synchronous adoption): the
+    // hydrating read sees it pending and takes the rejection after the
+    // claim pass, so the reading computation throws into the nearest
+    // `<Errored>`, whose fallback then replaces the server's content. Read
+    // synchronously, the fallback would be built in the claim pass against
+    // markup that is the content's. Rejecting a promise that already
+    // resolved (a later failure inside its value) does nothing.
+    (key, value) => {
+      const id = value && typeof value.then === "function" ? refs.get(value) : undefined;
+      if (id === undefined) return;
+      const body =
+        "$R[" +
+        (id + 1) +
+        "].f(new Error(" +
+        JSON.stringify(
+          "Serialization failed: the hydration value for key " +
+            JSON.stringify(key) +
+            " could not be serialized on the server"
+        ).replace(/[<\u2028\u2029]/g, c => KEY_ESCAPES[c]) +
+        "))";
+      onData(scopeId == null ? body : "($R=>" + body + ')($R["' + serializeKey(scopeId) + '"])');
+    }
   );
 } /**
  * Renderer primitive — returns the cross-reference bootstrap script SSR

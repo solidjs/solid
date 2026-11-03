@@ -78,7 +78,14 @@ describe("renderToStream: a value that fails to serialize in the pre-shell batch
     });
     expect(heard.length).toBe(1);
     expect(await outcome(r["lib:fine"])).toEqual({ fulfilled: "still here" });
-    expect(await outcome(r["lib:bad"])).toBe("pending");
+    // Was "pending" (the rc.17 behaviour #4242 left alone). Ryan's ruling on
+    // #4647 (2026-11-03): a key whose resolved value fails to serialize
+    // rejects on the client, with an error naming the key.
+    expect(await outcome(r["lib:bad"])).toEqual({
+      rejected: expect.objectContaining({
+        message: expect.stringMatching(/^Serialization failed: .*key "lib:bad"/)
+      })
+    });
   });
 
   test("an async memo resolving to a Loading boundary: both boundaries settle", async () => {
