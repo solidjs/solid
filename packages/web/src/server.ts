@@ -2017,6 +2017,7 @@ export function renderToStream<T>(
      * consumed by a proxy — this is the one teardown handle; pass
      * `request.signal`. Idempotent with the sink and consumer paths: whichever
      * fires first tears down, the rest are no-ops.
+     * Awaiting the render rejects with `signal.reason` when this signal aborts.
      */
     signal?: AbortSignal;
   }
@@ -2025,9 +2026,8 @@ export function renderToStream<T>(
    * Awaiting the stream resolves with the complete HTML once every boundary
    * settles — the fully-settled-string form of the render (`const html =
    * await renderToStream(...)`). Render errors route through `onError` and
-   * the promise resolves with whatever HTML the render produced; it never
-   * rejects. The same holds when the `signal` aborts: the promise resolves
-   * with what was produced, as does `pipeTo`'s.
+   * the promise resolves with whatever HTML the render produced. Signal
+   * cancellation rejects with `signal.reason`.
    *
    * Completion is this path's head-freeze point: the request event's
    * `response` head (the request scope the render was started in) is
@@ -3151,8 +3151,15 @@ export function renderToStream(code, options = {}) {
   // frame stream ending a plain response at its streaming bound (see
   // frame-sink's `frameStream`) — not a client that left: no abandonment
   // finding for it.
+  let cancelled = false;
+  let onCancelled;
   const onAbort = signal
-    ? () => abandon("signal", !!(signal.reason && signal.reason.quiet === true))
+    ? () => {
+        if (dead) return;
+        cancelled = true;
+        abandon("signal", !!(signal.reason && signal.reason.quiet === true));
+        onCancelled && onCancelled();
+      }
     : undefined;
   // Dependency edges: the server's signal-naming hooks are installed while
   // an edges render is in flight; this one releases them at its final
@@ -3497,8 +3504,8 @@ export function renderToStream(code, options = {}) {
     // Proper thenable: `await renderToStream(...)` resolves with the full
     // HTML once every boundary settles — the replacement for the removed
     // renderToStringAsync. Render errors route through `onError` (the
-    // promise resolves with whatever HTML the render produced; it never
-    // rejects), matching the pipe/pipeTo contract.
+    // promise resolves with whatever HTML the render produced), matching
+    // the pipe/pipeTo contract. Signal cancellation rejects with its reason.
     //
     // Head-freeze point: completion. The pipe paths freeze the request's
     // response head when the shell reaches the sink (`createSSRResponse`
@@ -3522,7 +3529,13 @@ export function renderToStream(code, options = {}) {
         if (requestEvent && requestEvent.response)
           commitResponseStub(requestEvent.response, { event: requestEvent });
       };
-      const p = new Promise(resolve => {
+      const p = new Promise((resolve, reject) => {
+        if (cancelled) return reject(signal.reason);
+        const previousCancelled = onCancelled;
+        onCancelled = () => {
+          previousCancelled && previousCancelled();
+          reject(signal.reason);
+        };
         function complete() {
           freezeHead();
           dispose();
@@ -3538,9 +3551,9 @@ export function renderToStream(code, options = {}) {
         // A render failure (see `abandon`) — the renderer's own retry pass
         // below, or a boundary's resume loop through `failRender` — resolves
         // with whatever HTML the render produced (nothing, pre-shell): the
-        // thenable never rejects, `onError` already heard the failure. A
-        // disconnect (the `signal` aborting) resolves the same way (#4646). The
-        // head is deliberately NOT frozen: the render died, its teardown
+        // thenable only rejects on signal cancellation; `onError` already
+        // heard the render failure. The head is deliberately NOT frozen:
+        // the render died, its teardown
         // retracts the declarations as it always did, and the consumer
         // keeps a writable head for whatever error response it builds
         // around the partial HTML.
