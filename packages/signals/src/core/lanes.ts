@@ -266,7 +266,6 @@ function applyGuesses(parent: Transaction | null): void {
       // The lane's members re-derive as its work (REACTIVE_LANE_DIRTY): a
       // blocked lane's re-guess does not re-run its render effects as stale
       // readers republishing the committed view (#3460).
-      insertSubs(n);
       laneDirty(n, txOf(n));
     }
   }
@@ -982,7 +981,6 @@ function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
     if (l._shown) el._pendingValue = v;
     else el._x!._lane = v;
     if ((el as any)._fn !== undefined) (el as Computed<T>)._time = clock;
-    insertSubs(el);
     laneDirty(el, l);
   }
   schedule();

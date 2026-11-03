@@ -1408,12 +1408,13 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
   if (__OBSERVE__ && fanOut >= GRAPH_SIZE_WARN_AT) noteFanOut(node, fanOut);
 }
 
-/** Lane work re-staged (lanes.ts; `recompute`): the lane's members among
- * its subscribers re-derive as the lane's work (REACTIVE_LANE_DIRTY), their
- * runs held with it — not as stale readers republishing the committed view
- * (#3460). After `insertSubs`. A render effect on no lane is marked too:
- * inert for its pass (`recompute` seats a lane only from its own `_x`), it
- * is a live write if the effect becomes a zombie later this flush — an
+/** Lane work re-staged (lanes.ts; `recompute`): the node's subscribers are
+ * notified (`insertSubs`), and the lane's members among them re-derive as
+ * the lane's work (REACTIVE_LANE_DIRTY), their runs held with it — not as
+ * stale readers republishing the committed view (#3460). `l` is a lane, so
+ * it has a parent. A render effect on no lane is marked too: inert for its
+ * pass (`recompute` seats a lane only from its own `_x`), it is a live
+ * write if the effect becomes a zombie later this flush — an
  * on-screen reader whose removal an adopted write stages follows the lane
  * (the lane-membership ruling, 2026-10-05; `_update`).
  *
@@ -1425,24 +1426,33 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
  * seat: its pass starts from the frame's, as the inline effect's does, and
  * `laneRead` re-derives it on the screen if that lane holds (`entered`). */
 export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): void {
+  insertSubs(node);
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const c = s._sub;
     let t = c._x?._transaction;
-    // A reader the parent holds pending on its re-ask (a correction's
+    // A reader a hold has pending on its re-ask (a correction's
     // re-derivation waiting on a refresh) re-derives from the guess as the
     // lane's work, seated there before its pass: lane work reads the
-    // parent's flight as the screen (D-26, D-37), whether it reads the
+    // hold's flight as the screen (D-26, D-37), whether it reads the
     // flight before the guess or after (D-28), and whether it reads the
     // guess itself or a derivation of it — this walk runs at every lane
     // node's change. Seated at the guess read, the earlier read threw the
-    // pass back into the hold (#4629).
+    // pass back into the hold (#4629). The hold is the lane's parent's (the
+    // same slot, D-33), or any hold whose flights the reader waits on are all
+    // `refresh()` re-asks (`_reask`; with none, its own flight): a re-ask
+    // asks no new question and holds nothing new (D-34 ¶3), so a guess into
+    // another log shows beside it at once (F-11, #4666). A reader pending on
+    // another hold's new question stays with that hold (#4577: seated, it
+    // would ask its question over the screen's input). One seated in another
+    // lane this flush moves; its pass reads that lane's guess and links the
+    // two (`enterLane`, A15), and `dissolveLane` skips a node it lost.
     if (
       t &&
-      l._parent &&
       !(c as any)._type &&
       (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
       (c._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
-      resolveTx(t) === resolveTx(l._parent)
+      (resolveTx(t) === resolveTx(l._parent!) ||
+        [...(c._x!._pendingSources ?? [c])].every(p => p._x!._reask))
     )
       list(c, (t = l));
     if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT)
