@@ -156,19 +156,18 @@ describe("#4642: an optimistic list's guesses compose on the list as it stands",
 
   // An add written while the list's first load is out: at the commit rows
   // match by key (D-34 ¶2), so the settled list is the server's. When the
-  // load lands first, no frame is torn: each row shows once (F-1). (Which
-  // rows that frame shows — the load's answer re-based under the guess, as
-  // #4525 pins for a guess written under a question in flight, or the guess
-  // void because the screen never showed it — is not pinned here.)
+  // load lands first, the guess survives it, re-based over the answer by row
+  // key: a guess written while its question is in flight is newer than that
+  // answer (D-35), first load or not, as #4525 pins. Maintainer, 2026-11-03:
+  // a first load is not special; the guess is not void here. Each row shows
+  // once (F-1).
   it("an add before the first load lands: list lands first", async () => {
     const s = todoList();
     await tick();
     await s.step(() => s.add({ id: 3, title: "jam" }));
     await s.step(() => s.land("list"));
-    const rows = s.shown.slice(1, -1).split("][");
-    expect(new Set(rows).size).toBe(rows.length);
-    expect(rows.every(r => ["milk", "eggs", "jam"].includes(r))).toBe(true);
-    expect(s.untracked().split(",").sort()).toEqual([...rows].sort());
+    expect(s.shown).toBe("[jam][milk][eggs]");
+    expect(s.untracked()).toBe("jam,milk,eggs");
     await s.step(() => s.land("add:3"));
     await s.drain();
     expect(s.shown).toBe("[milk][eggs][jam]");
