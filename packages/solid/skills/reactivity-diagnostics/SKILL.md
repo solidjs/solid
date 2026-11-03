@@ -143,6 +143,16 @@ orchestration into an `action()` and call the setter synchronously from
 inside it (`yield` to re-enter the transaction after an `await`). Signals
 are not subject to this rule — a signal may hold a promise as its value.
 
+### OPTIMISTIC_WRITE_BEFORE_LOAD
+
+An optimistic setter ran before its source's first answer landed
+(`createOptimistic(async fn)`, or `createOptimisticStore(fn, seed)` whose
+derive has not landed — the seed does not count). Before its first answer
+the source is loading: there is nothing on screen to be optimistic over
+(ruled 2026-11-03). Dev throws and makes no guess (an action rejects).
+Repair: keep the pending items in a separate list (an outbox) until the
+source loads, or disable the action (the input) until the source has loaded.
+
 ### STORE_WRITE_OUTSIDE_SETTER
 
 A store proxy was written, deleted from, or had a property defined on it

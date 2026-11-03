@@ -265,7 +265,7 @@ describe("SSR_STREAM_ABANDONED (wiring)", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  test("the request's signal aborting records the disconnect, and nothing more reaches the sink", async () => {
+  test("the request's signal aborting records the disconnect, writes nothing more and ends the sink", async () => {
     const never = new Promise<string>(() => {});
     function Slow() {
       const stuck = createMemo(async () => never);
@@ -305,9 +305,10 @@ describe("SSR_STREAM_ABANDONED (wiring)", () => {
     expect(event.data!.pendingFragments).toBe(1);
     expect(event.data!.shellFlushed).toBe(true);
     expect(event.message).toContain("(signal)");
-    // A disconnect: the sink is never touched again, not even to end it.
+    // A signal abort writes nothing more, but the sink is still alive: it
+    // is ended cleanly, once (#4646).
     expect(writes).toBe(before);
-    expect(ended).toBe(0);
+    expect(ended).toBe(1);
     expect(error).not.toHaveBeenCalled();
   });
 

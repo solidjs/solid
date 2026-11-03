@@ -23,6 +23,7 @@ import type {
 // only at call time (emitDiagnostic's default subject), never during module
 // evaluation, so the cycle is inert — same shape as the attribution.ts edge.
 import { callbackDepth, context, disposalDepth, resetDisposalDepth, untrack } from "./core.js";
+import { STATUS_UNINITIALIZED } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import type { Computed, Link, Owner, Root, Signal } from "./types.js";
 
@@ -90,6 +91,7 @@ export type DiagnosticCode =
   | "FALLBACK_FLASH"
   | "STACKED_HOLDS"
   | "OPTIMISTIC_REVERTED"
+  | "OPTIMISTIC_WRITE_BEFORE_LOAD"
   | "EFFECT_WRITES_OWN_SOURCE"
   | "EFFECT_RELAY_TEAR"
   | "IMMUTABLE_UPDATE_IN_STORE"
@@ -833,6 +835,28 @@ function locationOf(subject: DiagnosticSubject | null | undefined): string | und
  * subject walk (hosts whose owners are not signals' owners compute their
  * own). Console output is a separate, dev-tier step — see `reportDiagnostic`.
  */
+const OPTIMISTIC_WRITE_BEFORE_LOAD_MESSAGE =
+  "[OPTIMISTIC_WRITE_BEFORE_LOAD] Optimistic write to a source that has not loaded yet. " +
+  "Before its first answer the source is loading, not showing a value to be optimistic over. " +
+  "Keep the pending items in a separate list (an outbox) until the source loads, " +
+  "or disable the action until the source has loaded.";
+
+/** DEV (ruled 2026-11-03, #4656): an optimistic write to a source whose
+ * first answer has not landed (`source`: the optimistic node, or an
+ * optimistic store's derive). Called under `__DEV__` only. */
+export function devGuardOptimisticBeforeLoad(source: Computed<any> | null | undefined): void {
+  if (source && source._statusFlags & STATUS_UNINITIALIZED) {
+    emitDiagnostic({
+      code: "OPTIMISTIC_WRITE_BEFORE_LOAD",
+      kind: "write",
+      severity: "error",
+      message: OPTIMISTIC_WRITE_BEFORE_LOAD_MESSAGE,
+      data: { operation: "optimistic" }
+    });
+    throw new Error(OPTIMISTIC_WRITE_BEFORE_LOAD_MESSAGE);
+  }
+}
+
 export function emitDiagnostic(
   event: Omit<DiagnosticEvent, "sequence">,
   subject: DiagnosticSubject | null | undefined = context

@@ -1780,7 +1780,6 @@ export function live(fn) {
  * data source (see sharedSourceResponse). The outer body still runs per
  * call — a gate (auth, redirects) — but what it returns is the shared
  * answer's to render.
- * @experimental
  */
 export function broadcast<A extends readonly any[], R>(
   fn: (...args: A) => R

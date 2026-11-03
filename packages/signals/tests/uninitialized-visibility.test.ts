@@ -25,6 +25,7 @@ import {
   createOptimisticStore,
   createRenderEffect,
   createRoot,
+  createStore,
   flush,
   isPending,
   NotReadyError
@@ -199,7 +200,7 @@ describe("A25 write-visibility corollary: seed visible on the write path", () =>
     let s!: any, ss!: any, dispose!: () => void;
     createRoot(disp => {
       dispose = disp;
-      [s, ss] = createOptimisticStore(async () => d.promise, { a: 0 });
+      [s, ss] = createStore(async () => d.promise, { a: 0 });
       createRenderEffect(
         () => s,
         () => {}
@@ -219,11 +220,39 @@ describe("A25 write-visibility corollary: seed visible on the write path", () =>
 
     d.resolve({ a: 7 });
     await settle();
-    expect(s.a).toBe(7); // landing consumed the optimistic layer
+    expect(s.a).toBe(7); // the first landing replaced the seed write
     dispose();
   });
 
-  it("optimistic computed: getter throws while uninitialized, prev is undefined", async () => {
+  // Ruled 2026-11-03 (#4656): an OPTIMISTIC setter before the first landing
+  // is a write before load — in DEV the named diagnostic, no guess made.
+  it("optimistic store: a setter before the first landing throws OPTIMISTIC_WRITE_BEFORE_LOAD", async () => {
+    const d = deferred<{ a: number }>();
+    let s!: any, ss!: any, dispose!: () => void;
+    createRoot(disp => {
+      dispose = disp;
+      [s, ss] = createOptimisticStore(async () => d.promise, { a: 0 });
+      createRenderEffect(
+        () => s,
+        () => {}
+      );
+    });
+    flush();
+    let ran = false;
+    expect(() =>
+      ss((draft: any) => {
+        ran = true;
+        draft.a = 1;
+      })
+    ).toThrow(/OPTIMISTIC_WRITE_BEFORE_LOAD/);
+    expect(ran).toBe(false);
+    d.resolve({ a: 7 });
+    await settle();
+    expect(s.a).toBe(7);
+    dispose();
+  });
+
+  it("optimistic computed: getter throws while uninitialized, the setter throws OPTIMISTIC_WRITE_BEFORE_LOAD", async () => {
     const d = deferred<number>();
     let get!: any, set!: any, dispose!: () => void;
     createRoot(disp => {
@@ -242,11 +271,15 @@ describe("A25 write-visibility corollary: seed visible on the write path", () =>
 
     expect(() => get()).toThrow(NotReadyError);
     let prevSeen: any = "not-run";
-    set((prev: any) => {
-      prevSeen = prev; // no seed argument exists: raw state is undefined
-      return 99;
-    });
-    expect(prevSeen).toBe(undefined);
+    // Ruled 2026-11-03 (#4656): before its first landing the source is
+    // loading, not a value to guess over — in DEV the write throws.
+    expect(() =>
+      set((prev: any) => {
+        prevSeen = prev;
+        return 99;
+      })
+    ).toThrow(/OPTIMISTIC_WRITE_BEFORE_LOAD/);
+    expect(prevSeen).toBe("not-run");
 
     d.resolve(1);
     await settle();

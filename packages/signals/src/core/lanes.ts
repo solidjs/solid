@@ -636,11 +636,16 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
         (x._error as StatusError).source === n
       )
         enqueueSub(n as Computed<any>);
-    } else if (guess) {
+    } else if (
+      guess ||
+      (guessed && n._config & CONFIG_SLOT_NODE && n._pendingValue !== NOT_PENDING)
+    ) {
       // A guess of a dissolving lane: its truth — a landing held beneath it,
       // else the value it covered — is the parent's to land, and its readers
       // re-derive from it there. What the screen showed stays the screen
-      // until then (A18 (c)).
+      // until then (A18 (c)). A store slot the lane composed (a keyed
+      // re-base) over a truth staged on it is no derivation anything
+      // re-derives: it lands that truth the same way (D-34, #4642).
       if (n._pendingValue === NOT_PENDING) n._pendingValue = covered(n);
       if (l._shown) n._value = slot;
       holdNode(n, into);
@@ -1071,6 +1076,18 @@ const laneSeams = (t: Transaction | null): void => {
   // readers of the transaction there); a lane's runs wait that round — a
   // lane sees the screen plus its own guesses.
   if (revealing.length) revealing.length = 0;
+  // #4661 (F-6): a verdict reader whose pass read a flight of the frame
+  // ahead of it (`latest`, verdict.ts `pendingVerdict`) before any plain
+  // read of one is no frame reader of it, though its stale read of the
+  // frame's staging (A10, `stagedScreen`) marked it one
+  // (REACTIVE_FRAME_READ, which `blockedBy` counts): the mark comes off and
+  // the reader holds nothing. It keeps what it read — the committed value
+  // ("It should read the committed value, we can't reveal early outside of
+  // latest. This is intentional tearing.", maintainer, 2026-11-03) — and the
+  // flight's own landing re-derives it, not the frame's.
+  for (const c of ahead.splice(0))
+    c._flags & REACTIVE_FRAME_READ &&
+      ((c._flags ^= REACTIVE_FRAME_READ), t?._reruns.splice(t._reruns.indexOf(c) >>> 0, 1));
   const leaked: Transaction[] = [];
   if (t !== null)
     for (let i = 0; i < stagedReaders.length; i++) {
@@ -1111,7 +1128,10 @@ const laneSeams = (t: Transaction | null): void => {
       // lane holds while the frame does (`laneSeam`).
       // Re-derived on the committed world, it paired the new rows with the
       // old inputs, and the landing revealed that beside them (F-1, D-34 ¶3,
-      // #4577).
+      // #4577). A lane linked to such a lane counts (one reveal unit): a
+      // memo seated in one whose pass read through the other read the
+      // frame's staging there, and, re-derived, it re-entered that lane,
+      // read it again and parked again, every round (#4643).
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
@@ -1119,7 +1139,7 @@ const laneSeams = (t: Transaction | null): void => {
               (r._config & CONFIG_VERDICT
                 ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
                 : !blocked(t!) || heldBy(t!, r))) ||
-            (l.over && liveTx(l.over) === t)
+            (l._links || [l]).some(u => u.over && liveTx(u.over) == t)
           : l &&
             !(
               r._flags & REACTIVE_PROBE_UNANSWERED ||
@@ -1218,6 +1238,9 @@ const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => 
   if (from && c._x?._pendingSources)
     for (const s of from) if (removePendingSource(c, s)) settlePendingSource(c, s);
 };
+/** This flush's verdict readers that read a flight ahead of the frame
+ * (#4661, the seam). */
+export const ahead: Computed<any>[] = [];
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
 installLaneHooks(
