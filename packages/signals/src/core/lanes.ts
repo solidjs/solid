@@ -640,7 +640,8 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
         enqueueSub(n as Computed<any>);
     } else if (
       guess ||
-      (n._config & CONFIG_SLOT_NODE &&
+      (guessed &&
+        n._config & CONFIG_SLOT_NODE &&
         GlobalQueue._slotTruth !== undefined &&
         (truth = GlobalQueue._slotTruth(n)) !== NOT_PENDING)
     ) {
@@ -668,7 +669,14 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       // first: born in that pass (a row a keyed list built, which stays the
       // screen's), it has no other. It runs at the parent's landing (F-1,
       // #4642). (A re-run is queued through `_boundRunEffect`.)
-      if (effect && l._shown && l._held && (n as any)._modified && !(n as any)._boundRunEffect)
+      if (
+        guessed &&
+        effect &&
+        l._shown &&
+        l._held &&
+        (n as any)._modified &&
+        !(n as any)._boundRunEffect
+      )
         into._queues[effect - 1].push(GlobalQueue._runEffect.bind(null, n as Computed<any>));
       if (!effect) {
         if (shown !== NOT_PENDING && l._shown) n._pendingValue = shown;
