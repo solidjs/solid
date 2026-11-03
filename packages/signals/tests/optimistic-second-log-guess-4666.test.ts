@@ -34,7 +34,7 @@ const tick = async () => {
 
 type Read = "serverFirst" | "guessFirst" | "viaMemo";
 
-function run(sameLog = false, read: Read = "serverFirst") {
+function run(sameLog = false, read: Read = "serverFirst", ids = [1, 3]) {
   const asks: { key: string; res: (v: any) => void; rej: (e: any) => void }[] = [];
   const ask = (key: string) => new Promise<any>((res, rej) => asks.push({ key, res, rej }));
   const settle = async (key: string, fail = false) => {
@@ -44,7 +44,7 @@ function run(sameLog = false, read: Read = "serverFirst") {
     fail ? a.rej(new Error("no")) : a.res({});
     await tick();
   };
-  let serverRows: Row[] = [{ id: 1 }, { id: 3 }];
+  let serverRows: Row[] = ids.map(id => ({ id }));
   const frames: string[] = [];
   let assign!: (id: number) => any;
   let close!: (id: number) => any;
@@ -179,6 +179,38 @@ describe("#4666: a guess into a second log beside another action's refresh", () 
       expect(t.screen, "close accepted").toBe("#1(-) #5(-)");
       await t.settle("fetch");
       expect(t.screen, "every refresh landed").toBe("#1(-) #5(-)");
+    });
+
+  // The second log already carries a guess from a third action, and that
+  // guess's lane has shown. The overlay, held by assign's refresh, is seated
+  // in that lane, which is judged in the same seam and holds once on the
+  // overlay's stale pending. Its pass then stages the lane's next reveal. The
+  // render effect read that staging as its frame's, so its run waited with
+  // the frame and #3 stayed shown. A guess shows at once (F-11), beside the
+  // screen's list (D-26), whatever order the overlay reads in (D-28).
+  for (const read of ["serverFirst", "guessFirst", "viaMemo"] as const)
+    it(`second log, ${read}: a guess into a log whose lane has shown`, async () => {
+      const t = run(false, read, [1, 2, 3, 4]);
+      flush();
+      await tick();
+      await t.settle("fetch");
+      expect(t.screen).toBe("#1(-) #2(-) #3(-) #4(-)");
+      t.close(4);
+      await tick();
+      expect(t.screen, "close #4 guessed").toBe("#1(-) #2(-) #3(-)");
+      t.assign(3);
+      await tick();
+      expect(t.screen, "assign #3 guessed").toBe("#1(-) #2(-) #3(guest)");
+      await t.settle("assign:3");
+      expect(t.screen, "assign accepted, refresh in flight").toBe("#1(-) #2(-) #3(guest)");
+      t.close(3);
+      await tick();
+      expect(t.screen, "close #3 guessed").toBe("#1(-) #2(-)");
+      await t.settle("close:4");
+      await t.settle("close:3");
+      expect(t.screen, "both closes accepted").toBe("#1(-) #2(-)");
+      while (t.asks.some(a => a.key === "fetch")) await t.settle("fetch");
+      expect(t.screen, "every refresh landed").toBe("#1(-) #2(-)");
     });
 
   it("second log: a rejected close reverts only its own guess", async () => {
