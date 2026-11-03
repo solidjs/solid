@@ -824,7 +824,7 @@ export function optimisticView(
       if (node._config & CONFIG_OVERRIDE) ov = pick(node);
       else if (!writer || (ov = pendingGuessOf(node)) === NOT_PENDING) continue;
       if (key === "length" && Array.isArray(src)) {
-        if ((src as any[]).length !== ov) (ensure() as any[]).length = ov as number;
+        if ((out ?? src).length !== ov) (ensure() as any[]).length = ov as number;
       } else if (!isEqual(src[key as any], ov) || !hasOwn.call(src, key)) {
         ensure()[key as any] = ov;
       }

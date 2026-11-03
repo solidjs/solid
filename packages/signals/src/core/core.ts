@@ -1299,9 +1299,14 @@ export function joinPass(c: Computed<any>, el: Signal<any> | Computed<any>): voi
   // catches it, the boundary's; otherwise the tick joins the hold (#3540:
   // the reader's position, not where the memo was created). Its catch, if
   // any, is at its staging.
+  // Nor lane work re-based over a hold's answer (`over`, #4536): it reads
+  // that staging (`frameRead`) as the lane's render effects do, joining
+  // nothing — lane work never makes a flush the hold's (D-37). Joined, a
+  // plain write the flush carried was held into that hold while the lane
+  // showed it, and retracted at the next seam (F-7, #4643).
   if (
     (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ||
-    (c as any)._type !== EFFECT_RENDER
+    ((c as any)._type !== EFFECT_RENDER && !passLane?.over)
   )
     joinPassTx(
       txOf(el),

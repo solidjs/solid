@@ -1122,7 +1122,7 @@ const laneSeams = (t: Transaction | null): void => {
               (r._config & CONFIG_VERDICT
                 ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
                 : !blocked(t!) || heldBy(t!, r))) ||
-            (l._links || [l]).some(u => u.over && liveTx(u.over) === t)
+            (l._links || [l]).some(u => u.over && liveTx(u.over) == t)
           : l &&
             !(
               r._flags & REACTIVE_PROBE_UNANSWERED ||
