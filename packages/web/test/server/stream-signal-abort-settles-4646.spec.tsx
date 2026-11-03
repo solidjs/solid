@@ -76,7 +76,7 @@ describe("renderToStream: aborting the signal settles the consumer (#4646)", () 
       });
 
       test(`createSSRResponse resolves with a bodyless 500 (${when}, ${source})`, async () => {
-        const r = await outcome(createSSRResponse(start(never, preAborted)));
+        const r = await outcome(createSSRResponse(start(never, preAborted), undefined));
         expect(r.state).toBe("resolved");
         const res = (r as { value: Response }).value;
         expect(res.status).toBe(500);
