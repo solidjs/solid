@@ -27,7 +27,13 @@ import {
   CONFIG_REDERIVE,
   CONFIG_AUTHORITATIVE
 } from "./core/index.js";
-import { emitDiagnostic, forgetThrownRead, registerGraph, reportDiagnostic } from "./core/dev.js";
+import {
+  devGuardOptimisticBeforeLoad,
+  emitDiagnostic,
+  forgetThrownRead,
+  registerGraph,
+  reportDiagnostic
+} from "./core/dev.js";
 import {
   dirtyQueue,
   flushTransaction,
@@ -458,7 +464,9 @@ export function createOptimistic<T>(
     node._config &= ~CONFIG_AUTO_DISPOSE;
     return [
       accessor<T | undefined>(node),
-      optimisticWrite.bind(null, node as any) as Setter<T | undefined>
+      (__DEV__
+        ? (v: any) => (devGuardOptimisticBeforeLoad(node), optimisticWrite(node as any, v))
+        : optimisticWrite.bind(null, node as any)) as Setter<T | undefined>
     ];
   }
   const node = signal<T>(first as any, second as SignalOptions<T>);

@@ -485,29 +485,27 @@ it("#4643: a toggle beside a held poll answer shows the screen's other rows, who
   ]);
 });
 
-// Known gap (review of #4658): the same steps, with a user effect beside
-// the list's render effect. D-34 ¶2: lane passes, untracked reads and the
-// screen keep the guess until the commit — an effect's posture is the
-// screen's here, so it sees what the screen shows. It sees the held poll
-// answer's `[1x]` once, beside the toggle's `[3x]`, while the screen shows
-// `[1o][2o][3x]`.
-it.fails(
-  "#4643: a user effect beside the toggle sees only what the screen shows (D-34 ¶2)",
-  async () => {
-    const { land, poll, toggle, add, step, drain, unshown } = todoApp(true);
-    await tick();
-    await step("list", () => land("list"));
-    await step("t1", () => void toggle(1));
-    await step("t1", () => void toggle(1));
-    await step("land t1", () => land("toggle:1"));
-    await step("poll", () => poll());
-    await step("add3", () => void add(3));
-    await step("land poll", () => land("list", "last"));
-    await step("t3", () => void toggle(3));
-    await drain();
-    expect(unshown).toEqual([]);
-  }
-);
+// The same steps, with a user effect beside the list's render effect.
+// D-34 ¶2: lane passes, untracked reads and the screen keep the guess until
+// the commit — an effect's posture is the screen's here, so it sees what the
+// screen shows. With #4658 alone it saw the held poll answer's `[1x]` once,
+// beside the toggle's `[3x]`, while the screen showed `[1o][2o][3x]`; the
+// writer composing on the screen (#4656, a held node shows what it showed)
+// closes it.
+it("#4643: a user effect beside the toggle sees only what the screen shows (D-34 ¶2)", async () => {
+  const { land, poll, toggle, add, step, drain, unshown } = todoApp(true);
+  await tick();
+  await step("list", () => land("list"));
+  await step("t1", () => void toggle(1));
+  await step("t1", () => void toggle(1));
+  await step("land t1", () => land("toggle:1"));
+  await step("poll", () => poll());
+  await step("add3", () => void add(3));
+  await step("land poll", () => land("list", "last"));
+  await step("t3", () => void toggle(3));
+  await drain();
+  expect(unshown).toEqual([]);
+});
 
 for (const shape of ["add3, rm3, add4", "poll, add3, land poll, rm1, add4"])
   it(`#4643: a push after a removal guess composes on the removal (${shape})`, async () => {
