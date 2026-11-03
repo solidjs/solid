@@ -1071,6 +1071,7 @@ const laneSeams = (t: Transaction | null): void => {
   // readers of the transaction there); a lane's runs wait that round — a
   // lane sees the screen plus its own guesses.
   if (revealing.length) revealing.length = 0;
+  if (ahead.length) dropAhead();
   const leaked: Transaction[] = [];
   if (t !== null)
     for (let i = 0; i < stagedReaders.length; i++) {
@@ -1214,10 +1215,40 @@ const adoptParked = (r: Computed<any>): boolean => {
  * longer has it, and a render effect left marked would hold its transaction
  * on a flight that has landed (D-11, F-2, #4576; a nested action's refresh). */
 const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => {
+  if ((el as Computed<any>)._statusFlags & STATUS_PENDING) flightReader(c);
   const from = (el as Computed<any>)._x?._pendingSources;
   if (from && c._x?._pendingSources)
     for (const s of from) if (removePendingSource(c, s)) settlePendingSource(c, s);
 };
+/** #4661 (F-6): a verdict reader that reads a flight of the frame only
+ * ahead of it (`latest`, verdict.ts `pendingVerdict`) is no frame reader of
+ * it, though its stale read of the frame's staging (A10, `stagedScreen`)
+ * marked it one (REACTIVE_FRAME_READ, which `blockedBy` counts): at the seam
+ * the mark comes off and the reader holds nothing. It keeps what it read —
+ * the committed value ("It should read the committed value, we can't reveal
+ * early outside of latest. This is intentional tearing.", maintainer,
+ * 2026-11-03) — and the flight's own landing re-derives it, not the frame's.
+ * Not a pass that also read a flight plainly (`observeFlight`, `frameRead`:
+ * `flightReaders`, by pass generation): that one is the frame's reader. */
+const flightReaders = new WeakMap<Computed<any>, number>();
+export const flightReader = (c: Computed<any>): unknown => flightReaders.set(c, c._depGen);
+const ahead: [Computed<any>, number, Transaction][] = [];
+export const readAhead = (c: Computed<any>, t: Transaction): unknown =>
+  ahead.push([c, c._depGen, t]);
+function dropAhead(): void {
+  for (const [c, gen, t] of ahead) {
+    const r = resolveTx(t)._reruns,
+      i = r.indexOf(c);
+    if (
+      c._depGen === gen &&
+      c._flags & REACTIVE_FRAME_READ &&
+      flightReaders.get(c) !== gen &&
+      i >= 0
+    )
+      ((c._flags &= ~REACTIVE_FRAME_READ), r.splice(i, 1));
+  }
+  ahead.length = 0;
+}
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
 installLaneHooks(
