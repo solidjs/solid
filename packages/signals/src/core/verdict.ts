@@ -596,6 +596,16 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       // its re-run would ask the hold's question again (F-9).
       if (probing)
         if (c?._config! & CONFIG_HELD) {
+          // In the flush that lands the hold (nothing blocks it now: the
+          // pass is the hold's own work, D-25), the probe reads the landed
+          // world and the pass is final in the landing frame (F-1). If a
+          // later node blocks the hold again, the seam re-runs it, held, on
+          // the committed value (`watchVerdict`; ruling on #4662).
+          if (el._pendingValue !== NOT_PENDING && !blocked(t)) {
+            watchVerdict(c!);
+            if (__TEST__) shadowActual(SLOT_P);
+            return staged(el);
+          }
           if (!c!._x!._q) staleReader(c!, t);
         } else {
           if (heldNotFinal(owner)) probeFound = true;
