@@ -307,17 +307,21 @@ function armedOver(node: Computed<any>): boolean | undefined {
 
 /** The nearest boundary on `r`'s chain showing its fallback, if any
  * (`hiddenHook`: `r` is behind a fallback). */
-function hiddenBy(r: Computed<any>): Boundary | undefined {
+function hiddenBy(r: Computed<any>, through?: 1): Boundary | undefined {
   for (let b: Boundary | null | undefined = boundaryOf(r); b; b = b._parent)
     if (b._fallback) return b;
   // A boundary output passing a pending by (CONFIG_REDERIVE: an error
-  // boundary, A6) is transparent: on screen only through its readers. Read
-  // only behind fallbacks — an error boundary built outside the `<Loading>`
-  // whose content reads it — it holds nothing (F-4, D-14, #4638).
-  let h: Boundary | undefined,
+  // boundary, A6) is transparent: on screen only through the render effects
+  // it reaches — through a memo or another error boundary, wherever they
+  // were created (Reader, F-3). Reaching none, or only effects behind
+  // fallbacks — an error boundary built outside the `<Loading>` whose
+  // content reads it — it holds nothing (F-4, D-14, #4638). Reaching none,
+  // `h` is `1`: hidden with no boundary to name, only ever for a non-effect
+  // (`heldRun` asks about effects).
+  let h: any,
     s = r._subs;
-  if (r._config & CONFIG_REDERIVE && !(r as any)._type)
-    while (s !== null && (h = hiddenBy(s._sub))) s = s._nextSub;
+  if (!(r as any)._type && (through || r._config & CONFIG_REDERIVE))
+    for (h = 1; s !== null && (h = hiddenBy(s._sub, 1)); ) s = s._nextSub;
   return h;
 }
 
@@ -528,7 +532,11 @@ function reportOutsideHold(b: Boundary): void {
           if (outside(s._sub, false)) return true;
       return false;
     }
-    if (hiddenBy(reader)) return false;
+    // Behind a fallback, or under a boundary whose output only such content
+    // reads — an error boundary built outside `b`: the fallback is seen
+    // (D-16, #4639).
+    const out = boundaryOf(reader)?._output;
+    if (hiddenBy(reader) || (out && hiddenBy(out))) return false;
     for (let o: Boundary | null | undefined = boundaryOf(reader); o; o = o._parent)
       if (o === b) return false;
     return true;
