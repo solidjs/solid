@@ -250,11 +250,12 @@ describe("ASYNC_MEMO_ELEMENT — the finding and what the detection refuses", ()
     }
     // A class instance is never inspected: whether it crosses is the
     // serializer's (and its plugins') call, as before — seroval has no
-    // encoding for this one and says so itself.
+    // encoding for this one and says so itself, and the key it leaves
+    // pending on the client fails the render (#4647).
     const instance = await land(() => tick().then(() => new Point("<b>")), {
       show: v => `landed:${typeof v}`
     });
-    expect(instance.html).toContain("landed:object");
+    expect(instance.html).toBe("");
     expect(instance.errors.map(e => String(e))).toEqual([
       expect.stringContaining("cannot be parsed/serialized")
     ]);

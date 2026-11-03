@@ -64,12 +64,16 @@ function page(value: unknown, extra?: () => void) {
 describe("renderToStream: a value the serializer cannot handle (#4193)", () => {
   test("reaches the ambient hook as render/serialize and the render settles", async () => {
     configureServerErrors({ onError: ambient });
+    const ran: string[] = [];
     let completed = false;
     let result: { state: string; html: string } | undefined;
     const escaped = await watchEscapes(async () => {
       result = await settle(
         renderToStream(
-          page(() => "fn"),
+          page(
+            () => "fn",
+            () => onCleanup(() => ran.push("cleanup"))
+          ),
           {
             onCompleteAll() {
               completed = true;
@@ -80,7 +84,11 @@ describe("renderToStream: a value the serializer cannot handle (#4193)", () => {
     });
     expect(escaped).toEqual([]);
     expect(result!.state).toBe("settled");
-    expect(completed).toBe(true);
+    // Its key went out pending and nothing settles it: the render fails
+    // rather than report the document complete (#4647).
+    expect(result!.html).toBe("");
+    expect(completed).toBe(false);
+    expect(ran).toEqual(["cleanup"]);
     expect(kinds()).toEqual(["render/serialize"]);
   });
 
