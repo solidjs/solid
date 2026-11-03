@@ -258,15 +258,16 @@ function quietPending(el: Computed<any>): boolean {
  * `isPending` asks whether the latest view is final). A member of a held
  * frame with neither is final. A24: pending iff a value change is in
  * flight — a staging equal to what is displayed changes nothing when it
- * lands: final now (maintainer, 2026-10-02). */
-function heldNotFinal(owner: Computed<any>): boolean {
+ * lands: final now (maintainer, 2026-10-02). Asked of a node with a
+ * committed value only (`verdictValue`'s held arm): a first landing never
+ * gets here. Truthy when not final. */
+function heldNotFinal(owner: Computed<any>): unknown {
   if ((owner._statusFlags & STATUS_PENDING) !== 0 && !quietPending(owner)) return true;
   return (
     owner._pendingValue !== NOT_PENDING &&
     !latestActive &&
     !owner._x!._reask &&
-    !(owner._statusFlags & STATUS_UNINITIALIZED) &&
-    (!!owner._x!._shownError ||
+    (owner._x!._shownError ||
       !owner._equals ||
       !owner._equals(owner._value as any, owner._pendingValue as any))
   );
@@ -585,12 +586,23 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         return el._value;
       }
       if (tracked) verdictRead(c!, t);
-      if (probing && heldNotFinal(owner)) probeFound = true;
+      // #4648: a pass the hold holds (it read the frame's staging) is the
+      // hold's work, shown at the landing: its probe is final there, never
+      // `true` beside the fresh value its plain read saw (D-23), in either
+      // read order. What the probe read is the committed value (maintainer,
+      // #4662: "during the hold, reads outside latest() get the committed
+      // value"), so the pass is a stale reader of it and re-derives on the
+      // landed world (A15, F-1). Not an async memo (`_q`, a flight asked):
+      // its re-run would ask the hold's question again (F-9).
+      if (probing)
+        if (c?._config! & CONFIG_HELD) {
+          if (!c!._x!._q) staleReader(c!, t);
+        } else if (heldNotFinal(owner)) probeFound = true;
       if (latestActive && el._pendingValue !== NOT_PENDING) {
         // An action body reading another transaction's proposal derives
         // from it: the two settle as one (A15; posture C, 2026-09-15). An
         // untracked read elsewhere has no transaction to entangle.
-        if (!tracked && flushTransaction && !globalQueue._running) joinFuture(txOf(el));
+        if (!tracked && flushTransaction && !globalQueue._running) joinFuture(t);
         if (__TEST__) shadowActual(SLOT_P);
         return heldLatest(el, tracked ? c : null);
       }
@@ -635,10 +647,11 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // flips if that flush parks (#3078). (The write's own fan-out ran before
     // the reader existed; nothing else would re-derive it.)
     else if (tracked && probing) watchVerdict(c!);
-    if (latestActive) {
+    if (latestActive || uninitialized) {
       // A28: an unflushed write is not what `latest` serves; a tracked
       // reader derived from the flushed world runs again in the carrying
-      // flush.
+      // flush. A first value staged this flush has no committed value: the
+      // probe reads it as its plain read does (D-23 exc. 1, F-9; #4648).
       if (globalQueue._running) {
         if (__TEST__) shadowActual(SLOT_P);
         return staged(el);
