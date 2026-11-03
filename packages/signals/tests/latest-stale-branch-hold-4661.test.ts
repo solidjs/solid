@@ -37,13 +37,19 @@ afterEach(() => vi.useRealTimers());
 // f-after-latest:  latest(len) + (f(), 0) — the same reads in the other order.
 // plain-first:     (f(), len() + latest(len)) — a plain read of the flight
 //                  before the window: the frame's reader, it holds (A10, A15).
+// plain-after:     (f(), latest(len) + len()) — the same reads, the window
+//                  first: read order never changes what holds.
+// plain-after-alone: latest(len) + len() — no read of f: the plain read after
+//                  the window holds as `len() + latest(len)` does (A10).
 type Shape =
   | "latest-branch"
   | "untrack-branch"
   | "latest-always"
   | "latest-reads-f"
   | "f-after-latest"
-  | "plain-first";
+  | "plain-first"
+  | "plain-after"
+  | "plain-after-alone";
 
 function page(shape: Shape, reader: "effect" | "view") {
   const asks: { key: string; res: (v: number[]) => void }[] = [];
@@ -68,11 +74,15 @@ function page(shape: Shape, reader: "effect" | "view") {
             ? latest(len) + (f(), 0)
             : shape === "plain-first"
               ? (f(), len() + latest(len))
-              : f() === "open"
-                ? shape === "untrack-branch"
-                  ? untrack(len)
-                  : latest(len)
-                : -1
+              : shape === "plain-after"
+                ? (f(), latest(len) + len())
+                : shape === "plain-after-alone"
+                  ? latest(len) + len()
+                  : f() === "open"
+                    ? shape === "untrack-branch"
+                      ? untrack(len)
+                      : latest(len)
+                    : -1
     );
     if (reader === "view")
       createRenderEffect(count, v => {
@@ -196,6 +206,22 @@ describe("#4661 a memo's latest() posture does not hold a Loading on switch (F-6
 
   test("a plain read of the flight before the window: a frame reader, the switch is held", async () => {
     expect(await run("plain-first", "view")).toEqual({
+      before: ["[6]1,2,3", undefined],
+      during: ["[6]1,2,3", undefined],
+      after: ["[2]9", undefined]
+    });
+  });
+
+  test("a plain read of the flight after the window: the switch is held all the same", async () => {
+    expect(await run("plain-after", "view")).toEqual({
+      before: ["[6]1,2,3", undefined],
+      during: ["[6]1,2,3", undefined],
+      after: ["[2]9", undefined]
+    });
+  });
+
+  test("a plain read after the window, with no read of f: held as in the other order", async () => {
+    expect(await run("plain-after-alone", "view")).toEqual({
       before: ["[6]1,2,3", undefined],
       during: ["[6]1,2,3", undefined],
       after: ["[2]9", undefined]

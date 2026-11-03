@@ -154,6 +154,10 @@ function route(c: Computed<any>, t: Transaction): void {
  * transaction (`bornInto`, #4010): it has no screen — it waits on the flight
  * with the rest of its frame. */
 function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
+  // A render effect routed into a verdict lane reads the screen as lane
+  // work (D-26). A memo still observes the flight: a plain read after its
+  // window is the frame's read, as one before it is (A10, F-6, #4661).
+  if (passLane && (c as any)._type && !(c._statusFlags & STATUS_UNINITIALIZED)) return true;
   if (el._config & CONFIG_INPUTS_PUBLISHED || (el._config & CONFIG_HELD && bornInto(c, txOf(el))))
     return false;
   // A derived store's derive whose store has no reader (`fam.live` empty:
@@ -162,6 +166,7 @@ function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
   if (globalQueue._running && (c as any)._fam?.live.size !== 0) {
     joinFuture(null);
     if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
+    ahead.splice(ahead.indexOf(c) >>> 0, 1);
     verdictRead(c, flushTransaction!, true);
   }
   return true;

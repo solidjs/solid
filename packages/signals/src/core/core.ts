@@ -2338,12 +2338,18 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     !(el._config & CONFIG_OVERRIDE) &&
     !(owner._statusFlags & STATUS_UNINITIALIZED)
   ) {
-    // A reader with no committed value yet sees the flight pending: a
+    // A verdict reader first, in a lane or not: a memo's plain read of a
+    // flight observes it whether or not a window read routed the pass first
+    // (A10; `observeFlight` serves a routed render effect as lane work, D-26,
+    // #4661). A reader with no committed value yet sees the flight pending: a
     // boundary a lane mounts shows its fallback (A29's boundary exemption).
-    if (passLane !== null && !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED))
-      committed = true;
-    else if (c !== null && c._config & CONFIG_VERDICT)
+    if (c !== null && c._config & CONFIG_VERDICT)
       committed = observeFlightHook!(c as Computed<any>, owner);
+    else if (
+      passLane !== null &&
+      !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED)
+    )
+      committed = true;
   }
   if (owner._statusFlags & STATUS_PENDING && !committed) {
     // A reader landing on a pending node throws; an untracked read of an
