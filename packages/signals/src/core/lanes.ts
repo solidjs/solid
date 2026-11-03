@@ -1116,7 +1116,10 @@ const laneSeams = (t: Transaction | null): void => {
       // lane holds while the frame does (`laneSeam`).
       // Re-derived on the committed world, it paired the new rows with the
       // old inputs, and the landing revealed that beside them (F-1, D-34 ¶3,
-      // #4577).
+      // #4577). A lane linked to such a lane counts (one reveal unit): a
+      // memo seated in one whose pass read through the other read the
+      // frame's staging there, and, re-derived, it re-entered that lane,
+      // read it again and parked again, every round (#4643).
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
@@ -1124,7 +1127,7 @@ const laneSeams = (t: Transaction | null): void => {
               (r._config & CONFIG_VERDICT
                 ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
                 : !blocked(t!) || heldBy(t!, r))) ||
-            (l.over && liveTx(l.over) === t)
+            (l._links || [l]).some(u => u.over && liveTx(u.over) == t)
           : l &&
             !(
               r._flags & REACTIVE_PROBE_UNANSWERED ||
