@@ -5,6 +5,7 @@ import {
   Serializer,
   crossSerializeStream,
   getCrossReferenceHeader,
+  isStream,
   toCrossJSONStream,
   createPlugin as createPluginImpl,
   OpaqueReference as OpaqueReferenceImpl
@@ -208,7 +209,7 @@ export function createHydrationSerializer(options: HydrationSerializerOptions): 
 
 // The keyed writes both render codecs share. Each `write` runs one seroval
 // stream session: `serialize(key, value, callbacks, live)` starts it and
-// returns its dispose, and the codec checks `live(initial)` before it hands
+// returns its dispose, and the codec checks `live()` before it hands
 // out a chunk, which is false once `close()` ran. Writes after `flush()` are
 // dropped, and `onDone` fires once `flush()` was called and every write
 // settled. A write settles on its own `onDone`, except one whose value fails
@@ -220,10 +221,8 @@ export function createHydrationSerializer(options: HydrationSerializerOptions): 
 // keeps its session, even if a chunk replayed from a stream's buffer failed
 // before it, and settles on `onDone` like any later failure. Without
 // `onError` seroval throws out of the write, as before; the write still
-// settles, so a later `flush()` completes. A write that fails after its
-// initial chunk went out is handed to the codec's `onLate(key, value)` too,
-// so it can settle what the peer already holds for the key (#4647).
-function createKeyedSerializer(serialize, onError, onDone, onLate?) {
+// settles, so a later `flush()` completes.
+function createKeyedSerializer(serialize, onError, onDone) {
   const cancels = new Set();
   let pendingWrites = 0;
   let flushed = false;
@@ -243,7 +242,6 @@ function createKeyedSerializer(serialize, onError, onDone, onLate?) {
       // function exists — track with a flag instead of the handle.
       let settled = false;
       let failed = false;
-      let started = false;
       let cancel = null;
       const settle = () => {
         if (settled) return;
@@ -263,7 +261,6 @@ function createKeyedSerializer(serialize, onError, onDone, onLate?) {
               (err => {
                 failed = true;
                 onError(err);
-                if (started && !closed && onLate) onLate(key, value);
                 // seroval 1.7 ends a write at its first failure and never
                 // calls its `onDone`: a failure after the call returned
                 // settles the write here, disposed.
@@ -274,10 +271,7 @@ function createKeyedSerializer(serialize, onError, onDone, onLate?) {
               }),
             onDone: settle
           },
-          initial => {
-            if (initial) started = true;
-            return !closed;
-          }
+          () => !closed
         );
       } catch (err) {
         settle();
@@ -333,59 +327,132 @@ const serializeKey = key =>
  * Serializer for SSR hydration output. Pins the hydration global (`_$HY.r`)
  * and feature policy — only the wiring options (callbacks, scope, extra
  * plugins) are configurable. Keyed like seroval's `Serializer` (same
- * output), but every write settles, failed ones included.
+ * output), but every write settles, failed ones included. `late` (only
+ * `renderToStream` passes it: `rejectUnserializedKey`) settles what a write
+ * that failed after its initial chunk left pending on the client (#4647).
  */
-export function createHydrationSerializer({ onData, onDone, scopeId, onError, plugins }) {
+export function createHydrationSerializer({ onData, onDone, scopeId, onError, plugins, late }) {
   const resolvedPlugins = resolveSerializerPlugins(plugins);
   const disabledFeatures = defaultDisabledFeatures() | serializeOnlyDisabledFeatures();
   const refs = new Map();
+  const serialize = (key, value, callbacks, live) =>
+    crossSerializeStream(value, {
+      scopeId,
+      refs,
+      plugins: resolvedPlugins,
+      disabledFeatures,
+      onSerialize(data, initial) {
+        if (!live()) return;
+        onData(initial ? HYDRATION_GLOBAL + '["' + serializeKey(key) + '"]=' + data : data);
+      },
+      ...callbacks
+    });
   return createKeyedSerializer(
-    (key, value, callbacks, live) =>
-      crossSerializeStream(value, {
-        scopeId,
-        refs,
-        plugins: resolvedPlugins,
-        disabledFeatures,
-        onSerialize(data, initial) {
-          if (!live(initial)) return;
-          onData(initial ? HYDRATION_GLOBAL + '["' + serializeKey(key) + '"]=' + data : data);
-        },
-        ...callbacks
-      }),
+    late ? late(serialize, refs, onData, scopeId) : serialize,
     onError,
-    onDone,
-    // A promise whose resolved value fails to serialize (#4647): seroval
-    // ends the write without settling the promise it already declared, so
-    // the client's read of the key would stay pending forever. Reject it
-    // instead (Ryan's ruling, 2026-11-03), with an error that names the key.
-    // This is what settles it midstream; before the first flush
-    // `renderToStream` fails the whole render and nothing of this ships;
-    // the failure's own text went to the error hook and is not sent. seroval
-    // 1.7 indexes a promise's resolver right after the promise
-    // (`parsePromise`). The promise is left unmarked (no `s`/`v`, which
-    // seroval's own failure call sets for synchronous adoption): the
-    // hydrating read sees it pending and takes the rejection after the
-    // claim pass, so the reading computation throws into the nearest
-    // `<Errored>`, whose fallback then replaces the server's content. Read
-    // synchronously, the fallback would be built in the claim pass against
-    // markup that is the content's. Rejecting a promise that already
-    // resolved (a later failure inside its value) does nothing.
-    (key, value) => {
-      const id = value && typeof value.then === "function" ? refs.get(value) : undefined;
-      if (id === undefined) return;
-      const body =
-        "$R[" +
-        (id + 1) +
-        "].f(new Error(" +
-        JSON.stringify(
-          "Serialization failed: the hydration value for key " +
-            JSON.stringify(key) +
-            " could not be serialized on the server"
-        ).replace(/[<\u2028\u2029]/g, c => KEY_ESCAPES[c]) +
-        "))";
-      onData(scopeId == null ? body : "($R=>" + body + ')($R["' + serializeKey(scopeId) + '"])');
-    }
+    onDone
   );
+}
+
+/**
+ * `createHydrationSerializer`'s `late`, which wraps its seroval session
+ * per write: rejects, on the client, what a write that failed to serialize
+ * midstream left pending (#4647; maintainer ruling,
+ * 2026-11-03). seroval 1.7 ends a write at its first failure without
+ * settling anything it already declared: the key's promise, a promise or
+ * async iterable nested in a value it already sent, each would stay pending
+ * forever. Every promise the write sent is rejected (its resolver is indexed
+ * right after it, `parsePromise`) and every stream it sent is thrown into,
+ * with one error naming the key; one that already settled ignores it. The
+ * failure's own text went to the error hook and is not sent. The promise is
+ * left unmarked (no `s`/`v`, which seroval's own failure call sets for
+ * synchronous adoption): the hydrating read sees it pending and takes the
+ * rejection after the claim pass, so the reading computation throws into
+ * the nearest `<Errored>`, whose fallback then replaces the server's
+ * content. Read synchronously, the fallback would be built in the claim pass
+ * against markup that is the content's.
+ *
+ * Which write a reference belongs to: seroval indexes a value into the
+ * shared `refs` as it parses it and hands the chunk that declares it to that
+ * write's `onSerialize` in the same synchronous step, so the indexes taken
+ * since the last chunk are the next chunk's, or the failed parse's when the
+ * write fails instead. Those never went out: they leave `refs`, or a later
+ * write reaching the same value (a second key on the same promise) would
+ * reference a slot the client never filled and resolve `undefined`; it
+ * parses the value again and fails on its own. seroval takes the next index
+ * from `refs.size`, so the size counts every index ever taken.
+ * @internal
+ */
+export function rejectUnserializedKey(serialize, refs, onData, scopeId) {
+  let taken = 0;
+  let fresh = [];
+  const set = refs.set;
+  refs.set = (value, id) => {
+    taken++;
+    fresh.push(value);
+    return set.call(refs, value, id);
+  };
+  Object.defineProperty(refs, "size", { get: () => taken });
+  return (key, value, callbacks, live) => {
+    const sent = [];
+    const failed = () => {
+      for (const ref of fresh) refs.delete(ref);
+      fresh = [];
+      // A promise's resolver, and each stream: seroval's own (an async
+      // iterable's) is a bare `{}` it indexes, a resolver too. On the
+      // client a resolver has `f`, a stream `throw`; a bare `{}` of the
+      // value, or one of seroval's factories, has neither and is skipped.
+      const ids = new Set();
+      for (const ref of sent) {
+        const id = refs.get(ref);
+        if (ref instanceof Promise) ids.add(id + 1);
+        else if (
+          isStream(ref) ||
+          (Object.getPrototypeOf(ref) === Object.prototype && !Object.keys(ref).length)
+        )
+          ids.add(id);
+      }
+      if (!ids.size) return;
+      const body =
+        "for(const i of[" + [...ids] + "]){const v=$R[i];v&&(v.f?v.f(e):v.throw&&v.throw(e))}";
+      const message = JSON.stringify(
+        "Serialization failed: the hydration value for key " +
+          JSON.stringify(key) +
+          " could not be serialized on the server"
+      ).replace(/[<\u2028\u2029]/g, c => KEY_ESCAPES[c]);
+      onData(
+        "($R=>{const e=new Error(" +
+          message +
+          ");" +
+          body +
+          "})(" +
+          (scopeId == null ? "$R" : '$R["' + serializeKey(scopeId) + '"]') +
+          ")"
+      );
+    };
+    return serialize(
+      key,
+      value,
+      {
+        ...callbacks,
+        onError:
+          callbacks.onError &&
+          (err => {
+            // Before the write settles: its settling can end the render.
+            if (live()) failed();
+            callbacks.onError(err);
+          })
+      },
+      // Asked right before each chunk goes out: what was indexed since the
+      // last one is in it.
+      () => {
+        if (!live()) return false;
+        sent.push(...fresh);
+        fresh = [];
+        return true;
+      }
+    );
+  };
 } /**
  * Renderer primitive — returns the cross-reference bootstrap script SSR
  * emits ahead of hydration data for a render scope. Not meant for
@@ -486,7 +553,7 @@ export function createJSONSerializer({
         disabledFeatures:
           resolved.disabledFeatures | serializeOnlyDisabledFeatures(resolved.serializeErrorStacks),
         onParse(node, initial) {
-          if (live(initial)) onData({ key, node, initial });
+          if (live()) onData({ key, node, initial });
         },
         ...callbacks
       }),

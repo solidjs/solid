@@ -121,11 +121,15 @@ describe("renderToStream: a value that fails to serialize in the pre-shell batch
       slot(async () => "fine", "fine")
     ]);
     // The rejection never reaches the client, so `0_fr` would stay pending
-    // there forever: the render fails instead (#4647), and nothing of the
-    // document ships beside the key that cannot settle.
+    // there forever: it failed before the first flush, so the render fails
+    // instead (#4647; maintainer ruling, 2026-11-03), and nothing of the
+    // document ships beside the key that cannot settle. The rejection
+    // reaches two writes: each parses it and fails on its own, rather than
+    // the second pointing at the slot the failed first one never filled.
     expect(heard.map(e => String(e))).toEqual([
       expect.stringContaining("cannot be parsed/serialized"),
-      "Error: boom"
+      "Error: boom",
+      expect.stringContaining("cannot be parsed/serialized")
     ]);
     expect(html).toBe("");
     expect(Object.keys(r)).toEqual([]);

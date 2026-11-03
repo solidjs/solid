@@ -21,7 +21,7 @@
  */
 import vm from "node:vm";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { renderToStream, type ServerErrorContext } from "@solidjs/web";
+import { getHydrationWriter, renderToStream, type ServerErrorContext } from "@solidjs/web";
 import { createMemo, Loading, onCleanup } from "solid-js";
 import { settle, watchEscapes } from "./stream-settle-harness.js";
 
@@ -53,6 +53,11 @@ function registry(html: string) {
   }
   const r = sandbox._$HY.r as Record<string, any>;
   for (const k in r) if (r[k] && typeof r[k].then === "function") r[k].then(undefined, () => {});
+  // A promise nested in a value: consumed too, the test reads it later.
+  for (const k in r) {
+    const p = r[k] && (r[k] as any).p;
+    if (p && typeof p.then === "function") p.then(undefined, () => {});
+  }
   return r;
 }
 
@@ -272,6 +277,81 @@ describe("renderToStream: an async value that fails to serialize (#4647)", () =>
       const keys = dataKeys(r);
       expect(keys.length).toBe(1);
       expect(await outcome(r[keys[0]])).toEqual(serializeFailure(keys[0]));
+    });
+  });
+
+  describe("after the first flush: what the failed write already sent rejects too", () => {
+    // seroval ends a write at its first failure, so whatever the write had
+    // already declared on the client stays pending unless the rejection
+    // reaches it: a nested promise, a later item of an async iterable, and a
+    // second key on the same promise (which read the failed value's unfilled
+    // slot and resolved `undefined`). Each settles with the key's error.
+    async function writes(make: (opened: Promise<void>) => Record<string, unknown>) {
+      let release!: () => void;
+      const opened = new Promise<void>(r => (release = r));
+      const values = make(opened);
+      let result: { state: string; html: string; completed: boolean } | undefined;
+      const escaped = await watchEscapes(async () => {
+        result = await pipe(
+          () => {
+            onCleanup(() => ran.push("cleanup"));
+            const w = getHydrationWriter()!;
+            for (const key in values) w.write(key, values[key]);
+            return <main>page</main>;
+          },
+          { onFirstChunk: () => release() }
+        );
+      });
+      expect(escaped).toEqual([]);
+      expect(result!.state).toBe("settled");
+      expect(result!.completed).toBe(true);
+      return registry(result!.html);
+    }
+    const after = <T,>(opened: Promise<void>, value: () => T) => opened.then(value);
+
+    test("an async iterable whose later item fails: the items before it arrive, then it throws", async () => {
+      const r = await writes(opened => ({
+        items: (async function* () {
+          yield 1;
+          await opened;
+          yield new Unserializable();
+        })()
+      }));
+      const it = (r.items as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+      // seroval's client iterator answers a buffered item synchronously,
+      // and throws a buffered failure synchronously too.
+      const next = () => new Promise(resolve => resolve(it.next()));
+      expect(await outcome(next())).toEqual({ fulfilled: { done: false, value: 1 } });
+      expect(await outcome(next())).toEqual(serializeFailure("items"));
+      expect(heard).toEqual(["render/serialize"]);
+    });
+
+    test("an object holding a promise: the held promise rejects", async () => {
+      const r = await writes(opened => ({
+        holder: { p: after(opened, () => new Unserializable()) }
+      }));
+      expect(await outcome((r.holder as { p: unknown }).p)).toEqual(serializeFailure("holder"));
+    });
+
+    test("a promise resolving to an object whose promise fails: the outer fulfils, the inner rejects", async () => {
+      const r = await writes(opened => ({
+        outer: after(opened, () => ({ inner: after(opened, () => new Unserializable()) }))
+      }));
+      const outer = (await outcome(r.outer)) as { fulfilled: { inner: unknown } };
+      expect(outer.fulfilled).toBeDefined();
+      expect(await outcome(outer.fulfilled.inner)).toEqual(serializeFailure("outer"));
+    });
+
+    test("two keys on the same failed promise both reject; a sibling key still fulfils", async () => {
+      const r = await writes(opened => {
+        const shared = after(opened, () => new Unserializable());
+        return { first: shared, second: shared, fine: after(opened, () => "ok") };
+      });
+      expect(await outcome(r.first)).toEqual(serializeFailure("first"));
+      expect(await outcome(r.second)).toEqual(serializeFailure("second"));
+      expect(await outcome(r.fine)).toEqual({ fulfilled: "ok" });
+      // Each key's write fails on its own.
+      expect(heard).toEqual(["render/serialize", "render/serialize"]);
     });
   });
 

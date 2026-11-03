@@ -49,6 +49,7 @@ import { observeRender, timesServerWork } from "./server-observe.js";
 import { records } from "./observe.js";
 import {
   createHydrationSerializer,
+  rejectUnserializedKey,
   getLocalHeaderScript
 } from "../serialization/src/serializer.js";
 // Wire-protocol header names for the commit fold's gap-fill denylist
@@ -2351,8 +2352,8 @@ export function renderToStream(code, options = {}) {
   // (#4647). Before the first flush nothing has reached the client, so the
   // render fails: the shell is not sent and `onCompleteAll` does not fire
   // (Ryan's ruling, 2026-11-03). After it the page is midstream: the default
-  // serializer rejects the key on the client (its `onLate`) and the render
-  // completes. Keep synchronous failures completing as before (#4227). A
+  // serializer rejects the key, and whatever of its value already went out,
+  // on the client (`rejectUnserializedKey`) and the render completes. Keep synchronous failures completing as before (#4227). A
   // buffered stream can emit its initial chunk and fail inside write;
   // detecting that case would require publication information from the
   // serializer.
@@ -2557,8 +2558,11 @@ export function renderToStream(code, options = {}) {
     onError: err => {
       reportFailure(err, "serialize");
       if (!writing && !options.serializer && !firstFlushed) stranded = true;
-    }
-  });
+    },
+    // After the first flush: rejects on the client what the failed write
+    // left pending (#4647). Only here, so `renderToString` does not carry it.
+    late: rejectUnserializedKey
+  } as any);
   let rootAssetsSerialized = false;
   const serializeRootAssets = () => {
     if (rootAssetsSerialized) return;

@@ -4,160 +4,181 @@
  *
  * #4647: an async memo whose value the server could not serialize, after the
  * first flush (midstream; before it the render fails, see
- * stream-async-serialize-failure-4647.spec.tsx). The server rendered the
- * content and completed; its payload rejects the memo's key with a
- * serialization error naming it (Ryan's ruling, 2026-11-03). Hydrating, the
- * memo takes that rejection like any server-rejected key (#4273): it throws
- * into the nearest `<Errored>`, whose fallback replaces the server's content,
- * and nothing is fetched on hydration. (The record is left unmarked, so the
- * rejection lands after the claim pass, where the fallback can replace
- * markup that is the content's.) The fallback stays until reset() or
- * one of the memo's inputs changes; either reruns the memo as a client fetch,
- * which needs no serialization.
+ * test/server/stream-async-serialize-failure-4647.spec.tsx). The server
+ * rendered the content and completed; its payload rejects the memo's key
+ * with a serialization error naming it (maintainer ruling, 2026-11-03).
+ * Hydrating, the memo takes that rejection like any server-rejected key
+ * (#4273): it throws into the nearest `<Errored>`, whose fallback replaces the
+ * server's content, and nothing is fetched on hydration. (The record is left
+ * unmarked, so the rejection lands after the claim pass, where the fallback
+ * can replace markup that is the content's.) The fallback stays until reset()
+ * or one of the memo's inputs changes; either reruns the memo as a client
+ * fetch, which needs no serialization. Without an `<Errored>` the rejection
+ * goes where any other rejected key's goes.
  *
- * Server markup and payload captured from renderToStream of the identical
- * components (stream-async-serialize-failure-4647.spec.tsx pins the server
- * side); only seroval's resolver factory is reformatted.
+ * Replays the streamed output test/server/errored-unserializable-4647.gen.spec.tsx
+ * records from the same components (test/harness/errored-unserializable-4647.tsx).
  */
-import { describe, expect, test, beforeEach, afterEach } from "vitest";
-import { createMemo, createSignal, flush, enableHydration } from "solid-js";
-import { Errored, hydrate } from "@solidjs/web";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { enableHydration, flush } from "solid-js";
+import { hydrate } from "@solidjs/web";
+import { AppBare, AppInside, AppOutside, env } from "../harness/errored-unserializable-4647.jsx";
 
 enableHydration();
-
+env.client = true;
 const RealPromise = Promise;
-let runs = 0;
-// The hydration dry run computes under a mock Promise: count real asks only.
-function ask(sel: number) {
-  if (Promise === RealPromise) runs++;
-  return new Promise<string>(r => setTimeout(() => r(`pear ${sel}`), 1));
-}
-async function drain() {
-  for (let i = 0; i < 3; i++) {
-    await new RealPromise(r => setTimeout(r, 0));
+env.RealPromise = RealPromise;
+
+const load = (name: string) => {
+  const { shell, chunks } = JSON.parse(
+    readFileSync(
+      resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        `../harness/__artifacts__/errored-unserializable-4647-${name}.json`
+      ),
+      "utf-8"
+    )
+  ) as { shell: string; chunks: string[] };
+  return shell + chunks.join("");
+};
+
+async function drain(n = 3) {
+  for (let i = 0; i < n; i++) {
+    await new RealPromise(r => setTimeout(r, 5));
     flush();
   }
+}
+
+const uncaught: string[] = [];
+const onRejection = (e: any) => void uncaught.push("unhandledRejection:" + (e?.message || e));
+const onException = (e: any) => void uncaught.push("uncaughtException:" + (e?.message || e));
+
+/** The page as a browser that got the whole response would hold it. */
+function mount(container: HTMLElement, html: string) {
+  delete (globalThis as any).$R;
+  (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} };
+  const scriptRe = /<script(?:[^>]*)>([\s\S]*?)<\/script>/g;
+  const scripts = [...html.matchAll(scriptRe)].map(m => m[1]);
+  container.innerHTML = html.replace(scriptRe, "");
+  for (const s of scripts) (0, eval)(s);
 }
 
 const message = (key: string) =>
   `Serialization failed: the hydration value for key "${key}" could not be serialized on the server`;
 
-/** The server's hydration script for one async key whose value failed to serialize. */
-function payload(key: string) {
-  return (
-    '(self.$R=self.$R||{})[""]=[];' +
-    `_$HY.r["${key}"]=$R[0]=($R[1]=($R[2]=() => {` +
-    "const resolver = { p: 0, s: 0, f: 0 };" +
-    "resolver.p = new Promise((resolve, reject) => { resolver.s = resolve; resolver.f = reject; });" +
-    "return resolver;" +
-    "})()).p;" +
-    `$R[1].f(new Error(${JSON.stringify(message(key))}));`
-  );
-}
-
-function serve(container: HTMLElement, html: string, key: string) {
-  delete (globalThis as any).$R;
-  (globalThis as any)._$HY = { events: [], completed: new WeakSet(), r: {} };
-  (0, eval)(payload(key));
-  // A rejected record needs a consumer until the memo reads it.
-  (globalThis as any)._$HY.r[key].catch(() => {});
-  container.innerHTML = html;
-}
-
-describe("#4647: a key that failed to serialize rejects into Errored on hydration", () => {
-  const container = document.createElement("div");
-  document.body.appendChild(container);
+describe("#4647: a key that failed to serialize midstream rejects into Errored on hydration", () => {
+  let container: HTMLDivElement;
   let dispose: (() => void) | undefined;
-
   beforeEach(() => {
-    container.innerHTML = "";
-    runs = 0;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    env.runs = 0;
+    env.setters = {};
+    uncaught.length = 0;
+    process.on("unhandledRejection", onRejection);
+    process.on("uncaughtException", onException);
   });
   afterEach(() => {
     dispose?.();
     dispose = undefined;
+    container.remove();
+    process.off("unhandledRejection", onRejection);
+    process.off("uncaughtException", onException);
   });
 
-  function app(setters: { sel?: (v: number) => void; reset?: () => void }) {
-    return () => {
-      const [sel, setSel] = createSignal(1);
-      setters.sel = setSel;
-      return (
-        <main>
-          <Errored
-            fallback={(e: any, reset) => {
-              setters.reset = reset;
-              return <p>{e().message}</p>;
-            }}
-          >
-            {(() => {
-              const item = createMemo(() => ask(sel()));
-              return <p>{item()}</p>;
-            })()}
-          </Errored>
-        </main>
-      );
-    };
-  }
-
-  test("the fallback replaces the server's content, without a fetch; reset() recovers by a client run", async () => {
-    serve(container, "<main _hk=0><p _hk=101>server value</p></main>", "100");
+  test("the fallback replaces the server's content, without a fetch; it holds; reset() recovers by one client run", async () => {
+    mount(container, load("inside"));
     const main = container.querySelector("main");
-    const setters: { sel?: (v: number) => void; reset?: () => void } = {};
-    dispose = hydrate(app(setters), container);
+    const ok = container.querySelector(".ok");
+    expect(container.querySelector(".content")?.textContent).toBe("server value");
+    dispose = hydrate(() => <AppInside />, container);
     await drain();
     expect(container.querySelector("main")).toBe(main);
-    expect(container.textContent).toBe(message("100"));
-    expect(runs).toBe(0);
+    expect(container.querySelector(".ok")).toBe(ok);
+    expect(ok?.textContent).toBe("fine");
+    expect(container.querySelector(".content")).toBeNull();
+    expect(container.querySelector(".fb")?.textContent).toBe(message("400000"));
+    expect(env.runs).toBe(0);
 
     // The fallback holds: nothing reruns the memo on its own.
-    await drain();
-    expect(container.textContent).toBe(message("100"));
-    expect(runs).toBe(0);
+    await drain(6);
+    expect(container.querySelector(".fb")?.textContent).toBe(message("400000"));
+    expect(env.runs).toBe(0);
 
-    setters.reset!();
-    await drain();
-    expect(runs).toBe(1);
+    env.setters.reset!();
+    await drain(8);
+    expect(env.runs).toBe(1);
     expect(container.querySelector("main")).toBe(main);
-    expect(container.textContent).toBe("pear 1");
+    expect(container.querySelector(".content")?.textContent).toBe("pear 1");
+    expect(container.querySelector(".fb")).toBeNull();
+    expect(uncaught).toEqual([]);
   });
 
-  test("an input change recovers by a client run", async () => {
-    serve(container, "<main _hk=0><p _hk=101>server value</p></main>", "100");
-    const setters: { sel?: (v: number) => void; reset?: () => void } = {};
-    dispose = hydrate(app(setters), container);
+  test("an input change recovers by one client run", async () => {
+    mount(container, load("inside"));
+    dispose = hydrate(() => <AppInside />, container);
     await drain();
-    expect(container.textContent).toBe(message("100"));
-    expect(runs).toBe(0);
+    expect(container.querySelector(".fb")?.textContent).toBe(message("400000"));
+    expect(env.runs).toBe(0);
 
-    setters.sel!(2);
-    await drain();
-    expect(runs).toBe(1);
-    expect(container.textContent).toBe("pear 2");
+    env.setters.sel!(2);
+    await drain(8);
+    expect(env.runs).toBe(1);
+    expect(container.querySelector(".content")?.textContent).toBe("pear 2");
+    expect(container.querySelector(".fb")).toBeNull();
+    expect(uncaught).toEqual([]);
   });
 
   test("a memo outside the boundary: its readers' Errored catches it, and an input change recovers", async () => {
-    serve(container, "<main _hk=1><p _hk=200>server value</p></main>", "0");
-    let setSel!: (v: number) => void;
-    dispose = hydrate(() => {
-      const [sel, _setSel] = createSignal(1);
-      setSel = _setSel;
-      const item = createMemo(() => ask(sel()));
-      return (
-        <main>
-          <Errored fallback={(e: any) => <p>{e().message}</p>}>
-            <p>{item()}</p>
-          </Errored>
-        </main>
-      );
-    }, container);
+    mount(container, load("outside"));
+    dispose = hydrate(() => <AppOutside />, container);
     await drain();
-    expect(container.textContent).toBe(message("0"));
-    expect(runs).toBe(0);
+    expect(container.querySelector(".content")).toBeNull();
+    expect(container.querySelector(".fb")?.textContent).toBe(message("4000"));
+    expect(env.runs).toBe(0);
 
-    setSel(3);
-    await drain();
-    expect(runs).toBe(1);
-    expect(container.textContent).toBe("pear 3");
+    env.setters.sel!(3);
+    await drain(8);
+    expect(env.runs).toBe(1);
+    expect(container.querySelector(".content")?.textContent).toBe("pear 3");
+    expect(uncaught).toEqual([]);
+  });
+
+  test("without an Errored: the same as any other rejected key, and no fetch", async () => {
+    const html = load("bare");
+    const report: Record<string, unknown> = {};
+    for (const [name, page] of [
+      ["serialize", html],
+      ["plainReject", html.replace(/new Error\("Serialization failed[^)]*\)/, 'new Error("boom")')]
+    ] as const) {
+      uncaught.length = 0;
+      env.runs = 0;
+      const c = document.createElement("div");
+      document.body.appendChild(c);
+      mount(c, page);
+      let threw = "";
+      let d: (() => void) | undefined;
+      try {
+        d = hydrate(() => <AppBare />, c);
+        await drain();
+      } catch (e: any) {
+        threw = e?.message;
+      }
+      await drain();
+      report[name] = { threw, uncaught: [...uncaught], runs: env.runs, html: c.innerHTML };
+      d?.();
+      c.remove();
+    }
+    expect((report.serialize as { runs: number }).runs).toBe(0);
+    expect(
+      JSON.stringify(report.serialize).replaceAll(
+        JSON.stringify(message("4000")).slice(1, -1),
+        "boom"
+      )
+    ).toBe(JSON.stringify(report.plainReject));
+    uncaught.length = 0;
   });
 });

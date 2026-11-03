@@ -84,8 +84,9 @@ describe("renderToStream: a value the serializer cannot handle (#4193)", () => {
     });
     expect(escaped).toEqual([]);
     expect(result!.state).toBe("settled");
-    // Its key went out pending and nothing settles it: the render fails
-    // rather than report the document complete (#4647).
+    // Its key went out pending before the first flush and nothing settles
+    // it: the render fails rather than report the document complete (#4647;
+    // maintainer ruling, 2026-11-03).
     expect(result!.html).toBe("");
     expect(completed).toBe(false);
     expect(ran).toEqual(["cleanup"]);
