@@ -28,7 +28,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | C | 4 | 0 | 3 | 1 |
 | INV | 11 | 4 | 7 | 4 |
 | RUL | 13 | 3 | 6 | 6 |
-| R (CS) | 59 | 15 | 19 | 31 |
+| R (CS) | 59 | 15 | 21 | 29 |
 | R (OL) | 37 | 4 | 1 | 32 |
 | R (OS) | 46 | 0 | 0 | 46 |
 | R (PJ) | 37 | 2 | 5 | 32 |
@@ -171,7 +171,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | CS-R27 | live | `docs/rules-mining/core-store.md:121` | store.ts×2 | — | The setter may return a replacement value that swaps the root wholesale; symbol keys on the replacement preserved.** |
 | CS-R28 | live | `docs/rules-mining/core-store.md:125` | reconcile.ts×1 | — | `storePath` addressing: string keys, numeric indices, index arrays, predicate filters ((value, index)), ranges, trailing functional setters address and update intended paths + trigger per-path subscri… |
 | CS-R29 | live | `docs/rules-mining/core-store.md:129` | store.ts×1 | overlay.test.ts×1 | Merge/replacement preserve accessor descriptors and keep getters LIVE (re-evaluated per read, reactive reads track), for pre-existing and new keys.** |
-| CS-R30 | live | `docs/rules-mining/core-store.md:134` | store.ts×5 | proto-key-removal-4672.test.ts×3 | Prototype pollution fully guarded: `__proto__` assignment inert; reading `constructor` on the draft returns undefined; storePath refuses `__proto__`/`constructor`/`prototype` segments; skips unsafe ow… |
+| CS-R30 | live | `docs/rules-mining/core-store.md:134` | store.ts×5 | proto-key-removal-4672.test.ts×3 store-prototype-4670.test.ts×2 | Prototype pollution fully guarded: `__proto__` assignment inert; reading `constructor` on the draft returns undefined; storePath refuses `__proto__`/`constructor`/`prototype` segments; skips unsafe ow… |
 | CS-R31 | live | `docs/rules-mining/core-store.md:138` | store.ts×1 | a34-writes-then-derivations.test.ts×1 createMemo.test.ts×6 derived-write-then-derivation-3733.test.ts×1 held-derivation-not-a-proposal-3612.test.ts×3 createStore.test.ts×3 reconcile-resend-identity.test.ts×1 | Derived-store manual writes apply before the derivation.** A manual `setStore` lands at once, staged with any live transaction. When a source of the fold changes, in the same update or later, the fold… |
 | CS-R32 | live | `docs/rules-mining/core-store.md:147` | — | visibility-oracle-store.states.ts×1 | A setter-staged replacement followed by reconcile lands the reconciled value — staged writes fold into the diff.** Aligned: O7's resolution (a test already exists). |
 | CS-R33 | live | `docs/rules-mining/core-store.md:151` | — | visibility-oracle-store.states.ts×4 | Action/async lane semantics on store properties: a write held by an action makes isPending true for that property (per-property, not whole-store) while showing the committed value; applies on settle.*… |
@@ -189,10 +189,10 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | CS-R45 | live | `docs/rules-mining/core-store.md:205` | — | — | A shallow store nested in a deep store participates in the parent's reconcile (raw replacement, per-index notify).** |
 | CS-R46 | live | `docs/rules-mining/core-store.md:209` | — | — | Shallow projections work end-to-end (derive re-runs, output reconciles at boundary, rows stay raw).** |
 | CS-R47 | live | `docs/rules-mining/core-store.md:215` | — | — | Platform objects (Map, Set, Date, Node instances, subclasses) are structurally non-wrappable: served raw by identity; internal-slot methods work on read and draft paths; draft mutations land on the ra… |
-| CS-R48 | live | `docs/rules-mining/core-store.md:220` | — | — | User class instances (custom prototypes) DO wrap: prototype getters track; methods on the draft receive the proxy as `this` (reactive writes).** |
+| CS-R48 | live | `docs/rules-mining/core-store.md:220` | — | store-prototype-4670.test.ts×1 | User class instances (custom prototypes) DO wrap: prototype getters track; methods on the draft receive the proxy as `this` (reactive writes).** |
 | CS-R49 | live | `docs/rules-mining/core-store.md:224` | — | — | Null-prototype objects wrap and track; function-valued props callable through the proxy.** |
-| CS-R50 | live | `docs/rules-mining/core-store.md:228` | — | — | Frozen sources fully supported (read/snapshot; getters returning frozen don't throw).** |
-| CS-R51 | live | `docs/rules-mining/core-store.md:233` | — | overlay.test.ts×1 write-floor.test.ts×2 | Proxy-invariant compliance via target indirection: keys/spread/descriptor reads never throw regardless of source rigidity; source-non-configurable prop readable, writable through the store, reported `… |
+| CS-R50 | live | `docs/rules-mining/core-store.md:228` | — | store-prototype-4670.test.ts×1 | Frozen sources fully supported (read/snapshot; getters returning frozen don't throw).** |
+| CS-R51 | live | `docs/rules-mining/core-store.md:233` | — | overlay.test.ts×1 store-prototype-4670.test.ts×2 write-floor.test.ts×2 | Proxy-invariant compliance via target indirection: keys/spread/descriptor reads never throw regardless of source rigidity; source-non-configurable prop readable, writable through the store, reported `… |
 | CS-R52 | live | `docs/rules-mining/core-store.md:237` | — | — | Symbol-keyed properties first-class: read/write/descriptors/preserved through root replacement + storePath root merge; on arrays symbol writes are metadata (never affect length).** |
 | CS-R53 | live | `docs/rules-mining/core-store.md:241` | — | — | Array key hygiene: non-index string keys never affect length; `s[len] = undefined` grows length AND creates a present key.** |
 | CS-R54 | live | `docs/rules-mining/core-store.md:245` | — | — | Array natives work through the proxy on read (filter/reduce/map/iterate) and draft (push/pop/shift) paths.** |
