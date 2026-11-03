@@ -333,6 +333,15 @@
     "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/optimistic-reverted"
   },
   {
+    "code": "OPTIMISTIC_WRITE_BEFORE_LOAD",
+    "kind": ["write"],
+    "severity": ["error"],
+    "category": "write",
+    "trigger": "Optimistic write to a source whose first answer has not landed; no guess is made",
+    "repair": "An optimistic setter ran before its source's first answer landed (`createOptimistic(async fn)`, or `createOptimisticStore(fn, seed)` whose derive has not landed — the seed does not count).",
+    "guideUrl": "https://v2.solidjs.com/reference/solid-js/diagnostics/optimistic-write-before-load"
+  },
+  {
     "code": "PENDING_ASYNC_FORBIDDEN_SCOPE",
     "kind": ["async"],
     "severity": ["warn"],

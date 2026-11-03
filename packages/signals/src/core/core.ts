@@ -1359,38 +1359,45 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // (Verdict readers and lanes exist only with their engines installed.)
   // #4544: nor a pass whose posture is only inherited, reading the hold's
   // own write (verdict.ts `holdStaging`): it is the hold's work.
+  // Not served the screen, the pass reads the staging and joins `el`'s
+  // transaction (`joinPass`), but for the lane case below.
   const verdict = observeFlightHook && c._config & CONFIG_VERDICT;
-  if (verdict && holdStagingHook!(c, el)) return false;
   const lane = laneStageHook && passLane !== null;
   if (
-    (!lane ||
-      (c._statusFlags & STATUS_UNINITIALIZED &&
-        (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
-    !verdict &&
-    // CONFIG_FRAME, spelled as at the effect's creation.
-    (!(c._config & (EFFECT_RENDER << 23)) || el._config & CONFIG_INPUTS_PUBLISHED)
-  )
-    return false;
-  const t = txOf(el);
-  // Lane work and verdict readers are never the transaction's pass, whichever
-  // flush runs it: a node T holds re-enters T when it re-runs (`recompute`'s
-  // head), and the pass may then read a guess and become the lane's.
-  // Except a lane re-based over this transaction's answer (merged since or
-  // not), in whichever flush: its rows are that answer's, so its work reads
-  // the rest of it (#4536). Served the screen outside that flush, a refresh
-  // or another change's flush re-derived it over the old inputs, and the
-  // landing committed that beside the new ones (F-1, D-34 ¶3, #4576, #4577).
-  if (
-    ((lane ? passLane!.over && resolveTx(passLane!.over) === t : t === flushTransaction) &&
-      !verdict) ||
-    bornInto(c, t)
-  )
-    return false;
-  staleReader(c, t);
-  // Lane work or a verdict reader no longer waits on `el`'s flight (lanes.ts
-  // `laneServed`, A15).
-  if (lane || verdict) laneServedHook!(c, el);
-  return true;
+    !(verdict && holdStagingHook!(c, el)) &&
+    !(
+      (!lane ||
+        (c._statusFlags & STATUS_UNINITIALIZED &&
+          (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
+      !verdict &&
+      // CONFIG_FRAME, spelled as at the effect's creation.
+      (!(c._config & (EFFECT_RENDER << 23)) || el._config & CONFIG_INPUTS_PUBLISHED)
+    )
+  ) {
+    const t = txOf(el);
+    // Lane work and verdict readers are never the transaction's pass, whichever
+    // flush runs it: a node T holds re-enters T when it re-runs (`recompute`'s
+    // head), and the pass may then read a guess and become the lane's.
+    // Except a lane re-based over this transaction's answer (merged since or
+    // not), in whichever flush: its rows are that answer's, so its work reads
+    // the rest of it (#4536). Served the screen outside that flush, a refresh
+    // or another change's flush re-derived it over the old inputs, and the
+    // landing committed that beside the new ones (F-1, D-34 ¶3, #4576, #4577).
+    // It reads that staging as the lane's render effects do, joining
+    // nothing — lane work never makes a flush the hold's (D-37). Joined, a
+    // plain write the flush carried was held into that hold while the lane
+    // showed it, and retracted at the next seam (F-7, #4643).
+    if (lane && passLane!.over && resolveTx(passLane!.over) === t && !verdict) return false;
+    if (!((!lane && t === flushTransaction && !verdict) || bornInto(c, t))) {
+      staleReader(c, t);
+      // Lane work or a verdict reader no longer waits on `el`'s flight
+      // (lanes.ts `laneServed`, A15).
+      if (lane || verdict) laneServedHook!(c, el);
+      return true;
+    }
+  }
+  joinPass(c, el);
+  return false;
 }
 
 /** A node born into transaction `t`: held by it and never committed (A29,
@@ -2159,7 +2166,6 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
           if (__TEST__) shadowActual(SLOT_C);
           return el._value as T;
         }
-        joinPass(c as Computed<any>, el);
       }
     }
     // Committed visibility for untracked and children-forbidden readers.
@@ -2277,9 +2283,8 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       !(el._config & CONFIG_OVERRIDE) &&
       !(c._config & CONFIG_CHILDREN_FORBIDDEN)
     ) {
-      if (owner._statusFlags & STATUS_UNINITIALIZED || !frameRead(c as Computed<any>, el))
-        joinPass(c as Computed<any>, el);
-      else committed = true;
+      if (owner._statusFlags & STATUS_UNINITIALIZED) joinPass(c as Computed<any>, el);
+      else committed = frameRead(c as Computed<any>, el);
     }
   } else if (__TEST__) shadowExpect(null, el, tracking, 0, spectating, false);
   // Lanes: a lane's node (after the pull — the node is current). NOT_PENDING

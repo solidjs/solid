@@ -636,11 +636,16 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
         (x._error as StatusError).source === n
       )
         enqueueSub(n as Computed<any>);
-    } else if (guess) {
+    } else if (
+      guess ||
+      (guessed && n._config & CONFIG_SLOT_NODE && n._pendingValue !== NOT_PENDING)
+    ) {
       // A guess of a dissolving lane: its truth — a landing held beneath it,
       // else the value it covered — is the parent's to land, and its readers
       // re-derive from it there. What the screen showed stays the screen
-      // until then (A18 (c)).
+      // until then (A18 (c)). A store slot the lane composed (a keyed
+      // re-base) over a truth staged on it is no derivation anything
+      // re-derives: it lands that truth the same way (D-34, #4642).
       if (n._pendingValue === NOT_PENDING) n._pendingValue = covered(n);
       if (l._shown) n._value = slot;
       holdNode(n, into);
@@ -1123,7 +1128,10 @@ const laneSeams = (t: Transaction | null): void => {
       // lane holds while the frame does (`laneSeam`).
       // Re-derived on the committed world, it paired the new rows with the
       // old inputs, and the landing revealed that beside them (F-1, D-34 ¶3,
-      // #4577).
+      // #4577). A lane linked to such a lane counts (one reveal unit): a
+      // memo seated in one whose pass read through the other read the
+      // frame's staging there, and, re-derived, it re-entered that lane,
+      // read it again and parked again, every round (#4643).
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
@@ -1131,7 +1139,7 @@ const laneSeams = (t: Transaction | null): void => {
               (r._config & CONFIG_VERDICT
                 ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
                 : !blocked(t!) || heldBy(t!, r))) ||
-            (l.over && liveTx(l.over) === t)
+            (l._links || [l]).some(u => u.over && liveTx(u.over) == t)
           : l &&
             !(
               r._flags & REACTIVE_PROBE_UNANSWERED ||

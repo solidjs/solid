@@ -160,9 +160,10 @@ function wakeFamily(fam: StoreFamily): void {
   // reader the landing leaves unchanged does not re-run to clear it (#4305).
   const error = new NotReadyError(fw);
   fam._woke = true;
-  optHooks?.ask(fam);
+  // A leaf the optimistic engine keeps off the wake (`ask`).
+  const skip = optHooks?.ask(fam);
   forEachFamilyNode(fam, n => {
-    if (n._subs === null) return;
+    if (n._subs === null || skip?.(n)) return;
     // The leaf carries the derive's pending as a propagated copy, as a memo
     // between them would: a dependent recovering one branch stays pending
     // through a leaf it still reads (core `retryReaches`), and the landing's
