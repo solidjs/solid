@@ -314,9 +314,10 @@ function hiddenBy(r: Computed<any>): Boundary | undefined {
   // boundary, A6) is transparent: on screen only through its readers. Read
   // only behind fallbacks — an error boundary built outside the `<Loading>`
   // whose content reads it — it holds nothing (F-4, D-14, #4638).
-  let h: Boundary | undefined;
+  let h: Boundary | undefined,
+    s = r._subs;
   if (r._config & CONFIG_REDERIVE && !(r as any)._type)
-    for (let s = r._subs; s !== null; s = s._nextSub) if (!(h = hiddenBy(s._sub))) return;
+    while (s !== null && (h = hiddenBy(s._sub))) s = s._nextSub;
   return h;
 }
 
