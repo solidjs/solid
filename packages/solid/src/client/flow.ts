@@ -217,33 +217,38 @@ export function Show<T>(props: {
             }
           : { equals: (a, b) => !a === !b, sync: true }
       );
-  // The accessor the selection last handed out. An `isPending()` probe
-  // reads `condition()` through the verdict path, which answers with the
-  // committed value of a condition staged this flush — a branch that
-  // mounted this flush would read as stale there (#4648). The branch the
-  // selection's own run created is live whatever the frame; any other
-  // accessor falls back to the tracked read below.
+  // A token for the selection's latest run. An `isPending()` probe reads
+  // `condition()` through the verdict path, which answers with the committed
+  // value of a condition staged this flush — a branch that mounted this flush
+  // would read as stale there (#4648). The accessor the latest run handed out
+  // (`shown === run`) is live whatever the frame; any older accessor falls
+  // back to the tracked read below.
   let shown: unknown;
   return createMemo(
     () => {
-      const c = condition();
-      shown = undefined;
+      const c = condition(),
+        run = (shown = {});
       if (c) {
         const child = props.children;
         const fn = typeof child === "function" && child.length > 0;
-        if (!fn) return child;
-        if (keyed) return untrack(() => (child as any)(c), IS_DEV && "<Show>");
-        // A tracked read, as Match's guard: the binding that reads is a
-        // frame reader, so it sees the screen's truthiness — held-closing
-        // branch still on screen (#4354), a `latest()`-selected first mount
-        // (#3948) — while a read after unmount sees the committed falsy and
-        // throws. `untrack(condition)` serves neither.
-        const item = () => {
-          if (shown !== item && !condition()) throw narrowedError("Show");
-          return conditionValue();
-        };
-        shown = item;
-        return untrack(() => (child as any)(item), IS_DEV && "<Show>");
+        return fn
+          ? keyed
+            ? untrack(() => (child as any)(c), IS_DEV && "<Show>")
+            : untrack(
+                () =>
+                  (child as any)(() => {
+                    // A tracked read, as Match's guard: the binding that reads
+                    // is a frame reader, so it sees the screen's truthiness —
+                    // held-closing branch still on screen (#4354), a
+                    // `latest()`-selected first mount (#3948) — while a read
+                    // after unmount sees the committed falsy and throws.
+                    // `untrack(condition)` serves neither.
+                    if (shown !== run && !condition()) throw narrowedError("Show");
+                    return conditionValue();
+                  }),
+                IS_DEV && "<Show>"
+              )
+          : child;
       }
       return props.fallback;
     },
@@ -316,25 +321,29 @@ export function Switch(props: { fallback?: SolidElement; children: SolidElement 
     },
     IS_OBSERVE ? { name: "conditions", sync: true } : { sync: true }
   );
-  // The accessor the selection last handed out: live inside a probe, as
-  // Show's (#4648).
+  // The selection's latest run, as Show's token (#4648): `sel` is a fresh
+  // tuple on every run.
   let shown: unknown;
   return createMemo(
     () => {
-      const sel = switchFunc()();
-      shown = undefined;
+      const sel = (shown = switchFunc()());
       if (!sel) return props.fallback;
       const [index, value, conditionValue, mp] = sel;
       const child = mp.children;
       const fn = typeof child === "function" && child.length > 0;
-      if (!fn) return child;
-      if (mp.keyed) return untrack(() => (child as any)(value), IS_DEV && "<Match>");
-      const item = () => {
-        if (shown !== item && untrack(switchFunc)()?.[0] !== index) throw narrowedError("Match");
-        return conditionValue();
-      };
-      shown = item;
-      return untrack(() => (child as any)(item), IS_DEV && "<Match>");
+      return fn
+        ? mp.keyed
+          ? untrack(() => (child as any)(value), IS_DEV && "<Match>")
+          : untrack(
+              () =>
+                (child as any)(() => {
+                  if (shown !== sel && untrack(switchFunc)()?.[0] !== index)
+                    throw narrowedError("Match");
+                  return conditionValue();
+                }),
+              IS_DEV && "<Match>"
+            )
+        : child;
     },
     IS_OBSERVE ? { name: "eval conditions", sync: true } : { sync: true }
   ) as unknown as SolidElement;
