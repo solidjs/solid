@@ -35,12 +35,15 @@ afterEach(() => vi.useRealTimers());
 // latest-reads-f:  (f(), latest(len)) — isolates the cause: the stale read of
 //                  `f`'s staging beside the window read of `list`'s flight.
 // f-after-latest:  latest(len) + (f(), 0) — the same reads in the other order.
+// plain-first:     (f(), len() + latest(len)) — a plain read of the flight
+//                  before the window: the frame's reader, it holds (A10, A15).
 type Shape =
   | "latest-branch"
   | "untrack-branch"
   | "latest-always"
   | "latest-reads-f"
-  | "f-after-latest";
+  | "f-after-latest"
+  | "plain-first";
 
 function page(shape: Shape, reader: "effect" | "view") {
   const asks: { key: string; res: (v: number[]) => void }[] = [];
@@ -63,11 +66,13 @@ function page(shape: Shape, reader: "effect" | "view") {
           ? (f(), latest(len))
           : shape === "f-after-latest"
             ? latest(len) + (f(), 0)
-            : f() === "open"
-              ? shape === "untrack-branch"
-                ? untrack(len)
-                : latest(len)
-              : -1
+            : shape === "plain-first"
+              ? (f(), len() + latest(len))
+              : f() === "open"
+                ? shape === "untrack-branch"
+                  ? untrack(len)
+                  : latest(len)
+                : -1
     );
     if (reader === "view")
       createRenderEffect(count, v => {
@@ -186,6 +191,14 @@ describe("#4661 a memo's latest() posture does not hold a Loading on switch (F-6
       before: ["[3]1,2,3", undefined],
       during: ["[3]loading closed", undefined],
       after: ["[1]9", undefined]
+    });
+  });
+
+  test("a plain read of the flight before the window: a frame reader, the switch is held", async () => {
+    expect(await run("plain-first", "view")).toEqual({
+      before: ["[6]1,2,3", undefined],
+      during: ["[6]1,2,3", undefined],
+      after: ["[2]9", undefined]
     });
   });
 });

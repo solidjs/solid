@@ -67,7 +67,7 @@ import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { display, flightReader, laneValueOf, readAhead, verdictLane } from "./lanes.js";
+import { ahead, display, laneValueOf, verdictLane } from "./lanes.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
   blocked,
@@ -162,7 +162,6 @@ function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
   if (globalQueue._running && (c as any)._fam?.live.size !== 0) {
     joinFuture(null);
     if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
-    flightReader(c);
     verdictRead(c, flushTransaction!, true);
   }
   return true;
@@ -285,12 +284,14 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
       // seam, where a re-run would open it again, every flush (F-6, D-23).
       // (The mark is the transaction's own — `Transaction.latest` — so
       // nothing outlives its landing.)
+      // Read ahead of, by a pass no plain read of a flight routed yet
+      // (`observeFlight`): no frame read of it (F-6, #4661; lanes.ts
+      // `laneSeams`). Once routed, the pass's later plain reads are the
+      // lane's and mark nothing.
       if (!probing) {
+        c._flags & REACTIVE_LANE_READ || ahead.push(c);
         flushTransaction ||
           (joinFuture(null), ((flushTransaction as Transaction | null)!.latest = 1));
-        // Read ahead of: no frame read of it, whatever else the pass marked
-        // (F-6, #4661; lanes.ts `readAhead`).
-        readAhead(c, flushTransaction!);
       } else if (flushTransaction?.latest) return route(c, flushTransaction);
       provisionalVerdict(c, false); // decided above
     }
