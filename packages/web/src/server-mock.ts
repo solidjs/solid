@@ -265,6 +265,12 @@ export function renderToStream<T>(
      * "signal"`); the one teardown handle for a host whose transport cannot
      * report a dead consumer through the sink or the readable view — pass
      * `request.signal`.
+     * Awaiting the render rejects with `signal.reason` when this signal aborts;
+     * the streaming forms stop writing and end cleanly — a close, not an
+     * error, since bytes are already out: `pipe` ends its sink, `pipeTo`
+     * closes its writable (after the writes already handed to it) and
+     * resolves, and `readable` closes. `onError` and `onCompleteAll` are not
+     * called (#4646).
      */
     signal?: AbortSignal;
   }
@@ -273,7 +279,7 @@ export function renderToStream<T>(
    * Awaiting the stream resolves with the complete HTML once every boundary
    * settles — the fully-settled-string form of the render. Render errors
    * route through `onError` and the promise resolves with whatever HTML the
-   * render produced; it never rejects.
+   * render produced. Signal cancellation rejects with `signal.reason`.
    */
   then<TResult1 = string, TResult2 = never>(
     onfulfilled?: ((html: string) => TResult1 | PromiseLike<TResult1>) | null,

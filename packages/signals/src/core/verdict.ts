@@ -67,7 +67,7 @@ import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { display, laneValueOf, verdictLane } from "./lanes.js";
+import { ahead, display, laneValueOf, verdictLane } from "./lanes.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
   blocked,
@@ -154,6 +154,10 @@ function route(c: Computed<any>, t: Transaction): void {
  * transaction (`bornInto`, #4010): it has no screen — it waits on the flight
  * with the rest of its frame. */
 function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
+  // A render effect routed into a verdict lane reads the screen as lane
+  // work (D-26). A memo still observes the flight: a plain read after its
+  // window is the frame's read, as one before it is (A10, F-6, #4661).
+  if (passLane && (c as any)._type && !(c._statusFlags & STATUS_UNINITIALIZED)) return true;
   if (el._config & CONFIG_INPUTS_PUBLISHED || (el._config & CONFIG_HELD && bornInto(c, txOf(el))))
     return false;
   // A derived store's derive whose store has no reader (`fam.live` empty:
@@ -162,6 +166,7 @@ function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
   if (globalQueue._running && (c as any)._fam?.live.size !== 0) {
     joinFuture(null);
     if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
+    ahead.splice(ahead.indexOf(c) >>> 0, 1);
     verdictRead(c, flushTransaction!, true);
   }
   return true;
@@ -284,10 +289,15 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
       // seam, where a re-run would open it again, every flush (F-6, D-23).
       // (The mark is the transaction's own — `Transaction.latest` — so
       // nothing outlives its landing.)
-      if (!probing)
+      // Read ahead of, by a pass no plain read of a flight routed yet
+      // (`observeFlight`): no frame read of it (F-6, #4661; lanes.ts
+      // `laneSeams`). Once routed, the pass's later plain reads are the
+      // lane's and mark nothing.
+      if (!probing) {
+        c._flags & REACTIVE_LANE_READ || ahead.push(c);
         flushTransaction ||
           (joinFuture(null), ((flushTransaction as Transaction | null)!.latest = 1));
-      else if (flushTransaction?.latest) return route(c, flushTransaction);
+      } else if (flushTransaction?.latest) return route(c, flushTransaction);
       provisionalVerdict(c, false); // decided above
     }
   }
@@ -722,18 +732,26 @@ function holdWork(n: Computed<any>, source: Computed<any>): unknown {
 function stageMark(node: Computed<any>, el: Computed<any>): void {
   if (
     el._config & CONFIG_STAGED_ERROR &&
-    !(
-      node._config &
-      (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | CONFIG_ASYNC | (EFFECT_TRACKED << 23))
-    )
+    !(node._config & (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | (EFFECT_TRACKED << 23)))
   ) {
-    node._pendingValue = el._pendingValue;
-    node._config |= CONFIG_STAGED_ERROR;
-    queuePendingNode(node);
-    // A derived store's readers are its family's (store/projection.ts): they
-    // re-derive from the staging, as from the derive's status (#4189).
-    (node as any)._fam?.st(STATUS_ERROR);
-    settlePendingSource(node);
+    // Only a node that reads a staging carries it. The walk also reaches the
+    // readers of a node it does not mark (a boundary's output, whose pass
+    // decides content or fallback): what they get comes through that node,
+    // not as the staging. An async memo over a staging is marked, so its
+    // readers stay pending until the commit (F-9, D-22, D-23).
+    // A memo over an error boundary's output is a plain reader of it (F-3:
+    // where the memo sits does not matter); marked, it threw the error past
+    // the boundary that caught it, and the commit halted (#4640).
+    for (let d = node._deps; d; d = d._nextDep)
+      if (d._dep._config & CONFIG_STAGED_ERROR) {
+        node._pendingValue = el._pendingValue;
+        node._config |= CONFIG_STAGED_ERROR;
+        queuePendingNode(node);
+        // A derived store's readers are its family's (store/projection.ts): they
+        // re-derive from the staging, as from the derive's status (#4189).
+        (node as any)._fam?.st(STATUS_ERROR);
+        return settlePendingSource(node);
+      }
   }
 }
 
@@ -744,7 +762,10 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
 function keepReaders(el: Computed<any>): void {
   for (let s = el._subs; s !== null; s = s._nextSub) {
     const r = s._sub;
-    if ((r._config & (CONFIG_HELD | CONFIG_STAGED)) !== (CONFIG_HELD | CONFIG_STAGED) || (r as any)._type)
+    if (
+      (r._config & (CONFIG_HELD | CONFIG_STAGED)) !== (CONFIG_HELD | CONFIG_STAGED) ||
+      (r as any)._type
+    )
       continue;
     let d = r._deps;
     while (d !== null && (d._dep === el || !(d._dep._config & CONFIG_HELD))) d = d._nextDep;

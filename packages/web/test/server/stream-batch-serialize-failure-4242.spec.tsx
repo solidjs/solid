@@ -6,7 +6,9 @@
  * that fails to serialize ends the whole write it belongs to, so one async
  * value seroval cannot handle left every other value in its batch pending on
  * the client, Loading boundaries' `_fr` completion flags included, and the
- * page never finished hydrating. A failed value fails only its own key.
+ * page never finished hydrating. Writes remain isolated, but an async
+ * serialization failure fails the render rather than reporting it complete
+ * with a stranded key (#4647).
  */
 import vm from "node:vm";
 import { describe, expect, test } from "vitest";
@@ -66,8 +68,8 @@ async function render(app: () => any) {
 }
 
 describe("renderToStream: a value that fails to serialize in the pre-shell batch (#4242)", () => {
-  test("getHydrationWriter().write: the other pending keys still resolve", async () => {
-    const { r, heard } = await render(() => {
+  test("getHydrationWriter().write: a pre-shell failure fails the render", async () => {
+    const { html, r, heard } = await render(() => {
       const writer = getHydrationWriter()!;
       writer.write(
         "lib:bad",
@@ -77,8 +79,14 @@ describe("renderToStream: a value that fails to serialize in the pre-shell batch
       return <main>page</main>;
     });
     expect(heard.length).toBe(1);
-    expect(await outcome(r["lib:fine"])).toEqual({ fulfilled: "still here" });
-    expect(await outcome(r["lib:bad"])).toBe("pending");
+    // Was: "lib:fine" fulfils and "lib:bad" stays pending (the rc.17
+    // behaviour #4242 left alone). Ryan's ruling on #4647 (2026-11-03):
+    // "failing ssr on failed serialization feels reasonable otherwise we
+    // could be midstream". The bad value failed before the shell went out,
+    // so the render fails and nothing ships. (Past the first flush its key
+    // rejects on the client instead: stream-async-serialize-failure-4647.)
+    expect(html).toBe("");
+    expect(Object.keys(r)).toEqual([]);
   });
 
   test("an async memo resolving to a Loading boundary: both boundaries settle", async () => {
@@ -107,12 +115,23 @@ describe("renderToStream: a value that fails to serialize in the pre-shell batch
     ]);
   });
 
-  test("a boundary rejecting with a value seroval cannot handle: its siblings still complete", async () => {
-    const { r } = await render(() => [
+  test("a boundary rejecting with a value seroval cannot handle: the render fails before the shell", async () => {
+    const { html, r, heard } = await render(() => [
       slot(() => Promise.reject(Object.assign(new Error("boom"), { retry: () => 1 })), "bad"),
       slot(async () => "fine", "fine")
     ]);
-    expect(Object.keys(r).filter(k => k.endsWith("_fr"))).toEqual(["0_fr", "1_fr"]);
-    expect(await outcome(r["1_fr"])).toEqual({ fulfilled: true });
+    // The rejection never reaches the client, so `0_fr` would stay pending
+    // there forever: it failed before the first flush, so the render fails
+    // instead (#4647; maintainer ruling, 2026-11-03), and nothing of the
+    // document ships beside the key that cannot settle. The rejection
+    // reaches two writes: each parses it and fails on its own, rather than
+    // the second pointing at the slot the failed first one never filled.
+    expect(heard.map(e => String(e))).toEqual([
+      expect.stringContaining("cannot be parsed/serialized"),
+      "Error: boom",
+      expect.stringContaining("cannot be parsed/serialized")
+    ]);
+    expect(html).toBe("");
+    expect(Object.keys(r)).toEqual([]);
   });
 });

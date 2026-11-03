@@ -1272,7 +1272,6 @@ export interface LiveServerFunction<A extends readonly any[] = any[], R = any> {
 /**
  * Declares a live server function whose answer is the same for every
  * viewer: on the client exactly `live(fn)` — the sharing is the server's.
- * @experimental
  */
 export function broadcast<A extends readonly any[], R>(
   fn: (...args: A) => R
