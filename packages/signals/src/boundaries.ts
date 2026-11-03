@@ -369,10 +369,21 @@ function caughtBelow(b: Boundary, r: Computed<any>, s: Computed<any>): boolean {
   return false;
 }
 
+/** `n` reads `s`, directly or through derivations wherever they live (a
+ * hoisted memo, a derived store's derive, a loading boundary's output). */
+function reads(n: Computed<any>, s: Computed<any>): boolean {
+  for (let l = n._deps; l; l = l._nextDep)
+    if (l._dep === s || reads(l._dep as Computed<any>, s)) return true;
+  return false;
+}
+
 /** Drop the readers that settled or died. Settled: a loading reader no
- * longer pending; an error's source neither errored nor in flight, or read by
- * nothing — a reader that caught it and re-ran clean (the tree, a memo-only
- * read gated away) no longer holds it (D-39, #4644). A reader
+ * longer pending; an error's source neither errored nor in flight, or no
+ * longer read by the reader that caught it: the boundary waits on what threw
+ * only while such a reader is alive. One that re-ran clean (the tree, a
+ * memo-only read gated away) holds nothing, and a reader outside the
+ * boundary — a hoisted memo, a derived store, a reader under another
+ * boundary — never caught its error (D-39, #4644). A reader
  * that landed but is held (its value staged in a transaction) is not: the
  * content reveals at the commit, with its run. The tree is: the output reads
  * it and enters the transaction itself (its committed value shows until the
@@ -402,7 +413,7 @@ export function prune(b: Boundary, pass?: boolean | 0): number {
       // settled before it ran, a fresh boundary revealed into a hold its
       // pass then went pending in, which waited on that flight (#4568).
       if (
-        ((r._statusFlags | (s._subs ? s._statusFlags : 0)) & mask &&
+        ((r._statusFlags & mask || (s._statusFlags & mask && reads(r, s))) &&
           !(mask & STATUS_ERROR && caughtBelow(b, r, s))) ||
         (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR) ||
         (r._config & CONFIG_VERDICT && r._flags & REACTIVE_IN_HEAP)

@@ -12,6 +12,7 @@ import { render, type JSX } from "@solidjs/web";
 import {
   createMemo,
   createSignal,
+  createStore,
   Errored,
   flush,
   For,
@@ -94,3 +95,69 @@ for (const withLoading of [true, false])
       dispose();
       expect({ failed, after }).toEqual({ failed: "could not load", after: "about page" });
     });
+
+// Only a reader the boundary caught keeps it waiting (D-39): something
+// outside it still reading the failed memo — a memo or a derived store
+// hoisted above the <Errored>, a header count under another <Errored> — did
+// not catch this boundary's error and does not keep its fallback up.
+for (const shape of [
+  "derived memo outside",
+  "derived store outside",
+  "header reader outside"
+] as const)
+  test(`${shape}: navigating away from a failed list heals <Errored> (#4644)`, async () => {
+    let rejectList!: (e: Error) => void;
+    let setPage!: (p: string) => void;
+    const el = document.createElement("div");
+    const dispose = render(() => {
+      const [page, set] = createSignal("list");
+      setPage = set;
+      const rows = createMemo(
+        () =>
+          new Promise<number[]>((_, reject) => {
+            rejectList = reject;
+          })
+      );
+      let read: () => number[] = rows;
+      if (shape === "derived memo outside") read = createMemo(() => [...rows()].sort());
+      if (shape === "derived store outside") {
+        const [st] = createStore<{ l: number[] }>(
+          d => {
+            d.l = rows();
+          },
+          { l: [] }
+        );
+        read = () => st.l;
+      }
+      return (
+        <>
+          {shape === "header reader outside" && (
+            <Errored fallback={<i>hdr-err</i>}>
+              <i>{rows().length}</i>
+            </Errored>
+          )}
+          <Errored fallback={<p>could not load</p>}>
+            <Show when={page() === "list"} fallback={<p>about page</p>}>
+              <Show when={read().length === 0} fallback={<p>some</p>}>
+                <p>no rows</p>
+              </Show>
+            </Show>
+          </Errored>
+        </>
+      );
+    }, el);
+    await tick();
+    rejectList(new Error("boom"));
+    await tick();
+    const failed = el.textContent;
+    setPage("about");
+    flush();
+    await tick();
+    const after = el.textContent;
+    dispose();
+    const hdr = shape === "header reader outside" ? "hdr-err" : "";
+    expect({ failed, after }).toEqual({
+      failed: hdr + "could not load",
+      after: hdr + "about page"
+    });
+  });
