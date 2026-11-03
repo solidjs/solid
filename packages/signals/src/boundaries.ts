@@ -307,7 +307,7 @@ function armedOver(node: Computed<any>): boolean | undefined {
 
 /** The nearest boundary on `r`'s chain showing its fallback, if any
  * (`hiddenHook`: `r` is behind a fallback). */
-function hiddenBy(r: Computed<any>, through?: 1): Boundary | undefined {
+function hiddenBy(r: Computed<any>, seen?: Set<Computed<any>>): Boundary | undefined {
   for (let b: Boundary | null | undefined = boundaryOf(r); b; b = b._parent)
     if (b._fallback) return b;
   // A boundary output passing a pending by (CONFIG_REDERIVE: an error
@@ -317,11 +317,20 @@ function hiddenBy(r: Computed<any>, through?: 1): Boundary | undefined {
   // fallbacks — an error boundary built outside the `<Loading>` whose
   // content reads it — it holds nothing (F-4, D-14, #4638). Reaching none,
   // `h` is `1`: hidden with no boundary to name, only ever for a non-effect
-  // (`heldRun` asks about effects).
+  // (`heldRun` asks about effects). Inside the walk a user effect reached
+  // through the output reads nothing on screen (Reader: never a reader), and
+  // a node already walked is not walked again (`seen`: had it reached a
+  // shown effect the walk would have stopped), so a memo lattice below the
+  // output costs its size, not its paths.
   let h: any,
     s = r._subs;
-  if (!(r as any)._type && (through || r._config & CONFIG_REDERIVE))
-    for (h = 1; s !== null && (h = hiddenBy(s._sub, 1)); ) s = s._nextSub;
+  if ((r as any)._type) seen && (r as any)._type !== EFFECT_RENDER && (h = 1);
+  else if (seen || r._config & CONFIG_REDERIVE)
+    for (
+      seen ||= new Set(), h = 1;
+      s && (h = seen.has(s._sub) || !seen.add(s._sub) || hiddenBy(s._sub, seen));
+    )
+      s = s._nextSub;
   return h;
 }
 
@@ -535,8 +544,9 @@ function reportOutsideHold(b: Boundary): void {
     // Behind a fallback, or under a boundary whose output only such content
     // reads — an error boundary built outside `b`: the fallback is seen
     // (D-16, #4639).
-    const out = boundaryOf(reader)?._output;
-    if (hiddenBy(reader) || (out && hiddenBy(out))) return false;
+    const rb = boundaryOf(reader);
+    if (hiddenBy(reader) || (rb?._tree === reader && rb._output && hiddenBy(rb._output)))
+      return false;
     for (let o: Boundary | null | undefined = boundaryOf(reader); o; o = o._parent)
       if (o === b) return false;
     return true;
