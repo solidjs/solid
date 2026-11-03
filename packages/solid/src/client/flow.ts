@@ -34,10 +34,11 @@ type ForOptions<T> = {
   name?: string;
 };
 
-const narrowedError = (name: string) =>
-  IS_DEV
+const narrowedError = (name: string): never => {
+  throw IS_DEV
     ? `Attempting to access a stale value from <${name}> that could possibly be undefined. This may occur because you are reading the accessor returned from the component at a time where it has already been unmounted. We recommend cleaning up any stale timers or async, or reading from the initial condition.`
     : `Stale read from <${name}>.`;
+};
 
 /**
  * Creates a list of elements from a list.
@@ -248,7 +249,7 @@ export function Show<T>(props: {
                     // `latest()`-selected first mount (#3948) — while a read
                     // after unmount sees the committed falsy and throws.
                     // `untrack(condition)` serves neither.
-                    if (!(verdict && shown === run) && !condition()) throw narrowedError("Show");
+                    (verdict && shown === run) || condition() || narrowedError("Show");
                     return conditionValue();
                   }),
                 IS_DEV && "<Show>"
@@ -342,8 +343,9 @@ export function Switch(props: { fallback?: SolidElement; children: SolidElement 
           : untrack(
               () =>
                 (child as any)(() => {
-                  if (!(verdict && shown === sel) && untrack(switchFunc)()?.[0] !== index)
-                    throw narrowedError("Match");
+                  (verdict && shown === sel) ||
+                    untrack(switchFunc)()?.[0] === index ||
+                    narrowedError("Match");
                   return conditionValue();
                 }),
               IS_DEV && "<Match>"
