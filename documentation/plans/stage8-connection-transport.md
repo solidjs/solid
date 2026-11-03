@@ -389,7 +389,8 @@ component ("summarize the room") for the bounded contrast.
   `pumpIterator`. Pinned in `frame-teardown.spec.tsx` (body cancel; request
   abort ends the body; already-aborted request renders nothing; through
   the handler; flight response) and `server-diagnostics.spec.tsx` (the
-  document face: reason `signal`, sink never touched again).
+  document face: reason `signal`, sink ended once and never written after the abort;
+  #4646).
 
 ### B2 — frames consume `live`
 

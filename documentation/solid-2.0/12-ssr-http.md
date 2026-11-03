@@ -24,7 +24,7 @@ Client (`@solidjs/web` in the browser):
 Server (`@solidjs/web` under the `node`/`deno`/`worker` conditions):
 
 - `renderToString(() => <App />)` — synchronous; async boundaries render their fallbacks.
-- `renderToStream(() => <App />, options?)` — the streaming renderer: the shell flushes first, and each async boundary streams its resolved fragment plus the activation script that swaps it in. A primitive marked `deferStream: true` (RFC 05) holds the shell flush until its first value resolves instead of letting the enclosing `<Loading>` fallback into the HTML. The returned stream is also a thenable: `await renderToStream(...)` resolves once the tree settles with the fully-resolved HTML string — the settled-string form of the render (what `renderToStringAsync` was before its removal).
+- `renderToStream(() => <App />, options?)` — the streaming renderer: the shell flushes first, and each async boundary streams its resolved fragment plus the activation script that swaps it in. A primitive marked `deferStream: true` (RFC 05) holds the shell flush until its first value resolves instead of letting the enclosing `<Loading>` fallback into the HTML. The returned stream is also a thenable: `await renderToStream(...)` resolves once the tree settles with the fully-resolved HTML string — the settled-string form of the render (what `renderToStringAsync` was before its removal). Render errors go to `onError` and the promise still resolves with whatever HTML the render produced; the one rejection is the `signal` option aborting, which rejects the awaited form with `signal.reason` ([#4646](https://github.com/solidjs/solid/issues/4646)).
 
 For hydration, the document needs the hydration script ahead of the app markup: `generateHydrationScript({ nonce?, eventNames? })` returns it as a string for hand-built documents, and `<HydrationScript />` renders it in JSX documents.
 
@@ -76,6 +76,8 @@ export function handler(request: Request): Response {
   });
 }
 ```
+
+If the `signal` option aborts, every surface stops writing (except the late-`Location` script `createSSRResponse` appends; see below) and ends cleanly: a close, not an error, since the bytes already sent stay sent. `pipe` ends its sink, `pipeTo` closes its writable and its promise resolves (it does not reject), and `readable` closes. Neither `onError` nor `onCompleteAll` is called. Under `createSSRResponse`, an abort after the shell ends the `200` body; one before the shell still resolves with a bodyless `500` (see below). Only the awaited form rejects, with `signal.reason` ([#4646](https://github.com/solidjs/solid/issues/4646)).
 
 `readable` exists because web-standard servers (workers, Deno, fetch-shaped Node frameworks) construct a `Response` from a `ReadableStream` — with only `pipeTo`, every integration re-derived the same `TransformStream` dance by hand.
 
@@ -357,7 +359,7 @@ export function handleRequest(request: Request): Promise<Response> {
   - **At shell flush** — the moment the head freezes — the stub is `committed` and its status/headers are merged over `options.responseInit` (`Set-Cookie` values survive as separate entries; `Server-Timing` folds entry by entry; `content-type` defaults to `text/html; charset=utf-8`). The commit is also where the request's trace reaches the head (`Server-Timing: traceparent;desc="…"` — see `getTraceContext()`).
   - **A `Location` present before the flush** becomes a real redirect instead of an HTML response: bodyless, carrying the stub’s cookies, with the status from `getExpectedRedirectStatus` (also exported — the stub’s own status when it is a redirect status, `302` otherwise, because a status set for the page render doesn’t describe the redirect that preempts it).
   - **A `Location` set after the flush** can only be honored client-side: stream completion appends `<script>window.location=…</script>` before closing, carrying `options.nonce` so a strict `script-src` CSP doesn’t block it.
-  - **A render that ends before the flush** (it failed, which `onError` hears as `handling: "failed"`, or its `signal` aborted) produced no page: the promise resolves with a bodyless `500` (a `Location` already on the stub still redirects) and the stub is committed. It never rejects.
+  - **A render that ends before the flush** (it failed, which `onError` hears as `handling: "failed"`, or its `signal` aborted) produced no page: the promise resolves with a bodyless `500` (a `Location` already on the stub still redirects) and the stub is committed. It never rejects. A `signal` abort after the flush ends the streamed body cleanly instead, still appending the late-`Location` script.
   - `options.transformChunk(chunk)` rewrites each outgoing HTML chunk — the seam handlers use for entry-script injection and doctype prefixes.
 
   String results return a `Response` synchronously; stream results return a promise that resolves at shell flush, so returning it from a fetch handler sends the head at the right moment by construction.
