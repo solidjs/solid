@@ -8,7 +8,7 @@
 // of the memo, so the new branch shows. A reader that is only a memo — the
 // condition of a <Show> or <Match> — used to keep the boundary stuck.
 import { expect, test } from "vitest";
-import { render } from "@solidjs/web";
+import { render, type JSX } from "@solidjs/web";
 import {
   createMemo,
   createSignal,
@@ -18,8 +18,7 @@ import {
   Loading,
   Match,
   Show,
-  Switch,
-  type JSX
+  Switch
 } from "solid-js";
 
 const tick = async () => {
