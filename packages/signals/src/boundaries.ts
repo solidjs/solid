@@ -373,11 +373,10 @@ function caughtBelow(b: Boundary, r: Computed<any>, s: Computed<any>): boolean {
  * hoisted memo, a derived store's derive, a loading boundary's output). Each
  * upstream node is walked once (`seen`), so a shared upstream graph costs its
  * size, not its paths. */
-function reads(n: Computed<any>, s: Computed<any>, seen = new Set<any>()): boolean {
-  for (let l = n._deps, d; l; l = l._nextDep)
-    if ((d = l._dep) === s || (seen.size < seen.add(d).size && reads(d as Computed<any>, s, seen)))
-      return true;
-  return false;
+function reads(n: Computed<any>, s: Computed<any>, seen?: Set<any>): any {
+  for (let l = n._deps, h; l; l = l._nextDep)
+    if ((h = l._dep) === s || ((seen ||= new Set()).size < seen.add(h).size && reads(h, s, seen)))
+      return 1;
 }
 
 /** Drop the readers that settled or died. Settled: a loading reader no
