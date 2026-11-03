@@ -1325,7 +1325,14 @@ export function membershipChanged(
 ): boolean {
   const nk = Reflect.ownKeys(neu);
   if (Reflect.ownKeys(old).length - +isOwned(old) !== nk.length - +isOwned(neu)) return true;
-  for (const key of nk) if (key !== $OWNER && !(key in old)) return true;
+  // Enumerability is membership too: `Object.keys`/`for…in`/spread list only
+  // enumerable keys, so a flip alone changes the key set (#4671, CS-R51).
+  for (const key of nk)
+    if (
+      key !== $OWNER &&
+      (!(key in old) || propertyIsEnumerable.call(old, key) !== propertyIsEnumerable.call(neu, key))
+    )
+      return true;
   return false;
 }
 
@@ -2381,7 +2388,11 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (key === "__proto__") return true;
     if (desc.get || desc.set) target.a = true;
     if ("value" in desc) desc = { ...desc, value: unwrapValue(desc.value) };
-    const pb = ensurePB(target);
+    // A descriptor lands on the clone, never an overlay (diffed by presence
+    // only, flattened by assignment): an enumerability flip reaches the key
+    // set (#4671, CS-R51).
+    ensurePB(target);
+    const pb = materializePB(target);
     if (target.a || !(desc.enumerable && desc.writable && desc.configurable)) target.sc = 1;
     touch(target, key);
     Object.defineProperty(pb, key, desc);

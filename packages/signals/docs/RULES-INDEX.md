@@ -28,7 +28,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | C | 4 | 0 | 3 | 1 |
 | INV | 11 | 4 | 7 | 4 |
 | RUL | 13 | 3 | 6 | 6 |
-| R (CS) | 59 | 15 | 16 | 32 |
+| R (CS) | 59 | 16 | 17 | 31 |
 | R (OL) | 37 | 4 | 1 | 32 |
 | R (OS) | 46 | 0 | 0 | 46 |
 | R (PJ) | 37 | 2 | 5 | 32 |
@@ -151,11 +151,11 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | CS-R7 | live | `docs/rules-mining/core-store.md:34` | — | — | Circular references wrap without infinite recursion; cycle consistent through proxy (`state.b.a === state.a`).** |
 | CS-R8 | live | `docs/rules-mining/core-store.md:38` | — | — | `snapshot` returns fully unwrapped values (no proxy anywhere, `$TARGET` undefined), incl. frozen objects/arrays; reflects committed written values incl. writes over inherited prototype props.** |
 | CS-R9 | live | `docs/rules-mining/core-store.md:42` | store.ts×2 target.ts×1 | — | Proxy identity per logical slot is stable across writes and reconciles** (mapArray keyed flows reuse rows across refetch/reconcile). |
-| CS-R10 | live | `docs/rules-mining/core-store.md:48` | — | next-smoke.test.ts×1 | Per-property tracking; same-value writes (direct or functional path setter returning prev) do not re-trigger.** |
+| CS-R10 | live | `docs/rules-mining/core-store.md:48` | — | enumerability-key-set-4671.test.ts×1 next-smoke.test.ts×1 | Per-property tracking; same-value writes (direct or functional path setter returning prev) do not re-trigger.** |
 | CS-R11 | live | `docs/rules-mining/core-store.md:52` | — | visibility-oracle-store.states.ts×3 visibility-oracle.states.ts×2 | Per-path tracking: reading `state.user.firstName` subscribes to that leaf; reading the reference `store[0]` does not subscribe to `store[0].i`.** |
 | CS-R12 | live | `docs/rules-mining/core-store.md:56` | store.ts×1 | — | Reading an absent key subscribes to that key: other-key changes don't trigger; defining it later (assignment or defineProperty) does.** |
 | CS-R13 | live | `docs/rules-mining/core-store.md:60` | store.ts×2 target.ts×1 | — | `in` tracks presence, not value: undefined-write doesn't retrigger; delete does; adding absent key does. `in`/`has` never invokes source getters.** |
-| CS-R14 | live | `docs/rules-mining/core-store.md:64` | — | — | `Object.keys` / `for…in` subscribe to key-set membership (root and nested) — distinct from property nodes.** Aligned: key-set node. |
+| CS-R14 | live | `docs/rules-mining/core-store.md:64` | — | enumerability-key-set-4671.test.ts×2 | `Object.keys` / `for…in` subscribe to key-set membership (root and nested) — distinct from property nodes.** Aligned: key-set node. |
 | CS-R15 | live | `docs/rules-mining/core-store.md:68` | store.ts×1 | — | Array structural tracking is uniform across idioms: indexed length loop, `for…of`, mapArray ($TRACK) all re-run exactly once per flush on add/update/removal.** |
 | CS-R16 | live | `docs/rules-mining/core-store.md:72` | — | — | `length` independently trackable; index write extending the array notifies length subscribers.** |
 | CS-R17 | live | `docs/rules-mining/core-store.md:76` | — | — | Truncating via `length = N` notifies tracked index reads of removed slots (re-run, observe undefined) and clears has/index/keys for removed indices.** |
@@ -192,7 +192,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | CS-R48 | live | `docs/rules-mining/core-store.md:220` | — | — | User class instances (custom prototypes) DO wrap: prototype getters track; methods on the draft receive the proxy as `this` (reactive writes).** |
 | CS-R49 | live | `docs/rules-mining/core-store.md:224` | — | — | Null-prototype objects wrap and track; function-valued props callable through the proxy.** |
 | CS-R50 | live | `docs/rules-mining/core-store.md:228` | — | — | Frozen sources fully supported (read/snapshot; getters returning frozen don't throw).** |
-| CS-R51 | live | `docs/rules-mining/core-store.md:233` | — | overlay.test.ts×1 write-floor.test.ts×2 | Proxy-invariant compliance via target indirection: keys/spread/descriptor reads never throw regardless of source rigidity; source-non-configurable prop readable, writable through the store, reported `… |
+| CS-R51 | live | `docs/rules-mining/core-store.md:233` | store.ts×2 | enumerability-key-set-4671.test.ts×1 overlay.test.ts×1 write-floor.test.ts×2 | Proxy-invariant compliance via target indirection: keys/spread/descriptor reads never throw regardless of source rigidity; source-non-configurable prop readable, writable through the store, reported `… |
 | CS-R52 | live | `docs/rules-mining/core-store.md:237` | — | — | Symbol-keyed properties first-class: read/write/descriptors/preserved through root replacement + storePath root merge; on arrays symbol writes are metadata (never affect length).** |
 | CS-R53 | live | `docs/rules-mining/core-store.md:241` | — | — | Array key hygiene: non-index string keys never affect length; `s[len] = undefined` grows length AND creates a present key.** |
 | CS-R54 | live | `docs/rules-mining/core-store.md:245` | — | — | Array natives work through the proxy on read (filter/reduce/map/iterate) and draft (push/pop/shift) paths.** |
