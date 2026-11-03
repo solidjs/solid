@@ -726,8 +726,9 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
   ) {
     // Only a node that reads a staging carries it. The walk also reaches the
     // readers of a node it does not mark (a boundary's output, whose pass
-    // decides content or fallback; an async memo, which the commit's publish
-    // reaches): what they get comes through that node, not as the staging.
+    // decides content or fallback): what they get comes through that node,
+    // not as the staging. An async memo over a staging is marked, so its
+    // readers stay pending until the commit (F-9, D-22, D-23).
     // A memo over an error boundary's output is a plain reader of it (F-3:
     // where the memo sits does not matter); marked, it threw the error past
     // the boundary that caught it, and the commit halted (#4640).
