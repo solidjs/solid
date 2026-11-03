@@ -324,10 +324,9 @@ function hiddenBy(r: Computed<any>, seen?: Set<Computed<any>>): Boundary | undef
   // output costs its size, not its paths.
   let h: any,
     s = r._subs;
-  if ((r as any)._type) h = seen && (r as any)._type - EFFECT_RENDER;
-  else if (seen || r._config & CONFIG_REDERIVE)
+  if (seen || r._config & CONFIG_REDERIVE)
     for (
-      seen ||= new Set(), h = 1;
+      seen ||= new Set(), h = (r as any)._type != EFFECT_RENDER;
       s && (h = seen.size == seen.add(s._sub).size || hiddenBy(s._sub, seen));
     )
       s = s._nextSub;
