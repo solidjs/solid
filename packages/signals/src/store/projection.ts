@@ -163,7 +163,7 @@ function wakeFamily(fam: StoreFamily): void {
   // A leaf the optimistic engine keeps off the wake (`ask`).
   const skip = optHooks?.ask(fam);
   forEachFamilyNode(fam, n => {
-    if (n._subs === null || (skip && skip(n))) return;
+    if (n._subs === null || skip?.(n)) return;
     // The leaf carries the derive's pending as a propagated copy, as a memo
     // between them would: a dependent recovering one branch stays pending
     // through a leaf it still reads (core `retryReaches`), and the landing's

@@ -187,18 +187,15 @@ export function notifyOptimisticWrites(
         const k = isWrappable(rows[i]) ? keyFn(rows[i]) : undefined;
         if (k !== undefined) kept.add(k);
       }
-      for (let i = 0; i < (old as any[]).length; i++) {
-        const r = unwrapValue((old as any[])[i]);
+      // The view's rows, then the truth's: a truth row the view lacked was
+      // removed by another action's guess, whose landing judges it — a
+      // re-base never brings it back beside that guess (F-11, #4656).
+      const n = (old as any[]).length;
+      const all = [...(old as any[]), ...(base as any[])];
+      for (let i = 0; i < all.length; i++) {
+        const r = unwrapValue(all[i]);
         const k = isWrappable(r) ? keyFn(r) : undefined;
-        if (k !== undefined && (!kept.has(k) || truth.has(r))) removed.add(k);
-      }
-      // A truth row the view lacked: another action's guess removed it, and
-      // that guess's landing judges it — a re-base never brings it back
-      // beside that guess (F-11, #4656).
-      for (let i = 0; i < (base as any[]).length; i++) {
-        const r = unwrapValue((base as any[])[i]);
-        const k = isWrappable(r) ? keyFn(r) : undefined;
-        if (k !== undefined && !kept.has(k)) removed.add(k);
+        if (k !== undefined && (!kept.has(k) || (i < n && truth.has(r)))) removed.add(k);
       }
     }
     const view = new LaneView(rows, base, removed);
@@ -542,17 +539,6 @@ function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf
   }
 }
 
-/** Core asks (lanes `dissolveLane`, a correction): a leaf a lane composed
- * (`laneSet`) mirrors the backing and nothing re-derives it, so the truth
- * it lands is the backing's at its key, never a staging it missed (#4642).
- * Not a leaf (a presence or container node): NOT_PENDING, no answer. */
-GlobalQueue._slotTruth = n => {
-  const t = (n as any)._host as StoreTarget;
-  const key = (n as any)._key;
-  if (t.n?.[key] !== n) return NOT_PENDING;
-  return t.ch ? GlobalQueue._slotCovered!(n) : unwrapValue((t.pb ?? t.v)[key]);
-};
-
 /** D-34 for a per-key guess (#4329): the derive's draft wrote new objects
  * over a target holding guessed rows (`d.length = 0; d.push(...rows)`, or
  * `d.issues = rows`). The container on the way down to each guessed row
@@ -597,12 +583,12 @@ installOptHooks({
   // guessed `createOptimistic` (lanes `laneStage`). The guess's own lane
   // asks nothing new and stamps nothing.
   // A `refresh()` re-asks the guesses' own question (D-34 ¶3): a guess
-  // stands in for its flight (A17), so a leaf only lanes read is kept off
+  // stands in for its flight (A17), so a leaf lane work reads is kept off
   // the wake — the lane shows its guesses and the flight holds the lane's
   // parent, not the lane (F-11, #4656).
   ask: fam => {
     if (!fam._overlaid?.size) return;
-    if (fam.node!._flags & REACTIVE_REASK) return laneOnly;
+    if (fam.node!._flags & REACTIVE_REASK) return (n: any) => n._subs._sub._x?._transaction?._lane;
     // Stamped with the flush (`clock`): it lapses when the flush ends.
     let a = ~clock;
     for (const g of fam._overlaid) {
@@ -663,13 +649,6 @@ installOptHooks({
         }
   }
 });
-
-/** Every reader of `n` is a lane's work. */
-function laneOnly(n: any): boolean {
-  for (let s = n._subs; s !== null; s = s._nextSub)
-    if (!s._sub._x?._transaction?._lane) return false;
-  return true;
-}
 
 /** A derivation in the frame's hold (scheduler.ts `blockedBy`): one a
  * pending render effect reads, through any chain of pending derivations
@@ -861,12 +840,14 @@ export function optimisticView(
       const node = nodes[key as any];
       let ov: unknown;
       if (node._config & CONFIG_OVERRIDE) ov = pick(node);
-      else if (!writer) continue;
       // The writer composes on the screen: a node a correction left held
       // shows what it showed until the commit (D-34, D-37, #4656).
-      else if ((ov = pendingGuessOf(node)) === NOT_PENDING)
-        if (node._config & CONFIG_HELD) ov = node._value;
-        else continue;
+      else if (
+        !writer ||
+        ((ov = pendingGuessOf(node)) === NOT_PENDING &&
+          !((ov = node._value), node._config & CONFIG_HELD))
+      )
+        continue;
       if (key === "length" && Array.isArray(src)) {
         // Against the clone: a removal guess already written past the
         // source's end extends it (#4642).
@@ -930,9 +911,9 @@ export function createOptimisticStore<T extends object = {}>(
   );
   return [
     store,
-    ((fn: (draft: T) => void) => {
-      if (__DEV__ && derived) devGuardOptimisticBeforeLoad((store as any)[$TARGET]._fam.node);
-      storeSetter(store, fn);
-    }) as StoreSetter<T>
+    ((fn: (draft: T) => void) => (
+      __DEV__ && derived && devGuardOptimisticBeforeLoad((store as any)[$TARGET]._fam.node),
+      storeSetter(store, fn)
+    )) as StoreSetter<T>
   ];
 }
