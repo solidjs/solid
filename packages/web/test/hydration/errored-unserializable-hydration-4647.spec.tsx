@@ -2,9 +2,11 @@
  * @jsxImportSource @solidjs/web
  * @vitest-environment jsdom
  *
- * #4647: an async memo whose value the server could not serialize. The server
- * rendered the content and completed; its payload rejects the memo's key with
- * a serialization error naming it (Ryan's ruling, 2026-11-03). Hydrating, the
+ * #4647: an async memo whose value the server could not serialize, after the
+ * first flush (midstream; before it the render fails, see
+ * stream-async-serialize-failure-4647.spec.tsx). The server rendered the
+ * content and completed; its payload rejects the memo's key with a
+ * serialization error naming it (Ryan's ruling, 2026-11-03). Hydrating, the
  * memo takes that rejection like any server-rejected key (#4273): it throws
  * into the nearest `<Errored>`, whose fallback replaces the server's content,
  * and nothing is fetched on hydration. (The record is left unmarked, so the

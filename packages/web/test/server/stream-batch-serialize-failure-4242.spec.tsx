@@ -68,8 +68,8 @@ async function render(app: () => any) {
 }
 
 describe("renderToStream: a value that fails to serialize in the pre-shell batch (#4242)", () => {
-  test("getHydrationWriter().write: the other pending keys still resolve", async () => {
-    const { r, heard } = await render(() => {
+  test("getHydrationWriter().write: a pre-shell failure fails the render", async () => {
+    const { html, r, heard } = await render(() => {
       const writer = getHydrationWriter()!;
       writer.write(
         "lib:bad",
@@ -79,15 +79,14 @@ describe("renderToStream: a value that fails to serialize in the pre-shell batch
       return <main>page</main>;
     });
     expect(heard.length).toBe(1);
-    expect(await outcome(r["lib:fine"])).toEqual({ fulfilled: "still here" });
-    // Was "pending" (the rc.17 behaviour #4242 left alone). Ryan's ruling on
-    // #4647 (2026-11-03): a key whose resolved value fails to serialize
-    // rejects on the client, with an error naming the key.
-    expect(await outcome(r["lib:bad"])).toEqual({
-      rejected: expect.objectContaining({
-        message: expect.stringMatching(/^Serialization failed: .*key "lib:bad"/)
-      })
-    });
+    // Was: "lib:fine" fulfils and "lib:bad" stays pending (the rc.17
+    // behaviour #4242 left alone). Ryan's ruling on #4647 (2026-11-03):
+    // "failing ssr on failed serialization feels reasonable otherwise we
+    // could be midstream". The bad value failed before the shell went out,
+    // so the render fails and nothing ships. (Past the first flush its key
+    // rejects on the client instead: stream-async-serialize-failure-4647.)
+    expect(html).toBe("");
+    expect(Object.keys(r)).toEqual([]);
   });
 
   test("an async memo resolving to a Loading boundary: both boundaries settle", async () => {

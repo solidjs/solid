@@ -1987,7 +1987,10 @@ export function renderToStream<T>(
      * (see `ServerErrorHook`): every failure the render handles — an
      * `<Errored>` fallback (`handling: "fallback"`), a rejected fragment
      * (`"client"`), a hydration value that would not serialize
-     * (`"serialize"`) — and the one that fails the request (`"failed"`),
+     * (`"serialize"`: an async value that fails before the first flush
+     * also fails the render, with no `onCompleteAll`; after it, its key
+     * rejects on the client — #4647) — and the one that fails the request
+     * (`"failed"`),
      * once per error per kind per request (per render outside one), with
      * where it was met. A one-argument listener still
      * works; it hears them all — filter on `context.handling` for the
@@ -2344,11 +2347,15 @@ export function renderToStream(code, options = {}) {
   let stableOrder = false;
   let parkedWrites = null;
   const byKey = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-  // A failure reported after write returns leaves a pending client key, so
-  // fail the render once the other writes settle (#4647). Keep synchronous
-  // failures completing as before (#4227). A buffered stream can emit its
-  // initial chunk and fail inside write; detecting that case would require
-  // publication information from the serializer.
+  // A failure reported after write returns leaves a pending client key
+  // (#4647). Before the first flush nothing has reached the client, so the
+  // render fails: the shell is not sent and `onCompleteAll` does not fire
+  // (Ryan's ruling, 2026-11-03). After it the page is midstream: the default
+  // serializer rejects the key on the client (its `onLate`) and the render
+  // completes. Keep synchronous failures completing as before (#4227). A
+  // buffered stream can emit its initial chunk and fail inside write;
+  // detecting that case would require publication information from the
+  // serializer.
   let writing = 0;
   let stranded = false;
   const handOver = (id, value) => {
@@ -2400,8 +2407,8 @@ export function renderToStream(code, options = {}) {
     // wind-down, so seroval still reaches here; do nothing (#3569).
     if (dead) return;
     writeTasks();
-    // A key the client waits on forever: what settled went out above, and
-    // the render fails as a rejection there would, already reported.
+    // A key that failed before the first flush: nothing went out, and the
+    // render fails as a rejection there would, already reported (#4647).
     if (stranded) return abandon();
     // Every blocker has settled by definition here (the render is complete),
     // so doShell's growth gate has nothing to wait for: align its baseline
@@ -2549,7 +2556,7 @@ export function renderToStream(code, options = {}) {
     // render's hook, else the ambient one, else `console.error`.
     onError: err => {
       reportFailure(err, "serialize");
-      if (!writing && !options.serializer) stranded = true;
+      if (!writing && !options.serializer && !firstFlushed) stranded = true;
     }
   });
   let rootAssetsSerialized = false;
@@ -3460,6 +3467,8 @@ export function renderToStream(code, options = {}) {
             return;
           }
           if (!shellCompleted) return flush();
+          // A key failed to serialize before the shell went out (#4647).
+          if (stranded) return abandon();
           const encoder = new TextEncoder();
           const writer = w.getWriter();
           // Writes are chained and awaited before the lock is released.
@@ -3637,6 +3646,8 @@ export function renderToStream(code, options = {}) {
               return;
             }
             if (!shellCompleted) return flush();
+            // A key failed to serialize before the shell went out (#4647).
+            if (stranded) return abandon();
             const sink = guardSink(w);
             buffer = writable = coalesceWrites(sink.write, sink.end);
             buffer.write(tmp);

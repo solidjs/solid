@@ -357,7 +357,9 @@ export function createHydrationSerializer({ onData, onDone, scopeId, onError, pl
     // A promise whose resolved value fails to serialize (#4647): seroval
     // ends the write without settling the promise it already declared, so
     // the client's read of the key would stay pending forever. Reject it
-    // instead (Ryan's ruling, 2026-11-03), with an error that names the key;
+    // instead (Ryan's ruling, 2026-11-03), with an error that names the key.
+    // This is what settles it midstream; before the first flush
+    // `renderToStream` fails the whole render and nothing of this ships;
     // the failure's own text went to the error hook and is not sent. seroval
     // 1.7 indexes a promise's resolver right after the promise
     // (`parsePromise`). The promise is left unmarked (no `s`/`v`, which
