@@ -5,10 +5,15 @@
  * (maintainer ruling on #4662). So `inner: 0` beside `v: 5` in the held pass
  * is correct and pinned here. Two gaps around it:
  *
- * 1. The held pass is a stale reader of what its probe was served (A15): it
- *    re-derives at the landing, so the screen settles on the landed world
- *    (F-1), and its probe never answers `true` beside the fresh value its
- *    plain read saw (D-23). Landed, it showed `{ v: 5, inner: 0, p: true }`.
+ * 1. The pass is a stale reader of what its probe was served (A15): it
+ *    re-derives at the landing, so the hold ends with one frame on the
+ *    landed world (F-1), and its probe never answers `true` beside the fresh
+ *    value its plain read saw (D-23). Three shapes: a pass re-run while the
+ *    hold is up ("re-run in the hold"; it landed `{ v: 5, inner: 0, p: true }`),
+ *    one that first reads the held node in a later flush ("first read in the
+ *    hold"; same), and one that probed only in the flush that staged the
+ *    write, before the hold existed ("staging flush only"; it landed
+ *    `{ v: 5, inner: 0, p: false }` and stayed there).
  * 2. A probe of a first value staged this flush does what its plain read
  *    does (D-23 exc. 1, F-9): the node has no committed value, only the
  *    staging. It read the empty committed slot (`undefined`).
@@ -37,12 +42,15 @@ type Row = { v: number; inner: unknown; p: unknown };
 type Order = "probe after read" | "probe before read";
 const orders: Order[] = ["probe after read", "probe before read"];
 
-function setup(probe: "isPending" | "latest", order: Order) {
+type Shape = "re-run in the hold" | "first read in the hold" | "staging flush only";
+const shapes: Shape[] = ["re-run in the hold", "first read in the hold", "staging flush only"];
+
+function setup(probe: "isPending" | "latest", order: Order, shape: Shape = "re-run in the hold") {
   const [open, setOpen] = createSignal(0);
   const [other, setOther] = createSignal(0);
   let release = () => {};
   const log: Row[] = [];
-  const screen: Row[] = [];
+  const screen: (Row | null)[] = [];
   createRoot(() => {
     // Read by a render effect outside any boundary: a write to `open` is
     // held until this lands (F-2).
@@ -52,7 +60,7 @@ function setup(probe: "isPending" | "latest", order: Order) {
     });
     const cond = createMemo(() => open());
     const pass = createMemo(() => {
-      other();
+      if (!other() && shape === "first read in the hold") return null;
       let v = 0,
         inner: unknown,
         p: unknown;
@@ -75,30 +83,33 @@ function setup(probe: "isPending" | "latest", order: Order) {
   return { setOpen, setOther, release: () => release(), log, screen };
 }
 
-describe.each(orders)("an untracked isPending probe in a held pass (%s)", order => {
-  it("reads the committed value while held, and the pass settles on the landed world", async () => {
-    const { setOpen, setOther, release, log, screen } = setup("isPending", order);
-    await tick();
-    log.length = 0;
-    screen.length = 0;
-    setOpen(5);
-    flush();
-    setOther(1);
-    flush();
-    // The ruling: the probe reads the committed value during the hold; the
-    // pass's plain read is the frame's staging. Never `true` beside it (D-23).
-    expect(log).toEqual([
-      { v: 5, inner: 0, p: false },
-      { v: 5, inner: 0, p: false }
-    ]);
-    expect(screen).toEqual([]);
-    release();
-    await tick();
-    // The pass re-derives at the landing (A15): the probe's value is the
-    // landed one, final (F-1, D-23).
-    expect(log.at(-1)).toEqual({ v: 5, inner: 5, p: false });
-    expect(screen.at(-1)).toEqual({ v: 5, inner: 5, p: false });
-    for (const r of screen) expect(r.p && r.v === 5).toBe(false);
+describe.each(shapes)("an untracked isPending probe of a held write (%s)", shape => {
+  describe.each(orders)("%s", order => {
+    it("reads the committed value while held, and the hold ends on the landed world", async () => {
+      const { setOpen, setOther, release, log, screen } = setup("isPending", order, shape);
+      await tick();
+      log.length = 0;
+      screen.length = 0;
+      setOpen(5);
+      flush();
+      if (shape !== "staging flush only") {
+        setOther(1);
+        flush();
+      }
+      // The ruling: the probe reads the committed value during the hold; the
+      // pass's plain read is the frame's staging. The held pass answers
+      // final, never `true` beside it (D-23).
+      expect(log.at(-1)).toEqual({ v: 5, inner: 0, p: false });
+      for (const r of log) expect(r.inner).toBe(0);
+      expect(screen).toEqual([]);
+      release();
+      await tick();
+      // The pass re-derives at the landing (A15): the probe's value is the
+      // landed one, final (F-1, D-23). Never `true` beside the fresh value.
+      expect(log.at(-1)).toEqual({ v: 5, inner: 5, p: false });
+      expect(screen.at(-1)).toEqual({ v: 5, inner: 5, p: false });
+      for (const r of screen) expect(r?.p && r.v === 5).toBe(false);
+    });
   });
 });
 

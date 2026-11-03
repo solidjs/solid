@@ -597,7 +597,15 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       if (probing)
         if (c?._config! & CONFIG_HELD) {
           if (!c!._x!._q) staleReader(c!, t);
-        } else if (heldNotFinal(owner)) probeFound = true;
+        } else {
+          if (heldNotFinal(owner)) probeFound = true;
+          // A pass that first reads the held node in this flush is not held
+          // yet, in either read order: if the flush parks with it, it runs
+          // again next round, held, and its probe is final there (D-23). Not
+          // an async memo or a first pass (it may be async): F-9.
+          if (owned && !tracked && !c!._x?._q && !(c!._statusFlags & STATUS_UNINITIALIZED))
+            watchVerdict(c!);
+        }
       if (latestActive && el._pendingValue !== NOT_PENDING) {
         // An action body reading another transaction's proposal derives
         // from it: the two settle as one (A15; posture C, 2026-09-15). An
@@ -646,7 +654,12 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // carries the write — a memo of `isPending(x)` created after the write
     // flips if that flush parks (#3078). (The write's own fan-out ran before
     // the reader existed; nothing else would re-derive it.)
-    else if (tracked && probing) watchVerdict(c!);
+    // So does an untracked probe in a pass (#4648): it read the committed
+    // value beside the staging, and if the flush parks the pass is held —
+    // its re-run there is final, and re-derives at the landing (A15, F-1;
+    // "the hold ends with one frame that reveals the change"). Not an async
+    // memo: its re-run would ask its question again (F-9).
+    else if (probing && owned && (tracked || !c!._x?._q)) watchVerdict(c!);
     if (latestActive || uninitialized) {
       // A28: an unflushed write is not what `latest` serves; a tracked
       // reader derived from the flushed world runs again in the carrying
