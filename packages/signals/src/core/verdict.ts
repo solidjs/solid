@@ -722,10 +722,7 @@ function holdWork(n: Computed<any>, source: Computed<any>): unknown {
 function stageMark(node: Computed<any>, el: Computed<any>): void {
   if (
     el._config & CONFIG_STAGED_ERROR &&
-    !(
-      node._config &
-      (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | CONFIG_ASYNC | (EFFECT_TRACKED << 23))
-    )
+    !(node._config & (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | (EFFECT_TRACKED << 23)))
   ) {
     // Only a node that reads a staging carries it. The walk also reaches the
     // readers of a node it does not mark (a boundary's output, whose pass
@@ -734,16 +731,16 @@ function stageMark(node: Computed<any>, el: Computed<any>): void {
     // A memo over an error boundary's output is a plain reader of it (F-3:
     // where the memo sits does not matter); marked, it threw the error past
     // the boundary that caught it, and the commit halted (#4640).
-    let d = node._deps;
-    while (d !== null && !(d._dep._config & CONFIG_STAGED_ERROR)) d = d._nextDep;
-    if (d === null) return;
-    node._pendingValue = el._pendingValue;
-    node._config |= CONFIG_STAGED_ERROR;
-    queuePendingNode(node);
-    // A derived store's readers are its family's (store/projection.ts): they
-    // re-derive from the staging, as from the derive's status (#4189).
-    (node as any)._fam?.st(STATUS_ERROR);
-    settlePendingSource(node);
+    for (let d = node._deps; d; d = d._nextDep)
+      if (d._dep._config & CONFIG_STAGED_ERROR) {
+        node._pendingValue = el._pendingValue;
+        node._config |= CONFIG_STAGED_ERROR;
+        queuePendingNode(node);
+        // A derived store's readers are its family's (store/projection.ts): they
+        // re-derive from the staging, as from the derive's status (#4189).
+        (node as any)._fam?.st(STATUS_ERROR);
+        return settlePendingSource(node);
+      }
   }
 }
 
