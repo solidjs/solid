@@ -5,6 +5,7 @@
 //
 //   - plain rows: nothing to bind anywhere in the graph
 //   - one deferred body: the same rows plus a cursor, so the root rebuilds
+//   - nested rows: each row also holds an array, so every row is descended
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { bench } from "vitest";
@@ -20,6 +21,8 @@ const rows = Array.from({ length: 1000 }, (_, i) => ({
   name: `row ${i}`
 }));
 
+const nestedRows = rows.map(row => ({ ...row, tags: ["a", "b"] }));
+
 async function* cursor() {
   yield "one";
 }
@@ -33,6 +36,11 @@ const deferred = createServerReference({
   fn: () => ({ rows, more: cursor() })
 } as any) as () => { rows: typeof rows };
 
+const nested = createServerReference({
+  id: "bench-direct-nested",
+  fn: () => nestedRows
+} as any) as () => typeof nestedRows;
+
 const event = createRequestEvent(new Request("https://app.example/page"));
 
 bench("direct call, 1,000 plain rows", () => {
@@ -41,4 +49,8 @@ bench("direct call, 1,000 plain rows", () => {
 
 bench("direct call, 1,000 rows and one deferred body", () => {
   requestContext.run(event, () => deferred());
+});
+
+bench("direct call, 1,000 rows each holding an array", () => {
+  requestContext.run(event, () => nested());
 });

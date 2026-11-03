@@ -919,13 +919,15 @@ function scopeDeferredResult(value, scope) {
 /** One carrier mid-walk on the direct road's descent. Module-private, so a
  * user value can never satisfy the driver's `instanceof` dispatch. */
 class ScopeFrame {
-  constructor(value, prototype, keys, descriptors) {
+  constructor(value, prototype, keys, i, first) {
     this.value = value;
     this.prototype = prototype;
     this.next = null;
     this.keys = keys;
-    this.descriptors = descriptors;
-    this.i = 0;
+    this.i = i;
+    this.first = first;
+    this.descriptors = null;
+    this.snapshotted = false;
     this.changed = false;
   }
 }
@@ -934,53 +936,137 @@ class ScopeFrame {
  * hold nothing to bind and hand the author's container back unbuilt. */
 function frameShell(frame) {
   return (frame.next ??= frame.keys
-    ? Object.create(frame.prototype, frame.descriptors)
+    ? Object.create(
+        frame.prototype,
+        frame.descriptors ?? Object.getOwnPropertyDescriptors(frame.value)
+      )
     : frame.value.slice());
+}
+
+// writable data only: accessors are not invoked, non-writable slots stay as authored
+function writableValue(descriptor) {
+  return descriptor !== undefined && "value" in descriptor && descriptor.writable === true
+    ? descriptor.value
+    : undefined;
+}
+
+function carrierSlot(frame, key) {
+  return writableValue(
+    frame.descriptors ? frame.descriptors[key] : Object.getOwnPropertyDescriptor(frame.value, key)
+  );
+}
+
+// Authored code may run from here on, so the object frames on the stack take the
+// entry-time descriptor snapshot their slots and shells read. Frames below a
+// snapshotted one were already on the stack when it was taken.
+function snapshotFrames(stack) {
+  for (let k = stack.length - 1; k >= 0 && !stack[k].snapshotted; k--) {
+    const frame = stack[k];
+    frame.snapshotted = true;
+    if (frame.keys) frame.descriptors = Object.getOwnPropertyDescriptors(frame.value);
+  }
+}
+
+function isLeaf(value) {
+  return value === null || (typeof value !== "object" && typeof value !== "function");
+}
+
+// without these overrides, bindDeferredBody's probes cannot run authored code on a plain carrier
+function sharedPrototypesInert() {
+  const { toStringTag, asyncIterator, iterator, hasInstance } = Symbol;
+  return !(
+    Object.hasOwn(Promise, hasInstance) ||
+    (typeof ReadableStream !== "undefined" && Object.hasOwn(ReadableStream, hasInstance)) ||
+    Object.hasOwn(Object.prototype, toStringTag) ||
+    Object.hasOwn(Object.prototype, asyncIterator) ||
+    Object.hasOwn(Object.prototype, iterator) ||
+    Object.hasOwn(Array.prototype, toStringTag) ||
+    Object.hasOwn(Array.prototype, asyncIterator)
+  );
+}
+
+// own hooks are tested without reading them; the reads then only reach a proxy's get trap
+function isInertCarrier(value, prototype, isArray) {
+  const { toStringTag, asyncIterator, iterator } = Symbol;
+  return (
+    (isArray
+      ? prototype === Array.prototype
+      : prototype === Object.prototype || prototype === null) &&
+    !Object.hasOwn(value, toStringTag) &&
+    !Object.hasOwn(value, asyncIterator) &&
+    (isArray || !Object.hasOwn(value, iterator)) &&
+    typeof value[asyncIterator] !== "function" &&
+    (isArray || typeof value[iterator] !== "function")
+  );
 }
 
 /** Resolve one nested value for the direct road's carrier descent: leaves,
  * already-walked entries and deferred bodies answer immediately; a plain
  * object or array answers a frame for the driver, pre-registered so a cycle
- * builds and resolves to its shell. */
+ * builds and resolves to its shell; an all-leaf carrier gets no frame. */
 function enterScopeCarrier(value, state) {
-  if (value === null || (typeof value !== "object" && typeof value !== "function")) return value;
-  if (state.seen.has(value)) {
+  if (isLeaf(value)) return value;
+  // entries are never undefined, so one lookup answers both questions
+  const seen = state.seen.get(value);
+  if (seen !== undefined) {
     state.cyclic.add(value);
-    const seen = state.seen.get(value);
     return seen instanceof ScopeFrame ? frameShell(seen) : seen;
   }
-  const bound = bindDeferredBody(value, state.scope);
-  if (bound !== value) {
-    state.seen.set(value, bound);
-    return bound;
+  let isArray = false;
+  let prototype;
+  if (typeof value === "object") {
+    isArray = Array.isArray(value);
+    prototype = Object.getPrototypeOf(value);
   }
-  if (typeof value !== "object") return value;
+  if (!state.inert || prototype === undefined || !isInertCarrier(value, prototype, isArray)) {
+    snapshotFrames(state.stack);
+    const bound = bindDeferredBody(value, state.scope);
+    if (bound !== value) {
+      state.seen.set(value, bound);
+      return bound;
+    }
+    if (typeof value !== "object") return value;
+  }
   // Frozen carriers (and every slot of one) are out of the carrier set:
   // rebuilding around them would hand the caller a shape the author sealed.
-  if (Array.isArray(value)) {
+  if (isArray) {
     if (Object.isFrozen(value)) {
       state.seen.set(value, value);
       return value;
     }
-    const frame = new ScopeFrame(value, null, null, null);
+    let i = 0;
+    let first;
+    while (i < value.length && isLeaf((first = value[i]))) i++;
+    if (i === value.length) {
+      state.seen.set(value, value);
+      return value;
+    }
+    const frame = new ScopeFrame(value, null, null, i, first);
     state.seen.set(value, frame);
     return frame;
   }
-  const prototype = Object.getPrototypeOf(value);
-  if ((prototype !== Object.prototype && prototype !== null) || Object.isFrozen(value)) {
+  if (prototype !== Object.prototype && prototype !== null) {
     state.seen.set(value, value);
     return value;
   }
-  // The shell carries the original descriptors whole — hidden slots,
-  // accessors and non-writable data stay exactly as authored (accessors are
-  // the caller's to invoke, non-writable slots are out of the carrier set);
-  // only writable enumerable data slots are candidates for binding.
-  const frame = new ScopeFrame(
-    value,
-    prototype,
-    Object.keys(value),
-    Object.getOwnPropertyDescriptors(value)
-  );
+  // only enumerable slots are candidates; the shell copies every descriptor
+  const keys = Object.keys(value);
+  let i = 0;
+  let first;
+  while (
+    i < keys.length &&
+    isLeaf((first = writableValue(Object.getOwnPropertyDescriptor(value, keys[i]))))
+  )
+    i++;
+  if (i === keys.length) {
+    state.seen.set(value, value);
+    return value;
+  }
+  if (Object.isFrozen(value)) {
+    state.seen.set(value, value);
+    return value;
+  }
+  const frame = new ScopeFrame(value, prototype, keys, i, first);
   state.seen.set(value, frame);
   return frame;
 }
@@ -989,10 +1075,17 @@ function enterScopeCarrier(value, state) {
 // (#3160): a deep-but-legal result must not overflow the stack and surface
 // as a phantom error. The driver mirrors guardFailures' frame loop.
 function scopeDeferredContents(root, scope) {
-  const state = { seen: new Map(), cyclic: new Set(), scope };
+  const stack = [];
+  const state = {
+    seen: new Map(),
+    cyclic: new Set(),
+    scope,
+    inert: sharedPrototypesInert(),
+    stack
+  };
   const entered = enterScopeCarrier(root, state);
   if (!(entered instanceof ScopeFrame)) return entered;
-  const stack = [entered];
+  stack.push(entered);
   let delivered = NOTHING;
   for (;;) {
     const top = stack[stack.length - 1];
@@ -1001,20 +1094,11 @@ function scopeDeferredContents(root, scope) {
     while (top.i < length) {
       const i = top.i;
       let original;
-      let writable = true;
-      if (top.keys) {
-        const descriptor = top.descriptors[top.keys[i]];
-        // accessors are not invoked, and non-writable slots keep their
-        // authored value (out of the carrier set) — both already ride the
-        // shell's copied descriptors
-        writable = "value" in descriptor && descriptor.writable === true;
-        original = writable ? descriptor.value : undefined;
+      if (top.first !== NOTHING) {
+        original = top.first;
+        top.first = NOTHING;
       } else {
-        original = top.value[i];
-      }
-      if (!writable) {
-        top.i++;
-        continue;
+        original = top.keys ? carrierSlot(top, top.keys[i]) : top.value[i];
       }
       let bound;
       if (delivered !== NOTHING) {
@@ -1055,7 +1139,7 @@ function scopeDeferredContents(root, scope) {
 }
 
 function bindDeferredBody(value, scope) {
-  if (value === null || (typeof value !== "object" && typeof value !== "function")) return value;
+  if (isLeaf(value)) return value;
 
   const promised = scope(() => nativePromise(value));
   if (promised) {
