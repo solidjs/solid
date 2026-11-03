@@ -16,7 +16,8 @@ export {
   setSnapshotCapture,
   markSnapshotScope,
   releaseSnapshotScope,
-  clearSnapshots
+  clearSnapshots,
+  verdict
 } from "./core.js";
 export {
   enableExternalSource,
