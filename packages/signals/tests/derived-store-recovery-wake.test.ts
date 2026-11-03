@@ -21,6 +21,12 @@ import {
 // the derive's status is cleared before its landing pass. The landing is
 // still the derive's change for that reader (memo parity, F-12/D-39: a new
 // answer replaces the error): the reader re-runs and commits the value.
+// `m0` (the errored source) answers at once; `m1` only carried its error, and
+// its re-ask is caught by the Loading the recovery re-arms (ruled 2026-11-02,
+// #4627, the #1831 re-ruling's store twin): `loading`, then the value. Held
+// in an action, the error stays up through the hold (D-41) and the Loading's
+// fallback shows at the commit, since an armed Loading's pending holds
+// nothing outside it (F-4).
 describe("a derived store's landing wakes a reader parked on its error", () => {
   const settle = async () => {
     for (let i = 0; i < 4; i++) {
@@ -91,10 +97,7 @@ describe("a derived store's landing wakes a reader parked on its error", () => {
   for (const how of ["action", "write"] as const) {
     it(`${how}: the store's reader commits the recovered value, as the memo's does`, async () => {
       const memo = await run("memo", how);
-      // The error stays the display until the new answer lands (D-39: a
-      // pending is not a value): the content shows with the reader's value,
-      // in one flush, never with the reader still loading.
-      expect(memo).toEqual(["error", "v:5", "content"]);
+      expect(memo).toEqual(["error", "loading", "v:5", "content"]);
       expect(await run("store", how)).toEqual(memo);
     });
   }
