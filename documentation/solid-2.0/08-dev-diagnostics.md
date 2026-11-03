@@ -78,6 +78,31 @@ const bump = action(async function* () {
 });
 ```
 
+#### `OPTIMISTIC_WRITE_BEFORE_LOAD`
+
+**Message:** "Optimistic write to a source that has not loaded yet. Before its first answer the source is loading, not showing a value to be optimistic over. Keep the pending items in a separate list (an outbox) until the source loads, or disable the action until the source has loaded."
+
+An optimistic setter ran before its source's first answer landed: `createOptimistic(fn)` whose async `fn` has not resolved, or `createOptimisticStore(fn, seed)` whose derive has not landed (a seed does not count — it is a draft, never shown). Until then the source is loading, so there is nothing on screen to be optimistic over (ruled 2026-11-03, #4656). Dev throws at the setter and makes no guess; inside an `action` the action rejects. Production is unchanged. `createOptimistic(value)`, `createOptimisticStore(value)` and a source that has landed once are never flagged. Repair: keep the items written before the load in a separate list (an outbox) and render it beside the source, or disable the action (the input) until the source has loaded.
+
+```js
+const [todos, setTodos] = createOptimisticStore(() => api.list(), []);
+const add = action(function* (todo) {
+  setTodos(s => {
+    s.push(todo); // throws in dev while the first `api.list()` is out
+  });
+  yield api.add(todo);
+  refresh(todos);
+});
+
+// Fix: offer the action only once the list has loaded — inside the same
+// <Loading> as the list, the button is not there before the first answer…
+<Loading fallback={<p>loading</p>}>
+  <For each={todos}>{t => <li>{t.title}</li>}</For>
+  <button onClick={() => add(next())}>Add</button>
+</Loading>;
+// …or keep pre-load items in their own list (an outbox) and render both.
+```
+
 #### `STORE_WRITE_OUTSIDE_SETTER`
 
 **Message:** "Writing store property \"n\" outside its setter was ignored. Stores are read-only outside the setter's draft: use `setStore(s => { s.n = value })`."

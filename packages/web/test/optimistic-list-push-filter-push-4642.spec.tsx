@@ -129,23 +129,52 @@ describe("#4642: an optimistic list's guesses compose on the list as it stands",
       s.dispose();
     });
 
-  // D-34: at the commit rows match by key — the settled list is the server's.
-  for (const order of ["list-first", "save-first"] as const)
-    it(`an add before the first load lands settles to the server (${order})`, async () => {
-      const s = todoList();
-      await tick();
-      await s.step(() => s.add({ id: 3, title: "jam" }));
-      if (order === "list-first") {
-        await s.step(() => s.land("list"));
-        await s.step(() => s.land("add:3"));
-      } else {
-        await s.step(() => s.land("add:3"));
-        await s.step(() => s.land("list"));
-      }
-      await s.drain();
-      expect(s.shown).toBe("[milk][eggs][jam]");
-      s.dispose();
+  // Ruled 2026-11-03 (#4656): before its first answer the list is loading,
+  // not a value to be optimistic over — in DEV the add throws
+  // OPTIMISTIC_WRITE_BEFORE_LOAD, nothing is guessed, and the first load
+  // shows as it lands.
+  it("an add before the first load lands: OPTIMISTIC_WRITE_BEFORE_LOAD", async () => {
+    const s = todoList();
+    await tick();
+    let error: unknown;
+    await s.step(() => {
+      s.add({ id: 3, title: "jam" }).catch(e => (error = e));
     });
+    expect(String(error)).toMatch(/OPTIMISTIC_WRITE_BEFORE_LOAD/);
+    expect(s.shown).toBe("loading");
+    await s.step(() => s.land("list"));
+    expect(s.shown).toBe("[milk][eggs]");
+    await s.step(() => s.add({ id: 3, title: "jam" }));
+    expect(s.shown).toBe("[milk][eggs][jam]");
+    await s.drain();
+    expect(s.shown).toBe("[milk][eggs][jam]");
+    s.dispose();
+  });
+
+  // F-11: a guess shows from the flush that carries it, also while an
+  // earlier action's refresh is out — that refresh re-asks the earlier
+  // guess's own question (D-34 ¶3) and holds that action, not the new
+  // guesses. Its answer, older than them, re-bases them by row key (D-35):
+  // the row the delete removed stays removed beside it (#4656).
+  it("add, its save lands, delete, add: each guess shows at once", async () => {
+    const s = todoList();
+    await tick();
+    await s.step(() => s.land("list"));
+    await s.step(() => s.add({ id: 3, title: "jam" }));
+    await s.step(() => s.land("add:3"));
+    await s.step(() => s.remove(1));
+    expect(s.shown).toBe("[eggs][jam]");
+    await s.step(() => s.add({ id: 4, title: "tea" }));
+    expect(s.shown).toBe("[eggs][jam][tea]");
+    await s.step(() => s.land("list"));
+    expect(s.shown).toBe("[eggs][jam][tea]");
+    await s.step(() => s.add({ id: 5, title: "oats" }));
+    expect(s.shown).toBe("[eggs][jam][tea][oats]");
+    await s.drain();
+    expect(s.shown).toBe("[eggs][jam][tea][oats]");
+    expect(s.shown).toBe(s.server);
+    s.dispose();
+  });
 
   // D-33/D-35: the declined delete reverts its own write; the add settles
   // under the truth, rows matched by key (D-34).

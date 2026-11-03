@@ -40,8 +40,8 @@ export interface OptHooks {
   pair(t: StoreTarget, pb: Record<PropertyKey, any>): void;
   /** The derive of `fam` went in flight (#4336): a new question asked over
    * the family's guesses is judged by its reads (`stands`) and at the seam
-   * (`park`). */
-  ask(fam: StoreFamily): void;
+   * (`park`). Returns, for a `refresh()`, the leaves its wake skips. */
+  ask(fam: StoreFamily): ((n: any) => boolean) | void;
   /** The flush parks with `t`: a guess a frame still reads, over a family
    * asked a new question this flush, holds `t` with its action (D-34). */
   park(t: Transaction): void;

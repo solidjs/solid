@@ -427,7 +427,9 @@ describe("createOptimistic", () => {
         createLoadingBoundary(optimistic, () => "Loading")();
 
         sendMessage = () => {
-          setOptimistic(() => "Optimistic");
+          // Before its first landing the source is loading: the write is
+          // OPTIMISTIC_WRITE_BEFORE_LOAD in DEV (ruled 2026-11-03, #4656).
+          expect(() => setOptimistic(() => "Optimistic")).toThrow(/OPTIMISTIC_WRITE_BEFORE_LOAD/);
           expect(() => refresh(optimistic)).not.toThrow();
         };
       });

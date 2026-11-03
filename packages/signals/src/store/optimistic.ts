@@ -26,6 +26,7 @@
 import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
+  CONFIG_HELD,
   CONFIG_OVERRIDE,
   CONFIG_SLOT_NODE,
   EFFECT_RENDER,
@@ -35,6 +36,7 @@ import {
 } from "../core/constants.js";
 import { context, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
 import { link } from "../core/graph.js";
+import { devGuardOptimisticBeforeLoad } from "../core/dev.js";
 import { laneValueOf, optimisticWrite, pendingGuessOf, take } from "../core/lanes.js";
 import {
   clock,
@@ -190,14 +192,28 @@ export function notifyOptimisticWrites(
         const k = isWrappable(r) ? keyFn(r) : undefined;
         if (k !== undefined && (!kept.has(k) || truth.has(r))) removed.add(k);
       }
+      // A truth row the view lacked: another action's guess removed it, and
+      // that guess's landing judges it — a re-base never brings it back
+      // beside that guess (F-11, #4656).
+      for (let i = 0; i < (base as any[]).length; i++) {
+        const r = unwrapValue((base as any[])[i]);
+        const k = isWrappable(r) ? keyFn(r) : undefined;
+        if (k !== undefined && !kept.has(k)) removed.add(k);
+      }
     }
     const view = new LaneView(rows, base, removed);
     // Written while the derive asks a new question (an input changed, not a
     // `refresh()`): the guess's base answers the old one, so the rows it only
     // carried over are that answer's — the new answer re-bases it like an
     // older truth instead of folding beneath it (`_laneRebase`, F-1, #4525).
+    // A refresh's flight already up (`_reask`, the pass consumed the flag)
+    // asks nothing new either (D-34 ¶3, #4656).
     const d = t._fam!.node;
-    if (removed && d?._statusFlags! & STATUS_PENDING && !(d!._flags & REACTIVE_REASK))
+    if (
+      removed &&
+      d?._statusFlags! & STATUS_PENDING &&
+      !(d!._flags & REACTIVE_REASK || d!._x?._reask)
+    )
       view.g = null;
     optimisticWrite(getContainerNode(t), view as any);
   }
@@ -516,10 +532,6 @@ function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {
 function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf>): void {
   const x = ext(node);
   if (!(node._config & CONFIG_OVERRIDE)) {
-    // The frame's truth staged on it (a leaf born from a landing's staging,
-    // or written by it) is the backing's, beneath the lane: never the lane's
-    // latest, which its reveal would promote over the composed row (#4642).
-    node._pendingValue = NOT_PENDING;
     node._config |= CONFIG_OVERRIDE;
     list(node, lane);
   } else if (x._lane === value) return;
@@ -584,8 +596,13 @@ installOptHooks({
   // no live guess left — the lane waits for its answer (F-6), as for a
   // guessed `createOptimistic` (lanes `laneStage`). The guess's own lane
   // asks nothing new and stamps nothing.
+  // A `refresh()` re-asks the guesses' own question (D-34 ¶3): a guess
+  // stands in for its flight (A17), so a leaf only lanes read is kept off
+  // the wake — the lane shows its guesses and the flight holds the lane's
+  // parent, not the lane (F-11, #4656).
   ask: fam => {
-    if (fam.node!._flags & REACTIVE_REASK || !fam._overlaid?.size) return;
+    if (!fam._overlaid?.size) return;
+    if (fam.node!._flags & REACTIVE_REASK) return laneOnly;
     // Stamped with the flush (`clock`): it lapses when the flush ends.
     let a = ~clock;
     for (const g of fam._overlaid) {
@@ -646,6 +663,13 @@ installOptHooks({
         }
   }
 });
+
+/** Every reader of `n` is a lane's work. */
+function laneOnly(n: any): boolean {
+  for (let s = n._subs; s !== null; s = s._nextSub)
+    if (!s._sub._x?._transaction?._lane) return false;
+  return true;
+}
 
 /** A derivation in the frame's hold (scheduler.ts `blockedBy`): one a
  * pending render effect reads, through any chain of pending derivations
@@ -837,7 +861,12 @@ export function optimisticView(
       const node = nodes[key as any];
       let ov: unknown;
       if (node._config & CONFIG_OVERRIDE) ov = pick(node);
-      else if (!writer || (ov = pendingGuessOf(node)) === NOT_PENDING) continue;
+      else if (!writer) continue;
+      // The writer composes on the screen: a node a correction left held
+      // shows what it showed until the commit (D-34, D-37, #4656).
+      else if ((ov = pendingGuessOf(node)) === NOT_PENDING)
+        if (node._config & CONFIG_HELD) ov = node._value;
+        else continue;
       if (key === "length" && Array.isArray(src)) {
         // Against the clone: a removal guess already written past the
         // source's end extends it (#4642).
@@ -899,5 +928,11 @@ export function createOptimisticStore<T extends object = {}>(
     (derived ? third : second) as ProjectionOptions,
     true
   );
-  return [store, ((fn: (draft: T) => void) => storeSetter(store, fn)) as StoreSetter<T>];
+  return [
+    store,
+    ((fn: (draft: T) => void) => {
+      if (__DEV__ && derived) devGuardOptimisticBeforeLoad((store as any)[$TARGET]._fam.node);
+      storeSetter(store, fn);
+    }) as StoreSetter<T>
+  ];
 }
