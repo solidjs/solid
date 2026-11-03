@@ -28,6 +28,7 @@
 import { expect, it } from "vitest";
 import {
   action,
+  createEffect,
   createMemo,
   createOptimisticStore,
   createRenderEffect,
@@ -354,8 +355,10 @@ for (const withMemo of [true, false])
     });
 
 /** The todo list of the first shape, each action refreshing in `finally`
- * (the reviewer's fuzz probe for #4643). */
-function todoApp() {
+ * (the reviewer's fuzz probe for #4643). `twin`: a user effect over the
+ * list's compute logs each value it sees that the screen does not show. */
+function todoApp(twin = false) {
+  const unshown: string[] = [];
   const srv = fakeServer<Todo>([
     { id: 1, done: false },
     { id: 2, done: false }
@@ -386,6 +389,14 @@ function todoApp() {
           .join(""),
       v => void (list = v)
     );
+    if (twin)
+      createEffect(
+        () =>
+          rows()
+            .map(t => `[${t.id}${t.done ? "x" : "o"}]`)
+            .join(""),
+        v => void (v !== list && unshown.push(v))
+      );
     createRenderEffect(
       () => remaining(),
       v => void (count = ` ${v} left`)
@@ -428,7 +439,7 @@ function todoApp() {
       await step(`land ${k}`, () => srv.land(k));
     }
   };
-  return { ...srv, ...app, frames, step, drain };
+  return { ...srv, ...app, frames, step, drain, unshown };
 }
 
 it("#4643: a toggle beside a held poll answer shows the screen's other rows, whole", async () => {
@@ -473,6 +484,30 @@ it("#4643: a toggle beside a held poll answer shows the screen's other rows, who
     { id: 3, done: true }
   ]);
 });
+
+// Known gap (review of #4658): the same steps, with a user effect beside
+// the list's render effect. D-34 ¶2: lane passes, untracked reads and the
+// screen keep the guess until the commit — an effect's posture is the
+// screen's here, so it sees what the screen shows. It sees the held poll
+// answer's `[1x]` once, beside the toggle's `[3x]`, while the screen shows
+// `[1o][2o][3x]`.
+it.fails(
+  "#4643: a user effect beside the toggle sees only what the screen shows (D-34 ¶2)",
+  async () => {
+    const { land, poll, toggle, add, step, drain, unshown } = todoApp(true);
+    await tick();
+    await step("list", () => land("list"));
+    await step("t1", () => void toggle(1));
+    await step("t1", () => void toggle(1));
+    await step("land t1", () => land("toggle:1"));
+    await step("poll", () => poll());
+    await step("add3", () => void add(3));
+    await step("land poll", () => land("list", "last"));
+    await step("t3", () => void toggle(3));
+    await drain();
+    expect(unshown).toEqual([]);
+  }
+);
 
 for (const shape of ["add3, rm3, add4", "poll, add3, land poll, rm1, add4"])
   it(`#4643: a push after a removal guess composes on the removal (${shape})`, async () => {
