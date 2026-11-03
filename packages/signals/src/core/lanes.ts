@@ -1076,6 +1076,18 @@ const laneSeams = (t: Transaction | null): void => {
   // readers of the transaction there); a lane's runs wait that round — a
   // lane sees the screen plus its own guesses.
   if (revealing.length) revealing.length = 0;
+  // #4661 (F-6): a verdict reader whose pass read a flight of the frame
+  // ahead of it (`latest`, verdict.ts `pendingVerdict`) before any plain
+  // read of one is no frame reader of it, though its stale read of the
+  // frame's staging (A10, `stagedScreen`) marked it one
+  // (REACTIVE_FRAME_READ, which `blockedBy` counts): the mark comes off and
+  // the reader holds nothing. It keeps what it read — the committed value
+  // ("It should read the committed value, we can't reveal early outside of
+  // latest. This is intentional tearing.", maintainer, 2026-11-03) — and the
+  // flight's own landing re-derives it, not the frame's.
+  for (const c of ahead.splice(0))
+    c._flags & REACTIVE_FRAME_READ &&
+      ((c._flags ^= REACTIVE_FRAME_READ), t?._reruns.splice(t._reruns.indexOf(c) >>> 0, 1));
   const leaked: Transaction[] = [];
   if (t !== null)
     for (let i = 0; i < stagedReaders.length; i++) {
@@ -1226,6 +1238,9 @@ const laneServed = (c: Computed<any>, el: Signal<any> | Computed<any>): void => 
   if (from && c._x?._pendingSources)
     for (const s of from) if (removePendingSource(c, s)) settlePendingSource(c, s);
 };
+/** This flush's verdict readers that read a flight ahead of the frame
+ * (#4661, the seam). */
+export const ahead: Computed<any>[] = [];
 /** Render effects that read a verdict and entered a lane before its seam (#4284). */
 const entered: Computed<any>[] = [];
 installLaneHooks(

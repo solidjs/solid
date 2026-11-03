@@ -67,7 +67,7 @@ import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { display, laneValueOf, verdictLane } from "./lanes.js";
+import { ahead, display, laneValueOf, verdictLane } from "./lanes.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
   blocked,
@@ -154,6 +154,10 @@ function route(c: Computed<any>, t: Transaction): void {
  * transaction (`bornInto`, #4010): it has no screen — it waits on the flight
  * with the rest of its frame. */
 function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
+  // A render effect routed into a verdict lane reads the screen as lane
+  // work (D-26). A memo still observes the flight: a plain read after its
+  // window is the frame's read, as one before it is (A10, F-6, #4661).
+  if (passLane && (c as any)._type && !(c._statusFlags & STATUS_UNINITIALIZED)) return true;
   if (el._config & CONFIG_INPUTS_PUBLISHED || (el._config & CONFIG_HELD && bornInto(c, txOf(el))))
     return false;
   // A derived store's derive whose store has no reader (`fam.live` empty:
@@ -162,6 +166,7 @@ function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
   if (globalQueue._running && (c as any)._fam?.live.size !== 0) {
     joinFuture(null);
     if (!(el._config & CONFIG_HELD)) queuePendingNode(el);
+    ahead.splice(ahead.indexOf(c) >>> 0, 1);
     verdictRead(c, flushTransaction!, true);
   }
   return true;
@@ -284,10 +289,15 @@ function pendingVerdict(c: Computed<any> | null, el: Computed<any>): void {
       // seam, where a re-run would open it again, every flush (F-6, D-23).
       // (The mark is the transaction's own — `Transaction.latest` — so
       // nothing outlives its landing.)
-      if (!probing)
+      // Read ahead of, by a pass no plain read of a flight routed yet
+      // (`observeFlight`): no frame read of it (F-6, #4661; lanes.ts
+      // `laneSeams`). Once routed, the pass's later plain reads are the
+      // lane's and mark nothing.
+      if (!probing) {
+        c._flags & REACTIVE_LANE_READ || ahead.push(c);
         flushTransaction ||
           (joinFuture(null), ((flushTransaction as Transaction | null)!.latest = 1));
-      else if (flushTransaction?.latest) return route(c, flushTransaction);
+      } else if (flushTransaction?.latest) return route(c, flushTransaction);
       provisionalVerdict(c, false); // decided above
     }
   }
