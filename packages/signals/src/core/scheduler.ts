@@ -1435,14 +1435,14 @@ export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): vo
     // flight before the guess or after (D-28), and whether it reads the
     // guess itself or a derivation of it — this walk runs at every lane
     // node's change. Seated at the guess read, the earlier read threw the
-    // pass back into the hold (#4629).
+    // pass back into the hold (#4629). So did an ended action's hold (#4666).
     if (
       t &&
       l._parent &&
       !(c as any)._type &&
       (c._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
       (c._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) === STATUS_PENDING &&
-      resolveTx(t) === resolveTx(l._parent)
+      ((t = resolveTx(t)) === resolveTx(l._parent) || (t._acted && !t._open))
     )
       list(c, (t = l));
     if ((c as any)._type === EFFECT_RENDER && node._config & CONFIG_VERDICT)
