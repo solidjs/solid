@@ -266,7 +266,6 @@ function applyGuesses(parent: Transaction | null): void {
       // The lane's members re-derive as its work (REACTIVE_LANE_DIRTY): a
       // blocked lane's re-guess does not re-run its render effects as stale
       // readers republishing the committed view (#3460).
-      insertSubs(n);
       laneDirty(n, txOf(n));
     }
   }
@@ -285,7 +284,7 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
   const f = (c._flags |= REACTIVE_LANE_READ),
     p = passLane;
   if (p === null) {
-    const verdict = l._parent!._verdict === l;
+    const verdict = isVerdict(l);
     // A verdict lane's value (a memo of `latest` / `isPending`, F-6) read by
     // a derivation that already read the frame's staging or joined its
     // hold, or by any pass a pass that did is creating: the verdict read
@@ -335,6 +334,10 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
     if (!under(l, p)) linkLanes(p, l);
     setPassLane(l);
   }
+}
+/** Is `l` a verdict lane (its parent's `_verdict`)? False for none. */
+function isVerdict(l: Transaction | null | undefined): boolean {
+  return l?._parent?._verdict === l;
 }
 /** Is `l` nested under `a` (an ancestor lane)? */
 function under(l: Transaction, a: Transaction): boolean {
@@ -761,13 +764,21 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // the leaf into another lane (no link): it reads that lane as from the
     // frame's seat (#4284).
     const p = passLane;
-    const seated = p?._parent!._verdict === p;
+    const seated = isVerdict(p);
     if (seated && (never || p !== l)) setPassLane(null);
     if (passLane === null || !sameLane(passLane, l)) {
       // (A lane that has never shown: the screen is the committed value.)
       if (never && l._shown) return NOT_PENDING;
+      // A held leaf reads its frame's staging. Not a shown guess lane's:
+      // there `_pendingValue` is the lane's staging for its next reveal
+      // (`laneWrite`, `laneStage`), not the frame's — read as the frame's, the leaf's run
+      // waited with the frame and the reveal never re-ran it; a guess into a
+      // log whose lane has shown stayed hidden behind another action's
+      // refresh (F-11, D-26, #4666). It reads the screen and re-derives at
+      // the reveal (below), or enters the lane.
       if (
         !guess &&
+        (!l._shown || isVerdict(l)) &&
         el._pendingValue !== NOT_PENDING &&
         c._config & CONFIG_HELD &&
         flushTransaction !== null &&
@@ -794,7 +805,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
       }
       // A verdict reader reads ahead of the seam's verdict: re-derived on the
       // screen if the lane holds (#4284).
-      if (c._config & CONFIG_VERDICT && l._parent!._verdict !== l) entered.push(c);
+      if (c._config & CONFIG_VERDICT && !isVerdict(l)) entered.push(c);
     }
   }
   enterLane(l, c);
@@ -982,7 +993,6 @@ function laneWrite<T>(el: Signal<T> | Computed<T>, v: T): T {
     if (l._shown) el._pendingValue = v;
     else el._x!._lane = v;
     if ((el as any)._fn !== undefined) (el as Computed<T>)._time = clock;
-    insertSubs(el);
     laneDirty(el, l);
   }
   schedule();
@@ -1135,7 +1145,7 @@ const laneSeams = (t: Transaction | null): void => {
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
-          ? (l._parent?._verdict === l &&
+          ? (isVerdict(l) &&
               (r._config & CONFIG_VERDICT
                 ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
                 : !blocked(t!) || heldBy(t!, r))) ||
@@ -1193,8 +1203,7 @@ const laneSeams = (t: Transaction | null): void => {
   // a pass routed into it — the park seam's zombie verdict readers re-run
   // as its work so that this seam reveals them (#3444).
   for (let k = lanes.length - 1; k >= 0; k--)
-    if (k < judged || lanes[k]._parent?._verdict === lanes[k])
-      laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
+    if (k < judged || isVerdict(lanes[k])) laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
   // A verdict reader that entered a lane this seam held: its run waits with
   // the lane, and the verdict beside it would freeze — it re-derives next
   // round from the frame's seat, a stale reader of the lane (#4284).

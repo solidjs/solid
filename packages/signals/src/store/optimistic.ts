@@ -533,10 +533,7 @@ function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf
     list(node, lane);
   } else if (x._lane === value) return;
   x._lane = value;
-  if (node._subs !== null) {
-    insertSubs(node);
-    laneDirty(node, lane);
-  }
+  if (node._subs !== null) laneDirty(node, lane);
 }
 
 /** D-34 for a per-key guess (#4329): the derive's draft wrote new objects

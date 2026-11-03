@@ -977,11 +977,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
 
       // insertSubs only walks _subs (no scheduling of its own), so a
       // subscriber-less node has nothing to notify.
-      if (el._subs !== null) {
-        insertSubs(el);
-        // Lane work re-staged: the lane's members re-derive as its work.
-        if (lane !== null) laneDirty(el, lane);
-      }
+      // Lane work re-staged: the lane's members re-derive as its work
+      // (`laneDirty` notifies them first).
+      if (el._subs !== null) lane !== null ? laneDirty(el, lane) : insertSubs(el);
     } else if (el._height != oldHeight) {
       for (let s = el._subs; s !== null; s = s._nextSub) insertIntoHeapHeight(s._sub, dirtyQueue);
     }
