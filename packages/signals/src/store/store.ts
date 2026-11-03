@@ -608,9 +608,12 @@ export function cloneRaw(
       if (!d.get && !d.set) d.writable = true;
       else t.a = true;
     }
+    // An array subclass keeps its prototype (#4670): the copy is a real
+    // array (`Array.isArray`, exotic `length`) re-prototyped to the source's.
+    const proto = Object.getPrototypeOf(source);
     clone = Array.isArray(source)
-      ? Object.defineProperties([], descs)
-      : Object.create(Object.getPrototypeOf(source), descs);
+      ? Object.setPrototypeOf(Object.defineProperties([], descs), proto)
+      : Object.create(proto, descs);
   }
   clone[$OWNER] = t;
   return clone;
@@ -2202,13 +2205,17 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     }
     // Plain-data fast path: no descriptor allocation per read. Inherited
     // pollution keys are never served (core R30) — checked before the
-    // proto-function branch can leak `constructor`. Overlay pending backings
+    // proto-function branch can leak `constructor`. An inherited
+    // `constructor` is withheld from drafts only: a plain read answers the
+    // source's class (`s.o.constructor === Obj`, #4670). Overlay pending backings
     // chain to the committed backing, so "own in the view" means own on
     // either layer — a genuine prototype method is one that is own on
     // NEITHER.
     const viewOvl = target.ovl && src === target.pb;
     if (
-      (key === "constructor" || key === "__proto__" || key === "prototype") &&
+      (key === "constructor"
+        ? writeOverride || inDraft(target)
+        : key === "__proto__" || key === "prototype") &&
       !hasOwn.call(src, key) &&
       !(viewOvl && hasOwn.call(target.v, key))
     )
@@ -2418,7 +2425,11 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     return true;
   },
 
-  // The shell is empty: a store cannot be frozen or re-prototyped.
+  // The shell is empty: a store cannot be frozen or re-prototyped. It stays
+  // extensible, so the source's prototype may be reported (#4670: instanceof).
+  getPrototypeOf() {
+    return Object.getPrototypeOf(this.v);
+  },
   preventExtensions: () => false,
   setPrototypeOf: () => false
 };

@@ -122,6 +122,7 @@ function wrapDraft(
         delete inner[prop];
       }),
     ownKeys: () => read(() => Reflect.ownKeys(inner)),
+    getPrototypeOf: () => Object.getPrototypeOf(inner),
     getOwnPropertyDescriptor(_, prop) {
       const d = read(() => Reflect.getOwnPropertyDescriptor(inner, prop));
       if (d) d.configurable = true;
