@@ -569,6 +569,9 @@ export function nameStore(proxy: any, name: string | undefined, loc?: string): v
 // clones (CoW privatization)
 
 const hasOwn = Object.prototype.hasOwnProperty;
+// Aliased: each spelled-out use costs ~20 minified bytes on every store row.
+export const protoOf = Object.getPrototypeOf;
+const setProto = Object.setPrototypeOf;
 const lookupGetter = (Object.prototype as any).__lookupGetter__;
 const lookupSetter = (Object.prototype as any).__lookupSetter__;
 const propertyIsEnumerable = Object.prototype.propertyIsEnumerable;
@@ -597,7 +600,7 @@ export function cloneRaw(
   // allocates one descriptor per element, O(n) per first draft write (10k
   // rows: ~10 ms per push).
   let clone: any;
-  if (!t.a && t.kc <= source.length + 1 && Object.getPrototypeOf(source) === Array.prototype)
+  if (!t.a && t.kc <= source.length + 1 && protoOf(source) === Array.prototype)
     clone = source.slice();
   else {
     const descs = Object.getOwnPropertyDescriptors(source);
@@ -610,10 +613,10 @@ export function cloneRaw(
     }
     // An array subclass keeps its prototype (#4670): the copy is a real
     // array (`Array.isArray`, exotic `length`) re-prototyped to the source's.
-    const proto = Object.getPrototypeOf(source);
-    clone = Array.isArray(source)
-      ? Object.setPrototypeOf(Object.defineProperties([], descs), proto)
-      : Object.create(proto, descs);
+    clone = Object.defineProperties(
+      Array.isArray(source) ? setProto([], protoOf(source)) : Object.create(protoOf(source)),
+      descs
+    );
   }
   clone[$OWNER] = t;
   return clone;
@@ -623,7 +626,7 @@ export function cloneRaw(
 function wideClone(source: Record<PropertyKey, any>, t: StoreTarget): Record<PropertyKey, any> {
   const clone = Object.create(null);
   for (const key of Reflect.ownKeys(source)) clone[key] = source[key as any];
-  Object.setPrototypeOf(clone, Object.prototype);
+  setProto(clone, Object.prototype);
   clone[$OWNER] = t;
   return clone;
 }
@@ -639,7 +642,7 @@ function copyOwn(to: object, from: object, key: PropertyKey): void {
 function scanAccessorsOnce(target: StoreTarget): boolean {
   const src = target.v;
   const keys = Reflect.ownKeys(src);
-  let plain = Object.getPrototypeOf(src) === Object.prototype;
+  let plain = protoOf(src) === Object.prototype;
   for (const key of keys) {
     if (isOwnAccessor(src, key)) {
       target.a = true;
@@ -662,7 +665,7 @@ const OVERLAY_REBUILD_MIN_ADDS = 16;
 const WK_ALL = new Set() as WrittenKeys;
 
 const plainProto = (o: object): boolean => {
-  const p = Object.getPrototypeOf(o);
+  const p = protoOf(o);
   return p === Object.prototype || p === Array.prototype || p === null;
 };
 
@@ -1735,7 +1738,7 @@ function changedBetween(
   if (
     target.ch ||
     (pb as any)[$TARGET] !== undefined ||
-    Object.getPrototypeOf(pb) !== Object.getPrototypeOf(v) ||
+    protoOf(pb) !== protoOf(v) ||
     !plainProto(v)
   )
     return true;
@@ -2428,7 +2431,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
   // The shell is empty: a store cannot be frozen or re-prototyped. It stays
   // extensible, so the source's prototype may be reported (#4670: instanceof).
   getPrototypeOf() {
-    return Object.getPrototypeOf(this.v);
+    return protoOf(this.v);
   },
   preventExtensions: () => false,
   setPrototypeOf: () => false
@@ -2820,7 +2823,7 @@ function snapshotRecord(
 ): any {
   if (isOwned(src)) {
     const isArr = Array.isArray(src);
-    const copy: any = isArr ? [] : Object.create(Object.getPrototypeOf(src));
+    const copy: any = isArr ? [] : Object.create(protoOf(src));
     seen.set(src, copy);
     for (const key of Reflect.ownKeys(src)) {
       if ((isArr && key === "length") || key === $OWNER) continue;
@@ -2859,7 +2862,7 @@ function snapshotRecord(
       if (copy === null) {
         copy = Array.isArray(src)
           ? [...(src as any[])]
-          : Object.create(Object.getPrototypeOf(src), Object.getOwnPropertyDescriptors(src));
+          : Object.create(protoOf(src), Object.getOwnPropertyDescriptors(src));
         seen.set(src, copy);
       }
       copy[key] = walked;

@@ -46,7 +46,7 @@ import type { Computed, Signal } from "../core/types.js";
 import type { Refreshable } from "../core/index.js";
 import { optHooks } from "./hooks.js";
 import { reconcileState } from "./reconcile.js";
-import { nameStore, runDirect, storeSetter, wrap } from "./store.js";
+import { nameStore, protoOf, runDirect, storeSetter, wrap } from "./store.js";
 import { setLookup, storeOwners, type StoreFamily, type StoreTarget } from "./target.js";
 import {
   $TARGET,
@@ -122,7 +122,7 @@ function wrapDraft(
         delete inner[prop];
       }),
     ownKeys: () => read(() => Reflect.ownKeys(inner)),
-    getPrototypeOf: () => Object.getPrototypeOf(inner),
+    getPrototypeOf: () => protoOf(inner),
     getOwnPropertyDescriptor(_, prop) {
       const d = read(() => Reflect.getOwnPropertyDescriptor(inner, prop));
       if (d) d.configurable = true;
