@@ -6,7 +6,8 @@ import {
   repeat,
   createRevealOrder,
   getOwner,
-  runWithOwner
+  runWithOwner,
+  verdict
 } from "@solidjs/signals";
 import { createErrorBoundary, createLoadingBoundary, sharedConfig } from "./hydration.js";
 import type { Accessor, RevealOrder } from "@solidjs/signals";
@@ -217,12 +218,16 @@ export function Show<T>(props: {
             }
           : { equals: (a, b) => !a === !b, sync: true }
       );
-  // A token for the selection's latest run. An `isPending()` probe reads
-  // `condition()` through the verdict path, which answers with the committed
-  // value of a condition staged this flush — a branch that mounted this flush
-  // would read as stale there (#4648). The accessor the latest run handed out
-  // (`shown === run`) is live whatever the frame; any older accessor falls
-  // back to the tracked read below.
+  // A token for the selection's latest run. An `isPending()` / `latest()`
+  // probe reads `condition()` through the verdict path, which answers with
+  // the committed value of a condition staged this flush — a branch that
+  // mounted this flush would read as stale there (#4648). Inside a verdict
+  // window (`verdict` is set) the accessor the latest run handed out
+  // (`shown === run`) skips the guard; outside one — a plain read, an async
+  // callback — every accessor keeps the tracked guard below, so one read
+  // while its branch's opening is held still throws (never hands out the
+  // committed falsy). The token is a fresh object, not `c`: an older run's
+  // closure may hold an equal `c` (`true` → `false` → `true`).
   let shown: unknown;
   return createMemo(
     () => {
@@ -243,7 +248,7 @@ export function Show<T>(props: {
                     // `latest()`-selected first mount (#3948) — while a read
                     // after unmount sees the committed falsy and throws.
                     // `untrack(condition)` serves neither.
-                    if (shown !== run && !condition()) throw narrowedError("Show");
+                    if (!(verdict && shown === run) && !condition()) throw narrowedError("Show");
                     return conditionValue();
                   }),
                 IS_DEV && "<Show>"
@@ -321,8 +326,8 @@ export function Switch(props: { fallback?: SolidElement; children: SolidElement 
     },
     IS_OBSERVE ? { name: "conditions", sync: true } : { sync: true }
   );
-  // The selection's latest run, as Show's token (#4648): `sel` is a fresh
-  // tuple on every run.
+  // The selection's latest run, as Show's token (#4648), honoured only
+  // inside a verdict window: `sel` is a fresh tuple on every run.
   let shown: unknown;
   return createMemo(
     () => {
@@ -337,7 +342,7 @@ export function Switch(props: { fallback?: SolidElement; children: SolidElement 
           : untrack(
               () =>
                 (child as any)(() => {
-                  if (shown !== sel && untrack(switchFunc)()?.[0] !== index)
+                  if (!(verdict && shown === sel) && untrack(switchFunc)()?.[0] !== index)
                     throw narrowedError("Match");
                   return conditionValue();
                 }),

@@ -118,3 +118,135 @@ for (const kind of ["Show", "Switch"] as const)
     expect(error.mock.calls.map(c => String(c[0]).split("\n")[0])).toEqual([]);
     dispose();
   });
+
+/**
+ * The live-accessor skip is a verdict window's (#4648), not every frame's.
+ * A `when` whose opening is held — a shown Loading's memo re-asks on it —
+ * mounts the branch in the held world while the screen keeps the fallback.
+ * A plain read of the narrowed accessor during the hold (a timer, an async
+ * callback) sees the committed falsy: it throws the stale error rather than
+ * hand out a value its type rules out, and serves the value once the hold
+ * lands.
+ */
+function heldOpen(kind: Kind, initial: { id: number } | boolean, next: { id: number } | boolean) {
+  const [open, setOpen] = createSignal<{ id: number } | boolean>(initial);
+  const resolvers: (() => void)[] = [];
+  const accs: (() => unknown)[] = [];
+  const screen: Record<string, unknown> = {};
+  let disposeRoot!: () => void;
+  createRoot(dispose => {
+    disposeRoot = dispose;
+    const data = createMemo(() => {
+      const o = open();
+      return new Promise<string>(r => resolvers.push(() => r("d" + JSON.stringify(o))));
+    });
+    const child = (j: () => unknown) => (accs.push(j), "branch");
+    const view =
+      kind === "Show"
+        ? Show({
+            get when() {
+              return open();
+            },
+            fallback: "closed",
+            children: child
+          } as any)
+        : Switch({
+            fallback: "closed",
+            get children() {
+              return Match({
+                get when() {
+                  return open();
+                },
+                children: child
+              } as any) as any;
+            }
+          });
+    createRenderEffect(
+      () => (view as any)(),
+      v => void (screen.view = v)
+    );
+    createRenderEffect(
+      createLoadingBoundary(
+        () => data(),
+        () => "wait"
+      ),
+      v => void (screen.data = v)
+    );
+  });
+  return {
+    screen,
+    accs,
+    resolvers,
+    setOpen: () => setOpen(next),
+    setClosed: () => setOpen(false),
+    dispose: () => disposeRoot()
+  };
+}
+
+const read = (a: () => unknown) => {
+  try {
+    return JSON.stringify(a());
+  } catch (e) {
+    return String((e as Error)?.message ?? e).includes("stale value") ? "STALE" : String(e);
+  }
+};
+const probe = (a: () => unknown) => {
+  let inner = "";
+  isPending(() => void (inner = read(a)));
+  return inner;
+};
+
+for (const kind of ["Show", "Switch"] as const)
+  test(`${kind}: a plain read of a narrowed accessor whose opening is held throws`, async () => {
+    const { screen, accs, resolvers, setOpen, dispose } = heldOpen(kind, false, { id: 5 });
+    flush();
+    resolvers.shift()!();
+    await settle();
+    expect(screen).toEqual({ view: "closed", data: "dfalse" });
+
+    setOpen(); // held: the Loading's memo re-asks on `open`
+    flush();
+    expect(screen).toEqual({ view: "closed", data: "dfalse" });
+    expect(accs.length).toBe(1);
+    expect(read(accs[0])).toBe("STALE");
+    await new Promise(r => setTimeout(r, 0));
+    expect(read(accs[0])).toBe("STALE"); // an async callback, as on `next`
+
+    resolvers.shift()!();
+    await settle();
+    expect(screen).toEqual({ view: "branch", data: 'd{"id":5}' });
+    expect(read(accs[0])).toBe('{"id":5}');
+    dispose();
+  });
+
+/**
+ * The run token is a fresh object, not the condition's value: an accessor
+ * from an earlier run whose condition was equal (`true` → `false` → `true`)
+ * is not the live run's, and inside a probe during the held reopen it still
+ * reads as stale (its branch unmounted at the close).
+ */
+test("Show: an earlier run's accessor with an equal condition stays stale inside a probe", async () => {
+  const { screen, accs, resolvers, setOpen, setClosed, dispose } = heldOpen("Show", true, true);
+  flush();
+  resolvers.shift()!();
+  await settle();
+  expect(screen).toEqual({ view: "branch", data: "dtrue" });
+
+  setClosed();
+  flush();
+  resolvers.shift()!();
+  await settle();
+  expect(screen).toEqual({ view: "closed", data: "dfalse" });
+
+  setOpen();
+  flush();
+  expect(accs.length).toBe(2);
+  expect(probe(accs[0])).toBe("STALE");
+  expect(read(accs[1])).toBe("STALE");
+
+  resolvers.shift()!();
+  await settle();
+  expect(screen).toEqual({ view: "branch", data: "dtrue" });
+  expect(read(accs[1])).toBe("true");
+  dispose();
+});
