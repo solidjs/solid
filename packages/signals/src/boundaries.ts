@@ -370,10 +370,13 @@ function caughtBelow(b: Boundary, r: Computed<any>, s: Computed<any>): boolean {
 }
 
 /** `n` reads `s`, directly or through derivations wherever they live (a
- * hoisted memo, a derived store's derive, a loading boundary's output). */
-function reads(n: Computed<any>, s: Computed<any>): boolean {
-  for (let l = n._deps; l; l = l._nextDep)
-    if (l._dep === s || reads(l._dep as Computed<any>, s)) return true;
+ * hoisted memo, a derived store's derive, a loading boundary's output). Each
+ * upstream node is walked once (`seen`), so a shared upstream graph costs its
+ * size, not its paths. */
+function reads(n: Computed<any>, s: Computed<any>, seen = new Set<any>()): boolean {
+  for (let l = n._deps, d; l; l = l._nextDep)
+    if ((d = l._dep) === s || (seen.size < seen.add(d).size && reads(d as Computed<any>, s, seen)))
+      return true;
   return false;
 }
 
