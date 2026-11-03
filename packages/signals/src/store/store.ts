@@ -393,7 +393,10 @@ export function getNode(
   // accessor-ness right before creating the node — pass the verdict through
   // so creation skips the second descriptor scan. -1 = unknown (other
   // callers), 0/1 = probed.
-  accKnown: -1 | 0 | 1 = -1
+  accKnown: -1 | 0 | 1 = -1,
+  // An inherited pollution key (core R30): born absent, never with the
+  // prototype's value (#4672).
+  absent?: true
 ): Signal<any> {
   const nodes = (target.n ??= Object.create(null));
   let node: Signal<any> | undefined = nodes[key];
@@ -403,14 +406,14 @@ export function getNode(
     // receiver.
     const pb = target.pb;
     const created: Signal<any> = (node = slotSignal(
-      committed(target)[key as any],
+      absent ? undefined : committed(target)[key as any],
       slotNodeEquals,
       target,
       key,
       accKnown === -1 ? isOwnAccessor(pb ?? target.v, key) : accKnown === 1
     ));
     if (pb !== null && !(created as any).acc)
-      bornStaged(target, created, target.del?.has(key) ? undefined : pb[key as any], key);
+      bornStaged(target, created, absent || target.del?.has(key) ? undefined : pb[key as any], key);
     // Attribution-only: name store property nodes by path segment so
     // attribution chains and wide-scope warnings read "store.todos" (or
     // "todos.title" when the store was declared with a name), not
@@ -1214,9 +1217,10 @@ function notifyWrites(t: StoreTarget): void {
     for (const key of keys) {
       const node = nodes[key as any];
       if (node === undefined) continue;
+      let own = false;
       if (
         (node as any).acc === true ||
-        (hasOwn.call(pb, key) && lookupGetter.call(pb, key) !== undefined)
+        ((own = hasOwn.call(pb, key)) && lookupGetter.call(pb, key) !== undefined)
       ) {
         // Accessor keys: the node is linked for shape-change notification,
         // its value is never served (the getter runs with the proxy
@@ -1235,7 +1239,10 @@ function notifyWrites(t: StoreTarget): void {
         if (od?.get || od?.set || !isEqual(od?.value, nd.value)) setSignal(node, () => nd.value);
         continue;
       }
-      const nv = t.del?.has(key) ? undefined : pb[key as any];
+      // An absent key's node is told `undefined`, never an inherited
+      // pollution key's value (core R30, #4672); an own key pays nothing.
+      // (An overlay's written keys are own on it or in `del`.)
+      const nv = own || !(t.del?.has(key) || UNSAFE_KEYS.has(key)) ? pb[key as any] : undefined;
       setSignal(node, () => nv);
       if (t._fam !== null) {
         // The derive's write is a derivation; a user setter's is a proposal
@@ -2003,7 +2010,7 @@ function optRead(target: StoreTarget): boolean {
 }
 
 /** Pollution keys are never served from the prototype (core R30). */
-const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor"]);
+export const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor"]);
 
 // ---------------------------------------------------------------------------
 // traps
@@ -2211,8 +2218,11 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       (key === "constructor" || key === "__proto__" || key === "prototype") &&
       !hasOwn.call(src, key) &&
       !(viewOvl && hasOwn.call(target.v, key))
-    )
-      return undefined;
+    ) {
+      // Absent like any absent key: a tracked reader subscribes (R12, #4672).
+      getObserver() && !inDraft(target) && readNode(getNode(target, key, 0, true));
+      return;
+    }
     let v = (src as any)[key];
     if (
       v === undefined ? !hasOwn.call(src, key) && !(viewOvl && hasOwn.call(target.v, key)) : false

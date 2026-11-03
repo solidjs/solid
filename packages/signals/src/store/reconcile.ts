@@ -34,6 +34,7 @@ import {
   sameKey,
   sameRow,
   targetsEqual,
+  UNSAFE_KEYS,
   unwrapValue,
   userWriting
 } from "./store.js";
@@ -272,7 +273,15 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // Keys the incoming object no longer has still have nodes.
   if (nodes !== null && nodesHit < t.nc) {
     for (const key of Reflect.ownKeys(nodes)) {
-      if (!hasOwnP.call(incoming, key)) notifyKeyDiff(nodes[key as any], key, old, incoming, false);
+      // A removed pollution key reads absent, not the prototype's (#4672).
+      if (!hasOwnP.call(incoming, key))
+        notifyKeyDiff(
+          nodes[key as any],
+          key,
+          old,
+          UNSAFE_KEYS.has(key) ? Object.create(null) : incoming,
+          false
+        );
     }
   }
   notifyFoldTail(t, old, incoming);
