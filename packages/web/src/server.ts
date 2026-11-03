@@ -2010,16 +2010,19 @@ export function renderToStream<T>(
      * The request's lifecycle. Aborting tears the render down exactly as a
      * client disconnect does (`SSR_STREAM_ABANDONED`, `data.reason:
      * "signal"`): in-flight reactive work is disposed, every async source
-     * still being pulled is returned, and nothing more reaches the sink. For
-     * the host whose transport cannot report a dead consumer through the
-     * sink or the readable view — a frame stream whose emission never
-     * touches the document writable, a platform whose response body is
-     * consumed by a proxy — this is the one teardown handle; pass
+     * still being pulled is returned, and nothing more is written to the
+     * sink. For the host whose transport cannot report a dead consumer
+     * through the sink or the readable view — a frame stream whose emission
+     * never touches the document writable, a platform whose response body
+     * is consumed by a proxy — this is the one teardown handle; pass
      * `request.signal`. Idempotent with the sink and consumer paths: whichever
      * fires first tears down, the rest are no-ops.
      * Awaiting the render rejects with `signal.reason` when this signal aborts;
-     * the streaming forms only settle: `pipeTo`'s promise resolves, and
-     * neither `pipe` nor `pipeTo` writes to or ends the sink again (#4646).
+     * the streaming forms stop writing and end cleanly — a close, not an
+     * error, since bytes are already out: `pipe` ends its sink, `pipeTo`
+     * closes its writable (after the writes already handed to it) and
+     * resolves, and `readable` closes. `onError` and `onCompleteAll` are not
+     * called (#4646).
      */
     signal?: AbortSignal;
   }
@@ -2109,8 +2112,9 @@ export function renderToStream(code, options = {}) {
   // (`failRender`), silently: that one is already the render error's
   // finding.
   //
-  // The two differ in what is left alive. After a disconnect nobody is
-  // listening: the sink is never touched again (`disconnected`). After a
+  // The two differ in what is left alive. After a disconnect nothing more
+  // is written to the sink (`disconnected`, holding the reason); only a
+  // `signal` abort, whose sink is still alive, ends it (below). After a
   // render FAILURE the consumer is still waiting — the awaited promise, a
   // `pipe` sink, a `pipeTo` writable — and must be completed by the
   // wind-down itself, because nothing downstream will: seroval's `onDone`
@@ -2120,11 +2124,14 @@ export function renderToStream(code, options = {}) {
   // consumer registers its completion through `onFailure` (they chain —
   // `then` may be called more than once, and beside a pipe); a wind-down
   // that lands before the consumer claims the render runs it at
-  // registration. A disconnect runs it too, with `gone` set: the sink is
-  // left alone, but a promise still waiting on the render — the awaited
+  // registration. A disconnect runs it too, with `gone` naming it (the
+  // `abandon` reason): a promise still waiting on the render — the awaited
   // form, `pipeTo`, `createSSRResponse`'s shell (`SHELL_ABANDONED`) — must
-  // settle, or it hangs the caller the same way (#4646): the awaited form
-  // rejects with `signal.reason` when the `signal` aborted, the rest resolve.
+  // settle, or it hangs the caller the same way (#4646). The awaited form
+  // rejects with `signal.reason` when the `signal` aborted. A dead sink
+  // (`"sink"`, `"consumer"`) is left alone; on a `"signal"` abort the sink
+  // is alive, so the streaming forms write nothing more but end it cleanly
+  // — a close, not an error: the bytes already sent stay sent.
   let disconnected = false;
   let onFailed;
   // What the render still hands the serializer once it is torn down: a
@@ -2141,7 +2148,7 @@ export function renderToStream(code, options = {}) {
     close() {}
   };
   const onFailure = complete => {
-    if (dead) return complete(undefined, disconnected);
+    if (dead) return complete(undefined, disconnected || undefined);
     const prev = onFailed;
     onFailed = prev
       ? (sink, gone) => {
@@ -2169,7 +2176,7 @@ export function renderToStream(code, options = {}) {
       );
     dead = true;
     completed = true;
-    if (disconnect) disconnected = true;
+    if (disconnect) disconnected = disconnect;
     // The render's record ends here, with how: the client left, or the
     // render failed (the render error's finding says why).
     if (render) settleRender(render, rootOwner, disconnect ? "abandoned" : "error");
@@ -2221,7 +2228,7 @@ export function renderToStream(code, options = {}) {
       for (const p of stubBatch.values()) defuse(p);
       stubBatch = null;
     }
-    onFailed && onFailed(sink, disconnected);
+    onFailed && onFailed(sink, disconnect);
   };
   // A retry pass that throws a REAL error (not NotReady) can have nothing on
   // the stack to catch it: the initial render pass throws synchronously out
@@ -3426,13 +3433,19 @@ export function renderToStream(code, options = {}) {
     // `Response` built on `readable` completes instead of hanging. Post-
     // shell the live wrapper ends (flushing what it coalesced, then the
     // writer's own close path); pre-shell nothing was written yet. A
-    // disconnect only settles the promise: nothing more reaches the sink.
+    // disconnect settles the promise and writes nothing more; a `signal`
+    // abort also closes the (alive) writable — after the writes already
+    // handed to it, dropping what was still coalescing — so a `Response`
+    // built on `readable` ends instead of hanging (#4646). A dead sink
+    // (`"consumer"`) is left alone.
+    let closeOnAbort = () => w.close().catch(() => {});
     onFailure((sink, gone) => {
-      if (!gone)
-        try {
+      try {
+        if (!gone) {
           if (sink) sink.end();
           else w.close().catch(() => {});
-        } catch (_) {}
+        } else if (gone === "signal") closeOnAbort();
+      } catch (_) {}
       resolve();
     });
     function flush() {
@@ -3475,6 +3488,10 @@ export function renderToStream(code, options = {}) {
             }
           };
           writer.closed && writer.closed.catch(failed);
+          closeOnAbort = () => {
+            ended = true;
+            pendingWrites.then(() => writer.close()).catch(() => {});
+          };
           buffer = writable = coalesceWrites(
             payload => {
               pendingWrites = pendingWrites
@@ -3606,13 +3623,19 @@ export function renderToStream(code, options = {}) {
       // shell through the live wrapper (coalesced bytes flush first); pre-
       // shell nothing was written: `createSSRResponse`'s sink answers it
       // (`SHELL_ABANDONED`), any other raw sink is ended. A disconnect leaves
-      // the sink alone, but `createSSRResponse`'s promise still waits on a
-      // shell that will never come: pre-shell it is answered too.
+      // a dead sink alone, but `createSSRResponse`'s promise still waits on a
+      // shell that will never come: pre-shell it is answered too. A `signal`
+      // abort leaves an alive sink: nothing more is written (what was still
+      // coalescing is dropped) and the raw sink is ended directly — the live
+      // wrapper is guarded off once disconnected — so a post-shell
+      // `createSSRResponse` body closes, pre-shell it still gets its
+      // bodyless 500 (#4646).
       const abandoned = w[SHELL_ABANDONED];
       onFailure((sink, gone) => {
         try {
           if (!gone) sink ? sink.end() : abandoned ? abandoned() : w.end();
           else if (!sink && abandoned) abandoned();
+          else if (gone === "signal") w.end();
         } catch (_) {}
       });
       if (abandoned) w[ABANDON_RENDER] = abandon;
