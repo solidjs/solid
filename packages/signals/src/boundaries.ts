@@ -362,7 +362,9 @@ function caughtBelow(b: Boundary, r: Computed<any>, s: Computed<any>): boolean {
 }
 
 /** Drop the readers that settled or died. Settled: a loading reader no
- * longer pending; an error's source neither errored nor in flight. A reader
+ * longer pending; an error's source neither errored nor in flight, or read by
+ * nothing — a reader that caught it and re-ran clean (the tree, a memo-only
+ * read gated away) no longer holds it (D-39, #4644). A reader
  * that landed but is held (its value staged in a transaction) is not: the
  * content reveals at the commit, with its run. The tree is: the output reads
  * it and enters the transaction itself (its committed value shows until the
@@ -392,7 +394,7 @@ export function prune(b: Boundary, pass?: boolean | 0): number {
       // settled before it ran, a fresh boundary revealed into a hold its
       // pass then went pending in, which waited on that flight (#4568).
       if (
-        ((r._statusFlags | s._statusFlags) & mask &&
+        ((r._statusFlags | (s._subs ? s._statusFlags : 0)) & mask &&
           !(mask & STATUS_ERROR && caughtBelow(b, r, s))) ||
         (mask & STATUS_ERROR && s._config & CONFIG_STAGED_ERROR) ||
         (r._config & CONFIG_VERDICT && r._flags & REACTIVE_IN_HEAP)
