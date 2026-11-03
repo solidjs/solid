@@ -13,7 +13,10 @@
  *    one that first reads the held node in a later flush ("first read in the
  *    hold"; same), and one that probed only in the flush that staged the
  *    write, before the hold existed ("staging flush only"; it landed
- *    `{ v: 5, inner: 0, p: false }` and stayed there).
+ *    `{ v: 5, inner: 0, p: false }` and stayed there). The staging flush is a
+ *    normal flush, not the hold (ruled 2026-11-03): an untracked probe there
+ *    reads the staging, as its plain read does (F-10, D-24) — with no hold
+ *    at all too, where it read the committed value and stayed stale.
  * 2. A probe of a first value staged this flush does what its plain read
  *    does (D-23 exc. 1, F-9): the node has no committed value, only the
  *    staging. It read the empty committed slot (`undefined`).
@@ -22,6 +25,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  createEffect,
   createLoadingBoundary,
   createMemo,
   createRenderEffect,
@@ -51,6 +55,7 @@ function setup(probe: "isPending" | "latest", order: Order, shape: Shape = "re-r
   let release = () => {};
   const log: Row[] = [];
   const screen: (Row | null)[] = [];
+  const effects: (Row | null)[] = [];
   createRoot(() => {
     // Read by a render effect outside any boundary: a write to `open` is
     // held until this lands (F-2).
@@ -77,39 +82,79 @@ function setup(probe: "isPending" | "latest", order: Order, shape: Shape = "re-r
     });
     createRenderEffect(data, () => {});
     createRenderEffect(pass, r => void screen.push(r));
+    createEffect(pass, r => void effects.push(r));
   });
   flush();
   release();
-  return { setOpen, setOther, release: () => release(), log, screen };
+  return { setOpen, setOther, release: () => release(), log, screen, effects };
 }
 
 describe.each(shapes)("an untracked isPending probe of a held write (%s)", shape => {
   describe.each(orders)("%s", order => {
     it("reads the committed value while held, and the hold ends on the landed world", async () => {
-      const { setOpen, setOther, release, log, screen } = setup("isPending", order, shape);
+      const { setOpen, setOther, release, log, screen, effects } = setup("isPending", order, shape);
       await tick();
       log.length = 0;
-      screen.length = 0;
+      const first = shape === "first read in the hold" ? null : { v: 0, inner: 0, p: false };
+      expect(screen).toEqual([first]);
+      expect(effects).toEqual([first]);
       setOpen(5);
       flush();
+      // The staging flush is a normal flush: its probe reads the staging.
+      for (const r of log) expect(r).toEqual({ v: 5, inner: 5, p: false });
+      const staged = log.length;
       if (shape !== "staging flush only") {
         setOther(1);
         flush();
-      }
-      // The ruling: the probe reads the committed value during the hold; the
-      // pass's plain read is the frame's staging. The held pass answers
-      // final, never `true` beside it (D-23).
-      expect(log.at(-1)).toEqual({ v: 5, inner: 0, p: false });
-      for (const r of log) expect(r.inner).toBe(0);
-      expect(screen).toEqual([]);
+        // The ruling: during the hold the probe reads the committed value;
+        // the pass's plain read is the frame's staging. The held pass
+        // answers final, never `true` beside it (D-23).
+        expect(log.at(-1)).toEqual({ v: 5, inner: 0, p: false });
+        for (const r of log.slice(staged)) expect(r.inner).toBe(0);
+      } else for (const r of log) expect(r.p).toBe(false);
+      expect(screen).toEqual([first]);
+      expect(effects).toEqual([first]);
       release();
       await tick();
       // The pass re-derives at the landing (A15): the probe's value is the
-      // landed one, final (F-1, D-23). Never `true` beside the fresh value.
+      // landed one, final (F-1, D-23). The hold ends with one frame — the
+      // held runs wait for the re-derivation — for render and user effects.
       expect(log.at(-1)).toEqual({ v: 5, inner: 5, p: false });
-      expect(screen.at(-1)).toEqual({ v: 5, inner: 5, p: false });
-      for (const r of screen) expect(r?.p && r.v === 5).toBe(false);
+      expect(screen).toEqual([first, { v: 5, inner: 5, p: false }]);
+      expect(effects).toEqual([first, { v: 5, inner: 5, p: false }]);
     });
+  });
+});
+
+describe.each(orders)("an untracked isPending probe with no hold (%s)", order => {
+  it("reads the flush's staging, as its plain read does (F-10, D-24)", () => {
+    const [open, setOpen] = createSignal(0);
+    const screen: Row[] = [];
+    const effects: Row[] = [];
+    createRoot(() => {
+      const cond = createMemo(() => open());
+      const pass = createMemo(() => {
+        let v = 0,
+          inner: unknown,
+          p: unknown;
+        const probeIt = () => (p = untrack(() => isPending(() => (inner = cond()))));
+        if (order === "probe before read") probeIt();
+        v = cond();
+        if (order === "probe after read") probeIt();
+        return { v, inner, p };
+      });
+      createRenderEffect(pass, r => void screen.push(r));
+      createEffect(pass, r => void effects.push(r));
+    });
+    flush();
+    setOpen(5);
+    flush();
+    const frames = [
+      { v: 0, inner: 0, p: false },
+      { v: 5, inner: 5, p: false }
+    ];
+    expect(screen).toEqual(frames);
+    expect(effects).toEqual(frames);
   });
 });
 

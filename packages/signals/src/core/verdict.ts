@@ -654,17 +654,15 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
     // carries the write — a memo of `isPending(x)` created after the write
     // flips if that flush parks (#3078). (The write's own fan-out ran before
     // the reader existed; nothing else would re-derive it.)
-    // So does an untracked probe in a pass (#4648): it read the committed
-    // value beside the staging, and if the flush parks the pass is held —
-    // its re-run there is final, and re-derives at the landing (A15, F-1;
-    // "the hold ends with one frame that reveals the change"). Not an async
-    // memo: its re-run would ask its question again (F-9).
-    else if (probing && owned && (tracked || !c!._x?._q)) watchVerdict(c!);
-    if (latestActive || uninitialized) {
+    else if (tracked && probing) watchVerdict(c!);
+    if (latestActive || uninitialized || (owned && !tracked)) {
       // A28: an unflushed write is not what `latest` serves; a tracked
       // reader derived from the flushed world runs again in the carrying
-      // flush. A first value staged this flush has no committed value: the
-      // probe reads it as its plain read does (D-23 exc. 1, F-9; #4648).
+      // flush. A probe in a pass reads as its plain read does (#4648): a
+      // first value staged this flush has no committed value (D-23 exc. 1,
+      // F-9), and an untracked read sees the flush's staging — the staging
+      // flush is a normal flush, not the hold (F-10, D-24; ruled 2026-11-03).
+      // If the flush parks, what the pass read is the hold's frame.
       if (globalQueue._running) {
         if (__TEST__) shadowActual(SLOT_P);
         return staged(el);
