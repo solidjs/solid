@@ -29,7 +29,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | INV | 11 | 4 | 7 | 4 |
 | RUL | 13 | 3 | 6 | 6 |
 | R (CS) | 59 | 15 | 20 | 30 |
-| R (OL) | 37 | 4 | 1 | 32 |
+| R (OL) | 37 | 5 | 1 | 31 |
 | R (OS) | 46 | 0 | 0 | 46 |
 | R (PJ) | 37 | 2 | 5 | 32 |
 | R (RS) | 38 | 0 | 2 | 36 |
@@ -142,7 +142,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | id | status | defined | cited in src | cited in tests | statement (at definition) |
 |---|---|---|---|---|---|
 | CS-R1 | live | `docs/rules-mining/core-store.md:9` | store.ts×2 | continuation-sibling-reader-4146.test.ts×2 flatten-async-iterable.test.ts×5 syncThenable.test.ts×14 visibility-oracle-store.states.ts×1 | Wrappable values are wrapped: reading a plain object/array child never returns the raw source (`state.data !== data`).** |
-| CS-R2 | live | `docs/rules-mining/core-store.md:13` | — | syncThenable.test.ts×12 visibility-oracle.states.ts×1 | Raw→proxy resolution is global and deduplicating: wrapping the same raw through two different stores yields the same proxy (`outer.list === inner`).** |
+| CS-R2 | live | `docs/rules-mining/core-store.md:13` | — | posture-store-parity.test.ts×1 syncThenable.test.ts×12 visibility-oracle.states.ts×1 | Raw→proxy resolution is global and deduplicating: wrapping the same raw through two different stores yields the same proxy (`outer.list === inner`).** |
 | CS-R2a | live | `docs/INTERNALS-STORE-STATE.md:107` | — | — | Corollary R2a (Ryan, 2026-08-17): **take no responsibility for mutation |
 | CS-R3 | live | `docs/rules-mining/core-store.md:18` | — | — | A store proxy ingested into another store (deep or shallow) is re-wrapped in the ingesting store's own proxy family — never identity-passed, never raw-marked.** |
 | CS-R4 | live | `docs/rules-mining/core-store.md:22` | — | — | Write isolation across a store chain: writing through the last store in a derived chain is visible only there; upstream stores and base objects untouched (shallow or deep middle).** |
@@ -205,7 +205,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | id | status | defined | cited in src | cited in tests | statement (at definition) |
 |---|---|---|---|---|---|
 | OL-R1 | live | `docs/rules-mining/optimistic-lanes.md:11` | — | — | `createOptimistic(value \| fn)` returns `[accessor, setter]`; the accessor returns the initial or computed value; the setter accepts a value or an updater function. |
-| OL-R2 | superseded | `docs/rules-mining/optimistic-lanes.md:15` | — | — | ~~An optimistic write is synchronously visible to direct reads before any flush — inside the action body, outside it, and outside any reactive context.~~ **Superseded 2026-09-10 by A28(5)** (SPEC-ASYN… |
+| OL-R2 | superseded | `docs/rules-mining/optimistic-lanes.md:15` | verdict.ts×1 | — | ~~An optimistic write is synchronously visible to direct reads before any flush — inside the action body, outside it, and outside any reactive context.~~ **Superseded 2026-09-10 by A28(5)** (SPEC-ASYN… |
 | OL-R3 | live | `docs/rules-mining/optimistic-lanes.md:19` | — | — | The setter's updater receives the current _visible_ (optimistic-if-overridden) value, never the committed value; a plain setter on the underlying source during a transition composes on the transition'… |
 | OL-R4 | live | `docs/rules-mining/optimistic-lanes.md:23` | seat.ts×3 | — | Multiple optimistic writes before settle compose sequentially (each updater sees the prior override; last write wins). |
 | OL-R5 | live | `docs/rules-mining/optimistic-lanes.md:27` | lanes.ts×2 scheduler.ts×2 seat.ts×2 types.ts×1 verdict.ts×1 | — | An optimistic write **outside any action** reverts at the next flush; subscribers observe the optimistic value and then the reverted value within that single flush (effect log `[1, 2, 1]` after one `f… |

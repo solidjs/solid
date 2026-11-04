@@ -2588,8 +2588,9 @@ export function stagedScreen(c: Computed<any>, el?: Signal<any> | Computed<any>)
     bornInto(c, flushTransaction) ||
     (el?._config! & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD ||
     // #4544: this flush's own write, read by a pass whose posture is only
-    // inherited, is the frame's derivation, not a probe of it.
-    (observeFlightHook && holdStagingHook!(c, el!))
+    // inherited, is the frame's derivation, not a probe of it — a store's
+    // node-less staging (no `el`) too.
+    (observeFlightHook && holdStagingHook!(c, el))
   )
     return false;
   // A transaction only a `latest()` read opened holds nothing: the staging

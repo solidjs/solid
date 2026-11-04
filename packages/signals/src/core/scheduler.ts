@@ -192,7 +192,7 @@ export let keepReadersHook: ((el: Computed<any>) => void) | null = null;
 export let attachHook: ((node: Computed<any>) => boolean) | null = null;
 /** #4544 (verdict.ts). Null without the verdict engine. */
 export let holdStagingHook:
-  | ((c: Computed<any>, el: Signal<any> | Computed<any>) => unknown)
+  | ((c: Computed<any>, el?: Signal<any> | Computed<any>) => unknown)
   | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,

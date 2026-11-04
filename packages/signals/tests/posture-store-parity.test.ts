@@ -41,6 +41,11 @@
  * S8 — (fixed, 3b step 6c) a derivation's untracked read of a SUPERSEDED
  *      store node derives from the landed truth (A18), not the override —
  *      nodeValue delegates to core's one slow selection, `serve`.
+ * S9 — (fixed) a pass whose verdict posture is only inherited is served the
+ *      hold's own write (D-25, #4544) from a store key with no node, as from
+ *      the signal and from a key with a node: `stagedScreen`'s node-less call
+ *      (store.ts `readSource`) used to skip `holdStaging` — first a throw
+ *      (#4681), then the screen, which tore the landing frame.
  * Discovery for S4–S7: the matrix's `memoUntracked` / `effectUntracked`
  * reader kinds (an untracked read inside a derivation), added with S5.
  *
@@ -603,4 +608,131 @@ describe("S8 — a derivation's UNTRACKED read of a superseded store node derive
     await settle();
     expect(log).toEqual([2]);
   });
+});
+
+const S9_SOURCES = [
+  "signal",
+  "signal, untracked",
+  "store, tracked",
+  "store, untracked, container node",
+  "store, untracked, leaf node only",
+  "store, untracked, no node"
+] as const;
+type S9Source = (typeof S9_SOURCES)[number];
+type S9Posture =
+  | "inherited isPending"
+  | "inherited latest"
+  | "own latest"
+  | "latest of the same key, through a memo";
+
+/** One flush writes a hold (`data` goes async) and `count`, and re-runs
+ * `pass` through an unrelated trigger, so an untracked read of `count`
+ * happens in the write's flush. `pass` reads a verdict memo (inherited
+ * posture), probes itself (own posture), or reads a memo over `latest` of
+ * the very source it reads (D-26). */
+async function s9Trace(source: S9Source, posture: S9Posture) {
+  const trace: string[] = [];
+  let resolve!: (v: number) => void;
+  let target!: { k: unknown; n?: Record<string, unknown> };
+  const app = createRoot(dispose => {
+    const [step, setStep] = createSignal(0);
+    const [trigger, setTrigger] = createSignal(0);
+    const [count, setCount] = createSignal(0);
+    const [state, setState] = createStore({ count: 0 });
+    target = (state as any)[$TARGET];
+    if (source === "store, untracked, container node")
+      createRenderEffect(
+        () => Object.keys(state),
+        () => {}
+      );
+    if (source === "store, untracked, leaf node only")
+      createRenderEffect(
+        () => state.count,
+        () => {}
+      );
+    const data = createMemo(() => {
+      const s = step();
+      return s === 0 ? s : new Promise<number>(r => (resolve = r));
+    });
+    const read = () =>
+      source === "signal"
+        ? count()
+        : source === "signal, untracked"
+          ? untrack(count)
+          : source === "store, tracked"
+            ? state.count
+            : untrack(() => state.count);
+    const verdict = createMemo(() =>
+      posture === "inherited isPending"
+        ? isPending(data)
+          ? 1
+          : 0
+        : posture === "latest of the same key, through a memo"
+          ? latest(source.startsWith("signal") ? count : () => state.count)
+          : latest(data)
+    );
+    const pass = createMemo(() => {
+      trigger();
+      const v = posture === "own latest" ? latest(data) : verdict();
+      const c = read();
+      trace.push(`pass ${v}/${c}`);
+      return `${v}/${c}`;
+    });
+    createRenderEffect(
+      () => `${data()} ${pass()}`,
+      v => {
+        trace.push(`screen ${v}`);
+      }
+    );
+    return { dispose, setStep, setTrigger, setCount, setState };
+  });
+  flush();
+  const nodes = { container: target.k !== null, leaf: !!target.n?.count };
+  app.setStep(1);
+  app.setCount(1);
+  app.setState(d => {
+    d.count = 1;
+  });
+  app.setTrigger(1);
+  flush();
+  trace.push("|");
+  resolve(1);
+  await settle();
+  app.dispose();
+  return { trace: trace.join(" ; "), nodes };
+}
+
+describe("S9 — an inherited verdict posture is served the hold's own write, with or without a store node (D-25 #4544, R2) — signal vs store", () => {
+  // `|` is the landing. Mid-hold the inherited pass derives from the hold's
+  // write (`/1`), so the landing frame shows the landed `data` with it.
+  const expected: Record<Exclude<S9Posture, "latest of the same key, through a memo">, string> = {
+    "inherited isPending":
+      "pass 0/0 ; screen 0 0/0 ; pass 1/1 ; | ; screen 1 1/1 ; pass 0/1 ; screen 1 0/1",
+    "inherited latest": "pass 0/0 ; screen 0 0/0 ; pass 0/1 ; | ; pass 1/1 ; screen 1 1/1",
+    // F-6: a pass that probes reads the screen and re-derives at the landing.
+    "own latest": "pass 0/0 ; screen 0 0/0 ; pass 0/0 ; | ; pass 1/0 ; pass 1/1 ; screen 1 1/1"
+  };
+  for (const [posture, trace] of Object.entries(expected) as [keyof typeof expected, string][])
+    for (const source of S9_SOURCES)
+      it(`${posture}: ${source}`, async () => {
+        const r = await s9Trace(source, posture);
+        expect(r.nodes).toEqual({
+          container: source === "store, untracked, container node",
+          leaf: source === "store, tracked" || source === "store, untracked, leaf node only"
+        });
+        expect(r.trace).toBe(trace);
+      });
+
+  // D-26: `[latest(x), x()]` through a memo stays atomic for every source.
+  // The window's tracked read gives the key a leaf, so the store's read is
+  // never node-less here and `_askedIn` decides on the leaf. Pinned as
+  // parity with the signal; the landing frame itself is not ruled here.
+  for (const source of S9_SOURCES.slice(1))
+    it(`latest of the same key, through a memo: ${source} matches the signal`, async () => {
+      const posture = "latest of the same key, through a memo";
+      const r = await s9Trace(source, posture);
+      expect(r.nodes.leaf).toBe(!source.startsWith("signal"));
+      expect(r.trace).toBe((await s9Trace("signal", posture)).trace);
+      expect(r.trace).toContain("pass 1/0 ; |");
+    });
 });
