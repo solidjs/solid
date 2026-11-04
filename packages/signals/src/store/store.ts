@@ -1220,9 +1220,10 @@ function notifyWrites(t: StoreTarget): void {
     for (const key of keys) {
       const node = nodes[key as any];
       if (node === undefined) continue;
+      let own = false;
       if (
         (node as any).acc === true ||
-        (hasOwn.call(pb, key) && lookupGetter.call(pb, key) !== undefined)
+        ((own = hasOwn.call(pb, key)) && lookupGetter.call(pb, key) !== undefined)
       ) {
         // Accessor keys: the node is linked for shape-change notification,
         // its value is never served (the getter runs with the proxy
@@ -1241,7 +1242,10 @@ function notifyWrites(t: StoreTarget): void {
         if (od?.get || od?.set || !isEqual(od?.value, nd.value)) setSignal(node, () => nd.value);
         continue;
       }
-      const nv = t.del?.has(key) ? undefined : pb[key as any];
+      // A removed `__proto__` is told `undefined`, never the prototype (core
+      // R30, #4672); an own key pays nothing. (An overlay's written keys are
+      // own on it or in `del`.)
+      const nv = own || !(t.del?.has(key) || key === "__proto__") ? pb[key as any] : undefined;
       setSignal(node, () => nv);
       if (t._fam !== null) {
         // The derive's write is a derivation; a user setter's is a proposal

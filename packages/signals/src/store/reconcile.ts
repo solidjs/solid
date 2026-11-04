@@ -272,7 +272,16 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // Keys the incoming object no longer has still have nodes.
   if (nodes !== null && nodesHit < t.nc) {
     for (const key of Reflect.ownKeys(nodes)) {
-      if (!hasOwnP.call(incoming, key)) notifyKeyDiff(nodes[key as any], key, old, incoming, false);
+      // A removed `__proto__` reads absent, not the prototype (core R30,
+      // #4672).
+      if (!hasOwnP.call(incoming, key))
+        notifyKeyDiff(
+          nodes[key as any],
+          key,
+          old,
+          key === "__proto__" ? Object.create(null) : incoming,
+          false
+        );
     }
   }
   notifyFoldTail(t, old, incoming);

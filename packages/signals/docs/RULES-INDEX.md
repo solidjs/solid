@@ -28,7 +28,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | C | 4 | 0 | 3 | 1 |
 | INV | 11 | 4 | 7 | 4 |
 | RUL | 13 | 3 | 6 | 6 |
-| R (CS) | 59 | 15 | 19 | 30 |
+| R (CS) | 59 | 15 | 20 | 30 |
 | R (OL) | 37 | 4 | 1 | 32 |
 | R (OS) | 46 | 0 | 0 | 46 |
 | R (PJ) | 37 | 2 | 5 | 32 |
@@ -153,7 +153,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | CS-R9 | live | `docs/rules-mining/core-store.md:42` | store.ts×2 target.ts×1 | — | Proxy identity per logical slot is stable across writes and reconciles** (mapArray keyed flows reuse rows across refetch/reconcile). |
 | CS-R10 | live | `docs/rules-mining/core-store.md:48` | — | next-smoke.test.ts×1 | Per-property tracking; same-value writes (direct or functional path setter returning prev) do not re-trigger.** |
 | CS-R11 | live | `docs/rules-mining/core-store.md:52` | — | visibility-oracle-store.states.ts×3 visibility-oracle.states.ts×2 | Per-path tracking: reading `state.user.firstName` subscribes to that leaf; reading the reference `store[0]` does not subscribe to `store[0].i`.** |
-| CS-R12 | live | `docs/rules-mining/core-store.md:56` | store.ts×1 | — | Reading an absent key subscribes to that key: other-key changes don't trigger; defining it later (assignment or defineProperty) does.** |
+| CS-R12 | live | `docs/rules-mining/core-store.md:56` | store.ts×1 | proto-key-removal-4672.test.ts×1 | Reading an absent key subscribes to that key: other-key changes don't trigger; defining it later (assignment or defineProperty) does.** |
 | CS-R13 | live | `docs/rules-mining/core-store.md:60` | store.ts×2 target.ts×1 | — | `in` tracks presence, not value: undefined-write doesn't retrigger; delete does; adding absent key does. `in`/`has` never invokes source getters.** |
 | CS-R14 | live | `docs/rules-mining/core-store.md:64` | — | — | `Object.keys` / `for…in` subscribe to key-set membership (root and nested) — distinct from property nodes.** Aligned: key-set node. |
 | CS-R15 | live | `docs/rules-mining/core-store.md:68` | store.ts×1 | — | Array structural tracking is uniform across idioms: indexed length loop, `for…of`, mapArray ($TRACK) all re-run exactly once per flush on add/update/removal.** |
@@ -171,7 +171,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | CS-R27 | live | `docs/rules-mining/core-store.md:121` | store.ts×2 | — | The setter may return a replacement value that swaps the root wholesale; symbol keys on the replacement preserved.** |
 | CS-R28 | live | `docs/rules-mining/core-store.md:125` | reconcile.ts×1 | — | `storePath` addressing: string keys, numeric indices, index arrays, predicate filters ((value, index)), ranges, trailing functional setters address and update intended paths + trigger per-path subscri… |
 | CS-R29 | live | `docs/rules-mining/core-store.md:129` | store.ts×1 | overlay.test.ts×1 | Merge/replacement preserve accessor descriptors and keep getters LIVE (re-evaluated per read, reactive reads track), for pre-existing and new keys.** |
-| CS-R30 | live | `docs/rules-mining/core-store.md:134` | store.ts×3 | store-prototype-4670.test.ts×2 | Prototype pollution fully guarded: `__proto__` assignment inert; reading `constructor` on the draft returns undefined; storePath refuses `__proto__`/`constructor`/`prototype` segments; skips unsafe ow… |
+| CS-R30 | live | `docs/rules-mining/core-store.md:134` | reconcile.ts×1 store.ts×4 | proto-key-removal-4672.test.ts×3 store-prototype-4670.test.ts×2 | Prototype pollution fully guarded: `__proto__` assignment inert; reading `constructor` on the draft returns undefined; storePath refuses `__proto__`/`constructor`/`prototype` segments; skips unsafe ow… |
 | CS-R31 | live | `docs/rules-mining/core-store.md:138` | store.ts×1 | a34-writes-then-derivations.test.ts×1 createMemo.test.ts×6 derived-write-then-derivation-3733.test.ts×1 held-derivation-not-a-proposal-3612.test.ts×3 createStore.test.ts×3 reconcile-resend-identity.test.ts×1 | Derived-store manual writes apply before the derivation.** A manual `setStore` lands at once, staged with any live transaction. When a source of the fold changes, in the same update or later, the fold… |
 | CS-R32 | live | `docs/rules-mining/core-store.md:147` | — | visibility-oracle-store.states.ts×1 | A setter-staged replacement followed by reconcile lands the reconciled value — staged writes fold into the diff.** Aligned: O7's resolution (a test already exists). |
 | CS-R33 | live | `docs/rules-mining/core-store.md:151` | — | visibility-oracle-store.states.ts×4 | Action/async lane semantics on store properties: a write held by an action makes isPending true for that property (per-property, not whole-store) while showing the committed value; applies on settle.*… |
