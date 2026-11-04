@@ -869,22 +869,27 @@ function attachWaits(node: Computed<any>): boolean {
  * that staging — held (`frameRead`), or this flush's before it parks
  * (`stagedScreen`), leaving the verdict lane an earlier read of the verdict
  * memo seated it in (D-25: either read order). A frame (a render effect, a
- * boundary's structure) reads the screen as before. */
-function holdStaging(c: Computed<any>, el: Signal<any> | Computed<any>): unknown {
-  const a = el._x?._askedIn;
+ * boundary's structure) reads the screen as before. No `el` is a store
+ * key's node-less staging (store.ts `readSource`): by construction this
+ * flush's own sync write to a plain store, with no node for a window to
+ * have asked through — the posture alone decides, as it does for the
+ * signal (R2, signal parity). */
+function holdStaging(c: Computed<any>, el?: Signal<any> | Computed<any>): unknown {
+  const a = el?._x?._askedIn;
   return (
     !(
       c._config & (CONFIG_OWN_PROBE | CONFIG_FRAME) ||
       c._flags & (REACTIVE_WINDOW | REACTIVE_PROBE_UNANSWERED)
     ) &&
-    el._pendingValue !== NOT_PENDING &&
-    !(el._config & (CONFIG_ASYNC | CONFIG_OVERRIDE)) &&
-    a !== clock &&
-    !(
-      typeof a == "object" &&
-      resolveTx(a) ===
-        resolveTx(el._config & CONFIG_HELD ? el._x!._transaction! : flushTransaction!)
-    ) &&
+    (!el ||
+      (el._pendingValue !== NOT_PENDING &&
+        !(el._config & (CONFIG_ASYNC | CONFIG_OVERRIDE)) &&
+        a !== clock &&
+        !(
+          typeof a == "object" &&
+          resolveTx(a) ===
+            resolveTx(el._config & CONFIG_HELD ? el._x!._transaction! : flushTransaction!)
+        ))) &&
     (!passLane || (passLane._parent!._verdict === passLane && (setPassLane(null), true)))
   );
 }
