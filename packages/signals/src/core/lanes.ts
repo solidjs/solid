@@ -102,6 +102,7 @@ import {
   setPassLane,
   txOf,
   type Transaction,
+  globalQueue,
   installLaneHooks,
   armGuessing
 } from "./scheduler.js";
@@ -1084,6 +1085,41 @@ function heldBy(t: Transaction, r: Computed<any>): boolean {
     }
   return true;
 }
+/** The effects that derive plainly from a landing this round that
+ * re-derives a stale reader (A15) reading it as committed: its held runs
+ * wait for the re-derivation (`land`), and these runs are that frame too —
+ * they wait with them (verdict.ts `attachWaits`; F-1, F-7, #4677). The walk
+ * stops at verdict readers: what derives from a display-ahead read shows
+ * now (F-6, D-25, #4398). Dropped at the end of the round's effect phase. */
+export let waiting: Set<unknown> | null = null;
+/** A transaction lands: its lanes end, nested first (`endLanes`). */
+function landing(u: Transaction): void {
+  walk(u);
+  endLanes(u);
+}
+/** Read before the lanes end: a lane's runs are its reveal's (F-6). */
+function walk(u: Transaction): void {
+  // As `reruns` judges it: a stale-reader memo re-derives onto a question of
+  // its own, and the landing's held runs wait for a re-derivation.
+  if (
+    !u._reruns.some(r => !(r as any)._type && r._flags & REACTIVE_FRAME_READ) ||
+    !u._reruns.some(
+      r =>
+        (r._flags & REACTIVE_FRAME_READ || r._config & CONFIG_VERDICT) &&
+        ((r as any)._type || r._config & CONFIG_HELD)
+    )
+  )
+    return;
+  if (!waiting) ((waiting = new Set()), globalQueue._queues[1].push(() => (waiting = null)));
+  const q: any[] = u._nodes.filter(n => !(n._config & CONFIG_VERDICT));
+  for (let n; (n = q.pop()); )
+    for (let s = n._subs; s; s = s._nextSub) {
+      const c: any = s._sub;
+      if (waiting.has(c) || c._config & CONFIG_VERDICT || c._x?._transaction?._lane) continue;
+      waiting.add(c);
+      if (!c._type) q.push(c);
+    }
+}
 /** `r`'s pass read a node a transaction holds (#4439). */
 function readsHeld(r: Computed<any>): boolean {
   for (let d = r._deps; d; d = d._nextDep) if (d._dep._config & CONFIG_HELD) return true;
@@ -1270,7 +1306,7 @@ installLaneHooks(
   applyGuessesAt,
   laneSeams,
   () => lanes.length !== 0 && laneCorrections(),
-  endLanes,
+  landing,
   lanesBlocked,
   adoptParked,
   laneServed

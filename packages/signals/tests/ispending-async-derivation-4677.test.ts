@@ -10,20 +10,20 @@
 // that disagrees with it.
 //
 // Two orders:
-// 1. The issue's repro (fixed): details (the parent's own async) lands
-//    before the badge's lane flight. The lane lands in the same seam the
-//    parent commits in, whose landing voided the verdict binding's lane run:
-//    `pending: true` showed on the badge while the binding stayed `false`
-//    (the lane split: F-6, F-1). The lane now reveals whole (`Pending true`
-//    beside the badge's `true`), then everything at the badge's re-derived
-//    landing (lanes.ts `laneSeam`).
-// 2. Still open (`it.fails`): the badge's lane flight lands first (it
-//    reveals whole); then details lands, the parent commits and the badge
-//    re-derives onto a new flight. The landing flush's own run (details)
-//    shows `Item 1` beside `id: 0` (F-1, F-7) while the held runs park with
-//    the re-derivation (U-5). Deferring the flush's own runs with them
-//    breaks #4398's grouping parity (`latest-first-one-pass-4402.test.ts`),
-//    where the held runs are verdict readers only.
+// 1. The issue's repro: details (the parent's own async) lands before the
+//    badge's lane flight. The lane lands in the same seam the parent commits
+//    in, whose landing voided the verdict binding's lane run: `pending: true`
+//    showed on the badge while the binding stayed `false` (the lane split:
+//    F-6, F-1). The lane reveals whole (`Pending true` beside the badge's
+//    `true`), then everything at the badge's re-derived landing (lanes.ts
+//    `laneSeam`).
+// 2. The badge's lane flight lands first (it reveals whole); then details
+//    lands, the parent commits and the badge re-derives onto a new flight.
+//    The landing flush's own run (details) showed `Item 1` beside `id: 0`
+//    (F-1, F-7) while the held runs parked with the re-derivation (U-5). The
+//    flush's runs of effects that derive plainly from the landing wait with
+//    the held runs (lanes.ts `landing`); what derives from a verdict reader
+//    still shows now (#4398, `latest-first-one-pass-4402.test.ts`).
 import { describe, expect, it } from "vitest";
 import {
   createMemo,
@@ -39,7 +39,7 @@ const tick = async () => {
   flush();
 };
 
-function setup() {
+function setup(between = false) {
   const [id, setId] = createSignal(0);
   const details: Array<() => void> = [];
   const badges: Array<() => void> = [];
@@ -63,7 +63,9 @@ function setup() {
         screen[k] = String(v);
       });
     bind("id", id);
-    bind("details", detailsMemo);
+    // A plain memo between the landed node and its binding: still the
+    // landing's frame.
+    bind("details", between ? createMemo(() => `${detailsMemo()}`) : detailsMemo);
     bind("pending", () => isPending(id));
     bind("badge", badge);
     return dispose;
@@ -117,9 +119,10 @@ describe("#4677 isPending beside an async memo derived from it", () => {
     t.dispose();
   });
 
-  describe("the ruled screen — pinned `it.fails` until the fix ships", () => {
-    it.fails("the lane first, then details: no derivation shows ahead of `id`", async () => {
-      const t = setup();
+  it.each([false, true])(
+    "the lane first, then details: no derivation shows ahead of `id` (memo between: %s)",
+    async between => {
+      const t = setup(between);
       t.setId(1);
       flush();
       t.badges.shift()!();
@@ -136,6 +139,6 @@ describe("#4677 isPending beside an async memo derived from it", () => {
         "id 1 | Item 1 | pending false | ID: 1, pending: false"
       ]);
       t.dispose();
-    });
-  });
+    }
+  );
 });
