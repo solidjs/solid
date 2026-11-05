@@ -22,8 +22,16 @@ import type {
 // Cycle note: core.ts imports this module; we read its live `context` binding
 // only at call time (emitDiagnostic's default subject), never during module
 // evaluation, so the cycle is inert — same shape as the attribution.ts edge.
-import { callbackDepth, context, disposalDepth, resetDisposalDepth, untrack } from "./core.js";
-import { STATUS_UNINITIALIZED } from "./constants.js";
+import {
+  callbackDepth,
+  context,
+  disposalDepth,
+  resetDisposalDepth,
+  runWithOwner,
+  setSignal as writeSignal,
+  untrack
+} from "./core.js";
+import { CONFIG_SLOT_NODE, STATUS_UNINITIALIZED } from "./constants.js";
 import { NotReadyError } from "./error.js";
 import type { Computed, Link, Owner, Root, Signal } from "./types.js";
 
@@ -513,6 +521,16 @@ export interface Dev {
   getParent: typeof getParent;
   getSources: typeof getSources;
   getObservers: typeof getObservers;
+  /**
+   * Write a signal or store-slot node from outside the app's setters —
+   * for example from a devtools state editor that only holds the node from
+   * `getSignals` / `getSources`. Runs as an unowned write (devtools UI
+   * events are not owned scopes). Store property slots go through the
+   * store setter path so `onStoreNodeUpdate` and backing state stay in sync.
+   *
+   * @see https://github.com/solidjs/solid/issues/4679
+   */
+  setSignal: typeof setDevSignal;
   /** Console face of an emitted event — see `reportDiagnostic`. */
   report(entry: DiagnosticEvent): void;
   /**
@@ -526,6 +544,32 @@ export interface Dev {
    * cost every observe build would pay.
    */
   guideUrl(code: DiagnosticCode): string;
+}
+
+type DevStoreSlotWriter = (node: Signal<any>, value: unknown) => void;
+let writeDevStoreSlot: DevStoreSlotWriter | undefined;
+
+/**
+ * @internal The store package registers the slot-write path so this module
+ * does not import the store (avoids a core ↔ store cycle).
+ */
+export function registerDevStoreSlotWriter(fn: DevStoreSlotWriter): void {
+  writeDevStoreSlot = fn;
+}
+
+/**
+ * Devtools write entry for a reactive node. Prefer the app's own setters in
+ * application code; this exists for tools that only have the node.
+ */
+export function setDevSignal(node: Signal<any>, value: unknown): void {
+  if (!__DEV__) return;
+  runWithOwner(null, () => {
+    if (node._config & CONFIG_SLOT_NODE && writeDevStoreSlot) {
+      writeDevStoreSlot(node, value);
+      return;
+    }
+    writeSignal(node, value as any);
+  });
 }
 
 // A dev build without the wiring is a build whose checks emit into a channel
@@ -756,6 +800,7 @@ export const DEV: Dev = __DEV__
       getParent,
       getSources,
       getObservers,
+      setSignal: setDevSignal,
       report: reportDiagnostic,
       guideUrl(code) {
         return GUIDE_URL + code.toLowerCase().replace(/_/g, "-");
