@@ -67,7 +67,7 @@ import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { ahead, display, laneValueOf, verdictLane } from "./lanes.js";
+import { ahead, display, laneValueOf, verdictLane, waiting } from "./lanes.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
   blocked,
@@ -843,6 +843,16 @@ function valueInserts(v: unknown): boolean {
  * a value it reads) holds such a hole waits for that hold — the attach runs
  * at the landing with its content, never as an empty shell now. */
 function attachWaits(node: Computed<any>): boolean {
+  // A run of the frame a landing holds for its re-derivation (lanes.ts
+  // `waiting`) runs next round, with the landing's held runs.
+  if (waiting?.has(node))
+    return (
+      globalQueue.enqueue(
+        (node as any)._type,
+        ((node as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, node))
+      ),
+      true
+    );
   if (
     (node as any)._type !== EFFECT_RENDER ||
     !(node._config & CONFIG_VERDICT || node._x?._transaction?._lane) ||
