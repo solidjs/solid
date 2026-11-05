@@ -1071,6 +1071,10 @@ function reportReplacedContainers(
   pb: Record<PropertyKey, any>,
   writtenKeys: Iterable<PropertyKey> | null
 ): void {
+  // Shallow stores (and raw / unwrappable leaves) invalidate the whole
+  // replaced value as one unit — leaf draft assignment does not narrow
+  // who re-runs (#4686). The spread-copy diagnostic only helps deep stores.
+  if (t.s) return;
   const keys = writtenKeys ?? Reflect.ownKeys(pb);
   const isArray = Array.isArray(pb);
   const owner = storeRootOwner(t);
@@ -1091,6 +1095,9 @@ function reportReplacedContainers(
       targetsEqual(ov, nv)
     )
       continue;
+    // A raw / unwrappable previous value is itself a leaf: replacing it is
+    // the write, not a container copy the store could have mutated in place.
+    if (isRawValue(ov) || !isWrappable(ov)) continue;
     if (isArray) {
       if (oldArrayItems === null) {
         oldArrayItems = new Set<unknown>();
