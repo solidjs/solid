@@ -362,4 +362,82 @@ describe("Phase 1c: Graph traversal helpers", () => {
       expect(isDisposed(savedOwner!)).toBe(true);
     });
   });
+
+  describe("setSignal (#4679)", () => {
+    it("writes a plain signal and notifies subscribers", () => {
+      let seen = -1;
+      createRoot(() => {
+        const owner = getOwner()!;
+        const [count] = createSignal(0, { name: "count" });
+        createEffect(
+          () => count(),
+          v => {
+            seen = v;
+          }
+        );
+        flush();
+        expect(seen).toBe(0);
+        const [node] = getSignals(owner);
+        DEV!.setSignal(node, 7);
+        flush();
+        expect(count()).toBe(7);
+        expect(seen).toBe(7);
+      });
+    });
+
+    it("respects equals and skips notification when unchanged", () => {
+      const updates: number[] = [];
+      createRoot(() => {
+        const owner = getOwner()!;
+        const [count] = createSignal(1);
+        createEffect(
+          () => count(),
+          v => {
+            updates.push(v);
+          }
+        );
+        flush();
+        expect(updates).toEqual([1]);
+        DEV!.setSignal(getSignals(owner)[0], 1);
+        flush();
+        expect(updates).toEqual([1]);
+      });
+    });
+
+    it("writes a store property slot and fires onStoreNodeUpdate", () => {
+      const updates: any[] = [];
+      DEV!.hooks.onStoreNodeUpdate = (state, property, value, prev) => {
+        updates.push({ state, property, value, prev });
+      };
+      createRoot(() => {
+        const [store] = createStore({ count: 0 });
+        // Touch the key so a slot node exists for getSources/devtools.
+        createEffect(
+          () => store.count,
+          () => {}
+        );
+        flush();
+        const sources = getSources(getChildren(getOwner()!)[0] as any);
+        const slot = sources.find((n: any) => n._key === "count");
+        expect(slot).toBeTruthy();
+        DEV!.setSignal(slot!, 9);
+        flush();
+        expect(store.count).toBe(9);
+        expect(updates.some(u => u.property === "count" && u.value === 9)).toBe(true);
+      });
+    });
+
+    it("can be called from an owned scope without REACTIVE_WRITE_IN_OWNED_SCOPE", () => {
+      createRoot(() => {
+        const owner = getOwner()!;
+        const [count] = createSignal(0);
+        createMemo(() => {
+          DEV!.setSignal(getSignals(owner)[0], 3);
+          return count();
+        })();
+        flush();
+        expect(count()).toBe(3);
+      });
+    });
+  });
 });
