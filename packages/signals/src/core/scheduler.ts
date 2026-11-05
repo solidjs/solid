@@ -1266,8 +1266,13 @@ export function reruns(u: Transaction): unknown {
       // the screen). So does a memo the landing holds (CONFIG_HELD: its
       // staged value is in this frame): the held runs read it, so shown
       // first they showed the stale pass the re-derivation replaces — one
-      // frame reveals the change (F-1, A15; #4648).
-      frame ||= (r as any)._type || s === r || r._config & CONFIG_HELD;
+      // frame reveals the change (F-1, A15; #4648). A verdict-only reader
+      // (no REACTIVE_FRAME_READ: it never read the frame as committed) is
+      // not that frame — its re-derivation shows a verdict beside the
+      // screen, so the landing's runs need not wait for it (#4685).
+      frame ||=
+        !(r._config & CONFIG_VERDICT && !(r._flags & REACTIVE_FRAME_READ)) &&
+        ((r as any)._type || s === r || r._config & CONFIG_HELD);
       // A lane's reveal leaves the mark to the transaction: a reader that
       // also read a held node as committed (`staleReader`) still observes
       // that flight until it re-runs — cleared here, the transaction landed

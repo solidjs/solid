@@ -3776,8 +3776,9 @@ describe("createOptimistic", () => {
 
       // CRITICAL: tax text should update independently
       expect(shown(taxTexts)).toEqual(["US_SALES_TAX", "UK_VAT"]);
-      // Tax's own async slot has resolved even though shipping is still pending.
-      expect(taxPendingComputes.at(-1)).toBe(false);
+      // Tax's answer has landed but is held unrevealed by shipping's
+      // flight in the same lane, so it stays pending until the reveal.
+      expect(taxPendingComputes.at(-1)).toBe(true);
 
       // Shipping text should NOT have updated yet
       expect(shown(shippingTexts)).toEqual(["FEDEX"]);
@@ -4179,8 +4180,9 @@ describe("createOptimistic", () => {
 
       // CRITICAL: shipping text should update INDEPENDENTLY
       expect(shown(shippingTexts)).toEqual(["FEDEX", "DHL"]);
-      // Shipping's own async slot has resolved independently.
-      expect(shippingPendingComputes.at(-1)).toBe(false);
+      // Shipping's answer has landed but is held unrevealed by tax's
+      // pending flight in the same lane, so it stays pending.
+      expect(shippingPendingComputes.at(-1)).toBe(true);
 
       // Tax should NOT have updated yet (correction re-fetch still in flight)
       expect(shown(taxTexts)).toEqual(["US_SALES_TAX"]);
@@ -4357,9 +4359,9 @@ describe("createOptimistic", () => {
       await Promise.resolve();
       flush();
 
-      // Shipping's own pending slot clears even though the merged total is
-      // still waiting on tax.
-      expect(shippingPendingComputes.at(-1)).toBe(false);
+      // Shipping's answer has landed but is held unrevealed by the merged
+      // lane still waiting on tax, so it stays pending.
+      expect(shippingPendingComputes.at(-1)).toBe(true);
       // Tax also still pending
       expect(taxPendingComputes.at(-1)).toBe(true);
       // orderTotal hasn't updated (merged lane still pending)
