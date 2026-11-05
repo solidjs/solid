@@ -164,9 +164,14 @@ let guessed = false;
 /** Guesses another action's lane took over (#4336): the node, its guess,
  * the guess's lane, its question, the lane that took it. */
 const kept: any[] = [];
-/** Lanes a revert dissolved: the guesses they took come back at their
- * parent's landing (`endLanes`). */
-const reverted = /* @__PURE__ */ new WeakSet<Transaction>();
+/** Two kinds of member, one set (a lane is never a node). Lanes a revert
+ * dissolved: the guesses they took come back at their parent's landing
+ * (`endLanes`). Shown guesses a correction re-homed into their hold
+ * (`supersede`, `dissolveLane`): the slot's value for the screen and
+ * untracked reads until that hold lands (D-34), each keeps it open on its
+ * own flight as it did while a guess (`lanesBlocked`, #4690); the hold's
+ * landing clears them (`endLanes`). */
+const marked = /* @__PURE__ */ new WeakSet<Transaction | Signal<any>>();
 /** Lane `l` takes `n`'s guess (another action's), kept to come back if `l`
  * reverts. Its readers saw the guess: they re-derive at the lane's reveal
  * (and, a flight's, hold the lane while they would show it). `d`: a guess
@@ -526,10 +531,10 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     if (__OBSERVE__ && l._shown && attrHooks !== null)
       attrHooks.optimisticReverted(n, n._x!._lane, value, reverting ? "reverted" : "superseded");
     dissolveLane(l, parent, n);
-    if (guessed && reverting) reverted.add(l);
+    if (guessed && reverting) marked.add(l);
     // What the screen showed stays the screen until the parent lands (A18
     // (c): display and untracked reads keep the override until the commit).
-    if (l._shown) n._value = n._x!._lane;
+    if (l._shown) ((n._value = n._x!._lane), guessed && marked.add(n));
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
     n._x!._lane = NOT_PENDING;
     holdNode(n, parent);
@@ -651,7 +656,7 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
       // re-base) over a truth staged on it is no derivation anything
       // re-derives: it lands that truth the same way (D-34, #4642).
       if (n._pendingValue === NOT_PENDING) n._pendingValue = covered(n);
-      if (l._shown) n._value = slot;
+      if (l._shown) ((n._value = slot), guessed && marked.add(n));
       holdNode(n, into);
       insertSubs(n);
     } else {
@@ -915,6 +920,7 @@ function laneSeam(l: Transaction, leaked: boolean): void {
 /** The parent landed: its lanes end, nested first. (None is blocked: a
  * blocked lane blocks its parent.) */
 function endLanes(u: Transaction): void {
+  if (guessed) for (const n of u._nodes) marked.delete(n);
   // A revert landing (#4336): the guesses its lane took from another action
   // that is still out come back in this frame, over the truth it lands —
   // its readers re-derive with the landing (one frame, no bare truth
@@ -925,7 +931,7 @@ function endLanes(u: Transaction): void {
         let [n, v, g, q, t] = kept.splice(i, 5);
         // (A store slot's node now: the one taken, or a read's since.)
         if (
-          reverted.has(t) &&
+          marked.has(t) &&
           lanes.includes(g) &&
           (!(n._config & CONFIG_SLOT_NODE) || (n = GlobalQueue._slotTake!(n, true)))
         ) {
@@ -952,8 +958,17 @@ function endLanes(u: Transaction): void {
  * pending work derives from the frame's write through the guess, so the
  * frame is not complete without it (A15) — landing it would commit the write
  * beside a derivation still showing the old one. A guess whose own flight is
- * up likewise: the question was asked in this frame. */
+ * up likewise: the question was asked in this frame. So does a shown guess
+ * a correction re-homed into `t` (`marked`): still the screen's and the
+ * untracked reads' value (F-11, D-34), its flight — the action's `refresh()`
+ * after an outside re-ask corrected it — is the answer it waits for, as
+ * before the correction (D-7, D-35). With no render effect pending on that
+ * flight, `t` landed at the body's end: effects and untracked reads saw the
+ * re-ask's answer until the refresh landed, while rendered readers kept the
+ * guess (#4690). Not a lane's: guessed again there, its flight blocks the
+ * parent, not the lane (A17, `linkBlocked`). */
 function lanesBlocked(t: Transaction): boolean {
+  if (guessed && !t._lane && t._nodes.some(n => marked.has(n) && inFlight(n))) return true;
   return (t._lane && linkBlocked(t)) || nestedBlocked(t);
 }
 /** Parents whose lane revealed this seam with readers to re-derive there
