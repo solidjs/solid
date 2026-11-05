@@ -880,7 +880,17 @@ function laneSeam(l: Transaction, leaked: boolean): void {
   }
   l._held = false;
   l._shown = true;
-  if (reruns(l)) revealing.push(resolveTx(l._parent!));
+  const p = resolveTx(l._parent!),
+    v = p._reruns.filter(r => (r as any)._modified && r._x?._transaction === l);
+  if (reruns(l)) revealing.push(p);
+  // The parent lands this seam and re-derives readers whose runs the lane
+  // stashed, voiding them (`reruns`: they are for the frame being replaced).
+  // Beside other runs of the lane they show first: the lane's readers show
+  // its answer together (F-6), and the re-derivation follows next round
+  // (#4677: `pending: true` on an async memo over `isPending(id)` beside a
+  // binding still `false`). Restoring a run `reruns` skipped changes nothing.
+  else if (l._queues[0].length > v.length)
+    l._queues[0].unshift(() => v.forEach(r => ((r as any)._modified = true)));
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i] as Computed<any>;
     // (Not once a pass since has notified them — D-37: a lane does not
