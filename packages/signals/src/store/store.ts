@@ -77,6 +77,7 @@ import {
   checkPostAwaitRead,
   DEV,
   emitDiagnostic,
+  registerDevStoreSlotWriter,
   registerGraph,
   reportDiagnostic,
   warnStrictReadUntracked
@@ -2873,4 +2874,20 @@ function snapshotRecord(
     }
   }
   return copy ?? src;
+}
+
+// Devtools `DEV.setSignal` for store property slots (#4679): go through the
+// store setter so backing state and `onStoreNodeUpdate` stay consistent.
+if (__DEV__) {
+  registerDevStoreSlotWriter((node, value) => {
+    const host = (node as any)._host as StoreTarget;
+    const key = (node as any)._key as PropertyKey;
+    if (!host?.px || key === $TRACK) {
+      setSignal(node, value as any);
+      return;
+    }
+    storeSetter(host.px, (draft: any) => {
+      draft[key] = value;
+    });
+  });
 }

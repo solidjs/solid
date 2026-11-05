@@ -68,6 +68,8 @@ export {
   DEV,
   OBSERVE,
   setConsoleFooter,
+  registerDevStoreSlotWriter,
+  setDevSignal,
   type AttributionSlot,
   type Dev,
   type Observe,
