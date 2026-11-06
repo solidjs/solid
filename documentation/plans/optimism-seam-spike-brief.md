@@ -181,7 +181,9 @@ hook on a core node to pass its gate.
 
 ## 6. Result
 
-(To be written at M4.)
+- **H1 — yes.** The two-slot value model keeps every screen: scalar pins 3,885 pass as on `next`, the full signals suite 6,745 pass, the seat shadow at `next`'s six classes, 2,000 generated cases × 3 seeds with no difference (the 50k differential for seed 3289 is running). It is a relocation, as §1 said: `_x._lane`, `display`, `laneValueOf`, the promote step and the lane arms of `recompute` are gone; the covered value lives in a record and a guess's location follows a per-node mark. Size: the core floor −50 B minified, the optimism chunk +102 B, truth readers +102 B. H1 does not pay for itself in bytes; it is the scalar interface the store work targets (§13.1: a guess is a value on a node, `latestOf`/`covered`/`underOf` the three views).
+- **H2 — no.** The verdict lane is the record of F-6's group: a hold's display-ahead readers show together, each waiting for its own async and never for the hold. Without the group, `tests/verdict-contract.test.ts`'s shape tears (§15). A correct cut would take about −400 B from the optimism chunk; the maintainer ruled F-6 stands.
+- **What this says about the engine's size.** After M1 the lane engine's remaining bytes are the group's seam (`laneSeams`, `laneRead`'s arms, `enterLane`'s exceptions, `heldBy`, `entered`, `adoptParked`, `revealing`) — the price of F-6, D-25's exceptions and the repairs #4349, #4393, #4397 as they stand. The simplification the maintainer wants is not in the scalar engine's value model; the next step of the plan (stores alone, then together: one lane node per store root with a patch-valued guess) is where the duplicated machinery is (`store/optimistic.ts`'s `_laneRebase`, `fold`, `foldedRead`, `laneSet`, `_slotTake`, and lanes.ts's `take`/`kept`/`marked`, all store-only).
 
 ## 7. Commands
 
@@ -479,4 +481,4 @@ setQ("b"); // then resolve suggest, then resolve results
 | 2   | `suggest` lands                      | `input:b` and `suggest:b` show together               | `suggest:b` shows           |
 | 3   | `results` lands                      | `results:b`                                           | `results:b`                 |
 
-Keeping F-6 keeps the verdict lane and its discriminators (M2's `LEFT_SHOWN` with them: only verdict-lane pins need it). Ruling that display-ahead readers show individually deletes the lane for about −400 B and moves screens of this shape at step 1. Nothing in the generator differential is affected either way until the ruling is made; the spike pauses here.
+**Ruled (maintainer, 2026-11-06): F-6 stands.** The second column is a tear — a verdict reader with no async of its own showing `b` beside a verdict reader of the same `q` still showing `a` — and F-6 exists to prevent it. A hold's display-ahead readers are one frame; the verdict lane is that frame's record and stays. H2 is **no**. `LEFT_SHOWN` stays with it.
