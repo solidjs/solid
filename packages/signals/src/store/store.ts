@@ -527,7 +527,10 @@ function guessFor(t: StoreTarget, key: PropertyKey, shape: boolean): Signal<any>
   if (kg !== null)
     for (let i = kg.length - 1; i >= 0; i--) {
       const g = kg[i];
-      if (g._config & CONFIG_OVERRIDE && carrierHas(t, g, key, shape)) return g;
+      // A lane's guess, or one a correction re-homed into its hold (HELD):
+      // the screen keeps what it showed until that hold lands (A18 (c)), a
+      // member reads the truth beneath — `read()` of the carrier decides.
+      if (g._config & (CONFIG_OVERRIDE | CONFIG_HELD) && carrierHas(t, g, key, shape)) return g;
     }
   return null;
 }
@@ -535,7 +538,8 @@ function guessFor(t: StoreTarget, key: PropertyKey, shape: boolean): Signal<any>
 function newestGuess(t: StoreTarget): Signal<any> | null {
   const kg = t.kg;
   if (kg !== null)
-    for (let i = kg.length - 1; i >= 0; i--) if (kg[i]._config & CONFIG_OVERRIDE) return kg[i];
+    for (let i = kg.length - 1; i >= 0; i--)
+      if (kg[i]._config & (CONFIG_OVERRIDE | CONFIG_HELD)) return kg[i];
   return null;
 }
 /** A landing on a target carrying guesses: the truth, judged against each
@@ -545,7 +549,7 @@ function judgeGuesses(t: StoreTarget, truth: Record<PropertyKey, any>): void {
   const kg = t.kg;
   if (kg !== null)
     for (let i = 0; i < kg.length; i++)
-      if (kg[i]._config & CONFIG_OVERRIDE) setSignal(kg[i], truth);
+      if (kg[i]._config & (CONFIG_OVERRIDE | CONFIG_HELD)) setSignal(kg[i], truth);
 }
 /** The settled frame (the hot case): no hold on the target, and the open
  * batch — if any — node-less, a plain flush's, with its keys recorded. */

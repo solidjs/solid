@@ -30,6 +30,7 @@
 import {
   CONFIG_CHILDREN_FORBIDDEN,
   CONFIG_GUESS,
+  CONFIG_HELD,
   CONFIG_OVERRIDE,
   EFFECT_RENDER,
   NOT_PENDING,
@@ -158,11 +159,20 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
 function patchEquals(this: any, a: any, b: any): boolean {
   if (a === b) return true;
   if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  const fam: StoreFamily = this._host._fam;
+  // A structural guess: the arrangement (rows by identity or key, an
+  // object's keys), as the container judged it.
+  if (this.g !== undefined && !arrangementEqual(a, b, fam)) return false;
+  // Each key the guess changed, as its leaf judged it: the same slot (a row
+  // its target adopted), or the server's echo of a guessed object (#3898).
   const wk: Set<PropertyKey> | null = this.wk;
   if (wk !== null)
-    for (const key of wk)
-      if (key in a !== key in b || !GlobalQueue._echoes!(a[key as any], b[key as any]))
-        return false;
+    for (const key of wk) {
+      if (key in a !== key in b) return false;
+      const av = a[key as any];
+      const bv = b[key as any];
+      if (!rowSame(av, bv, fam) && !GlobalQueue._echoes!(av, bv)) return false;
+    }
   const del: Set<PropertyKey> | null = this.del;
   if (del !== null) for (const key of del) if (key in a !== key in b) return false;
   return true;
@@ -206,10 +216,10 @@ export function notifyOptimisticWrites(
   if (changed.size === 0 && del === null) return staged ?? null;
   const g = guessCarrier(t, changed);
   // The record accumulates across a lane's writes to the same target.
-  if (g.wk === null || !(g._config & (CONFIG_OVERRIDE | CONFIG_GUESS))) g.wk = changed;
+  if (g.wk === null) g.wk = changed;
   else for (const key of changed) g.wk.add(key);
   if (del !== null) {
-    if (g.del === null || !(g._config & (CONFIG_OVERRIDE | CONFIG_GUESS))) g.del = del;
+    if (g.del === null) g.del = del;
     else for (const key of del) g.del.add(key);
   }
   if (structural && isArr) {
@@ -449,17 +459,11 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   if (el._key !== $PATCH) return true;
   const t = el._host as StoreTarget;
   const guess = latestOf(el) as any;
-  if (!older && el.g !== null) {
-    // A current truth: folded beneath a shown keyed arrangement guess (D-34),
-    // else held beneath while the arrangement the guess shows stands — a
-    // value guess's always (the guess stays until the action's own answer,
-    // D-7, F-11); an arrangement the truth no longer has (rows by identity
-    // or key, an object's keys) is a correction (A18).
-    if (fold(el, truth)) return true;
-    return (
-      el.g === undefined || arrangementEqual(guess, truth as Record<PropertyKey, any>, t._fam!)
-    );
-  }
+  // A current truth: folded beneath a shown keyed arrangement guess (D-34);
+  // else the lane judges it against the guess (`supersede`: confirmed
+  // beneath when the carrier's comparator calls them equal, a correction
+  // otherwise — as the leaves and the container judged it).
+  if (!older && el.g !== null) return fold(el, truth);
   // An older question's truth, or the #4525 re-base: the guess's edit over it.
   if (!Array.isArray(truth) || !Array.isArray(guess)) return true;
   const keyFn = t._fam?.key;
@@ -705,9 +709,16 @@ export function sweepOverlaid(): void {
     for (const t of set)
       if (!laneNodeOf(t)) {
         set.delete(t);
-        t.kg = null;
+        const live = t.kg?.filter(g => g._config & CONFIG_HELD || g._pendingValue !== NOT_PENDING);
+        t.kg = !live || live.length === 0 ? null : live;
       } else if (t.kg !== null) {
-        const live = t.kg.filter(g => g._config & (CONFIG_OVERRIDE | CONFIG_GUESS));
+        // A carrier that is no lane's and no hold's (a corrected guess waits
+        // for its hold's landing, A18 (c)) is done.
+        const live = t.kg.filter(
+          g =>
+            g._config & (CONFIG_OVERRIDE | CONFIG_GUESS | CONFIG_HELD) ||
+            g._pendingValue !== NOT_PENDING
+        );
         t.kg = live.length === 0 ? null : live;
       }
     if (set.size === 0) overlaidFamilies.delete(fam);
