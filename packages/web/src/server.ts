@@ -747,18 +747,25 @@ function preloadInvalid(field, message, value) {
 // prototype (`Symbol.for`, so duplicate runtime copies agree); a plain object
 // with a `t` key, such as one parsed from JSON, is data and never markup.
 const SSR_NODE = /*#__PURE__*/ Symbol.for("solid.ssrNode");
+class SSRHtml {
+  t: any;
+  constructor(t) {
+    this.t = t;
+  }
+  // The brand: a prototype member, so it costs nothing per node and the class
+  // stays tree-shakeable. Its value is only ever tested for truthiness.
+  [SSR_NODE]() {}
+}
 class SSRNode {
   t: any;
   h: any;
   p: any;
   rows?: any;
-  constructor(t, h?, p?) {
+  constructor(t, h, p) {
     this.t = t;
     this.h = h;
     this.p = p;
   }
-  // The brand: a prototype member, so it costs nothing per node and the class
-  // stays tree-shakeable. Its value is only ever tested for truthiness.
   [SSR_NODE]() {}
 }
 
@@ -4771,7 +4778,7 @@ export function ssr(t) {
   // returns an array of values for >=N hole positions. The check is at
   // the END of the typeof chain so non-function holes don't pay for it.
   const len = arguments.length;
-  if (len === 1) return new SSRNode(t);
+  if (len === 1) return new SSRHtml(t);
   let s = t[0];
   let result = null;
   let lastGroup = null;
@@ -5021,7 +5028,7 @@ export function ssr(t) {
     if (result === null) s += next;
     else result.t[result.t.length - 1] += next;
   }
-  if (result === null) return new SSRNode(s);
+  if (result === null) return new SSRHtml(s);
   return result;
 }
 export function ssrClassName(value: string | { [k: string]: boolean } | Array<any>): string;
@@ -5297,7 +5304,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   if (link !== null && link.href !== undefined) result += ssrLinkClaim(link);
   // The hydration key is unquoted, so a void element needs the space before
   // `/>` or the slash becomes part of the key's value.
-  if (skipChildren) return new SSRNode(result + " />");
+  if (skipChildren) return new SSRHtml(result + " />");
   if (childOwner !== null) children = info.raw ? childOwner.children : escape(childOwner.children);
   if (typeof children === "function") children = children();
   // `() => scope(fn)` children return the scope's evaluator: run it as resolveSSRNode would.
@@ -5325,10 +5332,10 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // (`ssrTextTail`) is left as the child left it: the parent resets it on this
   // element's finished node either way.
   const ct = typeof children;
-  if (ct === "string" || ct === "number") return new SSRNode(result + ">" + children + info.close);
-  if (children == null || ct === "boolean") return new SSRNode(result + ">" + info.close);
+  if (ct === "string" || ct === "number") return new SSRHtml(result + ">" + children + info.close);
+  if (children == null || ct === "boolean") return new SSRHtml(result + ">" + info.close);
   if (ct === "object" && children[SSR_NODE] && !children.h && typeof children.t === "string")
-    return new SSRNode(result + ">" + children.t + info.close);
+    return new SSRHtml(result + ">" + children.t + info.close);
   if (thunk === null)
     return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
   // Nested, as resolveSSRNode resolves a function's value: arrays keep their separators.
