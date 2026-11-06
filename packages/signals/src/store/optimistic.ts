@@ -281,7 +281,7 @@ export function notifyOptimisticWrites(
   const staged = optStaged.get(t);
   if (staged !== undefined) optStaged.delete(t);
   if (changed.size === 0 && del === null) return staged ?? null;
-  const g = guessCarrier(t, changed);
+  const g = guessCarrier(t, del === null ? changed : new Set([...changed, ...del]));
   // The record accumulates across a lane's writes to the same target.
   if (g.wk === null) g.wk = changed;
   else for (const key of changed) g.wk.add(key);
