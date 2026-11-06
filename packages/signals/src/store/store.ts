@@ -410,7 +410,17 @@ function batchHas(
   shape: boolean
 ): boolean {
   if (pb !== target.v) return written(target.wk, key) || target.del?.has(key) === true;
-  return changedBetween(target, preBatch(target), pb, key, shape);
+  // Against the view the nodes were last told (#3296): the newest live
+  // patch under a hold (the adoption composed on it), else the frame the
+  // fold queue holds.
+  const p = heldCarrier(target);
+  return changedBetween(
+    target,
+    p === null ? preBatch(target) : (p._pendingValue as Record<PropertyKey, any>),
+    pb,
+    key,
+    shape
+  );
 }
 /** The carrier whose patch has `key`, newest first; null when none. */
 function heldPatchFor(t: StoreTarget, key: PropertyKey, shape = true): Signal<any> | null {
@@ -424,6 +434,7 @@ function heldPatchFor(t: StoreTarget, key: PropertyKey, shape = true): Signal<an
  * hold's unit is the key — one the adoption left unchanged reads ambient),
  * pairing an unchanged child row lazily (#3712). */
 function carrierHas(t: StoreTarget, p: any, key: PropertyKey, shape: boolean): boolean {
+  if (p.void) return false;
   if (!p.adopt) return written(p.wk, key) || p.del?.has(key) === true;
   const old = asBacking(p._value);
   return (
@@ -443,9 +454,14 @@ function joinHeld(t: StoreTarget, p: Signal<any>): void {
 }
 /** The backing a new batch's draft starts from: the newest live carrier's
  * patch while the target is under a hold, else the committed backing. */
-function heldBase(t: StoreTarget): Record<PropertyKey, any> {
+export function heldBase(t: StoreTarget): Record<PropertyKey, any> {
   const p = heldCarrier(t);
   return p === null ? t.v : (p._pendingValue as Record<PropertyKey, any>);
+}
+/** The view the target's nodes were last told (#3296): the open batch's
+ * staging, else the newest live patch, else the committed backing. */
+export function lastTold(t: StoreTarget): Record<PropertyKey, any> {
+  return t.pb ?? heldBase(t);
 }
 /** The newest carrier whose hold is live and whose patch awaits its fold:
  * the one pending backing of `next`, as a writer composes on it. */
@@ -454,7 +470,7 @@ function heldCarrier(t: StoreTarget): Signal<any> | null {
   if (kh !== null)
     for (let i = kh.length - 1; i >= 0; i--) {
       const p = kh[i];
-      if (p._pendingValue !== NOT_PENDING && liveTx(txOf(p)) !== null) return p;
+      if (!(p as any).void && p._pendingValue !== NOT_PENDING && liveTx(txOf(p)) !== null) return p;
     }
   return null;
 }
@@ -508,9 +524,11 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
     // of the staging (`_askedIn`, D-26) and its reader's seat (the seam's,
     // `provisionalVerdict`); and one a hold holds as the carrier below.
     const n = k;
-    return asBacking(
-      n._config & CONFIG_HELD || verdict !== null ? readNode(n) : untrack(() => readNode(n))
-    );
+    const r =
+      n._config & CONFIG_HELD || verdict !== null ? readNode(n) : untrack(() => readNode(n));
+    // The deletes are the staging's: a reader served the screen sees none.
+    if (r !== pb) frameDel = null;
+    return asBacking(r);
   }
   // A hold's patch has the key — by value or presence, a `shape` reader by
   // its descriptor too (#3706: the hold's unit is the key; a key absent in
@@ -518,11 +536,13 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
   // gate): its carrier decides the frame.
   const p = heldPatchFor(target, key, shape);
   if (p !== null) {
-    frameDel = (p as any).del ?? null;
     // Read as the reader's own (linked): a carrier is written once more,
     // at its landing — the re-run a stale reader registers for anyway —
     // and the read's posture (a verdict window's routing) is the pass's.
-    return asBacking(readNode(p));
+    const r = readNode(p);
+    // The deletes are the patch's: a reader served the screen sees none.
+    frameDel = r === p._pendingValue ? ((p as any).del ?? null) : null;
+    return asBacking(r);
   }
   // A key that is no own data key of either frame reads the batch's own
   // staging, as the getter reads through it.
@@ -541,15 +561,25 @@ function frameAll(target: StoreTarget): Record<PropertyKey, any> {
   // newest carrier, as the container that still carried the pending
   // backing decided it on `next` (one node decides the whole frame).
   if (target.pb !== null) return readSource(target);
-  const kh = target.kh;
-  if (kh === null) return readSource(target);
-  const p = kh[kh.length - 1];
-  return asBacking(untrack(() => readNode(p)));
+  const p = heldCarrier(target);
+  if (p === null) return readSource(target);
+  return asBacking(readNode(p));
 }
 /** A parked batch: its patch moves from `k` to a carrier the hold holds. */
 function parkPatch(target: StoreTarget, t: Transaction): void {
   const k = target.k;
   const pb = target.pb!;
+  const del = target.del;
+  // An overlay draft (#3044) is materialized as it parks: a carrier's patch
+  // is a flat frame (a prototype overlay cannot shadow a delete, and the
+  // next batch and the fold diffs read it as told).
+  const patch = target.ovl
+    ? overlayOnto(
+        target,
+        target.sc === 2 ? wideClone(target.v, target) : cloneRaw(target.v, target),
+        pb
+      )
+    : pb;
   // The carrier's committed frame is the batch's pre-batch backing (an
   // adoption swapped `v` eagerly, #4001; the container held the frame).
   const carrier = slotSignal(committed(target), containerEquals, target, $TRACK, false) as any;
@@ -563,14 +593,23 @@ function parkPatch(target: StoreTarget, t: Transaction): void {
     k._pendingValue = NOT_PENDING;
     k._config &= ~CONFIG_STAGED;
   }
-  carrier._pendingValue = pb;
+  carrier._pendingValue = patch;
   // An adoption (the pending backing is the backing: it swapped eagerly,
   // #4001): the carrier records it, every key written; its fold is the
-  // parent path copy only.
-  carrier.adopt = pb === target.v;
+  // parent path copy only. It supersedes the target's older live patches,
+  // as it superseded the one pending backing's staged trap writes: they
+  // hold their readers still and fold nothing (`void`), and the adoption
+  // lands with the newest of them (its incoming composed on that patch).
+  carrier.adopt = patch === target.v;
   carrier.wk = target.wk ?? WK_ALL;
-  carrier.del = target.del;
-  carrier.ovl = target.ovl;
+  carrier.del = del;
+  if (carrier.adopt) {
+    const older = heldCarrier(target);
+    if (older !== null) {
+      tx = txOf(older);
+      for (const p of target.kh!) (p as any).void = true;
+    }
+  }
   holdNode(carrier, tx);
   (target.kh ??= []).push(carrier);
   heldTargets.add(target);
@@ -582,6 +621,7 @@ function parkPatch(target: StoreTarget, t: Transaction): void {
 const heldTargets: Set<StoreTarget> = new Set();
 /** A carrier landed: its patch folds into the committed backing. */
 function foldPatch(t: StoreTarget, p: any): void {
+  if (p.void) return;
   const patch = p._value as Record<PropertyKey, any>;
   const old = t.v;
   if (p.adopt) {
@@ -1093,7 +1133,7 @@ export function adoptPB(
   if (target.pb !== null) {
     if (target.ovl) materializePB(target);
     base = target.pb!;
-  } else base = target.v;
+  } else base = heldBase(target);
   if (directCommit) {
     target.pb = null;
     if (target.k !== null) target.k._value = incoming;

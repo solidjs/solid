@@ -24,6 +24,7 @@ import {
 } from "./target.js";
 import {
   adoptPB,
+  lastTold,
   bumpDeep,
   hasAccessorFlag,
   materializePB,
@@ -63,14 +64,14 @@ export function reconcileState(
   }
   // Replace-mode root handed another store's proxy: chain to it (§7b).
   if (replace && value !== state && value?.[$TARGET] !== undefined) {
-    const prev = t.pb ?? t.v;
+    const prev = lastTold(t);
     if (prev === value) return; // already chained to this store
     adoptPB(t, value);
     return;
   }
   const incoming = unwrapValue(value);
   if (keyFn) {
-    const prev = t.pb ?? t.v;
+    const prev = lastTold(t);
     const eq = keyFn(prev);
     if (eq !== undefined && !sameKey(keyFn(incoming), eq)) {
       if (!replace)
@@ -95,7 +96,7 @@ function applyAdopt(t: StoreTarget, incoming: any, keyFn: KeyFn | null, proj = f
   // as present through its prototype; materialized first — `adoptPB` does
   // so anyway, after the base was taken — so a deletion the draft made is
   // a deletion here (#3743: the presence and value diffs both read `old`).
-  const old = t.ovl ? materializePB(t) : (t.pb ?? t.v);
+  const old = t.ovl ? materializePB(t) : lastTold(t);
   if (incoming === old && !isOwned(old)) return;
   // Q-D: a landing on an optimistic family is reconciled against the VIEW
   // — key matching from the arrangement the guesses made (R28), so a row
