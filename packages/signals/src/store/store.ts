@@ -324,6 +324,8 @@ function releaseSlot(node: any): void {
   const k = t.k;
   if (
     k !== null &&
+    plainTarget(t) &&
+    !(k._config & CONFIG_OVERRIDE) &&
     k._subs === null &&
     k._pendingValue === NOT_PENDING &&
     t.nc === 0 &&
@@ -406,6 +408,16 @@ function heldPatchFor(t: StoreTarget, key: PropertyKey): Signal<any> | null {
       if (written(p.wk, key) || p.del?.has(key)) return kh[i];
     }
   return null;
+}
+/** A34 (1): a key a held carrier's patch has is a second proposal for it —
+ * the writer's tick joins the hold, and the batch's own staging is the
+ * hold's from here (its container held by it, as the one pending backing
+ * was on `next`): a read of it this flush is a read of the hold's staging. */
+function joinHeld(t: StoreTarget, p: Signal<any>): void {
+  const tx = txOf(p);
+  joinFuture(tx);
+  const k = t.k;
+  if (k !== null && !(k._config & (CONFIG_HELD | CONFIG_OVERRIDE))) holdNode(k, tx);
 }
 /** The deletes of the patch `frameOf` chose (null: the committed backing). */
 let frameDel: Set<PropertyKey> | null = null;
@@ -1478,7 +1490,7 @@ function notifyWrites(t: StoreTarget): void {
         // A34 (1): a key a hold's patch has is a second proposal for it —
         // the writer's tick joins the hold.
         const p = heldPatchFor(t, key);
-        if (p !== null && p._config & CONFIG_HELD) joinFuture(txOf(p));
+        if (p !== null && p._config & CONFIG_HELD) joinHeld(t, p);
         notifyLeaf(node, nv);
         continue;
       }
@@ -1501,7 +1513,7 @@ function notifyWrites(t: StoreTarget): void {
       if (node !== undefined) {
         if (plain) {
           const p = heldPatchFor(t, key);
-          if (p !== null && p._config & CONFIG_HELD) joinFuture(txOf(p));
+          if (p !== null && p._config & CONFIG_HELD) joinHeld(t, p);
           notifyLeaf(node, key in pb && !t.del?.has(key));
           continue;
         }
