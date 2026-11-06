@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { NOT_PENDING } from "../src/core/constants.js";
 import { $TARGET } from "../src/store/store.js";
 import {
   DEV,
@@ -39,8 +38,9 @@ describe("a derived store's first landing is not pending", () => {
   });
 
   // `stagedLeafReads` (dev): counts devtools reads of store 0's leaf `v`
-  // while it holds a staging — the first landing's reads, which `nodeValue`
-  // serves without core `read`.
+  // while the target holds a staging — the first landing's reads (the leaf
+  // is a notifier; the staging is the target's patch node's), which the get
+  // trap serves without core `read` outside dev.
   async function run(via: "memo" | "store", gated: boolean, stagedLeafReads?: { n: number }) {
     const log: string[] = [];
     const flights: (() => void)[] = [];
@@ -72,8 +72,8 @@ describe("a derived store's first landing is not pending", () => {
         view1 = () => st1.v;
         if (stagedLeafReads)
           DEV!.hooks.onRead = n => {
-            const leaf = (st0 as any)[$TARGET].n?.v;
-            if (n === leaf && leaf._pendingValue !== NOT_PENDING) stagedLeafReads.n++;
+            const t = (st0 as any)[$TARGET];
+            if (n === t.n?.v && (t.pb !== null || t.kh !== null)) stagedLeafReads.n++;
           };
       }
       const out = createErrorBoundary(
