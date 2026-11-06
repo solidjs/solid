@@ -482,3 +482,18 @@ setQ("b"); // then resolve suggest, then resolve results
 | 3   | `results` lands                      | `results:b`                                           | `results:b`                 |
 
 **Ruled (maintainer, 2026-11-06): F-6 stands.** The second column is a tear — a verdict reader with no async of its own showing `b` beside a verdict reader of the same `q` still showing `a` — and F-6 exists to prevent it. A hold's display-ahead readers are one frame; the verdict lane is that frame's record and stays. H2 is **no**. `LEFT_SHOWN` stays with it.
+
+## 9. Contributor-proposed rows (2026-11-06)
+
+GabbeV's `experiment/unified-updates` branch (137 agent-written stages; a scalar engine without lanes, 2,111 failing tests at its latest checkpoint, over every size cap) was read for its rulings rather than its code. Its 384 new tests were run against `next`: 177 + 25 pass unchanged, 26 files need its own modules, and about 100 screens differ. Most differences are one philosophy — a guess, an input landing, an input error are all masked until the action ends — which contradicts F-11 and A18 and is declined on those rows. Six specific rules are independent of that philosophy and are now rows S-51 to S-56 in `SCENARIOS.md` §G, status `proposed`: today's screen pinned by the rulings spec, the experiment's screen as a `?` row, for a ruling. The rulings type gained `proposed`/`proposedBy`, a `Proposed` row, and `allow` (a case that trips a dev guard on purpose); the grammar gained `sync` on the rulings-only action (no yield — #4349's shape).
+
+| Row | Today | Proposed | Note |
+| --- | --- | --- | --- |
+| S-51 #4677 obsolete display-ahead question | its answer reveals whole (`pending true` beside `Item 0`), then the correction | superseded when `details` lands; one frame and one request fewer | F-6 does not require the stale frame |
+| S-52 #4349 `[isPending(x), x()]` after an action's write | held as one when the action's body ends inside the call; `pending` beside the committed value when the action yields (case ′) | `pending` beside the committed value in both | today's two shapes already disagree with each other |
+| S-53 #4403 `latest` over an error recovery | the error until the action lands (D-39) | the recovery ahead, as a value would be (D-22) | the maintainer's PR 4705 is in this area |
+| S-54 `isPending` of a ready answer the frame still holds | clears while the frame holds on a sibling | stays `true` until the frame shows | D-23's own wording supports the proposal |
+| S-55 `refresh` of an optimistic derivation under a guess | the authoritative view replaces the guess now | the re-ask answers the input; the guess stays until its action ends | the promise's value is not observable in the generator |
+| S-56 a guess before the first answer | refused in dev | accepted | policy |
+
+Two of the experiment's constraints are properties, not screens: later dependency discovery must not change the inputs of a started fetch, nor make a held proposal eligible. In this model a pass's reads are complete before its flight starts (a read after `await` is a dev warning), so both hold by construction; no generator law was added.

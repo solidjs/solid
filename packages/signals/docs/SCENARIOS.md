@@ -1291,3 +1291,182 @@ const slow = createDeferred(() => fetchSlow(period())); // lands in 10s
 | 1′  | instead: plain async memos                                        | `Period 1` · fast 1 · slow 1 until 3                                             | true / true             | the default: one hold, gated on the slowest (F-2)                                       |
 | 1″  | instead: `period` is held (another reader of it is still loading) | `Period 1` · fast 1 · slow 1                                                     | true / true             | a re-ask that read the held period lands into that hold and shows with its commit (F-7) |
 | ✗   |                                                                   | after 1: `Period 1` held for the panels; or after 1″: `fast 2` beside `Period 1` |                         | the first is the hold D-40 removes; the second leads the hold                           |
+
+## G. Contributor-proposed rows (not ruled)
+
+Rows whose screens are today's and pinned, with a `?` row per frame where a contributor's model shows something else. The source is the `experiment/unified-updates` branch (GabbeV, 2026-11): its stage documents and tests were run against `next`; "proposed" is what that model shows. None of these is ruled; each is here so the decision is made on a table, not on a document.
+
+<!-- ruling:S-51 -->
+
+### S-51. An obsolete display-ahead question: shown when it lands, or superseded by the correction — F-6, D-25 (#4677)
+
+_Generated from `packages/web/test/async-gen/rulings/S-51.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: proposed. Proposed by: experiment/unified-updates (GabbeV), stage 126. Pins also: `tests/ispending-async-derivation-4677.test.ts`._
+
+```tsx
+const [id, setId] = createSignal(0);
+const details = createMemo(async () => fetch(1 + id()));
+const badge = createMemo(async () => fetch(1 + id() + isPending(id)));
+<span>
+  {id()} {details()} {isPending(id)} {badge()}
+</span>;
+```
+
+| #   | Action                                 | Screen                                                                   | Notes                                                                                                                                                          |
+| --- | -------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | details(1) lands; badge(1) lands; tick | `id 0 \| details 1 \| isPending(id) false \| badge 1`                    | primed                                                                                                                                                         |
+| 1   | setId(2); flush()                      | —                                                                        | `setId(2)`: `details(2)` on the mainline; the badge asks its display-ahead question `badge(0, pending)` and its mainline one — the frame holds                 |
+| 2   | details(3) lands; tick                 | —                                                                        | `details(2)` lands: held, the badge's display-ahead question is still out                                                                                      |
+| 3   | badge(2) lands; tick                   | `id 0 \| details 1 \| isPending(id) true \| badge 2`                     | the obsolete question lands and reveals whole (F-6): `pending true` beside `Item 0`; the correction `badge(2)` is asked now                                    |
+| 4   | badge(3) lands; tick                   | `id 2 \| details 3 \| isPending(id) false \| badge 3`                    | the correction lands                                                                                                                                           |
+| ?   |                                        | proposed, after 3: `id 0 \| details 1 \| isPending(id) false \| badge 1` | the correction was asked when `details(2)` landed; the obsolete question's answer is superseded and its frame never shows — one frame fewer, one request fewer |
+
+<!-- /ruling -->
+
+<!-- ruling:S-52 -->
+
+### S-52. `[isPending(x), x()]` after an action's write: held as one, or pending beside the committed value — D-23, D-25 (#4349)
+
+_Generated from `packages/web/test/async-gen/rulings/S-52.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: proposed. Proposed by: experiment/unified-updates (GabbeV), stage 127. Pins also: `tests/action-refresh-ispending-loop-4349.test.ts`._
+
+**Case 1.**
+
+```tsx
+const [s, setS] = createSignal(41);
+const x = createMemo(async () => fetch(1 + s()));
+<span data-a0={isPending(x)} data-a1={x()}></span> {/* one effect */}
+```
+
+| #   | Action                              | Screen                                         | Notes                                                                                         |
+| --- | ----------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 0   | x(42) lands; tick                   | `isPending(x) false \| x 42`                   | primed                                                                                        |
+| 1   | action (no yield): setS(1); flush() | —                                              | the action's write lands beneath `x`'s new question: the pair holds like `x()` alone (D-23)   |
+| 2   | x(2) lands; tick                    | `isPending(x) false \| x 2`                    | one frame                                                                                     |
+| ?   |                                     | proposed, after 1: `isPending(x) true \| x 42` | the experiment publishes `pending` beside the committed value, without restarting the request |
+
+**Case ′.**
+
+```tsx
+const [s, setS] = createSignal(41);
+const x = createMemo(async () => fetch(1 + s()));
+<span data-a0={isPending(x)} data-a1={x()}></span> {/* one effect */}
+```
+
+| #   | Action                   | Screen                       | Notes                                                                                    |
+| --- | ------------------------ | ---------------------------- | ---------------------------------------------------------------------------------------- |
+| 0   | x(42) lands; tick        | `isPending(x) false \| x 42` | primed                                                                                   |
+| 1   | action: setS(1); flush() | `isPending(x) true \| x 42`  | the action open: `pending` beside the committed value — what the proposal asks of case 1 |
+| 2   | the action lands; tick   | —                            | the action ends; `x`'s fetch is still out                                                |
+| 3   | x(2) lands; tick         | `isPending(x) false \| x 2`  |                                                                                          |
+
+Case ′ is the same write from an action that yields. Today's model then shows `pending` beside the committed value on its own, as the mainline does for a plain write (S-26, frame 2): the hold of case 1 is specific to an action whose body ends inside the call. The proposal makes the two the same.
+
+<!-- /ruling -->
+
+<!-- ruling:S-53 -->
+
+### S-53. An action recovering a memo to its last good value under `latest`: the error until it lands, or the recovery ahead — D-39, D-41, D-22 (#4403)
+
+_Generated from `packages/web/test/async-gen/rulings/S-53.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: proposed. Proposed by: experiment/unified-updates (GabbeV), stage 137 (value/error symmetry). Pins also: `tests/errored-recovery-wedge-4403-4404-4405.test.ts`._
+
+```tsx
+const [s, setS] = createSignal(0);
+const m = createMemo(() => 1 + s()); // throws when the input % 4 === 2
+<Errored fallback="[error]">
+  <Show when={latest(m)} fallback="[none]">
+    <span>{s()}</span>
+  </Show>
+</Errored>;
+```
+
+| #   | Action                   | Screen                   | Notes                                                                                                                        |
+| --- | ------------------------ | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                   | `s 0`                    |                                                                                                                              |
+| 1   | setS(1); flush()         | `[error]`                | `m = 2` throws: the boundary shows its fallback                                                                              |
+| 2   | action: setS(0); flush() | —                        | the action writes `s = 0` back — the last good value — and stays open: the error stays until it lands (D-39)                 |
+| 3   | the action lands; tick   | `s 0`                    | the action lands: recovered                                                                                                  |
+| ?   |                          | proposed, after 2: `s 0` | `latest(m)` selects the recovery ahead as it would a value (D-22's symmetry): the boundary recovers while the action is open |
+
+<!-- /ruling -->
+
+<!-- ruling:S-54 -->
+
+### S-54. `isPending` of a ready answer the frame still holds: cleared, or pending until it shows — D-23
+
+_Generated from `packages/web/test/async-gen/rulings/S-54.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: proposed. Proposed by: experiment/unified-updates (GabbeV), stage 105._
+
+```tsx
+const [a, setA] = createOptimistic(0);
+const [b, setB] = createOptimistic(0);
+const left = createMemo(async () => fetch(1 + a()));
+const right = createMemo(async () => fetch(1 + b()));
+const total = createMemo(() => 1 + left() + right());
+<span>{left()} {total()}</span>
+<span>{isPending(left)}</span>
+```
+
+| #   | Action                              | Screen                                                         | Notes                                                                                                                                                                                          |
+| --- | ----------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | left(1) lands; right(1) lands; tick | `left 1 \| total 3 \| isPending(left) false`                   | primed                                                                                                                                                                                         |
+| 1   | action: setA(1), setB(1); tick      | `left 1 \| total 3 \| isPending(left) true`                    | both guessed: `left(1)` and `right(1)` are out under the action's hold                                                                                                                         |
+| 2   | left(2) lands; tick                 | `left 1 \| total 3 \| isPending(left) false`                   | `left`'s answer (2, not the shown 1) lands beneath the hold: `isPending(left)` clears while the frame still holds on `right`                                                                   |
+| 3   | right(2) lands; tick                | `left 2 \| total 5 \| isPending(left) false`                   | `right` lands: the frame shows                                                                                                                                                                 |
+| 4   | the action lands; tick              | `left 2 \| total 5 \| isPending(left) true`                    | the action ends: the guesses revert and both re-fetch                                                                                                                                          |
+| ?   |                                     | proposed, after 2: `left 1 \| total 3 \| isPending(left) true` | a differing answer the frame still holds is still a question without a committed answer: `pending` stays until the frame shows — D-23's own words; the experiment calls today's clearing a bug |
+
+<!-- /ruling -->
+
+<!-- ruling:S-55 -->
+
+### S-55. `refresh` of an optimistic derivation under a guess: the authoritative view replaces the guess, or the guess stays until its action ends — D-34
+
+_Generated from `packages/web/test/async-gen/rulings/S-55.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: proposed. Proposed by: experiment/unified-updates (GabbeV), REFRESH-QUESTION._
+
+```tsx
+const [s0, setS0] = createSignal(0);
+const [first, setFirst] = createOptimistic(() => 1 + );
+const doubled = createMemo(() => 1 + first());
+const [second, setSecond] = createOptimistic(() => 1 + doubled());
+<span>{first()} {doubled()} {second()}</span>
+```
+
+| #   | Action                         | Screen                                                 | Notes                                                                                                                               |
+| --- | ------------------------------ | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                         | `first 1 \| doubled 2 \| second 3`                     |                                                                                                                                     |
+| 1   | action: setFirst(5); flush()   | `first 5 \| doubled 6 \| second 7`                     | A guesses `first = 5`: shown, derived through                                                                                       |
+| 2   | action: setSecond(10); flush() | `first 5 \| doubled 6 \| second 10`                    | B guesses `second = 10`                                                                                                             |
+| 3   | refresh(second); tick          | `first 5 \| doubled 6 \| second 7`                     | `refresh(second)` while both are open: the re-ask's answer is the authoritative view (`doubled + 1`), and it replaces B's guess now |
+| 4   | the action lands; tick         | —                                                      | B ends                                                                                                                              |
+| 5   | the action lands; tick         | `first 1 \| doubled 2 \| second 3`                     | A ends: everything reverts                                                                                                          |
+| ?   |                                | proposed, after 3: `first 5 \| doubled 6 \| second 10` | `refresh` crosses only its own boundary and answers `doubled`; the guess stays until B ends                                         |
+| ?   |                                | proposed, after 4: `first 5 \| doubled 6 \| second 7`  | B ends: the guess retires to the refreshed answer                                                                                   |
+
+The `refresh` promise's value is not observable here: the experiment resolves it to the input's answer (`doubled`), `next` to the authoritative view. `s` is unused.
+
+<!-- /ruling -->
+
+<!-- ruling:S-56 -->
+
+### S-56. A guess before the first answer: refused (dev), or shown — D-2, D-22
+
+_Generated from `packages/web/test/async-gen/rulings/S-56.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: proposed. Proposed by: experiment/unified-updates (GabbeV), stage 124. Pins also: `tests/createOptimistic.test.ts`._
+
+```tsx
+const [sel, setSel] = createSignal(3);
+const [comments, setComments] = createOptimistic(async () => fetch(1 + sel()));
+<Loading fallback="[fallback]">
+  <span>
+    {comments()} {latest(comments)}
+  </span>
+</Loading>;
+```
+
+| #   | Action                            | Screen                                                | Notes                                                                                                                                                                                                                 |
+| --- | --------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                            | `[fallback]`                                          | first load                                                                                                                                                                                                            |
+| 1   | setComments(9) (a guess); flush() | —                                                     | the guess is refused: `OPTIMISTIC_WRITE_BEFORE_LOAD` (dev); nothing changes                                                                                                                                           |
+| 2   | comments(4) lands; tick           | `comments 4 \| latest(comments) 4`                    | the first answer lands                                                                                                                                                                                                |
+| ?   |                                   | proposed, after 1: `comments 9 \| latest(comments) 9` | the guess is accepted before the first answer (a functional guess receives `undefined`); the experiment's fixture shows it once written — whether `<Loading>` keeps its fallback until the first answer is not stated |
+
+_Expected findings: `throw`._
+
+<!-- /ruling -->

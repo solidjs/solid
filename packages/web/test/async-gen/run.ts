@@ -510,12 +510,19 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
     const truth = (w: Write) => "s" in w && !sc.optimistic?.includes(w.s);
     const apply = (w: Write) => ("s" in w ? sigs[w.s][1](w.v) : guessOf(w.o)(w.v));
     let acts = 0;
-    const act = (label: string, before: Write[], after: Write[] = [], refreshes: number[] = []) =>
+    const act = (
+      label: string,
+      before: Write[],
+      after: Write[] = [],
+      refreshes: number[] = [],
+      sync = false
+    ) =>
       action(function* () {
         before.forEach(apply);
-        yield new Promise<number>(resolve => {
-          flights.push({ label, value: 0, rejects: false, resolve, reject: () => {} });
-        });
+        if (!sync)
+          yield new Promise<number>(resolve => {
+            flights.push({ label, value: 0, rejects: false, resolve, reject: () => {} });
+          });
         after.forEach(apply);
         refreshes.forEach(i => refresh(memos[i] as any));
       })();
@@ -547,7 +554,13 @@ export async function runScenario(sc: Scenario, variant: Variant = {}): Promise<
             if (truth(w)) values[(w as { s: number }).s] = w.v;
           const label = "s" in st ? `act:s${st.s}=${st.v}` : `act#${++acts}`;
           guard("throw", () => {
-            const p = act(label, a.before, a.after, a.refresh) as Promise<unknown>;
+            const p = act(
+              label,
+              a.before,
+              a.after,
+              a.refresh,
+              "sync" in a && a.sync
+            ) as Promise<unknown>;
             p?.catch?.((e: any) =>
               findings.push({
                 oracle: "safety",

@@ -16,6 +16,10 @@ import type { Variant } from "../run.js";
 export type Frame = { after: number | "render"; screen: string | "—"; note?: string };
 /** A ✗ row: the screen after step `after` must not be this. */
 export type Forbid = { after: number; screen: string; why: string };
+/** A `?` row: a screen a contributor or a sibling model proposes after step
+ * `after`, not ruled. The frames stay today's and pinned; the row shows the
+ * maintainer both. */
+export type Proposed = { after: number; screen: string; note?: string };
 
 export type Case = {
   /** Row suffix in the table: "" | "′" | "″" … */
@@ -25,6 +29,11 @@ export type Case = {
   forbid?: Forbid[];
   /** Equivalence rewrites that must show the same screen at every frame. */
   variants?: Variant[];
+  /** Proposed screens (`status: "proposed"`), rendered as `?` rows. */
+  proposed?: Proposed[];
+  /** Law findings this case expects (a dev guard the scenario trips on
+   * purpose); listed under the table. Any other finding fails. */
+  allow?: string[];
   /** Overrides the ruling's status for this case. */
   status?: Ruling["status"];
   /** Under the table, for this case. */
@@ -38,8 +47,12 @@ export type Ruling = {
   rules: string[];
   /** `standing`: the screens are today's and pinned. `ruled-not-built`: the
    * screens are ruled and the frames test is `it.fails` until the fix lands;
-   * the generated block then also records today's screen. */
-  status: "standing" | "ruled-not-built";
+   * the generated block then also records today's screen. `proposed`: the
+   * screens are today's and pinned, and the cases carry a contributor's
+   * proposed screens (`proposed`) for the maintainer to rule on. */
+  status: "standing" | "ruled-not-built" | "proposed";
+  /** Who proposes the alternative screens (`status: "proposed"`). */
+  proposedBy?: string;
   issues?: string[];
   /** Hand-written tests that stay beside the ruling. */
   pins?: string[];

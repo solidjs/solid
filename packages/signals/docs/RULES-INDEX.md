@@ -39,7 +39,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | R (PJ) | 37 | 2 | 5 | 32 |
 | R (RS) | 38 | 0 | 2 | 36 |
 | § | 24 | 14 | 11 | 7 |
-| S | 50 | 9 | 13 | 33 |
+| S | 56 | 9 | 13 | 39 |
 
 ## Unresolved citations
 
@@ -521,3 +521,9 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | S-48 | executable, standing | `docs/SCENARIOS.md:497` | — | — | [executable, standing] `on={id()}`: the `on` pass reads the held value plainly, so the swap lands with the write's frame — D-17 (#3540) |
 | S-49 | executable, ruled-not-built | `docs/SCENARIOS.md:523` | seat.ts×3 | — | [executable, ruled-not-built] A mixed `on`: a plain read of a held value makes the re-arm wait — D-17 |
 | S-50 | executable, ruled-not-built | `docs/SCENARIOS.md:762` | seat.ts×4 | — | [executable, ruled-not-built] A memo that probed once, re-run by a sync write, holds the tick — D-25 |
+| S-51 | executable, proposed | `docs/SCENARIOS.md:1301` | — | — | [executable, proposed] An obsolete display-ahead question: shown when it lands, or superseded by the correction — F-6, D-25 (#4677) |
+| S-52 | executable, proposed | `docs/SCENARIOS.md:1327` | — | — | [executable, proposed] `[isPending(x), x()]` after an action's write: held as one, or pending beside the committed value — D-23, D-25 (#4349) |
+| S-53 | executable, proposed | `docs/SCENARIOS.md:1367` | — | — | [executable, proposed] An action recovering a memo to its last good value under `latest`: the error until it lands, or the recovery ahead — D-39, D-41, D-22 (#4403) |
+| S-54 | executable, proposed | `docs/SCENARIOS.md:1393` | — | — | [executable, proposed] `isPending` of a ready answer the frame still holds: cleared, or pending until it shows — D-23 |
+| S-55 | executable, proposed | `docs/SCENARIOS.md:1420` | — | — | [executable, proposed] `refresh` of an optimistic derivation under a guess: the authoritative view replaces the guess, or the guess stays until its action ends — D-34 |
+| S-56 | executable, proposed | `docs/SCENARIOS.md:1449` | — | — | [executable, proposed] A guess before the first answer: refused (dev), or shown — D-2, D-22 |
