@@ -479,6 +479,7 @@ function getPatchNode(target: StoreTarget): Signal<any> {
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(kp, target);
     noteNode(target, kp, $PATCH);
     kp._pendingValue = target.pb;
+    if (manualBatch.has(target)) kp._config |= CONFIG_MANUAL_WRITE;
     queuePendingNode(kp);
   }
   return kp;
@@ -505,6 +506,10 @@ function heldCarrier(t: StoreTarget): Signal<any> | null {
     }
   return null;
 }
+/** Targets whose open batch is a user's proposal (its last writer a user
+ * setter, A34 (3)'s discriminator): the patch node carries
+ * CONFIG_MANUAL_WRITE, made at the park or on a reader's demand. */
+const manualBatch: WeakSet<StoreTarget> = new WeakSet();
 /** The patch a layered batch's draft was cloned from (per target, while
  * the batch is open; moved to its carrier at the park): the fold deletes a
  * key the batch removed from THAT frame, never one another batch added to
@@ -516,6 +521,16 @@ let frameDel: Set<PropertyKey> | null = null;
 function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<PropertyKey, any> {
   frameDel = null;
   if (inDraft(target) || writeOverride) {
+    // The derive reads its own store through its draft: a key a hold's
+    // patch has is the future, and the pass that reads it derives from the
+    // future (L2: a read of something already held joins it) — the
+    // derive's whole result reveals with the hold (core R31 / #3733). A
+    // user's setter reading its draft is no pass and joins nothing.
+    if (writeOverride && !userWrite) {
+      const p = target.pb !== null && target.kp !== null ? target.kp : heldPatchFor(target, key);
+      if (p !== null && (p._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD)
+        joinPassTx(txOf(p));
+    }
     // A writer before its first write composes on the hold's patch, the
     // batch's own staging once it has one (`ensurePB` layers it there).
     if (target.pb === null) {
@@ -554,7 +569,7 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
   // the pass's.
   if (pb !== null && batchHas(target, pb, key, shape)) {
     frameDel = target.del;
-    if (target.kp === null && getObserver() === null) return readSource(target, key);
+    if (target.kp === null && stagingReader() === null) return readSource(target, key);
     const r = readNode(getPatchNode(target));
     // The deletes are the staging's: a reader served the screen sees none.
     if (r !== pb) frameDel = null;
@@ -591,7 +606,7 @@ function frameAll(target: StoreTarget): Record<PropertyKey, any> {
   // newest carrier, as the container that still carried the pending
   // backing decided it on `next` (one node decides the whole frame).
   if (target.pb !== null) {
-    if (target.kp === null && getObserver() === null) return readSource(target);
+    if (target.kp === null && stagingReader() === null) return readSource(target);
     return asBacking(readNode(getPatchNode(target)));
   }
   const p = heldCarrier(target);
@@ -834,6 +849,12 @@ function stageOn(target: StoreTarget, pb: Record<PropertyKey, any>): void {
   const k = plain ? getPatchNode(target) : getContainerNode(target);
   if (k._pendingValue === NOT_PENDING) queuePendingNode(k);
   k._pendingValue = pb;
+  // A34 (3)'s discriminator on the patch: a user setter's staging is a
+  // proposal, a derive's a derivation (as on the leaves of a family).
+  if (plain) {
+    if (userWrite) k._config |= CONFIG_MANUAL_WRITE;
+    else k._config &= ~CONFIG_MANUAL_WRITE;
+  }
   // A28 (4): a write issued inside a pass outside a flush (a creation-time
   // derive) is promoted at the pass's end — the batch with it.
   if (context !== null) notePromotedWrite(k);
@@ -1056,6 +1077,10 @@ export function materializePB(target: StoreTarget): Record<PropertyKey, any> {
  * for the fold at the flush's commit. */
 function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
   let pb = target.pb;
+  if (target._fam !== null) {
+    if (userWrite) manualBatch.add(target);
+    else manualBatch.delete(target);
+  }
   // An optimistic edit composes on the view the user saw and becomes
   // guesses at the setter's exit: nothing is staged, nothing folds
   // (optimistic.ts).
@@ -1404,6 +1429,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
         t.wk = null; // the written-keys window closes with the commit
         t.kp = null;
         layerBase.delete(t);
+        if (k !== null && plainTarget(t)) follow(k, t.v);
       }
       if (k !== null) {
         // The node's committed value is the backing. A container nobody
@@ -1522,12 +1548,22 @@ export function userWriting(): boolean {
 }
 function heldDerivation(t: StoreTarget, node: Signal<any> | undefined, key: PropertyKey): boolean {
   if (t._fam === null || !userWrite) return false;
+  if (plainTarget(t)) {
+    // The key's held patch (the batch's own, or a carrier's): a derive's
+    // (not a user proposal, CONFIG_MANUAL_WRITE) another transaction holds.
+    const p = t.kp !== null && t.kp._config & CONFIG_HELD ? t.kp : heldPatchFor(t, key);
+    return (
+      p !== null &&
+      (p._config & (CONFIG_HELD | CONFIG_MANUAL_WRITE)) === CONFIG_HELD &&
+      txOf(p) !== flushTransaction
+    );
+  }
   if (node !== undefined)
     return (
       (node._config & (CONFIG_HELD | CONFIG_MANUAL_WRITE)) === CONFIG_HELD &&
       txOf(node) !== flushTransaction
     );
-  const k = plainTarget(t) ? t.kp : t.k;
+  const k = t.k;
   return (
     k !== null &&
     (k._config & CONFIG_HELD) !== 0 &&
@@ -1595,9 +1631,19 @@ function notifyWrites(t: StoreTarget): void {
   const writtenKeys =
     wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
   if (__OBSERVE__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
+  if (t._fam !== null && !heldDerivationHit && writtenKeys !== null)
+    for (const key of writtenKeys)
+      if (heldDerivation(t, nodes?.[key as any], key)) {
+        heldDerivationHit = true;
+        break;
+      }
   // A34 (1): a key a live hold's patch has is a second proposal for it —
   // the writer's tick joins the hold, leaf or no leaf (on `next` the write
   // went into the held pending backing itself).
+  // The batch's own staging held already (a derive's, `holdWithDerive`; a
+  // key a hold's patch had, below): a write to it is a proposal under that
+  // hold — the writer's tick joins it, as `setSignal` on the held leaf did.
+  if (plain && t.kp !== null && t.kp._config & CONFIG_HELD) joinFuture(txOf(t.kp));
   if (plain && t.kh !== null) {
     if (writtenKeys === null) {
       const p = heldCarrier(t);
@@ -1614,12 +1660,6 @@ function notifyWrites(t: StoreTarget): void {
         }
     }
   }
-  if (t._fam !== null && !heldDerivationHit && writtenKeys !== null)
-    for (const key of writtenKeys)
-      if (heldDerivation(t, nodes?.[key as any], key)) {
-        heldDerivationHit = true;
-        break;
-      }
   if (nodes !== null) {
     const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
     for (const key of keys) {
@@ -2249,10 +2289,12 @@ function serveDataKey(
   if (!inDraft(target) && !writeOverride) {
     if (node === undefined && getObserver() !== null) node = getNode(target, key, accKnown);
     if (node !== undefined && plainLeaf(target, node)) {
-      if (context !== null && tracking) link(node, context as Computed<any>);
-      // A leaf with a hydration snapshot: core's read serves it to a reader
-      // in the snapshot's scope (and replays the reader at the release).
-      if (node._x?._snapshotValue !== undefined) v = readNode(node);
+      // The leaf is read through core (a plain signal: the link, dev's read
+      // hooks, a verdict window's look at its marks); the frame decided the
+      // value above — but a leaf with a hydration snapshot serves it to a
+      // reader in the snapshot's scope (and replays the reader at the release).
+      const nv = readNode(node);
+      if (node._x?._snapshotValue !== undefined) v = nv;
     } else if (node !== undefined) {
       const nv = nodeValue(node, backingValue, target);
       if (chained) {
@@ -2442,8 +2484,14 @@ function enumerationSource(target: StoreTarget): Record<PropertyKey, any> {
   if (!inDraft(target) && !writeOverride && getObserver() !== null) {
     // A container's arrangement guess is not a backing: the view composes
     // over the base it is shown over.
-    const kv = readNode(getContainerNode(target));
-    const base = plainTarget(target) ? frameAll(target) : asBacking(kv);
+    const k = getContainerNode(target);
+    const kv = readNode(k);
+    // A plain container's frame is the batch's or the hold's patch — unless
+    // the container carries a hydration snapshot this reader is served.
+    const base =
+      plainTarget(target) && (k._x?._snapshotValue === undefined || kv === k._value)
+        ? frameAll(target)
+        : asBacking(kv);
     return optHooks && target._fam?.opt === true ? optHooks.view(target, base) : base;
   }
   const src = plainTarget(target) ? frameAll(target) : readSource(target);
