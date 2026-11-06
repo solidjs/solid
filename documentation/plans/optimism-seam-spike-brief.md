@@ -451,3 +451,32 @@ Stayed, for M2/M3: `LEFT_SHOWN` (the seam's wake for a pass that left a shown la
 
 - Size: the two +102 B. M2 removes `LEFT_SHOWN`, `dissolveLane`'s remaining outcomes and `laneRead`'s arms; `truthRead`'s installation (signals.ts `watch`) could move to the lane engine so a bundle with `until` and no lane carries none of truth.ts.
 - The 50k base recordings: seed 3289 recorded on `next` (2.7 h, not 10 min); 91501 and 7 run from the `/workspace/solid-base` worktree (built `next`). The M1 build's 50k differential for 3289 runs against it.
+
+## 15. M3 — H2 cut, and the rule it meets (2026-11-06)
+
+H2 was built on `tembo/spike-h2-cut` (one commit, not green): `verdictLane`, `_verdict`, `isVerdict`, `heldBy` and the verdict arms of `enterLane`, `laneRead`, `laneSeams` and `verdictValue` removed; a window read, or a read of a display-ahead reader's value, marks the pass display-ahead of the hold (`route`: `REACTIVE_LANE_READ`, listed on the hold through `_x._transaction` with CONFIG_VERDICT and no CONFIG_HELD — no new field); the park seam commits what such a pass staged; its effect runs go to one ahead queue released with the lanes' reveals; a boundary's display-ahead swap marks the output's pass the same way. 147 of 3,898 pins fail.
+
+**The finding is a rule, not a bug.** F-6: display-ahead readers "wait for their _own_ async, in their own lane" — the transaction's verdict readers are one optimistic frame (lane contract 3; `tests/verdict-contract.test.ts`, "a verdict reader whose own pass goes async holds the transaction's verdict frame, not the parent"). Posture per read has no group: each reader shows when its own pass completes. After M1 the verdict lane is exactly that group record — the readers, their queued runs, and the seam's judgement of them together — with no value of its own. So the answer to H2 as asked ("is the record needed at all?") is: it is needed as long as F-6 groups.
+
+**The stake, measured.** The cut as built: `+ isPending/latest` −430 B minified / −177 B brotli against M1 (lanes.js −669); the cut leaked +185 B onto the core floor through the ahead queue and hook plumbing in scheduler.ts and core.ts, which a correct version must keep behind the verdict engine's hooks. A correct H2 is worth about −400 B on the optimism chunk and nothing elsewhere.
+
+**The decision** (Decision 5, for the maintainer; the shape of `tests/verdict-contract.test.ts`):
+
+```ts
+const [q, setQ] = createSignal("a");
+// The hold: q's change is held on results' flight.
+const results = createMemo(() => fetchResults(q()));
+// A display-ahead reader with async of its own.
+const suggest = createMemo(() => fetchSuggest(latest(q)));
+// A display-ahead reader with none.
+createRenderEffect(() => `input:${latest(q)}`, log);
+setQ("b"); // then resolve suggest, then resolve results
+```
+
+| #   | Event                                | Today (F-6: one frame per hold)                       | Posture per read (no group) |
+| --- | ------------------------------------ | ----------------------------------------------------- | --------------------------- |
+| 1   | `setQ("b")` flushes; both flights up | nothing shows: `input:b` waits for `suggest`'s flight | `input:b` shows now         |
+| 2   | `suggest` lands                      | `input:b` and `suggest:b` show together               | `suggest:b` shows           |
+| 3   | `results` lands                      | `results:b`                                           | `results:b`                 |
+
+Keeping F-6 keeps the verdict lane and its discriminators (M2's `LEFT_SHOWN` with them: only verdict-lane pins need it). Ruling that display-ahead readers show individually deletes the lane for about −400 B and moves screens of this shape at step 1. Nothing in the generator differential is affected either way until the ruling is made; the spike pauses here.
