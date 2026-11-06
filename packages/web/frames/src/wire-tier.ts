@@ -352,7 +352,13 @@ export function connect(
     const dead = error || cancelled || new Error("Frame stream ended before the frame completed.");
     connection.done = true;
     resolveEnd({
-      open: open.size,
+      // A cancel is always a death the loop reconnects from (supersession,
+      // or a mount giving up on a row-op record so the resume re-sends the
+      // hole whole), even when it lands before the body's `start` did: a
+      // remount replaying a warm store gives up as its new connection is
+      // still at the header, and an end with nothing open would read as
+      // completion, leaving the mount with no live connection at all.
+      open: cancelled !== undefined ? Math.max(open.size, 1) : open.size,
       error: dead,
       sweep: () => {
         for (const [id, version] of open)
