@@ -357,7 +357,24 @@ setSlotUnobserved((node: any): void => {
  * pending one — and held by the container's transaction when the container
  * is held (#3706: the unit of the hold is the key — a key the batch left
  * unchanged stages nothing and holds no one). */
+/** PROBE (store S1): a plain store's leaf is a notifier with equality —
+ * the staging is the target's (`pb`, on the container node), the frame a
+ * read sees is decided there (`readSource`), and the leaf keeps only the
+ * value its readers were last notified with. Optimistic families keep
+ * their per-slot lanes for now. */
+function plainLeaf(target: StoreTarget, node: Signal<any> | undefined): boolean {
+  return target._fam?.opt !== true && !(node !== undefined && node._config & CONFIG_OVERRIDE);
+}
+function notifyLeaf(node: Signal<any>, nv: unknown, force?: boolean): void {
+  if (!force && node._equals && node._equals(node._value, nv)) return;
+  node._value = nv;
+  if (node._subs !== null) insertSubs(node);
+}
 function bornStaged(target: StoreTarget, node: Signal<any>, staged: any, key: PropertyKey): void {
+  if (plainLeaf(target, node)) {
+    node._value = staged;
+    return;
+  }
   if (node._equals && node._equals(node._value, staged)) return;
   queuePendingNode(node);
   node._pendingValue = staged;
@@ -1207,6 +1224,7 @@ function notifyWrites(t: StoreTarget): void {
     }
   }
   const nodes = t.n;
+  const plain = t._fam?.opt !== true;
   // Written-keys bound: trap writes record their keys, so the notify visits
   // O(written) nodes instead of every subscription on the record (a selection
   // map with thousands of per-key subscribers pays two visits per select,
@@ -1251,16 +1269,21 @@ function notifyWrites(t: StoreTarget): void {
         const nd = Object.getOwnPropertyDescriptor(pb, key);
         if (!nd || nd.get || nd.set) {
           if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
-            setSignal(node, () => FORCE as any);
+            plain ? notifyLeaf(node, FORCE, true) : setSignal(node, () => FORCE as any);
           continue;
         }
-        if (od?.get || od?.set || !isEqual(od?.value, nd.value)) setSignal(node, () => nd.value);
+        if (od?.get || od?.set || !isEqual(od?.value, nd.value))
+          plain ? notifyLeaf(node, nd.value) : setSignal(node, () => nd.value);
         continue;
       }
       // A removed `__proto__` is told `undefined`, never the prototype (core
       // R30, #4672); an own key pays nothing. (An overlay's written keys are
       // own on it or in `del`.)
       const nv = own || !(t.del?.has(key) || key === "__proto__") ? pb[key as any] : undefined;
+      if (plain) {
+        notifyLeaf(node, nv);
+        continue;
+      }
       setSignal(node, () => nv);
       if (t._fam !== null) {
         // The derive's write is a derivation; a user setter's is a proposal
@@ -1278,6 +1301,10 @@ function notifyWrites(t: StoreTarget): void {
     for (const key of keys) {
       const node = has[key as any];
       if (node !== undefined) {
+        if (plain) {
+          notifyLeaf(node, key in pb && !t.del?.has(key));
+          continue;
+        }
         setSignal(node, key in pb && !t.del?.has(key));
         if (t._fam !== null && !userWrite) holdWithDerive(t, node);
       }
@@ -1822,7 +1849,9 @@ function serveDataKey(
   // composes on the truth, never on a lane's or a hold's frame.
   if (!inDraft(target) && !writeOverride) {
     if (node === undefined && getObserver() !== null) node = getNode(target, key, accKnown);
-    if (node !== undefined) {
+    if (node !== undefined && plainLeaf(target, node)) {
+      if (context !== null && tracking) link(node, context as Computed<any>);
+    } else if (node !== undefined) {
       const nv = nodeValue(node, backingValue, target);
       if (chained) {
         // The link's committed value follows the inner store's (what a lane
@@ -2144,6 +2173,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       if (
         nodeH !== undefined &&
         (nodeH as any).acc !== true &&
+        !plainLeaf(target, nodeH) &&
         (!target.ch || nodeH._config & CONFIG_OVERRIDE)
       ) {
         const nv = nodeValue(nodeH, undefined, target);
@@ -2291,6 +2321,10 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (!inDraft(target) && !writeOverride) {
       if (getObserver() !== null) {
         const node = getHasNode(target, key);
+        if (plainLeaf(target, node)) {
+          if (context !== null && tracking) link(node, context as Computed<any>);
+          return key in src && !(src === target.pb && target.del?.has(key));
+        }
         const nv = readNode(node);
         if (!target.ch || src !== target.v) return !!nv;
         const present = key in src;
