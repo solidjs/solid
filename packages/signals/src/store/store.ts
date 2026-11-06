@@ -105,6 +105,7 @@ import {
   queuePendingNode,
   schedule,
   resolveTx,
+  liveTx,
   txOf,
   unhold,
   type Transaction,
@@ -419,12 +420,38 @@ function joinHeld(t: StoreTarget, p: Signal<any>): void {
   const k = t.k;
   if (k !== null && !(k._config & (CONFIG_HELD | CONFIG_OVERRIDE))) holdNode(k, tx);
 }
+/** The backing a new batch's draft starts from: the newest live carrier's
+ * patch while the target is under a hold, else the committed backing. */
+function heldBase(t: StoreTarget): Record<PropertyKey, any> {
+  const p = heldCarrier(t);
+  return p === null ? t.v : (p._pendingValue as Record<PropertyKey, any>);
+}
+/** The newest carrier whose hold is live and whose patch awaits its fold:
+ * the one pending backing of `next`, as a writer composes on it. */
+function heldCarrier(t: StoreTarget): Signal<any> | null {
+  const kh = t.kh;
+  if (kh !== null)
+    for (let i = kh.length - 1; i >= 0; i--) {
+      const p = kh[i];
+      if (p._pendingValue !== NOT_PENDING && liveTx(txOf(p)) !== null) return p;
+    }
+  return null;
+}
 /** The deletes of the patch `frameOf` chose (null: the committed backing). */
 let frameDel: Set<PropertyKey> | null = null;
 /** The frame a plain store's read of `key` sees. */
 function frameOf(target: StoreTarget, key: PropertyKey): Record<PropertyKey, any> {
   frameDel = null;
   if (inDraft(target) || writeOverride) {
+    // A writer before its first write composes on the hold's patch, the
+    // batch's own staging once it has one (`ensurePB` layers it there).
+    if (target.pb === null) {
+      const p = heldCarrier(target);
+      if (p !== null) {
+        frameDel = (p as any).del ?? null;
+        return p._pendingValue as Record<PropertyKey, any>;
+      }
+    }
     frameDel = target.del;
     return readSource(target, key);
   }
@@ -931,10 +958,14 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     const k = target.k;
     if (k !== null && !(k._config & CONFIG_HELD)) k._pendingValue = pb;
   } else if (pb === null) {
-    const v = target.v;
+    // A batch under a live hold composes on the hold's patch (the one
+    // pending backing accumulated on `next`): its writes are a second
+    // proposal layered over the first, never over the committed backing.
+    const v = heldBase(target);
     if (!directCommit) queueFold(target);
     if (
       !target.ch &&
+      v === target.v &&
       !Array.isArray(v) &&
       (target.sc !== 0 ? !target.a : scanAccessorsOnce(target)) &&
       target.kc > OVERLAY_MIN_KEYS &&
