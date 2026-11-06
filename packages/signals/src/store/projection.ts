@@ -234,6 +234,7 @@ function forEachFamilyNode(fam: StoreFamily, fn: (n: Signal<any>) => void): void
     const has = t.h;
     if (has !== null) for (const key of Reflect.ownKeys(has)) fn(has[key as any]);
     if (t.k !== null) fn(t.k);
+    if (t.kp !== null) fn(t.kp);
     const kh = t.kh;
     if (kh !== null) for (let i = 0; i < kh.length; i++) fn(kh[i]);
     if (t.dk !== null) fn(t.dk);

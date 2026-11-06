@@ -132,6 +132,7 @@ import {
   $RECORD,
   $TARGET,
   $TRACK,
+  $PATCH,
   writeOverride,
   installShallowView,
   isRawValue,
@@ -178,6 +179,7 @@ function TargetShape(
   this.h = null;
   this.k = null;
   this.kh = null;
+  this.kp = null;
   this.dk = null;
   this.u = parent;
   this.pk = parentKey;
@@ -316,6 +318,8 @@ function releaseSlot(node: any): void {
   const key: PropertyKey = node._key;
   if (key === $TRACK) {
     if (t.k === node) t.k = null;
+  } else if (key === $PATCH) {
+    return;
   } else if (key === $DEEP) {
     if (t.dk === node) t.dk = null;
   } else if (t.n?.[key as any] === node) {
@@ -461,8 +465,23 @@ function carrierHas(t: StoreTarget, p: any, key: PropertyKey, shape: boolean): b
 function joinHeld(t: StoreTarget, p: Signal<any>): void {
   const tx = txOf(p);
   joinFuture(tx);
-  const k = t.k;
-  if (k !== null && !(k._config & (CONFIG_HELD | CONFIG_OVERRIDE))) holdNode(k, tx);
+  if (t.pb !== null) {
+    const kp = getPatchNode(t);
+    if (!(kp._config & (CONFIG_HELD | CONFIG_OVERRIDE))) holdNode(kp, tx);
+  }
+}
+/** The open batch's patch node (`kp`), made on demand: its committed value
+ * the frame the batch started from, its staging the pending backing. */
+function getPatchNode(target: StoreTarget): Signal<any> {
+  let kp = target.kp;
+  if (kp === null) {
+    kp = target.kp = slotSignal(committed(target), containerEquals, target, $PATCH, false);
+    if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(kp, target);
+    noteNode(target, kp, $PATCH);
+    kp._pendingValue = target.pb;
+    queuePendingNode(kp);
+  }
+  return kp;
 }
 /** The backing a new batch's draft starts from: the newest live carrier's
  * patch while the target is under a hold, else the committed backing. */
@@ -510,7 +529,7 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
     return readSource(target, key);
   }
   const pb = target.pb;
-  let k = target.k;
+  const k = target.k;
   const fam = target._fam;
   // A derived store's first landing, staged while the derive is still
   // uninitialized: its only value (A19 exc. 1: loading, not pending).
@@ -519,30 +538,24 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
     fam.node !== null &&
     fam.node._statusFlags & STATUS_UNINITIALIZED &&
     pb !== null &&
-    (k === null || !(k._config & CONFIG_HELD))
+    (target.kp === null || !(target.kp._config & CONFIG_HELD))
   ) {
     frameDel = target.del;
     return pb;
   }
   // This batch wrote the key (an adoption: changed it, by value against
-  // the frame it swapped out): the batch's own staging, on `k`.
+  // the frame it swapped out): the batch's own staging, on its patch node —
+  // made now for a pass that asks (a reader is here), so core's one
+  // selection answers: an unflushed write served committed (A28), a
+  // verdict reader the screen, a member the staging, a lane's work the
+  // lane's value. Read as the reader's own (linked): the node is written
+  // once more, at its commit — the re-run the leaf's notification makes
+  // anyway — and the read's posture (a window's routing, a lane's seat) is
+  // the pass's.
   if (pb !== null && batchHas(target, pb, key, shape)) {
     frameDel = target.del;
-    // A pass asking before the container exists: made now (a reader is
-    // here), so core's one selection answers — an unflushed write served
-    // committed (A28), a verdict reader the screen, a member the staging.
-    if (k === null) {
-      if (getObserver() === null) return readSource(target, key);
-      k = getContainerNode(target);
-    }
-    // The flush's own staging is read without a link (the leaf notifies;
-    // a link would re-run the reader at the next staging of any key) —
-    // but by a verdict window, whose tracked read is the window's question
-    // of the staging (`_askedIn`, D-26) and its reader's seat (the seam's,
-    // `provisionalVerdict`); and one a hold holds as the carrier below.
-    const n = k;
-    const r =
-      n._config & CONFIG_HELD || verdict !== null ? readNode(n) : untrack(() => readNode(n));
+    if (target.kp === null && getObserver() === null) return readSource(target, key);
+    const r = readNode(getPatchNode(target));
     // The deletes are the staging's: a reader served the screen sees none.
     if (r !== pb) frameDel = null;
     return asBacking(r);
@@ -566,7 +579,7 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
   if (pb !== null && !hasOwn.call(target.v, key) && !hasOwn.call(pb, key))
     return readSource(target, key);
   // The derive's flight (every key pends with it), or a lane's value.
-  if (k !== null && (k._x?._pendingSources !== undefined || k._config & CONFIG_OVERRIDE))
+  if (k !== null && k._x?._pendingSources !== undefined)
     return asBacking(untrack(() => readNode(k)));
   return target.v;
 }
@@ -577,14 +590,16 @@ function frameAll(target: StoreTarget): Record<PropertyKey, any> {
   // The batch's own staging reads as before; a parked batch's through its
   // newest carrier, as the container that still carried the pending
   // backing decided it on `next` (one node decides the whole frame).
-  if (target.pb !== null) return readSource(target);
+  if (target.pb !== null) {
+    if (target.kp === null && getObserver() === null) return readSource(target);
+    return asBacking(readNode(getPatchNode(target)));
+  }
   const p = heldCarrier(target);
   if (p === null) return readSource(target);
   return asBacking(readNode(p));
 }
 /** A parked batch: its patch moves from `k` to a carrier the hold holds. */
 function parkPatch(target: StoreTarget, t: Transaction): void {
-  const k = target.k;
   const pb = target.pb!;
   const del = target.del;
   // An overlay draft (#3044) is materialized as it parks: a carrier's patch
@@ -597,19 +612,12 @@ function parkPatch(target: StoreTarget, t: Transaction): void {
         pb
       )
     : pb;
-  // The carrier's committed frame is the batch's pre-batch backing (an
-  // adoption swapped `v` eagerly, #4001; the container held the frame).
-  const carrier = slotSignal(committed(target), containerEquals, target, $TRACK, false) as any;
+  // The batch's patch node is the carrier (its committed frame the
+  // pre-batch backing — an adoption swapped `v` eagerly, #4001); held by
+  // the hold that joined it (A34 (1)), else the flush's.
+  const carrier = getPatchNode(target) as any;
   let tx: Transaction = t;
-  if (k !== null && k._config & CONFIG_HELD) {
-    tx = txOf(k);
-    if (k._x !== null) (ext(carrier) as any)._reask = k._x._reask;
-    unhold(k);
-  }
-  if (k !== null) {
-    k._pendingValue = NOT_PENDING;
-    k._config &= ~CONFIG_STAGED;
-  }
+  if (carrier._config & CONFIG_HELD) tx = txOf(carrier);
   carrier._pendingValue = patch;
   // An adoption (the pending backing is the backing: it swapped eagerly,
   // #4001): the carrier records it, every key written; its fold is the
@@ -632,6 +640,7 @@ function parkPatch(target: StoreTarget, t: Transaction): void {
   holdNode(carrier, tx);
   (target.kh ??= []).push(carrier);
   heldTargets.add(target);
+  target.kp = null;
   target.pb = null;
   target.wk = null;
   target.del = null;
@@ -795,7 +804,7 @@ export function getContainerNode(target: StoreTarget): Signal<any> {
     // takes the staging as its own — the pre-batch backing committed, the
     // pending backing staged — so whoever asked for it reads the frame it
     // would have read had the node been there from the write.
-    if (target.pb !== null && !directCommit) {
+    if (target.pb !== null && !directCommit && !plainTarget(target)) {
       k._pendingValue = target.pb;
       queuePendingNode(k);
     }
@@ -814,14 +823,15 @@ export function getContainerNode(target: StoreTarget): Signal<any> {
  * flush parks, the seam materializes and holds the node then
  * (`storeParkHook`) — the one case the staging home exists for. */
 function stageOn(target: StoreTarget, pb: Record<PropertyKey, any>): void {
+  const plain = plainTarget(target);
   if (
-    target.k === null &&
+    (plain ? target.kp : target.k) === null &&
     passLane === null &&
     (context === null || globalQueue._running) &&
     !deriveHolds(target)
   )
     return;
-  const k = getContainerNode(target);
+  const k = plain ? getPatchNode(target) : getContainerNode(target);
   if (k._pendingValue === NOT_PENDING) queuePendingNode(k);
   k._pendingValue = pb;
   // A28 (4): a write issued inside a pass outside a flush (a creation-time
@@ -841,8 +851,9 @@ const storePark = (t: Transaction): void => {
   for (let i = 0; i < foldList.length; i++) {
     const target = foldList[i];
     if (target.pb === null) continue;
-    if (plainTarget(target) && !(target.k?._config! & CONFIG_OVERRIDE)) parkPatch(target, t);
-    else if (target.k === null) holdNode(getContainerNode(target), t);
+    if (plainTarget(target)) {
+      if (!(target.kp?._config! & CONFIG_OVERRIDE)) parkPatch(target, t);
+    } else if (target.k === null) holdNode(getContainerNode(target), t);
   }
   optHooks?.park(t);
 };
@@ -1034,7 +1045,8 @@ export function materializePB(target: StoreTarget): Record<PropertyKey, any> {
   );
   target.pb = clone;
   // The staging IS the pending backing: re-point the container node.
-  if (target.k?._pendingValue === pb) target.k._pendingValue = clone;
+  const k = plainTarget(target) ? target.kp : target.k;
+  if (k?._pendingValue === pb) k._pendingValue = clone;
   return clone;
 }
 
@@ -1056,7 +1068,7 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     // adoption and the draft is a mainline layer above it (#3612/#3688: a
     // mainline setter mid-hold publishes mainline; the held keys stay held).
     pb = target.pb = cloneRaw(pb, target);
-    const k = target.k;
+    const k = plainTarget(target) ? target.kp : target.k;
     if (k !== null && !(k._config & CONFIG_HELD)) k._pendingValue = pb;
   } else if (pb === null) {
     // A batch under a live hold composes on the hold's patch (the one
@@ -1259,7 +1271,7 @@ function drainFolds(): void {
     for (let i = 0; i < list.length; i++) {
       const t = list[i];
       if (t.pb === null) continue; // folded already (a direct commit)
-      const k = t.k;
+      const k = plainTarget(t) ? t.kp : t.k;
       if (k !== null && k._pendingValue !== NOT_PENDING) {
         // held: commits with its hold
         foldList.push(t);
@@ -1390,6 +1402,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
         }
         t.pb = null;
         t.wk = null; // the written-keys window closes with the commit
+        t.kp = null;
         layerBase.delete(t);
       }
       if (k !== null) {
@@ -1514,7 +1527,7 @@ function heldDerivation(t: StoreTarget, node: Signal<any> | undefined, key: Prop
       (node._config & (CONFIG_HELD | CONFIG_MANUAL_WRITE)) === CONFIG_HELD &&
       txOf(node) !== flushTransaction
     );
-  const k = t.k;
+  const k = plainTarget(t) ? t.kp : t.k;
   return (
     k !== null &&
     (k._config & CONFIG_HELD) !== 0 &&
@@ -1920,7 +1933,7 @@ function draftServe(target: StoreTarget, proxy: any): any {
  * "adoption is eager by contract" — and the node keeps the frame committed
  * readers under a hold still see), `t.v` otherwise. */
 export function committed(t: StoreTarget): Record<PropertyKey, any> {
-  const k = t.k;
+  const k = plainTarget(t) ? t.kp : t.k;
   if (k !== null && k._pendingValue !== NOT_PENDING) return asBacking(k._value);
   // Under a hold the screen is the frame before the oldest patch (each
   // carrier keeps the screen as it parked; a later batch layers on the
@@ -2062,10 +2075,8 @@ function readSource(
 /** Did the HELD staging (the container node's, not a mainline layer above
  * it) change `key`? */
 function heldKeyChanged(target: StoreTarget, key: PropertyKey, shape = true): boolean {
-  return (
-    changedBetween(target, target.k!._value, target.k!._pendingValue, key, shape) &&
-    !adoptChild(target, key)
-  );
+  const k = (plainTarget(target) ? target.kp : target.k)!;
+  return changedBetween(target, k._value, k._pendingValue, key, shape) && !adoptChild(target, key);
 }
 
 /** The values of a held frame, built once per frame: neither the committed
@@ -2099,7 +2110,7 @@ export function sameRow(pv: any, nv: any, keyFn: ((item: any) => any) | null): b
  * `version` holds. A record's keys pair by name; an array's by the family's
  * key — without a family the pairing is not known here and the hold stands. */
 function adoptChild(target: StoreTarget, key: PropertyKey): boolean {
-  const k = target.k!;
+  const k = (plainTarget(target) ? target.kp : target.k)!;
   return adoptChildOf(target, asBacking(k._value), k._pendingValue as object, txOf(k), key);
 }
 function adoptChildOf(
@@ -2238,12 +2249,7 @@ function serveDataKey(
   if (!inDraft(target) && !writeOverride) {
     if (node === undefined && getObserver() !== null) node = getNode(target, key, accKnown);
     if (node !== undefined && plainLeaf(target, node)) {
-      if (context !== null && tracking) {
-        link(node, context as Computed<any>);
-        // The target's patch node decides the frame for its readers: made
-        // at the first subscription, kept while the target has nodes.
-        if (target.k === null) getContainerNode(target);
-      }
+      if (context !== null && tracking) link(node, context as Computed<any>);
       // A leaf with a hydration snapshot: core's read serves it to a reader
       // in the snapshot's scope (and replays the reader at the release).
       if (node._x?._snapshotValue !== undefined) v = readNode(node);
@@ -2436,7 +2442,8 @@ function enumerationSource(target: StoreTarget): Record<PropertyKey, any> {
   if (!inDraft(target) && !writeOverride && getObserver() !== null) {
     // A container's arrangement guess is not a backing: the view composes
     // over the base it is shown over.
-    const base = asBacking(readNode(getContainerNode(target)));
+    const kv = readNode(getContainerNode(target));
+    const base = plainTarget(target) ? frameAll(target) : asBacking(kv);
     return optHooks && target._fam?.opt === true ? optHooks.view(target, base) : base;
   }
   const src = plainTarget(target) ? frameAll(target) : readSource(target);
@@ -2725,10 +2732,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       if (getObserver() !== null) {
         const node = getHasNode(target, key);
         if (plainLeaf(target, node)) {
-          if (context !== null && tracking) {
-            link(node, context as Computed<any>);
-            if (target.k === null) getContainerNode(target);
-          }
+          if (context !== null && tracking) link(node, context as Computed<any>);
           return key in src && !(src !== target.v && frameDel !== null && frameDel.has(key));
         }
         const nv = readNode(node);
@@ -2778,10 +2782,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       if (plainLeaf(target, node)) {
         // A plain target's presence node is a notifier: the key's frame
         // (`frameOf`, a shape read) decides, as in `has`.
-        if (context !== null && tracking) {
-          link(node, context as Computed<any>);
-          if (target.k === null) getContainerNode(target);
-        }
+        if (context !== null && tracking) link(node, context as Computed<any>);
         src = frameOf(target, key, true);
         if (!(key in src) || (src !== target.v && frameDel !== null && frameDel.has(key)))
           return undefined;

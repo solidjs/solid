@@ -84,6 +84,12 @@ export interface StoreTarget {
    * first. No subscribers: `k` is the subscription point. Plain stores
    * only (an optimistic family keeps its lane on `k`). */
   kh: Signal<any>[] | null;
+  /** S1: the open batch's patch node (plain stores): its staging is the
+   * batch's pending backing, its committed value the frame the batch
+   * started from. Made when a pass reads a key the batch wrote, or at the
+   * park; the carrier the hold keeps (`kh`) once the batch parks; gone at
+   * the fold. The container `k` is the structural subscription point only. */
+  kp: Signal<any> | null;
   /** Keys written through the traps by the current setter, with the earlier
    * setters' of the batch chained behind (`u`) until the fold commit. Bounds
    * the setter notify/hold-check to O(written) instead of O(subscribed
