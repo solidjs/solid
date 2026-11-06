@@ -298,25 +298,17 @@ function releaseSlot(node: any): void {
     delete t.n![key as any];
     t.nc--;
   } else if (t.h?.[key as any] === node) delete t.h![key as any];
+  if (t.nc !== 0 || (t.h !== null && Reflect.ownKeys(t.h).length !== 0)) return;
   const k = t.k;
   if (
     k !== null &&
     !(k._config & CONFIG_OVERRIDE) &&
     k._subs === null &&
-    k._pendingValue === NOT_PENDING &&
-    t.nc === 0 &&
-    (t.h === null || Reflect.ownKeys(t.h).length === 0)
+    k._pendingValue === NOT_PENDING
   )
     t.k = null;
   // The family's index keeps only targets that still carry a node.
-  if (
-    t._fam !== null &&
-    t.nc === 0 &&
-    t.k === null &&
-    t.dk === null &&
-    (t.h === null || Reflect.ownKeys(t.h).length === 0)
-  )
-    t._fam.live.delete(t);
+  if (t._fam !== null && t.k === null && t.dk === null) t._fam.live.delete(t);
 }
 
 /** A node was born on `target`: a family target enters the live index. */
@@ -1633,50 +1625,7 @@ function notifyWrites(t: StoreTarget): void {
         if (p !== null && p._config & CONFIG_HELD) joinHeld(t, p);
       }
   }
-  if (nodes !== null) {
-    const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
-    for (const key of keys) {
-      const node = nodes[key as any];
-      if (node === undefined) continue;
-      let own = false;
-      if (
-        (node as any).acc === true ||
-        ((own = hasOwn.call(pb, key)) && lookupGetter.call(pb, key) !== undefined)
-      ) {
-        // Accessor keys: the node is linked for shape-change notification,
-        // its value is never served (the getter runs with the proxy
-        // receiver on read) — FORCE wakes the readers. A data descriptor
-        // falls through so the cleared-acc hot read serves it (#3949);
-        // an own getter's descriptor has no `value`, so the compare below
-        // would otherwise keep the getter's result (or FORCE) for `undefined`.
-        (node as any).acc = isOwnAccessor(pb, key);
-        const od = Object.getOwnPropertyDescriptor(old, key);
-        const nd = Object.getOwnPropertyDescriptor(pb, key);
-        if (!nd || nd.get || nd.set) {
-          if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
-            notifyLeaf(node, FORCE, true);
-          continue;
-        }
-        if (od?.get || od?.set || !isEqual(od?.value, nd.value)) notifyLeaf(node, nd.value);
-        continue;
-      }
-      // A removed `__proto__` is told `undefined`, never the prototype (core
-      // R30, #4672); an own key pays nothing. (An overlay's written keys are
-      // own on it or in `del`.)
-      const nv = own || !(t.del?.has(key) || key === "__proto__") ? pb[key as any] : undefined;
-      notifyLeaf(node, nv);
-    }
-  }
-  const has = t.h;
-  if (has !== null) {
-    const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(has);
-    for (const key of keys) {
-      const node = has[key as any];
-      if (node !== undefined) {
-        notifyLeaf(node, key in pb && !t.del?.has(key));
-      }
-    }
-  }
+  notifyKeys(t, old, pb, writtenKeys, t.del);
   if (t.dk !== null) {
     if (t.del?.size) bumpDeep(t);
     else
@@ -1690,31 +1639,13 @@ function notifyWrites(t: StoreTarget): void {
         }
       }
   }
-  // The container: structural readers hear membership/arrangement changes
-  // only (R9) — the compare is the store's, against the committed frame. A
-  // container carrying an arrangement guess is told whether or not anyone
-  // subscribes: the write is a landing on the guess (`notifyContainer`).
   const k = t.k;
-  if (k !== null && (k._subs !== null || k._config & CONFIG_OVERRIDE)) {
-    let changed: boolean;
-    if (t.ovl) {
-      changed = !!t.del?.size;
-      if (!changed) {
-        for (const key of Reflect.ownKeys(pb)) {
-          if (!hasOwn.call(old, key)) {
-            changed = true;
-            break;
-          }
-        }
-      }
-    } else {
-      changed =
-        Array.isArray(pb) && Array.isArray(old)
-          ? arrayStructureChanged(old as any[], pb as any[])
-          : membershipChanged(old, pb);
-    }
-    if (changed) notifyContainer(k, pb);
-  }
+  if (
+    k !== null &&
+    (k._subs !== null || k._config & CONFIG_OVERRIDE) &&
+    containerChanged(t, old, pb)
+  )
+    notifyContainer(k, pb);
 }
 
 /** Accessor-node wake sentinel: readers re-run and re-invoke the getter. */
@@ -1772,7 +1703,8 @@ export function notifyKeyDiff(
   key: PropertyKey,
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>,
-  probe = true
+  probe = true,
+  del: Set<PropertyKey> | null = null
 ): void {
   if (
     (node as any).acc === true ||
@@ -1793,13 +1725,72 @@ export function notifyKeyDiff(
       leafSet(node, typeof nv === "function" ? () => nv : (nv as any));
   } else {
     const ov = old[key as any];
-    const nv = neu[key as any];
+    // A removed `__proto__` is told `undefined`, never the prototype (core
+    // R30, #4672); an overlay's deleted key likewise (`del`, tracked aside).
+    const nv =
+      del?.has(key) || (key === "__proto__" && !hasOwn.call(neu, key))
+        ? undefined
+        : neu[key as any];
     // A live chained `old` (a store proxy, §7b) already reads the inner
     // store's next frame, not what the node was last told: written, the
     // node's own equality judging it (#4361).
     if (old[$TARGET] || (!isEqual(ov, nv) && !targetsEqual(ov, nv)))
       leafSet(node, typeof nv === "function" ? () => nv : (nv as any));
   }
+}
+/** The leaves' and presence nodes' notifications for a frame change on
+ * `keys` (null: every node's): each leaf is told its new value (descriptor
+ * aware), each presence node whether its key is in the frame. */
+function notifyKeys(
+  t: StoreTarget,
+  old: Record<PropertyKey, any>,
+  neu: Record<PropertyKey, any>,
+  keys: Iterable<PropertyKey> | null,
+  del: Set<PropertyKey> | null
+): void {
+  const nodes = t.n;
+  if (nodes !== null)
+    for (const key of keys ?? Reflect.ownKeys(nodes)) {
+      const node = nodes[key as any];
+      if (node !== undefined) notifyKeyDiff(node, key, old, neu, true, del);
+    }
+  notifyPresence(t, old, neu, keys, del);
+}
+/** The presence nodes' notifications: a key whose `in` changed between the
+ * frames (a live proxy's: always — it reads the inner store's next frame). */
+function notifyPresence(
+  t: StoreTarget,
+  old: Record<PropertyKey, any>,
+  neu: Record<PropertyKey, any>,
+  keys: Iterable<PropertyKey> | null,
+  del: Set<PropertyKey> | null
+): void {
+  const has = t.h;
+  if (has === null) return;
+  const live = (old as any)[$TARGET] !== undefined;
+  for (const key of keys ?? Reflect.ownKeys(has)) {
+    const node = has[key as any];
+    if (node === undefined) continue;
+    const now = key in neu && !del?.has(key);
+    if (live || key in old !== now) leafSet(node, now);
+  }
+}
+/** The structural readers' question: did the frame's membership or
+ * arrangement change? (An adoption of a live proxy: always.) */
+function containerChanged(
+  t: StoreTarget,
+  old: Record<PropertyKey, any>,
+  neu: Record<PropertyKey, any>
+): boolean {
+  if ((old as any)[$TARGET] !== undefined) return true;
+  if (t.ovl) {
+    if (t.del?.size) return true;
+    for (const key of Reflect.ownKeys(neu)) if (!hasOwn.call(old, key)) return true;
+    return false;
+  }
+  return Array.isArray(neu) && Array.isArray(old)
+    ? arrayStructureChanged(old as any[], neu as any[])
+    : membershipChanged(old, neu);
 }
 
 export function hasAccessorFlag(node: Signal<any>): boolean {
@@ -1849,21 +1840,14 @@ export function notifyFoldTail(
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>
 ): void {
-  const has = t.h;
-  const live: StoreTarget | undefined = (old as any)[$TARGET];
-  if (has !== null) {
-    for (const key of Reflect.ownKeys(has))
-      if (live || key in old !== key in neu) leafSet(has[key as any], key in neu);
-  }
+  notifyPresence(t, old, neu, null, null);
   const k = t.k;
-  if (k !== null && (k._subs !== null || k._config & CONFIG_OVERRIDE)) {
-    const changed =
-      live ||
-      (Array.isArray(neu) && Array.isArray(old)
-        ? arrayStructureChanged(old as any[], neu as any[])
-        : membershipChanged(old, neu));
-    if (changed) notifyContainer(k, neu);
-  }
+  if (
+    k !== null &&
+    (k._subs !== null || k._config & CONFIG_OVERRIDE) &&
+    containerChanged(t, old, neu)
+  )
+    notifyContainer(k, neu);
 }
 
 /** An adoption's notifications: every node of the target, diffed `old` →
@@ -1875,11 +1859,14 @@ export function notifyFold(
   neu: Record<PropertyKey, any>
 ): void {
   if (t.dk !== null && old !== neu) bumpDeep(t);
-  const nodes = t.n;
-  if (nodes !== null) {
-    for (const key of Reflect.ownKeys(nodes)) notifyKeyDiff(nodes[key as any], key, old, neu);
-  }
-  notifyFoldTail(t, old, neu);
+  notifyKeys(t, old, neu, null, null);
+  const k = t.k;
+  if (
+    k !== null &&
+    (k._subs !== null || k._config & CONFIG_OVERRIDE) &&
+    containerChanged(t, old, neu)
+  )
+    notifyContainer(k, neu);
 }
 
 // ---------------------------------------------------------------------------
