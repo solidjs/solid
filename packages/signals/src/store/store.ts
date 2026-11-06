@@ -456,19 +456,14 @@ function frameOf(target: StoreTarget, key: PropertyKey): Record<PropertyKey, any
  * staging as before, with every held patch the reader is served composed
  * over it. */
 function frameAll(target: StoreTarget): Record<PropertyKey, any> {
-  const base = readSource(target);
+  // The batch's own staging reads as before; a parked batch's through its
+  // newest carrier, as the container that still carried the pending
+  // backing decided it on `next` (one node decides the whole frame).
+  if (target.pb !== null) return readSource(target);
   const kh = target.kh;
-  if (kh === null) return base;
-  let out: Record<PropertyKey, any> | null = null;
-  for (let i = 0; i < kh.length; i++) {
-    const p = kh[i] as any;
-    const f = untrack(() => readNode(kh[i]));
-    if (f === kh[i]._value) continue;
-    out ??= cloneRaw(base, target);
-    for (const key of Reflect.ownKeys(f)) if (key !== $OWNER) copyOwn(out, f, key);
-    if (p.del) for (const key of p.del) delete (out as any)[key];
-  }
-  return out ?? base;
+  if (kh === null) return readSource(target);
+  const p = kh[kh.length - 1];
+  return asBacking(untrack(() => readNode(p)));
 }
 /** A parked batch: its patch moves from `k` to a carrier the hold holds. */
 function parkPatch(target: StoreTarget, t: Transaction): void {
@@ -494,7 +489,10 @@ function parkPatch(target: StoreTarget, t: Transaction): void {
     k._config &= ~CONFIG_STAGED;
   }
   carrier._pendingValue = pb;
-  // No written keys with a staging: an adoption — every key.
+  // An adoption (the pending backing is the backing: it swapped eagerly,
+  // #4001): the carrier records it, every key written; its fold is the
+  // parent path copy only.
+  carrier.adopt = pb === target.v;
   carrier.wk = target.wk ?? WK_ALL;
   carrier.del = target.del;
   carrier.ovl = target.ovl;
@@ -511,6 +509,10 @@ const heldTargets: Set<StoreTarget> = new Set();
 function foldPatch(t: StoreTarget, p: any): void {
   const patch = p._value as Record<PropertyKey, any>;
   const old = t.v;
+  if (p.adopt) {
+    if (patch !== old && t.u) pathCopy(t, patch);
+    return;
+  }
   if (patch === old) return;
   privatizeCommitted(t);
   const v = t.v as any;
@@ -529,13 +531,15 @@ function foldPatch(t: StoreTarget, p: any): void {
         if (key !== $OWNER && !hasOwn.call(patch, key)) delete v[key];
   }
   if (del !== null) for (const key of del) delete v[key];
-  if (t.v !== old && t.u) {
-    const slot = parentSlotKey(t, old);
-    if (t.u.v[slot] === old) {
-      privatizeCommitted(t.u);
-      if (__TEST__) devAssertNeverUserMutation(t.u.v);
-      t.u.v[slot] = t.v;
-    }
+  if (t.v !== old && t.u) pathCopy(t, old);
+}
+/** The parent's slot follows a backing that moved (the path copy). */
+function pathCopy(t: StoreTarget, old: Record<PropertyKey, any>): void {
+  const slot = parentSlotKey(t, old);
+  if (t.u!.v[slot] === old) {
+    privatizeCommitted(t.u!);
+    if (__TEST__) devAssertNeverUserMutation(t.u!.v);
+    t.u!.v[slot] = t.v;
   }
 }
 function bornStaged(target: StoreTarget, node: Signal<any>, staged: any, key: PropertyKey): void {
