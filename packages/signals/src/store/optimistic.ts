@@ -38,7 +38,7 @@ import { context, ext, isEqual, joinPassAt, read as readNode, untrack } from "..
 import { link } from "../core/graph.js";
 import { devGuardOptimisticBeforeLoad } from "../core/dev.js";
 import { latestOf, optimisticWrite, pendingGuessOf, setLaneValue, take } from "../core/lanes.js";
-import { covered, follow } from "../core/truth.js";
+import { covered } from "../core/truth.js";
 import {
   clock,
   GlobalQueue,
@@ -71,7 +71,8 @@ import {
   sameKey,
   storeSetter,
   targetsEqual,
-  unwrapValue
+  unwrapValue,
+  follow
 } from "./store.js";
 import { installOptHooks } from "./hooks.js";
 import { $OWNER, lookupTarget, type StoreFamily, type StoreTarget } from "./target.js";

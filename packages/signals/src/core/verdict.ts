@@ -67,8 +67,8 @@ import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { ahead, verdictLane, waiting } from "./lanes.js";
-import { latestOf, screenOf } from "./truth.js";
+import { ahead, screenOf, verdictLane, waiting } from "./lanes.js";
+import { latestOf } from "./truth.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
   blocked,

@@ -816,7 +816,7 @@ export function slot(
         laneRow = row || "D4";
       }
     } else if (renderLeaf) {
-      const never = flying && !el._x!._transaction!.under?.has(el);
+      const never = flying && !el._x!._shown;
       // D-28 (#4275, #4284): a leaf seated as a hold's verdict reader
       // leaves the seat on a flight never shown, or for a lane that is not
       // that hold's, and reads from the frame's seat.

@@ -112,6 +112,11 @@ export interface NodeExtension {
   /** Provenance (A18, #3331): the question this node's guess or latest
    * flight answers (`scheduler.question`); 0 when unstamped. */
   _q: number;
+  /** Lanes: the node's lane has shown a value of it (lanes.ts `laneSeam`,
+   * `setLaneValue`): a guess is `_value` and the lane's record (truth.ts
+   * `covers`) holds the value it covered; before, the record holds the
+   * guess. Cleared when the node leaves its lane. */
+  _shown: boolean;
   /** #4544: the hold (or, before one, the flush clock) under which a verdict
    * window read this node's staging (verdict.ts `holdStaging`). Stale once
    * that hold lands or dissolves: nothing clears it. Unset until then. */

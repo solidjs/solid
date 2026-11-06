@@ -73,7 +73,7 @@ import {
   removePendingSource,
   settlePendingSource
 } from "./async.js";
-import { covered, latestOf, screenOf, underOf } from "./truth.js";
+import { covered, covers, latestOf, underOf } from "./truth.js";
 import { enqueueSub } from "./heap.js";
 import {
   blocked,
@@ -131,19 +131,23 @@ function newLane(parent: Transaction): Transaction {
  * lane has revealed (what it covers kept for the lane's end, `cover`),
  * staged for the reveal before. */
 export function setLaneValue(n: Signal<any>, l: Transaction, v: unknown): void {
-  if (l._shown) {
-    cover(n, l);
+  if (l._shown || n._x!._shown) {
+    cover(n);
     n._value = v;
+    n._x!._shown = true;
     if ((n as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
       (n as Computed<any>)._statusFlags &= ~STATUS_UNINITIALIZED;
-  } else if (n._config & CONFIG_GUESS) (l.under ??= new Map()).set(n, v);
+  } else if (n._config & CONFIG_GUESS) covers.set(n, v);
   else n._pendingValue = v;
+}
+/** What the screen shows of a node: NOT_PENDING when nothing (uninitialized). */
+export function screenOf(el: Signal<any> | Computed<any>): unknown {
+  return (el as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ? NOT_PENDING : el._value;
 }
 /** The lane's record of the value the screen showed `n` before the lane
  * revealed it (a guess reverts to it, `covered`) — kept once. */
-function cover(n: Signal<any>, l: Transaction): void {
-  const u = (l.under ??= new Map());
-  if (!u.has(n)) u.set(n, n._value);
+function cover(n: Signal<any>): void {
+  if (!covers.has(n)) covers.set(n, n._value);
 }
 /** A truth landed beneath a guess: the parent's staging, held for its
  * landing to commit (CONFIG_HELD) — an older question's answer (A18), or the
@@ -205,8 +209,9 @@ export function take(n: Signal<any>, l: Transaction, d?: boolean): void {
   // that landed beneath it stays its staging — a landing held for its
   // commit, or the taker's derivation. Without one, the guess is the
   // taker's derivation.
-  if (g._shown) n._value = covered(n);
-  g.under?.delete(n);
+  if (x._shown) n._value = covered(n);
+  covers.delete(n);
+  x._shown = false;
   n._config &= d ? ~(CONFIG_GUESS | CONFIG_OVERRIDE) : ~CONFIG_GUESS;
   if (d) x._transaction = null;
   else {
@@ -465,10 +470,11 @@ export function laneStage(
         // value notifies nobody itself, and a pass that does notify has
         // woken them (an effect has no comparator, #4557).
         if (tx._shown && (!flushTransaction || !blocked(resolveTx(tx._parent!)))) {
-          const u = tx.under;
-          if (u !== undefined && u.has(el)) el._value = u.get(el);
+          if (el._x!._shown) el._value = covers.get(el);
           el._notifiedAt = LEFT_SHOWN;
         }
+        covers.delete(el);
+        x._shown = false;
         x._transaction = null;
       }
       // The lane's staging of it is void.
@@ -525,23 +531,8 @@ export function laneStage(
     }
     el._flags |= REACTIVE_LANE_DIRTY;
   }
-  moveTo(el, l);
+  list(el, l);
   return true;
-}
-/** `n` is lane `l`'s from now. A guess's value goes with it: on screen
- * where its lane has revealed, in the lane's record where it has not (as
- * `latestOf` finds it) — moved into an unrevealed lane, the screen shows
- * what it covered until that lane reveals. */
-function moveTo(n: Signal<any> | Computed<any>, l: Transaction): void {
-  const g = n._x?._transaction;
-  if (g === l || !(n._config & CONFIG_GUESS) || !g?._lane) return list(n, l);
-  const v = latestOf(n);
-  const c = g._shown && g.under?.has(n) ? g.under.get(n) : n._value;
-  g.under?.delete(n);
-  list(n, l);
-  const u = (l.under ??= new Map());
-  if (l._shown) ((n._value = v), u.set(n, c));
-  else ((n._value = c), u.set(n, v));
 }
 
 /** The truth arrived for a written guess (A18): a correction dissolves the
@@ -584,6 +575,8 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
     // — `_value` has it; the truth is the parent's staging.
     if (l._shown && guessed) marked.add(n);
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
+    n._x!._shown = false;
+    covers.delete(n);
     holdNode(n, parent);
     n._pendingValue = value;
     if (n._subs !== null) insertSubs(n);
@@ -631,6 +624,8 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
     // A guess's truth: a landing held beneath it, else the value it covered.
     const truth = guess ? underOf(n) : NOT_PENDING;
     n._config &= ~(CONFIG_OVERRIDE | CONFIG_GUESS);
+    n._x!._shown = false;
+    covers.delete(n);
     if (into === null) {
       // The parent landed: a guess lands the truth beneath it or reverts to
       // the one it covered; a derivation's latest (its staging, else what it
@@ -794,7 +789,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // parent. The landing lands the frame: its own pass (the flush joined
     // its transaction) reads the answer it waited on — the lane's staging,
     // revealed at this seam.
-    const never = pending && !l.under?.has(el);
+    const never = pending && !el._x!._shown;
     // D-28: a leaf a verdict read moved into the lane still throws on such
     // a flight — the pass leaves the lane, and its frame holds as if the
     // read had come first (S-39, #4275). Nor does a verdict lane's seat carry
@@ -909,7 +904,6 @@ function laneSeam(l: Transaction, leaked: boolean): void {
     return;
   }
   l._held = false;
-  const first = !l._shown;
   l._shown = true;
   const p = resolveTx(l._parent!),
     v = p._reruns.filter(r => (r as any)._modified && r._x?._transaction === l);
@@ -936,16 +930,17 @@ function laneSeam(l: Transaction, leaked: boolean): void {
     // beneath a guess stays its staging. An effect's value slot is private.
     if (!(n as any)._type)
       if (n._config & CONFIG_GUESS) {
-        if (first) {
-          const u = l.under!;
-          const g = u.get(n);
-          u.set(n, n._value);
+        if (!n._x!._shown) {
+          const g = covers.get(n);
+          covers.set(n, n._value);
           n._value = g;
+          n._x!._shown = true;
           if (n._statusFlags & STATUS_UNINITIALIZED) n._statusFlags &= ~STATUS_UNINITIALIZED;
         }
       } else if (n._pendingValue !== NOT_PENDING) {
-        cover(n, l);
+        cover(n);
         commitPendingNode(n);
+        n._x!._shown = true;
       }
     // The frame this pass built is the screen's now; the one it replaced
     // goes (as `commitPendingNode` retires a committed pass's).

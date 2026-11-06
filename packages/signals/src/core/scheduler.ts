@@ -318,12 +318,6 @@ export interface Transaction {
    * transaction's flush the lane's work reads its staging (core.ts
    * `frameRead`, #4536). Unset until then; not `_`-prefixed, as `folded`. */
   over?: Transaction;
-  /** Lane: its value of a node beside the node's two slots — a guess until
-   * the reveal (its staging is a truth's, the parent's), and after the
-   * reveal the value the screen showed before (a guess reverts to it at the
-   * lane's end; its presence: the lane has shown a value of the node).
-   * Unset until the first guess or reveal; not `_`-prefixed, as `folded`. */
-  under?: Map<Signal<any>, unknown>;
   /** `affects()` marks declared in it (affects.ts): released at the landing.
    * Not nodes — a mark holds nothing (`blocked` never sees one). */
   _marks: Signal<any>[] | null;

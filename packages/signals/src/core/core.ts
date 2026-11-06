@@ -1267,6 +1267,7 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _flushed: NOT_PENDING,
     _flushedAt: -1,
     _q: 0,
+    _shown: false,
     _marks: 0,
     _shownError: null
   });

@@ -85,7 +85,6 @@ import {
 import { signalHook } from "../core/identities.js";
 import { link, setSlotUnobserved } from "../core/graph.js";
 import { getObserver, getOwner } from "../core/owner.js";
-import { follow } from "../core/truth.js";
 import { checkForeignRead } from "../core/copies.js";
 import { insertIntoHeap } from "../core/heap.js";
 import {
@@ -444,6 +443,13 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
     noteNode(target, created, key);
   }
   return node;
+}
+
+/** A chained link's committed value follows the inner store's (S4): `_value`,
+ * while it is the screen's — a lane that has revealed the node shows its own
+ * value there, and a revert asks the store (`_slotCovered`). */
+export function follow(n: Signal<any>, v: unknown): void {
+  if (!(n._config & CONFIG_OVERRIDE) || !n._x!._transaction!._shown) n._value = v;
 }
 
 /** The container node (plan sec. 31.3): created by the first structural subscription
