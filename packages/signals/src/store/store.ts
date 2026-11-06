@@ -521,6 +521,32 @@ function ownValue(frame: Record<PropertyKey, any>, key: PropertyKey, t?: StoreTa
   // An overlay's unwritten key is the committed backing's own (#3044).
   return t !== undefined && t.ovl && frame === t.pb ? ownValue(t.v, key) : undefined;
 }
+/** The newest live guess carrier whose record has `key`, if any. */
+function guessFor(t: StoreTarget, key: PropertyKey, shape: boolean): Signal<any> | null {
+  const kg = t.kg;
+  if (kg !== null)
+    for (let i = kg.length - 1; i >= 0; i--) {
+      const g = kg[i];
+      if (g._config & CONFIG_OVERRIDE && carrierHas(t, g, key, shape)) return g;
+    }
+  return null;
+}
+/** The newest live guess carrier (the frame a structural read sees). */
+function newestGuess(t: StoreTarget): Signal<any> | null {
+  const kg = t.kg;
+  if (kg !== null)
+    for (let i = kg.length - 1; i >= 0; i--) if (kg[i]._config & CONFIG_OVERRIDE) return kg[i];
+  return null;
+}
+/** A landing on a target carrying guesses: the truth, judged against each
+ * live guess by the lane engine (`laneWrite`: confirmed beneath, re-based,
+ * folded, or a correction). */
+function judgeGuesses(t: StoreTarget, truth: Record<PropertyKey, any>): void {
+  const kg = t.kg;
+  if (kg !== null)
+    for (let i = 0; i < kg.length; i++)
+      if (kg[i]._config & CONFIG_OVERRIDE) setSignal(kg[i], truth);
+}
 /** The settled frame (the hot case): no hold on the target, and the open
  * batch — if any — node-less, a plain flush's, with its keys recorded. */
 function hotFrame(target: StoreTarget): boolean {
@@ -578,9 +604,8 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
   // A guess carrier's key (S2): the user's draft, as the lane shows it —
   // read through the carrier, tracked (the lane's seat, a verdict window's
   // judgment of the guess, A17/A24).
-  const g = target.kg;
-  if (g !== null && g._config & CONFIG_OVERRIDE && carrierHas(target, g, key, shape))
-    return readNode(g);
+  const g = guessFor(target, key, shape);
+  if (g !== null) return readNode(g);
   // The hot case, node-free (dbmon: every row written every tick, 13k leaf
   // reads): no hold on the target, the batch — if any — unheld and no lane's,
   // read by a plain flush pass with no verdict window open. What `read()` of
@@ -655,8 +680,8 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
  * staging as before, with every held patch the reader is served composed
  * over it. */
 function frameAll(target: StoreTarget): Record<PropertyKey, any> {
-  const g = target.kg;
-  if (g !== null && g._config & CONFIG_OVERRIDE) return readNode(g);
+  const g = newestGuess(target);
+  if (g !== null) return readNode(g);
   // The batch's own staging reads as before; a parked batch's through its
   // newest carrier, as the container that still carried the pending
   // backing decided it on `next` (one node decides the whole frame).
@@ -1272,8 +1297,7 @@ export function adoptPB(
   // A landing on a target carrying a guess: the truth, judged against the
   // guess by the lane engine (`laneWrite`: confirmed beneath, re-based,
   // folded, or a correction).
-  const g = target.kg;
-  if (g !== null && g._config & CONFIG_OVERRIDE && !directCommit) setSignal(g, incoming);
+  if (!directCommit) judgeGuesses(target, incoming);
 }
 
 // ---------------------------------------------------------------------------
@@ -1627,8 +1651,7 @@ function notifyWrites(t: StoreTarget): void {
     // reaches the carrier in `adoptPB`): the truth, judged against the guess
     // by the lane engine (`laneWrite`: confirmed beneath, re-based, folded,
     // or a correction).
-    const g = t.kg;
-    if (g !== null && g._config & CONFIG_OVERRIDE && pb !== t.v) setSignal(g, pb);
+    if (pb !== t.v) judgeGuesses(t, pb);
   }
   const old = t.v;
   // Devtools mutation hook: full-key diff (dev-only cost) so unobserved

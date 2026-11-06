@@ -22,7 +22,7 @@ export interface OptHooks {
   writes(t: StoreTarget, pb: Record<PropertyKey, any>): Record<PropertyKey, any> | null;
   /** `src` with the target's guess over it (the carrier's unflushed guess or
    * lane value), else `src` itself. */
-  view(t: StoreTarget, src: Record<PropertyKey, any>): Record<PropertyKey, any>;
+  view(t: StoreTarget, src: Record<PropertyKey, any>, writer?: boolean): Record<PropertyKey, any>;
   /** The flush's commit: targets no lane holds leave `_overlaid`. */
   sweep(): void;
   /** A user's `reconcile` on an optimistic family: the keyed diff written
