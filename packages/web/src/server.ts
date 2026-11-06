@@ -3786,6 +3786,8 @@ function buildAsyncWrap(err, node) {
   fn.$rw = true;
   if (suppress) fn.$lhSuppress = true;
   if (node.$lhSkip) fn.$lhSkip = true;
+  if (node.$lhInTag) fn.$lhInTag = true;
+  if (node.$lhAttr) fn.$lhAttr = node.$lhAttr;
   if (node.$lhBinding) fn.$lhBinding = node.$lhBinding;
   return { fn, p };
 }
@@ -4268,7 +4270,8 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
      */
     nest(hole) {
       const s = engine.scope;
-      if (!s || s.h === hole || hole.$lhSkip || (inScope && !inScope())) return undefined;
+      if (!s || s.h === hole || hole.$lhSkip || hole.$lhInTag || (inScope && !inScope()))
+        return undefined;
       engine.scope = scopeFor(hole);
       return s;
     },
@@ -4282,6 +4285,32 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
      * evaluations), or null when interception is off for this evaluation.
      */
     content(hole) {
+      // An escalated in-tag hole's retry (see `retry` below): never marked,
+      // whatever chain it rides. Under a pending capture, the tag's last
+      // retry to resolve registers the binding (the text now is what the
+      // client receives); a retry that is still pending re-wraps, keeping
+      // its capture.
+      if (hole.$lhInTag) {
+        const cap = hole.$lhAttr;
+        if (!cap || cap.adopted || engine.suppressed || engine.sweeping) return null;
+        const r = tryResolveFunctionHole(hole);
+        if (typeof r !== "string") {
+          const res = { t: [""], h: [], p: [] };
+          appendResolvedNode(res, r);
+          return res;
+        }
+        if (--cap.waiting === 0 && !cap.closed) {
+          try {
+            cap.base = attrPartsText(cap.parts);
+          } catch (err) {
+            // A part still waits (its value moved back to pending) or failed:
+            // the tag keeps what its retries resolved to.
+            cap.base = null;
+          }
+          if (cap.base !== null) engine.attr(cap);
+        }
+        return r;
+      }
       // A retry fn of an escalated hole re-enters here on its re-pull —
       // through `ctx.ssr(pending.t, ...pending.h)` (boundary resume) or the
       // tree resolver (root holes). Its markers already ride the pending
@@ -4531,6 +4560,52 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
     mint() {
       return nextId++;
     },
+    /**
+     * Open an attr capture for the tag whose open ends at `off` in `text`
+     * (`ssr()`'s tag-open segment): mint its address and splice
+     * ` data-lha="N"` in, or — a boundary resume re-rendering a tag whose
+     * capture went pending (see `retry`), where the address is already on
+     * the element — take that address over, so the pending capture never
+     * registers. Returns the capture, its segment's new text on `text`.
+     */
+    open(text, off, hole) {
+      const pending = hole && hole.$lhAttr;
+      let inject;
+      let id;
+      if (pending && !pending.adopted && text.startsWith(pending.inject, off)) {
+        pending.adopted = true;
+        ({ id, inject } = pending);
+      } else {
+        id = nextId++;
+        inject = ` data-lha="${id}"`;
+        text = text.slice(0, off) + inject + text.slice(off);
+      }
+      const prefix = text.slice(off + inject.length);
+      return { id, parts: [prefix], base: prefix, inject, waiting: 0, text };
+    },
+    /**
+     * An in-tag hole that escalated (its value is still pending) resolves later
+     * as a retry fn, one of two ways. A boundary resume re-renders the open tag
+     * through `ssr(pending.t, ...pending.h)`, which captures it again. At the
+     * top of a render there is no boundary: the tree resolver pulls the retry
+     * as a function node, which it otherwise treats as content and routes
+     * through the live-hole engine, so its markers would land inside the tag
+     * (`<div<!--lh:N--> style="…"<!--lh:/N-->>`) or inside the attribute value.
+     * The retry is tagged (`$lhInTag`, carried through re-wraps) so the engine
+     * never marks it. When the tag was being captured, the capture stays open
+     * as pending (`$lhAttr`): its address stays on the element, and the engine
+     * registers its binding once the tag's last retry resolves, with the text
+     * at that moment as the baseline. A boundary resume adopts the address
+     * instead (see `open`), so the element carries one.
+     */
+    retry(fn, cap) {
+      if (typeof fn !== "function") return;
+      fn.$lhInTag = true;
+      if (cap) {
+        fn.$lhAttr = cap;
+        cap.waiting++;
+      }
+    },
     /** Whether interception may arm at the current evaluation point —
      *  `ssr()` asks before opening an attr capture (the `data-lha`
      *  injection must not touch out-of-scope bytes, nor address an element
@@ -4556,8 +4631,15 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
      * known only as a digest, no list — removes them too.
      */
     attr(cap) {
-      const owner = getOwner();
-      const holeCtx = sharedConfig.context;
+      // A capture still waiting on escalated retries registers when the last
+      // resolves (see `retry`), under the render's owner and context.
+      if (cap.waiting) {
+        cap.owner = getOwner();
+        cap.ctx = sharedConfig.context;
+        return;
+      }
+      const owner = cap.owner !== undefined ? cap.owner : getOwner();
+      const holeCtx = cap.ctx !== undefined ? cap.ctx : sharedConfig.context;
       const b = {
         key: "lha:" + cap.id,
         children: [],
@@ -4573,29 +4655,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
           engine.gateHit = false;
           let html = "";
           try {
-            let group = null;
-            let groupVal = null;
-            const run = () => {
-              for (const part of cap.parts) {
-                if (typeof part === "string") {
-                  html += part;
-                  continue;
-                }
-                let v;
-                if (part.g) {
-                  if (group !== part.g) {
-                    group = part.g;
-                    groupVal = part.g();
-                  }
-                  v = groupVal[part.i];
-                } else {
-                  v = part.f();
-                }
-                const vt = typeof v;
-                if (vt === "string" || vt === "number") html += v;
-              }
-            };
-            swept(owner, holeCtx, run);
+            swept(owner, holeCtx, () => (html = attrPartsText(cap.parts)));
           } catch (err) {
             // NotReady holds for a later commit (the end-latch sweep is the
             // floor), unless scopes this sweep created are what wait (see
@@ -4738,6 +4798,34 @@ function rowPatch(a, b) {
 
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
 
+// The attribute text of a capture's parts (statics, re-runnable thunks,
+// group positions), as the binding's sweep and its deferred baseline build
+// it. Throws what a part throws.
+function attrPartsText(parts) {
+  let html = "";
+  let group = null;
+  let groupVal = null;
+  for (const part of parts) {
+    if (typeof part === "string") {
+      html += part;
+      continue;
+    }
+    let v;
+    if (part.g) {
+      if (group !== part.g) {
+        group = part.g;
+        groupVal = part.g();
+      }
+      v = groupVal[part.i];
+    } else {
+      v = part.f();
+    }
+    const vt = typeof v;
+    if (vt === "string" || vt === "number") html += v;
+  }
+  return html;
+}
+
 // rendering
 export function ssr(t) {
   // Inlined hole resolution — uses `arguments` instead of a `(t, ...nodes)`
@@ -4776,24 +4864,21 @@ export function ssr(t) {
   // (started or already active). Declines when the tag-open buffer is no
   // longer the current tail (an earlier hole of this tag escalated — the
   // tag latches) or interception is off for this evaluation.
-  const captureStart = () => {
+  const captureStart = hole => {
     if (cap) return true;
     if (!lastOpen || live.suppressed || live.sweeping || !live.active()) return false;
+    // The tag opened while the output was one string and a hole of this
+    // tag has since escalated it into segments: the open is in the first.
+    if (lastOpen.r === null && result !== null && result.t.length === 1) {
+      lastOpen.r = result;
+      lastOpen.seg = 0;
+    }
     if (lastOpen.r !== result || (result !== null && lastOpen.seg !== result.t.length - 1)) {
       return false;
     }
-    const id = live.mint();
-    const inject = ` data-lha="${id}"`;
-    let prefix;
-    if (result === null) {
-      s = s.slice(0, lastOpen.off) + inject + s.slice(lastOpen.off);
-      prefix = s.slice(lastOpen.off + inject.length);
-    } else {
-      const seg = result.t[lastOpen.seg];
-      result.t[lastOpen.seg] = seg.slice(0, lastOpen.off) + inject + seg.slice(lastOpen.off);
-      prefix = result.t[lastOpen.seg].slice(lastOpen.off + inject.length);
-    }
-    cap = { id, parts: [prefix], base: prefix, at: lastOpen.seg, inject };
+    cap = live.open(result === null ? s : result.t[lastOpen.seg], lastOpen.off, hole);
+    if (result === null) s = cap.text;
+    else result.t[lastOpen.seg] = cap.text;
     return true;
   };
   for (let i = 1; i < len; i++) {
@@ -4840,7 +4925,7 @@ export function ssr(t) {
           hasValue = true;
           // A group can span elements; each element captures only its own
           // positions (by dequeue index — group order is positional).
-          if (live && !hp.pos[i - 1] && captureStart()) {
+          if (live && !hp.pos[i - 1] && captureStart(hole)) {
             cap.parts.push({ g: hole, i: lastGroupIdx - 1 });
           }
         } else {
@@ -4850,11 +4935,17 @@ export function ssr(t) {
           // tag and mints its own, so a leftover would sit beside it and
           // move the element off its bound address on the first op. The
           // address is unique, so the first match is the splice.
-          if (cap) {
-            result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
-            cap = null;
+          //
+          // At the top of a render nothing re-renders the tag, so a capture
+          // stays open, pending (see the engine's `retry`): the address stays and
+          // the binding registers when the tag's retries resolve.
+          const slot = ssrGroupSlot(lastGroupVal.fn, lastGroupIdx++);
+          if (live && !hp.pos[i - 1]) {
+            const capturing = captureStart(hole);
+            if (capturing) cap.parts.push({ g: hole, i: lastGroupIdx - 1 });
+            live.retry(slot, capturing && cap);
           }
-          result.h.push(ssrGroupSlot(lastGroupVal.fn, lastGroupIdx++));
+          result.h.push(slot);
           result.p.push(lastGroupVal.p);
           result.t.push("");
         }
@@ -4908,30 +4999,29 @@ export function ssr(t) {
         }
       } else if (result !== null) {
         const inTag = live && !hp.pos[i - 1];
-        const capturing = inTag && captureStart();
+        const capturing = inTag && captureStart(hole);
         const li = capturing ? result.t.length - 1 : 0;
         const before = capturing ? result.t[li].length : 0;
+        const pushed = result.h.length;
         if (live) live.suppressed++;
         try {
           resolveSSRNode(hole, result);
         } finally {
           if (live) live.suppressed--;
         }
+        if (inTag) {
+          for (let k = pushed; k < result.h.length; k++) live.retry(result.h[k], capturing && cap);
+        }
         if (capturing) {
-          if (result.t.length - 1 === li) {
-            cap.base += result.t[li].slice(before);
-            cap.parts.push({ f: hole });
-          } else {
-            // The hole escalated mid-attrs: the tag latches, its address
-            // with it (see the group escalation above).
-            result.t[cap.at] = result.t[cap.at].replace(cap.inject, "");
-            cap = null;
-          }
+          // Escalated mid-attrs: the capture goes pending (see the group
+          // escalation above); its base is rebuilt when it registers.
+          if (result.t.length - 1 === li) cap.base += result.t[li].slice(before);
+          cap.parts.push({ f: hole });
         }
       } else {
         // Capture opens BEFORE the value resolves — the prefix slice must
         // stop at the hole position, not swallow its first value.
-        const capturing = live && !hp.pos[i - 1] && captureStart();
+        const capturing = live && !hp.pos[i - 1] && captureStart(hole);
         // An unminted content hole keeps its occurrence scope (`nest`).
         const scope = live && hp.pos[i - 1] && live.nest(hole);
         const r = tryResolveFunctionHole(hole);
@@ -4943,15 +5033,13 @@ export function ssr(t) {
             cap.parts.push({ f: hole });
           }
         } else {
-          // The hole escalated mid-attrs: the tag latches, its address
-          // with it (see the group escalation above).
-          if (capturing) {
-            s = s.replace(cap.inject, "");
-            cap = null;
-          }
+          // The hole escalated mid-attrs: the capture goes pending (see the
+          // group escalation above).
           result = { t: [s], h: [], p: [] };
           s = "";
           appendResolvedNode(result, r);
+          if (capturing) cap.parts.push({ f: hole });
+          if (live && !hp.pos[i - 1]) for (const h of result.h) live.retry(h, capturing && cap);
         }
       }
       if ("_SOLID_DEV_" && devNext !== undefined) checkUnscopedHole(devNext, t, i - 1, hole);
