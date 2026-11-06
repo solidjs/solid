@@ -1851,8 +1851,8 @@ export function createDeepProxy<T extends object>(
  * no meaning as data — a boundary's output accessor (`$lhSkip`: <Loading>,
  * <Errored>) or an SSR template object (`SSRTemplateObject`, from `ssr()` /
  * `ssrElement()`), alone or inside a fragment array. Plain data never
- * matches: template objects carry the runtime's `solid.ssrNode` brand on
- * their prototype, which no data (JSON included) can have.
+ * matches: template objects carry the runtime's `solid.ssrNode` symbol as
+ * `$`, a value no data (JSON included) can hold.
  */
 function isRenderedOutput(value: any, seen?: Set<unknown>): boolean {
   if (typeof value === "function") return value.$lhSkip === true;
@@ -1870,7 +1870,7 @@ function isRenderedOutput(value: any, seen?: Set<unknown>): boolean {
     }
     return false;
   }
-  return !!value[Symbol.for("solid.ssrNode")];
+  return value.$ === Symbol.for("solid.ssrNode");
 }
 
 /**

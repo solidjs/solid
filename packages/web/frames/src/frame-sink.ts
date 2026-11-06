@@ -1507,7 +1507,7 @@ function suppressedFill(render) {
 // src/server.ts): only branded objects are trusted as finished markup.
 const SSR_NODE = Symbol.for("solid.ssrNode");
 const markup = (t: any, h?: any, p?: any): any =>
-  h ? { t, h, p, [SSR_NODE]: true } : { t, [SSR_NODE]: true };
+  h ? { t, h, p, $: SSR_NODE } : { t, $: SSR_NODE };
 let parked: Map<number, any> | null = null;
 let parkedIds = 0;
 const PARKED = /<!--sc-n:(\d+)-->/;
