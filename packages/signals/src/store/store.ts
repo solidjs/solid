@@ -357,6 +357,14 @@ function notifyLeaf(node: Signal<any>, nv: unknown, force?: boolean): void {
   if (__OBSERVE__ && attrHooks !== null) attrHooks.write(node, old, nv);
   if (snapshotCaptureActive) captureWriteSnapshot(node, old);
   node._value = nv;
+  // A key a live guess covers: its readers read the carrier, and the
+  // carrier's judgement of this landing tells them — a correction through
+  // the carrier, a confirmation silently (A17). The leaf records the value
+  // told and says nothing (as the guessed leaf said nothing of its own
+  // landing).
+  const t: StoreTarget = (node as any)._host;
+  if (t.kg !== null && guessFor(t, (node as any)._key, t.h?.[(node as any)._key] === node) !== null)
+    return;
   if (node._subs !== null) insertSubs(node);
 }
 /** A batch's written keys include `key` (the setters' chain; WK_ALL: every). */

@@ -574,6 +574,13 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
     const k = isWrappable(g) ? keyFn(g) : undefined;
     const tr = k !== undefined ? byKey.get(k) : undefined;
     if (tr !== undefined) {
+      // The truth's row under the guessed one's key: the guessed row's
+      // target adopts it (the same proxy from here; its leaves tell its
+      // readers what changed), as the derive's draft pairs new rows under
+      // guessed ones (`pairRows`).
+      const gt = isWrappable(g) ? lookupTarget(unwrapValue(g), t._fam!) : undefined;
+      if (gt !== undefined && lookupTarget(tr, t._fam!) === undefined)
+        reconcileState(tr, gt.px, keyFn, true);
       rows.push(tr);
       used.add(k);
     } else if (!removed.has(k)) rows.push(g);
@@ -589,9 +596,29 @@ GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
   const n = Math.max(rows.length, guess.length, (committed(t) as any[]).length);
   for (let i = 0; i < n; i++) wk.add(String(i));
   wk.add("length");
-  setLaneValue(el, txOf(el), rows);
+  const l = txOf(el);
+  setLaneValue(el, l, rows);
+  // The composition changed what the lane shows (a truth row's content
+  // under a guessed key, a row appended): the carrier's readers re-derive
+  // as the lane's work (`laneDirty`; the leaf's `laneSet` did).
+  if (!sameRows(guess, rows, t._fam!)) laneDirty(el, l);
   return true;
 };
+/** Two row lists show the same through the proxies: each slot the same
+ * target (a row the guessed one's target adopted is the same proxy) or
+ * the same primitive. */
+function sameRows(a: any[], b: any[], fam: StoreFamily): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = unwrapValue(a[i]),
+      y = unwrapValue(b[i]);
+    if (isWrappable(x)) {
+      const xt = lookupTarget(x, fam);
+      if (xt === undefined || xt !== lookupTarget(y, fam)) return false;
+    } else if (!isEqual(x, y)) return false;
+  }
+  return true;
+}
 
 /** D-34 for a keyed arrangement guess: rows by key, not positions. A
  * current truth that differs folds into the hold beneath it instead of
