@@ -122,6 +122,10 @@ export interface StoreTarget {
    * batch's keys are judged against. One field write per batch, in place of
    * a per-flush index over the fold queue. */
   po: Record<PropertyKey, any> | null;
+  /** The batch count: a leaf notified in the open batch carries it (`at`),
+   * so the hot read path asks "did this batch change the key" with one
+   * compare instead of the leaf's equality again (`hotChanged`). */
+  bn: number;
   /** Sticky accessors-seen flag: an own accessor property was observed on
    * this target (first-read scan, defineProperty, or clone scan). Gates the
    * fold diff's descriptor-safe path and the get trap's descriptor path. */

@@ -187,6 +187,7 @@ function TargetShape(
   this.px = null;
   this.d = false;
   this.po = null;
+  this.bn = 0;
   this.a = false;
   this.sc = 0;
   this.kc = 0;
@@ -349,12 +350,14 @@ function notifyLeaf(node: Signal<any>, nv: unknown, force?: boolean): void {
   if (__OBSERVE__ && attrHooks !== null) attrHooks.write(node, old, nv);
   if (snapshotCaptureActive) captureWriteSnapshot(node, old);
   node._value = nv;
+  // Told in this batch: the hot read path's record (`hotChanged`).
+  const t: StoreTarget = (node as any)._host;
+  (node as any).at = t.bn;
   // A key a live guess covers: its readers read the carrier, and the
   // carrier's judgement of this landing tells them — a correction through
   // the carrier, a confirmation silently (A17). The leaf records the value
   // told and says nothing (as the guessed leaf said nothing of its own
   // landing).
-  const t: StoreTarget = (node as any)._host;
   if (t.kg !== null && guessFor(t, (node as any)._key, t.h?.[(node as any)._key] === node) !== null)
     return;
   if (node._subs !== null) insertSubs(node);
@@ -528,6 +531,13 @@ function judgeGuesses(t: StoreTarget, truth: Record<PropertyKey, any>): void {
   if (kg !== null)
     for (let i = 0; i < kg.length; i++)
       if (kg[i]._config & (CONFIG_OVERRIDE | CONFIG_HELD)) setSignal(kg[i], truth);
+}
+/** Did the open batch change `key` (the hot path; `hotFrame` holds)? A
+ * trap batch's written-key record; an adoption's leaf carries the batch
+ * count it was last told in (`notifyLeaf`, a birth into the batch). */
+function hotChanged(target: StoreTarget, key: PropertyKey, node: Signal<any>): boolean {
+  if (target.pb !== target.v) return written(target.wk, key) || target.del?.has(key) === true;
+  return (node as any).at === target.bn;
 }
 /** The settled frame (the hot case): no hold on the target, and the open
  * batch — if any — node-less, a plain flush's, with its keys recorded. */
@@ -772,8 +782,11 @@ export function getNode(
       key,
       accKnown === -1 ? isOwnAccessor(pb ?? target.v, key) : accKnown === 1
     ));
-    if (pb !== null && !(created as any).acc)
+    if (pb !== null && !(created as any).acc) {
       bornStaged(created, target.del?.has(key) ? undefined : pb[key as any]);
+      // Born into an adoption batch that changed the key: as if told in it.
+      if (pb === target.v && keyChanged(target, key, false)) (created as any).at = target.bn;
+    }
     // Attribution-only: name store property nodes by path segment so
     // attribution chains and wide-scope warnings read "store.todos" (or
     // "todos.title" when the store was declared with a name), not
@@ -1108,7 +1121,10 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     // proposal layered over the first, never over the committed backing.
     const v = heldBase(target);
     if (!directCommit) queueFold(target);
-    else target.po = target.v;
+    else {
+      target.po = target.v;
+      target.bn++;
+    }
     if (v !== target.v) layerBase.set(target, v);
     if (
       !target.ch &&
@@ -1201,7 +1217,10 @@ export function adoptPB(
   notify = true
 ): void {
   if (!directCommit) queueFold(target);
-  else target.po = target.v;
+  else {
+    target.po = target.v;
+    target.bn++;
+  }
   let base: Record<PropertyKey, any>;
   if (target.pb !== null) {
     if (target.ovl) materializePB(target);
@@ -1277,6 +1296,7 @@ function queueFold(target: StoreTarget): void {
   if (target.pb !== null) return;
   schedule();
   target.po = target.v;
+  target.bn++;
   foldList.push(target);
   foldOlds.push(target.v);
 }
@@ -1625,7 +1645,7 @@ function notifyWrites(t: StoreTarget): void {
         if (p !== null && p._config & CONFIG_HELD) joinHeld(t, p);
       }
   }
-  notifyKeys(t, old, pb, writtenKeys, t.del);
+  notifyKeys(t, old, pb, writtenKeys, t.del, false);
   if (t.dk !== null) {
     if (t.del?.size) bumpDeep(t);
     else
@@ -1746,13 +1766,30 @@ function notifyKeys(
   old: Record<PropertyKey, any>,
   neu: Record<PropertyKey, any>,
   keys: Iterable<PropertyKey> | null,
-  del: Set<PropertyKey> | null
+  del: Set<PropertyKey> | null,
+  fold: boolean
 ): void {
   const nodes = t.n;
   if (nodes !== null)
     for (const key of keys ?? Reflect.ownKeys(nodes)) {
       const node = nodes[key as any];
-      if (node !== undefined) notifyKeyDiff(node, key, old, neu, true, del);
+      if (node === undefined) continue;
+      // A batch's write of a data key: the leaf's own equality judges it (the
+      // hot path); an adoption's diff, or an accessor key, is descriptor
+      // aware (`notifyKeyDiff`).
+      if (
+        fold ||
+        (node as any).acc === true ||
+        (hasOwn.call(neu, key) && lookupGetter.call(neu, key) !== undefined)
+      )
+        notifyKeyDiff(node, key, old, neu, true, del);
+      else
+        notifyLeaf(
+          node,
+          del?.has(key) || (key === "__proto__" && !hasOwn.call(neu, key))
+            ? undefined
+            : neu[key as any]
+        );
     }
   notifyPresence(t, old, neu, keys, del);
 }
@@ -1859,7 +1896,7 @@ export function notifyFold(
   neu: Record<PropertyKey, any>
 ): void {
   if (t.dk !== null && old !== neu) bumpDeep(t);
-  notifyKeys(t, old, neu, null, null);
+  notifyKeys(t, old, neu, null, null, true);
   const k = t.k;
   if (
     k !== null &&
@@ -2488,7 +2525,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
           else {
             const c = context as Computed<any> | null;
             const pb = target.pb;
-            if (pb !== null && c !== null && batchHas(target, pb, key, false)) {
+            if (pb !== null && c !== null && hotChanged(target, key, nodeH)) {
               if (c._config & (CONFIG_VERDICT | CONFIG_CHILDREN_FORBIDDEN)) nv = NOT_PENDING;
               else {
                 stagedRead(c);
