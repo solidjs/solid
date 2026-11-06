@@ -901,6 +901,9 @@ export class GlobalQueue implements IQueue {
   /** A lane dirtied a store's guess carrier: the readers of the leaves of
    * the keys it changed re-derive as the lane's work (optimistic.ts). */
   declare static _slotDirty: ((n: Signal<any>, l: Transaction) => void) | undefined;
+  /** A lane re-derives a store's guess carrier's readers at `t`'s landing
+   * (lanes `rerun`): the readers of the leaves of the keys it changed. */
+  declare static _slotRerun: ((n: Signal<any>, t: Transaction) => void) | undefined;
   /** The value a slot node's guess covered: its committed value — a chained
    * link's refreshed from the inner store, whose commits it never learned
    * while the guess served the reads (store/store.ts, §7b). */

@@ -421,26 +421,31 @@ function reconcileDraft(draft: any, incoming: any, keyFn: KeyFn | null): void {
  * changed (they link their leaves, and the carrier once they read through
  * it): dirtied as the lane's work, with the presence nodes and the
  * container (a structural guess). */
-GlobalQueue._slotDirty = (n: any, l) => {
+/** The nodes the readers of a guess carrier's keys link: the leaves and
+ * presence nodes of the keys it changed, and the container. */
+function readersOf(n: any, fn: (node: Signal<any>) => void): void {
   if (n._key !== $PATCH || !n.guess) return;
   const t = n._host as StoreTarget;
-  const keys: Iterable<PropertyKey> = n.wk ?? [];
-  for (const key of keys) {
-    const leaf = t.n?.[key as any];
-    if (leaf !== undefined && leaf._subs !== null) laneDirty(leaf, l);
-    const has = t.h?.[key as any];
-    if (has !== undefined && has._subs !== null) laneDirty(has, l);
-  }
-  if (n.del !== null)
-    for (const key of n.del) {
+  const each = (keys: Iterable<PropertyKey>) => {
+    for (const key of keys) {
       const leaf = t.n?.[key as any];
-      if (leaf !== undefined && leaf._subs !== null) laneDirty(leaf, l);
+      if (leaf !== undefined && leaf._subs !== null) fn(leaf);
       const has = t.h?.[key as any];
-      if (has !== undefined && has._subs !== null) laneDirty(has, l);
+      if (has !== undefined && has._subs !== null) fn(has);
     }
+  };
+  each(n.wk ?? []);
+  if (n.del !== null) each(n.del);
   const k = t.k;
-  if (k !== null && k._subs !== null) laneDirty(k, l);
-};
+  if (k !== null && k._subs !== null) fn(k);
+}
+GlobalQueue._slotDirty = (n, l) => readersOf(n, node => laneDirty(node, l));
+/** Core asks (lanes `rerun`): a guess coming back at a landing re-derives
+ * the carrier's readers there — the readers of its keys' leaves. */
+GlobalQueue._slotRerun = (n, t) =>
+  readersOf(n, node => {
+    for (let s = node._subs; s !== null; s = s._nextSub) staleReader(s._sub, t);
+  });
 /** Core asks (lanes `laneWrite`): the family's derive, re-asking in a lane of
  * another action than the one that guessed this target, writes it — that
  * lane's new question, which the guess (over the old one) does not answer:
@@ -449,8 +454,12 @@ GlobalQueue._slotDirty = (n: any, l) => {
 GlobalQueue._slotTake = (n, back) => {
   const t = (n as any)._host as StoreTarget | undefined;
   if (back) {
-    // The guess comes back (lanes `endLanes`): on the target's carrier now.
+    // The guess comes back (lanes `endLanes`): on the target's carrier — the
+    // node itself, re-attached if the taker lane's end swept it (as the leaf
+    // path re-made its node).
     markOverlaid(t!);
+    const kg = (t!.kg ??= []);
+    if (kg.indexOf(n) === -1) kg.push(n);
     return n;
   }
   const d = t?._fam?.node?._x?._transaction;
