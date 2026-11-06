@@ -59,6 +59,7 @@ import { covered } from "../core/truth.js";
 import {
   clock,
   GlobalQueue,
+  holdNode,
   insertSubs,
   joinFuture,
   laneDirty,
@@ -76,6 +77,7 @@ import { reconcileState } from "./reconcile.js";
 import {
   cloneRaw,
   committed,
+  heldCarrier,
   linkedTo,
   sameKey,
   storeSetter,
@@ -180,6 +182,14 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
     if (g.wk !== null) for (const key of keys) if (g.wk.has(key) || g.del?.has(key)) return g;
   }
   const g: any = slotSignal(committed(t), patchEquals, t, $PATCH, false);
+  // Written over a held truth (a landing the target's hold keeps beneath
+  // the screen): that truth is the one beneath the guess, judged at the
+  // body's end (A18, #3330) — as it was the leaf's staging.
+  const p = heldCarrier(t);
+  if (p !== null) {
+    g._pendingValue = p._pendingValue;
+    holdNode(g, txOf(p));
+  }
   g.guess = true;
   g.wk = null;
   g.del = null;

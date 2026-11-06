@@ -477,7 +477,7 @@ export function lastTold(t: StoreTarget): Record<PropertyKey, any> {
 }
 /** The newest carrier whose hold is live and whose patch awaits its fold:
  * the one pending backing of `next`, as a writer composes on it. */
-function heldCarrier(t: StoreTarget): Signal<any> | null {
+export function heldCarrier(t: StoreTarget): Signal<any> | null {
   const kh = t.kh;
   if (kh !== null)
     for (let i = kh.length - 1; i >= 0; i--) {
