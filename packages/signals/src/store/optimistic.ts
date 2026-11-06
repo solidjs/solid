@@ -476,8 +476,16 @@ GlobalQueue._slotTake = (n, back) => {
  * asked before the guess, it is the older question; its rows are held
  * beneath the guess. True: the lane holds the landing (`laneWrite`). */
 GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
-  if (el._key !== $PATCH) return true;
-  const t = el._host as StoreTarget;
+  const t: StoreTarget | undefined = el._host;
+  // Not a store's: the lane judges the write (`supersede`).
+  if (t === undefined) return false;
+  if (el._key !== $PATCH) {
+    // The deep witness's guess: a bump beneath a shown keyed arrangement
+    // guess folds that lane (D-34), else the lane judges it.
+    if (older) return true;
+    const g = t.kg?.find(c => c._config & CONFIG_OVERRIDE && (c as any).removed);
+    return g !== undefined && (g as any).g !== null ? fold(g, truth) : false;
+  }
   const guess = latestOf(el) as any;
   // A current truth: folded beneath a shown keyed arrangement guess (D-34);
   // else the lane judges it against the guess (`supersede`: confirmed
