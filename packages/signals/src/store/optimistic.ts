@@ -178,7 +178,7 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
     const g: any = kg[i];
     const live = g._config & (CONFIG_OVERRIDE | CONFIG_GUESS);
     if (!live && pendingGuessOf(g) === NOT_PENDING) continue;
-    if (pendingGuessOf(g) !== NOT_PENDING || keys === undefined) return g;
+    if (pendingGuessOf(g) !== NOT_PENDING || keys === undefined) return entangle(t, g, keys);
     if (g.wk !== null) for (const key of keys) if (g.wk.has(key) || g.del?.has(key)) return g;
   }
   const g: any = slotSignal(committed(t), patchEquals, t, $PATCH, false);
@@ -196,6 +196,24 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
   g.removed = null;
   g.g = undefined;
   kg.push(g);
+  return g;
+}
+/** This flush's carrier writes a key another action's live guess holds: two
+ * suggestions for one slot, and their frames entangle (A34 (1)) — as the one
+ * leaf node's lanes merged at the seam (`applyGuesses`): an unapplied
+ * carrier is held on that guess's frame, so its lane is born under it; an
+ * applied one's frame merges now. */
+function entangle(t: StoreTarget, g: any, keys: Set<PropertyKey> | undefined): any {
+  if (keys !== undefined)
+    for (const o of t.kg! as any[])
+      if (o !== g && o._config & CONFIG_OVERRIDE && o.wk !== null)
+        for (const key of keys)
+          if (o.wk.has(key) || o.del?.has(key)) {
+            const holder = resolveTx(txOf(o)._parent!);
+            if (g._config & CONFIG_OVERRIDE) merge(resolveTx(txOf(g)._parent!), holder);
+            else if (!(g._config & CONFIG_HELD)) holdNode(g, holder);
+            break;
+          }
   return g;
 }
 function patchEquals(this: any, a: any, b: any): boolean {
