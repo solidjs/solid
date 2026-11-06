@@ -29,9 +29,17 @@ An optimistic store expresses one guess as N lane nodes: a guess on key `K` is `
 
 **Per-key verdict and status** come from the patch node: `isPending(() => s.x)` reads the patch node whose patch has `x` (or, for a derived store in flight, the derive's patch node, which the family's flight pends) — `readSource`'s `keyChanged` gate stays, as D-8 per key.
 
-**The derived store** writes through a patch node held by the derive's transaction (`holdWithDerive(target, k)` already does this); the family walk's job — leaves pending with the derive — becomes the patch node pending with it, and leaf reads that find the patch node pending throw as a read of the derive would. `fam.live` and `forEachFamilyNode` go.
+**The derived store** writes through a patch node held by the derive's transaction (`holdWithDerive(target, k)` already does this), and a leaf read that finds the derive's patch node pending throws as a read of the derive would. The family walk stays in S1: its other job is status propagation to the leaves' readers (`propagateStatus` over each live leaf's subscribers), which a patch node cannot do for them while readers link to leaves. It goes when leaf readers become the patch node's dependents (S1b, judged by the store tests).
 
 **Optimism (step 3)** is the same node as a lane node: an optimistic setter's writes are one guess, a patch, on the target's patch node under the action's lane (`optimisticWrite(k, patch)`); `latestOf(k)` is the guessed backing, `screenOf(k)` what the screen shows, `underOf(k)` the truth beneath — M1's three views. A landing on the root re-bases the patch by key (`_laneRebase` becomes the comparator step: apply-then-equal); `laneSet`, `_slotTake`, `take`, `kept`, `marked`, `optimisticView`'s fan-in, `LaneView`'s separate life on `t.k` go. The store keeps the lane engine's four properties (shows now, reveals atomically, parks itself, lands or reverts with its parent) through the one node.
+
+### 2.1 What S1 builds, in order
+
+1. `frameOf(target, key)` — the plain store's one read decider: node-less staging (a staged read of the pass), the per-key gate (a key the patch does not touch is the backing's, joining nothing), a pending patch node (read it: the derive's flight, every key), a verdict window (the probe answered per key, `_witnessMark`; `latest` through the node), the hydration snapshot (the leaf's `_snapshotValue`, as `read` served it), then `readNode(k)`.
+2. `setPatch(target, key, value)` — the write: a key a held patch node's patch has joins that hold (A34 (1)) and writes into its patch; otherwise the flush's own patch node, staged and parked like any node; the leaf notified with equality (and the attribution write hook, `attrHooks.write`, which `setSignal` fired).
+3. Patch nodes per hold — `t.k` the flush's own, held ones kept beside it; a patch is a diff (own keys and `del`) applied onto the current `t.v` at read and at commit, never an overlay whose prototype goes stale when another patch commits (`overlayOnto` is the commit); `drainFolds` folds each committed patch node.
+
+The probe (§3) did 1 and 2 without the per-key gate's window arms, the join, or 3, and that is what its failures are.
 
 ## 3. The probe (2026-11-06)
 
