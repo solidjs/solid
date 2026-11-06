@@ -185,6 +185,7 @@ function TargetShape(
   this.pk = parentKey;
   this.px = null;
   this.d = false;
+  this.po = null;
   this.a = false;
   this.sc = 0;
   this.kc = 0;
@@ -525,6 +526,40 @@ const manualBatch: WeakSet<StoreTarget> = new WeakSet();
 const layerBase: WeakMap<StoreTarget, Record<PropertyKey, any>> = new WeakMap();
 /** The deletes of the patch `frameOf` chose (null: the committed backing). */
 let frameDel: Set<PropertyKey> | null = null;
+/** A frame's value of a data key: its own, else through its prototype (an
+ * overlay's unwritten key, an inherited accessor) — never a removed own
+ * `__proto__`'s prototype (core R30, #4672). */
+function ownValue(frame: Record<PropertyKey, any>, key: PropertyKey, t?: StoreTarget): any {
+  if (hasOwn.call(frame, key) || key !== "__proto__") return frame[key as any];
+  // An overlay's unwritten key is the committed backing's own (#3044).
+  return t !== undefined && t.ovl && frame === t.pb ? ownValue(t.v, key) : undefined;
+}
+/** The settled frame (the hot case): no hold on the target, and the open
+ * batch — if any — node-less, a plain flush's, with its keys recorded. */
+function hotFrame(target: StoreTarget): boolean {
+  const pb = target.pb;
+  return (
+    target.kh === null &&
+    (pb === null ||
+      (target.kp === null &&
+        globalQueue._running &&
+        verdict === null &&
+        passLane === null &&
+        (target.wk !== null || pb === target.v)))
+  );
+}
+/** Did the open batch change `key` (hot case)? A trap batch's record; an
+ * adoption's by value against the frame it swapped out (a paired row is the
+ * same slot). */
+function hotChanged(target: StoreTarget, key: PropertyKey): boolean {
+  const pb = target.pb!;
+  if (pb !== target.v) return written(target.wk, key) || target.del?.has(key) === true;
+  const po = target.po;
+  if (po === null) return true;
+  const ov = po[key as any];
+  const nv = pb[key as any];
+  return !isEqual(ov, nv) && !sameLogicalSlot(target, ov, nv);
+}
 /** The frame a plain store's read of `key` sees. */
 function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<PropertyKey, any> {
   frameDel = null;
@@ -559,15 +594,7 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
   // the batch wrote marks the pass as having read the staging (held with the
   // frame if the flush parks), a verdict reader served the screen; a key it
   // left unchanged is the same value in both frames.
-  if (
-    target.kh === null &&
-    (pb === null ||
-      (target.kp === null &&
-        globalQueue._running &&
-        verdict === null &&
-        passLane === null &&
-        (target.wk !== null || pb === target.v)))
-  ) {
+  if (hotFrame(target)) {
     if (pb === null) return target.v;
     const c = stagingReader();
     if (c === null) return readSource(target, key);
@@ -1134,6 +1161,7 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     // proposal layered over the first, never over the committed backing.
     const v = heldBase(target);
     if (!directCommit) queueFold(target);
+    else target.po = target.v;
     if (v !== target.v) layerBase.set(target, v);
     if (
       !target.ch &&
@@ -1226,6 +1254,7 @@ export function adoptPB(
   notify = true
 ): void {
   if (!directCommit) queueFold(target);
+  else target.po = target.v;
   let base: Record<PropertyKey, any>;
   if (target.pb !== null) {
     if (target.ovl) materializePB(target);
@@ -1291,25 +1320,19 @@ let foldList: StoreTarget[] = [];
 let foldOlds: Record<PropertyKey, any>[] = [];
 let foldSpare: StoreTarget[] = [];
 let foldOldsSpare: Record<PropertyKey, any>[] = [];
-let foldIndex: Map<StoreTarget, number> | null = null;
 
 /** Before the staging is set and before an adoption swaps the backing. */
 function queueFold(target: StoreTarget): void {
   if (target.pb !== null) return;
   schedule();
-  if (foldIndex !== null) foldIndex.set(target, foldList.length);
+  target.po = target.v;
   foldList.push(target);
   foldOlds.push(target.v);
 }
 
 /** The committed backing before this batch (valid while `pb !== null`). */
 function preBatch(t: StoreTarget): Record<PropertyKey, any> {
-  if (foldIndex === null) {
-    foldIndex = new Map();
-    for (let i = 0; i < foldList.length; i++) foldIndex.set(foldList[i], i);
-  }
-  const at = foldIndex.get(t);
-  return at === undefined ? t.v : foldOlds[at];
+  return t.pb !== null && t.po !== null ? t.po : t.v;
 }
 
 /** The flush committed its pending nodes: fold every pending backing whose
@@ -1325,7 +1348,6 @@ function drainFolds(): void {
     foldOlds = foldOldsSpare;
     foldSpare = list;
     foldOldsSpare = olds;
-    foldIndex = null;
     for (let i = 0; i < list.length; i++) {
       const t = list[i];
       if (t.pb === null) continue; // folded already (a direct commit)
@@ -2665,23 +2687,54 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     const node0 = target.n?.[key as any];
     if (writeScopes === null && !writeOverride) {
       const nodeH = node0;
-      if (
-        nodeH !== undefined &&
-        (nodeH as any).acc !== true &&
-        !plainLeaf(target, nodeH) &&
-        (!target.ch || nodeH._config & CONFIG_OVERRIDE)
-      ) {
-        const nv = nodeValue(nodeH, undefined, target);
-        if (nv === null || typeof nv !== "object") return nv;
-        if (target.s) return serveShallow(target, key, nv);
-        if ((nodeH as any).pxv === nv) return (nodeH as any).px;
-        if (isWrappable(nv)) {
-          const p = wrap(nv, target, key);
-          (nodeH as any).px = p;
-          (nodeH as any).pxv = nv;
-          return p;
+      if (nodeH !== undefined && (nodeH as any).acc !== true) {
+        let nv: any;
+        if (plainLeaf(target, nodeH)) {
+          // A plain leaf on a settled frame — no hold on the target, the
+          // batch (if any) node-less and a plain flush's — serves the frame's
+          // value (the staging's, or the committed), linked; a pass reading
+          // a key the batch changed is marked as having read the staging
+          // (held with the frame if the flush parks) — a verdict reader is
+          // served the screen on the slow path. The frame logic is for the
+          // rest (a chained backing reads through the inner store, §7b).
+          if (target.ch || !hotFrame(target)) nv = NOT_PENDING;
+          else {
+            const c = context as Computed<any> | null;
+            const pb = target.pb;
+            if (pb !== null && c !== null && hotChanged(target, key)) {
+              if (c._config & (CONFIG_VERDICT | CONFIG_CHILDREN_FORBIDDEN)) nv = NOT_PENDING;
+              else {
+                stagedRead(c);
+                nv = target.del?.has(key) ? undefined : ownValue(pb, key, target);
+              }
+            } else nv = ownValue(pb !== null && !target.del?.has(key) ? pb : target.v, key, target);
+            if (nv !== NOT_PENDING) {
+              // The leaf is read through core where its look matters (a
+              // verdict window's marks, a hydration snapshot), linked else.
+              if (verdict !== null || nodeH._x?._snapshotValue !== undefined) {
+                const r = readNode(nodeH);
+                if (nodeH._x?._snapshotValue !== undefined) nv = r;
+              } else {
+                if (__DEV__) devRead(nodeH);
+                if (c !== null && tracking) link(nodeH, c);
+              }
+            }
+          }
+        } else if (!target.ch || nodeH._config & CONFIG_OVERRIDE)
+          nv = nodeValue(nodeH, undefined, target);
+        else nv = NOT_PENDING;
+        if (nv !== NOT_PENDING) {
+          if (nv === null || typeof nv !== "object") return nv;
+          if (target.s) return serveShallow(target, key, nv);
+          if ((nodeH as any).pxv === nv) return (nodeH as any).px;
+          if (isWrappable(nv)) {
+            const p = wrap(nv, target, key);
+            (nodeH as any).px = p;
+            (nodeH as any).pxv = nv;
+            return p;
+          }
+          return nv;
         }
-        return nv;
       }
     }
     const src = plainLeaf(target, node0) ? frameOf(target, key) : readSource(target, key);

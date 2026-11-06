@@ -111,6 +111,11 @@ export interface StoreTarget {
   px: any;
   /** Sticky descendants flag (§6d). */
   d: boolean;
+  /** The committed backing as the open batch started (valid while `pb` is
+   * not null): the frame a verdict reader is served, the base an adoption
+   * batch's keys are judged against. One field write per batch, in place of
+   * a per-flush index over the fold queue. */
+  po: Record<PropertyKey, any> | null;
   /** Sticky accessors-seen flag: an own accessor property was observed on
    * this target (first-read scan, defineProperty, or clone scan). Gates the
    * fold diff's descriptor-safe path and the get trap's descriptor path. */
