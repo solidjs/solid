@@ -419,7 +419,15 @@ function batchHas(
   key: PropertyKey,
   shape: boolean
 ): boolean {
-  if (pb !== target.v) return written(target.wk, key) || target.del?.has(key) === true;
+  // A key not own on the staging that a non-plain prototype answers (a
+  // class instance's getter runs against the frame it is read from): the
+  // staging, as `changedBetween` counts every key of such a frame changed.
+  if (pb !== target.v)
+    return (
+      written(target.wk, key) ||
+      target.del?.has(key) === true ||
+      (!hasOwn.call(pb, key) && !plainProto(pb))
+    );
   // Against the view the nodes were last told (#3296): the newest live
   // patch under a hold (the adoption composed on it), else the frame the
   // fold queue holds.
@@ -544,6 +552,31 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
     return readSource(target, key);
   }
   const pb = target.pb;
+  // The hot case, node-free (dbmon: every row written every tick, 13k leaf
+  // reads): no hold on the target, the batch — if any — unheld and no lane's,
+  // read by a plain flush pass with no verdict window open. What `read()` of
+  // the batch's patch node would do for that pass, without the node: a key
+  // the batch wrote marks the pass as having read the staging (held with the
+  // frame if the flush parks), a verdict reader served the screen; a key it
+  // left unchanged is the same value in both frames.
+  if (
+    target.kh === null &&
+    (pb === null ||
+      (target.kp === null &&
+        globalQueue._running &&
+        verdict === null &&
+        passLane === null &&
+        (target.wk !== null || pb === target.v)))
+  ) {
+    if (pb === null) return target.v;
+    const c = stagingReader();
+    if (c === null) return readSource(target, key);
+    if (!batchHas(target, pb, key, shape)) return target.v;
+    frameDel = target.del;
+    if (c._config & CONFIG_VERDICT && stagedScreen(c)) return committed(target);
+    stagedRead(c);
+    return pb;
+  }
   const k = target.k;
   const fam = target._fam;
   // A derived store's first landing, staged while the derive is still
@@ -2301,8 +2334,11 @@ function serveDataKey(
       // hooks, a verdict window's look at its marks); the frame decided the
       // value above — but a leaf with a hydration snapshot serves it to a
       // reader in the snapshot's scope (and replays the reader at the release).
-      const nv = readNode(node);
-      if (node._x?._snapshotValue !== undefined) v = nv;
+      if (__DEV__ || verdict !== null) {
+        const nv = readNode(node);
+        if (node._x?._snapshotValue !== undefined) v = nv;
+      } else if (node._x?._snapshotValue !== undefined) v = readNode(node);
+      else if (context !== null && tracking) link(node, context as Computed<any>);
     } else if (node !== undefined) {
       const nv = nodeValue(node, backingValue, target);
       if (chained) {
