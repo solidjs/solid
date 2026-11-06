@@ -183,15 +183,15 @@ function patchEquals(this: any, a: any, b: any): boolean {
   // A structural guess: the arrangement (rows by identity or key, an
   // object's keys), as the container judged it.
   if (this.g !== undefined && !arrangementEqual(a, b, fam)) return false;
-  // Each key the guess changed, as its leaf judged it: the same slot (a row
-  // its target adopted), or the server's echo of a guessed object (#3898).
+  // Each key the guess changed, by content: the same object, or the
+  // server's echo of a guessed one — a new object with the same contents
+  // (#3898). A row the adoption paired by key with a guessed one is not
+  // thereby its equal: the leaves judged the content, so does the carrier.
   const wk: Set<PropertyKey> | null = this.wk;
   if (wk !== null)
     for (const key of wk) {
       if (key in a !== key in b) return false;
-      const av = a[key as any];
-      const bv = b[key as any];
-      if (!rowSame(av, bv, fam) && !GlobalQueue._echoes!(av, bv)) return false;
+      if (!GlobalQueue._echoes!(a[key as any], b[key as any])) return false;
     }
   const del: Set<PropertyKey> | null = this.del;
   if (del !== null) for (const key of del) if (key in a !== key in b) return false;
