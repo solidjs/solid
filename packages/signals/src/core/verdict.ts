@@ -67,7 +67,8 @@ import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { ahead, display, laneValueOf, verdictLane, waiting } from "./lanes.js";
+import { ahead, verdictLane, waiting } from "./lanes.js";
+import { latestOf, screenOf } from "./truth.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
   blocked,
@@ -518,7 +519,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       // value in either view — loading, not pending, and no verdict to read
       // ahead: it is read as any uninitialized node, NotReady below (A7, A19
       // exc. 1; #4363), its reader not moved into the verdict lane.
-      v = guess ? 0 : latestActive && !flying ? laneValueOf(el) : display(el);
+      v = guess ? 0 : latestActive && !flying ? latestOf(el) : screenOf(el);
     if (v !== NOT_PENDING) {
       if (tracked) verdictRead(c!, l._parent ?? l);
       if (guess) {
@@ -526,7 +527,7 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
           probing &&
           (flying ||
             (el._pendingValue !== NOT_PENDING &&
-              (!el._equals || !el._equals(el._x!._lane as any, el._pendingValue as any))))
+              (!el._equals || !el._equals(latestOf(el) as any, el._pendingValue as any))))
         )
           probeFound = true;
         // A lane a correction folded under (D-34): `latest()` shows the hold's
@@ -536,19 +537,8 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
           return l.folded(null, el);
         }
         if (__TEST__) shadowActual(SLOT_LV);
-        return el._x!._lane;
+        return latestOf(el);
       }
-      // A first load in flight with nothing produced yet: loading, for
-      // `latest` (D-22) as for `isPending` (A19 exc. 1) — unless an error
-      // answered it first: its re-ask is pending, the error its display
-      // (D-41, #4375).
-      if (
-        flying &&
-        v === el._value &&
-        owner._statusFlags & STATUS_UNINITIALIZED &&
-        (latestActive || !owner._x!._shownError)
-      )
-        throw owner._x!._error;
       if (probing && flying) probeFound = true;
       if (__TEST__) shadowActual(latestActive && !flying ? SLOT_LV : SLOT_DV);
       return v;

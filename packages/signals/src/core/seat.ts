@@ -665,8 +665,6 @@ export function slot(
       // A first load in flight with nothing produced yet (D-22): loading —
       // unless an error answered it first (`isPending`: the error is the
       // display, D-41 #4375).
-      if (flying && uninit && el._x!._lane === el._value && (latest || !el._x!._shownError))
-        return pred(row, SLOT_NR, tr ? MARK_AH : 0, parent);
       return pred(row, latest && !flying ? SLOT_LV : SLOT_DV, tr ? MARK_AH : 0, parent);
     }
     // (An error is thrown last, as `verdictValue` does: a held or staged
@@ -818,7 +816,7 @@ export function slot(
         laneRow = row || "D4";
       }
     } else if (renderLeaf) {
-      const never = flying && el._x!._lane === NOT_PENDING;
+      const never = flying && !el._x!._transaction!.under?.has(el);
       // D-28 (#4275, #4284): a leaf seated as a hold's verdict reader
       // leaves the seat on a flight never shown, or for a lane that is not
       // that hold's, and reads from the frame's seat.
@@ -833,9 +831,10 @@ export function slot(
         // A flight never shown waits (NR); the lane has never shown: the
         // screen is the committed value.
         if (never && l._shown) return pred(row || "L7", SLOT_NR, MARK_ST | leave, l);
-        // L7' (D-2): a leaf the flush's hold holds reads a lane derivation's
-        // staging — the hold's own value.
-        if (!guess && staged && cHeldByFlush && (!l._shown || vlane))
+        // L7' (D-2): a leaf the flush's hold holds reads a shown verdict
+        // lane's staging as its frame's (#4275, S-39). A guess lane's
+        // staging is the lane's, for its next reveal (#4666).
+        if (!guess && staged && cHeldByFlush && l._shown && vlane)
           return pred(row || "L7'", SLOT_P, leave);
         if (l._held || flying) {
           // D-26 D-28: a stale reader of the lane — the display, re-derived
@@ -1041,13 +1040,11 @@ export function slot(
 /** `laneValueOf(el) === NOT_PENDING`: a lane node with nothing in either
  * view (born in the lane, uninitialized, nothing produced). */
 function laneNP(el: AnyNode, guess: boolean, staged: boolean, uninit: boolean): boolean {
-  if (!guess && staged) return false;
-  return el._x!._lane === NOT_PENDING && uninit;
+  return !guess && !staged && uninit;
 }
-/** `display(el) === NOT_PENDING`: nothing on screen for a lane node. */
+/** `screenOf(el) === NOT_PENDING`: nothing on screen for a lane node. */
 function dispNP(el: AnyNode, uninit: boolean): boolean {
-  const l = el._x!;
-  return !(l._transaction!._shown && l._lane !== NOT_PENDING) && uninit;
+  return uninit;
 }
 
 // ─── Shadow harness ────────────────────────────────────────────────────────

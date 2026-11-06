@@ -259,7 +259,8 @@ export function setExternalHooks(
 
 export interface Transaction {
   /** Held staged nodes: committed at the landing. For a lane: its guesses
-   * and its work (their lane values in `_x._lane`), revealed at the seam. */
+   * and its work (their values its staging, `_pendingValue`), revealed at
+   * the seam. */
   _nodes: Signal<any>[];
   /** Stashed effect queues (render, user): run ahead of the landing flush's. */
   _queues: [QueueCallback[], QueueCallback[]];
@@ -317,6 +318,12 @@ export interface Transaction {
    * transaction's flush the lane's work reads its staging (core.ts
    * `frameRead`, #4536). Unset until then; not `_`-prefixed, as `folded`. */
   over?: Transaction;
+  /** Lane: its value of a node beside the node's two slots — a guess until
+   * the reveal (its staging is a truth's, the parent's), and after the
+   * reveal the value the screen showed before (a guess reverts to it at the
+   * lane's end; its presence: the lane has shown a value of the node).
+   * Unset until the first guess or reveal; not `_`-prefixed, as `folded`. */
+  under?: Map<Signal<any>, unknown>;
   /** `affects()` marks declared in it (affects.ts): released at the landing.
    * Not nodes — a mark holds nothing (`blocked` never sees one). */
   _marks: Signal<any>[] | null;
@@ -899,7 +906,7 @@ export class GlobalQueue implements IQueue {
   /** The value a slot node's guess covered: its committed value — a chained
    * link's refreshed from the inner store, whose commits it never learned
    * while the guess served the reads (store/store.ts, §7b). */
-  declare static _slotCovered: ((n: Signal<any>) => unknown) | undefined;
+  declare static _slotCovered: ((n: Signal<any>, v: unknown) => unknown) | undefined;
   /** The store's row judgment for a guessed slot (optimistic.ts): the truth
    * is the guess's echo when reconcile would write nothing into it. */
   declare static _echoes: ((guess: unknown, truth: unknown) => boolean) | undefined;

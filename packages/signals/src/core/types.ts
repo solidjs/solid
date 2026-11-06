@@ -116,11 +116,6 @@ export interface NodeExtension {
    * window read this node's staging (verdict.ts `holdStaging`). Stale once
    * that hold lands or dissolves: nothing clears it. Unset until then. */
   _askedIn?: Transaction | number;
-  /** Lanes (plan sec. 28) — the lane's value for this node while CONFIG_OVERRIDE is
-   * set: a written guess, or a lane pass's derivation. `NOT_PENDING` when
-   * none. The screen shows it once the lane has revealed (`_shown`); a
-   * direct read sees it throughout; the committed truth stays `_value`. */
-  _lane: unknown;
   /** `affects()` marks live on this node (affects.ts): declared in-flight
    * changes — `isPending` reads true for it and its derivations while any
    * is live. A count, never a hold. */

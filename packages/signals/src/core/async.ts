@@ -293,10 +293,6 @@ export function settlePendingSource(el: Computed<any>, source: Computed<any> = e
       el._statusFlags & STATUS_UNINITIALIZED &&
       el._pendingValue === NOT_PENDING &&
       !el._x?._error &&
-      !(
-        (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE &&
-        el._x!._lane !== NOT_PENDING
-      ) &&
       // A replacement source makes this a cleanup-only transfer: removing
       // self leaves the source and every propagated dependent parked. No
       // sources (or self alone) would release readers without truth.

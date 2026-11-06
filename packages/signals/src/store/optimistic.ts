@@ -37,7 +37,8 @@ import {
 import { context, ext, isEqual, joinPassAt, read as readNode, untrack } from "../core/core.js";
 import { link } from "../core/graph.js";
 import { devGuardOptimisticBeforeLoad } from "../core/dev.js";
-import { laneValueOf, optimisticWrite, pendingGuessOf, take } from "../core/lanes.js";
+import { latestOf, optimisticWrite, pendingGuessOf, setLaneValue, take } from "../core/lanes.js";
+import { covered, follow } from "../core/truth.js";
 import {
   clock,
   GlobalQueue,
@@ -102,9 +103,7 @@ const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
 function writerBacking(t: StoreTarget): Record<PropertyKey, any> {
   const base = committed(t);
   const inner: StoreTarget | undefined = (base as any)[$TARGET];
-  return inner === undefined
-    ? base
-    : optimisticView(inner, writerBacking(inner), laneValueOf, true);
+  return inner === undefined ? base : optimisticView(inner, writerBacking(inner), latestOf, true);
 }
 
 /** The user's draft on an optimistic family: a clone of the view the user
@@ -114,7 +113,7 @@ function writerBacking(t: StoreTarget): Record<PropertyKey, any> {
  * guesses go over it, it stays the truth beneath. */
 function optimisticDraft(t: StoreTarget): Record<PropertyKey, any> {
   if (t.pb !== null) optStaged.set(t, t.pb);
-  return cloneRaw(optimisticView(t, writerBacking(t), laneValueOf, true), t);
+  return cloneRaw(optimisticView(t, writerBacking(t), latestOf, true), t);
 }
 
 export function notifyOptimisticWrites(
@@ -124,7 +123,7 @@ export function notifyOptimisticWrites(
   // The view the user saw: the committed frame (a staging adopted eagerly
   // is not it) with the lanes' values and the tick's own guesses over it.
   const base = writerBacking(t);
-  const old = optimisticView(t, base, laneValueOf, true);
+  const old = optimisticView(t, base, latestOf, true);
   const isArr = Array.isArray(pb);
   // A chained target's nodes are links (§7b): their committed value is
   // never served and never learns the inner store's commits — yet a guess
@@ -132,7 +131,7 @@ export function notifyOptimisticWrites(
   // inner store's truth for its key before guessing over it.
   const inner = t.ch ? (t.v as Record<PropertyKey, any>) : null;
   const guess = (node: Signal<any>, key: PropertyKey, presence: boolean, nv: unknown): void => {
-    if (inner !== null) node._value = presence ? key in base : unwrapValue(base[key as any]);
+    if (inner !== null) follow(node, presence ? key in base : unwrapValue(base[key as any]));
     // By value: a function leaf is a value, not an updater (#3017).
     optimisticWrite(node, () => nv);
   };
@@ -396,9 +395,9 @@ GlobalQueue._slotTake = (n, back) => {
  * holds the landing (`laneWrite`). */
 GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
   const t = (el as any)._host as StoreTarget | undefined;
-  if (!older && (t?.k?._x?._lane as LaneView)?.g !== null) return fold(el, truth);
+  if (!older && (laneOf(t?.k) as LaneView)?.g !== null) return fold(el, truth);
   if (!t || (el as any)._key !== $TRACK) return true;
-  const view = el._x!._lane;
+  const view = latestOf(el);
   if (!(view instanceof LaneView)) return;
   if (!Array.isArray(truth) || !Array.isArray(view.rows)) {
     view.base = truth as Record<PropertyKey, any>;
@@ -449,7 +448,7 @@ GlobalQueue._laneRebase = (el: Signal<any>, truth: unknown, older: boolean) => {
     // key's new object is the same row, its target adopted it).
     if (node === undefined) {
       if (!sameRow(base[i], rows[i], keyFn)) laneSet(getNode(t, i), rows[i], lane);
-    } else if (!sameRow(node._config & CONFIG_OVERRIDE ? node._x!._lane : base[i], rows[i], keyFn))
+    } else if (!sameRow(node._config & CONFIG_OVERRIDE ? latestOf(node) : base[i], rows[i], keyFn))
       laneSet(node, rows[i], lane);
   }
   if (nodes !== null) {
@@ -477,9 +476,8 @@ function fold(el: Signal<any>, truth: unknown): boolean {
   const l = txOf(el);
   // A guess the screen never showed is void at the correction (D-34); a
   // keyed arrangement guess's view carries its removed-keys set.
-  if (!l._shown || !(k?._config! & CONFIG_OVERRIDE) || !(k!._x!._lane as LaneView)?.removed)
-    return false;
-  const guess = el._x!._lane;
+  if (!l._shown || !(laneOf(k) as LaneView)?.removed) return false;
+  const guess = latestOf(el);
   if ((!el._equals || !el._equals(guess, truth)) && !GlobalQueue._echoes!(guess, truth))
     l.folded = foldedRead;
   else GlobalQueue._confirmed?.(l);
@@ -513,7 +511,7 @@ function foldedRead(c: Computed<any> | null, el: Signal<any> | Computed<any>): u
     joinPassAt(c, resolveTx(l._parent ?? l));
   }
   if (el._pendingValue !== NOT_PENDING) return el._pendingValue;
-  return el._config & CONFIG_SLOT_NODE ? GlobalQueue._slotCovered!(el) : el._value;
+  return covered(el);
 }
 
 function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {
@@ -527,13 +525,16 @@ function sameRow(a: unknown, b: unknown, keyFn: (item: any) => any): boolean {
  * node that was not the lane's becomes its derivation (its committed value
  * untouched beneath; the lane's end commits the latest). */
 function laneSet(node: Signal<any>, value: unknown, lane: ReturnType<typeof txOf>): void {
-  const x = ext(node);
   if (!(node._config & CONFIG_OVERRIDE)) {
     node._config |= CONFIG_OVERRIDE;
     list(node, lane);
-  } else if (x._lane === value) return;
-  x._lane = value;
+  } else if (latestOf(node) === value) return;
+  setLaneValue(node, lane, value);
   if (node._subs !== null) laneDirty(node, lane);
+}
+/** A lane's value of a node, NOT_PENDING for a node that is no lane's. */
+function laneOf(k: Signal<any> | null | undefined): unknown {
+  return k != null && k._config & CONFIG_OVERRIDE ? latestOf(k) : NOT_PENDING;
 }
 
 /** D-34 for a per-key guess (#4329): the derive's draft wrote new objects
@@ -566,7 +567,7 @@ installOptHooks({
   arrangement,
   reconcile: reconcileDraft,
   view: (t, src, writer = false) =>
-    writer ? optimisticView(t, src, laneValueOf, true) : optimisticView(t, src),
+    writer ? optimisticView(t, src, latestOf, true) : optimisticView(t, src),
   has: optimisticHas,
   descriptor: optimisticOwnDescriptor,
   sweep: sweepOverlaid,
@@ -628,7 +629,7 @@ installOptHooks({
     // Linked by this pass's hold (below): its other reads keep the guess.
     const j = heldC === c && heldAt === clock;
     if (linkedTo(c, d)) return j && heldV > 1;
-    if ((t.k?._x?._lane as LaneView)?.g === null && c?._statusFlags & STATUS_PENDING)
+    if ((laneOf(t.k) as LaneView)?.g === null && c?._statusFlags & STATUS_PENDING)
       if (c._type === EFFECT_RENDER) readNode(d);
       else if (j ? heldV : ((heldC = c), (heldAt = clock), (heldV = held(c))))
         d._x?._transaction ? (link(d, c), staleReader(c, txOf(d)), (heldV = 2)) : readNode(d);
@@ -875,7 +876,7 @@ export function latestView(
   t: StoreTarget,
   src: Record<PropertyKey, any>
 ): Record<PropertyKey, any> {
-  return optimisticView(t, src, laneValueOf);
+  return optimisticView(t, src, latestOf);
 }
 
 export function createOptimisticStore<T extends object = {}>(

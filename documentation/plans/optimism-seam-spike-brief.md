@@ -418,3 +418,36 @@ With the glossary holding the definitions and the rows holding the screens, sixt
 | —        | D-36, D-37       | consequences of the glossary's _Guess_ and _Lane_ plus D-25; D-36 stays as a pin                                     |
 
 D-30 shortened to its one distinct sentence. `RULES-DERIVED.md`: 40 rules, 14,335 words on 2026-11-05 → 24 live rules, about 7,600 words. Checks: every row a folded rule listed is listed by its absorber; the rulings spec and the rules index pass; the boundary rules D-18 and D-19 and the hold rules D-3, D-4, D-6, D-7, D-8, D-10 stand as they were.
+
+## 13. M1 — the value model (2026-11-06)
+
+Inventory on the merged `next` (`45648f782`): the third slot `_x._lane` had 27 sites in `lanes.ts`, 5 in `core.ts`, 3 in `verdict.ts`, 2 in `truth.ts`, 1 in `async.ts` (DEV), 1 in `store.ts`, 8 plus 6 `laneValueOf` picks in `store/optimistic.ts`; `display`, `laneValueOf`, `truthRead`, `covered`, `guessedValueOf` were built on it; the lane record carries `_shown`, `_held`, `_links`, `over`, `folded`, `latest` for it.
+
+### 13.1 The model as built
+
+A node keeps two value slots, as any held node: `_value` is what the screen shows, `_pendingValue` the staging of the transaction holding it. For a lane's node the holder is the lane.
+
+- **A lane derivation** stages its pass's answer in `_pendingValue`; the lane's reveal (`laneSeam`) commits it into `_value` with `commitPendingNode` (a staged error publishes there, D-41; the frame the pass built retires the one it replaces). After the reveal a re-run stages again and the next unblocked seam commits it. The lane records what the screen showed before the first reveal (`under`): a pass that leaves a shown lane outside a held frame is judged against it (the screen moves at the seam's wake, #3892/#4367), and a leaf asks it whether the lane has ever shown the node (`laneRead`'s "never", #3334).
+- **A guess** is the lane's record of the node (`under`) until the reveal, when it moves into `_value` and the record takes the covered value for the revert. A truth landing beneath a guess is the node's staging (`_pendingValue`, the parent's; `landBeneath`), as before — a staging on a guess is the truth beneath it whether a hold holds it or the same tick staged it (A18's `isPending`, `until`, the revert's "superseded").
+- `latestOf(n)`: a guess's guess; a derivation's staging else its screen value (NOT_PENDING for a node born in the lane with nothing shown). `screenOf(n)`: `_value` (NOT_PENDING uninitialized). `covered(n)`: the record once shown, `_value` before; a store slot asks the store with that as the fallback (`_slotCovered(n, v)`, a chained link following the inner store). `underOf(n)`: the staging, else the covered value.
+- A guess node moving between lanes (`laneStage`'s `moveTo`, `take`) carries its value with it: into a lane that has not revealed, the screen shows the covered value until that lane reveals — as `display` showed before.
+- The store's chained links write their committed value on every read ("the link follows the inner store", S4): `follow(n, v)` writes `_value` unless a shown lane owns it.
+
+### 13.2 What went, what stayed
+
+Gone: `_x._lane` and its initialization; `display`; `laneValueOf` (replaced by `latestOf`); `laneSeam`'s promote step (the reveal is a commit); `recompute`'s lane arms for the pass's prev and the equality gate (−56 B minified on the core floor); `laneWrite`'s shown/unshown branch; `dissolveLane`'s per-node value outcomes and its `loading` list; `verdictValue`'s dead "first load" throw; `supersede`'s slot shuffle; `async.ts`'s DEV lane clause; the store's slot moves in `holdWithDerive`.
+
+Stayed, for M2/M3: `LEFT_SHOWN` (the seam's wake for a pass that left a shown lane; without it #3528 shows the stale frame it would have shown on `next` with a later landing — the principled fix is a frame reader keeping what it shows until the landing, and under H2 the verdict lanes this arises in are gone); `laneRead`'s routing arms (M2); the verdict override arm in `verdictValue` (M3); the `#4666` arm, now `l._shown && isVerdict(l)` (a verdict lane's staging is the frame's, S-39; a guess lane's is the lane's).
+
+### 13.3 Record
+
+- Scalar pins: 276 files, 3,885 pass, 12 expected fail, 1 skipped — the same counts as `next`. One pin text changed: `tests/settle-walk-invariant.test.ts`'s lane-override case fakes `_pendingValue` instead of `_x._lane`. No screen pin changed.
+- Seat shadow: 6 classes, the same six as `next` (M0.2's residue), 126,720 reads. One row changed: L7' is now `l._shown && vlane` (the #4666 arm as it is).
+- Generator differential: seeds 3289, 91501, 7 × 2,000 cases against `next`'s recordings — 0 cases differ.
+- Size (minified / brotli vs the base measurement): core floor −56 / −19; + createStore −48 / −15; + isPending/latest **+391 / +75** (64 B over its cap); + until/refresh +124 / +42; app hydrating + every store family +514 / +131; the live pages +396. The floors shrank; the optimism chunk grew — the `under` record (`Map` calls are not mangled), `moveTo`, `setLaneValue`/`cover`/`landBeneath`, the guess swap at the reveal, `take`, `follow`. The M1 gate ("size not above base on the four floors and + isPending/latest") is not met yet on the fifth scenario; §13.4 is the trim.
+- Full signals suite: 6,741 pass; the store tests pass (the chained links needed `follow`).
+
+### 13.4 Open
+
+- Size: trim the optimism chunk back to base (the gate), or carry the bytes into M2 where the lifecycle (`dissolveLane`, `endLanes`, `laneSeam`) shrinks.
+- The 50k base recordings: seed 3289 recorded on `next` (2.7 h, not 10 min); 91501 and 7 run from the `/workspace/solid-base` worktree (built `next`).

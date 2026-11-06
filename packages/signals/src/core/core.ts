@@ -585,14 +585,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   const releaseAfter = el._flags & REACTIVE_RELEASE_AFTER;
   el._flags = REACTIVE_RECOMPUTING_DEPS | (el._flags & (REACTIVE_ZOMBIE | REACTIVE_REASK));
   el._time = clock;
-  // The pass's previous value: its staging, else a lane node's lane value
-  // when it has one (lanes.ts), else the committed one.
-  let value =
-    el._pendingValue !== NOT_PENDING
-      ? el._pendingValue
-      : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
-        ? el._x!._lane
-        : el._value;
+  // The pass's previous value: its staging (a lane node's is its lane's,
+  // lanes.ts), else the committed one.
+  let value = el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value;
   let oldHeight = el._height;
   let missedWake = false;
   // L2: did this pass read the future (REACTIVE_JOINED, set by read) — or,
@@ -821,15 +816,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       if (fanIn >= GRAPH_SIZE_WARN_AT) noteFanIn(el, fanIn);
     }
     // INV-11 (#3330): the equality gate compares against the slot this run
-    // publishes to — the staged `_pendingValue` when staged; a lane node's
-    // lane value (a node entering the lane this pass has none yet — its
-    // committed value, `laneStage` having voided a frame staging).
+    // publishes to — the staged `_pendingValue` when staged (a lane node
+    // entering the lane this pass has none: `laneStage` voided a frame
+    // staging; what the screen shows is the gate), else the committed value.
     const unstaged = el._pendingValue === NOT_PENDING;
-    const compareValue = !unstaged
-      ? el._pendingValue
-      : el._config & CONFIG_OVERRIDE && el._x!._lane !== NOT_PENDING
-        ? el._x!._lane
-        : el._value;
+    const compareValue = !unstaged ? el._pendingValue : el._value;
     // A throwing comparator is contained inside `isSame` (A3, #2837; #4111).
     // A pass replacing an error this node staged is a new answer, even the
     // committed value (D-41: a recovery equal to the last good value is a
@@ -919,15 +910,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // after it. An effect still carrying an uncommitted staged value
       // re-stages: the commit applies the latest pass, not the born-held one.
       if (lane !== null) {
-        // Lane work: the lane's value — into the slot while the lane has not
-        // revealed (its reveal shows it), as its staging once it has (the
-        // next reveal promotes it; the screen keeps the revealed value). An
-        // effect's value slot is private: the run the lane holds is what
-        // shows it — unless the effect was born held, whose first run is the
-        // commit's (A29): it re-stages, as below.
+        // Lane work: the lane's staging, revealed at the next seam (the
+        // screen keeps what it shows until then). An effect's value slot is
+        // private: the run the lane holds is what shows it — unless the
+        // effect was born held, whose first run is the commit's (A29): it
+        // re-stages, as below.
         if (isEffect && el._pendingValue === NOT_PENDING) el._value = value;
-        else if (isEffect || lane._shown) el._pendingValue = value;
-        else el._x!._lane = value;
+        else el._pendingValue = value;
       } else if (
         create
           ? !(
@@ -1037,7 +1026,13 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
   // kept at a park — one spurious recompute at most). A creation pass and a
   // tracked effect trim now: their frames are replaceable like a direct
   // commit, and a tracked effect's spurious run would be user-visible.
-  if (!el._x?._error && el._pendingValue === NOT_PENDING && !(isEffect && (el as any)._modified)) {
+  // Lane work's staging is the lane's, revealed at its seam (lanes.ts), not
+  // a commit of this flush: its tail is judged as an unchanged pass's.
+  if (
+    !el._x?._error &&
+    (lane !== null || el._pendingValue === NOT_PENDING) &&
+    !(isEffect && (el as any)._modified)
+  ) {
     if (create || isEffect === EFFECT_TRACKED) trimStaleDeps(el);
     else heldTrim(el);
   }
@@ -1272,7 +1267,6 @@ export function ext(el: { _x: NodeExtension | null }): NodeExtension {
     _flushed: NOT_PENDING,
     _flushedAt: -1,
     _q: 0,
-    _lane: NOT_PENDING,
     _marks: 0,
     _shownError: null
   });

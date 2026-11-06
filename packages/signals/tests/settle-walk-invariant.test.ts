@@ -77,16 +77,17 @@ describe("settlePendingSource uninitialized-source invariant", () => {
     expect(codes).not.toContain("SETTLE_WALK_UNINITIALIZED_SOURCE");
   });
 
-  it("stays silent for a first landing displayed as a derived lane override (#3648)", () => {
-    // laneWrite's derivation branch: before the lane shows, the landing sits
-    // in the lane slot with CONFIG_OVERRIDE set (no GUESS — a derivation),
-    // `_value` untouched and the flag still on until the lane dissolves —
-    // the slot is the truth the walk releases dependents into.
+  it("stays silent for a first landing staged as a derived lane override (#3648)", () => {
+    // laneWrite's derivation branch: before the lane shows, the landing is
+    // the lane's staging with CONFIG_OVERRIDE set (no GUESS — a derivation),
+    // `_value` untouched and the flag still on until the lane reveals it —
+    // the staging is the truth the walk releases dependents into.
     const codes = captureCodes(() =>
       settlePendingSource(
         fakeNode({
           _config: CONFIG_OVERRIDE,
-          _x: { _error: null, _lane: "landed under the lane" }
+          _pendingValue: "landed under the lane",
+          _x: { _error: null }
         })
       )
     );
