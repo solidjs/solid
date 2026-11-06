@@ -87,7 +87,7 @@ function walk(
   if (t !== undefined) {
     if (t.pb !== null) entry._scope.add(t.v);
     // The writer's view: the tick's own unflushed guesses are in motion too.
-    if (optHooks && t._fam?.opt === true) raw = optHooks.view(t, raw, true);
+    if (optHooks && t._fam?.opt === true) raw = optHooks.view(t, raw);
     const nodes = t.n;
     if (nodes !== null)
       for (const k of Reflect.ownKeys(nodes))

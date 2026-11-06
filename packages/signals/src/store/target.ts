@@ -90,6 +90,11 @@ export interface StoreTarget {
    * park; the carrier the hold keeps (`kh`) once the batch parks; gone at
    * the fold. The container `k` is the structural subscription point only. */
   kp: Signal<any> | null;
+  /** S2: the target's guess carrier (optimistic families): a `$PATCH` slot
+   * node whose lane value is the user's draft — the keys it changed recorded
+   * (`wk`, `del`), a keyed list's rows as written and removed keys with it.
+   * Null until a setter guesses; dropped when it is no lane's (sweep). */
+  kg: Signal<any> | null;
   /** Keys written through the traps by the current setter, with the earlier
    * setters' of the batch chained behind (`u`) until the fold commit. Bounds
    * the setter notify/hold-check to O(written) instead of O(subscribed

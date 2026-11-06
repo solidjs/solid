@@ -180,6 +180,7 @@ function TargetShape(
   this.k = null;
   this.kh = null;
   this.kp = null;
+  this.kg = null;
   this.dk = null;
   this.u = parent;
   this.pk = parentKey;
@@ -268,40 +269,10 @@ export function sameKey(a: any, b: any): boolean {
   return a === b || (a !== a && b !== b);
 }
 
-/** The container node's arrangement guess: the rows (or keys) the setter
- * left the container with, in order. Its comparator judges a landing or a
- * revert against it by row identity — by key when the family has one
- * (the server's object for a guessed row is the same row). */
-export class LaneView {
-  /** The rows the setter wrote, kept across re-bases: each composes from
-   * them over the latest truth (optimistic.ts `_laneRebase`, #4441).
-   * `null` until the first re-base on a guess written while the derive
-   * asked a new question: that question's answer re-bases it (#4525). */
-  declare g?: any[] | null;
-  constructor(
-    public rows: Record<PropertyKey, any>,
-    /** The backing the guess is shown over: the committed one at the
-     * guess, the composed arrangement after a re-base (optimistic.ts). */
-    public base: Record<PropertyKey, any>,
-    /** A keyed list's guess: the keys of the view the setter saw that are
-     * not the guess's own rows — removed by it, or only carried over from
-     * the truth beneath. A re-base takes them from the new truth
-     * (optimistic.ts). `null` when not keyed. */
-    public removed: Set<unknown> | null = null
-  ) {}
-}
-
-/** A container node's value as a backing: the base an arrangement guess is
- * shown over, else the value itself. */
-export function asBacking(v: any): Record<PropertyKey, any> {
-  return v instanceof LaneView ? v.base : v;
-}
-
 /** The container node's comparator: a staging is a backing (identity — a
- * pending backing is never "equal" to the committed one); a lane value is
- * an arrangement (`LaneView`), judged by the optimistic machinery. */
+ * pending backing is never "equal" to the committed one). */
 export const containerEquals = function (this: any, a: any, b: any): boolean {
-  return a === b || !!optHooks?.arrangement(this._host, a, b);
+  return a === b;
 };
 
 function sameLogicalSlot(target: StoreTarget, a: any, b: any): boolean {
@@ -387,11 +358,11 @@ setSlotUnobserved((node: any): void => {
  * sees is decided by the node whose patch has the key (`frameOf`), as core's
  * `read` of it decides for any held or staged node. An optimistic family
  * keeps today's per-slot lanes until S2. */
-function plainTarget(t: StoreTarget): boolean {
-  return t._fam?.opt !== true;
+function plainTarget(_t: StoreTarget): boolean {
+  return true;
 }
-function plainLeaf(target: StoreTarget, node: Signal<any> | undefined): boolean {
-  return target._fam?.opt !== true && !(node !== undefined && node._config & CONFIG_OVERRIDE);
+function plainLeaf(_target: StoreTarget, node: Signal<any> | undefined): boolean {
+  return !(node !== undefined && node._config & CONFIG_OVERRIDE);
 }
 function notifyLeaf(node: Signal<any>, nv: unknown, force?: boolean): void {
   const old = node._value;
@@ -454,14 +425,15 @@ function heldPatchFor(t: StoreTarget, key: PropertyKey, shape = true): Signal<an
  * pairing an unchanged child row lazily (#3712). */
 function carrierHas(t: StoreTarget, p: any, key: PropertyKey, shape: boolean): boolean {
   if (p.void) return false;
+  if (p.guess) return written(p.wk, key) || p.del?.has(key) === true;
   // A trap batch's record names the key; the value decides (a `length` an
   // index write recorded unchanged holds no one, as on `next`).
   if (!p.adopt)
     return (
       (written(p.wk, key) || p.del?.has(key) === true) &&
-      changedBetween(t, asBacking(p.base), p._pendingValue, key, shape, p.del, false)
+      changedBetween(t, p.base, p._pendingValue, key, shape, p.del, false)
     );
-  const old = asBacking(p._value);
+  const old = p._value;
   return (
     changedBetween(t, old, p._pendingValue, key, shape, p.del, p.ovl) &&
     !adoptChildOf(t, old, p._pendingValue, txOf(p), key)
@@ -540,6 +512,7 @@ function hotFrame(target: StoreTarget): boolean {
   const pb = target.pb;
   return (
     target.kh === null &&
+    target.kg === null &&
     (pb === null ||
       (target.kp === null &&
         globalQueue._running &&
@@ -587,6 +560,12 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
     return readSource(target, key);
   }
   const pb = target.pb;
+  // A guess carrier's key (S2): the user's draft, as the lane shows it —
+  // read through the carrier, tracked (the lane's seat, a verdict window's
+  // judgment of the guess, A17/A24).
+  const g = target.kg;
+  if (g !== null && g._config & CONFIG_OVERRIDE && carrierHas(target, g, key, shape))
+    return readNode(g);
   // The hot case, node-free (dbmon: every row written every tick, 13k leaf
   // reads): no hold on the target, the batch — if any — unheld and no lane's,
   // read by a plain flush pass with no verdict window open. What `read()` of
@@ -633,7 +612,7 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
     const r = readNode(getPatchNode(target));
     // The deletes are the staging's: a reader served the screen sees none.
     if (r !== pb) frameDel = null;
-    return asBacking(r);
+    return r;
   }
   // A hold's patch has the key — by value or presence, a `shape` reader by
   // its descriptor too (#3706: the hold's unit is the key; a key absent in
@@ -647,31 +626,32 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
     const r = readNode(p);
     // The deletes are the patch's: a reader served the screen sees none.
     frameDel = r === p._pendingValue ? ((p as any).del ?? null) : null;
-    return asBacking(r);
+    return r;
   }
   // A key that is no own data key of either frame reads the batch's own
   // staging, as the getter reads through it.
   if (pb !== null && !hasOwn.call(target.v, key) && !hasOwn.call(pb, key))
     return readSource(target, key);
   // The derive's flight (every key pends with it), or a lane's value.
-  if (k !== null && k._x?._pendingSources !== undefined)
-    return asBacking(untrack(() => readNode(k)));
+  if (k !== null && k._x?._pendingSources !== undefined) return untrack(() => readNode(k));
   return target.v;
 }
 /** The whole frame a plain store's structural read sees: the batch's own
  * staging as before, with every held patch the reader is served composed
  * over it. */
 function frameAll(target: StoreTarget): Record<PropertyKey, any> {
+  const g = target.kg;
+  if (g !== null && g._config & CONFIG_OVERRIDE) return readNode(g);
   // The batch's own staging reads as before; a parked batch's through its
   // newest carrier, as the container that still carried the pending
   // backing decided it on `next` (one node decides the whole frame).
   if (target.pb !== null) {
     if (target.kp === null && stagingReader() === null) return readSource(target);
-    return asBacking(readNode(getPatchNode(target)));
+    return readNode(getPatchNode(target));
   }
   const p = heldCarrier(target);
   if (p === null) return readSource(target);
-  return asBacking(readNode(p));
+  return readNode(p);
 }
 /** A parked batch: its patch moves from `k` to a carrier the hold holds. */
 function parkPatch(target: StoreTarget, t: Transaction): void {
@@ -724,7 +704,7 @@ function parkPatch(target: StoreTarget, t: Transaction): void {
 const heldTargets: Set<StoreTarget> = new Set();
 /** A carrier landed: its patch folds into the committed backing. */
 function foldPatch(t: StoreTarget, p: any): void {
-  if (p.void) return;
+  if (p.void || p.guess) return;
   const patch = p._value as Record<PropertyKey, any>;
   const old = t.v;
   if (p.adopt) {
@@ -736,7 +716,7 @@ function foldPatch(t: StoreTarget, p: any): void {
   const v = t.v as any;
   const wk = p.wk as WrittenKeys | null;
   const del = p.del as Set<PropertyKey> | null;
-  const base = asBacking(p.base);
+  const base = p.base;
   if (wk !== null && wk !== WK_ALL) {
     for (let w: WrittenKeys | undefined = wk; w !== undefined; w = w.u)
       for (const key of w) {
@@ -752,7 +732,7 @@ function foldPatch(t: StoreTarget, p: any): void {
     for (const key of Reflect.ownKeys(patch)) if (key !== $OWNER) copyOwn(v, patch, key);
     // Removed: a key of the frame the batch started from that its patch
     // lacks (not one a later batch added to the backing since).
-    for (const key of Reflect.ownKeys(asBacking(p.base)))
+    for (const key of Reflect.ownKeys(p.base))
       if (key !== $OWNER && !hasOwn.call(patch, key)) delete v[key];
   }
   if (del !== null) for (const key of del) delete v[key];
@@ -859,13 +839,6 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
   return node;
 }
 
-/** A chained link's committed value follows the inner store's (S4): `_value`,
- * while it is the screen's — a lane that has revealed the node shows its own
- * value there, and a revert asks the store (`_slotCovered`). */
-export function follow(n: Signal<any>, v: unknown): void {
-  if (!(n._config & CONFIG_OVERRIDE) || !n._x!._transaction!._shown) n._value = v;
-}
-
 /** The container node (plan sec. 31.3): created by the first structural subscription
  * or the first write that needs to stage. Its committed value is the
  * committed backing. */
@@ -962,13 +935,10 @@ function notifyContainer(k: Signal<any>, pb: Record<PropertyKey, any>): void {
   // on the guess (`laneWrite` → `supersede`, judged by `containerEquals`);
   // otherwise the structural readers are walked (the staging is already on
   // the node; the comparator is the store's, done).
-  if (k._config & CONFIG_OVERRIDE) setSignal(k, pb);
-  else {
-    if (k._config & CONFIG_HELD) joinFuture(txOf(k));
-    if (snapshotCaptureActive) captureWriteSnapshot(k, k._value);
-    insertSubs(k);
-    schedule();
-  }
+  if (k._config & CONFIG_HELD) joinFuture(txOf(k));
+  if (snapshotCaptureActive) captureWriteSnapshot(k, k._value);
+  insertSubs(k);
+  schedule();
 }
 
 // Observe-tier labels and owners (attribution).
@@ -1378,7 +1348,7 @@ function drainFolds(): void {
         t.kh = null;
         heldTargets.delete(t);
         const k = t.k;
-        if (k !== null) follow(k, t.v);
+        if (k !== null) k._value = t.v;
       }
     }
   if (deferredReleases.size !== 0) {
@@ -1397,20 +1367,6 @@ function drainFolds(): void {
 GlobalQueue._slotFlight = (n: Signal<any>): boolean => {
   const fam = ((n as any)._host as StoreTarget | undefined)?._fam;
   return (fam?.node?._statusFlags! & STATUS_PENDING) !== 0;
-};
-/** Core asks (lanes.ts `covered`): the value a slot node's guess covered.
- * A chained link's committed value is the inner store's at the last
- * read-through — refreshed here, since a guess served the reads since
- * (#3672: the revert compares against the base's live value). */
-GlobalQueue._slotCovered = (n: Signal<any>, v: unknown): unknown => {
-  const t = (n as any)._host as StoreTarget;
-  if (t.ch) {
-    const key = (n as any)._key as PropertyKey;
-    const inner = t.v as Record<PropertyKey, any>;
-    if (t.h?.[key as any] === n) return untrack(() => key in inner);
-    if (t.n?.[key as any] === n) return untrack(() => unwrapValue(inner[key as any]));
-  }
-  return v;
 };
 installStoreHooks(storePark, () => {
   drainFolds();
@@ -1484,16 +1440,15 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
         t.wk = null; // the written-keys window closes with the commit
         t.kp = null;
         layerBase.delete(t);
-        if (k !== null && plainTarget(t)) follow(k, t.v);
+        if (k !== null) k._value = t.v;
       }
       if (k !== null) {
         // The node's committed value is the backing. A container nobody
         // subscribes to was a transient staging home (INTERNALS §5: an
         // observer-less write holds a transient record until the fold,
         // discarded with it) — gone with the batch.
-        if (k._subs === null && (!plainTarget(t) || (t.nc === 0 && t.h === null))) t.k = null;
-        else if (k._value instanceof LaneView) k._value.base = t.v;
-        else follow(k, t.v);
+        if (k._subs === null && t.nc === 0 && t.h === null) t.k = null;
+        else k._value = t.v;
       }
       if (t.v !== old && t.u) {
         const slot = parentSlotKey(t, old);
@@ -1648,6 +1603,11 @@ function notifyWrites(t: StoreTarget): void {
     // The derive's draft: new rows under guessed rows are paired with them
     // first (D-34, #4329).
     optHooks.pair(t, pb);
+    // A landing on a target carrying a guess: the truth, judged against the
+    // guess by the lane engine (`laneWrite`: confirmed beneath, re-based,
+    // folded, or a correction).
+    const g = t.kg;
+    if (g !== null && g._config & CONFIG_OVERRIDE) setSignal(g, pb);
   }
   const old = t.v;
   // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
@@ -2029,12 +1989,12 @@ function draftServe(target: StoreTarget, proxy: any): any {
  * readers under a hold still see), `t.v` otherwise. */
 export function committed(t: StoreTarget): Record<PropertyKey, any> {
   const k = plainTarget(t) ? t.kp : t.k;
-  if (k !== null && k._pendingValue !== NOT_PENDING) return asBacking(k._value);
+  if (k !== null && k._pendingValue !== NOT_PENDING) return k._value;
   // Under a hold the screen is the frame before the oldest patch (each
   // carrier keeps the screen as it parked; a later batch layers on the
   // newest patch, never on the screen).
   const kh = t.kh;
-  if (kh !== null && kh.length !== 0) return asBacking(kh[0]._value);
+  if (kh !== null && kh.length !== 0) return kh[0]._value;
   // A node-less staging (`stageOn`): the fold queue remembers the frame.
   return t.pb !== null ? preBatch(t) : t.v;
 }
@@ -2132,16 +2092,16 @@ function readSource(
     // changed; an unchanged key is committed and final (A22: pending is per
     // key). A held container's committed frame is the node's.
     if (verdict === null || (!held && key !== undefined && !keyChanged(target, key, shape)))
-      return held ? asBacking(k!._value) : target.v;
+      return held ? k!._value : target.v;
     // A plain target's staging lives on its patch node (the batch's, or the
     // hold's carrier): the probe judges that node.
     if (plainTarget(target)) {
       const p = target.kp ?? heldCarrier(target);
-      if (p !== null) return asBacking(readNode(p));
-      if (target.pb !== null) return asBacking(readNode(getPatchNode(target)));
+      if (p !== null) return readNode(p);
+      if (target.pb !== null) return readNode(getPatchNode(target));
       return committed(target);
     }
-    return k === null ? committed(target) : asBacking(readNode(k));
+    return k === null ? committed(target) : readNode(k);
   }
   // A pass reading a key the batch left unchanged: the same value in both
   // frames — committed, holding no one. Otherwise the container's frame by
@@ -2172,7 +2132,7 @@ function readSource(
       return pb;
     }
   }
-  return asBacking(untrack(() => readNode(k)));
+  return untrack(() => readNode(k));
 }
 
 /** Did the HELD staging (the container node's, not a mainline layer above
@@ -2214,7 +2174,7 @@ export function sameRow(pv: any, nv: any, keyFn: ((item: any) => any) | null): b
  * key — without a family the pairing is not known here and the hold stands. */
 function adoptChild(target: StoreTarget, key: PropertyKey): boolean {
   const k = (plainTarget(target) ? target.kp : target.k)!;
-  return adoptChildOf(target, asBacking(k._value), k._pendingValue as object, txOf(k), key);
+  return adoptChildOf(target, k._value, k._pendingValue as object, txOf(k), key);
 }
 function adoptChildOf(
   target: StoreTarget,
@@ -2363,12 +2323,7 @@ function serveDataKey(
       else if (context !== null && tracking) link(node, context as Computed<any>);
     } else if (node !== undefined) {
       const nv = nodeValue(node, backingValue, target);
-      if (chained) {
-        // The link's committed value follows the inner store's (what a lane
-        // over it covers — its reveal and revert compare against it, S4).
-        follow(node, backingValue);
-        if (node._config & CONFIG_OVERRIDE) v = nv;
-      } else v = nv;
+      if (!chained || node._config & CONFIG_OVERRIDE) v = nv;
     }
   }
   if (target.s) return serveShallow(target, key, v);
@@ -2554,22 +2509,14 @@ function enumerationSource(target: StoreTarget): Record<PropertyKey, any> {
     const kv = readNode(k);
     // A plain container's frame is the batch's or the hold's patch — unless
     // the container carries a hydration snapshot this reader is served.
-    const base =
-      plainTarget(target) && (k._x?._snapshotValue === undefined || kv === k._value)
-        ? frameAll(target)
-        : asBacking(kv);
-    return optHooks && target._fam?.opt === true ? optHooks.view(target, base) : base;
+    return k._x?._snapshotValue === undefined || kv === k._value ? frameAll(target) : kv;
   }
-  const src = plainTarget(target) ? frameAll(target) : readSource(target);
-  return optHooks && optRead(target) ? optHooks.view(target, src) : src;
+  return frameAll(target);
 }
 
 /** A read on an optimistic family that composes the lanes' values: not the
  * draft's (it composed already), not a derive's write-override read (the
  * derive composes on the truth). */
-function optRead(target: StoreTarget): boolean {
-  return target._fam?.opt === true && !inDraft(target) && !writeOverride;
-}
 
 /** Pollution keys are never served from the prototype (core R30). */
 const UNSAFE_KEYS = new Set<PropertyKey>(["__proto__", "prototype", "constructor"]);
@@ -2882,13 +2829,8 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         }
         const nv = readNode(node);
         if (!target.ch || src !== target.v) return !!nv;
-        const present = key in src;
-        follow(node, present); // the link follows the inner store (S4)
         if (node._config & CONFIG_OVERRIDE) return !!nv;
-        return present;
-      } else if (optHooks && optRead(target)) {
-        const guessed = optHooks.has(target, key);
-        if (guessed !== undefined) return guessed;
+        return key in src;
       }
     }
     return key in src && !(src === target.pb && target.del?.has(key));
@@ -2944,13 +2886,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       if (!(key in src) || (src !== target.v && frameDel !== null && frameDel.has(key)))
         return undefined;
     } else src = readSource(target, key, true);
-    let desc: PropertyDescriptor | undefined;
-    if (optHooks && !enumerating && optRead(target)) {
-      const guessed = optHooks.descriptor(target, key);
-      if (guessed === null) return undefined;
-      desc = guessed;
-    }
-    desc ??= visibleDescriptor(target, src, key);
+    const desc = visibleDescriptor(target, src, key);
     if (desc === undefined) return undefined;
     if (!(key === "length" && Array.isArray(shell))) desc.configurable = true;
     return desc;
@@ -3404,11 +3340,11 @@ function snapshotBacking(t: StoreTarget): Record<PropertyKey, any> {
   if (pb !== null) {
     const k = t.k;
     if (inDraft(t) || writeOverride || k === null || !(k._config & CONFIG_HELD)) backing = pb;
-    else if (stagingReader() !== null) backing = asBacking(untrack(() => readNode(k)));
+    else if (stagingReader() !== null) backing = untrack(() => readNode(k));
     // materializePB is a no-op (returns pb) without an overlay.
     if (backing === pb) backing = materializePB(t);
   }
-  return optHooks && optRead(t) ? optHooks.view(t, backing) : backing;
+  return optHooks !== null && t._fam?.opt === true ? optHooks.view(t, backing) : backing;
 }
 
 function snapshotWalk(value: any, seen: Map<object, any>, fam: StoreFamily | null): any {

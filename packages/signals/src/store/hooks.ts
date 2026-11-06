@@ -20,18 +20,11 @@ export interface OptHooks {
   /** The setter's exit: the draft becomes guesses; returns the staging the
    * draft set aside (`null`: none). */
   writes(t: StoreTarget, pb: Record<PropertyKey, any>): Record<PropertyKey, any> | null;
-  /** `src` with the lanes' values over it (`writer`: the next write's base
-   * — the unflushed guesses too). */
-  view(t: StoreTarget, src: Record<PropertyKey, any>, writer?: boolean): Record<PropertyKey, any>;
-  /** An untracked `key in store`: the presence guess, or `undefined`. */
-  has(t: StoreTarget, key: PropertyKey): boolean | undefined;
-  /** A guessed key's descriptor (`null`: removed; `undefined`: no guess). */
-  descriptor(t: StoreTarget, key: PropertyKey): PropertyDescriptor | null | undefined;
+  /** `src` with the target's guess over it (the carrier's unflushed guess or
+   * lane value), else `src` itself. */
+  view(t: StoreTarget, src: Record<PropertyKey, any>): Record<PropertyKey, any>;
   /** The flush's commit: targets no lane holds leave `_overlaid`. */
   sweep(): void;
-  /** The container comparator's lane arm: an arrangement guess against a
-   * landing (or another arrangement), by row identity. */
-  arrangement(t: StoreTarget, a: any, b: any): boolean;
   /** A user's `reconcile` on an optimistic family: the keyed diff written
    * into the draft. */
   reconcile(draft: any, incoming: any, keyFn: ((item: any) => any) | null): void;
