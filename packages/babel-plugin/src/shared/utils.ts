@@ -275,6 +275,32 @@ export function getCoverageIgnoreComments(path: NodePath): t.Comment[] | undefin
   return path.getData(coverageIgnoreCommentData) as t.Comment[] | undefined;
 }
 
+function isComponentElementPath(path: NodePath): boolean {
+  return t.isJSXElement(path.node) && isComponent(getTagName(path.node));
+}
+
+/**
+ * Coverage pragmas that should lead *this* component's `children` getter.
+ * A pragma immediately before a nested component belongs on that child's
+ * getter instead (see #2138); fragments are transparent for the hand-off.
+ */
+export function takeCoverageIgnoreCommentsForParent(
+  path: NodePath
+): t.Comment[] | undefined {
+  if (isComponentElementPath(path)) return undefined;
+  if (t.isJSXFragment(path.node)) {
+    const filtered = filterChildren(path.get("children"));
+    for (const child of filtered) {
+      const comments = takeCoverageIgnoreCommentsForParent(child);
+      if (comments?.length) return comments;
+      if (isComponentElementPath(child)) return undefined;
+      break;
+    }
+    return undefined;
+  }
+  return getCoverageIgnoreComments(path);
+}
+
 // remove unnecessary JSX Text nodes
 export function filterChildren<TPath extends NodePath>(children: TPath[]): TPath[] {
   const filtered: TPath[] = [];

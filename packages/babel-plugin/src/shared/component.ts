@@ -6,6 +6,7 @@ import {
   registerImportMethod,
   filterChildren,
   getCoverageIgnoreComments,
+  takeCoverageIgnoreCommentsForParent,
   trimWhitespace,
   transformCondition,
   convertJSXIdentifier
@@ -335,6 +336,9 @@ export default function transformComponent(
     });
 
   const childResult = transformComponentChildren(path.get("children"), config);
+  // Pragmas written immediately before this component (a parent's
+  // `filterChildren` hand-off) lead this getter, not the parent's (#2138).
+  const beforeComponentComments = getCoverageIgnoreComments(path);
   if (childResult) {
     if (childResult[1]) {
       const body =
@@ -349,7 +353,11 @@ export default function transformComponent(
         [],
         t.isExpression(body) ? t.blockStatement([t.returnStatement(body)]) : body
       );
-      if (childResult[2]?.length) getter.leadingComments = childResult[2];
+      const coverageComments = [
+        ...(beforeComponentComments ?? []),
+        ...(childResult[2] ?? [])
+      ];
+      if (coverageComments.length) getter.leadingComments = coverageComments;
       runningObject.push(getter);
     } else runningObject.push(t.objectProperty(t.identifier("children"), childResult[0]));
   }
@@ -419,7 +427,7 @@ function transformComponentChildren(
 
   let transformedChildren: t.Expression | t.Expression[] = filteredChildren.reduce(
     (memo: t.Expression[], path: BabelPath<JSXNode>) => {
-      coverageIgnoreComments ||= getCoverageIgnoreComments(path);
+      coverageIgnoreComments ||= takeCoverageIgnoreCommentsForParent(path);
       if (t.isJSXText(path.node)) {
         const v = decode(trimWhitespace((path.node.extra?.raw as string | undefined) ?? ""));
         if (v.length) {

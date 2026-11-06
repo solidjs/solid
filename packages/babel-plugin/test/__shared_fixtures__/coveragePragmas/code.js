@@ -36,6 +36,35 @@ export const nestedComponent = (
   </Outer>
 );
 
+export const beforeComponent = (
+  <Switch>
+    {/* istanbul ignore next */}
+    <Match when={condition()}>
+      <div>A</div>
+    </Match>
+  </Switch>
+);
+
+export const fragmentPragma = (
+  <Comp>
+    <>
+      {/* c8 ignore next */}
+      <div>A</div>
+    </>
+  </Comp>
+);
+
+export const fragmentBeforeComponent = (
+  <Comp>
+    <>
+      {/* istanbul ignore next */}
+      <Match when={condition()}>
+        <div>A</div>
+      </Match>
+    </>
+  </Comp>
+);
+
 export const twoContainers = (
   <Comp>
     {/* istanbul ignore next */}

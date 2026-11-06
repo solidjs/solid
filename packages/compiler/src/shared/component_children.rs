@@ -10,6 +10,7 @@ use oxc_ast::ast::{
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::{GetSpan, Span};
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::shared::array::expression_to_array_element;
@@ -18,7 +19,17 @@ use crate::shared::classify::jsx_text_is_filtered;
 use crate::shared::condition::{is_condition_shape, transform_condition_inline};
 use crate::shared::fragment::lower_fragment;
 use crate::shared::mode_lower::{ModeLower, mode_ast};
-use crate::shared::utils::{coverage_ignore_block_comments, decode_html_entities, trim_jsx_text};
+use crate::shared::utils::{
+    coverage_ignore_block_comments, decode_html_entities, is_component_name, trim_jsx_text,
+};
+
+// Component element start → pragma anchor, for a pragma written immediately
+// before that component (including through a transparent fragment). Filled by
+// `anchor_coverage_pragmas`, read when the component builds its `children`
+// getter (#2138).
+thread_local! {
+    static INCOMING_COVERAGE_PRAGMAS: RefCell<HashMap<u32, Span>> = RefCell::new(HashMap::new());
+}
 
 /// The extra seam component children need beyond [`ModeLower`]: element
 /// children keep their setup statements (template declarations + operations)
@@ -62,13 +73,15 @@ struct ChildValue<'a> {
 
 pub(crate) fn component_children<'a, C: ComponentChildLower<'a>>(
     ctx: &mut C,
-    children: &[JSXChild<'a>],
+    element: &JSXElement<'a>,
 ) -> Result<Option<ComponentChildren<'a>>> {
+    let children = &element.children;
     let allocator = ctx.condition_allocator();
     let ast = mode_ast(ctx);
-    let coverage_pragma_span = component_children_coverage_pragma_span(children, ctx.source());
+    let coverage_pragma_span =
+        coverage_pragma_span_for(element.span.start, children, ctx.source());
     let mut values = std::vec::Vec::new();
-    for child in children {
+    for child in children.iter() {
         match child {
             JSXChild::Text(text) => {
                 let span = text.span;
@@ -202,14 +215,18 @@ pub(crate) fn component_children<'a, C: ComponentChildLower<'a>>(
     })
 }
 
-/// Babel's `filterChildren` hand-off: coverage pragmas in empty expression
-/// containers accumulate until the next child that survives the filter, and
-/// the first such child's pragmas lead the `children` getter — whatever kind
-/// of child it is.
-fn component_children_coverage_pragmas(
-    children: &[JSXChild<'_>],
-    source: &str,
-) -> std::vec::Vec<Span> {
+/// Where a run of coverage pragmas belongs after Babel's `filterChildren`
+/// hand-off (#2138): this element's `children` getter, or a nested component
+/// that the pragmas sit immediately before (fragments are transparent).
+enum CoverageHandoff {
+    Parent(std::vec::Vec<Span>),
+    ToComponent {
+        element_start: u32,
+        pragmas: std::vec::Vec<Span>,
+    },
+}
+
+fn coverage_handoff(children: &[JSXChild<'_>], source: &str) -> Option<CoverageHandoff> {
     let mut pending = std::vec::Vec::new();
     for child in children {
         match child {
@@ -219,23 +236,64 @@ fn component_children_coverage_pragmas(
                 pending.extend(coverage_ignore_block_comments(source, container.span));
             }
             JSXChild::Text(text) if jsx_text_is_filtered(&text.value) => {}
-            _ if !pending.is_empty() => return pending,
+            JSXChild::Fragment(fragment) if pending.is_empty() => {
+                // Transparent: pragmas inside the fragment lead the parent's
+                // getter or a nested component, same as Babel.
+                return coverage_handoff(&fragment.children, source);
+            }
+            JSXChild::Element(element) if !pending.is_empty() => {
+                return Some(if is_component_name(&element.opening_element.name) {
+                    CoverageHandoff::ToComponent {
+                        element_start: element.span.start,
+                        pragmas: pending,
+                    }
+                } else {
+                    CoverageHandoff::Parent(pending)
+                });
+            }
+            _ if !pending.is_empty() => return Some(CoverageHandoff::Parent(pending)),
             _ => {}
         }
     }
-    std::vec::Vec::new()
+    None
+}
+
+fn handoff_pragmas(handoff: &CoverageHandoff) -> &[Span] {
+    match handoff {
+        CoverageHandoff::Parent(pragmas) | CoverageHandoff::ToComponent { pragmas, .. } => {
+            pragmas
+        }
+    }
 }
 
 /// The span the `children` getter takes so codegen prints the authored
 /// pragmas ahead of it: the first pragma's own start, which
 /// [`anchor_coverage_pragmas`] attaches every pragma of the run to.
+/// Pragmas immediately before a nested component are excluded — they belong
+/// on that child's getter via [`incoming_coverage_pragma_span`].
 pub(crate) fn component_children_coverage_pragma_span(
     children: &[JSXChild<'_>],
     source: &str,
 ) -> Option<Span> {
-    component_children_coverage_pragmas(children, source)
-        .first()
-        .copied()
+    match coverage_handoff(children, source)? {
+        CoverageHandoff::Parent(pragmas) => pragmas.first().copied(),
+        CoverageHandoff::ToComponent { .. } => None,
+    }
+}
+
+/// Merge own-children pragmas with a pragma written immediately before this
+/// component in a parent (or transparent fragment).
+pub(crate) fn coverage_pragma_span_for(
+    element_start: u32,
+    children: &[JSXChild<'_>],
+    source: &str,
+) -> Option<Span> {
+    component_children_coverage_pragma_span(children, source)
+        .or_else(|| incoming_coverage_pragma_span(element_start))
+}
+
+fn incoming_coverage_pragma_span(element_start: u32) -> Option<Span> {
+    INCOMING_COVERAGE_PRAGMAS.with(|map| map.borrow().get(&element_start).copied())
 }
 
 /// Oxc attaches a comment to the token after it, so each `{/* … */}` pragma
@@ -243,16 +301,29 @@ pub(crate) fn component_children_coverage_pragma_span(
 /// pragma of a run to the first pragma's start — a position no other node
 /// starts at — so only the pragmas print, ahead of the getter spanned there.
 pub(crate) fn anchor_coverage_pragmas(program: &mut Program<'_>, source: &str) {
+    INCOMING_COVERAGE_PRAGMAS.with(|map| map.borrow_mut().clear());
+
     struct Collector<'s> {
         source: &'s str,
         anchors: HashMap<u32, u32>,
+        incoming: HashMap<u32, Span>,
     }
     impl<'a> Visit<'a> for Collector<'_> {
         fn visit_jsx_element(&mut self, element: &JSXElement<'a>) {
-            let pragmas = component_children_coverage_pragmas(&element.children, self.source);
-            if let Some(anchor) = pragmas.first() {
-                for pragma in &pragmas {
-                    self.anchors.insert(pragma.start, anchor.start);
+            if let Some(handoff) = coverage_handoff(&element.children, self.source) {
+                if let Some(anchor) = handoff_pragmas(&handoff).first() {
+                    for pragma in handoff_pragmas(&handoff) {
+                        self.anchors.insert(pragma.start, anchor.start);
+                    }
+                }
+                if let CoverageHandoff::ToComponent {
+                    element_start,
+                    pragmas,
+                } = handoff
+                {
+                    if let Some(anchor) = pragmas.first() {
+                        self.incoming.insert(element_start, *anchor);
+                    }
                 }
             }
             walk::walk_jsx_element(self, element);
@@ -262,8 +333,10 @@ pub(crate) fn anchor_coverage_pragmas(program: &mut Program<'_>, source: &str) {
     let mut collector = Collector {
         source,
         anchors: HashMap::new(),
+        incoming: HashMap::new(),
     };
     collector.visit_program(program);
+    INCOMING_COVERAGE_PRAGMAS.with(|map| *map.borrow_mut() = collector.incoming);
     if collector.anchors.is_empty() {
         return;
     }
