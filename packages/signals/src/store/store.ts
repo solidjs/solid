@@ -2078,6 +2078,14 @@ function readSource(
     // key). A held container's committed frame is the node's.
     if (verdict === null || (!held && key !== undefined && !keyChanged(target, key, shape)))
       return held ? asBacking(k!._value) : target.v;
+    // A plain target's staging lives on its patch node (the batch's, or the
+    // hold's carrier): the probe judges that node.
+    if (plainTarget(target)) {
+      const p = target.kp ?? heldCarrier(target);
+      if (p !== null) return asBacking(readNode(p));
+      if (target.pb !== null) return asBacking(readNode(getPatchNode(target)));
+      return committed(target);
+    }
     return k === null ? committed(target) : asBacking(readNode(k));
   }
   // A pass reading a key the batch left unchanged: the same value in both
@@ -2840,6 +2848,12 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         if (!present && (!target.ch || node._config & CONFIG_OVERRIDE || !(key in src)))
           return undefined;
       }
+    } else if (plainTarget(target) && !inDraft(target) && !writeOverride) {
+      // No observer (a handler, a top-level verdict probe): the key's frame
+      // by the hold rules, as in `has` — a patch node decides it.
+      src = frameOf(target, key, true);
+      if (!(key in src) || (src !== target.v && frameDel !== null && frameDel.has(key)))
+        return undefined;
     } else src = readSource(target, key, true);
     let desc: PropertyDescriptor | undefined;
     if (optHooks && !enumerating && optRead(target)) {
