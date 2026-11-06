@@ -389,7 +389,13 @@ function plainLeaf(target: StoreTarget, node: Signal<any> | undefined): boolean 
   return target._fam?.opt !== true && !(node !== undefined && node._config & CONFIG_OVERRIDE);
 }
 function notifyLeaf(node: Signal<any>, nv: unknown, force?: boolean): void {
-  if (!force && node._equals && node._equals(node._value, nv)) return;
+  const old = node._value;
+  if (!force && node._equals && node._equals(old, nv)) return;
+  // The side channels a signal's write has (`setSignal`): attribution's
+  // record of the write, and hydration's snapshot of the value before it
+  // (a scoped reader keeps serving it, `serveDataKey`).
+  if (__OBSERVE__ && attrHooks !== null) attrHooks.write(node, old, nv);
+  if (snapshotCaptureActive) captureWriteSnapshot(node, old);
   node._value = nv;
   if (node._subs !== null) insertSubs(node);
 }
@@ -435,7 +441,13 @@ function heldPatchFor(t: StoreTarget, key: PropertyKey, shape = true): Signal<an
  * pairing an unchanged child row lazily (#3712). */
 function carrierHas(t: StoreTarget, p: any, key: PropertyKey, shape: boolean): boolean {
   if (p.void) return false;
-  if (!p.adopt) return written(p.wk, key) || p.del?.has(key) === true;
+  // A trap batch's record names the key; the value decides (a `length` an
+  // index write recorded unchanged holds no one, as on `next`).
+  if (!p.adopt)
+    return (
+      (written(p.wk, key) || p.del?.has(key) === true) &&
+      changedBetween(t, asBacking(p.base), p._pendingValue, key, shape, p.del, false)
+    );
   const old = asBacking(p._value);
   return (
     changedBetween(t, old, p._pendingValue, key, shape, p.del, p.ovl) &&
@@ -474,6 +486,11 @@ function heldCarrier(t: StoreTarget): Signal<any> | null {
     }
   return null;
 }
+/** The patch a layered batch's draft was cloned from (per target, while
+ * the batch is open; moved to its carrier at the park): the fold deletes a
+ * key the batch removed from THAT frame, never one another batch added to
+ * the committed backing since. */
+const layerBase: WeakMap<StoreTarget, Record<PropertyKey, any>> = new WeakMap();
 /** The deletes of the patch `frameOf` chose (null: the committed backing). */
 let frameDel: Set<PropertyKey> | null = null;
 /** The frame a plain store's read of `key` sees. */
@@ -603,6 +620,8 @@ function parkPatch(target: StoreTarget, t: Transaction): void {
   carrier.adopt = patch === target.v;
   carrier.wk = target.wk ?? WK_ALL;
   carrier.del = del;
+  carrier.base = layerBase.get(target) ?? carrier._value;
+  layerBase.delete(target);
   if (carrier.adopt) {
     const older = heldCarrier(target);
     if (older !== null) {
@@ -633,17 +652,24 @@ function foldPatch(t: StoreTarget, p: any): void {
   const v = t.v as any;
   const wk = p.wk as WrittenKeys | null;
   const del = p.del as Set<PropertyKey> | null;
+  const base = asBacking(p.base);
   if (wk !== null && wk !== WK_ALL) {
     for (let w: WrittenKeys | undefined = wk; w !== undefined; w = w.u)
       for (const key of w) {
-        if (hasOwn.call(patch, key)) copyOwn(v, patch, key);
-        else if (!p.ovl) delete v[key];
+        if (hasOwn.call(patch, key)) {
+          // A recorded key written back unchanged (an index write's
+          // `length`) is no proposal: the backing keeps what later batches
+          // committed there.
+          if (hasOwn.call(base, key) && patch[key as any] === base[key as any]) continue;
+          copyOwn(v, patch, key);
+        } else delete v[key];
       }
   } else {
     for (const key of Reflect.ownKeys(patch)) if (key !== $OWNER) copyOwn(v, patch, key);
-    if (!p.ovl)
-      for (const key of Reflect.ownKeys(v))
-        if (key !== $OWNER && !hasOwn.call(patch, key)) delete v[key];
+    // Removed: a key of the frame the batch started from that its patch
+    // lacks (not one a later batch added to the backing since).
+    for (const key of Reflect.ownKeys(asBacking(p.base)))
+      if (key !== $OWNER && !hasOwn.call(patch, key)) delete v[key];
   }
   if (del !== null) for (const key of del) delete v[key];
   if (t.v !== old && t.u) pathCopy(t, old);
@@ -1038,6 +1064,7 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     // proposal layered over the first, never over the committed backing.
     const v = heldBase(target);
     if (!directCommit) queueFold(target);
+    if (v !== target.v) layerBase.set(target, v);
     if (
       !target.ch &&
       v === target.v &&
@@ -1351,7 +1378,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
               }
           } else {
             for (const key of Reflect.ownKeys(pb)) if (key !== $OWNER) copyOwn(v, pb, key);
-            for (const key of Reflect.ownKeys(old)) {
+            for (const key of Reflect.ownKeys(layerBase.get(t) ?? old)) {
               if (key !== $OWNER && !hasOwn.call(pb, key)) delete (v as any)[key];
             }
           }
@@ -1363,6 +1390,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
         }
         t.pb = null;
         t.wk = null; // the written-keys window closes with the commit
+        layerBase.delete(t);
       }
       if (k !== null) {
         // The node's committed value is the backing. A container nobody
@@ -1554,6 +1582,25 @@ function notifyWrites(t: StoreTarget): void {
   const writtenKeys =
     wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
   if (__OBSERVE__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
+  // A34 (1): a key a live hold's patch has is a second proposal for it —
+  // the writer's tick joins the hold, leaf or no leaf (on `next` the write
+  // went into the held pending backing itself).
+  if (plain && t.kh !== null) {
+    if (writtenKeys === null) {
+      const p = heldCarrier(t);
+      if (p !== null) joinHeld(t, p);
+    } else {
+      for (const key of writtenKeys) {
+        const p = heldPatchFor(t, key);
+        if (p !== null && p._config & CONFIG_HELD) joinHeld(t, p);
+      }
+      if (t.del !== null)
+        for (const key of t.del) {
+          const p = heldPatchFor(t, key);
+          if (p !== null && p._config & CONFIG_HELD) joinHeld(t, p);
+        }
+    }
+  }
   if (t._fam !== null && !heldDerivationHit && writtenKeys !== null)
     for (const key of writtenKeys)
       if (heldDerivation(t, nodes?.[key as any], key)) {
@@ -1593,10 +1640,6 @@ function notifyWrites(t: StoreTarget): void {
       // own on it or in `del`.)
       const nv = own || !(t.del?.has(key) || key === "__proto__") ? pb[key as any] : undefined;
       if (plain) {
-        // A34 (1): a key a hold's patch has is a second proposal for it —
-        // the writer's tick joins the hold.
-        const p = heldPatchFor(t, key);
-        if (p !== null && p._config & CONFIG_HELD) joinHeld(t, p);
         notifyLeaf(node, nv);
         continue;
       }
@@ -1618,8 +1661,6 @@ function notifyWrites(t: StoreTarget): void {
       const node = has[key as any];
       if (node !== undefined) {
         if (plain) {
-          const p = heldPatchFor(t, key);
-          if (p !== null && p._config & CONFIG_HELD) joinHeld(t, p);
           notifyLeaf(node, key in pb && !t.del?.has(key));
           continue;
         }
@@ -2203,6 +2244,9 @@ function serveDataKey(
         // at the first subscription, kept while the target has nodes.
         if (target.k === null) getContainerNode(target);
       }
+      // A leaf with a hydration snapshot: core's read serves it to a reader
+      // in the snapshot's scope (and replays the reader at the release).
+      if (node._x?._snapshotValue !== undefined) v = readNode(node);
     } else if (node !== undefined) {
       const nv = nodeValue(node, backingValue, target);
       if (chained) {
