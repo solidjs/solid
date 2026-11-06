@@ -783,8 +783,16 @@ impl<'a> Emitter<'_, 'a> {
             let fn_body = ast.function_body(SPAN, ast.vec(), statements);
             if getter {
                 let descriptor = uid("_d", &mut self.descriptor_index, self.taken);
+                // Keep the original getter's span when coverage pragmas are
+                // anchored there so they print ahead of the shared `get()`
+                // (#2138), matching Babel's leadingComments copy.
+                let get_span = if self.commented.contains(&property.span.start) {
+                    property.span
+                } else {
+                    SPAN
+                };
                 let get = ast.expression_function(
-                    SPAN,
+                    get_span,
                     FunctionType::FunctionExpression,
                     None,
                     false,
@@ -805,7 +813,7 @@ impl<'a> Emitter<'_, 'a> {
                     SPAN,
                     ast.vec_from_array([
                         ast.object_property_kind_object_property(
-                            SPAN,
+                            get_span,
                             PropertyKind::Init,
                             ast.property_key_static_identifier(SPAN, ast.ident("get")),
                             get,

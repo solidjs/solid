@@ -19,7 +19,7 @@ use crate::shared::attr_plan::{AttrPlan, AttrPlanner, PlanValue};
 use crate::shared::bindings::BindingTable;
 use crate::shared::classify::{Classify, jsx_text_is_filtered, significant_children};
 use crate::shared::component_callee::{ComponentCalleeContext, component_callee_expression};
-use crate::shared::component_children::component_children_coverage_pragma_span;
+use crate::shared::component_children::coverage_pragma_span_for;
 use crate::shared::component_props::{
     ComponentPropContext, component_property, component_props_expression,
     component_spread_expression, flush_component_props,
@@ -1285,7 +1285,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
 
         if let Some((children, dynamic, coverage_pragma_span)) =
-            self.component_children_expression(&element.children)?
+            self.component_children_expression(element.span.start, &element.children)?
         {
             if dynamic {
                 // Babel's getter-body inlining for dynamic children: unwrap a
@@ -1359,9 +1359,10 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     /// children value plus whether it is dynamic (getter-hosted).
     fn component_children_expression(
         &mut self,
+        element_start: u32,
         children: &[JSXChild<'a>],
     ) -> Result<Option<(Expression<'a>, bool, Option<Span>)>> {
-        let coverage_pragma_span = component_children_coverage_pragma_span(children, self.source);
+        let coverage_pragma_span = coverage_pragma_span_for(element_start, children, self.source);
         // `filterChildren`: drop empty expression containers and JSXText whose
         // raw starts with a newline and contains only whitespace.
         let filtered: std::vec::Vec<&JSXChild<'a>> = children
