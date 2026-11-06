@@ -151,6 +151,7 @@ export function lazy<T extends Component<any>>(
   options?: { export?: string },
   moduleUrl?: string
 ): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string };
+/*#__NO_SIDE_EFFECTS__*/
 export function lazy<T extends Component<any>>(
   fn: () => Promise<any>,
   options?: { export?: string },
@@ -248,6 +249,7 @@ export function lazy<T extends Component<any>>(
  * admin.peek();     // Module | undefined
  * ```
  */
+/*#__NO_SIDE_EFFECTS__*/
 export function lazyModule<T extends Record<string, any>>(
   fn: () => Promise<T>,
   moduleUrl?: string

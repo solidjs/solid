@@ -15,7 +15,7 @@ const plugins = [
     presets: ["@babel/preset-typescript"]
   }),
   cleanup({
-    comments: ["some", /PURE/],
+    comments: ["some", /PURE|NO_SIDE_EFFECTS/],
     extensions: [".js", ".ts"]
   })
 ];

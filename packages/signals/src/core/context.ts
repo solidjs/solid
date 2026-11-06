@@ -17,6 +17,7 @@ export type ContextRecord = Record<string | symbol, unknown>;
  * A default value can be provided here which will be used when a specific value is not provided
  * via a `setContext` call.
  */
+/*#__NO_SIDE_EFFECTS__*/
 export function createContext<T>(defaultValue?: T, description?: string): Context<T> {
   // Dev: an explicit `undefined` default is still no default (`undefined`
   // means "not provided"); remembered so a failed read can say so (#4181).

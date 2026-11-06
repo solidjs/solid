@@ -497,6 +497,7 @@ export function onCleanup(fn: Disposable): Disposable {
   return fn;
 }
 
+/*#__NO_SIDE_EFFECTS__*/
 export function createContext<T>(defaultValue?: T, description?: string): Context<T> {
   // Dev: an explicit `undefined` default is still no default (#4181).
   if (IS_DEV && arguments.length && defaultValue === undefined)

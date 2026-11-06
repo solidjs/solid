@@ -292,6 +292,7 @@ export function lazy<T extends Component<any>>(
   options?: { export?: string },
   moduleUrl?: string
 ): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string };
+/*#__NO_SIDE_EFFECTS__*/
 export function lazy<T extends Component<any>>(
   fn: () => Promise<any>,
   options?: { export?: string },
@@ -567,6 +568,7 @@ export function lazy<T extends Component<any>>(
  * hints assets; it does not register. A missing id warns in dev and `.peek()`
  * still returns the module. Outside a render, `.peek()` is a sync read.
  */
+/*#__NO_SIDE_EFFECTS__*/
 export function lazyModule<T extends Record<string, any>>(
   fn: () => Promise<T>,
   moduleUrl?: string

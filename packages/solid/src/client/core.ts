@@ -128,6 +128,7 @@ export interface Context<T> extends ContextProviderComponent<T> {
  *
  * @description https://v2.solidjs.com/reference/solid-js/components-context/create-context
  */
+/*#__NO_SIDE_EFFECTS__*/
 export function createContext<T>(defaultValue?: T, options?: EffectOptions): Context<T> {
   const id = Symbol((options && options.name) || "");
   function provider(props: FlowProps<{ value: unknown }>) {

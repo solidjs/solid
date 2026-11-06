@@ -38,6 +38,7 @@ export interface Context<T> extends ContextProviderComponent<T> {
  * @param defaultValue optional default; only meaningful for primitive fallbacks
  * @param options allows to set a name in dev mode for debugging purposes
  */
+/*#__NO_SIDE_EFFECTS__*/
 export function createContext<T>(defaultValue?: T, options?: EffectOptions): Context<T> {
   const id = Symbol((options && options.name) || "");
   function provider(props: FlowProps<{ value: unknown }>) {
