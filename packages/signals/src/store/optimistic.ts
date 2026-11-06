@@ -251,6 +251,42 @@ export function notifyOptimisticWrites(
 
 type KeyFn = (item: any) => any;
 
+/** Two arrangements (a guess's rows or keys against a truth's) by row
+ * identity — by key when the family has one. */
+function arrangementEqual(
+  a: Record<PropertyKey, any>,
+  b: Record<PropertyKey, any>,
+  fam: StoreFamily
+): boolean {
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== (b as any[]).length) return false;
+    for (let i = 0; i < a.length; i++) if (!rowSame(a[i], (b as any[])[i], fam)) return false;
+    return true;
+  }
+  const ak = Reflect.ownKeys(a).filter(k => k !== $OWNER);
+  const bk = Reflect.ownKeys(b).filter(k => k !== $OWNER);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) if (!(k in b)) return false;
+  return true;
+}
+function rowSame(a: any, b: any, fam: StoreFamily): boolean {
+  if (isEqual(a, b) || targetsEqual(a, b)) return true;
+  const keyFn = fam.key;
+  if (!keyFn || !isWrappable(a) || !isWrappable(b)) return false;
+  // A row the store already serves is its proxy's row: a reader (a list)
+  // holds that proxy, so another object at the index is another row, by key
+  // or contents alike — a guess's fresh object wraps a new proxy. A landing's
+  // object has been adopted by the row it pairs with, so it serves that
+  // row's proxy. Only rows no proxy serves yet pair by key, keyless rows by
+  // position — reconcile's fallback (#3898).
+  const ta = lookupTarget((a = unwrapValue(a)), fam);
+  const tb = lookupTarget((b = unwrapValue(b)), fam);
+  if (ta || tb) return ta === tb;
+  // (Two keyless rows: `undefined` is the same key.)
+  return sameKey(keyFn(a), keyFn(b));
+}
+
 /** Whether reconcile would write anything into `a` from `b`: wrappable
  * pairs descend, leaves compare as its writes do. A key mismatch is a
  * replacement, which a content difference already says. Plain data — the
@@ -391,22 +427,22 @@ GlobalQueue._slotTake = (n, back) => {
  * asked before the guess, it is the older question; its rows are held
  * beneath the guess. True: the lane holds the landing (`laneWrite`). */
 GlobalQueue._laneRebase = (el: any, truth: unknown, older: boolean) => {
-  if (!older && el.g !== null) return fold(el, truth);
   if (el._key !== $PATCH) return true;
   const t = el._host as StoreTarget;
   const guess = latestOf(el) as any;
-  if (!Array.isArray(truth) || !Array.isArray(guess)) {
-    if (truth === null || typeof truth !== "object" || guess === null || typeof guess !== "object")
-      return true;
-    const composed: any = Array.isArray(truth) ? [...(truth as any[])] : { ...(truth as object) };
-    for (const key of el.wk ?? []) {
-      if (key in guess) composed[key] = guess[key];
-      else delete composed[key];
-    }
-    for (const key of el.del ?? []) delete composed[key];
-    setLaneValue(el, txOf(el), composed);
-    return true;
+  if (!older && el.g !== null) {
+    // A current truth: folded beneath a shown keyed arrangement guess (D-34),
+    // else held beneath while the arrangement the guess shows stands — a
+    // value guess's always (the guess stays until the action's own answer,
+    // D-7, F-11); an arrangement the truth no longer has (rows by identity
+    // or key, an object's keys) is a correction (A18).
+    if (fold(el, truth)) return true;
+    return (
+      el.g === undefined || arrangementEqual(guess, truth as Record<PropertyKey, any>, t._fam!)
+    );
   }
+  // An older question's truth, or the #4525 re-base: the guess's edit over it.
+  if (!Array.isArray(truth) || !Array.isArray(guess)) return true;
   const keyFn = t._fam?.key;
   if (!keyFn) return;
   const byKey = new Map<unknown, any>();

@@ -425,7 +425,22 @@ function heldPatchFor(t: StoreTarget, key: PropertyKey, shape = true): Signal<an
  * pairing an unchanged child row lazily (#3712). */
 function carrierHas(t: StoreTarget, p: any, key: PropertyKey, shape: boolean): boolean {
   if (p.void) return false;
-  if (p.guess) return written(p.wk, key) || p.del?.has(key) === true;
+  // A guess carrier: the keys the guess changed — and, once a truth is held
+  // beneath it, the keys that truth changes against the committed frame
+  // (a folded lane's `latest`, a truth reader, a lane pass: the carrier
+  // decides each from its two slots, never a committed key beside them —
+  // #3568's `1,2,3,HOLE len=4`).
+  if (p.guess) {
+    if (written(p.wk, key) || p.del?.has(key) === true) return true;
+    const truth = p._pendingValue;
+    if (truth === NOT_PENDING) return false;
+    const v = t.v;
+    return (
+      hasOwn.call(truth, key) !== hasOwn.call(v, key) ||
+      (!isEqual(truth[key as any], v[key as any]) &&
+        !sameLogicalSlot(t, truth[key as any], v[key as any]))
+    );
+  }
   // A trap batch's record names the key; the value decides (a `length` an
   // index write recorded unchanged holds no one, as on `next`).
   if (!p.adopt)
@@ -1254,6 +1269,11 @@ export function adoptPB(
   else setLookup(incoming, target);
   if (__TEST__ && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
   if (notify && base !== incoming) notifyFold(target, base, incoming);
+  // A landing on a target carrying a guess: the truth, judged against the
+  // guess by the lane engine (`laneWrite`: confirmed beneath, re-based,
+  // folded, or a correction).
+  const g = target.kg;
+  if (g !== null && g._config & CONFIG_OVERRIDE && !directCommit) setSignal(g, incoming);
 }
 
 // ---------------------------------------------------------------------------
@@ -1603,11 +1623,12 @@ function notifyWrites(t: StoreTarget): void {
     // The derive's draft: new rows under guessed rows are paired with them
     // first (D-34, #4329).
     optHooks.pair(t, pb);
-    // A landing on a target carrying a guess: the truth, judged against the
-    // guess by the lane engine (`laneWrite`: confirmed beneath, re-based,
-    // folded, or a correction).
+    // A landing on a target carrying a guess (a trap batch's; an adoption's
+    // reaches the carrier in `adoptPB`): the truth, judged against the guess
+    // by the lane engine (`laneWrite`: confirmed beneath, re-based, folded,
+    // or a correction).
     const g = t.kg;
-    if (g !== null && g._config & CONFIG_OVERRIDE) setSignal(g, pb);
+    if (g !== null && g._config & CONFIG_OVERRIDE && pb !== t.v) setSignal(g, pb);
   }
   const old = t.v;
   // Devtools mutation hook: full-key diff (dev-only cost) so unobserved
