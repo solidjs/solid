@@ -105,16 +105,15 @@ const hasOwn = Object.prototype.hasOwnProperty;
  * restored when the setter's writes become guesses (`writes`). */
 const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
 
-/** The view the writer sees of `t`: the carrier's guess — unflushed, or the
- * lane's value — over the committed frame (a chained target's: the inner
- * store's proxy, whose reads are the inner's current frame). */
-function writerBacking(t: StoreTarget): Record<PropertyKey, any> {
-  // A chained backing is a proxy: reading it as a handler can expose a
-  // derived store's staging. Compose the writer's view on the committed
-  // frame of each link, with that link's guesses over it.
+/** The view the setter composes on (`writer`): the committed frame — a
+ * chained backing resolved through the inner store's — with the lane's
+ * value and the tick's own guess over it; `plain`: the committed frame
+ * alone (the comparator's world). */
+function writerBacking(t: StoreTarget, plain = false): Record<PropertyKey, any> {
   const base = committed(t);
   const inner: StoreTarget | undefined = (base as any)[$TARGET];
-  return guessView(t, inner === undefined ? base : writerBacking(inner), true);
+  const src = inner === undefined ? base : writerBacking(inner, plain);
+  return plain ? src : guessView(t, src, true);
 }
 /** `src` with the target's guess over it: the carrier's unflushed guess or
  * lane value when it carries one, else `src` itself. */
@@ -156,14 +155,6 @@ function optimisticDraft(t: StoreTarget): Record<PropertyKey, any> {
   return cloneRaw(writerBacking(t), t);
 }
 
-/** The committed frame a guess is judged against: a chained backing's is
- * the inner store's (its proxy would serve the inner's staging to the
- * comparator, and a guess equal to that staging is no guess). */
-function committedFrame(t: StoreTarget): Record<PropertyKey, any> {
-  const base = committed(t);
-  const inner: StoreTarget | undefined = (base as any)[$TARGET];
-  return inner === undefined ? base : committedFrame(inner);
-}
 /** The target's guess carrier, made at the first guess: its committed value
  * the frame the guess is shown over. Its comparator judges a truth against
  * the guess over the keys the guess changed (`echoes`: the server's echo of a
@@ -225,9 +216,9 @@ function patchEquals(this: any, a: any, b: any): boolean {
   // frame: the proxy would serve the inner's staging, and a guess equal to
   // that staging is still a guess over the committed world.
   const at: StoreTarget | undefined = a[$TARGET];
-  if (at !== undefined) a = committedFrame(at);
+  if (at !== undefined) a = writerBacking(at, true);
   const bt: StoreTarget | undefined = b[$TARGET];
-  if (bt !== undefined) b = committedFrame(bt);
+  if (bt !== undefined) b = writerBacking(bt, true);
   const fam: StoreFamily = this._host._fam;
   // A structural guess: the arrangement (rows by identity or key, an
   // object's keys), as the container judged it.

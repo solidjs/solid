@@ -425,13 +425,7 @@ function carrierHas(t: StoreTarget, p: any, key: PropertyKey, shape: boolean): b
   if (p.guess) {
     if (written(p.wk, key) || p.del?.has(key) === true) return true;
     const truth = p._pendingValue;
-    if (truth === NOT_PENDING) return false;
-    const v = t.v;
-    return (
-      hasOwn.call(truth, key) !== hasOwn.call(v, key) ||
-      (!isEqual(truth[key as any], v[key as any]) &&
-        !sameLogicalSlot(t, truth[key as any], v[key as any]))
-    );
+    return truth !== NOT_PENDING && changedBetween(t, t.v, truth, key, shape, null, false);
   }
   // A trap batch's record names the key; the value decides (a `length` an
   // index write recorded unchanged holds no one, as on `next`).
@@ -558,47 +552,10 @@ function hotFrame(target: StoreTarget): boolean {
         (target.wk !== null || pb === target.v)))
   );
 }
-/** Did the open batch change `key` (hot case)? A trap batch's record; an
- * adoption's by value against the frame it swapped out (a paired row is the
- * same slot). */
-function hotChanged(target: StoreTarget, key: PropertyKey): boolean {
-  const pb = target.pb!;
-  if (pb !== target.v) return written(target.wk, key) || target.del?.has(key) === true;
-  const po = target.po;
-  if (po === null) return true;
-  const ov = po[key as any];
-  const nv = pb[key as any];
-  return !isEqual(ov, nv) && !sameLogicalSlot(target, ov, nv);
-}
 /** The frame a plain store's read of `key` sees. */
 function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<PropertyKey, any> {
   frameDel = null;
-  if (inDraft(target) || writeOverride) {
-    // The derive reads its own store through its draft: a key a hold's
-    // patch has is the future, and the pass that reads it derives from the
-    // future (L2: a read of something already held joins it) — the
-    // derive's whole result reveals with the hold (core R31 / #3733). A
-    // user's setter reading its draft is no pass and joins nothing.
-    if (writeOverride && !userWrite) {
-      const p = target.pb !== null && target.kp !== null ? target.kp : heldPatchFor(target, key);
-      if (p !== null && (p._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD)
-        joinPassTx(txOf(p));
-    }
-    // A writer before its first write composes on the hold's patch, the
-    // batch's own staging once it has one (`ensurePB` layers it there). An
-    // optimistic setter composes on the writer's view instead — the screen
-    // with the lane's values, never a truth held beneath a guess
-    // (`readSource` makes its draft on the read, optimistic.ts `draft`).
-    if (target.pb === null && !(userWrite && target._fam?.opt === true)) {
-      const p = heldCarrier(target);
-      if (p !== null) {
-        frameDel = (p as any).del ?? null;
-        return p._pendingValue as Record<PropertyKey, any>;
-      }
-    }
-    frameDel = target.del;
-    return readSource(target, key);
-  }
+  if (inDraft(target) || writeOverride) return readSource(target, key);
   const pb = target.pb;
   // A guess carrier's key (S2): the user's draft, as the lane shows it —
   // read through the carrier, tracked (the lane's seat, a verdict window's
@@ -754,31 +711,38 @@ function foldPatch(t: StoreTarget, p: any): void {
     return;
   }
   if (patch === old) return;
+  copyPatch(t, patch, p.wk, p.del, p.base, p.base);
+  if (t.v !== old && t.u) pathCopy(t, old);
+}
+/** A patch's keys onto the committed backing (privatized first): the
+ * written keys — a recorded key written back as `skip` (the frame the
+ * batch started from) had it is no proposal (an index write's `length`):
+ * the backing keeps what later batches committed there — else every key,
+ * deleting the keys of `base` the patch lacks (not one a later batch added
+ * to the backing since); then the deletions. */
+function copyPatch(
+  t: StoreTarget,
+  patch: Record<PropertyKey, any>,
+  wk: WrittenKeys | null,
+  del: Set<PropertyKey> | null,
+  base: Record<PropertyKey, any>,
+  skip: Record<PropertyKey, any> | null
+): void {
   privatizeCommitted(t);
   const v = t.v as any;
-  const wk = p.wk as WrittenKeys | null;
-  const del = p.del as Set<PropertyKey> | null;
-  const base = p.base;
   if (wk !== null && wk !== WK_ALL) {
     for (let w: WrittenKeys | undefined = wk; w !== undefined; w = w.u)
       for (const key of w) {
-        if (hasOwn.call(patch, key)) {
-          // A recorded key written back unchanged (an index write's
-          // `length`) is no proposal: the backing keeps what later batches
-          // committed there.
-          if (hasOwn.call(base, key) && patch[key as any] === base[key as any]) continue;
+        if (!hasOwn.call(patch, key)) delete v[key];
+        else if (skip === null || !hasOwn.call(skip, key) || patch[key as any] !== skip[key as any])
           copyOwn(v, patch, key);
-        } else delete v[key];
       }
   } else {
     for (const key of Reflect.ownKeys(patch)) if (key !== $OWNER) copyOwn(v, patch, key);
-    // Removed: a key of the frame the batch started from that its patch
-    // lacks (not one a later batch added to the backing since).
-    for (const key of Reflect.ownKeys(p.base))
+    for (const key of Reflect.ownKeys(base))
       if (key !== $OWNER && !hasOwn.call(patch, key)) delete v[key];
   }
   if (del !== null) for (const key of del) delete v[key];
-  if (t.v !== old && t.u) pathCopy(t, old);
 }
 /** The parent's slot follows a backing that moved (the path copy). */
 function pathCopy(t: StoreTarget, old: Record<PropertyKey, any>): void {
@@ -1440,21 +1404,7 @@ function foldTarget(t: StoreTarget, old: Record<PropertyKey, any>): void {
         } else if (t.v !== old) {
           // Privatized mid-batch (a child's path copy repointed us): the
           // owned backing takes the written keys.
-          privatizeCommitted(t);
-          const v = t.v;
-          const wk = t.wk;
-          if (wk !== null && wk !== WK_ALL) {
-            for (let w: WrittenKeys | undefined = wk; w !== undefined; w = w.u)
-              for (const key of w) {
-                if (hasOwn.call(pb, key)) copyOwn(v, pb, key);
-                else delete (v as any)[key];
-              }
-          } else {
-            for (const key of Reflect.ownKeys(pb)) if (key !== $OWNER) copyOwn(v, pb, key);
-            for (const key of Reflect.ownKeys(layerBase.get(t) ?? old)) {
-              if (key !== $OWNER && !hasOwn.call(pb, key)) delete (v as any)[key];
-            }
-          }
+          copyPatch(t, pb, t.wk, null, layerBase.get(t) ?? old, null);
         } else {
           // The clone (or adopted object) becomes the committed backing
           // (path copy below).
@@ -1677,17 +1627,11 @@ function notifyWrites(t: StoreTarget): void {
     if (writtenKeys === null) {
       const p = heldCarrier(t);
       if (p !== null) joinHeld(t, p);
-    } else {
-      for (const key of writtenKeys) {
+    } else
+      for (const key of t.del === null ? writtenKeys : [...writtenKeys, ...t.del]) {
         const p = heldPatchFor(t, key);
         if (p !== null && p._config & CONFIG_HELD) joinHeld(t, p);
       }
-      if (t.del !== null)
-        for (const key of t.del) {
-          const p = heldPatchFor(t, key);
-          if (p !== null && p._config & CONFIG_HELD) joinHeld(t, p);
-        }
-    }
   }
   if (nodes !== null) {
     const keys: Iterable<PropertyKey> = writtenKeys ?? Reflect.ownKeys(nodes);
@@ -2030,8 +1974,32 @@ function readSource(
     return draft;
   }
   const pb = target.pb;
+  if (inDraft(target) || writeOverride) {
+    // A derive's draft (`writeOverride`) composing on a key a hold has: the
+    // pass joins the hold (A34 (1)). A draft not yet opened on a target
+    // under a live hold reads the hold's patch (`heldBase`: the frame it
+    // is cloned from).
+    if (writeOverride && !userWrite) {
+      const p =
+        pb !== null && target.kp !== null
+          ? target.kp
+          : key === undefined
+            ? heldCarrier(target)
+            : heldPatchFor(target, key);
+      if (p !== null && (p._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD)
+        joinPassTx(txOf(p));
+    }
+    if (pb === null && !(userWrite && target._fam?.opt === true)) {
+      const p = heldCarrier(target);
+      if (p !== null) {
+        frameDel = (p as any).del ?? null;
+        return p._pendingValue as Record<PropertyKey, any>;
+      }
+    }
+    frameDel = target.del;
+    return pb ?? target.v;
+  }
   if (pb === null) return target.v;
-  if (inDraft(target) || writeOverride) return pb;
   const c = stagingReader();
   if (c === null) {
     if (getObserver() !== null) return pb; // a frame reader's leaf decides the value
@@ -2533,7 +2501,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
           else {
             const c = context as Computed<any> | null;
             const pb = target.pb;
-            if (pb !== null && c !== null && hotChanged(target, key)) {
+            if (pb !== null && c !== null && batchHas(target, pb, key, false)) {
               if (c._config & (CONFIG_VERDICT | CONFIG_CHILDREN_FORBIDDEN)) nv = NOT_PENDING;
               else {
                 stagedRead(c);
