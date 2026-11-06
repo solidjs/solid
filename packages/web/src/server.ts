@@ -742,6 +742,30 @@ function preloadInvalid(field, message, value) {
 // with the client's skip (client.ts). `data.type` is the one thing safe to
 // record about an arbitrary value; the value itself rides `data.value` for
 // the console consumer.
+
+// Finished markup is only what this runtime made. Its nodes share a branded
+// prototype (`Symbol.for`, so duplicate runtime copies agree); a plain object
+// with a `t` key, such as one parsed from JSON, is data and never markup.
+const SSR_NODE = Symbol.for("solid.ssrNode");
+class Html {
+  t: any;
+  constructor(t) {
+    this.t = t;
+  }
+}
+class Parts {
+  t: any;
+  h: any;
+  p: any;
+  rows?: any;
+  constructor(t, h, p) {
+    this.t = t;
+    this.h = h;
+    this.p = p;
+  }
+}
+Html.prototype[SSR_NODE] = Parts.prototype[SSR_NODE] = true;
+
 function unrecognizedInsert(node) {
   devCheck({
     code: "UNRECOGNIZED_INSERT_VALUE",
@@ -4128,7 +4152,8 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
   // `resolveValue` returns them). NotReady escalations are absorbed into
   // h/p (the caller decides pending semantics); real errors propagate.
   function resolveHoleValue(hole) {
-    const result = { t: [""], h: [], p: [], rows: null };
+    const result = new Parts([""], [], []);
+    result.rows = null;
     try {
       result.rows = resolveValue(holeValue(hole), result);
     } catch (err) {
@@ -4293,7 +4318,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
       // sweep — a sweep's value doesn't ship, and a baseline the client
       // never saw would swallow a needed emission.
       if (hole.$lhSuppress) {
-        const r = { t: [""], h: [], p: [] };
+        const r = new Parts([""], [], []);
         let rows = null;
         const b = hole.$lhBinding;
         const run = () => {
@@ -4449,7 +4474,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
         // …and a slot-tagged value resolves unmarked (suppressed, so a
         // wrapped getter isn't re-intercepted one level down).
         leave(b, prevParent, prevScope, prevVisit);
-        const r = { t: [""], h: [], p: [] };
+        const r = new Parts([""], [], []);
         engine.suppressed++;
         try {
           resolveSSRNode(value, r);
@@ -4471,9 +4496,9 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
         closeChildren(b);
         escalated.fn.$lhSuppress = true;
         escalated.fn.$lhBinding = b;
-        res = { t: ["", ""], h: [escalated.fn], p: [escalated.p] };
+        res = new Parts(["", ""], [escalated.fn], [escalated.p]);
       } else {
-        res = { t: [""], h: [], p: [] };
+        res = new Parts([""], [], []);
         try {
           rows = resolveValue(value, res);
         } catch (_) {
@@ -4524,7 +4549,7 @@ export function createLiveHoles(sink, scoped, settled, errorScope) {
       t[0] = open + t[0];
       t[t.length - 1] += close;
       sink.openBinding(key, b);
-      return { t, h: res.h, p: res.p };
+      return new Parts(t, res.h, res.p);
     },
     /** The shared id counter — `ssr()` mints an attr address at injection
      *  time, before its capture completes. */
@@ -4750,7 +4775,7 @@ export function ssr(t) {
   // returns an array of values for >=N hole positions. The check is at
   // the END of the typeof chain so non-function holes don't pay for it.
   const len = arguments.length;
-  if (len === 1) return { t };
+  if (len === 1) return new Html(t);
   let s = t[0];
   let result = null;
   let lastGroup = null;
@@ -4827,7 +4852,7 @@ export function ssr(t) {
           lastGroupVal = r;
           lastGroupIdx = 0;
           if (!Array.isArray(r) && result === null) {
-            result = { t: [s], h: [], p: [] };
+            result = new Parts([s], [], []);
             s = "";
           }
         }
@@ -4877,7 +4902,7 @@ export function ssr(t) {
           if (typeof rs === "string") {
             s += rs;
           } else {
-            result = { t: [s], h: [], p: [] };
+            result = new Parts([s], [], []);
             s = "";
             if (rs.merge !== undefined) mergeTemplateInto(result, rs.merge);
             else resolveSSRNode(rs.bail, result);
@@ -4901,7 +4926,7 @@ export function ssr(t) {
           else result.t[result.t.length - 1] += liveNode;
         } else {
           if (result === null) {
-            result = { t: [s], h: [], p: [] };
+            result = new Parts([s], [], []);
             s = "";
           }
           resolveSSRNode(liveNode, result);
@@ -4949,7 +4974,7 @@ export function ssr(t) {
             s = s.replace(cap.inject, "");
             cap = null;
           }
-          result = { t: [s], h: [], p: [] };
+          result = new Parts([s], [], []);
           s = "";
           appendResolvedNode(result, r);
         }
@@ -4964,7 +4989,7 @@ export function ssr(t) {
       } else {
         // Escalation: allocate the heavy `{ t, h, p }` result shape and
         // splice in the sync prefix we accumulated.
-        result = { t: [s], h: [], p: [] };
+        result = new Parts([s], [], []);
         s = "";
         appendResolvedNode(result, r);
       }
@@ -5000,7 +5025,7 @@ export function ssr(t) {
     if (result === null) s += next;
     else result.t[result.t.length - 1] += next;
   }
-  if (result === null) return { t: s };
+  if (result === null) return new Html(s);
   return result;
 }
 export function ssrClassName(value: string | { [k: string]: boolean } | Array<any>): string;
@@ -5276,7 +5301,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   if (link !== null && link.href !== undefined) result += ssrLinkClaim(link);
   // The hydration key is unquoted, so a void element needs the space before
   // `/>` or the slash becomes part of the key's value.
-  if (skipChildren) return { t: result + " />" };
+  if (skipChildren) return new Html(result + " />");
   if (childOwner !== null) children = info.raw ? childOwner.children : escape(childOwner.children);
   if (typeof children === "function") children = children();
   // `() => scope(fn)` children return the scope's evaluator: run it as resolveSSRNode would.
@@ -5287,7 +5312,7 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
     try {
       children = thunk();
     } catch (err) {
-      const res = { t: [""], h: [], p: [] };
+      const res = new Parts([""], [], []);
       pushSSRAsyncHole(res, err, thunk);
       return ssr([result + ">", info.close], res);
     }
@@ -5304,14 +5329,14 @@ export function ssrElement(tag, props, children, needsId, skip, attrs) {
   // (`ssrTextTail`) is left as the child left it: the parent resets it on this
   // element's finished node either way.
   const ct = typeof children;
-  if (ct === "string" || ct === "number") return { t: result + ">" + children + info.close };
-  if (children == null || ct === "boolean") return { t: result + ">" + info.close };
-  if (ct === "object" && !children.h && typeof children.t === "string")
-    return { t: result + ">" + children.t + info.close };
+  if (ct === "string" || ct === "number") return new Html(result + ">" + children + info.close);
+  if (children == null || ct === "boolean") return new Html(result + ">" + info.close);
+  if (ct === "object" && children[SSR_NODE] && !children.h && typeof children.t === "string")
+    return new Html(result + ">" + children.t + info.close);
   if (thunk === null)
     return ssr([result + ">", info.close], resolveSSRNode(children, undefined, true));
   // Nested, as resolveSSRNode resolves a function's value: arrays keep their separators.
-  const res = { t: [""], h: [], p: [] };
+  const res = new Parts([""], [], []);
   try {
     resolveSSRNode(children, res, false, true);
   } catch (err) {
@@ -5812,7 +5837,13 @@ function tryJoinPlainSSRArray(nodes) {
   let out = "";
   for (let i = 0, len = nodes.length; i < len; i++) {
     const node = nodes[i];
-    if (node == null || typeof node !== "object" || node.h || typeof node.t !== "string") {
+    if (
+      node == null ||
+      typeof node !== "object" ||
+      !node[SSR_NODE] ||
+      node.h ||
+      typeof node.t !== "string"
+    ) {
       return undefined;
     }
     out += node.t;
@@ -6252,8 +6283,8 @@ function tryResolveString(node, nested?: boolean) {
       }
       return s;
     }
-    if (node.h && node.h.length > 0) return { merge: node };
-    if (node.t === undefined) {
+    if (node.h && node.h.length > 0 && node[SSR_NODE]) return { merge: node };
+    if (!node[SSR_NODE]) {
       // Not a template object — mirror the client's dev warn-and-skip
       // instead of crashing downstream on a malformed template shape.
       if ("_SOLID_DEV_") unrecognizedInsert(node);
@@ -6282,16 +6313,7 @@ function tryResolveString(node, nested?: boolean) {
 // callers never pass it.
 export function resolveSSRNode(node: any, result?: any, top?: boolean, nested?: boolean): any;
 
-export function resolveSSRNode(
-  node,
-  result = {
-    t: [""],
-    h: [],
-    p: []
-  },
-  top,
-  nested
-) {
+export function resolveSSRNode(node, result = new Parts([""], [], []), top, nested) {
   if (!nested) ssrTextTail = false;
   const t = typeof node;
   if (t === "string" || t === "number") {
@@ -6317,7 +6339,9 @@ export function resolveSSRNode(
       if (slotLive) slotLive.suppressed--;
     }
   } else if (t === "object") {
-    if (node.h) {
+    if (!node[SSR_NODE]) {
+      if ("_SOLID_DEV_") unrecognizedInsert(node);
+    } else if (node.h) {
       result.t[result.t.length - 1] += node.t[0];
       if (node.t.length > 1) {
         result.t.push(...node.t.slice(1));

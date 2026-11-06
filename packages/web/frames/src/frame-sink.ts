@@ -1230,10 +1230,9 @@ function frameStream(makeCode, options) {
  * position — the server can never re-render it, so a live binding over one
  * would be permanently inert and its markers pure tax. */
 function slotRange(occurrence) {
-  return {
-    t: `<!--slot:${occurrence}:start--><!--slot:${occurrence}:end-->`,
+  return Object.assign(markup(`<!--slot:${occurrence}:start--><!--slot:${occurrence}:end-->`), {
     $slot: true
-  };
+  });
 }
 
 /**
@@ -1504,6 +1503,11 @@ function suppressedFill(render) {
 // there — as the adopting client mounts it (`placements`, frames client).
 // Until then it is PARKED: a token in the region's markup, swapped for its
 // range at placement, or at the record of a region left occluded.
+// Markup nodes carry the server runtime's brand (see `SSR_NODE` in
+// src/server.ts): only branded objects are trusted as finished markup.
+const SSR_NODE = Symbol.for("solid.ssrNode");
+const markup = (t: any, h?: any, p?: any): any =>
+  h ? { t, h, p, [SSR_NODE]: true } : { t, [SSR_NODE]: true };
 let parked: Map<number, any> | null = null;
 let parkedIds = 0;
 const PARKED = /<!--sc-n:(\d+)-->/;
@@ -1511,7 +1515,7 @@ function park(render) {
   if (!parked) return render();
   const id = ++parkedIds;
   parked.set(id, { render, out: undefined });
-  return { t: `<!--sc-n:${id}-->` };
+  return markup(`<!--sc-n:${id}-->`);
 }
 const runParked = (entry, owner?) => entry.out || (entry.out = entry.render(owner));
 // Swap a region's tokens for their ranges (rendered under `owner`), then
@@ -1532,15 +1536,15 @@ function expandParked(node, nested, owner) {
   // Async holes stay between their segments, one hole per node.
   const out: any[] = [];
   node.t.forEach((t, i) => {
-    out.push(splitParked(t, nested, owner) || { t });
-    if (i < node.h.length) out.push({ t: ["", ""], h: [node.h[i]], p: [node.p[i]] });
+    out.push(splitParked(t, nested, owner) || markup(t));
+    if (i < node.h.length) out.push(markup(["", ""], [node.h[i]], [node.p[i]]));
   });
   return out;
 }
 function splitParked(t, nested, owner) {
   const parts = typeof t === "string" ? t.split(PARKED) : [t];
   return parts.length > 1
-    ? parts.map((part, i) => (i & 1 ? runParked(nested.get(+part), owner) : { t: part }))
+    ? parts.map((part, i) => (i & 1 ? runParked(nested.get(+part), owner) : markup(part)))
     : undefined;
 }
 
@@ -1612,10 +1616,10 @@ export function createDocumentSlotProps(clientProps, frameId) {
   // inside this suppressed span, so its interior holes keep the t=0 latch.
   const range = (occurrence, content, tail?) => {
     const r: any = [
-      { t: `<!--slot:${occurrence}:start-->` },
+      markup(`<!--slot:${occurrence}:start-->`),
       content,
       tail,
-      { t: `<!--slot:${occurrence}:end-->` }
+      markup(`<!--slot:${occurrence}:end-->`)
     ];
     r.$slot = true;
     return r;
@@ -1850,11 +1854,11 @@ export function createDocumentSlotProps(clientProps, frameId) {
                   // the same DOM contract as the boundary, one level down.
                   // Its parked fills render here, under the placing owner.
                   return [
-                    { t: frameElementOpen(childId) },
+                    markup(frameElementOpen(childId)),
                     region.nested && region.nested.size
                       ? placeParked(value, region.nested, getOwner())
                       : value,
-                    { t: FRAME_ELEMENT_CLOSE }
+                    markup(FRAME_ELEMENT_CLOSE)
                   ];
                 };
               } else if (ssrAsyncValue && isAsyncValue(value)) {
@@ -2375,7 +2379,7 @@ export function frameTransformDirectResult(value, { id, args, tierUrls }) {
     // while a re-render of this mount reuses the one it already took.
     const siteId = documentSiteId(id);
     return [
-      { t: frameElementOpen(siteId, address.slice(id.length + 1)) },
+      markup(frameElementOpen(siteId, address.slice(id.length + 1))),
       // Slot props are created OUTSIDE the context barrier: their zone owner
       // (captured at proxy creation) is what client positions re-enter, so
       // the client's content keeps full app context while the component's
@@ -2413,7 +2417,7 @@ export function frameTransformDirectResult(value, { id, args, tierUrls }) {
           sharedConfig.context = page;
         }
       }),
-      { t: FRAME_ELEMENT_CLOSE }
+      markup(FRAME_ELEMENT_CLOSE)
     ];
   };
   // Branded so the hydration serializer can write it as a reference (see
@@ -2709,7 +2713,7 @@ export function createSlotProps(sink, frame) {
           // closes that binding (`gateHit`) and discards this inert value.
           if (sweeping && !live.scope) {
             live.gateHit = true;
-            return { t: "", $slot: true };
+            return Object.assign(markup(""), { $slot: true });
           }
           const raw = callArgs[0];
           // Occurrence identity (RFC open question 1): a primitive `$key` arg
