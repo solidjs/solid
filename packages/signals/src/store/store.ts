@@ -1298,10 +1298,18 @@ export function adoptPB(
   else setLookup(incoming, target);
   if (__TEST__ && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
   if (notify && base !== incoming) notifyFold(target, base, incoming);
-  // A landing on a target carrying a guess: the truth, judged against the
-  // guess by the lane engine (`laneWrite`: confirmed beneath, re-based,
-  // folded, or a correction).
-  if (!directCommit) judgeGuesses(target, incoming);
+  if (!directCommit) {
+    // The adoption's staging held already (a derive's, `holdWithDerive`):
+    // the writer's tick is that hold's, before anything else joins it — as
+    // `setSignal` on the held leaves made it on `next` (a guess's fold
+    // joining its action first made the landing flush the action's).
+    const kp = target.kp;
+    if (kp !== null && kp._config & CONFIG_HELD) joinFuture(txOf(kp));
+    // A landing on a target carrying a guess: the truth, judged against the
+    // guess by the lane engine (`laneWrite`: confirmed beneath, re-based,
+    // folded, or a correction).
+    judgeGuesses(target, incoming);
+  }
 }
 
 // ---------------------------------------------------------------------------
