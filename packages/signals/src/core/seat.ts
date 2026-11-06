@@ -74,6 +74,7 @@ import {
   GlobalQueue,
   latestOpened,
   passLane,
+  liveTx,
   passTx,
   resolveTx,
   sameLane,
@@ -198,6 +199,16 @@ export interface Seat {
   sawStaging: boolean;
   /** The rows this pass hit, for the report. */
   trail: string[];
+  /** The nodes this pass read ahead (`latest`/`isPending` windows): a plain
+   * read of one of them is the screen's (A10, D-25 — the same-node clause).
+   * Seeded with the previous pass's (today's sticky CONFIG_VERDICT is how a
+   * plain-first memo is order-independent across runs); the close reports
+   * where the seed and the rule part. */
+  probed: Set<AnyNode>;
+  /** The nodes this pass actually read ahead. */
+  probedNow: Set<AnyNode>;
+  /** The nodes this pass read plainly (tracked), first read first. */
+  plainReads: AnyNode[];
   /** A known difference (filed) happened in this pass: the old seat and
    * the new have parted by construction; the pass's end is not compared. */
   known: boolean;
@@ -205,6 +216,8 @@ export interface Seat {
 
 const seats: Seat[] = [];
 let depth = -1;
+/** Per node, the set its last pass read ahead (the carry-over's model). */
+const lastProbed = new WeakMap<Computed<any>, Set<AnyNode>>();
 
 /** The seat of the running pass, or null outside every pass. */
 export function currentSeat(): Seat | null {
@@ -219,11 +232,10 @@ export function postureOf(c: Computed<any> | null, window: number): number {
   if (c._config & CONFIG_CHILDREN_FORBIDDEN) return POSTURE_F;
   if (c._config & CONFIG_AUTHORITATIVE) return POSTURE_A;
   if (window) return window === 2 ? POSTURE_VL : POSTURE_VP;
-  // A pass that asked (`latest`/`isPending`) is a verdict reader from the
-  // window on, and stays one on every re-run until a pass asks nothing
-  // (D-25 "a verdict posture outlives the pass that asked"): the sticky
-  // CONFIG_VERDICT, set at the window (`markVerdictReader`).
-  if (c._config & CONFIG_VERDICT) return POSTURE_V;
+  // (D-25 as rewritten 2026-11-06: a pass's posture is its own reads in
+  // that pass — the sticky CONFIG_VERDICT the code carries into the next
+  // run is the withdrawn carry-over, not a posture. A plain read of a node
+  // this pass also read ahead takes the V rows: `seat.probed`.)
   if ((c as any)._type === EFFECT_RENDER || c._config & CONFIG_FRAME) return POSTURE_L;
   return POSTURE_D;
 }
@@ -338,6 +350,9 @@ export function openSeat(
     bornLeaf: false,
     sawStaging: false,
     trail: [],
+    probed: new Set(lastProbed.get(el) ?? []),
+    probedNow: new Set(),
+    plainReads: [],
     known: false
   };
   seats[++depth] = seat;
@@ -422,6 +437,17 @@ function applyRaise(seat: Seat, p: Prediction): void {
     // lane, `enterLane`).
     seat.vhold = null;
   }
+}
+
+/** Is lane `l` (or a lane linked to it) re-based over hold `t`'s answer
+ * (store/optimistic `Transaction.over`)? */
+function laneOver(l: Transaction, t: Transaction): boolean {
+  const ht = resolveTx(t);
+  for (const u of l._links ?? [l]) {
+    const o = u.over;
+    if (o && resolveTx(liveTx(o) || o) === ht) return true;
+  }
+  return false;
 }
 
 /** Is `l` nested under `a`? */
@@ -523,7 +549,11 @@ export function slot(
   /** f0: a flight with no value yet. */
   const firstFlight = pending && uninit;
   const inLane = seat !== null && seat.lane !== null;
-  /** Today's `passLane !== null`: lane work, or a hold's verdict reader. */
+  /** Today's `passLane !== null`: lane work, or a hold's verdict reader.
+   * Selects the rows for a lane node's read (a verdict memo's node: its
+   * value or its display is screen-visible); the held-staging rows use
+   * `inLane` alone — a verdict seat is membership, not a rule (decision 3,
+   * 2026-11-06), and the same-node clause covers what it used to. */
   const inSeat = seated(seat);
   const cUninit = c !== null && (c._statusFlags & STATUS_UNINITIALIZED) !== 0;
   const cType = c !== null ? ((c as any)._type as number | undefined) : undefined;
@@ -643,6 +673,15 @@ export function slot(
     // node answers through the rows above it, D-41.)
     if (held) {
       const t = txOf(el);
+      // The hold's own work (a pass the same hold holds) reads its staging
+      // plainly, whatever it asks (D-25, #3884, #4341).
+      if (c !== null && c._config & CONFIG_HELD && resolveTx(txOf(c)) === resolveTx(t))
+        return pred(
+          latest ? "Vl1''" : "Vp1''",
+          pending ? SLOT_NR : staged ? stagedSlot : SLOT_C,
+          latest && !seatBornInto(seat, t) ? RAISE_H : 0,
+          t
+        );
       if (!uninit) {
         // Vl1' (#3460, as L7): a render effect outside the hold's own flush
         // while its verdict lane is blocked is a stale reader of it — the
@@ -676,6 +715,11 @@ export function slot(
         if (running) return pred("Vl2", stagedSlot, seam, flushTransaction);
         return pred("Vl3", SLOT_C);
       }
+      // A node born staged has no screen (D-22, D-23: no answer, no verdict):
+      // the probe's read does what a read does — the staging, and the owner
+      // joins.
+      if (uninit)
+        return pred("Vp2", stagedSlot, running ? seam : tr ? MARK_W : 0, flushTransaction);
       return pred("Vp1", SLOT_C, running ? seam : tr ? MARK_W : 0, flushTransaction);
     }
     if (pending) {
@@ -703,7 +747,9 @@ export function slot(
   // window of its own — reads a hold's node as a verdict reader does:
   // `truthRead` is for lane nodes only.)
   const verdictReader =
-    posture === POSTURE_V || (posture === POSTURE_A && (c!._config & CONFIG_VERDICT) !== 0);
+    posture === POSTURE_V ||
+    (seat !== null && seat.node === c && seat.probed.has(el)) ||
+    (posture === POSTURE_A && (c!._config & CONFIG_VERDICT) !== 0);
   const rowBase = posture === POSTURE_A ? "A1/" : "";
   const isEffect = !!cType;
   // D-28's leaf treatment of a lane (L6/L7: a stale reader of the lane,
@@ -789,7 +835,8 @@ export function slot(
         if (never && l._shown) return pred(row || "L7", SLOT_NR, MARK_ST | leave, l);
         // L7' (D-2): a leaf the flush's hold holds reads a lane derivation's
         // staging — the hold's own value.
-        if (!guess && staged && cHeldByFlush) return pred(row || "L7'", SLOT_P, leave);
+        if (!guess && staged && cHeldByFlush && (!l._shown || vlane))
+          return pred(row || "L7'", SLOT_P, leave);
         if (l._held || flying) {
           // D-26 D-28: a stale reader of the lane — the display, re-derived
           // at the reveal; nothing on screen yet (uninitialized): NR
@@ -878,19 +925,36 @@ export function slot(
         return r("L4", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H);
       if (seatBornInto(seat, t))
         return r("L2", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H); // D-2
-      if (inSeat && !(cUninit && pending)) return r("D6", screen, MARK_ST); // lane work: the screen (D-37)
+      // D6' (F-1, D-34 ¶3, #4536): lane work re-based over this hold's
+      // answer (`Transaction.over`) reads the hold's staging — its rows are
+      // that answer's, so its other reads are too (core `frameRead`).
+      if (inLane && !(cUninit && pending) && laneOver(seat!.lane!, t))
+        return r("D6'", pending ? screen : staged ? stagedSlot : SLOT_C, 0);
+      if (inLane && !(cUninit && pending)) return r("D6", screen, MARK_ST); // lane work: the screen (D-37)
       if (own) return r("L2", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H); // D-3 D-2
       return r("L3", screen, MARK_ST); // D-3 D-9 D-26
     }
     if (verdictReader) {
       // V1 (D-23 A10 [R7]): a verdict reader is a frame reader — the
-      // screen, re-derived at the landing — unless born into t.
+      // screen, re-derived at the landing — unless born into t or the
+      // hold's own work (D-25).
+      if (c !== null && c._config & CONFIG_HELD && resolveTx(txOf(c)) === resolveTx(t))
+        return r(
+          "V1''",
+          pending ? SLOT_NR : staged ? stagedSlot : SLOT_C,
+          seatBornInto(seat, t) ? 0 : RAISE_H
+        );
       if (seatBornInto(seat, t))
         return r("V1'", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H);
       if (uninit) return r("V1''", pending ? SLOT_NR : stagedSlot, RAISE_H); // no screen to serve
       return r("V1", screen, MARK_ST);
     }
-    if (inSeat) {
+    if (inLane) {
+      // D6' (F-1, D-34 ¶3, #4536): lane work re-based over this hold's
+      // answer reads the hold's staging (`Transaction.over`); the hold's
+      // flight is not the lane's own — the screen (D-37).
+      if (!(cUninit && pending) && laneOver(seat!.lane!, t))
+        return r(rowBase + "D6'", pending ? screen : staged ? stagedSlot : SLOT_C, 0);
       // D6 (D-37): lane work reading a hold's node — the screen, re-derived
       // at that landing; a lane pass with no value yet over a flight enters.
       if (!(cUninit && pending) && !uninit && !seatBornInto(seat, t))
@@ -938,7 +1002,7 @@ export function slot(
   if (pending) {
     // D-37: not the lane's own, the pass has a value — and so does the
     // node (a first load in flight has no screen: NR, F-2).
-    if (inSeat && !cUninit && !uninit) return carry(pred(rowBase + "D8", screen));
+    if (inLane && !cUninit && !uninit) return carry(pred(rowBase + "D8", screen));
     if (verdictReader && !uninit) {
       if (cfg & CONFIG_INPUTS_PUBLISHED) return carry(pred("V4'", SLOT_NR, 0, flushTransaction));
       // D-23 D-9: the screen; in a flush the pass is the hold's verdict
@@ -1140,7 +1204,7 @@ export function shadowReport(): {
     orphanReads,
     rows: Object.fromEntries(rowHits),
     mismatches: [...mismatches.values()],
-    known: Object.fromEntries([...knownHits].map(([k, v]) => [String(k), v]))
+    known: Object.fromEntries(knownHits)
   };
 }
 export function shadowReset(): void {
@@ -1207,6 +1271,16 @@ export function shadowExpect(
   f.flagsBefore = c !== null ? c._flags : 0;
   f.laneBefore = passLane;
   f.posture = postureOf(c, window);
+  // A read inside a window: the node is read ahead by this pass from here.
+  {
+    const seat = currentSeat();
+    if (seat !== null && seat.node === c) {
+      if (window) {
+        seat.probed.add(el);
+        seat.probedNow.add(el);
+      } else if (tracked && !seat.plainReads.includes(el)) seat.plainReads.push(el);
+    }
+  }
   f.prediction = slot(c, el, tracked, window, spectate, snapshot);
 }
 
@@ -1292,36 +1366,90 @@ export function shadowThrown(e: unknown): void {
  * matches is counted under `known #<issue>` instead of a mismatch class;
  * once the swap lands the entry's issue closes and the entry goes. */
 interface KnownDifference {
-  issue: number;
-  /** What differs: the slot a read is served, the world a read leaves the
+  /** An issue, or — for a difference the optimism spike removes by
+   * construction (`documentation/plans/optimism-seam-spike-brief.md`,
+   * sections 8 and 11) — the rule and rows it is ruled under. */
+  label: string;
+  /** What differs: the slot a read is served, the join a read leaves the
    * pass in, or the born-held decision at the pass's close. */
   kind: "slot" | "world" | "born";
-  /** The row (a read's) or "B2" (the close's). */
-  row: string;
-  /** The table's answer and today's (a slot, a world, or 1/0 for born). */
-  expected: number;
-  actual: number;
+  /** The rows (a read's) or "B2" (the close's). */
+  rows: string[];
+  /** The table's answers and today's (slots, worlds, or 1/0 for born). */
+  expected: number[];
+  actual: number[];
   when: (c: Computed<any>, el: AnyNode | null, seat: Seat) => boolean;
 }
+/** Today's pass-wide verdict posture: the sticky CONFIG_VERDICT, or a seat in
+ * a hold's verdict lane (membership). D-25 as rewritten (2026-11-06) has
+ * neither: a plain read of a node this pass did not read ahead joins. */
+const passWideVerdict = (c: Computed<any>) =>
+  (c._config & CONFIG_VERDICT) !== 0 || oldVerdictSeat() !== null;
 const known: KnownDifference[] = [
   {
     // frameRead's `bornInto(c, txOf(el))` joins the pass, stagedScreen's
     // `bornInto(c, flushTransaction)` then serves the screen: a verdict
     // reader born into T run by another transaction's flush.
-    issue: 4426,
+    label: "#4426",
     kind: "slot",
-    row: "V1'",
-    expected: SLOT_P,
-    actual: SLOT_C,
+    rows: ["V1'"],
+    expected: [SLOT_P],
+    actual: [SLOT_C],
     when: (c, el, seat) =>
       (c._config & CONFIG_VERDICT) !== 0 &&
       flushTransaction !== null &&
       seatBornInto(seat, txOf(el!)) &&
       resolveTx(flushTransaction) !== resolveTx(txOf(el!))
+  },
+  {
+    // Decision 1 (brief §8, S-49): today a probe makes the pass a verdict
+    // reader for every held read in it, and the bit carries into the next
+    // run; the rule joins a plain read of a node the pass did not read
+    // ahead. Ruled; the spike's M3 (no verdict lane, no sticky bit) builds it.
+    label: "D-25 pass-wide posture (S-49, S-50)",
+    kind: "slot",
+    // (A staged error: the verdict reader is served the proposed error where
+    // the plain read's row serves the staging, and the screen where it
+    // serves the staged error — D-41 through the same posture.)
+    rows: ["D1", "D2", "D3", "L1", "L2", "L5", "D2'", "L4"],
+    expected: [SLOT_P, SLOT_NR, SLOT_E],
+    actual: [SLOT_C, SLOT_E],
+    when: c => passWideVerdict(c)
+  },
+  {
+    // The same pass-wide posture on the join: a verdict-seated pass does not
+    // join the hold a plain read of another node would (D-1).
+    label: "D-25 pass-wide posture (S-49, S-50)",
+    kind: "world",
+    rows: ["D1", "D2", "D2'", "L1", "L2", "L0", "D0", "L4"],
+    expected: [WORLD_H],
+    actual: [WORLD_S],
+    when: c => passWideVerdict(c)
+  },
+  {
+    // The hold's own work (a pass the same hold holds) seated in the hold's
+    // verdict lane by membership reads the screen today; the rule reads the
+    // hold's staging (D-25, #3884, #4341). Decision 3: membership is not a rule.
+    label: "D-25 verdict-lane membership over the hold's own work",
+    kind: "slot",
+    rows: ["V1''", "Vp1''", "Vl1''"],
+    expected: [SLOT_P, SLOT_NR],
+    actual: [SLOT_C],
+    when: () => oldVerdictSeat() !== null
+  },
+  {
+    // The same, on the join: seated by membership, the pass does not join
+    // today where the rule's own-work read does.
+    label: "D-25 verdict-lane membership over the hold's own work",
+    kind: "world",
+    rows: ["V1''", "Vl1''"],
+    expected: [WORLD_H],
+    actual: [WORLD_S],
+    when: () => oldVerdictSeat() !== null
   }
 ];
-const knownHits = new Map<number, number>();
-export function shadowKnownHits(): ReadonlyMap<number, number> {
+const knownHits = new Map<string, number>();
+export function shadowKnownHits(): ReadonlyMap<string, number> {
   return knownHits;
 }
 /** The old born-held test's creator (`creatorPass(oldcontext)`), for the
@@ -1340,12 +1468,12 @@ function shadowKnown(
   for (const k of known)
     if (
       k.kind === kind &&
-      k.row === row &&
-      k.expected === expected &&
-      k.actual === actual &&
+      k.rows.includes(row) &&
+      k.expected.includes(expected) &&
+      k.actual.includes(actual) &&
       k.when(c, el, seat)
     ) {
-      knownHits.set(k.issue, (knownHits.get(k.issue) ?? 0) + 1);
+      knownHits.set(k.label, (knownHits.get(k.label) ?? 0) + 1);
       return true;
     }
   return false;
@@ -1385,7 +1513,10 @@ export function shadowLeave(thrown: number): void {
     }
     return;
   }
-  if (p.slot !== SLOT_SNAPSHOT && actual !== p.slot)
+  // A read inside an `isPending` window is reads-only (A23): the value its
+  // thunk is served reaches no screen. Its side effects are compared below;
+  // its slot is not.
+  if (p.slot !== SLOT_SNAPSHOT && actual !== p.slot && posture !== POSTURE_VP)
     report(
       "INV-seat-3",
       p.row,
@@ -1406,10 +1537,15 @@ export function shadowLeave(thrown: number): void {
     // as amended by D-27, 2026-10-28: a leaf that read a born node or the
     // hold's own staging is in the hold's world; one served the screen
     // raises nothing).
-    if (actual === p.slot && !seat.known) {
-      const flagWorld =
-        c._flags & REACTIVE_JOINED ? WORLD_H : c._flags & REACTIVE_STAGED_READ ? WORLD_FL : WORLD_S;
-      if (flagWorld !== seat.ownWorld) {
+    if ((actual === p.slot || posture === POSTURE_VP) && !seat.known) {
+      // The join is a rule (D-1): compared. The Fl rank (REACTIVE_STAGED_READ,
+      // D-2's in-flush re-derive) and the verdict seat are mechanism the
+      // rules as rewritten do not name (decisions 2 and 3, 2026-11-06): not
+      // compared.
+      const flagWorld = c._flags & REACTIVE_JOINED ? WORLD_H : WORLD_S;
+      const seatJoined = seat.ownWorld === WORLD_H ? WORLD_H : WORLD_S;
+      // (A render effect's membership is the tick's, D-4: not a join.)
+      if (flagWorld !== seatJoined && !(c as any)._type) {
         // A known difference (filed): the two worlds have parted for the
         // rest of this pass.
         if (shadowKnown("world", p.row, seat.ownWorld, flagWorld, c, el, seat)) {
@@ -1421,23 +1557,11 @@ export function shadowLeave(thrown: number): void {
           p.row,
           c,
           el,
-          `world after the read (old ${flagWorld}, new ${seat.ownWorld}; ${POSTURE_NAMES[posture]} posture; raise ${p.raise}, ${stateOf(c, el)})`,
+          `join after the read (old ${flagWorld === WORLD_H ? "joined" : "not"}, new ${seatJoined === WORLD_H ? "joined" : "not"}; ${POSTURE_NAMES[posture]} posture; raise ${p.raise}, ${stateOf(c, el)})`,
           p.slot,
           actual
         );
       }
-      // Verdict seat agreement (today `passLane` is a verdict lane).
-      const oldV = oldVerdictSeat();
-      if (oldV !== (seat.vhold && resolveTx(seat.vhold)) && seat.lane === laneOf(passLane))
-        report(
-          "INV-seat-3",
-          p.row,
-          c,
-          el,
-          `verdict seat after the read (old ${oldV ? "seated" : "none"}, new ${seat.vhold ? "seated" : "none"}; ${POSTURE_NAMES[posture]} posture)`,
-          p.slot,
-          actual
-        );
     }
   } else if (c !== null) orphanReads++;
 }
@@ -1464,17 +1588,7 @@ export function shadowSeatOpen(
       0,
       0
     );
-  const oldV = oldVerdictSeat();
-  if (oldV !== (seat.vhold && resolveTx(seat.vhold)))
-    report(
-      "INV-seat-3",
-      "B1",
-      el,
-      null,
-      `verdict seat (old ${oldV ? "seated" : "none"}, new ${seat.vhold ? "seated" : "none"}; create ${create})`,
-      0,
-      0
-    );
+  // (The verdict seat is membership, not a rule: not compared — decision 3.)
   // INV-seat-2: posture is the node's own.
   if (seat.posture !== postureOf(el, 0))
     report("INV-seat-2", "B1", el, null, "posture inherited", 0, 0);
@@ -1501,7 +1615,11 @@ export function shadowSeatOpen(
     // ancestor pass still running or one not running at all — is the
     // retired path; the born-held decision at the close still compares.)
     const ownerIsRunningPass = creator === null || (depth > 0 && seats[depth - 1].node === creator);
-    if (ownerIsRunningPass && creatorJoined !== (seat.creatorWorld === WORLD_H))
+    // (A creator in a known deviation: its world and the code's parted by
+    // construction, and so does what it hands down.)
+    const creatorKnown = depth > 0 && seats[depth - 1].known;
+    if (creatorKnown) seat.known = true;
+    if (ownerIsRunningPass && !creatorKnown && creatorJoined !== (seat.creatorWorld === WORLD_H))
       report(
         "INV-seat-3",
         "B1",
@@ -1546,17 +1664,6 @@ export function shadowSeatClose(
       0,
       0
     );
-  const oldV = oldVerdictSeat();
-  if (oldV !== (seat.vhold && resolveTx(seat.vhold)) && seat.lane === old)
-    report(
-      "INV-seat-3",
-      "B2",
-      el,
-      null,
-      `verdict seat at the pass's end (old ${oldV ? "seated" : "none"}, new ${seat.vhold ? "seated" : "none"}; rows ${seat.trail.slice(-4).join(",")})`,
-      0,
-      0
-    );
   // (A pass a lane seats publishes as lane work today: the born-held arm is
   // not reached — the shadow compares only where it is.)
   if (seat.create && !seated(seat) && passLane === null) {
@@ -1583,6 +1690,17 @@ export function shadowSeatClose(
         0
       );
   }
+  // D-25 as rewritten (2026-11-06) against today's sticky verdict bit: a
+  // node probed on the previous pass, read plainly on this one and not
+  // probed again — the carry-over (S-50): today the screen, the rule joins.
+  // Pass-level, reported once per pass.
+  for (const n of seat.probed)
+    if (!seat.probedNow.has(n) && seat.plainReads.includes(n)) {
+      const label = "D-25 carry-over (S-50)";
+      knownHits.set(label, (knownHits.get(label) ?? 0) + 1);
+      break;
+    }
+  lastProbed.set(el, seat.probedNow);
   // (A boundary's output sets its own CONFIG_FRAME at the head of its body,
   // and a probe sets CONFIG_VERDICT: the node's own transitions.)
   const posture = postureOf(el, 0);
