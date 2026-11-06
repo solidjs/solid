@@ -114,6 +114,8 @@ interface Boundary {
    * beside the held frame — not the frame's. `_lane` is set when the arm
    * flips the boundary and consumed by the swap pass. */
   _armLane: Transaction | null;
+  /** Next swap's lane. An error caught ahead carries the reader's lane;
+   * recovery of that fallback stays in its output's lane until it ends. */
   _lane: Transaction | null;
   /** DEV: the arm was display-ahead (a lane) — the fallback shows now,
    * whatever holds the frame; no LOADING_ON_OUTSIDE_HOLD report. */
@@ -193,6 +195,11 @@ function record(b: Boundary, node: Computed<any>, source = node): void {
  * decides). */
 function caught(b: Boundary, node: Computed<any>, error: unknown, source = node): void {
   if (b._type === STATUS_ERROR) {
+    // The error's source is the retry target, but the reader's selected
+    // outcome owns publication. Do not lose a latest/optimistic lane when
+    // converting its error into fallback content.
+    const lane = passLane ?? (node._x?._transaction?._lane ? txOf(node) : null);
+    if (!b._fallback) b._lane = lane;
     // An error boundary waits on what THREW (`StatusError.source`), not on
     // the reader that saw it, while the error is settled only when its
     // source is neither errored nor in flight and the reader is not pending
@@ -205,6 +212,9 @@ function caught(b: Boundary, node: Computed<any>, error: unknown, source = node)
     source = (error as { source?: Computed<any> })?.source ?? node;
     if (source._flags & REACTIVE_DISPOSED) source = node;
     const caught = unwrapStatusError(error);
+    // Subsequent errors update the existing fallback through this signal;
+    // its message must publish with the swap, including after a first show.
+    if (lane) laneStageHook!(b._error! as Computed<any>, lane, true, false);
     setSignal(b._error!, caught);
     reportClientError(caught, b._owner, source);
   }
@@ -276,6 +286,7 @@ function catchStatus(
           b._readers.delete(node) &&
           !prune(b, 0)
         ) {
+          if (b._type === STATUS_ERROR) b._lane = passLane;
           if (b._fallback) redraw(b);
           if (revealHooks && b._reveal !== null) revealHooks._changed(b._reveal);
         }
@@ -792,6 +803,16 @@ function createBoundary<T>(
       // re-arm's swap is the change's work (`arm`), until that swap commits
       // (D-13, #3540).
       const self = getOwner() as Computed<any>;
+      // Reading the retained tree need not read the leaf that recovered.
+      // Keep the ahead swap's lane for recovery as well as for the fallback;
+      // otherwise that successful answer is parked in the input's hold.
+      if (b._type === STATUS_ERROR && b._fallback && self._config & CONFIG_OVERRIDE)
+        b._lane ??= txOf(self);
+      if (b._type === STATUS_ERROR && b._lane !== null) {
+        setPassLane(b._lane);
+        self._flags |= REACTIVE_LANE_READ;
+        b._lane = null;
+      }
       if (!b._armed && !(self._config & CONFIG_HELD)) self._config |= CONFIG_FRAME;
       // Reveal order (reveal.ts): a gated slot shows its fallback — or, in a
       // collapsed tail, nothing — whatever its content's state; the
