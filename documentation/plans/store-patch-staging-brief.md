@@ -53,6 +53,8 @@ Store-using tests, 209 files, 3,283 tests: **37 fail, 3,234 pass** (`next`: all 
 
 Nothing in the probe needed a new field or hook on a core node.
 
+**Probe 2 (same day): `frameOf` on the probe.** The read decider of §2.1 (1) with its pending, lane and window arms, and the derived store's first-landing arm (a staging while the derive is uninitialized is the only value, A19 exc. 1): 35 fail. Materializing the container node for a verdict window over a node-less staging (so the window asks the node as it asked a leaf born staged) made it 43 — `createLoadingBoundary`, `create-deferred`, `errored-store-probe-settled` and others regress, because a node made at a read joins the hold model mid-flush. The lesson is structural: the staging home has to exist whenever a reader does (the node-less staging and `storePark`'s late materialization go with S1's third piece), not be created by the first read that needs a frame. The verdict failures that remain (`isPending` over a held key, `latest` after a mainline setter mid-hold, a derive over `latest()` under a lane) are each a read of the node where the leaf's slots answered before, and each wants the per-hold patch node to answer for the key.
+
 ## 4. Milestones and gates
 
 - **S1 — patch nodes, plain stores.** `t.k` → the patch-node list; `pb`/`wk`/`del`/`ovl` move onto the patch node's staging; leaves as notifiers; `readSource` finds the patch by key; snapshot/attribution arms; the derived store's walk replaced by the patch node's pending. Optimistic families untouched. Gate: the store-using tests (209 files) green; the scalar pins unchanged; size `+ createStore` and `app: hydrating + every store family` not above base.

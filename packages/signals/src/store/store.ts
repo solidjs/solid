@@ -1686,6 +1686,44 @@ function readSource(
 
 /** Did the HELD staging (the container node's, not a mainline layer above
  * it) change `key`? */
+/** S1: the frame a plain store's read of `key` sees, decided by the target's
+ * patch node (`k`) as core's `read` of it decides for any held or staged
+ * node — the staging for a pass that joins the hold, the committed backing
+ * for a frame reader (registered for the landing), the lane's value for lane
+ * work, the proposal inside `latest`. A key the patch does not touch is the
+ * backing's and joins nothing (D-8 per key) — unless the node pends with a
+ * flight (a derived store's refetch: every key pends with it) or carries a
+ * lane's value. Inside a verdict window a changed key is not final
+ * (`_witnessMark`). A draft, a write-override read, and a node-less staging
+ * read as before (`readSource`). */
+function frameOf(target: StoreTarget, key: PropertyKey): Record<PropertyKey, any> {
+  const pb = target.pb;
+  const k0 = target.k;
+  if (pb === null) {
+    if (k0 !== null && (k0._x?._pendingSources !== undefined || k0._config & CONFIG_OVERRIDE))
+      return asBacking(untrack(() => readNode(k0)));
+    return target.v;
+  }
+  if (inDraft(target) || writeOverride) return readSource(target, key);
+  // A derived store's first landing, staged while the derive is still
+  // uninitialized: its only value (A19 exc. 1: loading, not pending) — a
+  // leaf born staged served it as such.
+  const fam = target._fam;
+  if (fam !== null && fam.node !== null && fam.node._statusFlags & STATUS_UNINITIALIZED) return pb;
+  // A node-less staging reads as before (`readSource`); materializing the
+  // node for a verdict window perturbs the hold model (probe 2026-11-06:
+  // the staging home must exist whenever a reader does, not be made at a
+  // read).
+  if (k0 === null) return readSource(target, key);
+  const node = k0;
+  if (!(node._config & CONFIG_OVERRIDE) && node._x?._pendingSources === undefined) {
+    const changed =
+      node._config & CONFIG_HELD ? heldKeyChanged(target, key) : keyChanged(target, key);
+    if (!changed) return pb;
+    if (verdict !== null) GlobalQueue._witnessMark?.();
+  }
+  return asBacking(untrack(() => readNode(node)));
+}
 function heldKeyChanged(target: StoreTarget, key: PropertyKey, shape = true): boolean {
   return (
     changedBetween(target, target.k!._value, target.k!._pendingValue, key, shape) &&
@@ -2189,7 +2227,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         return nv;
       }
     }
-    const src = readSource(target, key);
+    const src = plainLeaf(target, node0) ? frameOf(target, key) : readSource(target, key);
     // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
     // deleted keys are tracked aside and read as absent in the pending view.
     if (src === target.pb && target.del?.has(key)) {
@@ -2313,7 +2351,10 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, key);
     if (target._fam !== null) pullFamily(target);
-    const src = readSource(target, key);
+    const src =
+      target._fam?.opt !== true && !(target.h?.[key as any]?._config! & CONFIG_OVERRIDE)
+        ? frameOf(target, key)
+        : readSource(target, key);
     // A tracked reader's presence node answers (born from the two frames;
     // core decides which it sees); everyone else reads the backing. A
     // chained target's node is a subscription point (§7b): the inner store
