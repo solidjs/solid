@@ -78,6 +78,12 @@ export interface StoreTarget {
   /** Lazy CONTAINER node: membership/iteration/`$TRACK`/`length`
    * subscriptions (§6) and the backing's staging home (plan sec. 31.3). */
   k: Signal<any> | null;
+  /** S1: held patch carriers — one slot node per hold whose staging is that
+   * hold's patch of this target (written keys, deletes), made at the park
+   * (`storePark`), folded into `v` at its landing (`drainFolds`). Oldest
+   * first. No subscribers: `k` is the subscription point. Plain stores
+   * only (an optimistic family keeps its lane on `k`). */
+  kh: Signal<any>[] | null;
   /** Keys written through the traps by the current setter, with the earlier
    * setters' of the batch chained behind (`u`) until the fold commit. Bounds
    * the setter notify/hold-check to O(written) instead of O(subscribed
