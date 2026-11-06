@@ -577,8 +577,11 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
         joinPassTx(txOf(p));
     }
     // A writer before its first write composes on the hold's patch, the
-    // batch's own staging once it has one (`ensurePB` layers it there).
-    if (target.pb === null) {
+    // batch's own staging once it has one (`ensurePB` layers it there). An
+    // optimistic setter composes on the writer's view instead — the screen
+    // with the lane's values, never a truth held beneath a guess
+    // (`readSource` makes its draft on the read, optimistic.ts `draft`).
+    if (target.pb === null && !(userWrite && target._fam?.opt === true)) {
       const p = heldCarrier(target);
       if (p !== null) {
         frameDel = (p as any).del ?? null;
@@ -668,6 +671,9 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
  * staging as before, with every held patch the reader is served composed
  * over it. */
 function frameAll(target: StoreTarget): Record<PropertyKey, any> {
+  // A draft's or a write-override read (the derive composes on the truth,
+  // never on a guess or a hold's frame) is the writer's.
+  if (inDraft(target) || writeOverride) return readSource(target);
   const g = newestGuess(target);
   if (g !== null) return readNode(g);
   // The batch's own staging reads as before; a parked batch's through its
