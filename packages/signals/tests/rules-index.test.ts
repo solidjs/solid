@@ -28,6 +28,15 @@ describe("rules index", () => {
     expect(out).toContain("every live A-rule is cited by a test");
   });
 
+  it("every executable ruling block in docs/SCENARIOS.md has its ruling file, and vice versa", () => {
+    const script = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../scripts/rules-index.mjs"
+    );
+    const out = execFileSync(process.execPath, [script, "--check"], { encoding: "utf8" });
+    expect(out).toContain("every ruling block has a ruling file");
+  });
+
   it("docs/RULES-INDEX.md is current (regenerate with `node scripts/rules-index.mjs`)", () => {
     const script = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),

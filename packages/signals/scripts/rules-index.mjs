@@ -141,6 +141,23 @@ const SHAPE = path.join(DOCS, "NODE-SHAPE.md");
 scan(SHAPE, /^#{2,3} §?(\d+[a-z]?)\. (.*)$/, (m, n) =>
   add("§" + m[1], "§" + m[1], "§", "", SHAPE, n, m[2])
 );
+// Derived rules, fundamentals and scenarios (hyphenated ids). A scenario's
+// status comes from its generated block's "Status:" when it has one
+// (packages/web/test/async-gen/rulings), else it is prose.
+const DERIVED = path.join(DOCS, "RULES-DERIVED.md");
+scan(DERIVED, /^### (D-\d+)\. (.*)$/, (m, n) => add(m[1], m[1], "D", "", DERIVED, n, m[2]));
+const FUND = path.join(DOCS, "RULES-FUNDAMENTALS.md");
+scan(FUND, /^## (F-\d+)\. (.*)$/, (m, n) => add(m[1], m[1], "F", "", FUND, n, m[2]));
+const SCEN = path.join(DOCS, "SCENARIOS.md");
+{
+  const L = read(SCEN).split("\n");
+  for (let i = 0; i < L.length; i++) {
+    const m = /^### (S-\d+)\. (.*)$/.exec(L[i]);
+    if (!m) continue;
+    const st = /Status: (standing|ruled-not-built)/.exec(L[i + 2] ?? "");
+    add(m[1], m[1], "S", "", SCEN, i + 1, `[${st ? "executable, " + st[1] : "prose"}] ${m[2]}`);
+  }
+}
 
 // ── citations ──────────────────────────────────────────────────────────────
 const MODULE_NS = [
@@ -158,7 +175,7 @@ function nsFor(file, qualifier) {
   return "CS";
 }
 const CITE =
-  /\b(A\d{1,2}|V[1-5]|INV-\d+|RUL-\d+|[BC]\d)\b(?![.\d])|(?:\b(core|opt|proj|snap|lanes?)\s+)?\bR(\d{1,2}[a-z]?)\b|(§\d+[a-z]?)/g;
+  /\b(A\d{1,2}|V[1-5]|INV-\d+|RUL-\d+|[BC]\d)\b(?![.\d])|(?:\b(core|opt|proj|snap|lanes?)\s+)?\bR(\d{1,2}[a-z]?)\b|(§\d+[a-z]?)|\b([DFS]-\d{1,2})\b(?!\d)/g;
 function citationsIn(file) {
   const out = [];
   const c = read(file);
@@ -170,6 +187,7 @@ function citationsIn(file) {
       // core-store rule (the base vocabulary every store module builds on).
       out.push(rules.has(ns + "-R" + m[3]) || m[2] ? ns + "-R" + m[3] : "CS-R" + m[3]);
     } else if (m[4]) out.push(m[4]);
+    else if (m[5]) out.push(m[5]);
   }
   return out;
 }
@@ -206,13 +224,39 @@ if (process.argv.includes("--check")) {
     console.error("rules-index: live A-rules with no test citing them:", unpinned.join(" "));
     process.exit(1);
   }
+  // Executable rulings: every generated block in SCENARIOS.md has its ruling
+  // file, and every ruling file has its block. The screens' currency is the
+  // rulings spec's check (packages/web/test/async-gen/rulings/rulings.spec.ts).
+  const scen = read(SCEN);
+  const blocks = [...scen.matchAll(/<!-- ruling:(S-\d+) -->/g)].map(m => m[1]);
+  const ends = (scen.match(/<!-- \/ruling -->/g) || []).length;
+  const RULINGS_DIR = path.join(ROOT, "..", "web", "test", "async-gen", "rulings");
+  const files = fs.existsSync(RULINGS_DIR)
+    ? fs
+        .readdirSync(RULINGS_DIR)
+        .filter(f => /^S-\d+\.ts$/.test(f))
+        .map(f => f.replace(/\.ts$/, ""))
+    : [];
+  const missingFile = blocks.filter(b => !files.includes(b));
+  const missingBlock = files.filter(f => !blocks.includes(f));
+  if (blocks.length !== ends || missingFile.length || missingBlock.length) {
+    console.error(
+      "rules-index: ruling blocks and files disagree —",
+      blocks.length !== ends ? `${blocks.length} starts, ${ends} ends;` : "",
+      missingFile.length ? `blocks with no ruling file: ${missingFile.join(" ")};` : "",
+      missingBlock.length ? `ruling files with no block: ${missingBlock.join(" ")}` : ""
+    );
+    process.exit(1);
+  }
   console.log(
     "rules-index: every src/ citation resolves (" +
       cited.src.size +
-      " ids); every live A-rule is cited by a test"
+      " ids); every live A-rule is cited by a test; every ruling block has a ruling file (" +
+      blocks.length +
+      ")"
   );
 }
-const order = { A: 0, V: 1, B: 2, C: 3, INV: 4, RUL: 5, R: 6, "§": 7 };
+const order = { F: -2, D: -1, A: 0, V: 1, B: 2, C: 3, INV: 4, RUL: 5, R: 6, "§": 7, S: 8 };
 const rows = [...rules.values()].sort(
   (a, b) =>
     order[a.vocab] - order[b.vocab] ||
@@ -236,6 +280,9 @@ L.push(
   "",
   "| prefix | defined in | meaning |",
   "|---|---|---|",
+  "| `F-<n>` | `RULES-FUNDAMENTALS.md` | the fundamentals: immutable statements of visible behavior |",
+  "| `D-<n>` | `RULES-DERIVED.md` | derived rules: a fundamental narrowed to a shape, naming its scenarios |",
+  "| `S-<n>` | `SCENARIOS.md` | scenarios — the rulings. `executable` rows are generated from `packages/web/test/async-gen/rulings/S-<n>.ts` and run in `pnpm test`; `prose` rows are hand-written |",
   "| `A<n>` | `SPEC-ASYNC-SEMANTICS.md` Tier A | ruled, test-pinned propositions about isPending / latest / transitions / optimistic lanes |",
   "| `B<n>` `C<n>` | `SPEC-ASYNC-SEMANTICS.md` Tier B/C | inferred / open items, all since ruled, closed or promoted into an A-rule (`(was B1)` — the alias row points at it) |",
   "| `V<n>` | `SPEC-ASYNC-SEMANTICS.md` Known violations | violations of A-rules found and fixed by the #2838 redesign; pinned in `spec-async-semantics.test.ts` |",
@@ -285,6 +332,9 @@ for (const r of rows) {
     r.vocab === "R"
       ? `R — ${Object.keys(NS).find(k => NS[k] === r.ns)} (\`${r.ns}-R<n>\`)`
       : {
+          F: "F — fundamentals",
+          D: "D — derived rules",
+          S: "S — scenarios (rulings)",
           A: "A — spec propositions",
           V: "V — fixed violations",
           B: "B — tier B",

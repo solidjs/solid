@@ -58,32 +58,39 @@ const panel = createMemo(() => (show() ? count() : "hidden"));
 | 3   | `details(1)` lands                  | `Count 1 \| Details 1 \| Panel 1`                   | all false                                                              | all         |
 | ✗   |                                     | after 2: `Count 0 \| Details 0 \| Panel 1`          |                                                                        |             |
 
-### S-3. A mount during a hold: a derivation born held holds the mount; the branch appears whole at the commit — D-2, D-3 (A29)
+<!-- ruling:S-3 -->
 
-_Pinned: `tests/born-held.test.ts`, for a direct mount (see the note under the table); the click-mounted branch below is not pinned yet._
+### S-3. A mount during a hold: a derivation born held holds the mount; the branch appears whole at the commit — D-1, D-3 (A29)
+
+_Generated from `packages/web/test/async-gen/rulings/S-3.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/born-held.test.ts`._
 
 ```tsx
 const [x, setX] = createSignal(0);
-const slow = createMemo(() => fetchSlow(x()));
-<h1>{x()}</h1> <i>{slow()}</i>
-const save = action(function* () { setX(1); yield gate; });
-// on a click, while save() is open:
-const m = createMemo(() => x() * 10);
-<p>{m()}</p> <span>{x()}</span>
+const [open, setOpen] = createSignal(0);
+const [title, setTitle] = createSignal(0);
+const slow = createMemo(async () => fetch(1 + x()));
+const ten = createMemo(() => 1 + x());
+<span>{x()}</span>
+<span>{slow()}</span>
+<span>{title()}</span>
+<Show when={open()}> {/* creates ten when it opens */}
+  <span>{ten()}</span>
+  <span>{x()}</span>
+</Show>
 ```
 
-| #   | Action                                                 | Screen                                                                                                                                                             | `latest` / `isPending`                                                                          | Effects ran                 |
-| --- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | --------------------------- |
-| 0   | primed                                                 | `h1 0 \| i 0`                                                                                                                                                      |                                                                                                 | h1, i                       |
-| 1   | `save(); flush()`                                      | — (held on `slow(1)`)                                                                                                                                              | `latest(x)` 1 · `isPending(x)` true                                                             | —                           |
-| 2   | mount `m`, `<p>`, `<span>`; `flush()`                  | `h1 0 \| i 0` — `<p>{m()}</p>` throws, so it holds the mount; the branch is not attached                                                                           | `untrack(m)` throws · `latest(m)` 10 · `isPending(m)` holds its reader (owned), false (unowned) | —                           |
-| 3   | `setTitle("t"); flush()` — an unrelated mainline write | `… \| title t` at once (not swallowed into the action)                                                                                                             |                                                                                                 | title                       |
-| 4   | `gate` releases, `slow(1)` lands, body returns         | `h1 1 \| i 1 \| p 10 \| span 1`                                                                                                                                    | `isPending(x)` false · `isPending(m)` false                                                     | h1, i, p, span (first runs) |
-| ✗   |                                                        | after 2: `p 10` beside `h1 0` (the published future); `p 0` (a committed value `m` never had); or `p (empty) \| span 0` (the branch attached around an empty slot) |                                                                                                 |                             |
+| #   | Action                                      | Screen                                              | Notes                                                                                                                               |
+| --- | ------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | slow(1) lands; tick                         | `x 0 \| slow 1 \| title 0`                          | primed                                                                                                                              |
+| 1   | setX(1) in an action; flush()               | —                                                   | held on `slow`                                                                                                                      |
+| 2   | setOpen(1); flush()                         | —                                                   | `ten` is born held: its first pass read the held `x`; `<p>{ten()}</p>` throws, so it holds the mount and the branch is not attached |
+| 3   | setTitle(1); flush()                        | `x 0 \| slow 1 \| title 1`                          | an unrelated mainline write shows at once — not swallowed into the action                                                           |
+| 4   | the action lands; tick; slow(2) lands; tick | `x 1 \| slow 2 \| title 1 \| ten 2 \| x 1`          | the commit reveals everything, the branch whole                                                                                     |
+| ✗   |                                             | after 2: `x 0 \| slow 1 \| title 0 \| ten 2 \| x 0` | `ten 2` beside `x 0`: the published future                                                                                          |
+| ✗   |                                             | after 2: `x 0 \| slow 1 \| title 0 \| ten 1 \| x 0` | `ten 1`: a committed value `ten` never had (the N1 reading)                                                                         |
+| ✗   |                                             | after 2: `x 0 \| slow 1 \| title 0 \| x 0`          | the branch attached around an empty slot                                                                                            |
 
-The `p 0` row is the N1 reading (reverted 2026-10-02). The `p 10` row beside `h1 0` is the published future. Both are rejected (ruled 2026-10-09, D-2). The empty slot is rejected the same day: a born-held read with no boundary to catch it holds the change that mounted it (F-2). Inside a fresh `<Loading>` the read is caught instead and the branch attaches on its fallback (D-12). `latest(m)` is its pending value; `isPending(m)` has no verdict until the commit, because `m` has nothing committed to judge — inside an owner its reader is held as the read is, and runs at the commit (F-9, D-23).
-
-Mounted directly instead of by a click-opened branch — the shape the pin covers — nothing gates the bindings: `<span>{x()}</span>` shows the committed `0` now and `1` at the commit (D-3), and only `<p>{m()}</p>` waits for the commit. Effects ran at row 2: span (`0`); at row 4: h1, i, p (first run), span (`1`).
+<!-- /ruling -->
 
 ### S-4. One hole, two sources: an unrelated sync write passes through — D-3 (A15 shared hole)
 
@@ -127,29 +134,57 @@ const mountB = () => createRoot(() => <p>{createMemo(() => b())()}</p>);
 | 2′  | `slowA` lands                          | `pA 1`; `pB`'s root not attached                                  | `isPending(a)` false · `isPending(b)` true | pA          |
 | 3′  | `slowB` lands                          | `pA 1 \| pB 1`                                                    |                                            | pB          |
 
-### S-6. A new async memo a render effect consumes waits with the hold — D-2, F-2 (#3800)
+<!-- ruling:S-6 -->
 
-_The value half is ruled 2026-10-09 and built in #3977 (U-1): the child does not show beside the parent still on the old value. The hold also waits for the child, because a render effect outside a boundary consumes it (F-2). Row E1 was F-8 and is rejected._
+### S-6. A new async memo a render effect consumes waits with the hold — D-1, F-2 (#3800)
 
-```ts
+_Generated from `packages/web/test/async-gen/rulings/S-6.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/issue-3800-repro.test.ts`._
+
+**Case 1.**
+
+```tsx
 const [count, setCount] = createSignal(1);
-const slow = createMemo(() => fetchSlow(count()));      // ~1 s
-<p>parent {count()} {slow()}</p>
-setCount(2); flush();                                   // held on slow(2)
-const fast = createMemo(() => Promise.resolve(count())); // created during the hold
-<p>child {fast()}</p>
+const [open, setOpen] = createSignal(0);
+const slow = createMemo(async () => fetch(1 + count()));
+const fast = createMemo(async () => fetch(1 + count()));
+<span>{count()} {slow()}</span>
+<Show when={open()}> {/* creates fast when it opens */}
+  <span>{fast()}</span>
+</Show>
 ```
 
-| #   | Action                                                     | Screen                                                                   | `isPending`             | Effects ran   |
-| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------- | ------------- |
-| 0   | `setCount(2); flush()`, mount `child`                      | `parent 1 1` — `child` throws, so it holds its mount; it is not attached | `isPending(count)` true | —             |
-| 1   | `fast`'s promise resolves (the hold is live)               | — (`slow` is still out, so the hold waits; the answer does not show)     | —                       | —             |
-| 2   | `slow(2)` lands                                            | `parent 2 2 \| child 2`                                                  | false                   | parent, child |
-| E1  | variant — `fast` slower than `slow`: `slow(2)` lands first | — (`fast` is still out; the parent does not show yet)                    |                         | —             |
-| E1′ | then `fast` lands                                          | `parent 2 2 \| child 2`                                                  |                         | parent, child |
-| ✗   |                                                            | after 1: `parent 1 1 \| child 2`; at 0 or E1: `child (empty)` on screen  |                         |               |
+| #   | Action                                    | Screen                                 | Notes                                                                                                                            |
+| --- | ----------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | slow(2) lands; tick                       | `count 1 \| slow 2`                    | primed                                                                                                                           |
+| 1   | setCount(2); flush(); setOpen(1); flush() | —                                      | `setCount(2)` held on `slow`; the child branch mounts: `fast` is born held and throws, so it holds its mount and is not attached |
+| 2   | fast(3) lands; tick                       | —                                      | `fast`'s answer lands while the hold is live: `slow` is still out, so the hold waits and the answer does not show                |
+| 3   | slow(3) lands; tick                       | `count 2 \| slow 3 \| fast 3`          | `slow(2)` lands: parent and child together                                                                                       |
+| ✗   |                                           | after 2: `count 1 \| slow 2 \| fast 3` | the child beside the parent still on the old value                                                                               |
+| ✗   |                                           | after 1: `count 1 \| slow 2`           | `child (empty)` on screen                                                                                                        |
 
-The sync twin (`createMemo(() => count())`) already waits (S-3); the asymmetry is the bug.
+**Case ′.**
+
+```tsx
+const [count, setCount] = createSignal(1);
+const [open, setOpen] = createSignal(0);
+const slow = createMemo(async () => fetch(1 + count()));
+const fast = createMemo(async () => fetch(1 + count()));
+<span>{count()} {slow()}</span>
+<Show when={open()}> {/* creates fast when it opens */}
+  <span>{fast()}</span>
+</Show>
+```
+
+| #   | Action                                                         | Screen                        | Notes                                                                                                                                    |
+| --- | -------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | slow(2) lands; tick                                            | `count 1 \| slow 2`           |                                                                                                                                          |
+| 1   | setCount(2); flush(); setOpen(1); flush(); slow(3) lands; tick | —                             | `slow(2)` lands first: `fast` is still out, so the parent does not show yet (the hold waits for the child a render effect consumes, F-2) |
+| 2   | fast(3) lands; tick                                            | `count 2 \| slow 3 \| fast 3` |                                                                                                                                          |
+| ✗   |                                                                | after 1: `count 2 \| slow 3`  | the parent revealed around an empty child slot                                                                                           |
+
+The sync twin (S-3's `ten`) already waits; the asymmetry was the bug.
+
+<!-- /ruling -->
 
 ### S-7. Root mount with uncaught async waits to attach; with a boundary it shows the fallback — D-6, D-12
 
@@ -431,20 +466,84 @@ _Pinned: `loading-on-frame-following-3540.test.ts` §5; `loading-on-latest-fallb
 | 1′  | the action ends _before_ `comments(2)` lands                  | `B \| spinner` with the commit, then `comments-B`    | the race the fallback won                                    |
 | 1″  | the fallback reads `latest(id)`                               | as 1–3: `A` held, then `B \| comments-B`             | the fallback's `latest` does not pull the swap ahead (#4337) |
 
+<!-- ruling:S-21 -->
+
 ### S-21. A display-ahead read in `on` shows the fallback now, beside the held frame — D-17
 
-_Pinned: `loading-on-frame-following-3540.test.ts` §4; `loading-on-rearm-reveal-3540.test.ts`._
+_Generated from `packages/web/test/async-gen/rulings/S-21.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/loading-on-frame-following-3540.test.ts`, `tests/loading-on-rearm-reveal-3540.test.ts`._
 
 ```tsx
-<h1>{product().name}</h1>
-<Loading on={latest(id)} fallback="spinner"><ul>{comments()}</ul></Loading>
+const [id, setId] = createSignal(1);
+const product = createMemo(async () => fetch(1 + id()));
+const comments = createMemo(async () => fetch(1 + id()));
+<span>{product()}</span>
+<Loading fallback="[fallback]" on={[latest(id)]}>
+  <span>{comments()}</span>
+</Loading>
 ```
 
-| #   | Action              | Screen                                                                    | Notes                                                                     |
-| --- | ------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| 1   | `setId(2); flush()` | `A \| spinner` — the new id's loading state inside the old page           | `on` read `latest(id)`, whose frame has landed; reads of `id()` stay held |
-| 2   | `product(2)` lands  | `B \| spinner`                                                            |                                                                           |
-| 3   | `comments(2)` lands | `B \| comments-B` — content that reads nothing held reveals when it lands |                                                                           |
+| #   | Action                                    | Screen                             | Notes                                                                                                                                    |
+| --- | ----------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | product(2) lands; comments(2) lands; tick | `product 2 \| comments 2`          | primed                                                                                                                                   |
+| 1   | setId(2); flush()                         | `product 2 \| [fallback]`          | the new id's loading state inside the old page: `on` read `latest(id)`, whose frame has landed; the shell's read of `product` stays held |
+| 2   | product(3) lands; tick                    | `product 3 \| [fallback]`          |                                                                                                                                          |
+| 3   | comments(3) lands; tick                   | `product 3 \| comments 3`          | content that reads nothing held reveals when it lands                                                                                    |
+| ✗   |                                           | after 1: `product 2 \| comments 2` | the swap travelled with the shell's frame                                                                                                |
+
+<!-- /ruling -->
+
+<!-- ruling:S-48 -->
+
+### S-48. `on={id()}`: the `on` pass reads the held value plainly, so the swap lands with the write's frame — D-17 (#3540)
+
+_Generated from `packages/web/test/async-gen/rulings/S-48.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/loading-on-frame-following-3540.test.ts`._
+
+```tsx
+const [id, setId] = createSignal(1);
+const product = createMemo(async () => fetch(1 + id()));
+const comments = createMemo(async () => fetch(1 + id()));
+<span>{product()}</span>
+<Loading fallback="[fallback]" on={[id()]}>
+  <span>{comments()}</span>
+</Loading>
+```
+
+| #   | Action                                    | Screen                             | Notes                                                                                  |
+| --- | ----------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------- |
+| 0   | product(2) lands; comments(2) lands; tick | `product 2 \| comments 2`          | primed                                                                                 |
+| 1   | setId(2); flush()                         | —                                  | the `on` pass read the held `id`: it is the hold's work and its re-arm is held with it |
+| 2   | product(3) lands; tick                    | `product 3 \| [fallback]`          | `product(2)` lands: the frame commits and the swap lands with it                       |
+| 3   | comments(3) lands; tick                   | `product 3 \| comments 3`          |                                                                                        |
+| ✗   |                                           | after 1: `product 2 \| [fallback]` | the fallback ahead of the frame the plain read belongs to                              |
+
+<!-- /ruling -->
+
+<!-- ruling:S-49 -->
+
+### S-49. A mixed `on`: a plain read of a held value makes the re-arm wait — D-17
+
+_Generated from `packages/web/test/async-gen/rulings/S-49.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built._
+
+```tsx
+const [id, setId] = createSignal(1);
+const [filter, setFilter] = createSignal(0);
+const product = createMemo(async () => fetch(1 + id()));
+const comments = createMemo(async () => fetch(1 + id()));
+<span>{product()}</span>
+<Loading fallback="[fallback]" on={[latest(id), filter()]}>
+  <span>{comments()}</span>
+</Loading>
+```
+
+| #   | Action                                         | Screen                             | Notes                                                                                                                                     |
+| --- | ---------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | product(2) lands; comments(2) lands; tick      | `product 2 \| comments 2`          | primed                                                                                                                                    |
+| 1   | action: setId(2), setFilter(1); flush()        | —                                  | `filter()` is a plain read of a held staging: the `on` pass is the hold's work and the re-arm waits, whatever `latest(id)` beside it read |
+| 2   | the action lands; tick; product(3) lands; tick | `product 3 \| [fallback]`          | the hold commits: the swap lands with the frame                                                                                           |
+| 3   | comments(3) lands; tick                        | `product 3 \| comments 3`          |                                                                                                                                           |
+| ✗   |                                                | after 1: `product 2 \| [fallback]` | today's screen: one probe made the whole `on` pass a verdict reader                                                                       |
+
+<!-- /ruling -->
 
 ### S-22. A fallback that itself reads pending data — D-18
 
@@ -503,62 +602,124 @@ const details = createMemo(() => fetchDetails(latest(id)));
 
 ## C. Display-ahead readers and verdicts (D-22–D-31)
 
-### S-25. Nothing shows a write before its flush; then every channel at once — D-22, D-32 (A28)
+<!-- ruling:S-25 -->
 
-_Pinned: `tests/latest-held-till-flush.test.ts`, `tests/latest-repeated-writes.test.ts`._
+### S-25. Nothing shows a write before its flush; then every channel at once — D-22 (A28)
 
-```ts
+_Generated from `packages/web/test/async-gen/rulings/S-25.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/latest-held-till-flush.test.ts`, `tests/latest-repeated-writes.test.ts`._
+
+**Case 1.**
+
+```tsx
 const [count, setCount] = createSignal(20);
-const doubled = createMemo(() => count() * 2);
+const doubled = createMemo(() => 1 + count());
+<span>{count()}</span>
+<span>{latest(count)}</span>
+<span>{latest(doubled)}</span>
+<span>{isPending(count)}</span>
 ```
 
-| #   | Action                                    | `count()` (untracked)                                     | `latest(count)` | `latest(doubled)` | `isPending(count)` |
-| --- | ----------------------------------------- | --------------------------------------------------------- | --------------- | ----------------- | ------------------ |
-| 1   | `setCount(30)` — no flush                 | 20                                                        | 20              | 40                | false              |
-| 2   | `flush()` — nothing holds                 | 30                                                        | 30              | 60                | false              |
-| 2′  | `flush()` — an async reader holds `count` | 20                                                        | 30              | 60                | true               |
-| ✗   |                                           | after 1: `latest(count)` 30 while `latest(doubled)` is 40 |                 |                   |                    |
+| #   | Action       | Screen                                                                                  | Notes                                                  |
+| --- | ------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| 0   | render       | `count 20 \| latest(count) 20 \| latest(doubled) 21 \| isPending(count) false`          |                                                        |
+| 1   | setCount(30) | —                                                                                       | `setCount(30)` with no flush: nothing shows it         |
+| 2   | flush()      | `count 30 \| latest(count) 30 \| latest(doubled) 31 \| isPending(count) false`          | nothing holds: every channel at once                   |
+| ✗   |              | after 1: `count 20 \| latest(count) 30 \| latest(doubled) 21 \| isPending(count) false` | `latest(count)` 30 while `latest(doubled)` is still 21 |
+
+**Case ′.**
+
+```tsx
+const [count, setCount] = createSignal(20);
+const doubled = createMemo(() => 1 + count());
+const slow = createMemo(async () => fetch(1 + count()));
+<span>{count()}</span>
+<span>{latest(count)}</span>
+<span>{latest(doubled)}</span>
+<span>{isPending(count)}</span>
+<span>{slow()}</span>
+```
+
+| #   | Action                | Screen                                                                                    | Notes                                                                                           |
+| --- | --------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 0   | slow(21) lands; tick  | `count 20 \| latest(count) 20 \| latest(doubled) 21 \| isPending(count) false \| slow 21` | primed                                                                                          |
+| 1   | setCount(30); flush() | `count 20 \| latest(count) 30 \| latest(doubled) 31 \| isPending(count) true \| slow 21`  | an asyncMemo reader holds `count`: the plain read keeps 20, `latest` shows 30, `isPending` true |
+| 2   | slow(31) lands; tick  | `count 30 \| latest(count) 30 \| latest(doubled) 31 \| isPending(count) false \| slow 31` |                                                                                                 |
+
+<!-- /ruling -->
+
+<!-- ruling:S-26 -->
 
 ### S-26. `isPending` is about a new question — D-23 (A19, A24)
 
-_Pinned: `tests/question-scoped-pending.test.ts`, `tests/loading-value.test.ts`._
+_Generated from `packages/web/test/async-gen/rulings/S-26.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/question-scoped-pending.test.ts`, `tests/loading-value.test.ts`._
 
 ```tsx
 const [id, setId] = createSignal(1);
-const user = createMemo(() => fetchUser(id()));
-<Loading fallback="…">
-  <p>{user().name}</p> <p>{isPending(user) ? "updating" : ""}</p>
+const user = createMemo(async () => fetch(1 + id()));
+<Loading fallback="[fallback]">
+  <span>
+    {user()} {isPending(user)}
+  </span>
 </Loading>;
 ```
 
-| #   | Action                                                             | Screen                                                               | `isPending(user)`                                 | Why                                                                      |
-| --- | ------------------------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------ |
-| 0   | first load                                                         | `[fallback]` (the probe's own read suspends; nothing observable yet) | no verdict — throws here (owned), `false` unowned | a first load is loading, not pending (D-24)                              |
-| 1   | `user(1)` lands                                                    | `Ann \| `                                                            | false                                             | final                                                                    |
-| 2   | `setId(2); flush()`                                                | `Ann \| updating`                                                    | true                                              | an input changed — a new question                                        |
-| 3   | `user(2)` lands                                                    | `Bob \| `                                                            | false                                             |                                                                          |
-| 4   | `refresh(user); flush()`                                           | `Bob \| `                                                            | false                                             | a re-ask of the same question is quiet; the fresh value reveals silently |
-| 5   | `action(function* () { affects(user); refresh(user); yield … })()` | `Bob \| updating`                                                    | true                                              | a declared reload                                                        |
-| 6   | the action's refetch lands and it ends                             | `Bob′ \| `                                                           | false                                             |                                                                          |
-| 7   | an optimistic write to a `createOptimistic` over `user`            | shows the guess                                                      | false                                             | verdict-inert                                                            |
+| #   | Action                 | Screen                                    | Notes                                                                                 |
+| --- | ---------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------- |
+| 0   | render                 | `[fallback]`                              | first load: the probe's own read suspends; nothing observable yet — no verdict (D-24) |
+| 1   | user(2) lands; tick    | `user 2 \| isPending(user) false`         | final                                                                                 |
+| 2   | setId(2); flush()      | `user 2 \| isPending(user) true`          | an input changed — a new question                                                     |
+| 3   | user(3) lands; tick    | `user 3 \| isPending(user) false`         |                                                                                       |
+| 4   | refresh(user); flush() | —                                         | `refresh(user)`: a re-ask of the same question is quiet                               |
+| 5   | user(3) lands; tick    | —                                         | the fresh value reveals silently                                                      |
+| ✗   |                        | after 4: `user 3 \| isPending(user) true` | a re-ask reported as a new question                                                   |
 
-### S-27. `[isPending(x), x()]` is atomic; the `latest` form follows x's own async only — D-23 (A10, A8)
+The prose row's `affects()` (rows 5–6) and the optimistic write over `user` (row 7) are not migrated yet.
 
-_Pinned: `tests/latest-isPending-consistency.test.ts`, `tests/createMemo.test.ts`._
+<!-- /ruling -->
 
-```ts
+<!-- ruling:S-27 -->
+
+### S-27. `[isPending(x), x()]` is atomic; the `latest` form follows x's own async only — D-23, D-25 (A10, A8)
+
+_Generated from `packages/web/test/async-gen/rulings/S-27.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/latest-isPending-consistency.test.ts`, `tests/createMemo.test.ts`._
+
+**Case 1.**
+
+```tsx
 const [n, setN] = createSignal(0);
-const x = createMemo(() => fetchX(n())); // async
-const y = createMemo(() => fetchY(x())); // async downstream, rendered
+const x = createMemo(async () => fetch(1 + n()));
+const y = createMemo(async () => fetch(1 + x()));
+<span data-a0={isPending(x)} data-a1={x()}></span> {/* one effect */}
+<span data-a0={isPending(() => latest(x))} data-a1={latest(x)}></span> {/* one effect */}
+<span>{y()}</span>
 ```
 
-| #   | Action                                            | `[isPending(x), x()]` in one scope             | `[isPending(() => latest(x)), latest(x)]`                               | Notes                                                 |
-| --- | ------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------- |
-| 1   | `setN(1); flush()`                                | `[true, x0]`                                   | `[true, x0]`                                                            | both channels: x's own fetch is up                    |
-| 2   | `x(1)` lands; `y(1)` still up — the frame is held | `[true, x0]` — a landed answer awaiting reveal | `[false, x1]` — `latest` saw x's own answer; its verdict is per channel | never `[true, x1]` in either order, on either channel |
-| 3   | `y(1)` lands                                      | `[false, x1]`                                  | `[false, x1]`                                                           |                                                       |
+| #   | Action                             | Screen                                                                                        | Notes                                                                                                                                  |
+| --- | ---------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | x(1) lands; tick; y(2) lands; tick | `isPending(x) false \| x 1 \| isPending(() => latest(x)) false \| latest(x) 1 \| y 2`         | primed                                                                                                                                 |
+| 1   | setN(1); flush()                   | `isPending(x) true \| x 1 \| isPending(() => latest(x)) true \| latest(x) 1 \| y 2`           | both channels: x's own fetch is up                                                                                                     |
+| 2   | x(2) lands; tick                   | `isPending(x) true \| x 1 \| isPending(() => latest(x)) false \| latest(x) 2 \| y 2`          | `x` landed, `y` still up: the plain channel is a landed answer awaiting reveal; `latest` saw x's own answer — verdicts are per channel |
+| 3   | y(3) lands; tick                   | `isPending(x) false \| x 2 \| isPending(() => latest(x)) false \| latest(x) 2 \| y 3`         |                                                                                                                                        |
+| ✗   |                                    | after 2: `isPending(x) true \| x 2 \| isPending(() => latest(x)) false \| latest(x) 2 \| y 2` | `[true, x1]`: pending beside the fresh value                                                                                           |
 
-On a plain signal or sync memo the `latest` form is never pending.
+**Case memo.**
+
+```tsx
+const [n, setN] = createSignal(0);
+const x = createMemo(() => 1 + n() + isPending(n));
+<span>{x()}</span>;
+```
+
+| #   | Action                        | Screen         | Notes                                                                                                                                                                                           |
+| --- | ----------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                        | `x 1`          |                                                                                                                                                                                                 |
+| 1   | setN(5) in an action; flush() | `x 2`          | `m = 1 + x + isPending(x)`: the memo probes x and reads it plainly in one pass — the plain read is the screen's 0 and the probe is true, shown now (A10, D-25); the memo is not the hold's work |
+| 2   | the action lands; tick        | `x 6`          |                                                                                                                                                                                                 |
+| ✗   |                               | after 1: `x 1` | the memo held with the write it probed: the spinner would show only at the commit                                                                                                               |
+
+On a plain signal or sync memo the `latest` form is never pending. The memo case is the pass-level half of D-25: a plain read of a node the pass also probed is the screen's.
+
+<!-- /ruling -->
 
 ### S-28. `isPending` never throws unowned; `latest` throws uninitialized everywhere — D-24 (A16, A7)
 
@@ -571,25 +732,56 @@ _Pinned: `tests/spec-async-semantics.test.ts` (A16), `tests/uninitialized-visibi
 | `isPending(() => { throw new Error() })`, any scope                 | `false`                                                   | n/a              |
 | `isPending(() => store)` — the thunk returns a store, reads nothing | `false` (reads-only; the return value is never inspected) |                  |
 
-### S-29. A verdict reader's own async is held — D-25 (A31, #3442)
+<!-- ruling:S-29 -->
 
-_Pinned: `tests/ispending-combined-atomic-3442.test.ts`._
+### S-29. A display-ahead reader's own async is held — D-25 (A31, #3442)
+
+_Generated from `packages/web/test/async-gen/rulings/S-29.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/ispending-combined-atomic-3442.test.ts`._
 
 ```tsx
-const fast = createMemo(() => fetchFast(n()));
-const slow = createMemo(() => fetchSlow(n()));
-const copy = createMemo(() => slow()); // a sync wrapper
-<p>
-  Fast {fast()} | Slow {copy()} | Pending {String(isPending(() => [fast(), copy()]))}
-</p>;
+const [n, setN] = createSignal(0);
+const fast = createMemo(async () => fetch(1 + n()));
+const slow = createMemo(async () => fetch(1 + n()));
+const copy = createMemo(() => 1 + slow());
+const both = createMemo(() => 1 + fast() + copy());
+<span data-a0={fast()} data-a1={copy()} data-a2={isPending(both)}></span> {/* one effect */}
 ```
 
-| #   | Action             | Screen                                       | Notes                                                          |
-| --- | ------------------ | -------------------------------------------- | -------------------------------------------------------------- |
-| 1   | `setN(1); flush()` | `Fast 0 \| Slow 0 \| Pending true`           |                                                                |
-| 2   | `fast(1)` lands    | —                                            | `copy` computes under its own posture: still pending on `slow` |
-| 3   | `slow(1)` lands    | `Fast 1 \| Slow 1 \| Pending false`          |                                                                |
-| ✗   |                    | after 2: `Fast 1 \| Slow 0 \| Pending false` |                                                                |
+| #   | Action                             | Screen                                               | Notes                                                                         |
+| --- | ---------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 0   | fast(1) lands; slow(1) lands; tick | `fast 1 \| copy 2 \| isPending(both) false`          | primed                                                                        |
+| 1   | setN(1); flush()                   | `fast 1 \| copy 2 \| isPending(both) true`           |                                                                               |
+| 2   | fast(2) lands; tick                | —                                                    | `fast` landed; `copy` computes under its own posture: still pending on `slow` |
+| 3   | slow(2) lands; tick                | `fast 2 \| copy 3 \| isPending(both) false`          |                                                                               |
+| ✗   |                                    | after 2: `fast 2 \| copy 2 \| isPending(both) false` | `fast` revealed alone with the probe false                                    |
+
+<!-- /ruling -->
+
+<!-- ruling:S-50 -->
+
+### S-50. A memo that probed once, re-run by a sync write, holds the tick — D-25
+
+_Generated from `packages/web/test/async-gen/rulings/S-50.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built._
+
+```tsx
+const [x, setX] = createSignal(0);
+const [k, setK] = createSignal(0);
+const [probe, setProbe] = createSignal(1);
+const m = createMemo(() => 1 + k() + (probe() ? isPending(x) : 0) + x());
+<span>
+  {m()} {k()}
+</span>;
+```
+
+| #   | Action                        | Screen                | Notes                                                                                                                                             |
+| --- | ----------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                        | `m 1 \| k 0`          |                                                                                                                                                   |
+| 1   | setX(1) in an action; flush() | `m 2 \| k 0`          | the probe shows busy now; the plain read of `x` is the screen's 0                                                                                 |
+| 2   | setProbe(0); setK(1); flush() | —                     | this run probes nothing: its read of `x` is a plain read of the held staging, so `m` is the hold's work and the tick that wrote `k` holds with it |
+| 3   | the action lands; tick        | `m 3 \| k 1`          |                                                                                                                                                   |
+| ✗   |                               | after 2: `m 2 \| k 1` | today's screen (published twice): the memo read `x` as the screen's because its last run probed, and `k` broke free                               |
+
+<!-- /ruling -->
 
 ### S-30. A `latest()` reader mounted mid-hold shows the committed value and reveals with the lane — D-26 (#3460)
 
@@ -616,50 +808,97 @@ const bump = action(function* () {
 | 2′  | a sibling sync write re-runs a reader of `latest(v)` mid-hold | publishes at once with the committed `0`                       | "we wouldn't hold a sync write on a transition. Lanes are the same" |
 | ✗   |                                                               | after 2: `Late 1` beside `Details 0`                           |                                                                     |
 
-### S-31. A verdict reader's mount is mainline: `Show when={latest(x) > 0}` → `Loading` shows its fallback — D-27 (#3851)
+<!-- ruling:S-31 -->
 
-_Pinned: `tests/verdict-mount-first-pass-3851.test.ts`._
+### S-31. A verdict reader's mount is mainline: `Show when={latest(x)}` → `Loading` shows its fallback — D-1, D-25 (#3851)
+
+_Generated from `packages/web/test/async-gen/rulings/S-31.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/verdict-mount-first-pass-3851.test.ts`._
 
 ```tsx
 const [x, setX] = createSignal(0);
-<p>{x()}</p>
-<Show when={latest(x) > 0}>
-  <Loading fallback="fallback">content {x()}</Loading>
+<span>{x()}</span>
+<Show when={latest(x)}>
+  <Loading fallback="[fallback]">
+    <span>{x()}</span>
+  </Loading>
 </Show>
-const save = action(function* () { setX(1); yield gate; });
 ```
 
-| #   | Action               | Screen                                                                                                                                                            | Notes |
-| --- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
-| 0   | primed               | `0 \| (closed)`                                                                                                                                                   |       |
-| 1   | `save(); flush()`    | `0 \| [fallback]` — the `Show` opens ahead (display-ahead); the boundary is a mainline mount whose content read the write the action holds → born held → fallback |       |
-| 2   | `gate`, body returns | `1 \| content 1`                                                                                                                                                  |       |
-| ✗   |                      | after 1: `0 \| content 1` (the torn frame #3869 fixed)                                                                                                            |       |
+| #   | Action                        | Screen                | Notes                                                                                                                                              |
+| --- | ----------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                        | `x 0`                 | the `Show` is closed                                                                                                                               |
+| 1   | setX(1) in an action; flush() | `x 0 \| [fallback]`   | the `Show` opens ahead (display-ahead); the boundary is a mainline mount whose content read the write the action holds: born held, so the fallback |
+| 2   | the action lands; tick        | `x 1 \| x 1`          |                                                                                                                                                    |
+| ✗   |                               | after 1: `x 0 \| x 1` | the torn frame #3869 fixed: content 1 beside x = 0                                                                                                 |
 
-### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-27
+<!-- /ruling -->
 
-_Ruled 2026-10-30 ("actions aren't special — they are a way to extend the hold"), reaffirmed 2026-10-31 (A over C: C would re-rule S-31). Pinned: `tests/display-ahead-plain-write-content.test.ts` (signals, passes) and `web/test/display-ahead-plain-write-content-s46.spec.tsx` (through `Show` + `insert`; the plain row is `test.fails` — today the branch attaches with its text hole empty, `selected: ` and nothing, F-2's empty slot and #4417's mechanism). S-31's rule in the plain-write, no-boundary form: a write to `id` is held because an async memo over it is on screen; no action, no `Loading`. Parked 2026-10-31: a fix was attempted and dropped (infinite loop on a generated case, four new findings — D-27 Status); no in-budget mechanism known, #4417 open. Fixed 2026-11-02 (#4417, #4574): a park re-derive that gives back the staging it superseded keeps its held readers and their children (one key, one child), and an insert of a DOM node waits while its subtree holds a child born into the open hold._
+<!-- ruling:S-46 -->
+
+### S-46. The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-25
+
+_Generated from `packages/web/test/async-gen/rulings/S-46.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/display-ahead-plain-write-content.test.ts`, `web/test/display-ahead-plain-write-content-s46.spec.tsx`._
+
+**Case 1.**
 
 ```tsx
 const [id, setId] = createSignal(0);
-const detail = createMemo(() => fetchDetail(id()));
-<p>{id()}</p> <p>{detail()}</p>
-<Show when={latest(id) > 0} fallback="none">
-  <p>selected: {id()}</p>          {/* a plain read, under the display-ahead Show */}
+const detail = createMemo(async () => fetch(1 + id()));
+<span>{id()}</span>
+<span>{detail()}</span>
+<Show when={latest(id)} fallback="[none]">
+  <span>{id()}</span>
 </Show>
-// primed: detail answered for id = 0
 ```
 
-| #   | Action                                           | Screen                                                                                                                                                                                                       | Notes                                                                |
-| --- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| 0   | primed                                           | `0 \| none \| d0`                                                                                                                                                                                            |                                                                      |
-| 1   | `setId(1); flush()` — `fetchDetail(1)` in flight | `0 \| none \| d0` — the `Show` opens ahead (`latest` asked), but the branch is a mount whose first pass read the staging plainly: born held (D-27), it does not attach until the landing; the fallback stays | a plain `id()` means one thing on the whole screen — the `0` outside |
-| 1′  | same, content `selected: {latest(id)}`           | `0 \| selected: 1 \| d0`                                                                                                                                                                                     | the read that asks sees ahead, at its own site                       |
-| 1″  | same, content inside a `<Loading fallback>`      | `0 \| [fallback] \| d0`                                                                                                                                                                                      | S-31's form: the boundary catches the born-held read                 |
-| 2   | `fetchDetail(1)` lands                           | `1 \| selected: 1 \| d1`                                                                                                                                                                                     |                                                                      |
-| ✗   |                                                  | after 1: `0 \| selected: 1 \| d0` — two plain reads of one signal disagreeing on one screen                                                                                                                  |                                                                      |
-| ✗   |                                                  | after 1: `0 \| selected: 0 \| d0` — the branch attached with the committed value; a mount under a display-ahead reader is born held, not a D-3 leaf                                                          |                                                                      |
-| ✗   |                                                  | after 1: `0 \| selected: (empty) \| d0` — the branch attached with its hole empty (F-2: never an empty slot). Today's screen through `Show` + `insert`                                                       |                                                                      |
+| #   | Action                | Screen                              | Notes                                                                                                                                                                                    |
+| --- | --------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | detail(1) lands; tick | `id 0 \| detail 1 \| [none]`        | primed                                                                                                                                                                                   |
+| 1   | setId(1); flush()     | —                                   | the `Show` opens ahead (`latest` asked), but the branch is a mount whose first pass read the staging plainly: born held (D-27), it does not attach until the landing; the fallback stays |
+| 2   | detail(2) lands; tick | `id 1 \| detail 2 \| id 1`          |                                                                                                                                                                                          |
+| ✗   |                       | after 1: `id 0 \| detail 1 \| id 1` | two plain reads of one signal disagreeing on one screen                                                                                                                                  |
+| ✗   |                       | after 1: `id 0 \| detail 1 \| id 0` | the branch attached with the committed value; a mount under a display-ahead reader is born held, not a D-3 leaf                                                                          |
+| ✗   |                       | after 1: `id 0 \| detail 1`         | the branch attached with its hole empty (F-2: never an empty slot)                                                                                                                       |
+
+**Case ′.**
+
+```tsx
+const [id, setId] = createSignal(0);
+const detail = createMemo(async () => fetch(1 + id()));
+<span>{id()}</span>
+<span>{detail()}</span>
+<Show when={latest(id)} fallback="[none]">
+  <span>{latest(id)}</span>
+</Show>
+```
+
+| #   | Action                | Screen                             | Notes                                                                |
+| --- | --------------------- | ---------------------------------- | -------------------------------------------------------------------- |
+| 0   | detail(1) lands; tick | `id 0 \| detail 1 \| [none]`       |                                                                      |
+| 1   | setId(1); flush()     | `id 0 \| detail 1 \| latest(id) 1` | content `latest(id)`: the read that asks sees ahead, at its own site |
+| 2   | detail(2) lands; tick | `id 1 \| detail 2 \| latest(id) 1` |                                                                      |
+
+**Case ″.**
+
+```tsx
+const [id, setId] = createSignal(0);
+const detail = createMemo(async () => fetch(1 + id()));
+<span>{id()}</span>
+<span>{detail()}</span>
+<Show when={latest(id)} fallback="[none]">
+  <Loading fallback="[fallback]">
+    <span>{id()}</span>
+  </Loading>
+</Show>
+```
+
+| #   | Action                | Screen                           | Notes                                                |
+| --- | --------------------- | -------------------------------- | ---------------------------------------------------- |
+| 0   | detail(1) lands; tick | `id 0 \| detail 1 \| [none]`     |                                                      |
+| 1   | setId(1); flush()     | `id 0 \| detail 1 \| [fallback]` | S-31's form: the boundary catches the born-held read |
+| 2   | detail(2) lands; tick | `id 1 \| detail 2 \| id 1`       |                                                      |
+
+<!-- /ruling -->
 
 ### S-39. A later unread value still throws — D-28
 
@@ -715,24 +954,67 @@ _Ruled 2026-10-09, from the read-order brief's sibling case (416). Not D-28: thi
 
 Pinned: `tests/first-load-superseded-answer-4569.test.ts` (also a 3-deep chain and the no-boundary root, which attaches at 3 with `pending`), `packages/web/test/first-load-superseded-answer-4569.spec.tsx`.
 
-### S-45. A first answer landing in the same tick as an action that writes its input: `latest` shows it, the plain read waits — D-22, F-9 (async generator E9)
+<!-- ruling:S-45 -->
 
-_Ruled 2026-10-28. The leaf form and the through-a-memo form show the same screen; today the leaf keeps the fallback up until the action ends — that is the ✗ row._
+### S-45. A first answer landing in the same tick as an action that writes its input: `latest` shows it, the plain read waits — D-22, F-9 (E9)
+
+_Generated from `packages/web/test/async-gen/rulings/S-45.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built._
+
+**Case leaf.**
 
 ```tsx
-const m0 = createMemo(() => fetch(s0()));              // first load, no committed value
-<p>{s0()}</p>
-<Loading fallback="loading">{latest(m0)}</Loading>     // or: {L()} with L = createMemo(() => latest(m0))
-const save = action(function* () { setS0(1); yield gate; });
+const [s0, setS0] = createSignal(0);
+const m0 = createMemo(async () => fetch(1 + s0()));
+<span>{s0()}</span>
+<Loading fallback="[fallback]">
+  <span>{latest(m0)}</span>
+</Loading>
 ```
 
-| #   | Action                                                       | Screen                  | Notes                                                                                                                    |
-| --- | ------------------------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 0   | mount                                                        | `0 \| loading`          | first load                                                                                                               |
-| 1   | `save()` and `m0`'s first answer `2` land in one tick; flush | `0 \| 2`                | the answer is the action's (D-4) and `latest` returns it (D-22): the committed `s0 = 0` beside its own answer, one frame |
-| 2   | `gate`, body returns; `m0(1)` lands                          | `1 \| m0(1)`            |                                                                                                                          |
-| ✗   |                                                              | after 1: `0 \| loading` | the leaf waited on the action it did not read; a `Loading` reading only `latest` shows what it has (S-40)                |
-| —   | the same with `{m0()}` in place of `latest(m0)`              | `0 \| loading` until 2  | a plain read of a first load is loading (F-9); the fallback is right there                                               |
+| #   | Action                                                            | Screen                        | Notes                                                                                                                    |
+| --- | ----------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 0   | render                                                            | `s0 0 \| [fallback]`          | first load                                                                                                               |
+| 1   | m0(1) lands; setS0(1) in an action; microtask; microtask; flush() | `s0 0 \| latest(m0) 1`        | the answer is the action's (D-4) and `latest` returns it (D-22): the committed `s0 = 0` beside its own answer, one frame |
+| 2   | the action lands; tick; m0(2) lands; tick                         | `s0 1 \| latest(m0) 2`        |                                                                                                                          |
+| ✗   |                                                                   | after 1: `s0 0 \| [fallback]` | the leaf waited on the action it did not read; a `Loading` reading only `latest` shows what it has (S-40)                |
+
+**Case memo.**
+
+```tsx
+const [s0, setS0] = createSignal(0);
+const m0 = createMemo(async () => fetch(1 + s0()));
+const L = createMemo(() => 1 + latest(m0));
+<span>{s0()}</span>
+<Loading fallback="[fallback]">
+  <span>{L()}</span>
+</Loading>
+```
+
+| #   | Action                                                            | Screen                               | Notes                                               |
+| --- | ----------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------- |
+| 0   | render                                                            | `s0 0 \| [fallback]`                 | first load                                          |
+| 1   | m0(1) lands; setS0(1) in an action; microtask; microtask; flush() | `s0 0 \| L 2`                        | the same screen through a memo `L = latest(m0) + 1` |
+| 2   | the action lands; tick; m0(2) lands; tick                         | `s0 1 \| L 3`                        |                                                     |
+| ✗   |                                                                   | today, after 1: `s0 0 \| [fallback]` | not yet built — the frames test is `it.fails`       |
+
+**Case plain.**
+
+```tsx
+const [s0, setS0] = createSignal(0);
+const m0 = createMemo(async () => fetch(1 + s0()));
+<span>{s0()}</span>
+<Loading fallback="[fallback]">
+  <span>{m0()}</span>
+</Loading>
+```
+
+| #   | Action                                                            | Screen               | Notes                                                                      |
+| --- | ----------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------- |
+| 0   | render                                                            | `s0 0 \| [fallback]` |                                                                            |
+| 1   | m0(1) lands; setS0(1) in an action; microtask; microtask; flush() | —                    | a plain read of a first load is loading (F-9); the fallback is right there |
+| 2   | the action lands; tick; m0(2) lands; tick                         | `s0 1 \| m0 2`       |                                                                            |
+
+<!-- /ruling -->
 
 ---
 
@@ -766,28 +1048,33 @@ const rename = action(function* (n) {
 | 1″  | ambient: `setDraft("Zed")` with no action and nothing held; `flush()` | `Ann \| unsaved` — nothing applied, the effect never sees `Zed`                                                  |                                                                    | a guess outside a hold does not exist. The one-flush flash (`Ann → Zed → Ann`) was the earlier feasible width |
 | ✗   |                                                                       | after 2: `Ann \| unsaved` (guess held) or `Bob \| saved` (held write leaked)                                     |                                                                    |                                                                                                               |
 
-### S-33. A different truth corrects the graph now and the screen at the commit; a never-shown guess is void — D-34 (#3331, fuzzer finding F6 vs A18 (c))
+<!-- ruling:S-33 -->
 
-_Pinned: `tests/spec-async-semantics.test.ts` "#3331", re-pinned 2026-10-05._
+### S-33. A different truth corrects the graph now and the screen at the commit; a never-shown guess is void — D-34 (#3331)
+
+_Generated from `packages/web/test/async-gen/rulings/S-33.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/spec-async-semantics.test.ts`._
 
 ```tsx
 const [value, setValue] = createSignal(0);
-const [double, setDouble] = createOptimistic(() => fetchDouble(value())); // truth = v * 2
-const related = createMemo(() => fetchRelated(double())); // downstream async
-<Loading fallback="loading">
-  double={double()} async={related()}
-</Loading>;
-// click: setValue(1); setDouble(3)   (the truth will be 2)
+const [double, setDouble] = createOptimistic(async () => fetch(1 + value()));
+const related = createMemo(async () => fetch(1 + double()));
+<Loading fallback="[fallback]">
+  <span>{double()} {related()}</span>
+</Loading>
+<span>{latest(double)}</span>
+<span>{isPending(double)}</span>
 ```
 
-| #   | Action                               | Screen                                                                                              | `double()` untracked                              | `latest(double)` | `isPending(double)` |
-| --- | ------------------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ---------------- | ------------------- |
-| 0   | primed                               | `double=0 async=0`                                                                                  | 0                                                 | 0                | false               |
-| 1   | `setValue(1); setDouble(3); flush()` | — (the guess's lane holds itself on `related(3)`)                                                   | 3                                                 | 3                | true                |
-| 2   | source lands `2` ≠ 3                 | — ; `related` re-asks from `2` now                                                                  | **0** — the guess never showed; what showed stays | 2                | true                |
-| 3   | the obsolete `related(3)` lands      | — (inert)                                                                                           | 0                                                 | 2                | true                |
-| 4   | `related(2)` lands                   | `double=2 async=2`                                                                                  | 2                                                 | 2                | false               |
-| ✗   |                                      | after 2: untracked `3` (a dead, invisible guess — the pre-#3811 pins); any frame showing `double=3` |                                                   |                  |                     |
+| #   | Action                                        | Screen                                                                         | Notes                                                                                              |
+| --- | --------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| 0   | double(1) lands; tick; related(2) lands; tick | `double 1 \| related 2 \| latest(double) 1 \| isPending(double) false`         | primed                                                                                             |
+| 1   | setValue(1); setDouble(3) (a guess); flush()  | `double 1 \| related 2 \| latest(double) 3 \| isPending(double) true`          | the guess's lane holds itself on `related(3)`; `latest` shows the guess                            |
+| 2   | double(2) lands; tick                         | `double 1 \| related 2 \| latest(double) 2 \| isPending(double) true`          | the source lands 2 ≠ 3: `related` re-asks from 2 now; the guess never showed, so what showed stays |
+| 3   | related(4) lands; tick                        | —                                                                              | the obsolete `related(3)` lands: inert                                                             |
+| 4   | related(3) lands; tick                        | `double 2 \| related 3 \| latest(double) 2 \| isPending(double) false`         |                                                                                                    |
+| ✗   |                                               | after 2: `double 3 \| related 4 \| latest(double) 2 \| isPending(double) true` | a frame showing `double 3`: a dead, invisible guess                                                |
+
+<!-- /ruling -->
 
 ### S-34. Provenance: an older action's late answer never corrects a newer guess — D-35 (Q-D)
 
@@ -817,37 +1104,36 @@ _Pinned: `tests/optimistic-lane-release.test.ts`, `tests/body-end-supersession-v
 | 2   | the body returns                                                                                          | `5` (display unchanged until the commit) | `latest(guess)` = committed truth · `isPending(guess)` true iff it differs | the correction starts now, not after an obsolete derived flight |
 | 3   | the hold commits                                                                                          | the truth                                | false                                                                      |                                                                 |
 
-### S-44. An outside input change under a guess is held with the guess's action — D-34, F-1 (#4336)
+<!-- ruling:S-44 -->
 
-_Pinned: `tests/optimistic-question-change-4336.test.ts`, `tests/optimistic-layered-filter-4336.test.ts`, `tests/optimistic-held-write-leak.test.ts`, `tests/loading-on-latest-fallback-4337.test.ts`._
+### S-44. An outside input change under a guess is held with the guess's hold — D-34, F-1 (#4336)
+
+_Generated from `packages/web/test/async-gen/rulings/S-44.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built. Pins also: `tests/optimistic-question-change-4336.test.ts`, `tests/optimistic-layered-filter-4336.test.ts`._
 
 ```tsx
 const [sel, setSel] = createSignal(3);
-const [comments, setComments] = createOptimistic(() => fetchComments(sel())); // or createOptimisticStore
-<p>
-  #{sel()}: {comments().join(" | ")}
-</p>;
-const post = action(function* (text) {
-  setComments(c => [...c, `${text} (sending)`]);
-  yield api.post(text);
-  refresh(comments);
-});
+const [comments, setComments] = createOptimistic(async () => fetch(1 + sel()));
+<span>{sel()} {comments()}</span>
+<span>{latest(comments)}</span>
+<span>{isPending(comments)}</span>
 ```
 
-| #   | Action                                                                                          | Screen                                                                                                             | `latest` / `isPending`                                 | Notes                                                       |
-| --- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | ----------------------------------------------------------- |
-| 0   | primed; `post("mine")`                                                                          | `#3: dana \| mine (sending)`                                                                                       | `isPending(comments)` false (verdict-inert)            |                                                             |
-| 1   | outside: `setSel(1)`; `flush()`                                                                 | `#3: dana \| mine (sending)` — the change is held with the post                                                    | `latest(sel)` 1 · `isPending(comments)` true           | a new question, not the guess's source answering            |
-| 2   | issue 1's answer `[]` lands                                                                     | `#3: dana \| mine (sending)`                                                                                       | `latest(comments)` `[]` · true · untracked: the screen |                                                             |
-| 3   | the post settles; its `refresh` re-asks 1                                                       | `#3: dana \| mine (sending)`                                                                                       | true                                                   | the action's refresh after the change stays pending (F-9)   |
-| 4   | issue 1's answer `["mine"]` lands                                                               | `#1: mine` — one frame                                                                                             | false                                                  |                                                             |
-| 1′  | `refresh(comments)` instead of `setSel(1)`                                                      | `#3: dana \| mine (sending)` until the post commits                                                                | `isPending(comments)` false                            | the same question: nothing new is held (#4329)              |
-| 1″  | `sel` a `createOptimistic` over the saved selection; `action { setSel(1); yield; setSaved(1) }` | `#3: dana \| mine (sending)` until issue 1's answer, then `#1: ` — the input's lane waits for its own answer (F-6) |                                                        | the post's guess does not answer issue 1                    |
-| 1⁗  | as 1″, but the action ends without `setSaved` (a pure revert)                                   | `#1: ` until issue 3's re-ask lands, then `#3: dana \| mine (sending)` — one frame; the post lands later as usual  |                                                        | the displaced guess comes back with the revert (D-33)       |
-| 1‴  | keyed: `comments[id] = rows`, the post guessed on `comments[3]`; `setSel(1)`                    | `#1: ` once issue 1's answer lands, not waiting for the post; back on 3: `#3: dana \| mine (sending)`              |                                                        | a key with no guess is an ordinary pending read (F-2)       |
-| ✗   |                                                                                                 | any `#1:` frame before 4, e.g. `#1: dana \| mine (sending)`                                                        |                                                        | the same with `#{sel()}` and the list in two render effects |
+| #   | Action                                             | Screen                                                                                   | Notes                                                                                      |
+| --- | -------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 0   | comments(4) lands; tick                            | `sel 3 \| comments 4 \| latest(comments) 4 \| isPending(comments) false`                 | primed                                                                                     |
+| 1   | action: setComments(9); refresh(comments); flush() | `sel 3 \| comments 9 \| latest(comments) 9 \| isPending(comments) false`                 | the guess shows; verdict-inert                                                             |
+| 2   | setSel(1); flush()                                 | `sel 3 \| comments 9 \| latest(comments) 9 \| isPending(comments) true`                  | a new question, not the guess's source answering: the change is held with the post         |
+| 3   | comments(2) lands; tick                            | —                                                                                        | issue 1's answer lands: still held; `latest(comments)` is the displayed guess (Decision 3) |
+| 4   | the action lands; tick                             | —                                                                                        | the post settles; its refresh re-asks issue 1                                              |
+| 5   | comments(2) lands; tick                            | `sel 1 \| comments 2 \| latest(comments) 2 \| isPending(comments) false`                 | one frame                                                                                  |
+| ✗   |                                                    | after 3: `sel 1 \| comments 2 \| latest(comments) 2 \| isPending(comments) false`        | a `sel 1` frame before the post settles                                                    |
+| ✗   |                                                    | today, after 2: `sel 3 \| comments 9 \| latest(comments) 9 \| isPending(comments) false` | not yet built — the frames test is `it.fails`                                              |
+| ✗   |                                                    | today, after 3: `sel 3 \| comments 9 \| latest(comments) 2 \| isPending(comments) true`  | not yet built — the frames test is `it.fails`                                              |
+| ✗   |                                                    | today, after 4: `sel 3 \| comments 9 \| latest(comments) 2 \| isPending(comments) true`  | not yet built — the frames test is `it.fails`                                              |
 
-Layered: action A guesses `milk`, action B sets a filter optimistically over it. The filter shows at once in both settle orders, `milk` stays until A commits, and when B settles first nothing on screen changes (D-33, D-35). A held write read before the action's first lane read (`setG("b"); yield go; setOther(1)`) shows only at the commit. Boundary (#4337): a keyed list under `<Loading on={filter()}>` whose fallback reads `latest(filter)`, an action that guesses a row and refreshes, and `filter` set outside: the change is held with the action (row 3's guess is still read) and the boundary never leaves its content for it — no `loading` frame beside the held `filter`, toggled back or not; without the hold the fallback shows with the change and clears at its answer (S-20, D-17). Pinned by `tests/loading-on-latest-fallback-4337.test.ts`.
+The prose row's 1″/1⁗ (an optimistic `sel`), 1‴ (a keyed store) and the layered two-action case are not migrated yet.
+
+<!-- /ruling -->
 
 ---
 

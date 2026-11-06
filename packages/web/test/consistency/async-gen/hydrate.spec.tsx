@@ -235,6 +235,7 @@ async function runCase(
           }
           break;
         case "action":
+          if (!("s" in st)) throw new Error(`hydrate: unsupported step ${st.t} (rulings only)`);
           values[st.s] = st.v;
           guard("throw", () => (act(st.s, st.v) as Promise<unknown>)?.catch?.(() => {}));
           break;
@@ -248,6 +249,8 @@ async function runCase(
           await task();
           guard("throw", flush);
           break;
+        default:
+          throw new Error(`hydrate: unsupported step ${(st as any).t} (rulings only)`);
       }
       screens.push(serialize(container));
     }
