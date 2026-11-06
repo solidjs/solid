@@ -327,60 +327,19 @@ export function enterLane(l: Transaction, c: Computed<any>): void {
   const f = (c._flags |= REACTIVE_LANE_READ),
     p = passLane;
   if (p === null) {
-    const verdict = isVerdict(l);
-    // A verdict lane's value (a memo of `latest` / `isPending`, F-6) read by
-    // a derivation that already read the frame's staging or joined its
-    // hold, or by any pass a pass that did is creating: the verdict read
-    // does not break it out — it stays the frame's, as the same read inline
-    // does (verdict.ts `markVerdictReader`, `route`; D-25, D-26). An
-    // effect's own reads do not count (its `_type`, 1–3, carries neither bit).
-    // Nor by a member of the frame a held pass of that lane's hold built,
-    // on any later run (CONFIG_HELD_FRAME, `bornInto`): born in the hold's
-    // world, it is the hold's own work and its run is the frame's, at the
-    // landing (D-25, D-27) — as `route` keeps it for the inline `latest()`.
-    // Nor by a pass that re-entered the hold holding its node at its head
-    // (core.ts `recompute`: held, with no verdict posture — an async memo's
-    // was dropped there — not a frame, not lagging, not a lane's node), when
-    // `l` is another hold's verdict lane: re-run by the write its hold
-    // holds, the pass is that hold's work and reads plainly in either read
-    // order (D-25), as it does reading its hold's staging before `l`'s
-    // value. Moved into `l`, it read its own hold's landing as the screen
-    // (D-26) and asked a question already asked (#4399: `m1:15` again, over
-    // `m0b`'s committed value beside the landing of its next question). Its
-    // own hold's verdict lane is its display-ahead read: it enters that one
-    // (D-25, #4050).
-    let hold: Transaction;
-    if (
-      !(
-        verdict &&
-        (creatorReads(c, (c as any)._type || f) ||
-          ((hold = resolveTx(l._parent!)),
-          (c._config &
-            (CONFIG_HELD | CONFIG_VERDICT | CONFIG_FRAME | CONFIG_LAGS | CONFIG_OVERRIDE)) ===
-            CONFIG_HELD && txOf(c) !== hold) ||
-          (c._config & CONFIG_HELD_FRAME && bornInto(c, hold!)))
-      )
-    ) {
-      setPassLane(l);
-      // The pass read a held write before its first lane read (it joined the
-      // frame's future as mainline would): lane work sees the screen — the
-      // seam re-derives it on the committed world next round (`stagedReaders`,
-      // the park's repair), as it does a lane pass that read a staging. Not a
-      // pass whose held reads were all of nodes born held (no staged read,
-      // `stagedRead`): it has no committed world to re-derive on (#3969).
-      // (A pass not joined: a held write beside a guess, #4336; a leaf of a
-      // verdict lane — its plain reads are the screen's, D-26 `[s(), L()]`.)
-      if (f & REACTIVE_STAGED_READ && (guessed || verdict || f & REACTIVE_JOINED)) stagedRead(c);
-    }
+    setPassLane(l);
+    // The pass read a held write before its first lane read (it joined the
+    // frame's future as mainline would): lane work sees the screen — the
+    // seam re-derives it on the committed world next round (`stagedReaders`,
+    // the park's repair), as it does a lane pass that read a staging. Not a
+    // pass whose held reads were all of nodes born held (no staged read,
+    // `stagedRead`): it has no committed world to re-derive on (#3969).
+    if (f & REACTIVE_STAGED_READ && (guessed || f & REACTIVE_JOINED)) stagedRead(c);
   } else if (sameLane(p, l)) setPassLane(l);
   else if (!under(p, l)) {
     if (!under(l, p)) linkLanes(p, l);
     setPassLane(l);
   }
-}
-/** Is `l` a verdict lane (its parent's `_verdict`)? False for none. */
-function isVerdict(l: Transaction | null | undefined): boolean {
-  return l?._parent?._verdict === l;
 }
 /** Is `l` nested under `a` (an ancestor lane)? */
 function under(l: Transaction, a: Transaction): boolean {
@@ -420,17 +379,6 @@ function unlink(l: Transaction): void {
   const k = g.indexOf(l);
   if (k !== -1) g.splice(k, 1);
   l._links = null;
-}
-
-/** Verdicts (maintainer, 2026-10-01): `isPending` and `latest` are
- * optimistic state the system supplies — a verdict is a guess ("pending,
- * until this lands"; "the proposal is the value") decided at the seam like
- * a user's, and its readers break out of the hold the same way: work of a
- * lane under the holder, shown now, re-derived at the landing, ending with
- * it. Judged at the seam like any lane: blocked while a verdict reader's
- * own derivation is in flight (lane rule 3), shown otherwise. */
-export function verdictLane(t: Transaction): Transaction {
-  return (t._verdict ??= newLane(t));
 }
 
 /** A lane pass's node (core.ts `recompute`, before its staging; a pending
@@ -603,11 +551,6 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
   unlink(l);
   // Its verdicts end with it (a correction's dissolution reaches here before
   // `endLanes` would): the readers re-derive from the truth's notification.
-  const v = l._verdict;
-  if (v !== null) {
-    l._verdict = null;
-    if (lanes.indexOf(v) !== -1) dissolveLane(v, null);
-  }
   for (let i = 0; i < l._nodes.length; i++) {
     const n = l._nodes[i];
     const x = n._x!;
@@ -790,36 +733,9 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
     // its transaction) reads the answer it waited on — the lane's staging,
     // revealed at this seam.
     const never = pending && !el._x!._shown;
-    // D-28: a leaf a verdict read moved into the lane still throws on such
-    // a flight — the pass leaves the lane, and its frame holds as if the
-    // read had come first (S-39, #4275). Nor does a verdict lane's seat carry
-    // the leaf into another lane (no link): it reads that lane as from the
-    // frame's seat (#4284).
-    const p = passLane;
-    const seated = isVerdict(p);
-    if (seated && (never || p !== l)) setPassLane(null);
     if (passLane === null || !sameLane(passLane, l)) {
       // (A lane that has never shown: the screen is the committed value.)
       if (never && l._shown) return NOT_PENDING;
-      // A held leaf reads a shown verdict lane's staging as its frame's
-      // (#4275, S-39). Not a guess lane's: there it is the lane's, for its
-      // next reveal — read as the frame's, the leaf's run waited with the
-      // frame and the reveal never re-ran it; a guess into a log whose lane
-      // has shown stayed hidden behind another action's refresh (F-11,
-      // D-26, #4666). It reads the screen and re-derives at the reveal
-      // (below), or enters the lane.
-      if (
-        !guess &&
-        l._shown &&
-        isVerdict(l) &&
-        el._pendingValue !== NOT_PENDING &&
-        c._config & CONFIG_HELD &&
-        flushTransaction !== null &&
-        resolveTx(flushTransaction) === txOf(c)
-      ) {
-        if (__TEST__) shadowActual(SLOT_P);
-        return el._pendingValue;
-      }
       if (l._held || pending) {
         // Re-derived at the reveal; once per pass (the pass may also be a stale
         // reader of a transaction, REACTIVE_FRAME_READ — both reruns apply).
@@ -838,7 +754,7 @@ export function laneRead(c: Computed<any> | null, el: Signal<any> | Computed<any
       }
       // A verdict reader reads ahead of the seam's verdict: re-derived on the
       // screen if the lane holds (#4284).
-      if (c._config & CONFIG_VERDICT && !isVerdict(l)) entered.push(c);
+      if (c._config & CONFIG_VERDICT) entered.push(c);
     }
   }
   enterLane(l, c);
@@ -1107,30 +1023,6 @@ const applyGuessesAt = (parent: Transaction | null): void => {
   judged = lanes.length;
   if (pendingGuesses.length !== 0) applyGuesses(parent);
 };
-/** `t` is parked by `r`'s pass alone: each node keeping it — `t`'s own, or
- * a lane's under it — is `r` itself (its flight, in the verdict lane) or a
- * render effect pending on `r` only: the frame observing the lane work that
- * read its staging. Anything else (an open action, a guess's flight,
- * another flight) holds it on its own. */
-function heldBy(t: Transaction, r: Computed<any>): boolean {
-  if (t._open !== 0 || (t._lane && linkBlocked(t))) return false;
-  for (let k = -1, u = t; u; u = lanes[++k])
-    if (u === t || resolveTx(u._parent!) === t) {
-      if (u !== t && guessFlights(u)) return false;
-      for (let i = 0; i < u._nodes.length; i++) {
-        const n = u._nodes[i] as Computed<any>;
-        if (
-          n === r ||
-          !(n._statusFlags & STATUS_PENDING) ||
-          (n._x!._transaction !== null && txOf(n) !== u)
-        )
-          continue;
-        const s = n._x!._pendingSources;
-        if ((n as any)._type !== EFFECT_RENDER || s?.size !== 1 || !s.has(r)) return false;
-      }
-    }
-  return true;
-}
 /** The effects that derive plainly from a landing this round that
  * re-derives a stale reader (A15) reading it as committed: its held runs
  * wait for the re-derivation (`land`), and these runs are that frame too —
@@ -1207,7 +1099,7 @@ const laneSeams = (t: Transaction | null): void => {
       // what it read the screen (one run). The frame is the transaction that
       // holds what it read (`t`, this flush's — not always the lane's parent:
       // a landing that reached a frame held elsewhere joined that one). Nor
-      // when only this pass keeps it parked (`heldBy`): the frame lands with
+      // when only this pass keeps it parked (the pass alone keeps it parked): the frame lands with
       // the pass's answer, so what the pass read is the screen when anything
       // shows it — re-derived on the committed world, it would ask a question
       // already asked, over inputs the landing replaces. A reader a
@@ -1237,16 +1129,14 @@ const laneSeams = (t: Transaction | null): void => {
       if (
         r._flags & REACTIVE_DISPOSED ||
         (l?._lane
-          ? (isVerdict(l) &&
-              (r._config & CONFIG_VERDICT
-                ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
-                : !blocked(t!) || heldBy(t!, r))) ||
-            (l._links || [l]).some(u => u.over && liveTx(u.over) == t)
-          : l &&
-            !(
-              r._flags & REACTIVE_PROBE_UNANSWERED ||
-              ((r._flags & REACTIVE_STAGED_READ || readsHeld(r)) && blocked(l) && !bornInto(r, l))
-            ))
+          ? (l._links || [l]).some(u => u.over && liveTx(u.over) == t)
+          : (r._config & (CONFIG_VERDICT | CONFIG_HELD)) === CONFIG_VERDICT
+            ? !(r._flags & REACTIVE_PROBE_UNANSWERED)
+            : l &&
+              !(
+                r._flags & REACTIVE_PROBE_UNANSWERED ||
+                ((r._flags & REACTIVE_STAGED_READ || readsHeld(r)) && blocked(l) && !bornInto(r, l))
+              ))
       )
         continue;
       // A leaked effect re-derives seated in its lane from its first read: it
@@ -1286,7 +1176,6 @@ const laneSeams = (t: Transaction | null): void => {
               txOf(n) === t
             )
               n._x!._parked = n._x!._inFlight;
-        if (t?._verdict && leaked.indexOf(t._verdict) === -1) leaked.push(t._verdict);
       }
       enqueueSub(r);
       if (l?._lane && leaked.indexOf(l) === -1) leaked.push(l);
@@ -1295,7 +1184,7 @@ const laneSeams = (t: Transaction | null): void => {
   // a pass routed into it — the park seam's zombie verdict readers re-run
   // as its work so that this seam reveals them (#3444).
   for (let k = lanes.length - 1; k >= 0; k--)
-    if (k < judged || isVerdict(lanes[k])) laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
+    if (k < judged) laneSeam(lanes[k], leaked.indexOf(lanes[k]) !== -1);
   // A verdict reader that entered a lane this seam held: its run waits with
   // the lane, and the verdict beside it would freeze — it re-derives next
   // round from the frame's seat, a stale reader of the lane (#4284).
@@ -1369,4 +1258,3 @@ if (__OBSERVE__)
     }
     return out;
   };
-GlobalQueue._verdictLane = verdictLane;

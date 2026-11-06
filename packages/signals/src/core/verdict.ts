@@ -17,6 +17,7 @@ import {
   CONFIG_FRAME,
   CONFIG_HELD,
   CONFIG_HELD_FRAME,
+  CONFIG_LAGS,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_INPUTS_PUBLISHED,
   CONFIG_OVERRIDE,
@@ -67,7 +68,7 @@ import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { ahead, screenOf, verdictLane, waiting } from "./lanes.js";
+import { ahead, screenOf, waiting } from "./lanes.js";
 import { latestOf } from "./truth.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
@@ -88,7 +89,8 @@ import {
   staleReader,
   txOf,
   type Transaction,
-  installVerdictHooks
+  installVerdictHooks,
+  list
 } from "./scheduler.js";
 import {
   SLOT_C,
@@ -113,23 +115,35 @@ function watchVerdict(c: Computed<any>, unanswered = false): void {
   stagedReaders.push(c);
 }
 
-/** The reading pass is the holder's verdict lane's — unless already lane
- * work, or already the transaction's (it derives from the future — a held
- * node's, or the staging of a write this flush may hold — and the verdict
- * does not rescue it: its result shows at the landing, re-derived), or a
- * member of the frame a held pass of that hold built (CONFIG_HELD_FRAME,
- * `bornInto`): the hold's own work, born in its world, reads plainly and
- * its run is the frame's (D-25, D-27) — the same leaf reading a memo of the
- * `latest()` waits for the landing too (`enterLane`; E2, #4284). A lane
- * read, for `recompute`'s tail (REACTIVE_LANE_READ). */
-function route(c: Computed<any>, t: Transaction): void {
+/** The reading pass is display-ahead of hold `t` (F-6): it publishes now —
+ * the seam commits what it staged whether or not the flush parks, its
+ * effect runs go ahead of the frame's (`enqueue`) — and re-derives at `t`'s
+ * landing (`_reruns`). Listed on `t` as its display-ahead reader
+ * (`_x._transaction`, not held): a pending one holds `t` as its own flight
+ * would. Not a pass already lane work, nor already the transaction's (it
+ * derives from the future — a held node's, or the staging of a write this
+ * flush may hold — and the verdict does not rescue it: its result shows at
+ * the landing, re-derived), nor a member of the frame a held pass of `t`
+ * built (CONFIG_HELD_FRAME, `bornInto`): the hold's own work, born in its
+ * world, reads plainly and its run is the frame's (D-25, D-27; E2, #4284).
+ * A `plain` read of a display-ahead reader's value: nor a pass another hold
+ * holds, re-run by its hold's write — that hold's own work (#4399); its own
+ * hold's display-ahead reader is its display-ahead read (D-25, #4050). */
+function route(c: Computed<any>, t: Transaction, plain?: boolean): void {
+  t = resolveTx(t);
   if (
-    !passLane &&
-    !(c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)) &&
-    !(c._config & CONFIG_HELD_FRAME && bornInto(c, resolveTx(t)))
+    passLane ||
+    c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ) ||
+    (c._config & CONFIG_HELD_FRAME && bornInto(c, t)) ||
+    (plain &&
+      (c._config &
+        (CONFIG_HELD | CONFIG_VERDICT | CONFIG_FRAME | CONFIG_LAGS | CONFIG_OVERRIDE)) ===
+        CONFIG_HELD &&
+      txOf(c) !== t)
   )
-    setPassLane(verdictLane(t));
-  c._flags |= REACTIVE_LANE_READ;
+    return;
+  c._flags |= REACTIVE_LANE_READ | REACTIVE_PROBED;
+  if (!(c._config & CONFIG_HELD)) list(c, t);
 }
 
 /** A verdict reader served a flight's committed value (the A31 frame-reader
@@ -158,7 +172,12 @@ function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
   // A render effect routed into a verdict lane reads the screen as lane
   // work (D-26). A memo still observes the flight: a plain read after its
   // window is the frame's read, as one before it is (A10, F-6, #4661).
-  if (passLane && (c as any)._type && !(c._statusFlags & STATUS_UNINITIALIZED)) return true;
+  if (
+    (passLane || c._flags & REACTIVE_LANE_READ) &&
+    (c as any)._type &&
+    !(c._statusFlags & STATUS_UNINITIALIZED)
+  )
+    return true;
   if (el._config & CONFIG_INPUTS_PUBLISHED || (el._config & CONFIG_HELD && bornInto(c, txOf(el))))
     return false;
   // A derived store's derive whose store has no reader (`fam.live` empty:
@@ -558,23 +577,6 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
   if (el._config & CONFIG_HELD) {
     if (!uninitialized) {
       const t = txOf(el);
-      // A render effect re-run (or mounted) outside the verdict lane's flush
-      // while the lane is blocked — its display held on its own derivation
-      // in flight — is a stale reader of the lane (#3460, as `laneRead`): the
-      // committed value now, re-derived at the reveal. Not inside a probe:
-      // `isPending` is answered below either way.
-      if (
-        tracked &&
-        !probing &&
-        (c as any)._type === EFFECT_RENDER &&
-        !passLane &&
-        t._verdict?._held &&
-        flushTransaction !== t
-      ) {
-        staleReader(c!, t._verdict);
-        if (__TEST__) shadowActual(SLOT_C);
-        return el._value;
-      }
       if (tracked) verdictRead(c!, t);
       // #4648: a pass the hold holds (it read the frame's staging) is the
       // hold's work, shown at the landing: its probe is final there, never
@@ -890,11 +892,20 @@ function holdStaging(c: Computed<any>, el?: Signal<any> | Computed<any>): unknow
           resolveTx(a) ===
             resolveTx(el._config & CONFIG_HELD ? el._x!._transaction! : flushTransaction!)
         ))) &&
-    (!passLane || (passLane._parent!._verdict === passLane && (setPassLane(null), true)))
+    !passLane &&
+    ((c._flags &= ~REACTIVE_LANE_READ), true)
   );
 }
 
-installVerdictHooks(observeFlight, holdWork, stageMark, keepReaders, attachWaits, holdStaging);
+installVerdictHooks(
+  observeFlight,
+  holdWork,
+  stageMark,
+  keepReaders,
+  attachWaits,
+  holdStaging,
+  route
+);
 /** A store read inside an untracked `isPending` probe found a live mark on
  * a record with no node to carry it (store/affects.ts): not final. */
 GlobalQueue._witnessMark = () => {

@@ -85,7 +85,8 @@ import {
   unhold,
   type Transaction,
   installBoundaryHooks,
-  laneStageHook
+  laneStageHook,
+  aheadHook
 } from "./core/scheduler.js";
 import { attrHooks } from "./core/attribution-hooks.js";
 import type { Computed, Owner, Signal } from "./core/types.js";
@@ -234,7 +235,7 @@ function flip(b: Boundary): void {
   b._lane = b._armLane;
   const o = b._output!;
   if (!b._lane && o._config & CONFIG_HELD && txOf(o) !== flushTransaction) unhold(o);
-  if (laneStageHook && b._lane !== null && b._output !== null)
+  if (laneStageHook && b._lane?._lane && b._output !== null)
     laneStageHook(b._output, b._lane, true, false);
 }
 
@@ -630,13 +631,15 @@ function arm(b: Boundary): void {
   // at this very seam if nothing holds it), and the swap is its verdict
   // lane's work, shown ahead of the frame's own runs (#3528).
   let lane = passLane;
+  // A display-ahead arming pass: the swap is display-ahead of the flush's
+  // hold (the output's pass, `fallback`).
   if (
     lane === null &&
     globalQueue._running &&
     (getOwner() as Computed<any>)._config & CONFIG_VERDICT
   ) {
     joinFuture(null);
-    lane = GlobalQueue._verdictLane!(flushTransaction!);
+    lane = flushTransaction;
   }
   b._armLane = lane;
   if (__DEV__) b._ahead = lane !== null;
@@ -937,7 +940,8 @@ function fallback<T>(b: Boundary): T {
   // the pass in the lane).
   if (b._lane !== null) {
     if (__TEST__) shadowSwapSeat(out, b._lane);
-    setPassLane(b._lane);
+    if (b._lane._lane) setPassLane(b._lane);
+    else aheadHook!(out, b._lane);
     out._flags |= REACTIVE_LANE_READ;
     b._lane = null;
   }

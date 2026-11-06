@@ -459,7 +459,7 @@ function under(l: Transaction, a: Transaction): boolean {
 /** The lane a pass is seated in, as the old code spells it: a verdict lane
  * is a seating of posture V, not a lane (`verdicts have no node set`). */
 function laneOf(t: Transaction | null): Transaction | null {
-  return t !== null && t._parent?._verdict === t ? null : t;
+  return t;
 }
 
 // ─── The slot table ────────────────────────────────────────────────────────
@@ -681,19 +681,6 @@ export function slot(
           t
         );
       if (!uninit) {
-        // Vl1' (#3460, as L7): a render effect outside the hold's own flush
-        // while its verdict lane is blocked is a stale reader of it — the
-        // screen now, re-derived at the reveal. (`latest` only: `isPending`
-        // is answered either way.)
-        if (
-          latest &&
-          tr &&
-          cType === EFFECT_RENDER &&
-          !inSeat &&
-          t._verdict?._held &&
-          flushTransaction !== t
-        )
-          return pred("Vl1'", SLOT_C, MARK_ST, t);
         // Vl1 (D-22 F-6): the proposal — a staged error included (D-41:
         // `staged` throws it); `isPending`'s value is the screen's (Vp1).
         if (latest && staged) return pred("Vl1", stagedSlot, tr ? MARK_AH : 0, t);

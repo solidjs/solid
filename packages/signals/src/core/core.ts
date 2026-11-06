@@ -172,6 +172,7 @@ import {
   laneSeamsHook,
   laneServedHook,
   holdStagingHook,
+  aheadHook,
   holdWorkHook,
   keepReadersHook,
   laneWriteHook,
@@ -405,10 +406,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
         el._x?._transaction?._lane
         ? el._x._transaction
-        : // Loose `!=`: false with no creator lane (undefined == null).
-          create &&
-            prevLane?._parent!._verdict != prevLane &&
-            (creatorPass(context)?._flags as number) & REACTIVE_RECOMPUTING_DEPS
+        : create && (creatorPass(context)?._flags as number) & REACTIVE_RECOMPUTING_DEPS
           ? prevLane
           : null
     );
@@ -797,6 +795,14 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     if (laneStageHook(el, lane, create, errored)) setPassLane(lane);
     else lane = null;
   }
+  // Display-ahead (verdict.ts `route`): this pass's answer supersedes a
+  // frame staging the node carried, and the hold on it is over — the seam
+  // commits it whether or not the flush parks, and its run goes ahead.
+  const ahead = lane === null && (el._flags & REACTIVE_LANE_READ) !== 0;
+  if (ahead && el._config & CONFIG_HELD) {
+    el._pendingValue = NOT_PENDING;
+    el._config &= ~(CONFIG_HELD | CONFIG_HELD_FRAME);
+  }
 
   if (!errored) {
     // Observe-tier fan-in (HUGE_FAN_IN): the validated prefix [_deps.._depsTail]
@@ -870,7 +876,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         globalQueue.enqueue(
           isEffect,
           ((el as any)._boundRunEffect ??= GlobalQueue._runEffect.bind(null, el)),
-          lane
+          lane,
+          ahead
         );
     }
 
@@ -1355,7 +1362,7 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // Not served the screen, the pass reads the staging and joins `el`'s
   // transaction (`joinPass`), but for the lane case below.
   const verdict = observeFlightHook && c._config & CONFIG_VERDICT;
-  const lane = laneStageHook && passLane !== null;
+  const lane = laneStageHook && (passLane !== null || c._flags & REACTIVE_LANE_READ);
   if (
     !(verdict && holdStagingHook!(c, el)) &&
     !(
@@ -1380,7 +1387,8 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
     // nothing — lane work never makes a flush the hold's (D-37). Joined, a
     // plain write the flush carried was held into that hold while the lane
     // showed it, and retracted at the next seam (F-7, #4643).
-    if (lane && passLane!.over && resolveTx(passLane!.over) === t && !verdict) return false;
+    if (passLane !== null && passLane.over && resolveTx(passLane.over) === t && !verdict)
+      return false;
     if (!((!lane && t === flushTransaction && !verdict) || bornInto(c, t))) {
       staleReader(c, t);
       // Lane work or a verdict reader no longer waits on `el`'s flight
@@ -2253,6 +2261,16 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
             (c._config & CONFIG_STAGED || (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
               ? c._config
               : -1);
+        // A reader of a display-ahead reader's value is display-ahead of the
+        // same hold (F-6, #4050): the hold's landing re-derives the reader it
+        // read, whose change reaches this one.
+        if (
+          observeFlightHook &&
+          (owner._config & (CONFIG_VERDICT | CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_VERDICT &&
+          owner._x?._transaction &&
+          !owner._x._transaction._lane
+        )
+          aheadHook!(c as Computed<any>, owner._x._transaction, true);
       }
     }
     if (__TEST__)
@@ -2344,7 +2362,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     if (c !== null && c._config & CONFIG_VERDICT)
       committed = observeFlightHook!(c as Computed<any>, owner);
     else if (
-      passLane !== null &&
+      (passLane !== null || (c !== null && c._flags & REACTIVE_LANE_READ)) &&
       !((c as Computed<any> | null)?._statusFlags! & STATUS_UNINITIALIZED)
     )
       committed = true;
@@ -2599,6 +2617,7 @@ export function stagedScreen(c: Computed<any>, el?: Signal<any> | Computed<any>)
     observeFlightHook &&
     flushTransaction === latestOpened &&
     passLane === null &&
+    !(c._flags & REACTIVE_LANE_READ) &&
     c._config & CONFIG_VERDICT &&
     !(c._statusFlags & STATUS_UNINITIALIZED)
   )

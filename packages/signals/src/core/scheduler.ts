@@ -194,13 +194,17 @@ export let attachHook: ((node: Computed<any>) => boolean) | null = null;
 export let holdStagingHook:
   | ((c: Computed<any>, el?: Signal<any> | Computed<any>) => unknown)
   | null = null;
+/** The reading pass is display-ahead of a hold (verdict.ts `route`): a
+ * verdict read of a node the hold holds, or a read of a reader that is. */
+export let aheadHook: ((c: Computed<any>, t: Transaction, plain?: boolean) => void) | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
   holdWork: NonNullable<typeof holdWorkHook>,
   stageMark: NonNullable<typeof stageMarkHook>,
   keepReaders: NonNullable<typeof keepReadersHook>,
   attach: NonNullable<typeof attachHook>,
-  holdStaging: NonNullable<typeof holdStagingHook>
+  holdStaging: NonNullable<typeof holdStagingHook>,
+  ahead: NonNullable<typeof aheadHook>
 ): void {
   observeFlightHook = observeFlight;
   holdWorkHook = holdWork;
@@ -208,7 +212,11 @@ export function installVerdictHooks(
   keepReadersHook = keepReaders;
   attachHook = attach;
   holdStagingHook = holdStaging;
+  aheadHook = ahead;
 }
+/** Runs of display-ahead effects this flush (`enqueue`): ahead of the
+ * frame's own, with the lanes' reveals, whether or not the flush parks. */
+let aheadRuns: [QueueCallback[], QueueCallback[]] = [[], []];
 /** External-source bridge (wired by enableExternalSource(); undefined while
  * no config is active — including after _resetExternalSourceConfig()). */
 export let wireExternalSourceHook: ((self: Computed<any>) => void) | undefined = undefined;
@@ -275,11 +283,6 @@ export interface Transaction {
   /** A lane. Cleared when a blocked lane outlives its parent and continues
    * as a transaction. */
   _lane: boolean;
-  /** The lane the readers of this transaction's verdicts (`isPending`,
-   * `latest`) break out into — a guess the system supplies: "pending, until
-   * this lands", "the proposal is the value". Opened at the first such read,
-   * ends with the transaction. */
-  _verdict: Transaction | null;
   /** Actions (action.ts) still running in it: held open — blocked — until
    * every one has returned. Summed when transactions merge. */
   _open: number;
@@ -336,7 +339,6 @@ export function newTransaction(lane: boolean, parent: Transaction | null = null)
     _into: null,
     _parent: parent,
     _lane: lane,
-    _verdict: null,
     _open: 0,
     _acted: false,
     _links: null,
@@ -924,7 +926,6 @@ export class GlobalQueue implements IQueue {
     | ((el: Signal<any>, truth: unknown, older: boolean) => boolean | void)
     | undefined;
   // Lanes (lanes.ts).
-  declare static _verdictLane: ((t: Transaction) => Transaction) | undefined;
   // Observe tier (attribution.ts): the guesses of `t`'s lanes (lanes.ts).
   declare static _laneGuesses: ((t: Transaction) => Signal<any>[]) | undefined;
   /** `createDeferred` (deferred.ts): a deferred node with a flight up that
@@ -1005,6 +1006,17 @@ export class GlobalQueue implements IQueue {
         // Already held: the pass that re-staged it joined its transaction,
         // which is `t` (or merged into it). Lane work is the lane's (a
         // pending mark propagated onto it queued it here too).
+        // Display-ahead (verdict.ts `route`): the seam commits what it
+        // staged whether or not the flush parks; its frame is its own.
+        if (
+          observeFlightHook &&
+          (n._config & (CONFIG_VERDICT | CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_VERDICT &&
+          n._x?._transaction &&
+          !n._x._transaction._lane
+        ) {
+          commitPendingNode(n);
+          continue;
+        }
         if (
           !(n._config & (CONFIG_HELD | CONFIG_OVERRIDE)) &&
           (n._x === null || n._x._transaction === null || !n._x._transaction._lane)
@@ -1069,8 +1081,16 @@ export class GlobalQueue implements IQueue {
           if (
             (zombies[i]._flags & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE)) === REACTIVE_ZOMBIE &&
             zombies[i]._config & CONFIG_VERDICT
-          )
+          ) {
             recompute(zombies[i]);
+            // Display-ahead: shown now (the park's loop above has run).
+            if (
+              (zombies[i]._config & (CONFIG_VERDICT | CONFIG_HELD | CONFIG_OVERRIDE)) ===
+                CONFIG_VERDICT &&
+              zombies[i]._pendingValue !== NOT_PENDING
+            )
+              commitPendingNode(zombies[i]);
+          }
       }
       // The unchanged passes' tails stay linked (A30, #3469): their inputs
       // are held, and the committed frame still derives from them — no trim.
@@ -1098,12 +1118,13 @@ export class GlobalQueue implements IQueue {
     // This flush's own runs, the lanes' reveals, and the landings' held runs
     // are collected apart and ordered below.
     const own = this._queues;
-    let lanes: [QueueCallback[], QueueCallback[]] | null = null;
+    // The display-ahead runs, then the lanes' reveals.
+    const lanes = (this._queues = aheadRuns);
+    if (lanes[0].length || lanes[1].length) aheadRuns = [[], []];
     // The passes that read this frame's stagings as the screen read held
     // writes if it parked: the lane seam re-derives them on the committed
     // world (a lane's runs wait this round).
     if (laneSeamsHook) {
-      this._queues = lanes = [[], []];
       laneSeamsHook(t);
       if (stagedReaders.length) stagedReaders.length = 0;
     }
@@ -1151,8 +1172,8 @@ export class GlobalQueue implements IQueue {
       // same array, not a copy; `run` takes it whole). Every other seam
       // builds the ordered queue above.
       this._queues[i] =
-        parked || lanes?.[i].length || this._queues[i].length
-          ? (lanes ? lanes[i] : []).concat(parked ? [] : own[i], this._queues[i])
+        parked || lanes[i].length || this._queues[i].length
+          ? lanes[i].concat(parked ? [] : own[i], this._queues[i])
           : own[i];
     }
     if (deferredZombies.length !== 0) {
@@ -1174,13 +1195,18 @@ export class GlobalQueue implements IQueue {
       runQueue(effects, type);
     }
   }
-  enqueue(type: number, fn: QueueCallback, lane: Transaction | null = passLane): void {
+  enqueue(
+    type: number,
+    fn: QueueCallback,
+    lane: Transaction | null = passLane,
+    ahead?: unknown
+  ): void {
     // Lane work's runs are the lane's: they run at its reveal, not with
     // the frame (which may park). A lane pass that read the frame's own
     // staging is the frame's (`recompute` passes null): its run waits with
     // the frame. So is a run given a transaction that is not a lane (a
     // first run born held, `effect()`).
-    if (type) (lane?._lane ? lane : this)._queues[type - 1].push(fn);
+    if (type) (lane?._lane ? lane._queues : ahead ? aheadRuns : this._queues)[type - 1].push(fn);
     schedule();
   }
   /** Status reaching the root: pending is absorbed (the root mount defers —
