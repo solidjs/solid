@@ -477,7 +477,7 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
     return readSource(target, key);
   }
   const pb = target.pb;
-  const k = target.k;
+  let k = target.k;
   const fam = target._fam;
   // A derived store's first landing, staged while the derive is still
   // uninitialized: its only value (A19 exc. 1: loading, not pending).
@@ -495,11 +495,22 @@ function frameOf(target: StoreTarget, key: PropertyKey, shape = false): Record<P
   // the frame it swapped out): the batch's own staging, on `k`.
   if (pb !== null && batchHas(target, pb, key, shape)) {
     frameDel = target.del;
-    if (k === null) return readSource(target, key);
+    // A pass asking before the container exists: made now (a reader is
+    // here), so core's one selection answers — an unflushed write served
+    // committed (A28), a verdict reader the screen, a member the staging.
+    if (k === null) {
+      if (getObserver() === null) return readSource(target, key);
+      k = getContainerNode(target);
+    }
     // The flush's own staging is read without a link (the leaf notifies;
-    // a link would re-run the reader at the next staging of any key);
-    // one a hold holds (a layer over its patch) as the carrier below.
-    return asBacking(k._config & CONFIG_HELD ? readNode(k) : untrack(() => readNode(k)));
+    // a link would re-run the reader at the next staging of any key) —
+    // but by a verdict window, whose tracked read is the window's question
+    // of the staging (`_askedIn`, D-26) and its reader's seat (the seam's,
+    // `provisionalVerdict`); and one a hold holds as the carrier below.
+    const n = k;
+    return asBacking(
+      n._config & CONFIG_HELD || verdict !== null ? readNode(n) : untrack(() => readNode(n))
+    );
   }
   // A hold's patch has the key — by value or presence, a `shape` reader by
   // its descriptor too (#3706: the hold's unit is the key; a key absent in
