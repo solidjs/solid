@@ -37,7 +37,14 @@ import {
   STATUS_PENDING,
   REACTIVE_REASK
 } from "../core/constants.js";
-import { context, isEqual, joinPassAt, read as readNode, slotSignal } from "../core/core.js";
+import {
+  context,
+  isEqual,
+  joinPassAt,
+  read as readNode,
+  slotSignal,
+  untrack
+} from "../core/core.js";
 import { link } from "../core/graph.js";
 import { devGuardOptimisticBeforeLoad } from "../core/dev.js";
 import {
@@ -117,14 +124,22 @@ function guessView(
   if (kg !== null)
     for (let i = kg.length - 1; i >= 0; i--) {
       const g = kg[i];
-      if (g._config & CONFIG_OVERRIDE || (writer && pendingGuessOf(g) !== NOT_PENDING)) {
-        const v = writer ? guessedValueOf(g) : latestOf(g);
+      if (writer) {
+        // The writer composes on the screen with the tick's own guesses: the
+        // unflushed guess, the lane's value, a corrected guess's screen until
+        // its hold lands (D-34, D-37 — never the truth beneath it).
+        if (g._config & CONFIG_OVERRIDE || pendingGuessOf(g) !== NOT_PENDING) {
+          const v = guessedValueOf(g);
+          if (v !== NOT_PENDING) return v as Record<PropertyKey, any>;
+        }
+        if (g._config & CONFIG_HELD) return g._value as Record<PropertyKey, any>;
+      } else if (g._config & (CONFIG_OVERRIDE | CONFIG_HELD)) {
+        // A snapshot, `deep()`, a reconcile's key matching: the carrier as
+        // core reads it for this reader (the lane's world, the screen, the
+        // truth beneath — the same frame the per-key reads compose).
+        const v = untrack(() => readNode(g));
         if (v !== NOT_PENDING) return v as Record<PropertyKey, any>;
       }
-      // A corrected guess keeps the screen until its hold lands (D-34): a
-      // guess written meanwhile composes on that screen, never on the truth
-      // beneath it (D-37).
-      if (g._config & CONFIG_HELD) return g._value as Record<PropertyKey, any>;
     }
   return src;
 }
