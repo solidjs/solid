@@ -74,6 +74,78 @@ describe("State Getter/Setters", () => {
   });
 });
 
+describe("Class accessor precedence", () => {
+  class BaseCounter {
+    count = 1;
+    get value() {
+      return this.count;
+    }
+    set value(value: number) {
+      this.count = value;
+    }
+  }
+
+  class Counter extends BaseCounter {
+    get value() {
+      return this.count * 2;
+    }
+    set value(value: number) {
+      this.count = value / 2;
+    }
+  }
+
+  test("preserves overridden getters and setters", () => {
+    createRoot(dispose => {
+      const counter = createMutable(new Counter());
+      const value = createMemo(() => counter.value);
+      expect(value()).toBe(2);
+      counter.count = 4;
+      expect(value()).toBe(8);
+      counter.value = 6;
+      expect(counter.count).toBe(3);
+      expect(value()).toBe(6);
+      dispose();
+    });
+  });
+
+  test("preserves own accessors over prototype accessors", () => {
+    createRoot(dispose => {
+      const instance = new Counter();
+      Object.defineProperty(instance, "value", {
+        get() {
+          return this.count * 3;
+        },
+        set(value: number) {
+          this.count = value / 3;
+        },
+        configurable: true
+      });
+      const counter = createMutable(instance);
+      const value = createMemo(() => counter.value);
+      expect(value()).toBe(3);
+      counter.value = 6;
+      expect(counter.count).toBe(2);
+      expect(value()).toBe(6);
+      dispose();
+    });
+  });
+
+  test("preserves own data properties over prototype accessors", () => {
+    const instance = new Counter();
+    Object.defineProperty(instance, "value", {
+      value: 10,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+    const counter = createMutable(instance);
+    expect(counter.value).toBe(10);
+    counter.value = 20;
+    expect(counter.value).toBe(20);
+    expect(counter.count).toBe(1);
+  });
+});
+
 describe("Simple update modes", () => {
   test("Simple Key Value", () => {
     const state = createMutable({ key: "" });
