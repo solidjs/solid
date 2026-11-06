@@ -301,7 +301,6 @@ function releaseSlot(node: any): void {
   const k = t.k;
   if (
     k !== null &&
-    plainTarget(t) &&
     !(k._config & CONFIG_OVERRIDE) &&
     k._subs === null &&
     k._pendingValue === NOT_PENDING &&
@@ -349,21 +348,6 @@ setSlotUnobserved((node: any): void => {
  * pending one — and held by the container's transaction when the container
  * is held (#3706: the unit of the hold is the key — a key the batch left
  * unchanged stages nothing and holds no one). */
-/** S1 (documentation/plans/store-patch-staging-brief.md): a plain store's
- * committed backing `v` is the single home. A leaf is a notifier with
- * equality — a link target and the value its readers were last notified
- * with. A batch's staging is its patch (`pb`, the written keys and deletes)
- * on the container node `k`; a parked batch's patch moves to a carrier node
- * the hold holds (`kh`), folded into `v` at the landing. The frame a read
- * sees is decided by the node whose patch has the key (`frameOf`), as core's
- * `read` of it decides for any held or staged node. An optimistic family
- * keeps today's per-slot lanes until S2. */
-function plainTarget(_t: StoreTarget): boolean {
-  return true;
-}
-function plainLeaf(_target: StoreTarget, node: Signal<any> | undefined): boolean {
-  return !(node !== undefined && node._config & CONFIG_OVERRIDE);
-}
 function notifyLeaf(node: Signal<any>, nv: unknown, force?: boolean): void {
   const old = node._value;
   if (!force && node._equals && node._equals(old, nv)) return;
@@ -791,38 +775,8 @@ function pathCopy(t: StoreTarget, old: Record<PropertyKey, any>): void {
     t.u!.v[slot] = t.v;
   }
 }
-function bornStaged(target: StoreTarget, node: Signal<any>, staged: any, key: PropertyKey): void {
-  if (plainLeaf(target, node)) {
-    node._value = staged;
-    return;
-  }
-  if (node._equals && node._equals(node._value, staged)) return;
-  queuePendingNode(node);
-  node._pendingValue = staged;
-  const k = target.k;
-  if (k === null) return; // a node-less staging holds nothing (`stageOn`)
-  // The staging is a derive's lane pass's (`stageOn` → `holdWithDerive`
-  // listed the container in the lane, #4478), not a guess's: the leaf takes
-  // it as the lane's derivation, as the write would have left a leaf that
-  // existed then — a lane reader sees the lane's value, the frame the
-  // committed one, as a reader of the memo the derive reads does (E3,
-  // D-25). Born a staging instead, the park held it with the frame, and an
-  // Errored the memo's lane value heals stayed on its fallback over the
-  // store (#4451, D-39).
-  if (laneStageHook && (k._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE)
-    holdWithDerive(target, node, txOf(k));
-  // Held by the container's transaction only for a key the HELD staging
-  // changed — a mainline layer's change above it stages mainline. (A
-  // container carrying a guess is a lane's: the flush's park decides —
-  // unless a correction folded under the guess, D-34: the key is that
-  // correction's hold's.)
-  else if (k._config & CONFIG_HELD && heldKeyChanged(target, key)) {
-    const l = txOf(k);
-    if (!(k._config & CONFIG_OVERRIDE) || l.folded) holdNode(node, resolveTx(l._parent ?? l));
-  }
-  // A28 (4): a batch written inside a creation-time pass is promoted — its
-  // late-materialized leaf with it.
-  if (k._config & CONFIG_PROMOTED) notePromotedWrite(node);
+function bornStaged(node: Signal<any>, staged: any): void {
+  node._value = staged;
 }
 
 export function getNode(
@@ -849,7 +803,7 @@ export function getNode(
       accKnown === -1 ? isOwnAccessor(pb ?? target.v, key) : accKnown === 1
     ));
     if (pb !== null && !(created as any).acc)
-      bornStaged(target, created, target.del?.has(key) ? undefined : pb[key as any], key);
+      bornStaged(created, target.del?.has(key) ? undefined : pb[key as any]);
     // Attribution-only: name store property nodes by path segment so
     // attribution chains and wide-scope warnings read "store.todos" (or
     // "todos.title" when the store was declared with a name), not
@@ -875,7 +829,7 @@ export function getHasNode(target: StoreTarget, key: PropertyKey): Signal<boolea
   if (node === undefined) {
     const created = (node = slotSignal(key in committed(target), isEqual, target, key, false));
     const pb = target.pb;
-    if (pb !== null) bornStaged(target, created, key in pb && !target.del?.has(key), key);
+    if (pb !== null) bornStaged(created, key in pb && !target.del?.has(key));
     if (__OBSERVE__ && attrHooks !== null) stampNodeOwner(created, target);
     nodes[key] = node;
     noteNode(target, created, key);
@@ -896,10 +850,6 @@ export function getContainerNode(target: StoreTarget): Signal<any> {
     // takes the staging as its own — the pre-batch backing committed, the
     // pending backing staged — so whoever asked for it reads the frame it
     // would have read had the node been there from the write.
-    if (target.pb !== null && !directCommit && !plainTarget(target)) {
-      k._pendingValue = target.pb;
-      queuePendingNode(k);
-    }
   }
   return k;
 }
@@ -915,23 +865,20 @@ export function getContainerNode(target: StoreTarget): Signal<any> {
  * flush parks, the seam materializes and holds the node then
  * (`storeParkHook`) — the one case the staging home exists for. */
 function stageOn(target: StoreTarget, pb: Record<PropertyKey, any>): void {
-  const plain = plainTarget(target);
   if (
-    (plain ? target.kp : target.k) === null &&
+    target.kp === null &&
     passLane === null &&
     (context === null || globalQueue._running) &&
     !deriveHolds(target)
   )
     return;
-  const k = plain ? getPatchNode(target) : getContainerNode(target);
+  const k = getPatchNode(target);
   if (k._pendingValue === NOT_PENDING) queuePendingNode(k);
   k._pendingValue = pb;
   // A34 (3)'s discriminator on the patch: a user setter's staging is a
-  // proposal, a derive's a derivation (as on the leaves of a family).
-  if (plain) {
-    if (userWrite) k._config |= CONFIG_MANUAL_WRITE;
-    else k._config &= ~CONFIG_MANUAL_WRITE;
-  }
+  // proposal, a derive's a derivation.
+  if (userWrite) k._config |= CONFIG_MANUAL_WRITE;
+  else k._config &= ~CONFIG_MANUAL_WRITE;
   // A28 (4): a write issued inside a pass outside a flush (a creation-time
   // derive) is promoted at the pass's end — the batch with it.
   if (context !== null) notePromotedWrite(k);
@@ -949,9 +896,7 @@ const storePark = (t: Transaction): void => {
   for (let i = 0; i < foldList.length; i++) {
     const target = foldList[i];
     if (target.pb === null) continue;
-    if (plainTarget(target)) {
-      if (!(target.kp?._config! & CONFIG_OVERRIDE)) parkPatch(target, t);
-    } else if (target.k === null) holdNode(getContainerNode(target), t);
+    if (!(target.kp?._config! & CONFIG_OVERRIDE)) parkPatch(target, t);
   }
   optHooks?.park(t);
 };
@@ -1140,7 +1085,7 @@ export function materializePB(target: StoreTarget): Record<PropertyKey, any> {
   );
   target.pb = clone;
   // The staging IS the pending backing: re-point the container node.
-  const k = plainTarget(target) ? target.kp : target.k;
+  const k = target.kp;
   if (k?._pendingValue === pb) k._pendingValue = clone;
   return clone;
 }
@@ -1167,7 +1112,7 @@ function ensurePB(target: StoreTarget): Record<PropertyKey, any> {
     // adoption and the draft is a mainline layer above it (#3612/#3688: a
     // mainline setter mid-hold publishes mainline; the held keys stay held).
     pb = target.pb = cloneRaw(pb, target);
-    const k = plainTarget(target) ? target.kp : target.k;
+    const k = target.kp;
     if (k !== null && !(k._config & CONFIG_HELD)) k._pendingValue = pb;
   } else if (pb === null) {
     // A batch under a live hold composes on the hold's patch (the one
@@ -1377,7 +1322,7 @@ function drainFolds(): void {
     for (let i = 0; i < list.length; i++) {
       const t = list[i];
       if (t.pb === null) continue; // folded already (a direct commit)
-      const k = plainTarget(t) ? t.kp : t.k;
+      const k = t.kp;
       if (k !== null && k._pendingValue !== NOT_PENDING) {
         // held: commits with its hold
         foldList.push(t);
@@ -1612,29 +1557,15 @@ let userWrite = false;
 export function userWriting(): boolean {
   return userWrite;
 }
-function heldDerivation(t: StoreTarget, node: Signal<any> | undefined, key: PropertyKey): boolean {
+function heldDerivation(t: StoreTarget, key: PropertyKey): boolean {
   if (t._fam === null || !userWrite) return false;
-  if (plainTarget(t)) {
-    // The key's held patch (the batch's own, or a carrier's): a derive's
-    // (not a user proposal, CONFIG_MANUAL_WRITE) another transaction holds.
-    const p = t.kp !== null && t.kp._config & CONFIG_HELD ? t.kp : heldPatchFor(t, key);
-    return (
-      p !== null &&
-      (p._config & (CONFIG_HELD | CONFIG_MANUAL_WRITE)) === CONFIG_HELD &&
-      txOf(p) !== flushTransaction
-    );
-  }
-  if (node !== undefined)
-    return (
-      (node._config & (CONFIG_HELD | CONFIG_MANUAL_WRITE)) === CONFIG_HELD &&
-      txOf(node) !== flushTransaction
-    );
-  const k = t.k;
+  // The key's held patch (the batch's own, or a carrier's): a derive's
+  // (not a user proposal, CONFIG_MANUAL_WRITE) another transaction holds.
+  const p = t.kp !== null && t.kp._config & CONFIG_HELD ? t.kp : heldPatchFor(t, key);
   return (
-    k !== null &&
-    (k._config & CONFIG_HELD) !== 0 &&
-    txOf(k) !== flushTransaction &&
-    heldKeyChanged(t, key)
+    p !== null &&
+    (p._config & (CONFIG_HELD | CONFIG_MANUAL_WRITE)) === CONFIG_HELD &&
+    txOf(p) !== flushTransaction
   );
 }
 
@@ -1684,7 +1615,6 @@ function notifyWrites(t: StoreTarget): void {
     }
   }
   const nodes = t.n;
-  const plain = plainTarget(t);
   // Written-keys bound: trap writes record their keys, so the notify visits
   // O(written) nodes instead of every subscription on the record (a selection
   // map with thousands of per-key subscribers pays two visits per select,
@@ -1704,7 +1634,7 @@ function notifyWrites(t: StoreTarget): void {
   if (__OBSERVE__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
   if (t._fam !== null && !heldDerivationHit && writtenKeys !== null)
     for (const key of writtenKeys)
-      if (heldDerivation(t, nodes?.[key as any], key)) {
+      if (heldDerivation(t, key)) {
         heldDerivationHit = true;
         break;
       }
@@ -1714,8 +1644,8 @@ function notifyWrites(t: StoreTarget): void {
   // The batch's own staging held already (a derive's, `holdWithDerive`; a
   // key a hold's patch had, below): a write to it is a proposal under that
   // hold — the writer's tick joins it, as `setSignal` on the held leaf did.
-  if (plain && t.kp !== null && t.kp._config & CONFIG_HELD) joinFuture(txOf(t.kp));
-  if (plain && t.kh !== null) {
+  if (t.kp !== null && t.kp._config & CONFIG_HELD) joinFuture(txOf(t.kp));
+  if (t.kh !== null) {
     if (writtenKeys === null) {
       const p = heldCarrier(t);
       if (p !== null) joinHeld(t, p);
@@ -1752,30 +1682,17 @@ function notifyWrites(t: StoreTarget): void {
         const nd = Object.getOwnPropertyDescriptor(pb, key);
         if (!nd || nd.get || nd.set) {
           if (od?.get !== nd?.get || od?.set !== nd?.set || od?.value !== nd?.value)
-            plain ? notifyLeaf(node, FORCE, true) : setSignal(node, () => FORCE as any);
+            notifyLeaf(node, FORCE, true);
           continue;
         }
-        if (od?.get || od?.set || !isEqual(od?.value, nd.value))
-          plain ? notifyLeaf(node, nd.value) : setSignal(node, () => nd.value);
+        if (od?.get || od?.set || !isEqual(od?.value, nd.value)) notifyLeaf(node, nd.value);
         continue;
       }
       // A removed `__proto__` is told `undefined`, never the prototype (core
       // R30, #4672); an own key pays nothing. (An overlay's written keys are
       // own on it or in `del`.)
       const nv = own || !(t.del?.has(key) || key === "__proto__") ? pb[key as any] : undefined;
-      if (plain) {
-        notifyLeaf(node, nv);
-        continue;
-      }
-      setSignal(node, () => nv);
-      if (t._fam !== null) {
-        // The derive's write is a derivation; a user setter's is a proposal
-        // (A34 (3)'s discriminator).
-        if (!userWrite) {
-          node._config &= ~CONFIG_MANUAL_WRITE;
-          holdWithDerive(t, node);
-        } else node._config |= CONFIG_MANUAL_WRITE;
-      }
+      notifyLeaf(node, nv);
     }
   }
   const has = t.h;
@@ -1784,12 +1701,7 @@ function notifyWrites(t: StoreTarget): void {
     for (const key of keys) {
       const node = has[key as any];
       if (node !== undefined) {
-        if (plain) {
-          notifyLeaf(node, key in pb && !t.del?.has(key));
-          continue;
-        }
-        setSignal(node, key in pb && !t.del?.has(key));
-        if (t._fam !== null && !userWrite) holdWithDerive(t, node);
+        notifyLeaf(node, key in pb && !t.del?.has(key));
       }
     }
   }
@@ -1872,19 +1784,14 @@ export function membershipChanged(
  * container showing the lane). */
 function leafSet(node: Signal<any>, v: any): void {
   const host: StoreTarget = (node as any)._host;
-  if (plainLeaf(host, node)) {
-    // A plain target's leaf is a notifier; a key a hold's patch has is a
-    // second proposal for it — the writer's tick joins the hold (A34 (1)).
-    const p = heldPatchFor(host, (node as any)._key);
-    if (p !== null && p._config & CONFIG_HELD) joinHeld(host, p);
-    if (typeof v === "function") {
-      const nv = v();
-      notifyLeaf(node, nv, nv === FORCE);
-    } else notifyLeaf(node, v);
-    return;
-  }
-  setSignal(node, v);
-  if (passLane !== null && !userWrite && host._fam !== null) holdWithDerive(host, node);
+  // A leaf is a notifier; a key a hold's patch has is a second proposal for
+  // it — the writer's tick joins the hold (A34 (1)).
+  const p = heldPatchFor(host, (node as any)._key);
+  if (p !== null && p._config & CONFIG_HELD) joinHeld(host, p);
+  if (typeof v === "function") {
+    const nv = v();
+    notifyLeaf(node, nv, nv === FORCE);
+  } else notifyLeaf(node, v);
 }
 
 /** One leaf's notification for an adoption diff (descriptor-aware). */
@@ -2044,7 +1951,7 @@ function draftServe(target: StoreTarget, proxy: any): any {
  * "adoption is eager by contract" — and the node keeps the frame committed
  * readers under a hold still see), `t.v` otherwise. */
 export function committed(t: StoreTarget): Record<PropertyKey, any> {
-  const k = plainTarget(t) ? t.kp : t.k;
+  const k = t.kp;
   if (k !== null && k._pendingValue !== NOT_PENDING) return k._value;
   // Under a hold the screen is the frame before the oldest patch (each
   // carrier keeps the screen as it parked; a later batch layers on the
@@ -2096,46 +2003,7 @@ function readSource(
   }
   const pb = target.pb;
   if (pb === null) return target.v;
-  if (inDraft(target) || writeOverride) {
-    // The derive reads its own store through its draft: a key (or the
-    // container) a transaction holds — a user's write inside an action,
-    // held with it — is the future, and the pass that reads it derives
-    // from the future (L2: a read of something already held joins it): the
-    // derive's whole result reveals with the action (core R31 / #3733:
-    // "under the transaction and revealed with it"), not key by key. A
-    // user's setter reading its draft is no pass and joins nothing here.
-    if (writeOverride && !userWrite) {
-      const leaf = key !== undefined ? target.n?.[key as any] : undefined;
-      if (leaf !== undefined) {
-        if ((leaf._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD)
-          joinPassTx(txOf(leaf));
-      } else {
-        const k = target.k;
-        if (
-          k !== null &&
-          (k._config & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD &&
-          (key === undefined || heldKeyChanged(target, key))
-        )
-          joinPassTx(txOf(k));
-      }
-    }
-    return pb;
-  }
-  const k = target.k;
-  // A key whose leaf carries a lane's value (a guess, S4): the leaf serves
-  // it — the container's frame is not consulted (a reader is not made a
-  // stale reader of the container's hold for a key it does not see through
-  // it).
-  if (key !== undefined) {
-    const leaf = target.n?.[key as any];
-    if (leaf?._config! & CONFIG_OVERRIDE) return committed(target);
-  }
-  const held = k !== null && (k._config & CONFIG_HELD) !== 0;
-  // A held container: the hold's unit is the key (#3706). A key the HELD
-  // staging left unchanged reads the ambient view — a mainline layer's
-  // write above the hold publishes mainline (#3688, #3612); a key it
-  // changed reads the frame core serves this reader.
-  if (held && key !== undefined && !heldKeyChanged(target, key, shape)) return pb;
+  if (inDraft(target) || writeOverride) return pb;
   const c = stagingReader();
   if (c === null) {
     if (getObserver() !== null) return pb; // a frame reader's leaf decides the value
@@ -2144,58 +2012,34 @@ function readSource(
     // sees them before the flush — unless a hold keeps them staged.
     if (familyAhead(target)) return pb;
     // A verdict window (`isPending`/`latest`) with no reader (a top-level
-    // probe) judges the container like any node — for a key the batch
+    // probe) judges the staging like any node — for a key the batch
     // changed; an unchanged key is committed and final (A22: pending is per
-    // key). A held container's committed frame is the node's.
-    if (verdict === null || (!held && key !== undefined && !keyChanged(target, key, shape)))
-      return held ? k!._value : target.v;
-    // A plain target's staging lives on its patch node (the batch's, or the
-    // hold's carrier): the probe judges that node.
-    if (plainTarget(target)) {
-      const p = target.kp ?? heldCarrier(target);
-      if (p !== null) return readNode(p);
-      if (target.pb !== null) return readNode(getPatchNode(target));
-      return committed(target);
-    }
-    return k === null ? committed(target) : readNode(k);
+    // key). The staging lives on the patch node (the batch's, or a hold's
+    // carrier): the probe judges that node.
+    if (verdict === null || (key !== undefined && !keyChanged(target, key, shape))) return target.v;
+    const p = target.kp ?? heldCarrier(target);
+    if (p !== null) return readNode(p);
+    return readNode(getPatchNode(target));
   }
   // A pass reading a key the batch left unchanged: the same value in both
-  // frames — committed, holding no one. Otherwise the container's frame by
-  // core's rules — `read()` of the node WITHOUT a link (a value reader never
-  // subscribes to the container): a render effect outside a hold's flush
-  // sees committed and re-derives at the landing, a memo joins the future,
-  // a staging read is marked. The key's own leaf, when it has one, decides
-  // the value the same way.
-  if (!held) {
-    // A plain pass this flush already served a staging as the screen
-    // (REACTIVE_STAGED_READ — what `read()` would set again here) reads an
-    // unheld staging directly: an unchanged key is the same value in both
-    // frames, a changed one is what the mark already stands for. The
-    // per-key question is asked once per pass, not once per key (a
-    // `mapArray` over 1k shifted rows asked it 1k times).
-    if (
-      c._flags & REACTIVE_STAGED_READ &&
-      !(c._config & (CONFIG_VERDICT | CONFIG_CHILDREN_FORBIDDEN))
-    )
-      return pb;
-    if (key !== undefined && !keyChanged(target, key, shape)) return committed(target);
-    // A node-less staging (`stageOn`): what `read()` of its node would do
-    // for this pass — a verdict reader sees the screen, any other derives
-    // from the staging and is marked as having read it.
-    if (k === null) {
-      if (c._config & CONFIG_VERDICT && stagedScreen(c)) return committed(target);
-      stagedRead(c);
-      return pb;
-    }
-  }
-  return untrack(() => readNode(k));
-}
-
-/** Did the HELD staging (the container node's, not a mainline layer above
- * it) change `key`? */
-function heldKeyChanged(target: StoreTarget, key: PropertyKey, shape = true): boolean {
-  const k = (plainTarget(target) ? target.kp : target.k)!;
-  return changedBetween(target, k._value, k._pendingValue, key, shape) && !adoptChild(target, key);
+  // frames — committed, holding no one. A pass this flush already served a
+  // staging as the screen (REACTIVE_STAGED_READ — what `read()` would set
+  // again here) reads an unheld staging directly: an unchanged key is the
+  // same value in both frames, a changed one is what the mark already
+  // stands for. The per-key question is asked once per pass, not once per
+  // key (a `mapArray` over 1k shifted rows asked it 1k times).
+  if (
+    c._flags & REACTIVE_STAGED_READ &&
+    !(c._config & (CONFIG_VERDICT | CONFIG_CHILDREN_FORBIDDEN))
+  )
+    return pb;
+  if (key !== undefined && !keyChanged(target, key, shape)) return committed(target);
+  // A node-less staging (`stageOn`): what `read()` of its node would do for
+  // this pass — a verdict reader sees the screen, any other derives from
+  // the staging and is marked as having read it.
+  if (c._config & CONFIG_VERDICT && stagedScreen(c)) return committed(target);
+  stagedRead(c);
+  return pb;
 }
 
 /** The values of a held frame, built once per frame: neither the committed
@@ -2220,18 +2064,6 @@ export function sameRow(pv: any, nv: any, keyFn: ((item: any) => any) | null): b
   );
 }
 
-/** A key of a held adoption whose old and new values are the same row that
- * nothing had proxied when the adoption ran, so `descend` never paired
- * them: paired now, as it would have been (#3712) — one target, the old
- * raw its committed frame, the new raw its staging, held by the same
- * transaction. Both raws resolve to it, so the slot reads as unchanged and
- * the row's own leaves decide: `id` the same in both frames holds no one,
- * `version` holds. A record's keys pair by name; an array's by the family's
- * key — without a family the pairing is not known here and the hold stands. */
-function adoptChild(target: StoreTarget, key: PropertyKey): boolean {
-  const k = (plainTarget(target) ? target.kp : target.k)!;
-  return adoptChildOf(target, k._value, k._pendingValue as object, txOf(k), key);
-}
 function adoptChildOf(
   target: StoreTarget,
   old: Record<PropertyKey, any>,
@@ -2262,10 +2094,8 @@ function adoptChildOf(
   const ct: StoreTarget = (wrap(ov, target, key) as any)[$TARGET];
   if (ct?.v !== ov) return false;
   adoptPB(ct, nv, false);
-  // A plain row's pairing is a carrier of the same hold at once (its
-  // patch per hold); a family's stays on its container.
-  if (plainTarget(ct)) parkPatch(ct, tx);
-  else holdNode(getContainerNode(ct), tx);
+  // The row's pairing is a carrier of the same hold at once (its patch per hold).
+  parkPatch(ct, tx);
   return true;
 }
 
@@ -2322,32 +2152,6 @@ function changedBetween(
   return !isEqual(ov, nv) && !sameLogicalSlot(target, ov, nv);
 }
 
-/** Value of a key with a leaf: core's — `read()` links a tracked reader and,
- * tracked or not, applies the hold and A28 rules a signal's read does. A
- * projection's unheld staging is ahead for a handler (`familyAhead`), and is
- * the only value while its derive has never committed: the committed side
- * is the seed, never observable (A25) — a reader core serves the screen (a
- * verdict reader, #4355) is served the staging, as for a memo born staged
- * (core `serve`). */
-function nodeValue(node: Signal<any>, backing: any, target: StoreTarget): any {
-  let v;
-  if (
-    node._pendingValue !== NOT_PENDING &&
-    !(node._config & CONFIG_HELD) &&
-    target._fam !== null &&
-    (context === null || target._fam.node?._statusFlags! & STATUS_UNINITIALIZED)
-  ) {
-    // A pass over a derive that has never committed: the staging is its
-    // first answer, not a change — linked and served with no verdict (a
-    // first landing is loading, not pending: A19 exc. 1, F-9, as for a memo
-    // born staged; core's verdict would call the leaf's staging pending).
-    if (__DEV__) devRead(node); // read()'s dev diagnostics, which this read skips
-    if (context !== null && tracking) link(node, context as Computed<any>);
-    v = node._pendingValue;
-  } else v = readNode(node);
-  return v === (FORCE as any) ? backing : v;
-}
-
 /** Serve a present data key: link the leaf for a tracked reader (creating it
  * on first read), wrap a wrappable child through the per-node wrap cache. */
 function serveDataKey(
@@ -2367,7 +2171,7 @@ function serveDataKey(
   // composes on the truth, never on a lane's or a hold's frame.
   if (!inDraft(target) && !writeOverride) {
     if (node === undefined && getObserver() !== null) node = getNode(target, key, accKnown);
-    if (node !== undefined && plainLeaf(target, node)) {
+    if (node !== undefined) {
       // The leaf is read through core (a plain signal: the link, dev's read
       // hooks, a verdict window's look at its marks); the frame decided the
       // value above — but a leaf with a hydration snapshot serves it to a
@@ -2377,9 +2181,6 @@ function serveDataKey(
         if (node._x?._snapshotValue !== undefined) v = nv;
       } else if (node._x?._snapshotValue !== undefined) v = readNode(node);
       else if (context !== null && tracking) link(node, context as Computed<any>);
-    } else if (node !== undefined) {
-      const nv = nodeValue(node, backingValue, target);
-      if (!chained || node._config & CONFIG_OVERRIDE) v = nv;
     }
   }
   if (target.s) return serveShallow(target, key, v);
@@ -2665,7 +2466,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
           // Structural chaining (§7b): a chained backing's $TRACK reads
           // through to the INNER store's container — structural
           // notifications land on the source's own node.
-          const srcT = plainTarget(target) ? frameAll(target) : readSource(target);
+          const srcT = frameAll(target);
           if ((srcT as any)[$TARGET] !== undefined) (srcT as any)[$TRACK];
         }
         return undefined;
@@ -2692,7 +2493,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       const nodeH = node0;
       if (nodeH !== undefined && (nodeH as any).acc !== true) {
         let nv: any;
-        if (plainLeaf(target, nodeH)) {
+        {
           // A plain leaf on a settled frame — no hold on the target, the
           // batch (if any) node-less and a plain flush's — serves the frame's
           // value (the staging's, or the committed), linked; a pass reading
@@ -2723,9 +2524,7 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
               }
             }
           }
-        } else if (!target.ch || nodeH._config & CONFIG_OVERRIDE)
-          nv = nodeValue(nodeH, undefined, target);
-        else nv = NOT_PENDING;
+        }
         if (nv !== NOT_PENDING) {
           if (nv === null || typeof nv !== "object") return nv;
           if (target.s) return serveShallow(target, key, nv);
@@ -2740,14 +2539,10 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         }
       }
     }
-    const src = plainLeaf(target, node0) ? frameOf(target, key) : readSource(target, key);
+    const src = frameOf(target, key);
     // Overlay delete (#3044): a prototype overlay cannot shadow a delete, so
     // deleted keys are tracked aside and read as absent in the pending view.
-    if (
-      plainLeaf(target, node0)
-        ? src !== target.v && frameDel !== null && frameDel.has(key)
-        : src === target.pb && target.del?.has(key)
-    ) {
+    if (src !== target.v && frameDel !== null && frameDel.has(key)) {
       if (!inDraft(target) && getObserver() !== null) readNode(getNode(target, key));
       return undefined;
     }
@@ -2842,9 +2637,8 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
         if (getObserver() !== null) getNode(target, key, accProbe);
         const node = target.n?.[key];
         if (node) {
-          const nv = nodeValue(node, undefined, target);
-          if (target.s) return serveShallow(target, key, nv);
-          return isWrappable(nv) ? draftServe(target, wrap(nv, target, key)) : nv;
+          if (context !== null && tracking) link(node, context as Computed<any>);
+          return undefined;
         }
       }
       if (target.s) return serveShallow(target, key, v);
@@ -2868,10 +2662,9 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (verdict !== null && affectsHooks !== null && getObserver() === null)
       affectsHooks._witness(target, key);
     if (target._fam !== null) pullFamily(target);
-    const src =
-      plainTarget(target) && !(target.h?.[key as any]?._config! & CONFIG_OVERRIDE)
-        ? frameOf(target, key, true)
-        : readSource(target, key);
+    const src = !(target.h?.[key as any]?._config! & CONFIG_OVERRIDE)
+      ? frameOf(target, key, true)
+      : readSource(target, key);
     // A tracked reader's presence node answers (born from the two frames;
     // core decides which it sees); everyone else reads the backing. A
     // chained target's node is a subscription point (§7b): the inner store
@@ -2879,14 +2672,8 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
     if (!inDraft(target) && !writeOverride) {
       if (getObserver() !== null) {
         const node = getHasNode(target, key);
-        if (plainLeaf(target, node)) {
-          if (context !== null && tracking) link(node, context as Computed<any>);
-          return key in src && !(src !== target.v && frameDel !== null && frameDel.has(key));
-        }
-        const nv = readNode(node);
-        if (!target.ch || src !== target.v) return !!nv;
-        if (node._config & CONFIG_OVERRIDE) return !!nv;
-        return key in src;
+        if (context !== null && tracking) link(node, context as Computed<any>);
+        return key in src && !(src !== target.v && frameDel !== null && frameDel.has(key));
       }
     }
     return key in src && !(src === target.pb && target.del?.has(key));
@@ -2922,20 +2709,13 @@ const traps: ProxyHandler<object> & ThisType<StoreTarget> = {
       // enumerability, accessor-ness — reads committed for a stale reader,
       // the staging for a member; #3706 contrast).
       const node = getHasNode(target, key);
-      if (plainLeaf(target, node)) {
-        // A plain target's presence node is a notifier: the key's frame
-        // (`frameOf`, a shape read) decides, as in `has`.
-        if (context !== null && tracking) link(node, context as Computed<any>);
-        src = frameOf(target, key, true);
-        if (!(key in src) || (src !== target.v && frameDel !== null && frameDel.has(key)))
-          return undefined;
-      } else {
-        const present = readNode(node);
-        src = readSource(target, key, true);
-        if (!present && (!target.ch || node._config & CONFIG_OVERRIDE || !(key in src)))
-          return undefined;
-      }
-    } else if (plainTarget(target) && !inDraft(target) && !writeOverride) {
+      // The presence node is a notifier: the key's frame (`frameOf`, a
+      // shape read) decides, as in `has`.
+      if (context !== null && tracking) link(node, context as Computed<any>);
+      src = frameOf(target, key, true);
+      if (!(key in src) || (src !== target.v && frameDel !== null && frameDel.has(key)))
+        return undefined;
+    } else if (!inDraft(target) && !writeOverride) {
       // No observer (a handler, a top-level verdict probe): the key's frame
       // by the hold rules, as in `has` — a patch node decides it.
       src = frameOf(target, key, true);
@@ -3232,7 +3012,7 @@ export function createStore<T extends Record<PropertyKey, any>>(
 installShallowView(t => {
   // Any open write scope keeps the trap (it covers `inDraft`).
   if (t?.s && !(t.ch || t.a || writeScopes || writeOverride || t._fam?.opt))
-    return (t._fam && pullFamily(t), (plainTarget(t) ? frameAll(t) : readSource(t)) as any[]);
+    return (t._fam && pullFamily(t), frameAll(t) as any[]);
 });
 
 /** True when `proxy` is a SHALLOW store (children served verbatim, slots
