@@ -1870,7 +1870,7 @@ function isRenderedOutput(value: any, seen?: Set<unknown>): boolean {
     }
     return false;
   }
-  return value[Symbol.for("solid.ssrNode")] === true;
+  return !!value[Symbol.for("solid.ssrNode")];
 }
 
 /**
