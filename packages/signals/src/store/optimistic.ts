@@ -121,6 +121,10 @@ function guessView(
         const v = writer ? guessedValueOf(g) : latestOf(g);
         if (v !== NOT_PENDING) return v as Record<PropertyKey, any>;
       }
+      // A corrected guess keeps the screen until its hold lands (D-34): a
+      // guess written meanwhile composes on that screen, never on the truth
+      // beneath it (D-37).
+      if (g._config & CONFIG_HELD) return g._value as Record<PropertyKey, any>;
     }
   return src;
 }

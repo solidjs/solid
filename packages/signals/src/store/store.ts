@@ -878,9 +878,17 @@ function stageOn(target: StoreTarget, pb: Record<PropertyKey, any>): void {
     !deriveHolds(target)
   )
     return;
+  // A staging a hold held before this write (a derive's, `holdWithDerive`;
+  // a key a hold's patch had): writing it again is a proposal under that
+  // hold — the writer's tick joins it, as `setSignal` on the held leaf did.
+  // A staging this write makes and its derive's hold takes at once joins
+  // nothing: the derive's landing is the hold's own work, not a proposal.
+  const was = target.kp !== null && target.kp._config & CONFIG_HELD ? txOf(target.kp) : null;
   const k = getPatchNode(target);
   if (k._pendingValue === NOT_PENDING) queuePendingNode(k);
   k._pendingValue = pb;
+  if (was !== null) joinFuture(was);
+  else (k as any).fresh = true;
   // A34 (3)'s discriminator on the patch: a user setter's staging is a
   // proposal, a derive's a derivation.
   if (userWrite) k._config |= CONFIG_MANUAL_WRITE;
@@ -1249,18 +1257,10 @@ export function adoptPB(
   else setLookup(incoming, target);
   if (__TEST__ && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
   if (notify && base !== incoming) notifyFold(target, base, incoming);
-  if (!directCommit) {
-    // The adoption's staging held already (a derive's, `holdWithDerive`):
-    // the writer's tick is that hold's, before anything else joins it — as
-    // `setSignal` on the held leaves made it on `next` (a guess's fold
-    // joining its action first made the landing flush the action's).
-    const kp = target.kp;
-    if (kp !== null && kp._config & CONFIG_HELD) joinFuture(txOf(kp));
-    // A landing on a target carrying a guess: the truth, judged against the
-    // guess by the lane engine (`laneWrite`: confirmed beneath, re-based,
-    // folded, or a correction).
-    judgeGuesses(target, incoming);
-  }
+  // A landing on a target carrying a guess: the truth, judged against the
+  // guess by the lane engine (`laneWrite`: confirmed beneath, re-based,
+  // folded, or a correction).
+  if (!directCommit) judgeGuesses(target, incoming);
 }
 
 // ---------------------------------------------------------------------------
@@ -1638,6 +1638,14 @@ function notifyWrites(t: StoreTarget): void {
   const writtenKeys =
     wk0 === WK_ALL || t.a === true || !plainProto(t.ovl ? (t.v as object) : pb) ? null : wk0;
   if (__OBSERVE__ && attrHooks !== null) reportReplacedContainers(t, old, pb, writtenKeys);
+  // The batch's staging a hold held before this write (a derive's held by
+  // its action, written again — a projection's late write): a proposal
+  // under that hold, the writer's tick joins it. Not the staging this very
+  // write made and its derive's hold took at once (`stageOn`, `fresh`).
+  if (t.kp !== null && t.kp._config & CONFIG_HELD) {
+    if ((t.kp as any).fresh) (t.kp as any).fresh = false;
+    else joinFuture(txOf(t.kp));
+  }
   if (t._fam !== null && !heldDerivationHit && writtenKeys !== null)
     for (const key of writtenKeys)
       if (heldDerivation(t, key)) {
@@ -1647,10 +1655,6 @@ function notifyWrites(t: StoreTarget): void {
   // A34 (1): a key a live hold's patch has is a second proposal for it —
   // the writer's tick joins the hold, leaf or no leaf (on `next` the write
   // went into the held pending backing itself).
-  // The batch's own staging held already (a derive's, `holdWithDerive`; a
-  // key a hold's patch had, below): a write to it is a proposal under that
-  // hold — the writer's tick joins it, as `setSignal` on the held leaf did.
-  if (t.kp !== null && t.kp._config & CONFIG_HELD) joinFuture(txOf(t.kp));
   if (t.kh !== null) {
     if (writtenKeys === null) {
       const p = heldCarrier(t);
