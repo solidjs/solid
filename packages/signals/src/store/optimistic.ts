@@ -99,7 +99,12 @@ const optStaged: Map<StoreTarget, Record<PropertyKey, any>> = new Map();
  * lane's value — over the committed frame (a chained target's: the inner
  * store's proxy, whose reads are the inner's current frame). */
 function writerBacking(t: StoreTarget): Record<PropertyKey, any> {
-  return guessView(t, committed(t), true);
+  // A chained backing is a proxy: reading it as a handler can expose a
+  // derived store's staging. Compose the writer's view on the committed
+  // frame of each link, with that link's guesses over it.
+  const base = committed(t);
+  const inner: StoreTarget | undefined = (base as any)[$TARGET];
+  return guessView(t, inner === undefined ? base : writerBacking(inner), true);
 }
 /** `src` with the target's guess over it: the carrier's unflushed guess or
  * lane value when it carries one, else `src` itself. */
@@ -129,6 +134,14 @@ function optimisticDraft(t: StoreTarget): Record<PropertyKey, any> {
   return cloneRaw(writerBacking(t), t);
 }
 
+/** The committed frame a guess is judged against: a chained backing's is
+ * the inner store's (its proxy would serve the inner's staging to the
+ * comparator, and a guess equal to that staging is no guess). */
+function committedFrame(t: StoreTarget): Record<PropertyKey, any> {
+  const base = committed(t);
+  const inner: StoreTarget | undefined = (base as any)[$TARGET];
+  return inner === undefined ? base : committedFrame(inner);
+}
 /** The target's guess carrier, made at the first guess: its committed value
  * the frame the guess is shown over. Its comparator judges a truth against
  * the guess over the keys the guess changed (`echoes`: the server's echo of a
@@ -159,6 +172,13 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
 function patchEquals(this: any, a: any, b: any): boolean {
   if (a === b) return true;
   if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  // A chained backing (a proxy) is judged as the inner store's committed
+  // frame: the proxy would serve the inner's staging, and a guess equal to
+  // that staging is still a guess over the committed world.
+  const at: StoreTarget | undefined = a[$TARGET];
+  if (at !== undefined) a = committedFrame(at);
+  const bt: StoreTarget | undefined = b[$TARGET];
+  if (bt !== undefined) b = committedFrame(bt);
   const fam: StoreFamily = this._host._fam;
   // A structural guess: the arrangement (rows by identity or key, an
   // object's keys), as the container judged it.
