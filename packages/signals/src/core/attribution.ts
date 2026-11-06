@@ -3089,7 +3089,8 @@ function checkOptimisticRevert(
   el: Signal<any> | Computed<any>,
   shown: unknown,
   truth: unknown,
-  how: "superseded" | "reverted"
+  how: "superseded" | "reverted",
+  key?: PropertyKey
 ): void {
   // The runtime's own optimistic nodes are not guesses the person saw: an
   // `isPending()` companion goes true while pending and back to false at
@@ -3100,8 +3101,8 @@ function checkOptimisticRevert(
   // Method call, as every commit path does: store slot nodes share one
   // comparator that reads `this._host` (#3687).
   const equals = (el as { _equals?: false | ((a: unknown, b: unknown) => boolean) })._equals;
-  if (equals && equals.call(el, shown, truth)) return;
-  const source = nodeName(el);
+  if (key === undefined && equals && equals.call(el, shown, truth)) return;
+  const source = key === undefined ? nodeName(el) : nodeName(el) + "." + String(key);
   // The two values are user data: quoted only under `values: "full"`; the
   // other levels say what happened without saying what was shown.
   const values = options.values === "full";
@@ -4510,6 +4511,19 @@ const engineHooks: AttributionHooks = {
     trackFallback(boundary, tree, shown, transition ?? null);
   },
   optimisticReverted(el, shown, truth, how) {
+    // A store's guess carrier (store/optimistic.ts): the guess is a frame of
+    // the target, the finding is per guessed key — the slot the person saw.
+    const g = el as { guess?: true; wk?: Set<PropertyKey> | null; del?: Set<PropertyKey> | null };
+    if (g.guess === true) {
+      for (const keys of [g.wk, g.del])
+        if (keys)
+          for (const key of keys) {
+            const a = (shown as Record<PropertyKey, unknown>)?.[key];
+            const b = (truth as Record<PropertyKey, unknown>)?.[key];
+            if (!Object.is(a, b)) checkOptimisticRevert(el, a, b, how, key);
+          }
+      return;
+    }
     checkOptimisticRevert(el, shown, truth, how);
   },
   currentOrigin() {

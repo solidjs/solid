@@ -961,6 +961,16 @@ function storeRoot(target: StoreTarget): StoreTarget {
 function storeRootOwner(target: StoreTarget): Owner | null | undefined {
   return storeOwners!.get(storeRoot(target));
 }
+/** Attribution-only: a guess carrier is named for its store (the finding
+ * names the key, attribution.ts `optimisticReverted`). */
+export function nameCarrier(created: Signal<any>, target: StoreTarget): void {
+  if (__OBSERVE__ && attrHooks !== null) {
+    const root = storeRoot(target);
+    (created as any)._name = storeNames!.get(root) ?? "store";
+    (created as any)._loc = storeLocs!.get(root);
+    stampNodeOwner(created, target);
+  }
+}
 function stampNodeOwner(created: Signal<any>, target: StoreTarget): void {
   (created as any)._owner = storeRootOwner(target) ?? null;
 }

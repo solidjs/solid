@@ -79,6 +79,7 @@ import {
   committed,
   heldCarrier,
   linkedTo,
+  nameCarrier,
   sameKey,
   storeSetter,
   targetsEqual,
@@ -182,6 +183,7 @@ function guessCarrier(t: StoreTarget, keys?: Set<PropertyKey>): any {
     if (g.wk !== null) for (const key of keys) if (g.wk.has(key) || g.del?.has(key)) return g;
   }
   const g: any = slotSignal(committed(t), patchEquals, t, $PATCH, false);
+  if (__OBSERVE__) nameCarrier(g, t);
   // Written over a held truth (a landing the target's hold keeps beneath
   // the screen): that truth is the one beneath the guess, judged at the
   // body's end (A18, #3330) — as it was the leaf's staging.
