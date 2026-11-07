@@ -155,3 +155,12 @@ const template49 = <div>{cond && <>hello {state.text}</>}</div>;
 // statically boolean left: memo value IS the expression value, logical form kept
 const template77 = <>{state.count > 5 && good()}</>;
 const template77a = <>{!state.hidden && good.good}</>;
+
+// string literals in a branch are the hole's value, so they escape at compile
+// time like a literal child does (#4710)
+const template78 = <div>{state.open ? "Close" : "<b>Open</b>"}</div>;
+const template79 = <div>{state.open && "<i>"}</div>;
+const template80 = <div>{state.open ? `<i>` : 0}</div>;
+const template81 = <div>{state.a ? 0 : state.b ? 1 : "<i>"}</div>;
+const template82 = <div>{() => "<i>"}</div>;
+const template83 = <div title={state.open ? '"<i>' : undefined} />;

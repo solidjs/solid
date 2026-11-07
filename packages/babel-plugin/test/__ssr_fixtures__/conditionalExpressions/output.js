@@ -1,11 +1,13 @@
+import { ssrAttribute as _$ssrAttribute } from "r-server";
 import { memo as _$memo } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { escape as _$escape } from "r-server";
 var _tmpl$ = ["<div>", "</div>"],
   _tmpl$2 = "<div>Output</div>",
-  _tmpl$3 = "<span>s</span>",
-  _tmpl$4 = "<span>a</span>",
-  _tmpl$5 = "<span>b</span>";
+  _tmpl$3 = ["<div", "></div>"],
+  _tmpl$4 = "<span>s</span>",
+  _tmpl$5 = "<span>a</span>",
+  _tmpl$6 = "<span>b</span>";
 var _v$ = _$escape(simple);
 const template1 = _$ssr(_tmpl$, _v$);
 var _v$2 = () => _$escape(state.dynamic);
@@ -274,9 +276,9 @@ var _v$29 = cond && _$escape(_$memo(() => state.text));
 const template44 = _$ssr(_tmpl$, _v$29);
 var _v$30 = cond ? _$escape(_$memo(() => state.a)) : _$escape(_$memo(() => state.b));
 const template45 = _$ssr(_tmpl$, _v$30);
-var _v$31 = cond && _$ssr(_tmpl$3);
+var _v$31 = cond && _$ssr(_tmpl$4);
 const template46 = _$ssr(_tmpl$, _v$31);
-var _v$32 = cond ? _$ssr(_tmpl$4) : _$ssr(_tmpl$5);
+var _v$32 = cond ? _$ssr(_tmpl$5) : _$ssr(_tmpl$6);
 const template47 = _$ssr(_tmpl$, _v$32);
 
 // component inside fragment must keep the outer _$escape wrap because a
@@ -292,3 +294,21 @@ const template49 = _$ssr(_tmpl$, _v$34);
 // statically boolean left: memo value IS the expression value, logical form kept
 const template77 = _$memo(() => _$memo(() => state.count > 5)() && good());
 const template77a = _$memo(() => _$memo(() => !state.hidden)() && good.good);
+
+// string literals in a branch are the hole's value, so they escape at compile
+// time like a literal child does (#4710)
+var _v$35 = () => (state.open ? "Close" : "&lt;b>Open&lt;/b>");
+const template78 = _$ssr(_tmpl$, _v$35);
+var _v$36 = () => state.open && "&lt;i>";
+const template79 = _$ssr(_tmpl$, _v$36);
+var _v$37 = () => (state.open ? "&lt;i>" : 0);
+const template80 = _$ssr(_tmpl$, _v$37);
+var _v$38 = (() => {
+  var _c$16 = _$memo(() => !!state.a);
+  return () => (_c$16() ? 0 : state.b ? 1 : "&lt;i>");
+})();
+const template81 = _$ssr(_tmpl$, _v$38);
+var _v$39 = () => "&lt;i>";
+const template82 = _$ssr(_tmpl$, _v$39);
+var _v$40 = () => _$ssrAttribute("title", state.open ? "&quot;&lt;i>" : _$escape(undefined, true));
+const template83 = _$ssr(_tmpl$3, _v$40);
