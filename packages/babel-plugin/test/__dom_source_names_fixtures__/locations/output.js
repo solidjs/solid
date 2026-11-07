@@ -70,8 +70,7 @@ _$effect(
 const styleObject = _el$2;
 
 // A hole → the `{` of the expression.
-var _el$3 = _tmpl$2(),
-  _el$4 = _el$3.firstChild;
+var _el$3 = _tmpl$2();
 _$insert(_el$3, count, null, undefined, {
   name: "p.children",
   loc: "locations/code.js:21:24"

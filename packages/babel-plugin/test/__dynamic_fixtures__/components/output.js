@@ -21,8 +21,7 @@ const Child = props => {
   const [s, set] = createSignal();
   return [
     (() => {
-      var _el$ = _tmpl$(),
-        _el$2 = _el$.firstChild;
+      var _el$ = _tmpl$();
       var _ref$ = props.ref;
       typeof _ref$ === "function" || Array.isArray(_ref$)
         ? _$ref(() => _ref$, _el$)
@@ -283,8 +282,7 @@ var _el$33 = _tmpl$7(),
   _el$34 = _el$33.firstChild,
   _el$39 = _el$34.nextSibling,
   _el$35 = _el$39.nextSibling,
-  _el$40 = _el$35.nextSibling,
-  _el$38 = _el$40.nextSibling;
+  _el$40 = _el$35.nextSibling;
 _$insert(
   _el$33,
   _$createComponent(Link, {

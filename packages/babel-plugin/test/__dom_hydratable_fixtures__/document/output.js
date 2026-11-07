@@ -14,8 +14,7 @@ var _el$ = _$getNextElement(),
   _el$9 = _$getNextMatch(_el$2.nextSibling, "body"),
   _el$0 = _el$9.firstChild,
   _el$10 = _el$0.nextSibling,
-  [_el$11, _co$2] = _$getNextMarker(_el$10.nextSibling),
-  _el$1 = _el$11.nextSibling;
+  [_el$11, _co$2] = _$getNextMarker(_el$10.nextSibling);
 _$insert(_el$2, _$createComponent(Assets, {}), _el$8, _co$);
 _$insert(_el$9, _$createComponent(App, {}), _el$11, _co$2);
 const template = _el$;
@@ -31,8 +30,7 @@ const templateHead = _el$12;
 var _el$19 = _$getNextElement(),
   _el$20 = _el$19.firstChild,
   _el$22 = _el$20.nextSibling,
-  [_el$23, _co$4] = _$getNextMarker(_el$22.nextSibling),
-  _el$21 = _el$23.nextSibling;
+  [_el$23, _co$4] = _$getNextMarker(_el$22.nextSibling);
 _$insert(_el$19, _$createComponent(App, {}), _el$23, _co$4);
 const templateBody = _el$19;
 var _el$24 = _$getNextElement(),
