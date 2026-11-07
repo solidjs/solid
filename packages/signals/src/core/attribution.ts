@@ -32,6 +32,9 @@ import {
   reportDiagnostic
 } from "./dev.js";
 import { blockersOf, GlobalQueue } from "./scheduler.js";
+import { storeRootOwner, targetsEqual, unwrapValue } from "../store/store.js";
+import { $OWNER, type StoreTarget } from "../store/target.js";
+import { isRawValue, isWrappable } from "../store/types.js";
 import type { Computed, Owner, Signal } from "./types.js";
 
 /**
@@ -2250,13 +2253,95 @@ function checkRelayTear(
 // a fresh container is pure cost: every reader of `user` (any path below it)
 // re-runs for the one leaf that moved, where a draft mutation would re-run
 // only the readers of `name`. The store's notify sees both containers at the
-// write and reports a leaf census (identity on unwrapped values, capped); the
+// write (`storeWrite`), and the engine takes a leaf census (identity on
+// unwrapped values, capped); the
 // verdict is the whole detector: a replacement whose leaves are mostly the
 // SAME values is a spread-copy, and one whose leaves are mostly different is
 // new data (reconcile's job — and UNSTABLE_LIST_IDENTITY's, downstream). Once
 // per store path.
 
 const immutableReported = new Set<string>();
+
+/** A store target's path from its root: `store.user.address`. */
+function storePathOf(t: StoreTarget): string {
+  let path = "";
+  for (let cur: StoreTarget | null = t; cur !== null; cur = cur.u)
+    path = cur.pk === null ? "store" + path : "." + String(cur.pk) + path;
+  return path;
+}
+const REPLACED_CENSUS_MAX = 64;
+function sameLeaf(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  return unwrapValue(a) === unwrapValue(b) || targetsEqual(a, b);
+}
+/** storeWrite: the containers a setter batch replaced wholesale, each with its leaf census. */
+function censusReplacedContainers(
+  t: StoreTarget,
+  old: Record<PropertyKey, any>,
+  pb: Record<PropertyKey, any>,
+  writtenKeys: Iterable<PropertyKey> | null
+): void {
+  // Shallow stores (and raw / unwrappable leaves) invalidate the whole
+  // replaced value as one unit — leaf draft assignment does not narrow
+  // who re-runs (#4686). The spread-copy diagnostic only helps deep stores.
+  if (t.s) return;
+  const keys = writtenKeys ?? Reflect.ownKeys(pb);
+  const isArray = Array.isArray(pb);
+  const owner = storeRootOwner(t);
+  // Items the array held before the write: an index that now holds one of
+  // them was moved into place (an in-place splice / shift), not replaced.
+  let oldArrayItems: Set<unknown> | null = null;
+  for (const key of keys) {
+    if ((isArray && key === "length") || key === $OWNER) continue;
+    if (t.del?.has(key)) continue;
+    const ov = unwrapValue(old[key as any]);
+    const nv = unwrapValue(pb[key as any]);
+    if (
+      ov === null ||
+      nv === null ||
+      typeof ov !== "object" ||
+      typeof nv !== "object" ||
+      ov === nv ||
+      targetsEqual(ov, nv)
+    )
+      continue;
+    // A raw / unwrappable previous value is itself a leaf: replacing it is
+    // the write, not a container copy the store could have mutated in place.
+    if (isRawValue(ov) || !isWrappable(ov)) continue;
+    if (isArray) {
+      if (oldArrayItems === null) {
+        oldArrayItems = new Set<unknown>();
+        for (const item of old as unknown[]) oldArrayItems.add(unwrapValue(item));
+      }
+      if (oldArrayItems.has(nv)) continue;
+    }
+    const isArr = Array.isArray(nv);
+    if (isArr !== Array.isArray(ov)) continue;
+    let total: number;
+    let unchanged = 0;
+    if (isArr) {
+      total = (nv as unknown[]).length;
+      if (total > REPLACED_CENSUS_MAX) continue;
+      const oldItems = new Set<unknown>();
+      for (const item of ov as unknown[]) oldItems.add(unwrapValue(item));
+      for (const item of nv as unknown[]) if (oldItems.has(unwrapValue(item))) unchanged++;
+    } else {
+      const nkeys = Object.keys(nv);
+      total = nkeys.length;
+      if (total > REPLACED_CENSUS_MAX) continue;
+      for (const k of nkeys) if (sameLeaf((ov as any)[k], (nv as any)[k])) unchanged++;
+    }
+    checkImmutableUpdate(
+      storePathOf(t) + "." + String(key),
+      isArr,
+      total,
+      unchanged,
+      isArr ? (ov as unknown[]).length : Object.keys(ov).length,
+      owner
+    );
+  }
+}
 
 function checkImmutableUpdate(
   path: string,
@@ -4605,8 +4690,8 @@ const engineHooks: AttributionHooks = {
     trackHoldMerge(target, outgoing);
     rebaseFallbacks(outgoing, target);
   },
-  storeReplaced(path, isArray, total, unchanged, prevTotal, owner) {
-    checkImmutableUpdate(path, isArray, total, unchanged, prevTotal, owner);
+  storeWrite(target, old, written, keys) {
+    censusReplacedContainers(target as StoreTarget, old, written, keys);
   },
   listChurn(el, removed, created, newLen, keyed) {
     checkListIdentity(el, removed, created, newLen, keyed);

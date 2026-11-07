@@ -155,27 +155,18 @@ export interface AttributionHooks {
   /** `outgoing` was folded into `target` (`outgoing._done = target`). */
   transitionMerged(target: Transition, outgoing: Transition): void;
   /**
-   * A store setter batch replaced the container at `path` (e.g. `store.user`)
-   * with a different one (both non-null, same array-ness, not the same
-   * logical slot), and this is the leaf census of the new container against
-   * the old: `total` leaves (own keys, or items) in the new one, `unchanged`
-   * of which are the same value as before (identity, judged on unwrapped
-   * values — object keys compared by key, array items by membership), and
-   * `prevTotal` leaves in the old one. Containers above 64 leaves are not
-   * announced. Fired per written key from the write channel's notify. The
-   * engine decides whether the replacement was a spread-copy worth a
-   * diagnostic. `owner` is the owner the store root was created under
-   * (undefined when unrecorded): the finding is about the store, not about
-   * whoever wrote it, so an `OBSERVE.exclude`d panel's store stays silent
-   * however its writes arrive.
+   * A store setter batch is writing `target`'s container: `old` the
+   * committed backing, `written` the new one, `keys` the keys this setter
+   * wrote (`null`: any of them — an array length write, accessors, a
+   * non-plain prototype). Fired once per setter exit, before its nodes are
+   * told. The engine judges what it needs from the two containers (a spread
+   * copy where a draft mutation would do).
    */
-  storeReplaced(
-    path: string,
-    isArray: boolean,
-    total: number,
-    unchanged: number,
-    prevTotal: number,
-    owner: Owner | null | undefined
+  storeWrite(
+    target: object,
+    old: Record<PropertyKey, any>,
+    written: Record<PropertyKey, any>,
+    keys: Iterable<PropertyKey> | null
   ): void;
   /**
    * A `mapArray` update both disposed and created rows: `removed` are the

@@ -39,7 +39,6 @@ import type { Computed, Link, Owner, Root, Signal } from "./types.js";
 export interface DevHooks {
   onOwner?: (owner: Owner) => void;
   onGraph?: (value: any, owner: Owner | null) => void;
-  onStoreNodeUpdate?: (state: any, property: PropertyKey, value: any, prev: any) => void;
   /** @internal Every node read (the frames client's identity-drift check; `setReadWatch`). */
   onRead?: (node: object) => void;
 }
@@ -527,7 +526,7 @@ export interface Dev {
    * for example from a devtools state editor that only holds the node from
    * `getSignals` / `getSources`. Runs as an unowned write (devtools UI
    * events are not owned scopes). Store property slots go through the
-   * store setter path so `onStoreNodeUpdate` and backing state stay in sync.
+   * store setter path so the backing state and its readers stay in sync.
    *
    * @see https://github.com/solidjs/solid/issues/4679
    */

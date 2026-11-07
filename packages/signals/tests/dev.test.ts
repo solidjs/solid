@@ -19,7 +19,6 @@ const { getChildren, getSignals, getParent, getSources, getObservers } = DEV!;
 afterEach(() => {
   DEV!.hooks.onOwner = undefined;
   DEV!.hooks.onGraph = undefined;
-  DEV!.hooks.onStoreNodeUpdate = undefined;
 });
 
 describe("Phase 1a: Signal-to-owner tracking", () => {
@@ -180,29 +179,6 @@ describe("Phase 1b: Notification hooks", () => {
       expect(entries.length).toBe(1);
     });
   });
-
-  describe("onStoreNodeUpdate", () => {
-    it("fires on store property mutation with old and new values", () => {
-      const updates: any[] = [];
-      DEV!.hooks.onStoreNodeUpdate = (state, property, value, prev) =>
-        updates.push({ state, property, value, prev });
-
-      let setStore!: (fn: (s: { count: number; name: string }) => void) => void;
-      createRoot(() => {
-        const [, _setStore] = createStore({ count: 0, name: "test" });
-        setStore = _setStore;
-      });
-
-      setStore(s => {
-        s.count = 5;
-      });
-      flush();
-      expect(updates.length).toBe(1);
-      expect(updates[0].property).toBe("count");
-      expect(updates[0].value).toBe(5);
-      expect(updates[0].prev).toBe(0);
-    });
-  });
 });
 
 describe("Phase 1c: Graph traversal helpers", () => {
@@ -357,17 +333,16 @@ describe("Phase 1c: Graph traversal helpers", () => {
       });
     });
 
-    it("writes a store property slot and fires onStoreNodeUpdate", () => {
-      const updates: any[] = [];
-      DEV!.hooks.onStoreNodeUpdate = (state, property, value, prev) => {
-        updates.push({ state, property, value, prev });
-      };
+    it("writes a store property slot through the store setter", () => {
+      const updates: number[] = [];
       createRoot(() => {
         const [store] = createStore({ count: 0 });
         // Touch the key so a slot node exists for getSources/devtools.
         createEffect(
           () => store.count,
-          () => {}
+          v => {
+            updates.push(v);
+          }
         );
         flush();
         const sources = getSources(getChildren(getOwner()!)[0] as any);
@@ -376,7 +351,7 @@ describe("Phase 1c: Graph traversal helpers", () => {
         DEV!.setSignal(slot!, 9);
         flush();
         expect(store.count).toBe(9);
-        expect(updates.some(u => u.property === "count" && u.value === 9)).toBe(true);
+        expect(updates).toEqual([0, 9]);
       });
     });
 
