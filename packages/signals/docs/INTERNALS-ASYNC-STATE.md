@@ -362,7 +362,13 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   (F-6), so the verdict lane keeps those flights — the simplification §17
   hoped for is not there. Cost: +205 B brotli on the isPending/latest chunk.
   The `truth-asks` oracle's twelve gate cases became improvements; 29 pins
-  in four files lost their display-ahead questions. Last, S-57 (the experiment's A2, "optimism
+  in four files lost their display-ahead questions. S-54 built next
+  (verdict.ts, the lane-node probe arm): a lane derivation's answer that
+  landed while the lane is held on a sibling's flight keeps `isPending`
+  true for a reader outside the lane, which re-derives at the reveal
+  (`staleReader(c, l)`); three checkout pins in `createOptimistic.test.ts`
+  changed (opacity waits for the lane while `latest()` text shows ahead).
+  +34 B brotli on the isPending/latest chunk. Last, S-57 (the experiment's A2, "optimism
   winning when combined"): a plain write whose derivation became a guess's
   lane work was published beside the stale derivation because the lane had
   taken the only question; ruled F-2 as written — the write holds on the

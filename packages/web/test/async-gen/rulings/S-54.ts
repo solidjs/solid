@@ -9,7 +9,7 @@ export default {
   id: "S-54",
   title: "`isPending` of a ready answer the frame still holds: cleared, or pending until it shows",
   rules: ["D-23"],
-  status: "ruled-not-built",
+  status: "standing",
   pins: [],
   names: { s0: "a", s1: "b", m0: "left", m1: "right", m2: "total" },
   cases: [
@@ -53,7 +53,7 @@ export default {
         {
           after: 6,
           screen: "—",
-          note: "`left`'s answer (2, not the shown 1) lands beneath the hold: not showable while the frame holds on `right`, so still a question without a committed answer — `pending` stays (ruled 2026-11-07)"
+          note: "`left`'s answer (2, not the shown 1) lands beneath the hold: not showable while the frame holds on `right`, so still a question without a committed answer — `pending` stays (ruled and built 2026-11-07)"
         },
         {
           after: 8,

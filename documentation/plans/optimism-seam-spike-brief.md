@@ -526,4 +526,6 @@ The reads that stay as today: a sync derivation's reads (the display, memo parit
 
 **Pins that changed (built).** The twelve `truth-asks` gate cases are improvements in `baseline.json`; S-51 is standing; the seat table gained V0/Vp0 and the shadow is back at six classes. `ispending-async-derivation-4677`'s own fixture is the residue case (the badge is synchronous at id 0, so not yet an asker) and keeps its screens; the S-51 row, whose badge is always async, flipped. The #4349 held shape (S-52) is untouched by this step.
 
-**Order.** S-51 first (this mechanism), gates and size against M1; then S-57, S-54, S-52, S-53, S-56 as §16 lists them.
+**Order.** S-51 first (this mechanism), gates and size against M1; then S-54, S-53, S-56, S-52, S-57.
+
+**S-54 (built 2026-11-07).** The lane-node probe arm in `verdictValue`: a lane derivation whose answer landed while the lane is held (`l._held`, a sibling's flight) is still pending for a reader outside the lane; the reader is registered as the lane's stale reader so it re-derives at the reveal. Not for the lane's own work (it reads the lane's latest, which answers its question) and not for a verdict lane that is merely mid-flush (it reveals this seam). Three checkout pins changed: `isPending(shippingInfo)` stays true while the lane holds on tax, the `latest()` text showing "DHL" ahead on its own channel (A8). +34 B brotli on the isPending/latest chunk.

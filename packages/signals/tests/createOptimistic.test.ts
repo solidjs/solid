@@ -3777,7 +3777,10 @@ describe("createOptimistic", () => {
       // CRITICAL: tax text should update independently
       expect(shown(taxTexts)).toEqual(["US_SALES_TAX", "UK_VAT"]);
       // Tax's own async slot has resolved even though shipping is still pending.
-      expect(taxPendingComputes.at(-1)).toBe(false);
+      // S-54 (D-23, ruled 2026-11-07): the answer landed but the lane holds on
+      // its sibling — not showable on the plain channel, so still pending;
+      // `latest()` shows it ahead on its own channel (A8).
+      expect(taxPendingComputes.at(-1)).toBe(true);
 
       // Shipping text should NOT have updated yet
       expect(shown(shippingTexts)).toEqual(["FEDEX"]);
@@ -4180,7 +4183,10 @@ describe("createOptimistic", () => {
       // CRITICAL: shipping text should update INDEPENDENTLY
       expect(shown(shippingTexts)).toEqual(["FEDEX", "DHL"]);
       // Shipping's own async slot has resolved independently.
-      expect(shippingPendingComputes.at(-1)).toBe(false);
+      // S-54 (D-23, ruled 2026-11-07): the answer landed but the lane holds on
+      // its sibling — not showable on the plain channel, so still pending;
+      // `latest()` shows it ahead on its own channel (A8).
+      expect(shippingPendingComputes.at(-1)).toBe(true);
 
       // Tax should NOT have updated yet (correction re-fetch still in flight)
       expect(shown(taxTexts)).toEqual(["US_SALES_TAX"]);
@@ -4359,7 +4365,10 @@ describe("createOptimistic", () => {
 
       // Shipping's own pending slot clears even though the merged total is
       // still waiting on tax.
-      expect(shippingPendingComputes.at(-1)).toBe(false);
+      // S-54 (D-23, ruled 2026-11-07): the answer landed but the lane holds on
+      // its sibling — not showable on the plain channel, so still pending;
+      // `latest()` shows it ahead on its own channel (A8).
+      expect(shippingPendingComputes.at(-1)).toBe(true);
       // Tax also still pending
       expect(taxPendingComputes.at(-1)).toBe(true);
       // orderTotal hasn't updated (merged lane still pending)

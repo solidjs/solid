@@ -1411,7 +1411,7 @@ const m = createMemo(() => 1 + s()); // throws when the input % 4 === 2
 
 ### S-54. `isPending` of a ready answer the frame still holds: cleared, or pending until it shows — D-23
 
-_Generated from `packages/web/test/async-gen/rulings/S-54.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built._
+_Generated from `packages/web/test/async-gen/rulings/S-54.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing._
 
 ```tsx
 const [a, setA] = createOptimistic(0);
@@ -1423,14 +1423,14 @@ const total = createMemo(() => 1 + left() + right());
 <span>{isPending(left)}</span>
 ```
 
-| #   | Action                              | Screen                                                | Notes                                                                                                                                                                                           |
-| --- | ----------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | left(1) lands; right(1) lands; tick | `left 1 \| total 3 \| isPending(left) false`          | primed                                                                                                                                                                                          |
-| 1   | action: setA(1), setB(1); tick      | `left 1 \| total 3 \| isPending(left) true`           | both guessed: `left(1)` and `right(1)` are out under the action's hold                                                                                                                          |
-| 2   | left(2) lands; tick                 | —                                                     | `left`'s answer (2, not the shown 1) lands beneath the hold: not showable while the frame holds on `right`, so still a question without a committed answer — `pending` stays (ruled 2026-11-07) |
-| 3   | right(2) lands; tick                | `left 2 \| total 5 \| isPending(left) false`          | `right` lands: the frame shows                                                                                                                                                                  |
-| 4   | the action lands; tick              | `left 2 \| total 5 \| isPending(left) true`           | the action ends: the guesses revert and both re-fetch                                                                                                                                           |
-| ✗   |                                     | after 2: `left 1 \| total 3 \| isPending(left) false` | `pending` clearing for an answer the frame cannot show yet                                                                                                                                      |
+| #   | Action                              | Screen                                                | Notes                                                                                                                                                                                                     |
+| --- | ----------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | left(1) lands; right(1) lands; tick | `left 1 \| total 3 \| isPending(left) false`          | primed                                                                                                                                                                                                    |
+| 1   | action: setA(1), setB(1); tick      | `left 1 \| total 3 \| isPending(left) true`           | both guessed: `left(1)` and `right(1)` are out under the action's hold                                                                                                                                    |
+| 2   | left(2) lands; tick                 | —                                                     | `left`'s answer (2, not the shown 1) lands beneath the hold: not showable while the frame holds on `right`, so still a question without a committed answer — `pending` stays (ruled and built 2026-11-07) |
+| 3   | right(2) lands; tick                | `left 2 \| total 5 \| isPending(left) false`          | `right` lands: the frame shows                                                                                                                                                                            |
+| 4   | the action lands; tick              | `left 2 \| total 5 \| isPending(left) true`           | the action ends: the guesses revert and both re-fetch                                                                                                                                                     |
+| ✗   |                                     | after 2: `left 1 \| total 3 \| isPending(left) false` | `pending` clearing for an answer the frame cannot show yet                                                                                                                                                |
 
 <!-- /ruling -->
 

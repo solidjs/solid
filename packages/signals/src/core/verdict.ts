@@ -84,6 +84,7 @@ import {
   passLane,
   queuePendingNode,
   resolveTx,
+  sameLane,
   setPassLane,
   stagedReaders,
   staleReader,
@@ -547,6 +548,10 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
       // exc. 1; #4363), its reader not moved into the verdict lane.
       v = guess ? 0 : latestActive && !flying ? latestOf(el) : screenOf(el);
     if (v !== NOT_PENDING) {
+      // The pass is this lane's work: it reads the lane's latest, which
+      // answers the lane's question for it (S-54's probe below is for a
+      // reader outside the lane, served the screen).
+      const inLane = passLane !== null && sameLane(passLane, l);
       if (tracked) verdictRead(c!, l._parent ?? l);
       if (guess) {
         if (
@@ -565,7 +570,26 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         if (__TEST__) shadowActual(SLOT_LV);
         return latestOf(el);
       }
+      // S-54 (D-23, ruled 2026-11-07): a lane derivation's answer that
+      // landed but is not shown — the lane holds on a sibling's flight — is
+      // still a question without a committed answer: pending until it shows,
+      // unless it equals what is shown (a landing that changes nothing).
+      // Scoped to the lane's own question (A24): once the lane has shown the
+      // node, a staging beneath is another question's (an unrelated hold's).
       if (probing && flying) probeFound = true;
+      else if (
+        probing &&
+        !inLane &&
+        l._held &&
+        !el._x!._shown &&
+        el._pendingValue !== NOT_PENDING &&
+        (!el._equals || !el._equals(el._value as any, el._pendingValue as any))
+      ) {
+        // The lane holds on a sibling's flight: this answer waits with it,
+        // and the reader re-derives at the reveal, where the verdict flips.
+        probeFound = true;
+        if (tracked) staleReader(c!, l);
+      }
       if (__TEST__) shadowActual(latestActive && !flying ? SLOT_LV : SLOT_DV);
       return v;
     }

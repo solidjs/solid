@@ -2199,22 +2199,23 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // reads the screen too.
     // F-2's producer clause: a pass that asks is never served the screen's
     // value of a staging (`askerJoins`; the held case is `frameRead`'s).
-    // (Not a netted staging, D-8: no proposal, nothing to join.)
+    // (A netted staging, D-8: no proposal, nothing to join — first.)
     const asks =
-      !netted &&
       askerJoinsHook !== null &&
       c._config & CONFIG_ASYNC &&
       (passLane === null || passLane._parent?._verdict === passLane);
-    if (asks) askerJoinsHook!(c as Computed<any>, el, null);
-    else if (
+    if (
       netted ||
-      (((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
+      (!asks &&
+        ((observeFlightHook && c._config & CONFIG_VERDICT) ||
+          (laneStageHook && passLane?.folded)) &&
         stagedScreen(c as Computed<any>, el))
     ) {
       if (__TEST__) shadowActual(netted ? SLOT_P : SLOT_C);
       return el._value as T;
     }
-    if (!asks) stagedRead(c as Computed<any>);
+    if (asks) askerJoinsHook!(c as Computed<any>, el, null);
+    else stagedRead(c as Computed<any>);
     if (__TEST__) shadowActual(SLOT_P);
     return el._pendingValue as T;
   }
