@@ -382,7 +382,17 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   depends on it). The #4403 pin flipped. S-53's plain-read case (`′`) is
   S-46's plain row: the branch born held, the `Show` waits — today the hole
   attaches empty (#4417's mechanism), which the shown error masked before.
-  +11 B brotli on the core floor. Last, S-57 (the experiment's A2, "optimism
+  +11 B brotli on the core floor. S-56 built next: the memo-form setter
+  no longer calls `devGuardOptimisticBeforeLoad` (signals.ts) — the engine
+  already carried a guess over an uninitialized node as its lane value, so
+  the guess shows in place of the loading, `isPending` is true while the
+  first flight is up, the function form receives `undefined`, and the first
+  answer judges it; a guess whose lane never shows is void at the
+  correction as before (the A18 d pin). The guard stays for derived
+  optimistic stores: without it the store's screen stays loading while an
+  untracked read sees the guess, and the first answer folds the guess in
+  rather than judging a shown one — store engine work, parked with the
+  store branch. Three pins flipped. Last, S-57 (the experiment's A2, "optimism
   winning when combined"): a plain write whose derivation became a guess's
   lane work was published beside the stale derivation because the lane had
   taken the only question; ruled F-2 as written — the write holds on the

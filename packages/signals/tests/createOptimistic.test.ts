@@ -414,6 +414,7 @@ describe("createOptimistic", () => {
       let sendMessage!: () => void;
       let optimistic!: SourceAccessor<string>;
       let resolveCount!: (value: string) => void;
+      let screen: unknown;
 
       createRoot(() => {
         const count = createMemo(
@@ -424,23 +425,29 @@ describe("createOptimistic", () => {
         );
         const [readOptimistic, setOptimistic] = createOptimistic<string>(() => count());
         optimistic = readOptimistic;
-        createLoadingBoundary(optimistic, () => "Loading")();
+        const out = createLoadingBoundary(optimistic, () => "Loading");
+        createRenderEffect(out, v => void (screen = v));
 
         sendMessage = () => {
-          // Before its first landing the source is loading: the write is
-          // OPTIMISTIC_WRITE_BEFORE_LOAD in DEV (ruled 2026-11-03, #4656).
-          expect(() => setOptimistic(() => "Optimistic")).toThrow(/OPTIMISTIC_WRITE_BEFORE_LOAD/);
+          // A guess before the first answer shows in place of the loading
+          // (S-56, ruled 2026-11-07; before, DEV refused it: #4656).
+          expect(() => setOptimistic(() => "Optimistic")).not.toThrow();
           expect(() => refresh(optimistic)).not.toThrow();
         };
       });
+      flush();
+      expect(screen).toBe("Loading");
 
       sendMessage();
       flush();
+      expect(screen).toBe("Optimistic");
 
+      // The first answer judges the guess.
       resolveCount("Settled");
       await Promise.resolve();
       flush();
       expect(optimistic()).toBe("Settled");
+      expect(screen).toBe("Settled");
     });
 
     it("should hold regular signal value during transition while showing optimistic", async () => {

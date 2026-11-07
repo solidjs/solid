@@ -8,8 +8,12 @@ export default {
   title:
     "A guess before the first answer is the newest value the node has produced: it shows, and the first answer judges it",
   rules: ["F-11", "D-22", "D-2"],
-  status: "ruled-not-built",
-  pins: ["tests/createOptimistic.test.ts"],
+  status: "standing",
+  pins: [
+    "tests/createOptimistic.test.ts",
+    "tests/uninitialized-visibility.test.ts",
+    "tests/superseded-before-first-commit.test.ts"
+  ],
   names: { s0: "sel", m0: "comments" },
   cases: [
     {
@@ -43,11 +47,9 @@ export default {
         {
           after: 1,
           screen: "[L]",
-          why: "the guess refused: today's dev guard `OPTIMISTIC_WRITE_BEFORE_LOAD`, a policy from before the lane model"
+          why: "the guess refused — the dev guard `OPTIMISTIC_WRITE_BEFORE_LOAD` (2026-11-03, #4656), a policy from before the lane model; it stays for derived optimistic stores only, whose engine cannot show such a guess yet"
         }
-      ],
-      allow: ["throw"],
-      note: "Today the dev guard throws; this case expects that finding until the guard goes."
+      ]
     }
   ]
 } satisfies Ruling;

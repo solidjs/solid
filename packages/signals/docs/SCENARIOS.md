@@ -1489,7 +1489,7 @@ Standing (confirmed 2026-11-07). The `refresh` promise's value is not observable
 
 ### S-56. A guess before the first answer is the newest value the node has produced: it shows, and the first answer judges it — F-11, D-22, D-2
 
-_Generated from `packages/web/test/async-gen/rulings/S-56.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built. Pins also: `tests/createOptimistic.test.ts`._
+_Generated from `packages/web/test/async-gen/rulings/S-56.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/createOptimistic.test.ts`, `tests/uninitialized-visibility.test.ts`, `tests/superseded-before-first-commit.test.ts`._
 
 ```tsx
 const [sel, setSel] = createSignal(3);
@@ -1501,16 +1501,12 @@ const [comments, setComments] = createOptimistic(async () => fetch(1 + sel()));
 </Loading>;
 ```
 
-| #   | Action                            | Screen                             | Notes                                                                                                                                                                               |
-| --- | --------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | render                            | `[fallback]`                       | first load                                                                                                                                                                          |
-| 1   | setComments(9) (a guess); flush() | `comments 9 \| latest(comments) 9` | the guess is the first value the node produced: `latest` shows it, the plain read shows it in place of the fallback (ruled 2026-11-07); a function-form setter receives `undefined` |
-| 2   | comments(4) lands; tick           | `comments 4 \| latest(comments) 4` | the first answer lands and judges the guess (F-11)                                                                                                                                  |
-| ✗   |                                   | after 1: `[fallback]`              | the guess refused: today's dev guard `OPTIMISTIC_WRITE_BEFORE_LOAD`, a policy from before the lane model                                                                            |
-
-_Expected findings: `throw`._
-
-Today the dev guard throws; this case expects that finding until the guard goes.
+| #   | Action                            | Screen                             | Notes                                                                                                                                                                                                             |
+| --- | --------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                            | `[fallback]`                       | first load                                                                                                                                                                                                        |
+| 1   | setComments(9) (a guess); flush() | `comments 9 \| latest(comments) 9` | the guess is the first value the node produced: `latest` shows it, the plain read shows it in place of the fallback (ruled 2026-11-07); a function-form setter receives `undefined`                               |
+| 2   | comments(4) lands; tick           | `comments 4 \| latest(comments) 4` | the first answer lands and judges the guess (F-11)                                                                                                                                                                |
+| ✗   |                                   | after 1: `[fallback]`              | the guess refused — the dev guard `OPTIMISTIC_WRITE_BEFORE_LOAD` (2026-11-03, #4656), a policy from before the lane model; it stays for derived optimistic stores only, whose engine cannot show such a guess yet |
 
 <!-- /ruling -->
 
