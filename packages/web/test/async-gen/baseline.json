@@ -1,5 +1,18 @@
 {
   "seed": 3289,
   "cases": 1500,
-  "failing": {}
+  "failing": {
+    "173": ["safety/truth-asks"],
+    "536": ["safety/truth-asks"],
+    "654": ["safety/truth-asks"],
+    "747": ["safety/truth-asks"],
+    "929": ["safety/truth-asks"],
+    "984": ["safety/truth-asks"],
+    "1063": ["safety/truth-asks"],
+    "1086": ["safety/truth-asks"],
+    "1174": ["safety/truth-asks"],
+    "1427": ["safety/truth-asks"],
+    "1436": ["safety/truth-asks"],
+    "1471": ["safety/truth-asks"]
+  }
 }

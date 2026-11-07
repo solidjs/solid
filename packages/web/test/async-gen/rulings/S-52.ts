@@ -1,20 +1,33 @@
 import type { Ruling } from "./types.js";
-import { s, m, plain, pend, scope, asyncMemo, settle, flush, task } from "./_h.js";
+import { s, m, plain, pend, scope, leaf, asyncMemo, settle, flush, task } from "./_h.js";
 
-/** `x` is async over `s`; one effect reads `isPending(x)` and `x()` together (attributes of one span).
- * An action writes `s` and ends at once; `x`'s fetch lands later. */
+/** `x` is async over `s`. Case 1 and ′: one render effect reads
+ * `isPending(x)` and `x()` together (attributes of one span). Case ″: a sync
+ * memo reads the same pair (`1 + isPending + x`) and a leaf shows it. */
+const bothMemo = {
+  async: false,
+  deps: [
+    { src: m(0), how: "pending" as const },
+    { src: m(0), how: "plain" as const }
+  ],
+  poison: null
+};
+
 export default {
   id: "S-52",
   title:
-    "`[isPending(x), x()]` after an action's write: held as one, or pending beside the committed value",
-  rules: ["D-23", "D-25"],
-  status: "proposed",
-  proposedBy: "experiment/unified-updates (GabbeV), stage 127",
-  issues: ["#4349"],
-  pins: ["tests/action-refresh-ispending-loop-4349.test.ts"],
-  names: { s0: "s", m0: "x" },
+    "`[isPending(x), x()]` in one pass shows pending beside the committed value — the display's declared inconsistency, in a render effect or a memo alike",
+  rules: ["D-25", "D-23", "F-6"],
+  status: "standing",
+  issues: ["#4349", "#3905"],
+  pins: [
+    "tests/action-refresh-ispending-loop-4349.test.ts",
+    "tests/latest-isPending-consistency.test.ts"
+  ],
+  names: { s0: "s", m0: "x", m1: "both" },
   cases: [
     {
+      status: "ruled-not-built",
       scenario: {
         signals: [41],
         memos: [asyncMemo(s(0))],
@@ -32,16 +45,16 @@ export default {
         { after: 1, screen: "<span data-a0=pm0:false  data-a1=vm0:42 ></span>", note: "primed" },
         {
           after: 3,
-          screen: "—",
-          note: "the action's write lands beneath `x`'s new question: the pair holds like `x()` alone (D-23)"
+          screen: "<span data-a0=pm0:true  data-a1=vm0:42 ></span>",
+          note: "the display keeps `42` beside the verdict about its successor, whatever the action's shape (ruled 2026-11-07; the #4349 pin held this shape as one)"
         },
-        { after: 5, screen: "<span data-a0=pm0:false  data-a1=vm0:2 ></span>", note: "one frame" }
+        { after: 5, screen: "<span data-a0=pm0:false  data-a1=vm0:2 ></span>", note: "the frame" }
       ],
-      proposed: [
+      forbid: [
         {
           after: 3,
-          screen: "<span data-a0=pm0:true  data-a1=vm0:42 ></span>",
-          note: "the experiment publishes `pending` beside the committed value, without restarting the request"
+          screen: "<span data-a0=pm0:false  data-a1=vm0:42 ></span>",
+          why: "the pair held as one: the spinner only at the commit"
         }
       ]
     },
@@ -67,12 +80,38 @@ export default {
         {
           after: 3,
           screen: "<span data-a0=pm0:true  data-a1=vm0:42 ></span>",
-          note: "the action open: `pending` beside the committed value — what the proposal asks of case 1"
+          note: "the same with the action open: today's screen already"
         },
-        { after: 5, screen: "—", note: "the action ends; `x`'s fetch is still out" },
+        { after: 5, screen: "—" },
         { after: 7, screen: "<span data-a0=pm0:false  data-a1=vm0:2 ></span>" }
-      ],
-      note: "Case ′ is the same write from an action that yields. Today's model then shows `pending` beside the committed value on its own, as the mainline does for a plain write (S-26, frame 2): the hold of case 1 is specific to an action whose body ends inside the call. The proposal makes the two the same."
+      ]
+    },
+    {
+      label: "″",
+      scenario: {
+        signals: [41],
+        memos: [asyncMemo(s(0)), bothMemo],
+        tree: leaf(plain(m(1))),
+        steps: [
+          settle(),
+          task, // 0,1 primed
+          { t: "action", before: [{ s: 0, v: 1 }], sync: true },
+          flush, // 2,3 the same write, read by a memo
+          settle(),
+          task // 4,5 x's fetch lands
+        ]
+      },
+      frames: [
+        { after: 1, screen: "<span>vm1:43 </span>", note: "primed: `1 + 0 + 42`" },
+        {
+          after: 3,
+          screen: "<span>vm1:44 </span>",
+          note: "`1 + 1 + 42`: the memo is display — it feeds a binding and asks nothing — so hoisting the pair into it changes no screen (S-27's memo row, 11-05)"
+        },
+        { after: 5, screen: "<span>vm1:3 </span>" }
+      ]
     }
-  ]
+  ],
+  prose:
+    "Ruled 2026-11-07. The display — render effects, compiled bindings, user effects, and the sync derivations that feed them — may hold the value it showed beside the verdict about its successor, because it is declared (`isPending`, `latest`), terminal, and keeps rather than computes. That is the one inconsistency the screen is allowed, and the only consumer barred from it is one that asks (S-51). The #4349 pin's held shape was the odd one out: the action's body ending inside the call is not a reason for the display to wait."
 } satisfies Ruling;

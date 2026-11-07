@@ -8,9 +8,8 @@ export default {
   id: "S-55",
   title:
     "`refresh` of an optimistic derivation under a guess: the authoritative view replaces the guess, or the guess stays until its action ends",
-  rules: ["D-34"],
-  status: "proposed",
-  proposedBy: "experiment/unified-updates (GabbeV), REFRESH-QUESTION",
+  rules: ["F-11", "D-34"],
+  status: "standing",
   pins: [],
   names: { m0: "first", m1: "doubled", m2: "second" },
   cases: [
@@ -52,20 +51,15 @@ export default {
         { after: 7, screen: "—", note: "B ends" },
         { after: 9, screen: "<span>vm0:1 vm1:2 vm2:3 </span>", note: "A ends: everything reverts" }
       ],
-      proposed: [
+      forbid: [
         {
           after: 5,
           screen: "<span>vm0:5 vm1:6 vm2:10 </span>",
-          note: "`refresh` crosses only its own boundary and answers `doubled`; the guess stays until B ends"
-        },
-        {
-          after: 7,
-          screen: "<span>vm0:5 vm1:6 vm2:7 </span>",
-          note: "B ends: the guess retires to the refreshed answer"
+          why: "the guess kept until its action ends although its own source answered differently (F-11)"
         }
       ]
     }
   ],
   prose:
-    "The `refresh` promise's value is not observable here: the experiment resolves it to the input's answer (`doubled`), `next` to the authoritative view. `s` is unused."
+    "Standing (confirmed 2026-11-07). The `refresh` promise's value is not observable here; it resolves to the authoritative view. `s` is unused."
 } satisfies Ruling;

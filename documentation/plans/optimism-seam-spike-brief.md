@@ -483,17 +483,28 @@ setQ("b"); // then resolve suggest, then resolve results
 
 **Ruled (maintainer, 2026-11-06): F-6 stands.** The second column is a tear — a verdict reader with no async of its own showing `b` beside a verdict reader of the same `q` still showing `a` — and F-6 exists to prevent it. A hold's display-ahead readers are one frame; the verdict lane is that frame's record and stays. H2 is **no**. `LEFT_SHOWN` stays with it.
 
-## 16. Contributor-proposed rows (2026-11-06)
+## 16. A question is asked only of the truth (ruled 2026-11-07)
 
-GabbeV's `experiment/unified-updates` branch (137 agent-written stages; a scalar engine without lanes, 2,111 failing tests at its latest checkpoint, over every size cap) was read for its rulings rather than its code. Its 384 new tests were run against `next`: 177 + 25 pass unchanged, 26 files need its own modules, and about 100 screens differ. Most differences are one philosophy — a guess, an input landing, an input error are all masked until the action ends — which contradicts F-11 and A18 and is declined on those rows. Six specific rules are independent of that philosophy and are now rows S-51 to S-56 in `SCENARIOS.md` §G, status `proposed`: today's screen pinned by the rulings spec, the experiment's screen as a `?` row, for a ruling. The rulings type gained `proposed`/`proposedBy`, a `Proposed` row, and `allow` (a case that trips a dev guard on purpose); the grammar gained `sync` on the rulings-only action (no yield — #4349's shape).
+GabbeV's `experiment/unified-updates` branch (a scalar engine without lanes; 137 agent-written stages; 2,111 failing tests and over every size cap at its last checkpoint) was read for its rulings, not its code. Its 384 new tests were run against `next`: 177 + 25 pass unchanged, 26 files need its own modules, about 100 screens differ. Most of the differences are one philosophy — a guess, an input landing, an input error masked until the action ends — which contradicts F-11 and A18 and was declined. Seven rows were tabled and ruled in one sitting, each with code and a frame table; the rulings spec pins today's screen and records the gap. The spec gained a no-yield action (#4349's shape) and a `truth-asks` oracle.
 
-| Row | Today | Proposed | Note |
-| --- | --- | --- | --- |
-| S-51 #4677 obsolete display-ahead question | its answer reveals whole (`pending true` beside `Item 0`), then the correction | superseded when `details` lands; one frame and one request fewer | F-6 does not require the stale frame |
-| S-52 #4349 `[isPending(x), x()]` after an action's write | held as one when the action's body ends inside the call; `pending` beside the committed value when the action yields (case ′) | `pending` beside the committed value in both | today's two shapes already disagree with each other |
-| S-53 #4403 `latest` over an error recovery | the error until the action lands (D-39) | the recovery ahead, as a value would be (D-22) | the maintainer's PR 4705 is in this area |
-| S-54 `isPending` of a ready answer the frame still holds | clears while the frame holds on a sibling | stays `true` until the frame shows | D-23's own wording supports the proposal |
-| S-55 `refresh` of an optimistic derivation under a guess | the authoritative view replaces the guess now | the re-ask answers the input; the guess stays until its action ends | the promise's value is not observable in the generator |
-| S-56 a guess before the first answer | refused in dev | accepted | policy |
+**The ruling that settled them** came from #4677: the badge, an async memo over `id` and `isPending(id)`, asked `badge(0, true)` from its display-ahead pass while the engine held `id = 1`. That stale ask was licensed by L2's rule 6 (2026-10-04: a verdict reader's whole pass seated in a lane), enabled by A10's atomic pair (#2831, 2026-07-06), and generalized to memos on 2026-11-05 (Decision 1, D-25, S-27's memo row, "#3905 not needed"). Written as F-2's producer clause and F-6's limit rather than a new fundamental:
 
-Two of the experiment's constraints are properties, not screens: later dependency discovery must not change the inputs of a started fetch, nor make a held proposal eligible. In this model a pass's reads are complete before its flight starts (a read after `await` is a dev warning), so both hold by construction; no generator law was added.
+- One version per node. The hold is the only producer of a change's consequences: nothing asks of the value the screen keeps.
+- The display is the one declared, terminal, kept-not-computed inconsistency: a render effect, a compiled binding, a user effect (its callback runs at the frame it belongs to), and the sync derivations feeding them may hold the value they showed beside the verdict about its successor. Memo-inline parity holds; S-27's memo row stands.
+- The act is the async derivation. Reached from a display-ahead value it is the hold's and asks of the truth. Async in a user effect is the author's.
+- `latest` is never stale; `isPending` is a fact; both read anywhere. A guess is not stale until corrected (D-34). Inside a hold's work, a verdict about that hold is answered.
+- #3905 is not warranted: the display lane cannot ask, so there is nothing to propagate. Full #3905 (two versions everywhere) was weighed and declined: the inconsistency is meant to be narrow. The verdict lane stays; it loses its flights.
+
+| Row | Ruled | Today |
+| --- | --- | --- |
+| S-51 #4677 | the badge asks once, of the truth; the `isPending` hole shows at once | the display-ahead pass asks `badge(0, true)` and its answer gets a frame |
+| S-52 #4349 | `[isPending(x), x()]` shows pending beside the committed value in every shape, render effect or memo | the action-ends-inside-the-call shape holds the pair as one |
+| S-53 #4403 | `latest` shows a held recovery ahead, value/error symmetric | the error stays until the action lands |
+| S-54 | `isPending` stays true for a held, unshowable answer | clears when the answer is ready |
+| S-55 | standing: `refresh` under a guess is the guess's own source answering (F-11) | same |
+| S-56 | a guess before the first answer shows; the first answer judges it | the dev guard refuses it |
+| S-57 (their A2) | a plain write whose derivation became a guess's lane work holds on that flight and reveals with the lane (F-2 as written) | the write publishes beside the stale derivation, because the lane took the only question |
+
+**Measured on today's engine:** the `truth-asks` oracle finds 12 stale asks in the regression gate's 1,500 cases (seed 3289), all one shape — an async memo reading `latest(s)` beside a plain `s`, D-25's same-node clause handing the pass the screen's `s`. Recorded in `baseline.json` as known; they become improvements when the clause is built.
+
+**Deferred to the build, on purpose:** how a pass is known to ask before it asks; the verdict lane losing `blocked`, its seam arms and #3869's first-pass seating; the #4349 and #4677 pins rewritten. Built on M1 (the lane value model), independent of S1–S3.

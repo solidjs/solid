@@ -5,10 +5,10 @@ import { s, m, plain, lat, leaf, loading, settle, flush, task } from "./_h.js";
  * is written before its first answer. */
 export default {
   id: "S-56",
-  title: "A guess before the first answer: refused (dev), or shown",
-  rules: ["D-2", "D-22"],
-  status: "proposed",
-  proposedBy: "experiment/unified-updates (GabbeV), stage 124",
+  title:
+    "A guess before the first answer is the newest value the node has produced: it shows, and the first answer judges it",
+  rules: ["F-11", "D-22", "D-2"],
+  status: "ruled-not-built",
   pins: ["tests/createOptimistic.test.ts"],
   names: { s0: "sel", m0: "comments" },
   cases: [
@@ -30,19 +30,24 @@ export default {
         { after: "render", screen: "[L]", note: "first load" },
         {
           after: 1,
-          screen: "—",
-          note: "the guess is refused: `OPTIMISTIC_WRITE_BEFORE_LOAD` (dev); nothing changes"
-        },
-        { after: 3, screen: "<span>vm0:4 lm0:4 </span>", note: "the first answer lands" }
-      ],
-      proposed: [
-        {
-          after: 1,
           screen: "<span>vm0:9 lm0:9 </span>",
-          note: "the guess is accepted before the first answer (a functional guess receives `undefined`); the experiment's fixture shows it once written — whether `<Loading>` keeps its fallback until the first answer is not stated"
+          note: "the guess is the first value the node produced: `latest` shows it, the plain read shows it in place of the fallback (ruled 2026-11-07); a function-form setter receives `undefined`"
+        },
+        {
+          after: 3,
+          screen: "<span>vm0:4 lm0:4 </span>",
+          note: "the first answer lands and judges the guess (F-11)"
         }
       ],
-      allow: ["throw"]
+      forbid: [
+        {
+          after: 1,
+          screen: "[L]",
+          why: "the guess refused: today's dev guard `OPTIMISTIC_WRITE_BEFORE_LOAD`, a policy from before the lane model"
+        }
+      ],
+      allow: ["throw"],
+      note: "Today the dev guard throws; this case expects that finding until the guard goes."
     }
   ]
 } satisfies Ruling;

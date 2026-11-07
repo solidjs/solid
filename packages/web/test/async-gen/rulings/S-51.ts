@@ -2,15 +2,15 @@ import type { Ruling } from "./types.js";
 import { s, m, plain, pend, leaf, write, settle, flush, task } from "./_h.js";
 
 /** `details` is async over `id`; `badge` is async over `id` and
- * `isPending(id)` (its flight's input is `id + isPending + 1`). Writing `id`
- * asks two questions at once: `details(2)` on the mainline, and the badge's
- * display-ahead question `badge(0, pending)` beside its mainline one. */
+ * `isPending(id)` (its flight's input is `id + isPending + 1`). `badge` is
+ * an act — it asks — so a change to `id` gives it one question, keyed on
+ * the truth; the `isPending(id)` hole beside it shows now. */
 export default {
   id: "S-51",
-  title: "An obsolete display-ahead question: shown when it lands, or superseded by the correction",
-  rules: ["F-6", "D-25"],
-  status: "proposed",
-  proposedBy: "experiment/unified-updates (GabbeV), stage 126",
+  title:
+    "A question is asked only of the truth: an async derivation of a held value is the hold's, never a display-ahead pass",
+  rules: ["F-2", "F-6", "D-25"],
+  status: "ruled-not-built",
   issues: ["#4677"],
   pins: ["tests/ispending-async-derivation-4677.test.ts"],
   names: { s0: "id", m0: "details", m1: "badge" },
@@ -35,45 +35,37 @@ export default {
           settle(),
           task, // 0,1,2 primed
           write(0, 2),
-          flush, // 3,4 setId(2): details(2) and the badge's two questions
+          flush, // 3,4 setId(2): details(2) and badge(2) asked, both the hold's
           settle(),
-          task, // 5,6 details lands
+          task, // 5,6 the first lands
           settle(),
-          task, // 7,8 the obsolete badge lands
+          task, // 7,8 the second lands: the frame
           settle(),
-          task // 9,10 the correction lands
+          task // 9,10 nothing left to land
         ]
       },
       frames: [
         { after: 2, screen: "<span>vs0:0 vm0:1 ps0:false vm1:1 </span>", note: "primed" },
         {
           after: 4,
-          screen: "—",
-          note: "`setId(2)`: `details(2)` on the mainline; the badge asks its display-ahead question `badge(0, pending)` and its mainline one — the frame holds"
+          screen: "<span>vs0:0 vm0:1 ps0:true vm1:1 </span>",
+          note: "`setId(2)`: `badge` asks, so it is the hold's and asks once, of the truth — `badge(2, false)`; nothing seats the `isPending(id)` hole in a lane, so it shows `true` now beside the kept badge (ruled 2026-11-07)"
         },
-        {
-          after: 6,
-          screen: "—",
-          note: "`details(2)` lands: held, the badge's display-ahead question is still out"
-        },
+        { after: 6, screen: "—", note: "one answer landed; the frame holds on the other" },
+        { after: 8, screen: "<span>vs0:2 vm0:3 ps0:false vm1:3 </span>", note: "the frame" },
+        { after: 10, screen: "—", note: "no third flight was ever asked" }
+      ],
+      forbid: [
         {
           after: 8,
           screen: "<span>vs0:0 vm0:1 ps0:true vm1:2 </span>",
-          note: "the obsolete question lands and reveals whole (F-6): `pending true` beside `Item 0`; the correction `badge(2)` is asked now"
-        },
-        {
-          after: 10,
-          screen: "<span>vs0:2 vm0:3 ps0:false vm1:3 </span>",
-          note: "the correction lands"
+          why: "`badge(0, true)`: a question asked with the value the screen keeps, and its answer shown"
         }
       ],
-      proposed: [
-        {
-          after: 8,
-          screen: "<span>vs0:0 vm0:1 ps0:false vm1:1 </span>",
-          note: "the correction was asked when `details(2)` landed; the obsolete question's answer is superseded and its frame never shows — one frame fewer, one request fewer"
-        }
-      ]
+      allow: ["truth-asks"],
+      note: "Today the badge's display-ahead pass asks `badge(0, true)`; the oracle `truth-asks` records it, and this case expects that finding until the fix lands."
     }
-  ]
+  ],
+  prose:
+    "The #4677 issue's other order (the stale answer landing first) disappears with the stale question. L2's rule 6 (2026-10-04), which seated a verdict reader's whole pass in a lane, is narrowed by this ruling to passes that do not ask: F-6's limit."
 } satisfies Ruling;

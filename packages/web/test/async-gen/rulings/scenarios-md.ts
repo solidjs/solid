@@ -214,13 +214,6 @@ function tableFor(
   }
   for (const x of c.forbid ?? [])
     rows.push(["✗", "", `after ${frameIndex(c, x.after)}: ${screenText(x.screen, names)}`, x.why]);
-  for (const x of c.proposed ?? [])
-    rows.push([
-      "?",
-      "",
-      `proposed, after ${frameIndex(c, x.after)}: ${screenText(x.screen, names)}`,
-      x.note ?? ""
-    ]);
   if (status === "ruled-not-built" && observed) {
     // Today's screen at every ruled frame it differs from ("—" resolved), so
     // the block records the gap and goes stale when a fix closes it.
@@ -269,9 +262,8 @@ export function renderRuling(r: Ruling, observed: (Result | undefined)[]): strin
   );
   lines.push("");
   const pins = r.pins?.length ? ` Pins also: ${r.pins.map(p => `\`${p}\``).join(", ")}.` : "";
-  const by = r.proposedBy ? ` Proposed by: ${r.proposedBy}.` : "";
   lines.push(
-    `_Generated from \`packages/web/test/async-gen/rulings/${r.id}.ts\` (\`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings\` in \`packages/web\`); do not edit inside the markers. Status: ${r.status}.${by}${pins}_`
+    `_Generated from \`packages/web/test/async-gen/rulings/${r.id}.ts\` (\`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings\` in \`packages/web\`); do not edit inside the markers. Status: ${r.status}.${pins}_`
   );
   r.cases.forEach((c, k) => {
     lines.push("");

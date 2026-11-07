@@ -154,7 +154,7 @@ const SCEN = path.join(DOCS, "SCENARIOS.md");
   for (let i = 0; i < L.length; i++) {
     const m = /^### (S-\d+)\. (.*)$/.exec(L[i]);
     if (!m) continue;
-    const st = /Status: (standing|ruled-not-built|proposed)/.exec(L[i + 2] ?? "");
+    const st = /Status: (standing|ruled-not-built)/.exec(L[i + 2] ?? "");
     add(m[1], m[1], "S", "", SCEN, i + 1, `[${st ? "executable, " + st[1] : "prose"}] ${m[2]}`);
   }
 }

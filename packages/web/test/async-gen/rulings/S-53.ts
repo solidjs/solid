@@ -7,10 +7,9 @@ import { s, m, plain, lat, leaf, show, write, settle, flush, task } from "./_h.j
 export default {
   id: "S-53",
   title:
-    "An action recovering a memo to its last good value under `latest`: the error until it lands, or the recovery ahead",
-  rules: ["D-39", "D-41", "D-22"],
-  status: "proposed",
-  proposedBy: "experiment/unified-updates (GabbeV), stage 137 (value/error symmetry)",
+    "`latest` shows a held recovery ahead, as it shows a held value: the boundary recovers while the action is open",
+  rules: ["D-41", "D-22", "F-6"],
+  status: "ruled-not-built",
   issues: ["#4403"],
   pins: ["tests/errored-recovery-wedge-4403-4404-4405.test.ts"],
   names: { s0: "s", m0: "m" },
@@ -34,16 +33,16 @@ export default {
         { after: 1, screen: "[E]", note: "`m = 2` throws: the boundary shows its fallback" },
         {
           after: 3,
-          screen: "—",
-          note: "the action writes `s = 0` back — the last good value — and stays open: the error stays until it lands (D-39)"
+          screen: "<span>vs0:0 </span>",
+          note: "the action writes `s = 0` back and stays open: `latest(m)` is the newest answer `m` produced — the recovery — so the `Show` it gates opens now (ruled 2026-11-07: value and error are symmetric under `latest`, as D-41 already lets `latest` throw a proposed error early)"
         },
-        { after: 5, screen: "<span>vs0:0 </span>", note: "the action lands: recovered" }
+        { after: 5, screen: "—", note: "the action lands: nothing changes" }
       ],
-      proposed: [
+      forbid: [
         {
           after: 3,
-          screen: "<span>vs0:0 </span>",
-          note: "`latest(m)` selects the recovery ahead as it would a value (D-22's symmetry): the boundary recovers while the action is open"
+          screen: "[E]",
+          why: "the error kept until the action lands — D-41's mirror clause, which applies to a plain read, not to `latest`"
         }
       ]
     }

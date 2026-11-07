@@ -9,8 +9,7 @@ export default {
   id: "S-54",
   title: "`isPending` of a ready answer the frame still holds: cleared, or pending until it shows",
   rules: ["D-23"],
-  status: "proposed",
-  proposedBy: "experiment/unified-updates (GabbeV), stage 105",
+  status: "ruled-not-built",
   pins: [],
   names: { s0: "a", s1: "b", m0: "left", m1: "right", m2: "total" },
   cases: [
@@ -53,8 +52,8 @@ export default {
         },
         {
           after: 6,
-          screen: "<span>vm0:1 vm2:3 </span><span>pm0:false </span>",
-          note: "`left`'s answer (2, not the shown 1) lands beneath the hold: `isPending(left)` clears while the frame still holds on `right`"
+          screen: "—",
+          note: "`left`'s answer (2, not the shown 1) lands beneath the hold: not showable while the frame holds on `right`, so still a question without a committed answer — `pending` stays (ruled 2026-11-07)"
         },
         {
           after: 8,
@@ -67,11 +66,11 @@ export default {
           note: "the action ends: the guesses revert and both re-fetch"
         }
       ],
-      proposed: [
+      forbid: [
         {
           after: 6,
-          screen: "<span>vm0:1 vm2:3 </span><span>pm0:true </span>",
-          note: "a differing answer the frame still holds is still a question without a committed answer: `pending` stays until the frame shows — D-23's own words; the experiment calls today's clearing a bug"
+          screen: "<span>vm0:1 vm2:3 </span><span>pm0:false </span>",
+          why: "`pending` clearing for an answer the frame cannot show yet"
         }
       ]
     }
