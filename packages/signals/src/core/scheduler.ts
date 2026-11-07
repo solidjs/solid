@@ -1043,6 +1043,10 @@ export class GlobalQueue implements IQueue {
             !((n as Computed<any>)._statusFlags & (STATUS_PENDING | STATUS_UNINITIALIZED)) &&
             n._x?._pendingFirstChild == null &&
             n._x?._pendingDisposal == null &&
+            // A recovery to the last good value is a change of answer
+            // (D-41): the error it replaces stays the display until it
+            // commits, so it is held, not netted.
+            !n._x?._shownError &&
             // The comparator last: a pass that created children (an object
             // owning a fresh async memo, #4111) must not have it read them.
             // A NotReady read there is a change (`isSame`).

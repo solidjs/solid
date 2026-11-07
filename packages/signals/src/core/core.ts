@@ -837,9 +837,17 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // A first value already staged this frame is that slot too: a re-pass
     // equal to it changes nothing, though the node stays uninitialized until
     // the commit (#4540).
+    // The transaction this flush (or tick) has joined, if any.
+    const tx = flushTransaction ?? passTx;
     const valueChanged =
       (unstaged && wasUninitialized && !isEffect) ||
       !!el._x?._shownError ||
+      // A recovery to the last good value in a flush that has joined a
+      // hold is a change of answer (D-41, S-53): staged, the error it
+      // replaces stays the display until the frame reveals, and `latest`
+      // shows the recovery ahead. Unheld, the silent recovery below is the
+      // same screen.
+      !!(outgoingError && tx !== null) ||
       !!replaced ||
       !isSame(el, compareValue, value);
 
@@ -928,7 +936,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       } else if (
         create
           ? !(
-              (flushTransaction !== null || passTx !== null) &&
+              tx !== null &&
               (joined || (creatorPass(oldcontext)?._flags as number) & REACTIVE_JOINED)
             )
           : isEffect && el._pendingValue === NOT_PENDING
@@ -954,7 +962,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
         // tick is a read of its world (the mount-during-a-hold case), not
         // only after the seam parks it.
         if (create) {
-          holdNode(el, (flushTransaction ?? passTx)!);
+          holdNode(el, tx!);
           // Born into the future: no committed value until the landing
           // (`commitPendingNode` initializes it) — every reader of it
           // derives from the future (`read`), an untracked one throws

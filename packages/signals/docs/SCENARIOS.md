@@ -1385,7 +1385,29 @@ Ruled 2026-11-07. The display — render effects, compiled bindings, user effect
 
 ### S-53. `latest` shows a held recovery ahead, as it shows a held value: the boundary recovers while the action is open — D-41, D-22, F-6 (#4403)
 
-_Generated from `packages/web/test/async-gen/rulings/S-53.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built. Pins also: `tests/errored-recovery-wedge-4403-4404-4405.test.ts`._
+_Generated from `packages/web/test/async-gen/rulings/S-53.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/errored-recovery-wedge-4403-4404-4405.test.ts`._
+
+**Case 1.**
+
+```tsx
+const [s, setS] = createSignal(0);
+const m = createMemo(() => 1 + s()); // throws when the input % 4 === 2
+<Errored fallback="[error]">
+  <Show when={latest(m)} fallback="[none]">
+    <span>{latest(s)}</span>
+  </Show>
+</Errored>;
+```
+
+| #   | Action                   | Screen             | Notes                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | ------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                   | `latest(s) 0`      |                                                                                                                                                                                                                                                                                                                                                                                               |
+| 1   | setS(1); flush()         | `[error]`          | `m = 2` throws: the boundary shows its fallback                                                                                                                                                                                                                                                                                                                                               |
+| 2   | action: setS(0); flush() | `latest(s) 0`      | the action writes `s = 0` back and stays open: `latest(m)` is the newest answer `m` produced — the recovery, a change of answer though equal to the last good value (D-41) — so the `Show` it gates opens now and the content's `latest(s)` shows the held write (ruled 2026-11-07: value and error are symmetric under `latest`, as D-41 already lets `latest` throw a proposed error early) |
+| 3   | the action lands; tick   | —                  | the action lands: nothing changes                                                                                                                                                                                                                                                                                                                                                             |
+| ✗   |                          | after 2: `[error]` | the error kept until the action lands — D-41's mirror clause, which applies to a plain read, not to `latest`                                                                                                                                                                                                                                                                                  |
+
+**Case ′.**
 
 ```tsx
 const [s, setS] = createSignal(0);
@@ -1397,13 +1419,14 @@ const m = createMemo(() => 1 + s()); // throws when the input % 4 === 2
 </Errored>;
 ```
 
-| #   | Action                   | Screen             | Notes                                                                                                                                                                                                                                                                       |
-| --- | ------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | render                   | `s 0`              |                                                                                                                                                                                                                                                                             |
-| 1   | setS(1); flush()         | `[error]`          | `m = 2` throws: the boundary shows its fallback                                                                                                                                                                                                                             |
-| 2   | action: setS(0); flush() | `s 0`              | the action writes `s = 0` back and stays open: `latest(m)` is the newest answer `m` produced — the recovery — so the `Show` it gates opens now (ruled 2026-11-07: value and error are symmetric under `latest`, as D-41 already lets `latest` throw a proposed error early) |
-| 3   | the action lands; tick   | —                  | the action lands: nothing changes                                                                                                                                                                                                                                           |
-| ✗   |                          | after 2: `[error]` | the error kept until the action lands — D-41's mirror clause, which applies to a plain read, not to `latest`                                                                                                                                                                |
+| #   | Action                   | Screen             | Notes                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | ------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                   | `s 0`              |                                                                                                                                                                                                                                                                                                                                                                                   |
+| 1   | setS(1); flush()         | `[error]`          | `m = 2` throws: the boundary shows its fallback                                                                                                                                                                                                                                                                                                                                   |
+| 2   | action: setS(0); flush() | —                  | the `Show` opens ahead as in case 1, but its content's first pass reads the held `s` plainly: born held (S-46), the mount attaches at the landing and the `Show`'s switch waits with it — the boundary keeps its fallback meanwhile; a `<Loading>` inside the `Show` would show ahead (S-31). Today the branch attaches with its hole empty, S-46's plain row (#4417's mechanism) |
+| 3   | the action lands; tick   | `s 0`              | the action lands: the branch attaches                                                                                                                                                                                                                                                                                                                                             |
+| ✗   |                          | after 2: `(empty)` | the branch attached with its hole empty (F-2: never an empty slot) — S-46's plain row, #4417's mechanism; before S-53 the shown error masked it here                                                                                                                                                                                                                              |
+| ✗   |                          | after 2: `s 1`     | the branch attached with the committed `s` beside a `Show` opened by the hold's recovery (S-46 ✗: a mount under a display-ahead reader is born held, not a D-3 leaf)                                                                                                                                                                                                              |
 
 <!-- /ruling -->
 

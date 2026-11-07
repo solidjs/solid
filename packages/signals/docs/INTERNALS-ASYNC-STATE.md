@@ -368,7 +368,21 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   true for a reader outside the lane, which re-derives at the reveal
   (`staleReader(c, l)`); three checkout pins in `createOptimistic.test.ts`
   changed (opacity waits for the lane while `latest()` text shows ahead).
-  +34 B brotli on the isPending/latest chunk. Last, S-57 (the experiment's A2, "optimism
+  +34 B brotli on the isPending/latest chunk. S-53 built next (core.ts
+  `recompute`, scheduler.ts the park): a recovery to the last good value
+  in a flush that has joined a hold is a change of answer, so it stages
+  with the shown error and is held, where before it published silently
+  (`settleErroredDependents`, #2949's path) and left the display-ahead
+  readers downstream with nothing to show ahead of — the `Show` it gated
+  was held whole and the boundary kept `[E]` until the landing; the park
+  no longer nets a staging that replaces a shown error. `latest` of the
+  held recovery shows it ahead as it shows a held value, the readers are
+  verdict-lane work, and the boundary recovers at the lane's seam. Unheld
+  recoveries keep the silent path (same screen; #2701's boundary
+  depends on it). The #4403 pin flipped. S-53's plain-read case (`′`) is
+  S-46's plain row: the branch born held, the `Show` waits — today the hole
+  attaches empty (#4417's mechanism), which the shown error masked before.
+  +11 B brotli on the core floor. Last, S-57 (the experiment's A2, "optimism
   winning when combined"): a plain write whose derivation became a guess's
   lane work was published beside the stale derivation because the lane had
   taken the only question; ruled F-2 as written — the write holds on the
