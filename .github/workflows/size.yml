@@ -30,6 +30,11 @@ permissions:
   contents: read
   pull-requests: write
 
+# A push gets its own group, so every commit on next keeps its run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   head:
     runs-on: ubuntu-latest
