@@ -168,7 +168,6 @@ import {
   freshHook,
   guessing,
   laneOutcomeHook,
-  laneWaitHook,
   laneReadHook,
   laneStageHook,
   laneSeamsHook,
@@ -674,15 +673,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // D-41: a pass of a held node, or one that read a staging of this
       // flush, stages its error (`stageError`).
       if (notReady || !(stagedErr = stageError(el, e, true))) {
-        if (notReady) {
-          ext(el)._blocked = true;
-          // F-2's producer clause (S-57): a pass this flush dirtied — it
-          // read the flush's staging — that ran as a lane's and asked: the
-          // flush holds on that flight and reveals with the lane, whatever
-          // the async's source (the lane took the only question).
-          if (laneWaitHook !== null && passLane !== null && el._flags & REACTIVE_STAGED_READ)
-            laneWaitHook(el);
-        }
+        if (notReady) ext(el)._blocked = true;
         notifyStatus(el, notReady ? STATUS_PENDING : STATUS_ERROR, e);
         // The replacement source is fully propagated now. If no new flight
         // re-owned self, retire the superseded flight and its dependent copies.
@@ -862,7 +853,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       // replaces stays the display until the frame reveals, and `latest`
       // shows the recovery ahead. Unheld, the silent recovery below is the
       // same screen.
-      !!(outgoingError && tx !== null) ||
+      !!(outgoingError && tx) ||
       !!replaced ||
       !isSame(el, compareValue, value);
 

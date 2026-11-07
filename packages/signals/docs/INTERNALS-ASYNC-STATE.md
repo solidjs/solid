@@ -408,13 +408,16 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   lane work was published beside the stale derivation because the lane had
   taken the only question; ruled F-2 as written — the write holds on the
   lane's flight and reveals with it, the frames entangled. Built the same
-  day (`laneWaitHook`, core.ts `recompute`'s NotReady arm → lanes.ts
-  `laneWait`): a pass that read this flush's staging, ran as a guess's
-  lane's and went pending makes the flush join a frame that waits on that
-  node (`Transaction.waits`, judged in `lanesBlocked`) and sets the lane
-  `over` the frame, so the lane's work reads the frame's staging as its own
-  world (core `frameRead`'s `over` arm) and holds while the frame does
-  (`laneSeam`): one question (`label(5, 10)`), one reveal. The pass is
+  day (lanes.ts `laneStage` → `laneWait`, at the tail of the lane pass —
+  first as a core hook from `recompute`'s NotReady arm, moved out of the
+  core the same day): a pass that read this flush's staging, ran as a
+  guess's lane's and went pending makes the flush join a frame, lists the
+  node on the lane (`Transaction.waits`, on the lane; `lanesBlocked` finds
+  the frame through `over` with `liveTx`, so a frame merged since still
+  waits — the `merge` append this replaced was 21 B brotli of core) and
+  sets the lane `over` the frame, so the lane's work reads the frame's
+  staging as its own world (core `frameRead`'s `over` arm) and holds while
+  the frame does (`laneSeam`): one question (`label(5, 10)`), one reveal. The pass is
   dropped from `stagedReaders` so the seam does not re-ask the old world's
   question. Not the hold's own work (its parent already waits on the lane,
   `nestedBlocked`), not a verdict lane's `latest`-only asker (the same
@@ -449,7 +452,11 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   value by the verdict arm (A10 generalized to a different node, which D-25
   narrowed); S-53′ likewise. PR 4708's own two pins do not flip: its `gate`
   variant in the runner does not model the compiled ternary (real JSX
-  paints at the landing, the runner's gate never does).
+  paints at the landing, the runner's gate never does). After the day's
+  trims the core floor is 7,423 B brotli (M1 7,406, cap 7,430) and the
+  compiled hello world 9,979 B (cap 9,980): S-53 ~10 B, S-46's stamp ~8 B;
+  the isPending/latest chunk carries the rest (+415 B over M1, the seam
+  walk `mountPending` ~335 B minified the next thing to trim).
 
 - 2026-07-17: **A18 store corollary — per-transaction optimistic layer**
   (#2899). `createOptimisticStore`'s override layer is one record per store

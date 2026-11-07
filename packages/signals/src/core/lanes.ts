@@ -456,6 +456,12 @@ export function laneStage(
   create: boolean,
   errored: boolean | Computed<any>
 ): boolean {
+  // F-2's producer clause (S-57): a pass this flush dirtied — it read the
+  // flush's staging — that ran as a lane's and asked: the flush holds on
+  // that flight and reveals with the lane, whatever the async's source (the
+  // lane took the only question).
+  if (!create && el._statusFlags & STATUS_PENDING && el._flags & REACTIVE_STAGED_READ)
+    laneWait(el, l);
   if (!(create || errored || el._flags & REACTIVE_LANE_READ || el._config & CONFIG_GUESS)) {
     const x = el._x;
     if (x !== null) {
@@ -1006,8 +1012,19 @@ function endLanes(u: Transaction): void {
 function lanesBlocked(t: Transaction): boolean {
   if (guessed && !t._lane && t._nodes.some(n => marked.has(n) && inFlight(n))) return true;
   // A lane flight one of the frame's own passes asked (`laneWait`, S-57):
-  // the frame holds on it and reveals with the lane.
-  if (t.waits !== undefined && t.waits.some(n => n._statusFlags & STATUS_PENDING)) return true;
+  // the frame holds on it and reveals with the lane. Kept on the lane, and
+  // the frame found through `over`, so a frame merged since still waits.
+  if (!t._lane)
+    for (let i = 0; i < lanes.length; i++) {
+      const l = lanes[i];
+      if (
+        l.waits !== undefined &&
+        l.over !== undefined &&
+        liveTx(l.over) === t &&
+        l.waits.some(n => n._statusFlags & STATUS_PENDING)
+      )
+        return true;
+    }
   // S-46 (D-25): a mount a display-ahead read gates attaches at the
   // landing; the verdict lane that opened it reveals with that landing, not
   // ahead of it (shown now, the branch attached with its hole empty, #4417,
@@ -1051,27 +1068,26 @@ function pendingMountIn(o: Owner): boolean {
  * have nothing of its own to wait for and would publish the write beside a
  * stale derivation of it (F-1). The flush joins a frame instead and holds
  * on the flight, revealing with the lane at its landing. */
-function laneWait(el: Computed<any>): void {
+function laneWait(el: Computed<any>, l: Transaction): void {
   // A guess's lane (the row's shape). A verdict lane's `latest`-only asker
   // re-asked by an outside write is the same sentence, not built: the
   // write publishes as before.
-  if (!globalQueue._running || passLane!._parent?._verdict === passLane) return;
+  if (!globalQueue._running || l._parent!._verdict === l) return;
   const t = flushTransaction;
   // The hold's own work (the lane's parent is this flush's frame): it
   // already waits on its lane (`nestedBlocked`), a round after the reveal.
-  if (t !== null && resolveTx(passLane!._parent!) === t) return;
+  if (t !== null && resolveTx(l._parent!) === t) return;
   // Entangled: the lane's work reads the frame's staging as its own world
   // (core.ts `frameRead`, the `over` arm) and the lane holds while the
   // frame does (`laneSeam`) — one question, one reveal. A lane already
   // over another live frame (a keyed rebase over a landing's answer,
   // #4536) cannot take a second: the write publishes as before, beside the
   // lane's answer to its old question (the limit of this build).
-  const o = passLane!.over && liveTx(passLane!.over);
+  const o = l.over && liveTx(l.over);
   if (o && o !== t) return;
   joinFuture(null);
-  const f = flushTransaction!;
-  passLane!.over = f;
-  (f.waits ??= []).push(el);
+  l.over = flushTransaction!;
+  (l.waits ??= []).push(el);
   // Not a staged reader to re-derive on the committed world at this seam:
   // that would ask the question of the old world again.
   const k = stagedReaders.indexOf(el);
@@ -1427,8 +1443,7 @@ installLaneHooks(
   landing,
   lanesBlocked,
   adoptParked,
-  laneServed,
-  laneWait
+  laneServed
 );
 if (__OBSERVE__)
   GlobalQueue._laneGuesses = t => {
