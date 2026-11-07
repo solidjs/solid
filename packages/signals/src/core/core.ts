@@ -2199,7 +2199,9 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // reads the screen too.
     // F-2's producer clause: a pass that asks is never served the screen's
     // value of a staging (`askerJoins`; the held case is `frameRead`'s).
+    // (Not a netted staging, D-8: no proposal, nothing to join.)
     const asks =
+      !netted &&
       askerJoinsHook !== null &&
       c._config & CONFIG_ASYNC &&
       (passLane === null || passLane._parent?._verdict === passLane);
