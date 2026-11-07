@@ -549,7 +549,27 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
         (latestActive || !owner._x!._shownError)
       )
         throw owner._x!._error;
-      if (probing && flying) probeFound = true;
+      // A lane derivation's landed answer waits for the lane's reveal while
+      // the lane is blocked: what the reader sees (`v`, the screen — or the
+      // latest view inside `latest()`) is not the lane's latest then, so the
+      // answer is not final until the reveal shows it (#4685). An equal one
+      // is final now (A24), as is the latest view that already observes it.
+      // The reveal — the lane's seam, before and without its parent's
+      // landing — is what flips the verdict, so the reader re-derives there
+      // (`l._reruns`), not only at the parent's landing (`verdictRead`).
+      if (probing) {
+        const u = laneValueOf(el),
+          unrevealed =
+            u !== v &&
+            (!el._equals || !el._equals(u as any, v as any)) &&
+            // Only a blocked lane's landed answer waits: an unblocked
+            // staging reveals in this flush, so the display already moves
+            // with the probe's read (#4429's pulled pass — the probe
+            // answers the screen, not a round that is not stuck).
+            blocked(l);
+        if (flying || unrevealed) probeFound = true;
+        if (unrevealed && tracked && l._reruns[l._reruns.length - 1] !== c) l._reruns.push(c!);
+      }
       if (__TEST__) shadowActual(latestActive && !flying ? SLOT_LV : SLOT_DV);
       return v;
     }
