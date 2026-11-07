@@ -325,6 +325,41 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
 
 ## 7. Decision log
 
+- 2026-11-07: **A question is asked only of the truth** (F-2's producer
+  clause; F-6's limit). Prompted by GabbeV's `experiment/unified-updates`
+  (its tests run against `next`, the differing screens tabled as S-51–S-56)
+  and settled on #4677: the badge, an async memo over `id` and
+  `isPending(id)`, asked `badge(0, true)` from its display-ahead pass while
+  the engine held `id = 1`. The stale ask was licensed by L2's rule 6
+  (2026-10-04, "a verdict reader of a held node is the holder's verdict
+  lane's — shown now"), which seated the reader's whole pass, body included,
+  in a lane; A10's atomic pair (#2831, 2026-07-06) made the pass runnable on
+  the committed value; Decision 1 and the D-25 collapse (2026-11-05)
+  generalized it to memos and read #3905 as "not needed". The model as
+  ruled: one version per node; the hold is the only producer of a change's
+  consequences; the display — render effects, compiled bindings, user
+  effects (their callback runs at the frame they belong to), and the sync
+  derivations feeding them — is the one declared, terminal, kept-not-computed
+  inconsistency, so memo-inline parity holds and S-27's memo row stands; the
+  act is the async derivation, which is the hold's wherever it is reached;
+  `latest` is never stale and `isPending` is a fact, readable anywhere; a
+  guess is not stale until corrected (D-34 already said so); inside a hold's
+  work a verdict about that hold is answered. #3905 is not warranted: the
+  display lane cannot ask, so there is nothing to propagate. Full #3905 (two
+  versions everywhere) was weighed and declined — the inconsistency is meant
+  to be narrow. Rows: S-51 (one question, of the truth; the `isPending` hole
+  shows at once), S-52 (the #4349 held shape was the odd one out), S-53
+  (`latest` shows a held recovery ahead, value/error symmetry), S-54
+  (pending stays true for a held, unshowable answer), S-56 (a guess before
+  the first answer shows); S-55 standing (F-11). Implementation deferred on
+  purpose — how a pass is known to ask before it asks is the mechanism's
+  problem, not the rule's; a `truth-asks` oracle in the generator runner
+  records every stale ask today. Last, S-57 (the experiment's A2, "optimism
+  winning when combined"): a plain write whose derivation became a guess's
+  lane work was published beside the stale derivation because the lane had
+  taken the only question; ruled F-2 as written — the write holds on the
+  lane's flight and reveals with it, the frames entangled.
+
 - 2026-07-17: **A18 store corollary — per-transaction optimistic layer**
   (#2899). `createOptimisticStore`'s override layer is one record per store
   target, but a settling action must consume only its own entries: layer

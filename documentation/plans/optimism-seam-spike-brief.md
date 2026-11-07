@@ -181,7 +181,9 @@ hook on a core node to pass its gate.
 
 ## 6. Result
 
-(To be written at M4.)
+- **H1 — yes.** The two-slot value model keeps every screen: scalar pins 3,885 pass as on `next`, the full signals suite 6,745 pass, the seat shadow at `next`'s six classes, 2,000 generated cases × 3 seeds with no difference (the 50k differential for seed 3289 is running). It is a relocation, as §1 said: `_x._lane`, `display`, `laneValueOf`, the promote step and the lane arms of `recompute` are gone; the covered value lives in a record and a guess's location follows a per-node mark. Size: the core floor −50 B minified, the optimism chunk +102 B, truth readers +102 B. H1 does not pay for itself in bytes; it is the scalar interface the store work targets (§13.1: a guess is a value on a node, `latestOf`/`covered`/`underOf` the three views).
+- **H2 — no.** The verdict lane is the record of F-6's group: a hold's display-ahead readers show together, each waiting for its own async and never for the hold. Without the group, `tests/verdict-contract.test.ts`'s shape tears (§15). A correct cut would take about −400 B from the optimism chunk; the maintainer ruled F-6 stands.
+- **What this says about the engine's size.** After M1 the lane engine's remaining bytes are the group's seam (`laneSeams`, `laneRead`'s arms, `enterLane`'s exceptions, `heldBy`, `entered`, `adoptParked`, `revealing`) — the price of F-6, D-25's exceptions and the repairs #4349, #4393, #4397 as they stand. The simplification the maintainer wants is not in the scalar engine's value model; the next step of the plan (stores alone, then together: one lane node per store root with a patch-valued guess) is where the duplicated machinery is (`store/optimistic.ts`'s `_laneRebase`, `fold`, `foldedRead`, `laneSet`, `_slotTake`, and lanes.ts's `take`/`kept`/`marked`, all store-only).
 
 ## 7. Commands
 
@@ -451,3 +453,58 @@ Stayed, for M2/M3: `LEFT_SHOWN` (the seam's wake for a pass that left a shown la
 
 - Size: the two +102 B. M2 removes `LEFT_SHOWN`, `dissolveLane`'s remaining outcomes and `laneRead`'s arms; `truthRead`'s installation (signals.ts `watch`) could move to the lane engine so a bundle with `until` and no lane carries none of truth.ts.
 - The 50k base recordings: seed 3289 recorded on `next` (2.7 h, not 10 min); 91501 and 7 run from the `/workspace/solid-base` worktree (built `next`). The M1 build's 50k differential for 3289 runs against it.
+
+## 15. M3 — H2 cut, and the rule it meets (2026-11-06)
+
+H2 was built on `tembo/spike-h2-cut` (one commit, not green): `verdictLane`, `_verdict`, `isVerdict`, `heldBy` and the verdict arms of `enterLane`, `laneRead`, `laneSeams` and `verdictValue` removed; a window read, or a read of a display-ahead reader's value, marks the pass display-ahead of the hold (`route`: `REACTIVE_LANE_READ`, listed on the hold through `_x._transaction` with CONFIG_VERDICT and no CONFIG_HELD — no new field); the park seam commits what such a pass staged; its effect runs go to one ahead queue released with the lanes' reveals; a boundary's display-ahead swap marks the output's pass the same way. 147 of 3,898 pins fail.
+
+**The finding is a rule, not a bug.** F-6: display-ahead readers "wait for their _own_ async, in their own lane" — the transaction's verdict readers are one optimistic frame (lane contract 3; `tests/verdict-contract.test.ts`, "a verdict reader whose own pass goes async holds the transaction's verdict frame, not the parent"). Posture per read has no group: each reader shows when its own pass completes. After M1 the verdict lane is exactly that group record — the readers, their queued runs, and the seam's judgement of them together — with no value of its own. So the answer to H2 as asked ("is the record needed at all?") is: it is needed as long as F-6 groups.
+
+**The stake, measured.** The cut as built: `+ isPending/latest` −430 B minified / −177 B brotli against M1 (lanes.js −669); the cut leaked +185 B onto the core floor through the ahead queue and hook plumbing in scheduler.ts and core.ts, which a correct version must keep behind the verdict engine's hooks. A correct H2 is worth about −400 B on the optimism chunk and nothing elsewhere.
+
+**The decision** (Decision 5, for the maintainer; the shape of `tests/verdict-contract.test.ts`):
+
+```ts
+const [q, setQ] = createSignal("a");
+// The hold: q's change is held on results' flight.
+const results = createMemo(() => fetchResults(q()));
+// A display-ahead reader with async of its own.
+const suggest = createMemo(() => fetchSuggest(latest(q)));
+// A display-ahead reader with none.
+createRenderEffect(() => `input:${latest(q)}`, log);
+setQ("b"); // then resolve suggest, then resolve results
+```
+
+| #   | Event                                | Today (F-6: one frame per hold)                       | Posture per read (no group) |
+| --- | ------------------------------------ | ----------------------------------------------------- | --------------------------- |
+| 1   | `setQ("b")` flushes; both flights up | nothing shows: `input:b` waits for `suggest`'s flight | `input:b` shows now         |
+| 2   | `suggest` lands                      | `input:b` and `suggest:b` show together               | `suggest:b` shows           |
+| 3   | `results` lands                      | `results:b`                                           | `results:b`                 |
+
+**Ruled (maintainer, 2026-11-06): F-6 stands.** The second column is a tear — a verdict reader with no async of its own showing `b` beside a verdict reader of the same `q` still showing `a` — and F-6 exists to prevent it. A hold's display-ahead readers are one frame; the verdict lane is that frame's record and stays. H2 is **no**. `LEFT_SHOWN` stays with it.
+
+## 16. A question is asked only of the truth (ruled 2026-11-07)
+
+GabbeV's `experiment/unified-updates` branch (a scalar engine without lanes; 137 agent-written stages; 2,111 failing tests and over every size cap at its last checkpoint) was read for its rulings, not its code. Its 384 new tests were run against `next`: 177 + 25 pass unchanged, 26 files need its own modules, about 100 screens differ. Most of the differences are one philosophy — a guess, an input landing, an input error masked until the action ends — which contradicts F-11 and A18 and was declined. Seven rows were tabled and ruled in one sitting, each with code and a frame table; the rulings spec pins today's screen and records the gap. The spec gained a no-yield action (#4349's shape) and a `truth-asks` oracle.
+
+**The ruling that settled them** came from #4677: the badge, an async memo over `id` and `isPending(id)`, asked `badge(0, true)` from its display-ahead pass while the engine held `id = 1`. That stale ask was licensed by L2's rule 6 (2026-10-04: a verdict reader's whole pass seated in a lane), enabled by A10's atomic pair (#2831, 2026-07-06), and generalized to memos on 2026-11-05 (Decision 1, D-25, S-27's memo row, "#3905 not needed"). Written as F-2's producer clause and F-6's limit rather than a new fundamental:
+
+- One version per node. The hold is the only producer of a change's consequences: nothing asks of the value the screen keeps.
+- The display is the one declared, terminal, kept-not-computed inconsistency: a render effect, a compiled binding, a user effect (its callback runs at the frame it belongs to), and the sync derivations feeding them may hold the value they showed beside the verdict about its successor. Memo-inline parity holds; S-27's memo row stands.
+- The act is the async derivation. Reached from a display-ahead value it is the hold's and asks of the truth. Async in a user effect is the author's.
+- `latest` is never stale; `isPending` is a fact; both read anywhere. A guess is not stale until corrected (D-34). Inside a hold's work, a verdict about that hold is answered.
+- #3905 is not warranted: the display lane cannot ask, so there is nothing to propagate. Full #3905 (two versions everywhere) was weighed and declined: the inconsistency is meant to be narrow. The verdict lane stays; it loses its flights.
+
+| Row | Ruled | Today |
+| --- | --- | --- |
+| S-51 #4677 | the badge asks once, of the truth; the `isPending` hole shows at once | the display-ahead pass asks `badge(0, true)` and its answer gets a frame |
+| S-52 #4349 | `[isPending(x), x()]` shows pending beside the committed value in every shape, render effect or memo | the action-ends-inside-the-call shape holds the pair as one |
+| S-53 #4403 | `latest` shows a held recovery ahead, value/error symmetric | the error stays until the action lands |
+| S-54 | `isPending` stays true for a held, unshowable answer | clears when the answer is ready |
+| S-55 | standing: `refresh` under a guess is the guess's own source answering (F-11) | same |
+| S-56 | a guess before the first answer shows; the first answer judges it | the dev guard refuses it |
+| S-57 (their A2) | a plain write whose derivation became a guess's lane work holds on that flight and reveals with the lane (F-2 as written) | the write publishes beside the stale derivation, because the lane took the only question |
+
+**Measured on today's engine:** the `truth-asks` oracle finds 12 stale asks in the regression gate's 1,500 cases (seed 3289), all one shape — an async memo reading `latest(s)` beside a plain `s`, D-25's same-node clause handing the pass the screen's `s`. Recorded in `baseline.json` as known; they become improvements when the clause is built.
+
+**Deferred to the build, on purpose:** how a pass is known to ask before it asks; the verdict lane losing `blocked`, its seam arms and #3869's first-pass seating; the #4349 and #4677 pins rewritten. Built on M1 (the lane value model), independent of S1–S3.

@@ -1291,3 +1291,254 @@ const slow = createDeferred(() => fetchSlow(period())); // lands in 10s
 | 1′  | instead: plain async memos                                        | `Period 1` · fast 1 · slow 1 until 3                                             | true / true             | the default: one hold, gated on the slowest (F-2)                                       |
 | 1″  | instead: `period` is held (another reader of it is still loading) | `Period 1` · fast 1 · slow 1                                                     | true / true             | a re-ask that read the held period lands into that hold and shows with its commit (F-7) |
 | ✗   |                                                                   | after 1: `Period 1` held for the panels; or after 1″: `fast 2` beside `Period 1` |                         | the first is the hold D-40 removes; the second leads the hold                           |
+
+## G. A question is asked only of the truth (ruled 2026-11-07)
+
+Six rows ruled in one sitting, prompted by the `experiment/unified-updates` branch (GabbeV): its tests were run against `next` and the screens that differed were put on a table. The ruling that settled them is F-2's producer clause and F-6's limit: nothing asks of the value the screen keeps; the display is the one place a value may sit beside the verdict about its successor, because the display is declared, terminal, and keeps rather than computes. S-51, S-53, S-54, S-56 and S-57 are ruled and not built; S-52's #4349 shape is ruled and not built; S-55 is standing.
+
+<!-- ruling:S-51 -->
+
+### S-51. A question is asked only of the truth: an async derivation of a held value is the hold's, never a display-ahead pass — F-2, F-6, D-25 (#4677)
+
+_Generated from `packages/web/test/async-gen/rulings/S-51.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built. Pins also: `tests/ispending-async-derivation-4677.test.ts`._
+
+```tsx
+const [id, setId] = createSignal(0);
+const details = createMemo(async () => fetch(1 + id()));
+const badge = createMemo(async () => fetch(1 + id() + isPending(id)));
+<span>
+  {id()} {details()} {isPending(id)} {badge()}
+</span>;
+```
+
+| #   | Action                                 | Screen                                                                | Notes                                                                                                                                                                                                            |
+| --- | -------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | details(1) lands; badge(1) lands; tick | `id 0 \| details 1 \| isPending(id) false \| badge 1`                 | primed                                                                                                                                                                                                           |
+| 1   | setId(2); flush()                      | `id 0 \| details 1 \| isPending(id) true \| badge 1`                  | `setId(2)`: `badge` asks, so it is the hold's and asks once, of the truth — `badge(2, false)`; nothing seats the `isPending(id)` hole in a lane, so it shows `true` now beside the kept badge (ruled 2026-11-07) |
+| 2   | details(3) lands; tick                 | —                                                                     | one answer landed; the frame holds on the other                                                                                                                                                                  |
+| 3   | badge(2) lands; tick                   | `id 2 \| details 3 \| isPending(id) false \| badge 3`                 | the frame                                                                                                                                                                                                        |
+| 4   | badge(3) lands; tick                   | —                                                                     | no third flight was ever asked                                                                                                                                                                                   |
+| ✗   |                                        | after 3: `id 0 \| details 1 \| isPending(id) true \| badge 2`         | `badge(0, true)`: a question asked with the value the screen keeps, and its answer shown                                                                                                                         |
+| ✗   |                                        | today, after 1: `id 0 \| details 1 \| isPending(id) false \| badge 1` | not yet built — the frames test is `it.fails`                                                                                                                                                                    |
+| ✗   |                                        | today, after 2: `id 0 \| details 1 \| isPending(id) false \| badge 1` | not yet built — the frames test is `it.fails`                                                                                                                                                                    |
+
+_Expected findings: `truth-asks`._
+
+Today the badge's display-ahead pass asks `badge(0, true)`; the oracle `truth-asks` records it, and this case expects that finding until the fix lands.
+
+The #4677 issue's other order (the stale answer landing first) disappears with the stale question. L2's rule 6 (2026-10-04), which seated a verdict reader's whole pass in a lane, is narrowed by this ruling to passes that do not ask: F-6's limit.
+
+<!-- /ruling -->
+
+<!-- ruling:S-52 -->
+
+### S-52. `[isPending(x), x()]` in one pass shows pending beside the committed value — the display's declared inconsistency, in a render effect or a memo alike — D-25, D-23, F-6 (#4349, #3905)
+
+_Generated from `packages/web/test/async-gen/rulings/S-52.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/action-refresh-ispending-loop-4349.test.ts`, `tests/latest-isPending-consistency.test.ts`._
+
+**Case 1.**
+
+```tsx
+const [s, setS] = createSignal(41);
+const x = createMemo(async () => fetch(1 + s()));
+<span data-a0={isPending(x)} data-a1={x()}></span> {/* one effect */}
+```
+
+| #   | Action                              | Screen                                | Notes                                                                                                                                               |
+| --- | ----------------------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | x(42) lands; tick                   | `isPending(x) false \| x 42`          | primed                                                                                                                                              |
+| 1   | action (no yield): setS(1); flush() | `isPending(x) true \| x 42`           | the display keeps `42` beside the verdict about its successor, whatever the action's shape (ruled 2026-11-07; the #4349 pin held this shape as one) |
+| 2   | x(2) lands; tick                    | `isPending(x) false \| x 2`           | the frame                                                                                                                                           |
+| ✗   |                                     | after 1: `isPending(x) false \| x 42` | the pair held as one: the spinner only at the commit                                                                                                |
+
+**Case ′.**
+
+```tsx
+const [s, setS] = createSignal(41);
+const x = createMemo(async () => fetch(1 + s()));
+<span data-a0={isPending(x)} data-a1={x()}></span> {/* one effect */}
+```
+
+| #   | Action                   | Screen                       | Notes                                                 |
+| --- | ------------------------ | ---------------------------- | ----------------------------------------------------- |
+| 0   | x(42) lands; tick        | `isPending(x) false \| x 42` | primed                                                |
+| 1   | action: setS(1); flush() | `isPending(x) true \| x 42`  | the same with the action open: today's screen already |
+| 2   | the action lands; tick   | —                            |                                                       |
+| 3   | x(2) lands; tick         | `isPending(x) false \| x 2`  |                                                       |
+
+**Case ″.**
+
+```tsx
+const [s, setS] = createSignal(41);
+const x = createMemo(async () => fetch(1 + s()));
+const both = createMemo(() => 1 + isPending(x) + x());
+<span>{both()}</span>;
+```
+
+| #   | Action                              | Screen    | Notes                                                                                                                                             |
+| --- | ----------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | x(42) lands; tick                   | `both 43` | primed: `1 + 0 + 42`                                                                                                                              |
+| 1   | action (no yield): setS(1); flush() | `both 44` | `1 + 1 + 42`: the memo is display — it feeds a binding and asks nothing — so hoisting the pair into it changes no screen (S-27's memo row, 11-05) |
+| 2   | x(2) lands; tick                    | `both 3`  |                                                                                                                                                   |
+
+Ruled 2026-11-07. The display — render effects, compiled bindings, user effects, and the sync derivations that feed them — may hold the value it showed beside the verdict about its successor, because it is declared (`isPending`, `latest`), terminal, and keeps rather than computes. That is the one inconsistency the screen is allowed, and the only consumer barred from it is one that asks (S-51). The #4349 pin's held shape was the odd one out: the action's body ending inside the call is not a reason for the display to wait.
+
+<!-- /ruling -->
+
+<!-- ruling:S-53 -->
+
+### S-53. `latest` shows a held recovery ahead, as it shows a held value: the boundary recovers while the action is open — D-41, D-22, F-6 (#4403)
+
+_Generated from `packages/web/test/async-gen/rulings/S-53.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built. Pins also: `tests/errored-recovery-wedge-4403-4404-4405.test.ts`._
+
+```tsx
+const [s, setS] = createSignal(0);
+const m = createMemo(() => 1 + s()); // throws when the input % 4 === 2
+<Errored fallback="[error]">
+  <Show when={latest(m)} fallback="[none]">
+    <span>{s()}</span>
+  </Show>
+</Errored>;
+```
+
+| #   | Action                   | Screen             | Notes                                                                                                                                                                                                                                                                       |
+| --- | ------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                   | `s 0`              |                                                                                                                                                                                                                                                                             |
+| 1   | setS(1); flush()         | `[error]`          | `m = 2` throws: the boundary shows its fallback                                                                                                                                                                                                                             |
+| 2   | action: setS(0); flush() | `s 0`              | the action writes `s = 0` back and stays open: `latest(m)` is the newest answer `m` produced — the recovery — so the `Show` it gates opens now (ruled 2026-11-07: value and error are symmetric under `latest`, as D-41 already lets `latest` throw a proposed error early) |
+| 3   | the action lands; tick   | —                  | the action lands: nothing changes                                                                                                                                                                                                                                           |
+| ✗   |                          | after 2: `[error]` | the error kept until the action lands — D-41's mirror clause, which applies to a plain read, not to `latest`                                                                                                                                                                |
+
+<!-- /ruling -->
+
+<!-- ruling:S-54 -->
+
+### S-54. `isPending` of a ready answer the frame still holds: cleared, or pending until it shows — D-23
+
+_Generated from `packages/web/test/async-gen/rulings/S-54.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built._
+
+```tsx
+const [a, setA] = createOptimistic(0);
+const [b, setB] = createOptimistic(0);
+const left = createMemo(async () => fetch(1 + a()));
+const right = createMemo(async () => fetch(1 + b()));
+const total = createMemo(() => 1 + left() + right());
+<span>{left()} {total()}</span>
+<span>{isPending(left)}</span>
+```
+
+| #   | Action                              | Screen                                                | Notes                                                                                                                                                                                           |
+| --- | ----------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | left(1) lands; right(1) lands; tick | `left 1 \| total 3 \| isPending(left) false`          | primed                                                                                                                                                                                          |
+| 1   | action: setA(1), setB(1); tick      | `left 1 \| total 3 \| isPending(left) true`           | both guessed: `left(1)` and `right(1)` are out under the action's hold                                                                                                                          |
+| 2   | left(2) lands; tick                 | —                                                     | `left`'s answer (2, not the shown 1) lands beneath the hold: not showable while the frame holds on `right`, so still a question without a committed answer — `pending` stays (ruled 2026-11-07) |
+| 3   | right(2) lands; tick                | `left 2 \| total 5 \| isPending(left) false`          | `right` lands: the frame shows                                                                                                                                                                  |
+| 4   | the action lands; tick              | `left 2 \| total 5 \| isPending(left) true`           | the action ends: the guesses revert and both re-fetch                                                                                                                                           |
+| ✗   |                                     | after 2: `left 1 \| total 3 \| isPending(left) false` | `pending` clearing for an answer the frame cannot show yet                                                                                                                                      |
+
+<!-- /ruling -->
+
+<!-- ruling:S-55 -->
+
+### S-55. `refresh` of an optimistic derivation under a guess: the authoritative view replaces the guess, or the guess stays until its action ends — F-11, D-34
+
+_Generated from `packages/web/test/async-gen/rulings/S-55.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing._
+
+```tsx
+const [s0, setS0] = createSignal(0);
+const [first, setFirst] = createOptimistic(() => 1 + );
+const doubled = createMemo(() => 1 + first());
+const [second, setSecond] = createOptimistic(() => 1 + doubled());
+<span>{first()} {doubled()} {second()}</span>
+```
+
+| #   | Action                         | Screen                                       | Notes                                                                                                                               |
+| --- | ------------------------------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                         | `first 1 \| doubled 2 \| second 3`           |                                                                                                                                     |
+| 1   | action: setFirst(5); flush()   | `first 5 \| doubled 6 \| second 7`           | A guesses `first = 5`: shown, derived through                                                                                       |
+| 2   | action: setSecond(10); flush() | `first 5 \| doubled 6 \| second 10`          | B guesses `second = 10`                                                                                                             |
+| 3   | refresh(second); tick          | `first 5 \| doubled 6 \| second 7`           | `refresh(second)` while both are open: the re-ask's answer is the authoritative view (`doubled + 1`), and it replaces B's guess now |
+| 4   | the action lands; tick         | —                                            | B ends                                                                                                                              |
+| 5   | the action lands; tick         | `first 1 \| doubled 2 \| second 3`           | A ends: everything reverts                                                                                                          |
+| ✗   |                                | after 3: `first 5 \| doubled 6 \| second 10` | the guess kept until its action ends although its own source answered differently (F-11)                                            |
+
+Standing (confirmed 2026-11-07). The `refresh` promise's value is not observable here; it resolves to the authoritative view. `s` is unused.
+
+<!-- /ruling -->
+
+<!-- ruling:S-56 -->
+
+### S-56. A guess before the first answer is the newest value the node has produced: it shows, and the first answer judges it — F-11, D-22, D-2
+
+_Generated from `packages/web/test/async-gen/rulings/S-56.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built. Pins also: `tests/createOptimistic.test.ts`._
+
+```tsx
+const [sel, setSel] = createSignal(3);
+const [comments, setComments] = createOptimistic(async () => fetch(1 + sel()));
+<Loading fallback="[fallback]">
+  <span>
+    {comments()} {latest(comments)}
+  </span>
+</Loading>;
+```
+
+| #   | Action                            | Screen                             | Notes                                                                                                                                                                               |
+| --- | --------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | render                            | `[fallback]`                       | first load                                                                                                                                                                          |
+| 1   | setComments(9) (a guess); flush() | `comments 9 \| latest(comments) 9` | the guess is the first value the node produced: `latest` shows it, the plain read shows it in place of the fallback (ruled 2026-11-07); a function-form setter receives `undefined` |
+| 2   | comments(4) lands; tick           | `comments 4 \| latest(comments) 4` | the first answer lands and judges the guess (F-11)                                                                                                                                  |
+| ✗   |                                   | after 1: `[fallback]`              | the guess refused: today's dev guard `OPTIMISTIC_WRITE_BEFORE_LOAD`, a policy from before the lane model                                                                            |
+
+_Expected findings: `throw`._
+
+Today the dev guard throws; this case expects that finding until the guard goes.
+
+<!-- /ruling -->
+
+<!-- ruling:S-57 -->
+
+### S-57. A change whose derivation became a guess's lane work holds on that flight, and reveals with the lane — F-2, F-1, F-6
+
+_Generated from `packages/web/test/async-gen/rulings/S-57.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing._
+
+**Case 1.**
+
+```tsx
+const [ordinary, setOrdinary] = createSignal(0);
+const [view, setView] = createOptimistic(() => 1 + );
+const label = createMemo(async () => fetch(1 + view() + ordinary()));
+<span>{view()} {ordinary()} {label()}</span>
+```
+
+| #   | Action                      | Screen                                      | Notes                                                                                                                                                                                                                           |
+| --- | --------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | label(2) lands; tick        | `view 1 \| ordinary 0 \| label 2`           | primed                                                                                                                                                                                                                          |
+| 1   | action: setView(5); flush() | —                                           | the guess waits for its own async, `label(5, 0)` (F-6); the action's yield keeps it live, not off screen                                                                                                                        |
+| 2   | setOrdinary(10); flush()    | —                                           | `setOrdinary(10)` needs `label` to show, and `label`'s only pending answer is the lane's `label(5, 10)`: the write is held on it (F-2, whatever the async's source) and its frame is entangled with the lane (ruled 2026-11-07) |
+| 3   | label(16) lands; tick       | `view 5 \| ordinary 10 \| label 16`         | `label(5, 10)` lands: the write and the lane reveal as one frame — the only consistent screen that contains `10`                                                                                                                |
+| 4   | label(6) lands; tick        | —                                           | `label(5, 0)` was superseded by the re-ask: its answer lands nothing (today already)                                                                                                                                            |
+| 5   | the action lands; tick      | —                                           | the action ends; the guess reverts after this script                                                                                                                                                                            |
+| ✗   |                             | after 2: `view 1 \| ordinary 10 \| label 2` | `ordinary = 10` beside `label(1, 0)`: a new value beside a stale derivation of it (F-1); today the plain write's frame has no consequence of its own to wait for, because the lane took the derivation                          |
+
+**Case ′.**
+
+```tsx
+const [ordinary, setOrdinary] = createSignal(0);
+const [view, setView] = createOptimistic(() => 1 + );
+const label = createMemo(() => 1 + view() + ordinary());
+<span>{view()} {ordinary()} {label()}</span>
+```
+
+| #   | Action                          | Screen                              | Notes                                                 |
+| --- | ------------------------------- | ----------------------------------- | ----------------------------------------------------- |
+| 0   | render                          | `view 1 \| ordinary 0 \| label 2`   |                                                       |
+| 1   | action: setView(11); flush()    | `view 11 \| ordinary 0 \| label 12` | a sync derivation of the guess shows with it          |
+| 2   | action: setOrdinary(2); flush() | —                                   | B's write is held; `label` is the hold's work         |
+| 3   | the action lands; tick          | `view 11 \| ordinary 2 \| label 14` | B lands: the guess and the truth combine in one frame |
+| 4   | the action lands; tick          | `view 1 \| ordinary 2 \| label 4`   | A ends: the guess reverts                             |
+
+Standing today: the peers coordinate (the experiment's accepted C2 reading).
+
+The experiment's A2 row. Ruled 2026-11-07 for case 1: F-2 as written. F-6's lane exemption was for the guess's own hold, the action; it never released an unrelated write from its own consequence. A lane's superseded question holds nothing, which today already does.
+
+<!-- /ruling -->
