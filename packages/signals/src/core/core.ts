@@ -23,6 +23,7 @@ import {
   CONFIG_HELD,
   CONFIG_IN_SNAPSHOT_SCOPE,
   CONFIG_INPUTS_PUBLISHED,
+  CONFIG_MOUNT_AHEAD,
   CONFIG_OVERRIDE,
   CONFIG_HAS_SNAPSHOT,
   CONFIG_NO_SNAPSHOT,
@@ -401,7 +402,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       ? el._x._transaction
       : null
     : null;
-  if (laneStageHook)
+  if (laneStageHook) {
+    // S-46 (D-25): a first pass under a pass that probed is the mount a
+    // display-ahead read gates — stamped once, read by `frameRead`.
+    if (create && (creatorPass(context)?._flags as number) & REACTIVE_PROBED)
+      el._config |= CONFIG_MOUNT_AHEAD;
     setPassLane(
       (el._flags & REACTIVE_LANE_DIRTY ||
         (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
@@ -414,6 +419,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
           ? prevLane
           : null
     );
+  }
   // Attribution hook: fired before this run touches the dep list — `_deps`
   // still holds the previous run's links (the subscriptions that could have
   // triggered this run, and the baseline for the engine's subscription diff).
@@ -1402,8 +1408,13 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
         (c._statusFlags & STATUS_UNINITIALIZED &&
           (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
       !verdict &&
-      // CONFIG_FRAME, spelled as at the effect's creation.
-      (!(c._config & (EFFECT_RENDER << 23)) || el._config & CONFIG_INPUTS_PUBLISHED)
+      // CONFIG_FRAME, spelled as at the effect's creation. S-46 (D-25): a
+      // render effect a probing pass is mounting (CONFIG_MOUNT_AHEAD) is not
+      // a D-3 leaf of the screen: its first pass reading the hold's staging
+      // or flight is born held, and the branch attaches at the landing.
+      (!(c._config & (EFFECT_RENDER << 23)) ||
+        el._config & CONFIG_INPUTS_PUBLISHED ||
+        (c._config & CONFIG_MOUNT_AHEAD && c._statusFlags & STATUS_UNINITIALIZED))
     )
   ) {
     const t = txOf(el);
