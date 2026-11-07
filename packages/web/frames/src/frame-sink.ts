@@ -3321,19 +3321,19 @@ function snapshot(shared, have) {
     if (!open || open.id !== id) out.push((open = { id, version, r: {} }));
     open.r[k] = record;
   };
-  if (!conditional) {
-    for (const { id, version, k, record } of shared.records.values()) put(id, version, k, record);
-    return out;
-  }
   // The root and each fragment as they show now: every later hole record
-  // spliced into whichever of them holds its range, in write order.
+  // spliced into whichever of them holds its range, in write order (a
+  // container written after a hole record already shows it, or newer).
   const containers = [];
-  for (const e of shared.records.values())
-    if (e.id === shared.id && (e.k === "" || /^seg:[^:]+$/.test(e.k)) && e.record)
-      containers.push({ e, value: e.record.value });
-  for (const { k, record } of shared.records.values()) {
-    if (!k.startsWith("hole:lh:") || k.endsWith(":error") || !record || record.value == null)
+  const spliced = new Set();
+  for (const entry of shared.records.values()) {
+    const { id, k, record } = entry;
+    if (id !== shared.id || !record) continue;
+    if (k === "" || /^seg:[^:]+$/.test(k)) {
+      if (typeof record.value === "string") containers.push({ e: entry, value: record.value });
       continue;
+    }
+    if (!k.startsWith("hole:lh:") || k.endsWith(":error") || record.value == null) continue;
     const n = k.slice(8);
     const startMark = `<!--lh:${n}-->`;
     const endMark = `<!--lh:/${n}-->`;
@@ -3343,8 +3343,36 @@ function snapshot(shared, have) {
       const end = c.value.indexOf(endMark, start);
       if (end < 0) continue;
       c.value = c.value.slice(0, start + startMark.length) + record.value + c.value.slice(end);
+      spliced.add(entry);
       break;
     }
+  }
+  if (!conditional) {
+    // The frame whole, its containers showing their holes' latest content:
+    // a joiner is sent each range once, not as it first rendered and again
+    // as it shows now. The root keeps its digest (holes don't move the
+    // skeleton); its hole ledger is what it now holds.
+    for (const e of shared.records.values()) {
+      const { id, version, k, record } = e;
+      if (spliced.has(e)) continue;
+      const c = containers.find(c => c.e === e);
+      if (c && c.value !== record.value) {
+        const holes = {};
+        if (record.holes)
+          for (const key in record.holes)
+            if (key.startsWith("lha:")) holes[key] = record.holes[key];
+        put(
+          id,
+          version,
+          k,
+          withHoles(
+            { ...record, value: c.value, digest: k ? textDigest(c.value) : record.digest },
+            holeDigests(c.value, null, holes)
+          )
+        );
+      } else put(id, version, k, record);
+    }
+    return out;
   }
   for (const e of shared.records.values()) {
     const { id, version, k, record } = e;

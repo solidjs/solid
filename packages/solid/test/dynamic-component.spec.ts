@@ -87,4 +87,51 @@ describe("dynamicComponent", () => {
     expect(calls).toBe(1);
     expect(address()).toBe("b");
   });
+
+  test("a live source coming back to its first call's address delivers it again", async () => {
+    // A `live` server component's loop yields one binding object per
+    // address, straight to the factory memo's equals gate. The memo HOLDS
+    // its first resolution, so an instance that moved to another address
+    // and comes back receives the very binding it holds: the gate has to
+    // deliver it all the same (a windowed view scrolling back to the slice
+    // the page was served with stayed on the one it scrolled to).
+    let calls = 0;
+    let address!: () => string;
+    const mount = (_props: { n: string }, next: () => string) => {
+      calls++;
+      address = next;
+      return "mounted";
+    };
+    const bindings = { a: binding(mount, "a"), b: binding(mount, "b") };
+    const liveOf = (key: "a" | "b") => ({
+      async *[Symbol.asyncIterator]() {
+        yield bindings[key];
+        await new Promise(() => {});
+      }
+    });
+    const [which, setWhich] = createSignal<"a" | "b">("a");
+    let view!: () => string;
+    createRoot(() => {
+      const Comp = dynamicComponent(() => liveOf(which()) as any);
+      view = Comp({ n: "1" }) as () => string;
+    });
+    const settle = async () => {
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+        flush();
+      }
+    };
+    await settle();
+    expect(view()).toBe("mounted");
+    expect(address()).toBe("a");
+    setWhich("b");
+    flush();
+    await settle();
+    expect(address()).toBe("b");
+    setWhich("a");
+    flush();
+    await settle();
+    expect(address()).toBe("a");
+    expect(calls).toBe(1);
+  });
 });
