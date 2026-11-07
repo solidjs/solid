@@ -4346,13 +4346,15 @@ const engineHooks: AttributionHooks = {
     // committed change. The fresh value sits in `_pendingValue` for held
     // plain-flush memo commits and in `_value` for direct ones. Overlay runs
     // are excluded — an optimistic re-derive legitimately produces fresh
-    // equivalents while the lane settles.
+    // equivalents while the lane settles — and so is HMR plumbing, which the
+    // re-run checks skip too (see `excludedNode`).
     if (
       frame.causes !== null &&
       changed &&
       !optimistic &&
       !transition &&
-      !(el as { _type?: number })._type
+      !(el as { _type?: number })._type &&
+      !excludedNode(el)
     )
       checkUnstableOutput(
         el,

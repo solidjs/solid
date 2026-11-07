@@ -59,15 +59,19 @@ const IS_OBSERVE = "_SOLID_OBSERVE_" as unknown as boolean;
 
 export interface PerformanceTracksOptions {
   /**
-   * Options for the engine hold this adapter takes
-   * (`attribution.enable({ log: false, checks: false, ...attribution })`).
-   * The adapter asks for no console log and records only — the timeline is
-   * the output — which, the engine combining holds by the most demanding
-   * request, quiets the console and the cost checks (`hotRuns`, `hotTime`,
-   * `wideDeps`, `unstableMemos`, `fanOut`, `wastedRecompute`) only while
-   * nobody else wants them: a console session beside the tracks keeps its
-   * log and its checks. Pass `checks: true` to have the tracks' own hold
-   * run them, their findings painted as markers like any other.
+   * Options for the engine hold this adapter takes. The adapter asks for no
+   * console log — the timeline is the output — and, unless these options
+   * say `checks`, for only the cost checks whose findings are exact facts
+   * with an exact fix: in dev builds `unstableMemos` (a memo that keeps
+   * returning a new-but-equivalent value) and `wastedRecompute` (a scope
+   * whose runs keep producing the value it already had); in observe builds
+   * none. The heuristic checks (`hotRuns`, `hotTime`, `wideDeps`, `fanOut`)
+   * stay off: they fire on ordinary list fan-in and need someone already
+   * looking (#3739). The engine combines holds by the most demanding
+   * request, so a console session or a diagnostics capture beside the
+   * tracks keeps every check it asks for. Pass `checks: true` to have the
+   * tracks' own hold run all of them, or `checks: false` for records only;
+   * either way findings are painted as markers like any other.
    */
   attribution?: AttributionOptions;
   /**
@@ -211,6 +215,22 @@ const noop = (): void => {};
  * (returning a no-op) in prod builds, where the observe tier is absent, and
  * in an environment without `console.timeStamp` or `performance.measure`.
  */
+// Dev's default hold: the exact-fact checks on, the heuristic ones off (see
+// `PerformanceTracksOptions.attribution`).
+const DEV_CHECKS: AttributionOptions = {
+  checks: true,
+  hotRuns: false,
+  hotTime: false,
+  wideDeps: false,
+  fanOut: false
+};
+
+function trackHold(requested: AttributionOptions | undefined): AttributionOptions {
+  if (requested?.checks !== undefined) return { log: false, ...requested };
+  // `checks` last: an explicit `undefined` would otherwise read as the engine default (on).
+  return { log: false, ...(IS_DEV ? DEV_CHECKS : {}), ...requested, checks: IS_DEV ? true : false };
+}
+
 export function enablePerformanceTracks(options: PerformanceTracksOptions = {}): () => void {
   if (!IS_OBSERVE) return noop;
   if (instance !== null) return instance.join();
@@ -228,11 +248,7 @@ export function enablePerformanceTracks(options: PerformanceTracksOptions = {}):
   const { records } = observe;
   const releases = [
     () => server.dispose(),
-    attribution.enable({
-      log: false,
-      ...options.attribution,
-      checks: options.attribution?.checks ?? false
-    }),
+    attribution.enable(trackHold(options.attribution)),
     records.subscribe("rerun", (e, node) => painter.rerun(e, node)),
     records.subscribe("create", (e, node) => painter.create(e, node)),
     records.subscribe("effect", (e, node) => painter.effect(e, node)),

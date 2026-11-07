@@ -60,6 +60,30 @@ describe("UNSTABLE_MEMO_OUTPUT", () => {
     expect(events[0].message).toContain("`equals` option");
   });
 
+  it("skips HMR plumbing memos, as the other cost checks do", () => {
+    const [n, setN] = createSignal(1, { name: "n" });
+    const wrapper = createMemo(() => ({ positive: n() > 0, label: "user" }), {
+      _plumbing: true,
+      transparent: true
+    } as never);
+    createRoot(() =>
+      createEffect(
+        () => wrapper(),
+        () => {},
+        { name: "consumer" }
+      )
+    );
+    flush();
+
+    const events = captureUnstable();
+    for (let i = 2; i <= 8; i++) {
+      setN(i);
+      flush();
+    }
+
+    expect(events).toEqual([]);
+  });
+
   it("warns for equivalent fresh arrays", () => {
     const [n, setN] = createSignal(1, { name: "n" });
     const list = createMemo(() => ["a", "b", n() > 0], { name: "list" });

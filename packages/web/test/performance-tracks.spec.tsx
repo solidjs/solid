@@ -1480,8 +1480,9 @@ describe("enablePerformanceTracks", () => {
     joined();
   });
 
-  // #3739: the tracks are loaded in every dev session, so their hold is
-  // records only — the cost checks stay the opt-in lens they were designed as.
+  // #3739: the tracks are loaded in every dev session, so their hold leaves
+  // the heuristic cost checks off — they stay the opt-in lens they were
+  // designed as. The two whose findings are exact facts run in dev.
   function wideMemo(n: number) {
     const sources = Array.from({ length: n }, (_, i) => createSignal(i)[0]);
     createRoot(dispose => {
@@ -1508,6 +1509,49 @@ describe("enablePerformanceTracks", () => {
     wideMemo(600);
     expect(findings).toEqual([]);
     expect(on("Memos").some(m => m.label.includes("wide"))).toBe(true);
+  });
+
+  function unstableMemo() {
+    const [n, setN] = createSignal(1);
+    createRoot(dispose => {
+      disposers.push(dispose);
+      const view = createMemo(() => ({ positive: n() > 0 }), { name: "view" });
+      createRenderEffect(view, () => {});
+    });
+    flush();
+    for (let i = 2; i <= 6; i++) {
+      setN(i);
+      flush();
+    }
+  }
+  const unstableFindings = () => {
+    const events: string[] = [];
+    offs.push(
+      OBSERVE!.diagnostics.subscribe(e => {
+        if (e.code === "UNSTABLE_MEMO_OUTPUT") events.push(`${e.code} ${e.nodeName}`);
+      })
+    );
+    return events;
+  };
+
+  test("in dev the adapter's hold runs the exact-fact checks: an unstable memo is a finding and a marker", () => {
+    const { marks } = measures();
+    quiet();
+    const findings = unstableFindings();
+    disposers.push(enablePerformanceTracks());
+    unstableMemo();
+    expect(findings).toEqual(["UNSTABLE_MEMO_OUTPUT view"]);
+    expect(marks.some(m => m.label.startsWith("UNSTABLE_MEMO_OUTPUT"))).toBe(true);
+  });
+
+  test("an explicit `checks: false` on the adapter's hold is records only", () => {
+    const { on } = measures();
+    quiet();
+    const findings = unstableFindings();
+    disposers.push(enablePerformanceTracks({ attribution: { checks: false } }));
+    unstableMemo();
+    expect(findings).toEqual([]);
+    expect(on("Memos").some(m => m.label.includes("view"))).toBe(true);
   });
 
   test("an explicit `checks: true` on the adapter's hold runs them", () => {
