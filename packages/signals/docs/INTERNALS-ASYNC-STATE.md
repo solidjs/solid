@@ -422,7 +422,31 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   already over another live frame (a keyed rebase over a landing's answer,
   #4536 — `over` is one slot): the write publishes as before, beside the
   lane's answer to its old question (#4577's matrix keeps its screens).
-  No pin flipped; the S-57 row's case 1 is standing.
+  No pin flipped; the S-57 row's case 1 is standing. S-46's plain row built
+  last, prompted by PR 4708 (the probe-gated mount without `<Show>`'s hop):
+  core.ts `frameRead` no longer serves a render effect the screen when the
+  pass mounting it — the nearest pass still running above it — probed
+  (`verdictMount`): the branch a display-ahead read gates is a mainline
+  mount, and its first pass reading the hold's staging or flight is born
+  held, not a D-3 leaf; and lanes.ts `lanesBlocked` holds a verdict lane's
+  reveal while a render effect in its nodes' frames is born held and still
+  waiting — on its own flight, or on a flight its frame holds
+  (`mountPending`): revealed earlier, the branch attached with its hole
+  empty (#4417) or with the committed value a seam re-derive's mount read
+  (S-46's ✗ rows). Real `<Show>` and the compiled ternary now keep the
+  fallback through the flight and attach at the landing; the e1-3289-1831
+  pin flipped to `[F]` for that step and the S-46 row's case 1 is standing.
+  Not built: a hop-less single-memo gate (the branch reads the probing memo
+  directly, PR 4708's target) still attaches with its hole empty — the
+  insert effect reading it is routed into the verdict lane and its run goes
+  with the lane's reveal; a mount whose own pass reads another node ahead
+  (`[latest(m2), m0()]`, PR 4708's exact scenario) is served `m0`'s committed
+  value by the verdict arm (A10 generalized to a different node, which D-25
+  narrowed); S-53′ (the plain read under an errored boundary) likewise.
+  PR 4708's own two pins do not flip: its `gate` variant in the runner does
+  not model the compiled ternary (real JSX paints at the landing, the
+  runner's gate never does). +43 B brotli on the core floor, +96 B on the
+  isPending/latest chunk.
 
 - 2026-07-17: **A18 store corollary — per-transaction optimistic layer**
   (#2899). `createOptimisticStore`'s override layer is one record per store

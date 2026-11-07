@@ -1402,8 +1402,14 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
         (c._statusFlags & STATUS_UNINITIALIZED &&
           (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
       !verdict &&
-      // CONFIG_FRAME, spelled as at the effect's creation.
-      (!(c._config & (EFFECT_RENDER << 23)) || el._config & CONFIG_INPUTS_PUBLISHED)
+      // CONFIG_FRAME, spelled as at the effect's creation. S-46 (D-25): a
+      // render effect a display-ahead reader's pass is mounting — the
+      // branch a `Show when={latest(x)}` opens — is not a D-3 leaf of the
+      // screen: its first pass reading the hold's staging or flight is born
+      // held, and the branch attaches at the landing (the fallback stays).
+      (!(c._config & (EFFECT_RENDER << 23)) ||
+        el._config & CONFIG_INPUTS_PUBLISHED ||
+        verdictMount(c))
     )
   ) {
     const t = txOf(el);
@@ -1447,6 +1453,18 @@ export function bornInto(c: Computed<any>, t: Transaction): unknown {
 
 /** The computed whose pass a creation under `owner` belongs to (a root's is
  * its nearest computed ancestor's), or null outside every pass. */
+/** A render effect's first pass under a verdict reader's running pass
+ * (S-46): the mount a display-ahead read gates. */
+function verdictMount(c: Computed<any>): boolean {
+  if (c._statusFlags & STATUS_UNINITIALIZED)
+    // The nearest pass still running above the effect is the one mounting
+    // it (a component's root or a scope in between is walked through).
+    for (let o = c._parent; o !== null; o = o._parent)
+      if ((o as Computed<any>)._fn !== undefined && o._flags & REACTIVE_RECOMPUTING_DEPS)
+        return (o._flags & REACTIVE_PROBED) !== 0;
+  return false;
+}
+
 export function creatorPass(owner: Owner | null): Computed<any> | null {
   return owner !== null && (owner as Root)._root
     ? (owner as Root)._parentComputed

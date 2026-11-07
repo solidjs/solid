@@ -105,11 +105,12 @@ import {
   txOf,
   type Transaction,
   globalQueue,
+  hiddenHook,
   installLaneHooks,
   armGuessing
 } from "./scheduler.js";
 import { SLOT_C, SLOT_DV, SLOT_LV, SLOT_P, SLOT_T, shadowActual } from "./seat.js";
-import type { Computed, Signal } from "./types.js";
+import type { Computed, Owner, Signal } from "./types.js";
 
 export { latestOf };
 
@@ -1006,7 +1007,48 @@ function lanesBlocked(t: Transaction): boolean {
   // A lane flight one of the frame's own passes asked (`laneWait`, S-57):
   // the frame holds on it and reveals with the lane.
   if (t.waits !== undefined && t.waits.some(n => n._statusFlags & STATUS_PENDING)) return true;
+  // S-46 (D-25): the branch a display-ahead read gates is a mainline mount,
+  // and a first pass under it left pending on a flight the frame holds —
+  // the park's own pending observer — attaches at the landing. The verdict
+  // lane that opened it reveals with that landing, not ahead of it: shown
+  // now, the branch would attach with its hole empty (#4417), or with the
+  // committed value a re-derived mount read (S-46's ✗ rows).
+  if (t._lane && t._parent!._verdict === t && mountPending(t)) return true;
   return (t._lane && linkBlocked(t)) || nestedBlocked(t);
+}
+/** A render effect in a lane node's frame born held (held, uninitialized:
+ * its first pass read the hold's staging or waits on its flight), on
+ * screen. */
+function mountPending(l: Transaction): boolean {
+  for (let i = 0; i < l._nodes.length; i++)
+    if (
+      (l._nodes[i] as Computed<any>)._fn !== undefined &&
+      pendingMountIn(l._nodes[i] as unknown as Owner)
+    )
+      return true;
+  return false;
+}
+function pendingMountIn(o: Owner): boolean {
+  for (let c = o._firstChild; c !== null; c = c._nextSibling) {
+    const r = c as Computed<any>;
+    if (
+      (r as any)._type === EFFECT_RENDER &&
+      r._statusFlags & STATUS_UNINITIALIZED &&
+      r._config & CONFIG_HELD &&
+      !(r._flags & REACTIVE_DISPOSED) &&
+      !hiddenHook?.(r) &&
+      // Waiting: on its own flight, or on one its frame holds (a pass that
+      // read the staging attaches when the frame lands, which is this seam
+      // once nothing of the frame is pending).
+      (r._statusFlags & STATUS_PENDING ||
+        resolveTx(r._x!._transaction!)._nodes.some(
+          n => !(n as any)._type && (n as Computed<any>)._statusFlags! & STATUS_PENDING
+        ))
+    )
+      return true;
+    if (pendingMountIn(c)) return true;
+  }
+  return false;
 }
 /** F-2 (S-57): a pass this flush dirtied — it read the flush's staging —
  * ran as a lane's (a derivation of a guess, or a `latest`-only asker in a
