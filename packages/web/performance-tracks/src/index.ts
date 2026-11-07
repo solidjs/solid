@@ -182,6 +182,22 @@ const TRACKS = {
 
 const noop = (): void => {};
 
+// Dev's default hold: the exact-fact checks on, the heuristic ones off (see
+// `PerformanceTracksOptions.attribution`).
+const DEV_CHECKS: AttributionOptions = {
+  checks: true,
+  hotRuns: false,
+  hotTime: false,
+  wideDeps: false,
+  fanOut: false
+};
+
+function trackHold(requested: AttributionOptions | undefined): AttributionOptions {
+  if (requested?.checks !== undefined) return { log: false, ...requested };
+  // `checks` last: an explicit `undefined` would otherwise read as the engine default (on).
+  return { log: false, ...(IS_DEV ? DEV_CHECKS : {}), ...requested, checks: IS_DEV ? true : false };
+}
+
 /**
  * Paint the attribution engine's records — and the web runtime's
  * server-function `call` and `frame` records, with the server's own timing
@@ -215,22 +231,6 @@ const noop = (): void => {};
  * (returning a no-op) in prod builds, where the observe tier is absent, and
  * in an environment without `console.timeStamp` or `performance.measure`.
  */
-// Dev's default hold: the exact-fact checks on, the heuristic ones off (see
-// `PerformanceTracksOptions.attribution`).
-const DEV_CHECKS: AttributionOptions = {
-  checks: true,
-  hotRuns: false,
-  hotTime: false,
-  wideDeps: false,
-  fanOut: false
-};
-
-function trackHold(requested: AttributionOptions | undefined): AttributionOptions {
-  if (requested?.checks !== undefined) return { log: false, ...requested };
-  // `checks` last: an explicit `undefined` would otherwise read as the engine default (on).
-  return { log: false, ...(IS_DEV ? DEV_CHECKS : {}), ...requested, checks: IS_DEV ? true : false };
-}
-
 export function enablePerformanceTracks(options: PerformanceTracksOptions = {}): () => void {
   if (!IS_OBSERVE) return noop;
   if (instance !== null) return instance.join();

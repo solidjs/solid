@@ -1544,6 +1544,48 @@ describe("enablePerformanceTracks", () => {
     expect(marks.some(m => m.label.startsWith("UNSTABLE_MEMO_OUTPUT"))).toBe(true);
   });
 
+  test("in dev the adapter's hold keeps WASTED_RECOMPUTE on, and the heuristic checks off", () => {
+    measures();
+    quiet();
+    const codes: string[] = [];
+    offs.push(
+      OBSERVE!.diagnostics.subscribe(e => {
+        if (e.code === "WASTED_RECOMPUTE" || e.code === "WIDE_SCOPE_DEPS") codes.push(e.code);
+      })
+    );
+    // Thresholds only, no `checks`: what the default keeps on is what fires.
+    disposers.push(
+      enablePerformanceTracks({
+        attribution: { wastedRecompute: { minRuns: 5, ratio: 0.8, budgetMs: 0, windowMs: 60_000 } }
+      })
+    );
+    const [user, setUser] = createSignal({ name: "Ada", visits: 0 });
+    createRoot(dispose => {
+      disposers.push(dispose);
+      const greeting = createMemo(() => `Hello, ${user().name}`, { name: "greeting" });
+      createRenderEffect(greeting, () => {});
+    });
+    flush();
+    for (let i = 1; i <= 6; i++) {
+      setUser({ name: "Ada", visits: i });
+      flush();
+    }
+    wideMemo(600);
+    expect(codes).toEqual(["WASTED_RECOMPUTE"]);
+  });
+
+  test("an explicit `checks: undefined` reads as unsaid: the dev default applies", () => {
+    measures();
+    quiet();
+    const findings = unstableFindings();
+    const wide = wideFindings();
+    disposers.push(enablePerformanceTracks({ attribution: { checks: undefined } }));
+    unstableMemo();
+    wideMemo(600);
+    expect(findings).toEqual(["UNSTABLE_MEMO_OUTPUT view"]);
+    expect(wide).toEqual([]);
+  });
+
   test("an explicit `checks: false` on the adapter's hold is records only", () => {
     const { on } = measures();
     quiet();
