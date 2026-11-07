@@ -11,6 +11,7 @@ import {
   flush,
   DEV,
   $DEVCOMP,
+  OBSERVE,
   type Owner
 } from "../src/index.js";
 import { attribution } from "../src/attribution.js";
@@ -164,6 +165,130 @@ describe("observedComponent metadata", () => {
     );
 
     expect(idsWithWrapper).toEqual(idsWithoutWrapper);
+  });
+});
+
+describe("prop reads under an attribution engine", () => {
+  const WASTE = { minRuns: 5, ratio: 0.8, budgetMs: 0, windowMs: 60_000 };
+
+  test("WASTED_RECOMPUTE names the prop that returned the same value on every wasted run", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const release = attribution.enable({
+      log: false,
+      hotRuns: false,
+      hotTime: false,
+      unstableMemos: false,
+      wastedRecompute: WASTE
+    });
+    const codes: { code: string; data?: Record<string, unknown>; message: string }[] = [];
+    const unsubscribe = OBSERVE!.diagnostics.subscribe(e => {
+      if (e.code === "WASTED_RECOMPUTE") codes.push(e);
+    });
+    try {
+      // A list row's props: the getter reads a row object the list replaces on every update.
+      const [row, setRow] = createSignal({ text: "Hello", version: 0 }, { name: "row" });
+      createRoot(() =>
+        createComponent(
+          function Markdown(props: { text: string }) {
+            const html = createMemo(() => `<p>${props.text}</p>`, { name: "html" });
+            createEffect(
+              () => html(),
+              () => {}
+            );
+            return null;
+          },
+          {
+            get text() {
+              return row().text;
+            }
+          },
+          "Markdown",
+          "src/Timeline.tsx:113:21"
+        )
+      );
+      flush();
+      for (let i = 1; i <= 8; i++) {
+        setRow({ text: "Hello", version: i });
+        flush();
+      }
+      expect(codes).toHaveLength(1);
+      expect(codes[0].data).toMatchObject({
+        unchangedReads: ["props.text of <Markdown> at src/Timeline.tsx:113:21"]
+      });
+      expect(codes[0].message).toContain("createMemo(() => props.text)");
+    } finally {
+      unsubscribe();
+      release();
+      vi.restoreAllMocks();
+    }
+  });
+
+  test("a props object passed on to another component is wrapped once, and children never", () => {
+    const release = attribution.enable({ log: false });
+    try {
+      const props = {
+        get text() {
+          return "Hello";
+        },
+        get children() {
+          return "child";
+        }
+      };
+      const childrenGetter = Object.getOwnPropertyDescriptor(props, "children")!.get;
+      let afterOuter: (() => unknown) | undefined;
+      createRoot(() =>
+        createComponent(
+          function Outer(p: typeof props) {
+            afterOuter = Object.getOwnPropertyDescriptor(p, "text")!.get;
+            // A pass-through: the same object reaches Inner, twice.
+            createComponent(function Inner(q: typeof props) {
+              return (q.text, null);
+            }, p);
+            createComponent(function Inner(q: typeof props) {
+              return (q.text, null);
+            }, p);
+            return null;
+          },
+          props,
+          "Outer"
+        )
+      );
+      expect(Object.getOwnPropertyDescriptor(props, "text")!.get).toBe(afterOuter);
+      expect(Object.getOwnPropertyDescriptor(props, "children")!.get).toBe(childrenGetter);
+    } finally {
+      release();
+    }
+  });
+
+  test("a store passed as props is left alone (its traps refuse descriptor writes)", () => {
+    const release = attribution.enable({ log: false });
+    const codes: string[] = [];
+    const unsubscribe = OBSERVE!.diagnostics.subscribe(e => codes.push(e.code));
+    try {
+      const [store] = createStore({
+        get label() {
+          return "Hello";
+        }
+      });
+      createRoot(() =>
+        createComponent((p: { label: string }) => (p.label, null), store, "Labelled")
+      );
+      expect(codes).not.toContain("STORE_WRITE_OUTSIDE_SETTER");
+    } finally {
+      unsubscribe();
+      release();
+    }
+  });
+
+  test("props are left untouched when no engine is installed", () => {
+    const props = {
+      get text() {
+        return "Hello";
+      }
+    };
+    const getter = Object.getOwnPropertyDescriptor(props, "text")!.get;
+    createRoot(() => createComponent((p: { text: string }) => (p.text, null), props, "Plain"));
+    expect(Object.getOwnPropertyDescriptor(props, "text")!.get).toBe(getter);
   });
 });
 

@@ -75,6 +75,16 @@ export interface AttributionHooks {
    */
   recomputeStart(el: Computed<any>, create: boolean): void;
   /**
+   * The running computation read a value through an accessor the graph does
+   * not see: a component prop getter (`solid-js` reports these while an engine
+   * is installed). `read` is the expression (`props.text`), `value` what it
+   * returned, `label` the name a finding shows, built once by the reporter
+   * (`props.text of <Markdown> at src/Row.tsx:4:2`; `read` when omitted).
+   * Lets a finding name the read whose value never changed while the object
+   * behind it did.
+   */
+  namedRead?(read: string, value: unknown, label?: string): void;
+  /**
    * The recompute finished. `changed` = committed a changed value (false for
    * errored runs); `optimistic` = ran under an optimistic lane / lane-dirty
    * posture; `transition` = a transition was active or owns this node;
@@ -425,4 +435,14 @@ export function withOrigin<T>(ref: NavigationRef, fn: () => T): T {
 export function currentOrigin(): ChangeOrigin | undefined {
   const hooks = attrHooks;
   return hooks === null ? undefined : hooks.currentOrigin();
+}
+
+/**
+ * Records a read the graph cannot see (`AttributionHooks.namedRead`) — a
+ * component prop getter — against the computation running now. A no-op with
+ * no engine installed. Reachable as `OBSERVE.attribution.noteRead`.
+ */
+export function noteRead(read: string, value: unknown, label?: string): void {
+  const hooks = attrHooks;
+  if (hooks !== null && hooks.namedRead !== undefined) hooks.namedRead(read, value, label);
 }

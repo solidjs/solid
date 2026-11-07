@@ -3478,8 +3478,9 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 885b99b, size job 125684994005: #4633, #4634, #4637): 15.33 KB -> 15.40 KB, recorded minified 42,093 -> 42,253 B (+160 B), measured at 15,384 B brotli. #4633, #4634 and #4637 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ 6e569c7, size job 125766182293: #4639, #4641): 15.40 KB -> 15.41 KB, recorded minified 42,253 -> 42,327 B (+74 B), measured at 15,396 B brotli. #4639 and #4641 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): 15.41 KB -> 15.50 KB, recorded minified 42,327 -> 42,513 B (+186 B), measured at 15,485 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
-    limit: "15.50 KB",
-    capMinified: 42513,
+    // Named prop reads in WASTED_RECOMPUTE (2026-11-07, this PR): 15.50 KB -> 15.54 KB, recorded minified 42,513 -> 42,547 B (+34 B). The slot's new `noteRead` method; measured locally (macOS) at 15,490 B brotli, which CI measures about 34 B higher, so the cap is the CI estimate plus 10 B. Re-check against the PR's size job.
+    limit: "15.54 KB",
+    capMinified: 42547,
     alias: observeAlias
   },
   {
@@ -3993,8 +3994,9 @@ module.exports = [
     // Batch re-record (2026-11-03, over next @ 885b99b, size job 125684994005: #4633, #4634, #4637): 29.94 KB -> 30.03 KB, recorded minified 88,422 -> 88,582 B (+160 B), measured at 30,015 B brotli. #4633, #4634 and #4637 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ 6e569c7, size job 125766182293: #4639, #4641): cap unchanged at 30.03 KB, recorded minified 88,582 -> 88,656 B (+74 B), measured at 30,012 B brotli. #4639 and #4641 were accepted by the maintainer. Re-recorded once after the batch, per the batch process.
     // Batch re-record (2026-11-03, over next @ ccfc7ea, size job 125848841075: #4653, #4655, #4657, #4659): 30.03 KB -> 30.12 KB, recorded minified 88,656 -> 88,842 B (+186 B), measured at 30,109 B brotli. The growth of #4653, #4655 and #4659 was accepted by the maintainer; #4657 and #4654 are size-neutral on the gated rows. Re-recorded once after the batch, per the batch process.
-    limit: "30.12 KB",
-    capMinified: 88842,
+    // Named prop reads in WASTED_RECOMPUTE (2026-11-07, this PR): 30.12 KB -> 30.46 KB, recorded minified 88,842 -> 89,833 B (+991 B). The engine records tracked prop reads per run (`namedRead`), compares them across a scope's wasted runs, and names the unchanged ones in the warning. Engine-only cost; measured locally (macOS) at 30,422 B brotli, which CI measures about 27 B higher, so the cap is the CI estimate plus 10 B. Re-check against the PR's size job.
+    limit: "30.46 KB",
+    capMinified: 89833,
     alias: observeAlias
   },
   // Compiled-template scenarios (2026-10-05): the four `app:` fixtures above

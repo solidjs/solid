@@ -1,6 +1,7 @@
 import {
   attrHooks,
   currentOrigin,
+  noteRead,
   withInteraction,
   withOrigin,
   type InteractionRef,
@@ -248,6 +249,18 @@ export interface AttributionSlot {
    * router-specific. `fn()` when no engine is installed.
    */
   withOrigin<T>(ref: NavigationRef, fn: () => T): T;
+  /**
+   * Records a read the graph cannot see — a component prop getter — against
+   * the computation running now: the expression (`props.text`), the value it
+   * returned, and the label a finding shows (`props.text of <Markdown> at …`,
+   * built once by the caller; the expression when omitted). The
+   * engine compares these across a scope's wasted runs, so `WASTED_RECOMPUTE`
+   * can name the read whose value never changed while the object behind it
+   * did. `solid-js` reports prop reads through this while an engine is
+   * installed; a no-op otherwise. Optional so a wrapper of this slot written
+   * before it existed still type-checks; callers guard the call.
+   */
+  noteRead?(read: string, value: unknown, label?: string): void;
   /**
    * The provenance a root write performed now would be stamped with — the
    * interaction whose handler is running, the navigation or effect or action
@@ -642,6 +655,7 @@ const attributionSlot: AttributionSlot = {
   withInteraction,
   withOrigin,
   currentOrigin,
+  noteRead,
   markFlight(flight, startedAt = performance.now()) {
     // Earliest wins (`undefined <= n` is false: the first mark always lands).
     if (!(flightOrigins.get(flight)! <= startedAt)) flightOrigins.set(flight, startedAt);

@@ -265,6 +265,7 @@ export function installServerWithOrigin(observe: Observe): void {
     },
     withInteraction: slot.withInteraction,
     currentOrigin: slot.currentOrigin,
+    noteRead: slot.noteRead,
     markFlight: slot.markFlight,
     flightOrigin: slot.flightOrigin,
     withOrigin<T>(ref: NavigationRef, fn: () => T): T {

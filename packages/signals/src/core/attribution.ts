@@ -27,6 +27,7 @@ import {
   ownerPath,
   reportDiagnostic
 } from "./dev.js";
+import { getObserver } from "./owner.js";
 import { blockersOf, GlobalQueue } from "./scheduler.js";
 import type { Computed, Owner, Signal } from "./types.js";
 
@@ -606,6 +607,12 @@ interface AttributedNode {
   _devWasted?: number;
   _devWastedMs?: number;
   _devWasteWarned?: boolean;
+  /** Per labeled read in the window's wasted runs: runs it returned the value of the run before. */
+  _devWasteSame?: Map<string, number>;
+  /** Wasted runs in the window that had a previous run's reads to compare against. */
+  _devWasteCompared?: number;
+  /** The labeled reads of the node's latest run (label → [expression, value]) — the next run compares against them. */
+  _devReads?: Map<string, [read: string, value: unknown]>;
   /** Interaction the node's latest compute run traced to — inherited by its effect phase. */
   _devRunInteraction?: ChangeOrigin;
   /** Sequence and causes of the node's latest recorded run (undefined after a create run). */
@@ -731,8 +738,18 @@ interface RunFrame {
    * which has no causes of its own.
    */
   interaction: ChangeOrigin | undefined;
+  /** The computation running in this frame — `namedRead` keeps only reads it tracks. */
+  el: Computed<any>;
+  /**
+   * Tracked reads the graph cannot see (`namedRead`: component prop getters),
+   * label → [expression, first value] — allocated on the first one, so a run
+   * that makes none pays nothing.
+   */
+  reads: Map<string, [read: string, value: unknown]> | null;
 }
 const frames: RunFrame[] = [];
+/** A run's reads when it made none: unlike `undefined` (no history), it is evidence. */
+const NO_READS: Map<string, [read: string, value: unknown]> = new Map();
 
 /**
  * @internal The fold tables' seam. The engine emits records; the tables that
@@ -1440,7 +1457,8 @@ function checkWastedRecompute(
   phase: RerunEvent["phase"],
   changed: boolean,
   selfMs: number,
-  causes: ChangeRecord[]
+  causes: ChangeRecord[],
+  reads: Map<string, [read: string, value: unknown]> | null
 ): void {
   const cfg = options.wastedRecompute;
   if (cfg === false || phase !== "plain") return;
@@ -1453,11 +1471,26 @@ function checkWastedRecompute(
     node._devWasted = 0;
     node._devWastedMs = 0;
     node._devWasteWarned = false;
+    node._devWasteSame = undefined;
+    node._devWasteCompared = 0;
   }
   node._devWasteRuns = node._devWasteRuns! + 1;
   if (!changed) {
     node._devWasted = node._devWasted! + 1;
     node._devWastedMs = node._devWastedMs! + selfMs;
+    const prev = node._devReads;
+    if (prev !== undefined && !node._devWasteWarned) {
+      // A wasted run that made no named reads still counts: it did not read them.
+      node._devWasteCompared = node._devWasteCompared! + 1;
+      if (reads !== null) {
+        const same = (node._devWasteSame ??= new Map());
+        for (const [label, [, value]] of reads) {
+          const before = prev.get(label);
+          if (before !== undefined && Object.is(before[1], value))
+            same.set(label, (same.get(label) ?? 0) + 1);
+        }
+      }
+    }
   }
   if (
     node._devWasteWarned ||
@@ -1469,13 +1502,19 @@ function checkWastedRecompute(
   node._devWasteWarned = true;
   const win = { runs: node._devWasteRuns, wasted: node._devWasted!, wastedMs: node._devWastedMs! };
   const rootCause = causes.map(c => `"${c.name}" (${c.kind})`).join(", ");
+  // Named only when it returned its previous value on every compared wasted run.
+  const unchangedReads: string[] = [];
+  if (node._devWasteSame !== undefined)
+    for (const [label, same] of node._devWasteSame)
+      if (same === node._devWasteCompared) unchangedReads.push(label);
   const message =
     `[WASTED_RECOMPUTE] ${nodeKind(el)} "${nodeName(el)}" re-ran ${win.runs} times in ` +
     `${cfg.windowMs}ms and ${win.wasted} of those produced the same value — ` +
     `${win.wastedMs.toFixed(1)}ms of compute the equality gate then discarded. Its inputs ` +
     `change without changing its result: put an equality boundary upstream (a memo over the ` +
     `part of the input it reads, or an \`equals\` on the source), or read a narrower slice ` +
-    `(the property, not the object). Latest cause: ${rootCause || "(untracked pull)"}`;
+    `(the property, not the object). Latest cause: ${rootCause || "(untracked pull)"}` +
+    unchangedReadsAdvice(unchangedReads, reads, node._devReads);
   reportDiagnostic(
     emitDiagnostic(
       {
@@ -1489,11 +1528,28 @@ function checkWastedRecompute(
           wasted: win.wasted,
           wastedMs: win.wastedMs,
           windowMs: cfg.windowMs,
-          causes: causes.map(c => c.name)
+          causes: causes.map(c => c.name),
+          ...(unchangedReads.length > 0 ? { unchangedReads } : {})
         }
       },
       el
     )
+  );
+}
+
+/** The repair when the wasted runs' labeled reads all returned their previous value. */
+function unchangedReadsAdvice(
+  labels: string[],
+  reads: Map<string, [read: string, value: unknown]> | null,
+  prev: Map<string, [read: string, value: unknown]> | undefined
+): string {
+  if (labels.length === 0) return "";
+  // The warning can land on a run that skipped the read; the run before made it.
+  const read = (reads?.get(labels[0]) ?? prev?.get(labels[0]))?.[0] ?? "…";
+  return (
+    `. Every wasted run read ${labels.slice(0, 3).join(", ")} and got the same value; the ` +
+    `re-runs come from the object behind it. A memo over the read stops them: ` +
+    `\`createMemo(() => ${read})\`.`
   );
 }
 
@@ -1536,7 +1592,7 @@ function recordRerun(
   checkRelayTear(el, causes, prevCauses);
   checkHotRuns(el, causes);
   checkHotTime(el, timing.selfMs, causes);
-  checkWastedRecompute(el, frame.start, phase, changed, timing.selfMs, causes);
+  checkWastedRecompute(el, frame.start, phase, changed, timing.selfMs, causes, frame.reads);
   checkDepWidth(el);
   // The record: built only when something wanted it at run start (see
   // `wantsRerun`) — a listener, a fold, the log.
@@ -4308,6 +4364,8 @@ const engineHooks: AttributionHooks = {
       // Mirror recompute's own prev-value resolution: an earlier run in the
       // same flush may still be holding in _pendingValue.
       prevValue: el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value,
+      el,
+      reads: null,
       // A create run inherits the interaction of whatever is building it: the
       // enclosing recompute (a parent's fn creating children) or, at the top
       // of the recompute stack, the effect callback / handler frame.
@@ -4318,6 +4376,16 @@ const engineHooks: AttributionHooks = {
             ? frames[frames.length - 1].interaction
             : enclosingInteraction()
     });
+  },
+  namedRead(read, value, label = read) {
+    const frame = frames[frames.length - 1];
+    // Only reads the frame's own computation tracks: a child component's
+    // setup (untracked, but inside a parent's recompute) or an `untrack()`
+    // read cannot re-run it, so it must not be named as the cause.
+    if (frame === undefined || options.wastedRecompute === false || getObserver() !== frame.el)
+      return;
+    if (frame.reads === null) frame.reads = new Map();
+    if (!frame.reads.has(label)) frame.reads.set(label, [read, value]);
   },
   derivedChanged(el) {
     const frame = frames[frames.length - 1];
@@ -4400,6 +4468,9 @@ const engineHooks: AttributionHooks = {
         records.emit("create", event, el);
       }
     }
+    // After the checks: the wasted-recompute comparison read the previous run's reads.
+    if (options.wastedRecompute !== false)
+      (el as AttributedNode)._devReads = frame.reads ?? NO_READS;
     markSeen(el);
   },
   write(el, prev, value) {

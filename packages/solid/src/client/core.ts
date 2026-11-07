@@ -7,7 +7,8 @@ import {
   setContext,
   getContext,
   flatten,
-  OBSERVE
+  OBSERVE,
+  $PROXY
 } from "@solidjs/signals";
 import type { Accessor, EffectOptions } from "@solidjs/signals";
 import type { ArrayElement, Element as SolidElement } from "../types.js";
@@ -274,6 +275,53 @@ export interface ComponentRecord<P = unknown> {
   task: ConsoleTask | undefined;
 }
 
+/** Props objects already wrapped: a pass-through or a remount must not stack wrappers. */
+const watchedProps = new WeakSet<object>();
+
+/**
+ * Dev, with an attribution engine installed: wraps the compiler's prop
+ * getters in place so each read reports itself and its value to the engine
+ * (`OBSERVE.attribution.noteRead`). A memo that reads `props.text` off a row
+ * object the list replaces on every update depends on the row, not on the
+ * string; the engine compares these values across the memo's wasted runs and
+ * `WASTED_RECOMPUTE` names the prop that never changed. Only plain objects
+ * with configurable own getters are touched — a store, a `merge()` proxy or
+ * a frozen object passes through — each object once (the first component that
+ * received it labels it), and `children` is skipped: reading it resolves
+ * JSX rather than data.
+ */
+function watchPropReads(props: unknown, label: string, loc: string | undefined): void {
+  if (
+    props === null ||
+    typeof props !== "object" ||
+    watchedProps.has(props) ||
+    Object.getPrototypeOf(props) !== Object.prototype ||
+    // A store passed as props: its traps refuse descriptor writes (and warn).
+    (props as Record<symbol, unknown>)[$PROXY] !== undefined
+  )
+    return;
+  watchedProps.add(props);
+  const where = loc ? `${label} at ${loc}` : label;
+  for (const key of Object.keys(props)) {
+    if (key === "children") continue;
+    const desc = Object.getOwnPropertyDescriptor(props, key);
+    if (desc === undefined || desc.get === undefined || !desc.configurable) continue;
+    const get = desc.get;
+    const read = `props.${key}`;
+    const name = `${read} of ${where}`;
+    Object.defineProperty(props, key, {
+      configurable: true,
+      enumerable: desc.enumerable,
+      set: desc.set,
+      get() {
+        const value = get.call(this);
+        OBSERVE!.attribution.noteRead?.(read, value, name);
+        return value;
+      }
+    });
+  }
+}
+
 export function observedComponent<P, V>(
   Comp: (props: P) => V,
   props: P,
@@ -317,11 +365,13 @@ export function observedComponent<P, V>(
         // consumer ever reads the task — so a dev session with nothing
         // enabled pays nothing, and a consumer that enables before render
         // (the tracks at bootstrap) sees every component's site.
+        const attributed = OBSERVE!.attribution.installed !== null;
+        if (attributed) watchPropReads(props, label, loc);
         const record: ComponentRecord<P> = {
           fn: Comp,
           props,
           name,
-          task: OBSERVE!.attribution.installed !== null ? createConsoleTask(label) : undefined
+          task: attributed ? createConsoleTask(label) : undefined
         };
         owner._component = record;
         Object.assign(Comp, { [$DEVCOMP]: true });

@@ -450,7 +450,12 @@ almost every time. `data.wasted` of `data.runs` runs in the window produced
 the same value as before — the scope re-ran because an input changed, did
 its work, compared equal, and told nobody. The compute (`data.wastedMs`)
 bought nothing. `data.causes` names the input that keeps triggering it.
-Fix upstream, where the change originates:
+When the scope read component props, `data.unchangedReads` lists the props
+(with component and JSX site, e.g. `props.text of <Markdown> at
+src/Row.tsx:4:2`) that returned the same value on every wasted run: the
+object behind the prop changed, the value the scope uses did not. Read that
+prop through a memo — `const text = createMemo(() => props.text)` — and the
+wasted runs stop there. Otherwise, fix upstream, where the change originates:
 
 - Read a narrower slice: `user().name` re-runs on every `user` write; if
   `user` is a store, `user.name` re-runs only when the name changes. For a

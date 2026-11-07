@@ -17,7 +17,8 @@ import {
   createRoot,
   createSignal,
   flush,
-  OBSERVE
+  OBSERVE,
+  untrack
 } from "../src/index.js";
 import type { DiagnosticEvent } from "../src/core/dev.js";
 
@@ -158,6 +159,168 @@ describe("WASTED_RECOMPUTE", () => {
       flush();
     }
     expect(disabled.events).toHaveLength(0);
+  });
+
+  describe("named reads", () => {
+    /** A prop getter over a row object that is replaced on every update, as a list row's props are. */
+    function rowProps() {
+      const [row, setRow] = createSignal({ text: "Hello", version: 0 }, { name: "row" });
+      const props = {
+        get text() {
+          const value = row().text;
+          OBSERVE!.attribution.noteRead!("props.text", value, "props.text of <Markdown>");
+          return value;
+        },
+        get version() {
+          const value = row().version;
+          OBSERVE!.attribution.noteRead!("props.version", value, "props.version of <Markdown>");
+          return value;
+        }
+      };
+      return { props, setRow };
+    }
+
+    function observe(read: () => unknown) {
+      createRoot(() =>
+        createEffect(
+          () => read(),
+          () => {},
+          { name: "view" }
+        )
+      );
+    }
+
+    it("names the read that returned the same value on every wasted run", () => {
+      const { props, setRow } = rowProps();
+      const { events } = capture();
+      const html = createMemo(() => `<p>${props.text}</p>`, { name: "html" });
+      observe(html);
+      flush();
+      for (let i = 1; i <= 8; i++) {
+        setRow({ text: "Hello", version: i });
+        flush();
+      }
+      expect(events).toHaveLength(1);
+      expect(events[0].data).toMatchObject({ unchangedReads: ["props.text of <Markdown>"] });
+      expect(events[0].message).toContain(
+        "Every wasted run read props.text of <Markdown> and got the same value"
+      );
+      expect(events[0].message).toContain("createMemo(() => props.text)");
+    });
+
+    it("a read whose value changed on those runs is not named", () => {
+      const { props, setRow } = rowProps();
+      const { events } = capture();
+      const label = createMemo(() => (props.version, props.text.length > 0 ? "ready" : "empty"), {
+        name: "label"
+      });
+      observe(label);
+      flush();
+      for (let i = 1; i <= 8; i++) {
+        setRow({ text: "Hello", version: i });
+        flush();
+      }
+      expect(events).toHaveLength(1);
+      expect(events[0].data).toMatchObject({ unchangedReads: ["props.text of <Markdown>"] });
+      expect(events[0].message).not.toContain("props.version");
+    });
+
+    it("an untracked read is never named: it cannot re-run the scope", () => {
+      const { props, setRow } = rowProps();
+      const [tick, setTick] = createSignal(0, { name: "tick" });
+      const { events } = capture();
+      const status = createMemo(() => (tick(), untrack(() => props.text), "idle"), {
+        name: "status"
+      });
+      observe(status);
+      flush();
+      for (let i = 1; i <= 8; i++) {
+        setRow({ text: "Hello", version: i });
+        setTick(i);
+        flush();
+      }
+      expect(events).toHaveLength(1);
+      expect(events[0].data).not.toHaveProperty("unchangedReads");
+    });
+
+    it("a read made on only some of the wasted runs is not named", () => {
+      const { props, setRow } = rowProps();
+      const { events } = capture();
+      let run = 0;
+      const html = createMemo(
+        () => {
+          run++;
+          // Reads the row on every run, but `props.text` only on the first few.
+          const row = props.version;
+          return run <= 3 ? `<p>${props.text}</p>`.length > 0 : row >= 0;
+        },
+        { name: "html" }
+      );
+      observe(html);
+      flush();
+      for (let i = 1; i <= 8; i++) {
+        setRow({ text: "Hello", version: i });
+        flush();
+      }
+      expect(events).toHaveLength(1);
+      expect(events[0].data).not.toHaveProperty("unchangedReads");
+    });
+
+    it("a warning that lands on a run that skipped the read still suggests the memo", () => {
+      const { props, setRow } = rowProps();
+      const { events } = capture();
+      // Four wasted runs read the unchanged text; the fifth changes the result
+      // without reading it, and that run is the one that reaches the threshold.
+      const html = createMemo(() => (props.version < 5 ? `<p>${props.text}</p>` : "done"), {
+        name: "html"
+      });
+      observe(html);
+      flush();
+      for (let i = 1; i <= 5; i++) {
+        setRow({ text: "Hello", version: i });
+        flush();
+      }
+      expect(events).toHaveLength(1);
+      expect(events[0].data).toMatchObject({ unchangedReads: ["props.text of <Markdown>"] });
+      expect(events[0].message).toContain("createMemo(() => props.text)");
+    });
+
+    it("runs before the scope first read a prop count against naming it", () => {
+      const { props } = rowProps();
+      const [tick, setTick] = createSignal(0, { name: "tick" });
+      const { events } = capture();
+      let run = 0;
+      // Re-runs come from `tick`; `props.text` is read only on the last three.
+      const status = createMemo(
+        () => {
+          run++;
+          tick();
+          if (run >= 4) props.text;
+          return "same";
+        },
+        { name: "status" }
+      );
+      observe(status);
+      flush();
+      for (let i = 1; i <= 5; i++) {
+        setTick(i);
+        flush();
+      }
+      expect(events).toHaveLength(1);
+      expect(events[0].data).not.toHaveProperty("unchangedReads");
+    });
+
+    it("a scope with no named reads keeps the generic advice", () => {
+      const { setUser } = coarseReader();
+      const { events } = capture();
+      for (let i = 1; i <= 8; i++) {
+        setUser({ name: "Ada", visits: i });
+        flush();
+      }
+      expect(events).toHaveLength(1);
+      expect(events[0].data).not.toHaveProperty("unchangedReads");
+      expect(events[0].message).not.toContain("got the same value");
+    });
   });
 
   describe("computeds whose value is undefined", () => {
