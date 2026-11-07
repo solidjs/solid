@@ -1533,7 +1533,7 @@ const label = createMemo(async () => fetch(1 + view() + ordinary()));
 | 3   | label(16) lands; tick       | `view 5 \| ordinary 10 \| label 16`         | `label(5, 10)` lands: the write and the lane reveal as one frame — the only consistent screen that contains `10`                                                                                                                |
 | 4   | label(6) lands; tick        | —                                           | `label(5, 0)` was superseded by the re-ask: its answer lands nothing (today already)                                                                                                                                            |
 | 5   | the action lands; tick      | —                                           | the action ends; the guess reverts after this script                                                                                                                                                                            |
-| ✗   |                             | after 2: `view 1 \| ordinary 10 \| label 2` | `ordinary = 10` beside `label(1, 0)`: a new value beside a stale derivation of it (F-1); today the plain write's frame has no consequence of its own to wait for, because the lane took the derivation                          |
+| ✗   |                             | after 2: `view 1 \| ordinary 10 \| label 2` | `ordinary = 10` beside `label(1, 0)`: a new value beside a stale derivation of it (F-1); before the build the plain write's frame had no consequence of its own to wait for, because the lane took the derivation               |
 
 **Case ′.**
 

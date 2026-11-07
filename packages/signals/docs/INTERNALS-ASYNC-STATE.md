@@ -407,7 +407,22 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   winning when combined"): a plain write whose derivation became a guess's
   lane work was published beside the stale derivation because the lane had
   taken the only question; ruled F-2 as written — the write holds on the
-  lane's flight and reveals with it, the frames entangled.
+  lane's flight and reveals with it, the frames entangled. Built the same
+  day (`laneWaitHook`, core.ts `recompute`'s NotReady arm → lanes.ts
+  `laneWait`): a pass that read this flush's staging, ran as a guess's
+  lane's and went pending makes the flush join a frame that waits on that
+  node (`Transaction.waits`, judged in `lanesBlocked`) and sets the lane
+  `over` the frame, so the lane's work reads the frame's staging as its own
+  world (core `frameRead`'s `over` arm) and holds while the frame does
+  (`laneSeam`): one question (`label(5, 10)`), one reveal. The pass is
+  dropped from `stagedReaders` so the seam does not re-ask the old world's
+  question. Not the hold's own work (its parent already waits on the lane,
+  `nestedBlocked`), not a verdict lane's `latest`-only asker (the same
+  sentence, not built: the write publishes as before), and not a lane
+  already over another live frame (a keyed rebase over a landing's answer,
+  #4536 — `over` is one slot): the write publishes as before, beside the
+  lane's answer to its old question (#4577's matrix keeps its screens).
+  No pin flipped; the S-57 row's case 1 is standing.
 
 - 2026-07-17: **A18 store corollary — per-transaction optimistic layer**
   (#2899). `createOptimisticStore`'s override layer is one record per store

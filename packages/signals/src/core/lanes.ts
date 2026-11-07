@@ -1003,7 +1003,42 @@ function endLanes(u: Transaction): void {
  * parent, not the lane (A17, `linkBlocked`). */
 function lanesBlocked(t: Transaction): boolean {
   if (guessed && !t._lane && t._nodes.some(n => marked.has(n) && inFlight(n))) return true;
+  // A lane flight one of the frame's own passes asked (`laneWait`, S-57):
+  // the frame holds on it and reveals with the lane.
+  if (t.waits !== undefined && t.waits.some(n => n._statusFlags & STATUS_PENDING)) return true;
   return (t._lane && linkBlocked(t)) || nestedBlocked(t);
+}
+/** F-2 (S-57): a pass this flush dirtied — it read the flush's staging —
+ * ran as a lane's (a derivation of a guess, or a `latest`-only asker in a
+ * verdict lane) and asked: its flight is the lane's, so the flush would
+ * have nothing of its own to wait for and would publish the write beside a
+ * stale derivation of it (F-1). The flush joins a frame instead and holds
+ * on the flight, revealing with the lane at its landing. */
+function laneWait(el: Computed<any>): void {
+  // A guess's lane (the row's shape). A verdict lane's `latest`-only asker
+  // re-asked by an outside write is the same sentence, not built: the
+  // write publishes as before.
+  if (!globalQueue._running || passLane!._parent?._verdict === passLane) return;
+  const t = flushTransaction;
+  // The hold's own work (the lane's parent is this flush's frame): it
+  // already waits on its lane (`nestedBlocked`), a round after the reveal.
+  if (t !== null && resolveTx(passLane!._parent!) === t) return;
+  // Entangled: the lane's work reads the frame's staging as its own world
+  // (core.ts `frameRead`, the `over` arm) and the lane holds while the
+  // frame does (`laneSeam`) — one question, one reveal. A lane already
+  // over another live frame (a keyed rebase over a landing's answer,
+  // #4536) cannot take a second: the write publishes as before, beside the
+  // lane's answer to its old question (the limit of this build).
+  const o = passLane!.over && liveTx(passLane!.over);
+  if (o && o !== t) return;
+  joinFuture(null);
+  const f = flushTransaction!;
+  passLane!.over = f;
+  (f.waits ??= []).push(el);
+  // Not a staged reader to re-derive on the committed world at this seam:
+  // that would ask the question of the old world again.
+  const k = stagedReaders.indexOf(el);
+  if (k !== -1) stagedReaders.splice(k, 1);
 }
 /** Parents whose lane revealed this seam with readers to re-derive there
  * (`laneSeam`): the lane shows ahead of its parent (F-6), so the parent lands
@@ -1355,7 +1390,8 @@ installLaneHooks(
   landing,
   lanesBlocked,
   adoptParked,
-  laneServed
+  laneServed,
+  laneWait
 );
 if (__OBSERVE__)
   GlobalQueue._laneGuesses = t => {

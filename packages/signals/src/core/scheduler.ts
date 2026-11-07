@@ -82,6 +82,9 @@ export let laneOutcomeHook:
 export let laneWriteHook: (<T>(el: Signal<T> | Computed<T>, v: T) => T) | null = null;
 export let applyGuessesHook: ((parent: Transaction | null) => void) | null = null;
 export let laneSeamsHook: ((t: Transaction | null) => void) | null = null;
+/** A pass that read this flush's staging ran as a lane's and asked: the
+ * flush holds on its flight (lanes.ts `laneWait`, F-2, S-57). */
+export let laneWaitHook: ((el: Computed<any>) => void) | null = null;
 export let laneCorrectionsHook: (() => boolean) | null = null;
 export let endLanesHook: ((u: Transaction) => void) | null = null;
 export let lanesBlockedHook: ((t: Transaction) => boolean) | null = null;
@@ -110,7 +113,8 @@ export function installLaneHooks(
   end: NonNullable<typeof endLanesHook>,
   blocked: NonNullable<typeof lanesBlockedHook>,
   adopt: NonNullable<typeof laneAdoptHook>,
-  served: NonNullable<typeof laneServedHook>
+  served: NonNullable<typeof laneServedHook>,
+  wait: NonNullable<typeof laneWaitHook>
 ): void {
   laneReadHook = read;
   laneStageHook = stage;
@@ -123,6 +127,7 @@ export function installLaneHooks(
   lanesBlockedHook = blocked;
   laneAdoptHook = adopt;
   laneServedHook = served;
+  laneWaitHook = wait;
 }
 // Boundaries (boundaries.ts): the display consumers between an observer
 // and the root. `catch` — status from a frame reader, nearest boundary
@@ -331,6 +336,10 @@ export interface Transaction {
   /** `affects()` marks declared in it (affects.ts): released at the landing.
    * Not nodes — a mark holds nothing (`blocked` never sees one). */
   _marks: Signal<any>[] | null;
+  /** Lane flights this frame's own passes asked (F-2, S-57): a pass this
+   * frame dirtied that ran as a lane's and went pending. The frame holds
+   * on them and reveals with the lane (lanes.ts `lanesBlocked`). */
+  waits?: Computed<any>[];
 }
 /** Live transactions — opened, unmerged, not landed. Scanned at every seam
  * while non-empty; nothing on the plain path. */
@@ -456,6 +465,7 @@ export function merge(t: Transaction, f: Transaction): void {
   append(f._queues[1], t._queues[1]);
   append(f._reruns, t._reruns);
   if (t._marks !== null) append((f._marks ??= []), t._marks);
+  if (t.waits !== undefined) append((f.waits ??= []), t.waits);
   transactions.splice(transactions.indexOf(t), 1);
 }
 /** A15: a hold is a property of the async node — observed pending by a

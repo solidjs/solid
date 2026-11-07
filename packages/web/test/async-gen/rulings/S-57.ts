@@ -17,7 +17,6 @@ export default {
   names: { s0: "ordinary", m0: "view", m1: "label" },
   cases: [
     {
-      status: "ruled-not-built",
       scenario: {
         signals: [0],
         memos: [
@@ -75,7 +74,7 @@ export default {
         {
           after: 5,
           screen: "<span>vm0:1 vs0:10 vm1:2 </span>",
-          why: "`ordinary = 10` beside `label(1, 0)`: a new value beside a stale derivation of it (F-1); today the plain write's frame has no consequence of its own to wait for, because the lane took the derivation"
+          why: "`ordinary = 10` beside `label(1, 0)`: a new value beside a stale derivation of it (F-1); before the build the plain write's frame had no consequence of its own to wait for, because the lane took the derivation"
         }
       ]
     },
