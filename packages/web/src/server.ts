@@ -4802,8 +4802,6 @@ function rowPatch(a, b) {
   }
 }
 
-export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
-
 // The attribute text of a capture's parts (statics, re-runnable thunks,
 // group positions), as the binding's sweep and its deferred baseline build
 // it. Throws what a part throws.
@@ -4833,6 +4831,8 @@ function attrPartsText(parts) {
 }
 
 // rendering
+export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
+
 export function ssr(t) {
   // Inlined hole resolution — uses `arguments` instead of a `(t, ...nodes)`
   // rest parameter to avoid the per-call holes-array allocation. Inline
