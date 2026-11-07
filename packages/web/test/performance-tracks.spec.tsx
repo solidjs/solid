@@ -1574,12 +1574,14 @@ describe("enablePerformanceTracks", () => {
     expect(codes).toEqual(["WASTED_RECOMPUTE"]);
   });
 
-  test("an explicit `checks: undefined` reads as unsaid: the dev default applies", () => {
+  test("explicit `undefined` options read as unsaid: the dev default applies", () => {
     measures();
     quiet();
     const findings = unstableFindings();
     const wide = wideFindings();
-    disposers.push(enablePerformanceTracks({ attribution: { checks: undefined } }));
+    disposers.push(
+      enablePerformanceTracks({ attribution: { checks: undefined, wideDeps: undefined } })
+    );
     unstableMemo();
     wideMemo(600);
     expect(findings).toEqual(["UNSTABLE_MEMO_OUTPUT view"]);

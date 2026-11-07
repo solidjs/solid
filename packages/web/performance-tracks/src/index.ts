@@ -193,9 +193,13 @@ const DEV_CHECKS: AttributionOptions = {
 };
 
 function trackHold(requested: AttributionOptions | undefined): AttributionOptions {
-  if (requested?.checks !== undefined) return { log: false, ...requested };
-  // `checks` last: an explicit `undefined` would otherwise read as the engine default (on).
-  return { log: false, ...(IS_DEV ? DEV_CHECKS : {}), ...requested, checks: IS_DEV ? true : false };
+  // The engine reads an explicit `undefined` as unsaid and applies its own default
+  // (checks on), so drop those keys before they can override the adapter's.
+  const said = Object.fromEntries(
+    Object.entries(requested ?? {}).filter(([, value]) => value !== undefined)
+  ) as AttributionOptions;
+  if (said.checks !== undefined) return { log: false, ...said };
+  return { log: false, ...(IS_DEV ? DEV_CHECKS : {}), ...said, checks: IS_DEV ? true : false };
 }
 
 /**
