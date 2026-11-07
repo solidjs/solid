@@ -29,7 +29,15 @@ import {
   refresh,
   resetErrorHalt
 } from "solid-js";
-import { createComponent, effect, insert, render, setAttribute } from "../../src/index.js";
+import {
+  createComponent,
+  effect,
+  insert,
+  render,
+  setAttribute,
+  memo,
+  scope
+} from "../../src/index.js";
 import {
   describeScenario,
   type Node,
@@ -55,9 +63,14 @@ export type Finding = {
  * `owned` overrides where the memos are created;
  * `remount` re-creates the tree's readers in the flush that applies each
  * write (E8, compared where nothing is in flight);
- * `latestDerive` reads every `latest(x)` through a memo of it (E9).
+ * `latestDerive` reads every `latest(x)` through a memo of it (E9);
+ * `gate` renders each `show` without `Show`: `"ternary"` as the compiler
+ * emits `{c ? a : b}` (a sync `!!` memo, the hole's effect builds the
+ * branch), `"memo"` as one async-aware truthiness memo read by a branch
+ * memo (a Show without its sync hop).
  */
 export type Variant = {
+  gate?: "ternary" | "memo";
   split?: boolean;
   grouped?: boolean;
   identity?: boolean;
@@ -342,7 +355,20 @@ function buildApp(
             return renderNode(n.child, `${id}.0`);
           }
         });
-      case "show":
+      case "show": {
+        if (variant.gate) {
+          const branch = () =>
+            c()
+              ? (n.owns?.forEach(makeMemo), renderNode(n.child, `${id}.0`))
+              : n.fallback
+                ? "[F]"
+                : undefined;
+          const c =
+            variant.gate === "ternary"
+              ? memo(() => !!read(n.when))
+              : createMemo(() => read(n.when), { equals: (a, b) => !a === !b });
+          return variant.gate === "ternary" ? scope(branch) : createMemo(branch, { sync: true });
+        }
         return createComponent(Show, {
           get when() {
             return read(n.when);
@@ -355,6 +381,7 @@ function buildApp(
             return renderNode(n.child, `${id}.0`);
           }
         } as any);
+      }
       case "group":
         return n.kids.map((k, i) => renderNode(k, `${id}.${i}`));
       case "leaf": {
