@@ -70,13 +70,13 @@ the node in `_pendingNodes`) and the flush-start insertion uses the stored
 lane. One rule for all writes; elision behavior does not depend on what
 context the write ran in.
 
-| Case                                                    | Treatment                                | Why                                                                                                                                |
-| ------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| All plain/transition writes                             | **deferred**, lane captured at staging   | uniform net-change rule; no context-dependent elision                                                                              |
-| Optimistic writes (`_overrideValue` branch)             | **stay eager** (round one)               | A17: the override is THE value immediately; equal-value optimistic writes already short-circuit at write time                      |
-| `equals: false` signals                                 | **always insert** (still deferred once)  | user opted out of equality; every write propagates                                                                                 |
+| Case | Treatment | Why |
+| --- | --- | --- |
+| All plain/transition writes | **deferred**, lane captured at staging | uniform net-change rule; no context-dependent elision |
+| Optimistic writes (`_overrideValue` branch) | **stay eager** (round one) | A17: the override is THE value immediately; equal-value optimistic writes already short-circuit at write time |
+| `equals: false` signals | **always insert** (still deferred once) | user opted out of equality; every write propagates |
 | Writes during an active flush (effects writing signals) | **insert eagerly when staged mid-drain** | the flush's insertion pass already ran; re-scanning is the alternative and likely not worth it — riskiest area, see abort criteria |
-| Computed recomputes                                     | untouched                                | this design covers `setSignal` staging only; computed dirty propagation is a separate mechanism                                    |
+| Computed recomputes | untouched | this design covers `setSignal` staging only; computed dirty propagation is a separate mechanism |
 
 ## Validation
 
@@ -106,7 +106,7 @@ context the write ran in.
    posture as the effect-cleanup refactor.
 4. **Mid-tick observability is correct as-is** — with a sharpening: the
    "never existed" claim covers notification only, and in practice
-   `isPending` reports through _reactive_ update, not the sync read at
+   `isPending` reports through *reactive* update, not the sync read at
    creation — a probe's companion flips on the tick's flush, by which point
    an elided revert has already settled it back. The transient window is
    real but effectively unobservable through the reactive channel; A19/A22
@@ -123,7 +123,7 @@ validation instead, which is a bigger architectural conversation.
 
 - `read()` already returns `_pendingValue` for pre-flush reads on the paths
   that need it, and staged values are committed before effects run, so
-  read-consistency is unchanged by deferring the _notification_.
+  read-consistency is unchanged by deferring the *notification*.
 - Companion updates (`syncCompanions` in `setSignal`) fire at write time
   today and pin `isPending` behavior (A19 cause (i)); elided reverts must
   also settle companions back — a reverted stage never was pending. Check
