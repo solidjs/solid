@@ -1,5 +1,17 @@
 # board-example
 
+## 0.0.1-rc.7
+
+### Patch Changes
+
+- Updated dependencies [90d1a51]
+- Updated dependencies [cf839ea]
+- Updated dependencies [54456c9]
+- Updated dependencies [c50abb6]
+- Updated dependencies [c8c5eb1]
+  - @solidjs/web@2.0.0-rc.22
+  - solid-js@2.0.0-rc.22
+
 ## 0.0.1-rc.6
 
 ### Patch Changes

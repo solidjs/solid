@@ -1,5 +1,18 @@
 # @solidjs/signals
 
+## 2.0.0-rc.22
+
+### Patch Changes
+
+- f6b6737: Add `DEV.setSignal` so development tooling can write signal values and store property slots (#4679).
+- 5208944: Prevent an untracked staged-store read beside `latest()` from throwing and halting reactivity when the store has no reactive node. A pass whose verdict posture is only inherited is now served the hold's own write from a node-less store key, as it is from a signal or a key with a node, so the landing frame no longer tears.
+- 6b7474b: An async memo that reads `isPending(x)` no longer shows its verdict beside an `isPending(x)` binding that disagrees with it, and nothing derived from the write it reads ahead of shows before that write does (#4677).
+  - When the memo's lane landed in the same seam as the write it reads ahead of, the landing voided the binding's lane run, so the memo's `pending: true` showed while the binding stayed `false`. The lane now reveals whole (F-6), and the landing's re-derivation follows next round.
+  - When the lane landed first, the write's landing re-derived the memo onto a new flight and held its own runs for it, but that flush's runs of effects deriving plainly from the landing still ran: `details: Item 1` showed beside `id: 0`. Those runs now wait with the landing's held runs (F-1, F-7); what derives from a verdict reader still shows now (F-6, D-25).
+
+- 4fe7532: An optimistic guess corrected by an outside re-ask now stays the value for effects and untracked reads until its action's own refresh lands (#4690). When a `refresh()` from outside the action landed under a pending guess (`createOptimistic`, or a `createOptimisticStore` keyed, unkeyed or object-shaped), the action's hold stopped waiting on the guessed source's next flight. Where nothing rendered the source, the hold landed with the action's write, and effects and untracked reads showed the old truth until the action's `refresh()` answered, while rendered readers (a render effect, a text node under `<Loading>`, an effect beside one) kept the guess. Rendered output never flickered; effect-only readers disagreed with it. A shown guess that was corrected now keeps its hold open while its own source is in flight, as an uncorrected guess does.
+- fb672ca: `IMMUTABLE_UPDATE_IN_STORE` no longer reports wholesale replacements on a shallow store, or of a `markRaw` / unwrappable leaf (#4686). Those values are invalidated as a unit, so leaf draft assignment does not narrow who re-runs — the diagnostic's advice does not apply.
+
 ## 2.0.0-rc.21
 
 ### Patch Changes
