@@ -1851,10 +1851,8 @@ export function createDeepProxy<T extends object>(
  * no meaning as data — a boundary's output accessor (`$lhSkip`: <Loading>,
  * <Errored>) or an SSR template object (`SSRTemplateObject`, from `ssr()` /
  * `ssrElement()`), alone or inside a fragment array. Plain data never
- * matches: only own-`Object.prototype` objects are inspected (class instances
- * — Date, Map, URL, anything a serializer plugin owns — skip at the first
- * check), a pending template carries its holes as functions (`h`), which no
- * serializer encodes, and a settled one is the single key `t` holding markup.
+ * matches: template objects carry the runtime's `solid.ssrNode` symbol as
+ * `$`, a value no data (JSON included) can hold.
  */
 function isRenderedOutput(value: any, seen?: Set<unknown>): boolean {
   if (typeof value === "function") return value.$lhSkip === true;
@@ -1872,14 +1870,7 @@ function isRenderedOutput(value: any, seen?: Set<unknown>): boolean {
     }
     return false;
   }
-  if (Object.getPrototypeOf(value) !== Object.prototype) return false;
-  const t = value.t;
-  if (typeof t === "string") {
-    if (t.charCodeAt(0) !== 60 /* < */) return false;
-    for (const key in value) if (key !== "t") return false;
-    return true;
-  }
-  return Array.isArray(t) && Array.isArray(value.h) && Array.isArray(value.p);
+  return value.$ === Symbol.for("solid.ssrNode");
 }
 
 /**

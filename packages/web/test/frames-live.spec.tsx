@@ -454,4 +454,85 @@ describe("frames consume live: argument changes at a live site", () => {
 
     m.cleanup();
   });
+
+  test("switching back to the first arguments delivers their address again and stays live", async () => {
+    // The gate's memo holds its first resolution, and the address's binding
+    // is one object: the way back hands it the very binding it holds. It
+    // used to read that as "nothing changed", so the instance stayed on the
+    // second room (a windowed view scrolling back to its first slice).
+    const { host } = makeHost();
+    installServerComponents(host);
+    const heldByRoom = new Map<string, ReturnType<typeof openLiveFrameResponse>[]>();
+    vi.stubGlobal("fetch", async (input: any, init: any) => {
+      const url: string = typeof input === "string" ? input : input.url;
+      const args = new URL(url, "http://localhost").searchParams.get("args");
+      const room = args && JSON.parse(args)[0] === "b" ? "b" : "a";
+      const list = heldByRoom.get(room) ?? [];
+      const next = openLiveFrameResponse("srv");
+      list.push(next);
+      heldByRoom.set(room, list);
+      init.signal.addEventListener("abort", () => next.abort(init.signal.reason), { once: true });
+      return next.response;
+    });
+    const getRoom = live(createServerReference("frames-live/switch-back"));
+    const [room, setRoom] = createSignal("a");
+    const Page = dynamic(() => getRoom(room()));
+    const m = mountUnderLoading(Page, {});
+    await pump();
+    const open = (name: string, title: string) => {
+      const held = heldByRoom.get(name)!.at(-1)!;
+      held.send({ type: "start", id: "srv", version: 1 });
+      held.send({ type: "html", id: "srv", version: 1, html: articleHtml(title) });
+      return held;
+    };
+    open("a", "room a");
+    await until(() => m.div.querySelector("h1")?.textContent === "room a");
+    const frameEl = m.div.querySelector("solid-frame")!;
+
+    setRoom("b");
+    await until(() => (heldByRoom.get("b") ?? []).length === 1);
+    open("b", "room b");
+    await until(() => m.div.querySelector("h1")!.textContent === "room b");
+
+    setRoom("a");
+    await until(() => heldByRoom.get("a")!.length === 2);
+    const back = open("a", "room a again");
+    await until(() => m.div.querySelector("h1")!.textContent === "room a again");
+    expect(m.div.querySelector("solid-frame")).toBe(frameEl);
+    // ...and it is the live connection's content: a later write lands.
+    back.send({ type: "html", id: "srv", version: 1, html: articleHtml("room a, later") });
+    await until(() => m.div.querySelector("h1")!.textContent === "room a, later");
+
+    m.cleanup();
+  });
+
+  test("a cancel that lands before the body's start is a death too: the loop reconnects", async () => {
+    // A mount giving up on a row-op record cancels the connection so the
+    // resume re-sends the hole whole. A remount replaying a warm store does
+    // that while its new connection is still at the header — nothing open
+    // yet, which read as a completion: the iteration closed and the mount
+    // was left with no live connection.
+    const { host } = makeHost();
+    installServerComponents(host);
+    const held = [openLiveFrameResponse("srv"), openLiveFrameResponse("srv")];
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => held[calls++].response);
+    const getRoom = live(createServerReference("frames-live/early-cancel"));
+    const src: any = getRoom();
+    const status: string[] = [];
+    src.onstatus = (s: string) => status.push(s);
+    const Page = dynamic(() => src);
+    const m = mountUnderLoading(Page, {});
+    await until(() => calls === 1);
+    await pump();
+    const { tierLoads } = await import("../frames/src/frame-client.js");
+    tierLoads.wire!.r!.cancel(host, frameAddress("frames-live/early-cancel", []));
+    await until(() => calls === 2);
+    expect(status).toEqual(["connected", "reconnecting", "connected"]);
+    held[1].send({ type: "start", id: "srv", version: 1 });
+    held[1].send({ type: "html", id: "srv", version: 1, html: articleHtml("after resync") });
+    await until(() => m.div.querySelector("h1")?.textContent === "after resync");
+
+    m.cleanup();
+  });
 });
