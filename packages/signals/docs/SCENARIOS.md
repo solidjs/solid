@@ -1300,7 +1300,7 @@ Six rows ruled in one sitting, prompted by the `experiment/unified-updates` bran
 
 ### S-51. A question is asked only of the truth: an async derivation of a held value is the hold's, never a display-ahead pass — F-2, F-6, D-25 (#4677)
 
-_Generated from `packages/web/test/async-gen/rulings/S-51.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: ruled-not-built. Pins also: `tests/ispending-async-derivation-4677.test.ts`._
+_Generated from `packages/web/test/async-gen/rulings/S-51.ts` (`RULINGS_WRITE=1 pnpm exec vitest run test/async-gen/rulings` in `packages/web`); do not edit inside the markers. Status: standing. Pins also: `tests/ispending-async-derivation-4677.test.ts`._
 
 ```tsx
 const [id, setId] = createSignal(0);
@@ -1311,20 +1311,16 @@ const badge = createMemo(async () => fetch(1 + id() + isPending(id)));
 </span>;
 ```
 
-| #   | Action                                 | Screen                                                                | Notes                                                                                                                                                                                                            |
-| --- | -------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | details(1) lands; badge(1) lands; tick | `id 0 \| details 1 \| isPending(id) false \| badge 1`                 | primed                                                                                                                                                                                                           |
-| 1   | setId(2); flush()                      | `id 0 \| details 1 \| isPending(id) true \| badge 1`                  | `setId(2)`: `badge` asks, so it is the hold's and asks once, of the truth — `badge(2, false)`; nothing seats the `isPending(id)` hole in a lane, so it shows `true` now beside the kept badge (ruled 2026-11-07) |
-| 2   | details(3) lands; tick                 | —                                                                     | one answer landed; the frame holds on the other                                                                                                                                                                  |
-| 3   | badge(2) lands; tick                   | `id 2 \| details 3 \| isPending(id) false \| badge 3`                 | the frame                                                                                                                                                                                                        |
-| 4   | badge(3) lands; tick                   | —                                                                     | no third flight was ever asked                                                                                                                                                                                   |
-| ✗   |                                        | after 3: `id 0 \| details 1 \| isPending(id) true \| badge 2`         | `badge(0, true)`: a question asked with the value the screen keeps, and its answer shown                                                                                                                         |
-| ✗   |                                        | today, after 1: `id 0 \| details 1 \| isPending(id) false \| badge 1` | not yet built — the frames test is `it.fails`                                                                                                                                                                    |
-| ✗   |                                        | today, after 2: `id 0 \| details 1 \| isPending(id) false \| badge 1` | not yet built — the frames test is `it.fails`                                                                                                                                                                    |
+| #   | Action                                 | Screen                                                        | Notes                                                                                                                                                                                                            |
+| --- | -------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | details(1) lands; badge(1) lands; tick | `id 0 \| details 1 \| isPending(id) false \| badge 1`         | primed                                                                                                                                                                                                           |
+| 1   | setId(2); flush()                      | `id 0 \| details 1 \| isPending(id) true \| badge 1`          | `setId(2)`: `badge` asks, so it is the hold's and asks once, of the truth — `badge(2, false)`; nothing seats the `isPending(id)` hole in a lane, so it shows `true` now beside the kept badge (ruled 2026-11-07) |
+| 2   | details(3) lands; tick                 | —                                                             | one answer landed; the frame holds on the other                                                                                                                                                                  |
+| 3   | badge(3) lands; tick                   | `id 2 \| details 3 \| isPending(id) false \| badge 3`         | the frame                                                                                                                                                                                                        |
+| 4   | nothing to settle; tick                | —                                                             | no third flight was ever asked                                                                                                                                                                                   |
+| ✗   |                                        | after 3: `id 0 \| details 1 \| isPending(id) true \| badge 2` | `badge(0, true)`: a question asked with the value the screen keeps, and its answer shown                                                                                                                         |
 
-_Expected findings: `truth-asks`._
-
-Today the badge's display-ahead pass asks `badge(0, true)`; the oracle `truth-asks` records it, and this case expects that finding until the fix lands.
+Built 2026-11-07 (`askerJoins`): the badge, an asker, reads the staging and is the frame's; the `truth-asks` oracle finds nothing here now.
 
 The #4677 issue's other order (the stale answer landing first) disappears with the stale question. L2's rule 6 (2026-10-04), which seated a verdict reader's whole pass in a lane, is narrowed by this ruling to passes that do not ask: F-6's limit.
 

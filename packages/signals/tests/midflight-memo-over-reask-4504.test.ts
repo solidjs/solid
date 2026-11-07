@@ -167,16 +167,17 @@ describe("#4504: a memo over a re-asked async memo, first read by a mount mid-fl
   // reader by what it reads), the verdict lane's reveal of `latest(s) + s()`
   // over the held write (`3`, D-26), then the commit.
   it("verdict input, the memo already on screen before the re-ask: unchanged", async () => {
+    // F-2's producer clause (2026-11-07, S-51): `m1` asks once, of the truth,
+    // so the lane answer over the screen's stale `s` (`r:30`, `r:3`) never
+    // exists — the verdict input shows what the plain input shows.
     expect(await run("verdict", "times10", "before", "render effect")).toEqual([
       "r:20",
       "--mounted",
-      "r:30",
       "r:40"
     ]);
     expect(await run("verdict", "identity", "before", "render effect")).toEqual([
       "r:2",
       "--mounted",
-      "r:3",
       "r:4"
     ]);
   });

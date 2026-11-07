@@ -64,7 +64,8 @@ import {
   REACTIVE_STAGED_READ,
   STATUS_ERROR,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED
+  STATUS_UNINITIALIZED,
+  CONFIG_ASYNC
 } from "./constants.js";
 import {
   clock,
@@ -549,6 +550,15 @@ export function slot(
   /** f0: a flight with no value yet. */
   const firstFlight = pending && uninit;
   const inLane = seat !== null && seat.lane !== null;
+  /** F-2's producer clause (S-51): the reading pass asks (CONFIG_ASYNC —
+   * its last answer was a flight) and sits in no optimistic lane: a plain
+   * or `isPending` read of a held node, or of a staging, is the hold's
+   * (`askerJoins`), never the screen's. */
+  const asks =
+    c !== null &&
+    (c._config & CONFIG_ASYNC) !== 0 &&
+    !(c as any)._type &&
+    !(seat !== null && seat.lane !== null && seat.lane._parent?._verdict !== seat.lane);
   /** Today's `passLane !== null`: lane work, or a hold's verdict reader.
    * Selects the rows for a lane node's read (a verdict memo's node: its
    * value or its display is screen-visible); the held-staging rows use
@@ -671,6 +681,10 @@ export function slot(
     // node answers through the rows above it, D-41.)
     if (held) {
       const t = txOf(el);
+      // Vp0 (F-2's producer clause, S-51): `isPending` of a held node by a
+      // pass that asks joins the hold and is answered in its world — the
+      // staging, raise H (`askerJoins`).
+      if (!latest && asks && tr) return pred("Vp0", staged ? stagedSlot : SLOT_C, RAISE_H, t);
       // The hold's own work (a pass the same hold holds) reads its staging
       // plainly, whatever it asks (D-25, #3884, #4341).
       if (c !== null && c._config & CONFIG_HELD && resolveTx(txOf(c)) === resolveTx(t))
@@ -718,6 +732,9 @@ export function slot(
       // joins.
       if (uninit)
         return pred("Vp2", stagedSlot, running ? seam : tr ? MARK_W : 0, flushTransaction);
+      // Vp0 (F-2's producer clause, S-51): a pass that asks reads the
+      // staging as the frame's (Fl), its probe answered in that frame.
+      if (asks && tr) return pred("Vp0", stagedSlot, RAISE_FL, null);
       return pred("Vp1", SLOT_C, running ? seam : tr ? MARK_W : 0, flushTransaction);
     }
     if (pending) {
@@ -933,6 +950,11 @@ export function slot(
       if (own) return r("L2", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H); // D-3 D-2
       return r("L3", screen, MARK_ST); // D-3 D-9 D-26
     }
+    // V0 (F-2's producer clause, S-51): a pass that asks derives from the
+    // hold — the staging, raise H (`askerJoins`, core `frameRead`) — whether
+    // a verdict reader or seated in the holder's verdict lane.
+    if (asks && (verdictReader || inLane))
+      return r("V0", pending ? SLOT_NR : staged ? stagedSlot : SLOT_C, RAISE_H);
     if (verdictReader) {
       // V1 (D-23 A10 [R7]): a verdict reader is a frame reader — the
       // screen, re-derived at the landing — unless born into t or the
@@ -982,6 +1004,10 @@ export function slot(
       // nothing: not a read of the frame's future, nor a verdict reader's
       // stale read of the tick's hold.
       if (netted) return carry(pred(row + "''", SLOT_P));
+      // V0 (F-2's producer clause, S-51): a pass that asks reads the staging
+      // as the frame's (Fl), un-seated from a verdict lane (`askerJoins`).
+      if (asks && (verdictReader || inLane) && !uninit)
+        return carry(pred(rowBase + "V0", stagedSlot, RAISE_FL, null, null));
       if (verdictReader && !uninit && c!._config & CONFIG_VERDICT) {
         // V2/V3 (D-23 D-32 [R5]): the screen once the tick has a hold, the
         // staging before (the seam's verdict).

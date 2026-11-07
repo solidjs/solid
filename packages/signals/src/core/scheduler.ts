@@ -28,7 +28,10 @@ import {
   REACTIVE_ZOMBIE,
   STATUS_ERROR,
   STATUS_PENDING,
-  STATUS_UNINITIALIZED
+  STATUS_UNINITIALIZED,
+  CONFIG_ASYNC,
+  REACTIVE_JOINED,
+  REACTIVE_STAGED_READ
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
 import { notifyStatus } from "./async.js";
@@ -194,13 +197,19 @@ export let attachHook: ((node: Computed<any>) => boolean) | null = null;
 export let holdStagingHook:
   | ((c: Computed<any>, el?: Signal<any> | Computed<any>) => unknown)
   | null = null;
+/** A pass that asks leaves the display for the hold it read (F-2's producer
+ * clause; verdict.ts `askerJoins`). */
+export let askerJoinsHook:
+  | ((c: Computed<any>, el: Signal<any> | Computed<any>, t: Transaction | null) => void)
+  | null = null;
 export function installVerdictHooks(
   observeFlight: NonNullable<typeof observeFlightHook>,
   holdWork: NonNullable<typeof holdWorkHook>,
   stageMark: NonNullable<typeof stageMarkHook>,
   keepReaders: NonNullable<typeof keepReadersHook>,
   attach: NonNullable<typeof attachHook>,
-  holdStaging: NonNullable<typeof holdStagingHook>
+  holdStaging: NonNullable<typeof holdStagingHook>,
+  askerJoins: NonNullable<typeof askerJoinsHook>
 ): void {
   observeFlightHook = observeFlight;
   holdWorkHook = holdWork;
@@ -208,6 +217,7 @@ export function installVerdictHooks(
   keepReadersHook = keepReaders;
   attachHook = attach;
   holdStagingHook = holdStaging;
+  askerJoinsHook = askerJoins;
 }
 /** External-source bridge (wired by enableExternalSource(); undefined while
  * no config is active — including after _resetExternalSourceConfig()). */
@@ -1431,8 +1441,22 @@ export function insertSubs(node: Signal<any> | Computed<any>): void {
  * `laneRead` re-derives it on the screen if that lane holds (`entered`). */
 export function laneDirty(node: Signal<any> | Computed<any>, l: Transaction): void {
   insertSubs(node);
+  const display = l._parent!._verdict === l;
   for (let s = node._subs; s !== null; s = s._nextSub) {
     const c = s._sub;
+    // F-2's producer clause: a reader that asks (CONFIG_ASYNC) and is the
+    // frame's — held, or joined this flush — asked of the truth already; a
+    // verdict lane's re-derivation of what it read is display work with
+    // the same value beneath, and re-runs it only to ask again (S-51).
+    if (
+      display &&
+      c._config & CONFIG_ASYNC &&
+      (c._config & CONFIG_HELD || c._flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ)) &&
+      !c._x?._transaction?._lane
+    ) {
+      deleteFromHeap(c, dirtyQueue);
+      continue;
+    }
     let t = c._x?._transaction;
     // A reader a hold has pending on its re-ask (a correction's
     // re-derivation waiting on a refresh) re-derives from the guess as the

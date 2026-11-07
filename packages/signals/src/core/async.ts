@@ -509,11 +509,13 @@ export function handleAsync<T>(
   // fired _flightTeardown. A future non-recompute registration path must
   // release it here before overwriting _inFlight.
   ext(el)._inFlight = result as PromiseLike<T> | AsyncIterable<T>;
-  // D-25 (verdict.ts `holdWork`): an async memo whose answering pass opened
-  // no verdict window of its own (`markVerdictReader` clears the bit).
+  // The derivation asks (F-2's producer clause): its last answer was a
+  // flight, window or not. A plain or `isPending` read of a held node by
+  // such a pass is the hold's, never the screen's (`frameRead`,
+  // `verdictValue`). `holdWork` (D-25) pairs the bit with CONFIG_OWN_PROBE.
   // Kept by the verdict engine alone (`holdWorkHook`): a build without it
   // folds the bit's upkeep away.
-  if (holdWorkHook && !(el._flags & REACTIVE_WINDOW)) el._config |= CONFIG_ASYNC;
+  if (holdWorkHook) el._config |= CONFIG_ASYNC;
   // The question this flight answers (A18 provenance, lanes.ts): the action
   // whose slice asked it; mainline is always the current question.
   el._x!._q = question || MAINLINE_QUESTION;

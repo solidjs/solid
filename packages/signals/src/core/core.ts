@@ -171,6 +171,7 @@ import {
   laneStageHook,
   laneSeamsHook,
   laneServedHook,
+  askerJoinsHook,
   holdStagingHook,
   holdWorkHook,
   keepReadersHook,
@@ -442,7 +443,8 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       laneStageHook &&
       !isEffect &&
       (el._statusFlags & STATUS_PENDING ||
-        (el._config & (CONFIG_ASYNC | CONFIG_HELD)) === (CONFIG_ASYNC | CONFIG_HELD))
+        (el._config & (CONFIG_ASYNC | CONFIG_OWN_PROBE | CONFIG_HELD)) ===
+          (CONFIG_ASYNC | CONFIG_HELD))
     )
       el._config &= ~CONFIG_VERDICT;
     if (el._x !== null) {
@@ -734,10 +736,16 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     // bit) is an ordinary derivation again. Its async posture is the
     // verdict engine's to keep (CONFIG_ASYNC, verdict.ts `holdWork`, D-25).
     // (Only the verdict engine probes: without it the line folds away.)
+    // F-2's producer clause (S-51, #4504): a pass that asks (CONFIG_ASYNC)
+    // is a verdict reader only by a window of its own, never by reading a
+    // verdict memo — an act derives from the truth, and a memo over it
+    // (`() => m1()`) inherits nothing to read ahead with.
     if (observeFlightHook)
       el._config =
         (el._config & ~(CONFIG_VERDICT | CONFIG_OWN_PROBE | CONFIG_AHEAD)) |
-        (el._flags & REACTIVE_PROBED) |
+        (el._config & CONFIG_ASYNC && !(el._flags & REACTIVE_WINDOW)
+          ? 0
+          : el._flags & REACTIVE_PROBED) |
         ((el._flags & REACTIVE_WINDOW) << 9) |
         ((el._flags & REACTIVE_AHEAD) << 11);
     // REACTIVE_DISPOSED survives too (#3621): the pass may have disposed its
@@ -1356,6 +1364,20 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // transaction (`joinPass`), but for the lane case below.
   const verdict = observeFlightHook && c._config & CONFIG_VERDICT;
   const lane = laneStageHook && passLane !== null;
+  // F-2's producer clause: a pass that asks (CONFIG_ASYNC) is never served
+  // the screen's value of a held node — it reads the staging and is the
+  // hold's (`askerJoins`: un-seated from a verdict lane a window read put it
+  // in). Not from an optimistic lane's seat: a derivation of a guess is
+  // that lane's (F-6; S-57). The verdict engine installs `askerJoinsHook`.
+  if (
+    (verdict || lane) &&
+    c._config & CONFIG_ASYNC &&
+    askerJoinsHook &&
+    (!lane || passLane!._parent?._verdict === passLane)
+  ) {
+    askerJoinsHook(c, el, txOf(el));
+    return false;
+  }
   if (
     !(verdict && holdStagingHook!(c, el)) &&
     !(
@@ -2175,7 +2197,14 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     const netted = el._pendingValue === el._value && Object.is(el._pendingValue, el._value);
     // Lane work over a folded lane (D-34), once the frame has a transaction,
     // reads the screen too.
-    if (
+    // F-2's producer clause: a pass that asks is never served the screen's
+    // value of a staging (`askerJoins`; the held case is `frameRead`'s).
+    const asks =
+      askerJoinsHook !== null &&
+      c._config & CONFIG_ASYNC &&
+      (passLane === null || passLane._parent?._verdict === passLane);
+    if (asks) askerJoinsHook!(c as Computed<any>, el, null);
+    else if (
       netted ||
       (((observeFlightHook && c._config & CONFIG_VERDICT) || (laneStageHook && passLane?.folded)) &&
         stagedScreen(c as Computed<any>, el))
@@ -2183,7 +2212,7 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
       if (__TEST__) shadowActual(netted ? SLOT_P : SLOT_C);
       return el._value as T;
     }
-    stagedRead(c as Computed<any>);
+    if (!asks) stagedRead(c as Computed<any>);
     if (__TEST__) shadowActual(SLOT_P);
     return el._pendingValue as T;
   }

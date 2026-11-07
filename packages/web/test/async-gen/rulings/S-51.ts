@@ -10,7 +10,7 @@ export default {
   title:
     "A question is asked only of the truth: an async derivation of a held value is the hold's, never a display-ahead pass",
   rules: ["F-2", "F-6", "D-25"],
-  status: "ruled-not-built",
+  status: "standing",
   issues: ["#4677"],
   pins: ["tests/ispending-async-derivation-4677.test.ts"],
   names: { s0: "id", m0: "details", m1: "badge" },
@@ -62,8 +62,7 @@ export default {
           why: "`badge(0, true)`: a question asked with the value the screen keeps, and its answer shown"
         }
       ],
-      allow: ["truth-asks"],
-      note: "Today the badge's display-ahead pass asks `badge(0, true)`; the oracle `truth-asks` records it, and this case expects that finding until the fix lands."
+      note: "Built 2026-11-07 (`askerJoins`): the badge, an asker, reads the staging and is the frame's; the `truth-asks` oracle finds nothing here now."
     }
   ],
   prose:
