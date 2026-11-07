@@ -202,7 +202,6 @@ var [_el$73, _el$74] = _$getNextMarker(_el$72.nextSibling);
 var _el$75 = _el$73.nextSibling;
 var _el$76 = _el$75.nextSibling;
 var [_el$77, _el$78] = _$getNextMarker(_el$76.nextSibling);
-var _el$79 = _el$77.nextSibling;
 _$insert(_el$70, _$createComponent(Link, { children: "comments" }), _el$73, _el$74);
 _$insert(_el$70, _$createComponent(Link, { children: "show" }), _el$77, _el$78);
 const template12 = _el$70;
