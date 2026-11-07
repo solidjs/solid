@@ -234,6 +234,8 @@ describe("ASYNC_MEMO_ELEMENT — the finding and what the detection refuses", ()
     const values: unknown[] = [
       { t: "plain" },
       { t: "<b>markup in data</b>", id: 1 },
+      JSON.parse('{"t":"<b>only key</b>"}'),
+      JSON.parse('{"t":["<b>","</b>"],"h":[],"p":[]}'),
       [{ t: "plain" }, "<p>", 3, [{ t: "<i>", n: 1 }]],
       "<p>a string</p>",
       new Date(0),
