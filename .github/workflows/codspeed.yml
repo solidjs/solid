@@ -29,8 +29,10 @@ jobs:
         include:
           - lane: signals
             command: pnpm --filter @solidjs/signals run bench
-          - lane: web-client
-            command: pnpm --filter @solidjs/web run bench
+          - lane: web-client-1
+            command: BENCH_LANE=1 pnpm --filter @solidjs/web run bench
+          - lane: web-client-2
+            command: BENCH_LANE=2 pnpm --filter @solidjs/web run bench
           - lane: web-server
             command: pnpm --filter @solidjs/web run bench:server
     steps:
