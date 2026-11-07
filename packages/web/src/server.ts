@@ -1994,10 +1994,10 @@ export function renderToStream<T>(
      * (see `ServerErrorHook`): every failure the render handles — an
      * `<Errored>` fallback (`handling: "fallback"`), a rejected fragment
      * (`"client"`), a hydration value that would not serialize
-     * (`"serialize"`: an async value that fails before the first flush
-     * also fails the render, with no `onCompleteAll`; after it, its key
-     * rejects on the client — #4647) — and the one that fails the request
-     * (`"failed"`),
+     * (`"serialize"`: a default serializer failure before the first flush
+     * also fails the render, with no `onCompleteAll` (#4709); after it,
+     * published values reject on the client (#4647)), and the one that fails
+     * the request (`"failed"`),
      * once per error per kind per request (per render outside one), with
      * where it was met. A one-argument listener still
      * works; it hears them all — filter on `context.handling` for the
@@ -2362,25 +2362,13 @@ export function renderToStream(code, options = {}) {
   let stableOrder = false;
   let parkedWrites = null;
   const byKey = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
-  // A failure reported after write returns leaves a pending client key
-  // (#4647). Before the first flush nothing has reached the client, so the
-  // render fails: the shell is not sent and `onCompleteAll` does not fire
-  // (Ryan's ruling, 2026-11-03). After it the page is midstream: the default
-  // serializer rejects the key, and whatever of its value already went out,
-  // on the client (`rejectUnserializedKey`) and the render completes. Keep synchronous failures completing as before (#4227). A
-  // buffered stream can emit its initial chunk and fail inside write;
-  // detecting that case would require publication information from the
-  // serializer.
-  let writing = 0;
+  // Before the first flush, any default serializer failure fails the render,
+  // including failures inside write (#4709): nothing is sent and
+  // `onCompleteAll` does not fire. After it, published values reject through
+  // `rejectUnserializedKey` (#4647); a synchronous failure that published
+  // nothing still omits the value and lets the render complete (#4227).
   let stranded = false;
-  const handOver = (id, value) => {
-    writing++;
-    try {
-      serializer.write(id, value);
-    } finally {
-      writing--;
-    }
-  };
+  const handOver = (id, value) => serializer.write(id, value);
   const write = (id, value) => {
     if (stableOrder && !dead) (parkedWrites ||= []).push([id, value]);
     else handOver(id, value);
@@ -2571,7 +2559,12 @@ export function renderToStream(code, options = {}) {
     // render's hook, else the ambient one, else `console.error`.
     onError: err => {
       reportFailure(err, "serialize");
-      if (!writing && !options.serializer && !firstFlushed) stranded = true;
+      if (!options.serializer && !firstFlushed && !stranded) {
+        stranded = true;
+        // Let the current write and render initialization finish. The normal
+        // flush may abandon first; a pending sibling must not hold it open.
+        deferFlush(() => abandon());
+      }
     },
     // After the first flush: rejects on the client what the failed write
     // left pending (#4647). Only here, so `renderToString` does not carry it.
