@@ -7,13 +7,17 @@ import {
 } from "./attribution-hooks.js";
 import {
   CONFIG_GUESS,
+  CONFIG_HELD,
   CONFIG_OVERRIDE,
+  CONFIG_SLOT_NODE,
   CONFIG_KEY_BAG,
   CONFIG_PLUMBING,
   CONFIG_WIDE,
   CONFIG_SUPERSEDES,
   CONFIG_VERDICT,
-  NOT_PENDING
+  NOT_PENDING,
+  REACTIVE_DISPOSED,
+  STATUS_UNINITIALIZED
 } from "./constants.js";
 import {
   anyExcluded,
@@ -291,6 +295,40 @@ export interface FlushEvent {
    * interactions shared the drain.
    */
   interaction?: ChangeOrigin;
+  /**
+   * What the drain changed on screen: each signal, memo or store property
+   * whose shown value differs from what it showed before the drain — a
+   * commit, a held transition's landing, an optimistic value appearing or
+   * lifting. One entry per node, in no promised order. Nodes that got their
+   * first value, and effects, are not listed.
+   */
+  changes: FlushChange[];
+}
+
+/** One node whose shown value a drain changed (`FlushEvent.changes`). */
+export interface FlushChange {
+  /** The node, in the id space of `RerunEvent.nodeId` and `ChangeRecord.nodeId`. */
+  nodeId: number;
+  nodeName: string;
+  /** A store property's node: the property, as a string. */
+  key?: string;
+  /**
+   * Who staged the value that is now shown — the action step, effect,
+   * interaction or navigation — when one was open. A held write keeps the
+   * origin it was staged under, so a landing's changes name their action.
+   */
+  origin?: ChangeOrigin;
+}
+
+/**
+ * Beside a `flush` record (`OBSERVE.records.subscribe("flush", (event, live) => …)`):
+ * the live side of `event.changes`, index for index — the node, and, for a
+ * listener that subscribed with `{ bodies: true }`, the values before and
+ * after. The values are live, not copies: a store's objects keep changing
+ * after the record, so a listener that keeps them copies them on delivery.
+ */
+export interface FlushLive {
+  changes: { node: Signal<any> | Computed<any>; prev?: unknown; value?: unknown }[];
 }
 
 /**
@@ -3754,6 +3792,113 @@ function noteFlushRun(
   else if (flush.interaction !== interaction) flush.interaction = null;
 }
 
+// --- What each drain showed ---------------------------------------------------
+//
+// Core says where a value was staged (`staged`: queued for a commit, or put
+// on a transaction's or a lane's list), never where it became visible: a
+// commit, a held transition's landing, a lane's reveal or its lift. The
+// engine keeps what the screen showed of each staged node and compares it
+// with what it shows at `flushEnd`. A difference is a change the drain
+// showed. A node stays watched while its shown value can still change
+// without a new staging (held, or on a lane), and is dropped once settled.
+//
+// The same comparison is OPTIMISTIC_REVERTED's: a guess the screen showed
+// that is replaced by something else. Its truth is the value it covered
+// (reverted: nothing came true) or a different one (superseded).
+interface Watched {
+  /** What the screen showed of the node at the last drain end (or before its staging). */
+  shown: unknown;
+  /** `shown` is an optimistic guess. */
+  guess: boolean;
+  /** The committed value beneath the guess, while `guess`. */
+  covered: unknown;
+  /** Who staged the value the drain will show, when an origin was open. */
+  origin: ChangeOrigin | undefined;
+}
+const watched = new Map<Signal<any> | Computed<any>, Watched>();
+
+/** What the screen shows of `n`: a revealed lane's value, else the committed one (NOT_PENDING: none yet). */
+function shownOf(n: Signal<any> | Computed<any>): unknown {
+  const x = n._x;
+  if (n._config & CONFIG_OVERRIDE && x != null && x._transaction?._shown && x._lane !== NOT_PENDING)
+    return x._lane;
+  return (n as Computed<any>)._statusFlags & STATUS_UNINITIALIZED ? NOT_PENDING : n._value;
+}
+
+/** The screen shows `n`'s optimistic guess (not a derived override or a companion). */
+function showsGuess(n: Signal<any> | Computed<any>): boolean {
+  return (
+    (n._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === (CONFIG_OVERRIDE | CONFIG_GUESS) &&
+    !!n._x!._transaction?._shown &&
+    n._x!._lane !== NOT_PENDING
+  );
+}
+
+/** Its shown value can still change without a new staging: staged, held, or on a lane. */
+function unsettled(n: Signal<any> | Computed<any>): boolean {
+  return (
+    n._pendingValue !== NOT_PENDING ||
+    (n._config & (CONFIG_HELD | CONFIG_OVERRIDE)) !== 0 ||
+    (n._x != null && n._x._transaction !== null)
+  );
+}
+
+function trackStaged(el: Signal<any> | Computed<any>): void {
+  // Effects are not state; their values are what they rendered.
+  if ((el as { _type?: number })._type) return;
+  const origin = ambientOrigin();
+  const w = watched.get(el);
+  if (w !== undefined) {
+    if (origin !== undefined) w.origin = origin;
+    return;
+  }
+  // Watched for the flush record's audience, or for the revert finding (a
+  // guess enters a lane through `list`).
+  if (!records.observed("flush") && !(options.optimisticReverts && el._x?._transaction?._lane))
+    return;
+  const guess = showsGuess(el);
+  watched.set(el, { shown: shownOf(el), guess, covered: el._value, origin });
+}
+
+/** flushEnd: compare, judge the reverts, and list the changes for the record (`live` beside it). */
+function drainChanges(record: boolean, live: FlushLive["changes"]): FlushChange[] {
+  const changes: FlushChange[] = [];
+  if (watched.size === 0) return changes;
+  const bodies = record && records.observed("flush", "bodies");
+  for (const [n, w] of watched) {
+    if ((n as Computed<any>)._flags & REACTIVE_DISPOSED) {
+      watched.delete(n);
+      continue;
+    }
+    const now = shownOf(n);
+    if (!Object.is(now, w.shown)) {
+      const guess = showsGuess(n);
+      if (w.guess && !guess && now !== NOT_PENDING && w.shown !== NOT_PENDING)
+        checkOptimisticRevert(
+          n,
+          w.shown,
+          now,
+          Object.is(now, w.covered) ? "reverted" : "superseded"
+        );
+      if (record && w.shown !== NOT_PENDING && now !== NOT_PENDING && !excludedNode(n)) {
+        const change: FlushChange = { nodeId: devId(n), nodeName: nodeName(n) };
+        if (n._config & CONFIG_SLOT_NODE) change.key = String((n as { _key?: PropertyKey })._key);
+        if (w.origin !== undefined) change.origin = w.origin;
+        changes.push(change);
+        live.push(bodies ? { node: n, prev: w.shown, value: now } : { node: n });
+      }
+      w.shown = now;
+      w.origin = undefined;
+      // A guess's truth is what it covered when it appeared; a new guess over
+      // a shown guess keeps covering the same truth.
+      if (guess && !w.guess) w.covered = n._value;
+      w.guess = guess;
+    }
+    if (!unsettled(n)) watched.delete(n);
+  }
+  return changes;
+}
+
 function trackFlushStart(): void {
   if (!records.observed("flush")) return;
   openFlush = { at: now(), runs: 0, created: 0, held: false, interaction: undefined };
@@ -3885,6 +4030,8 @@ function rebaseFallbacks(from: Transition, into: Transition | typeof DRAIN): voi
 function trackFlushEnd(): void {
   // The drain's own record first: the interactions it settles below waited on it.
   const flush = openFlush;
+  const live: FlushLive = { changes: [] };
+  const changes = drainChanges(flush !== null, live.changes);
   if (flush !== null) {
     openFlush = null;
     const event: FlushEvent = {
@@ -3892,10 +4039,11 @@ function trackFlushEnd(): void {
       durationMs: now() - flush.at,
       runs: flush.runs,
       created: flush.created,
-      held: flush.held
+      held: flush.held,
+      changes
     };
     if (flush.interaction != null) event.interaction = flush.interaction;
-    records.emit("flush", event, undefined);
+    records.emit("flush", event, live);
   }
   drainSeq++;
   // The swaps this drain committed have rendered.
@@ -4509,8 +4657,8 @@ const engineHooks: AttributionHooks = {
     // The folds hear the show at its display (see trackFallback), not here.
     trackFallback(boundary, tree, shown, transition ?? null);
   },
-  optimisticReverted(el, shown, truth, how) {
-    checkOptimisticRevert(el, shown, truth, how);
+  staged(el) {
+    trackStaged(el);
   },
   currentOrigin() {
     return ambientOrigin();
@@ -4552,6 +4700,7 @@ function resetWindows(): void {
 /** The live tracking state — reset only when the engine is (un)installed. */
 function resetTracking(): void {
   frames.length = 0;
+  watched.clear();
   activeHold = null;
   openFlush = null;
   stagedFallbacks.delete(DRAIN);

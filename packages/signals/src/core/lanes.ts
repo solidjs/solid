@@ -60,7 +60,6 @@ import {
   STATUS_PENDING,
   STATUS_UNINITIALIZED
 } from "./constants.js";
-import { attrHooks } from "./attribution-hooks.js";
 import { bornInto, creatorReads, ext, stagedRead, tracking } from "./core.js";
 import { NotReadyError, type StatusError } from "./error.js";
 import {
@@ -509,8 +508,8 @@ export function laneStage(
  * rows) must not tie them together; a pass that derives from the held
  * truth joins the parent on its own (`joinPass`). */
 /** The correction round is replacing a guess with the value it covered (no
- * landing beneath it): observe's "reverted"; the lane gives back the
- * guesses it took (#4336, `endLanes`). */
+ * landing beneath it): the lane gives back the guesses it took (#4336,
+ * `endLanes`). */
 let reverting = false;
 
 export function supersede(n: Signal<any> | Computed<any>, value: unknown, changed: boolean): void {
@@ -525,11 +524,6 @@ export function supersede(n: Signal<any> | Computed<any>, value: unknown, change
   if (changed && n._config & CONFIG_SLOT_NODE && GlobalQueue._echoes?.(n._x!._lane, value))
     changed = false;
   if (changed) {
-    // Observe: a displayed guess is being replaced by a differing truth — a
-    // landing's (superseded), or the value it covered (reverted: the body
-    // ended with nothing coming true).
-    if (__OBSERVE__ && l._shown && attrHooks !== null)
-      attrHooks.optimisticReverted(n, n._x!._lane, value, reverting ? "reverted" : "superseded");
     dissolveLane(l, parent, n);
     if (guessed && reverting) marked.add(l);
     // What the screen showed stays the screen until the parent lands (A18
@@ -591,20 +585,7 @@ function dissolveLane(l: Transaction, into: Transaction | null, except?: Signal<
     if (into === null) {
       // The parent landed: a guess lands the truth beneath it or reverts to
       // the one it covered; a derivation's latest commits (its frame with
-      // it); what the screen showed and changes notifies. Observe: a
-      // displayed guess that lifts to something else — the truth staged
-      // beneath it (superseded by a landing held there) or the value it
-      // covered (reverted: nothing came true).
-      if (__OBSERVE__ && guess && l._shown && attrHooks !== null) {
-        const truth = n._pendingValue !== NOT_PENDING ? n._pendingValue : n._value;
-        if (truth !== slot)
-          attrHooks.optimisticReverted(
-            n,
-            slot,
-            truth,
-            n._pendingValue !== NOT_PENDING ? "superseded" : "reverted"
-          );
-      }
+      // it); what the screen showed and changes notifies.
       // A derivation the revert re-derives (dirtied by the guess's
       // notification — listed before it), or one still in flight, shows the
       // lane's answer beside inputs that are the truth now: a fresh reader
@@ -866,9 +847,9 @@ function laneCorrections(): boolean {
       const n = l._nodes[i];
       if (n._config & CONFIG_GUESS && n._x!._transaction === l) {
         const truth = n._pendingValue !== NOT_PENDING ? n._pendingValue : covered(n);
-        if (__OBSERVE__ || guessed) reverting = n._pendingValue === NOT_PENDING;
+        if (guessed) reverting = n._pendingValue === NOT_PENDING;
         supersede(n, truth, !n._equals || !n._equals(n._x!._lane, truth));
-        if (__OBSERVE__ || guessed) reverting = false;
+        if (guessed) reverting = false;
       }
     }
   }

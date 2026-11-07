@@ -94,6 +94,16 @@ export interface AttributionHooks {
   derivedChanged(el: Computed<any>): void;
   /** A signal write committed (value passed the equality gate). */
   write(el: Signal<any> | Computed<any>, prev: unknown, value: unknown): void;
+  /**
+   * A value for `el` was staged: queued for this flush's commit
+   * (`queuePendingNode`) or put on a transaction's or lane's list (`list`).
+   * What the screen shows of `el` may change at the end of this drain, or of
+   * a later one if the value is held. The engine compares what `el` showed
+   * before with what it shows at `flushEnd` — the one place a drain's visible
+   * changes are known — so core never has to say where a value became visible
+   * (a commit, a landing, a lane's reveal or lift).
+   */
+  staged(el: Signal<any> | Computed<any>): void;
   /** refresh() invalidated this node (self-invalidation, no dep changed). */
   refreshed(el: Computed<any>): void;
   /**
@@ -208,21 +218,6 @@ export interface AttributionHooks {
     tree: Computed<any> | undefined,
     shown: boolean,
     transition?: Transition | null
-  ): void;
-  /**
-   * An optimistic override the screen displayed is being replaced by a
-   * different value. `"superseded"`: a new authoritative value landed that
-   * differs from the guess (tracked readers re-derive to it). `"reverted"`:
-   * nothing new landed and the guess lifts back to the committed value it
-   * covered (the action failed, or never wrote what it promised). `shown`
-   * is the override as displayed. Fired when the two differ by identity;
-   * the engine applies the node's own equality before judging.
-   */
-  optimisticReverted(
-    el: Signal<any> | Computed<any>,
-    shown: unknown,
-    truth: unknown,
-    how: "superseded" | "reverted"
   ): void;
   /**
    * The one query on the surface: the provenance a root write performed at

@@ -19,7 +19,6 @@ const { getChildren, getSignals, getParent, getSources, getObservers } = DEV!;
 afterEach(() => {
   DEV!.hooks.onOwner = undefined;
   DEV!.hooks.onGraph = undefined;
-  DEV!.hooks.onUpdate = undefined;
   DEV!.hooks.onStoreNodeUpdate = undefined;
 });
 
@@ -179,52 +178,6 @@ describe("Phase 1b: Notification hooks", () => {
         createStore({ count: 0 });
       });
       expect(entries.length).toBe(1);
-    });
-  });
-
-  describe("onUpdate", () => {
-    it("fires once per flush", () => {
-      const calls: number[] = [];
-      DEV!.hooks.onUpdate = () => calls.push(1);
-      let setCount: (v: number) => void;
-      createRoot(() => {
-        const [count, _setCount] = createSignal(0);
-        setCount = _setCount;
-        createEffect(
-          () => count(),
-          () => {}
-        );
-        flush();
-        expect(calls.length).toBe(1);
-      });
-
-      setCount!(1);
-      flush();
-      expect(calls.length).toBe(2);
-    });
-
-    it("fires once even with multiple signal writes", () => {
-      const calls: number[] = [];
-      DEV!.hooks.onUpdate = () => calls.push(1);
-      let setA: (v: number) => void;
-      let setB: (v: number) => void;
-      createRoot(() => {
-        const [a, _setA] = createSignal(0);
-        const [b, _setB] = createSignal(0);
-        setA = _setA;
-        setB = _setB;
-        createEffect(
-          () => a() + b(),
-          () => {}
-        );
-        flush();
-      });
-      const before = calls.length;
-
-      setA!(1);
-      setB!(2);
-      flush();
-      expect(calls.length - before).toBe(1);
     });
   });
 

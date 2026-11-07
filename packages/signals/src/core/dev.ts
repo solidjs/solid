@@ -13,6 +13,7 @@ import type {
   FallbackEvent,
   FlightEvent,
   FlushEvent,
+  FlushLive,
   GraphEvent,
   HoldEvent,
   InteractionEvent,
@@ -38,7 +39,6 @@ import type { Computed, Link, Owner, Root, Signal } from "./types.js";
 export interface DevHooks {
   onOwner?: (owner: Owner) => void;
   onGraph?: (value: any, owner: Owner | null) => void;
-  onUpdate?: () => void;
   onStoreNodeUpdate?: (state: any, property: PropertyKey, value: any, prev: any) => void;
   /** @internal Every node read (the frames client's identity-drift check; `setReadWatch`). */
   onRead?: (node: object) => void;
@@ -302,8 +302,9 @@ export interface AttributionSlot {
  * about where there is one — the node that ran for `rerun`, `create` and
  * `effect`, the async node for `flight`, the boundary's subtree for
  * `fallback` (when the boundary reported one), the first held root signal
- * for `hold` (the subject the SILENT_HOLD finding names) — and `undefined`
- * for the records with no single subject (`flush`, `interaction`,
+ * for `hold` (the subject the SILENT_HOLD finding names), the changed
+ * nodes for `flush` (`FlushLive`, with their values under `bodies`) — and
+ * `undefined` for the records with no single subject (`interaction`,
  * `navigation`, `graph`). The records are the same objects the engine's
  * ring buffers hold (`attribution.history(type)`), delivered synchronously
  * the moment each is complete — a re-run at recompute end, a hold, a
@@ -319,7 +320,7 @@ export interface RecordTypes extends HostRecordTypes {
   rerun: { event: RerunEvent; live: Computed<any> };
   create: { event: CreateEvent; live: Computed<any> };
   effect: { event: EffectRunEvent; live: Computed<any> };
-  flush: { event: FlushEvent; live: undefined };
+  flush: { event: FlushEvent; live: FlushLive };
   flight: { event: FlightEvent; live: Computed<any> };
   fallback: { event: FallbackEvent; live: Computed<any> | undefined };
   interaction: { event: InteractionEvent; live: undefined };
