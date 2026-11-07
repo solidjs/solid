@@ -114,25 +114,24 @@ export default {
           { t: "task" }
         ]
       },
-      status: "ruled-not-built",
       frames: [
         { after: "render", screen: "<span>vm0:1 </span>" },
         {
           after: 1,
-          screen: "—",
-          note: "`m = 1 + x + isPending(x)`: the memo reads `x` plainly, so it is the hold's work (D-1) — its own probe does not make the stale 0 showable; pending never shows through a memo that also reads the value (ruled 2026-11-07, reversing the 2026-11-05 row)"
+          screen: "<span>vm0:2 </span>",
+          note: "`m = 1 + x + isPending(x)`: the memo probes x and reads it plainly in one pass — the plain read is the screen's 0 and the probe is true, shown now (A10, D-25); the memo is not the hold's work"
         },
-        { after: 3, screen: "<span>vm0:6 </span>", note: "the frame" }
+        { after: 3, screen: "<span>vm0:6 </span>" }
       ],
       forbid: [
         {
           after: 1,
-          screen: "<span>vm0:2 </span>",
-          why: "the memo deriving from the screen's stale 0 beside `pending true` (#3905's merge, read the wrong way round)"
+          screen: "<span>vm0:1 </span>",
+          why: "the memo held with the write it probed: the spinner would show only at the commit"
         }
       ]
     }
   ],
   prose:
-    "On a plain signal or sync memo the `latest` form is never pending. The memo case was the pass-level half of D-25 and is reversed: a memo that reads a held value plainly holds, probe or not. Whether a render effect reading `[isPending(x), x()]` in one scope is the exception (case 1, standing today) is open; S-52 carries that question."
+    "On a plain signal or sync memo the `latest` form is never pending. The memo case is the pass-level half of D-25: a plain read of a node the pass also probed is the screen's."
 } satisfies Ruling;
