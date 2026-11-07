@@ -402,19 +402,18 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       : null
     : null;
   if (laneStageHook) {
+    // The creator's flags on a first pass (0 with no creator running).
+    const cf = create ? (creatorPass(context)?._flags as number) | 0 : 0;
     // S-46 (D-25): a first pass under a pass that probed is the mount a
     // display-ahead read gates — stamped once, read by `frameRead`.
-    if (create && (creatorPass(context)?._flags as number) & REACTIVE_PROBED)
-      el._config |= CONFIG_MOUNT_AHEAD;
+    if (cf & REACTIVE_PROBED) el._config |= CONFIG_MOUNT_AHEAD;
     setPassLane(
       (el._flags & REACTIVE_LANE_DIRTY ||
         (el._config & (CONFIG_OVERRIDE | CONFIG_GUESS)) === CONFIG_OVERRIDE) &&
         el._x?._transaction?._lane
         ? el._x._transaction
         : // Loose `!=`: false with no creator lane (undefined == null).
-          create &&
-            prevLane?._parent!._verdict != prevLane &&
-            (creatorPass(context)?._flags as number) & REACTIVE_RECOMPUTING_DEPS
+          prevLane?._parent!._verdict != prevLane && cf & REACTIVE_RECOMPUTING_DEPS
           ? prevLane
           : null
     );
