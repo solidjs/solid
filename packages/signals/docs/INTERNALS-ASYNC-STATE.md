@@ -351,10 +351,18 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   shows at once), S-52 (the #4349 held shape was the odd one out), S-53
   (`latest` shows a held recovery ahead, value/error symmetry), S-54
   (pending stays true for a held, unshowable answer), S-56 (a guess before
-  the first answer shows); S-55 standing (F-11). Implementation deferred on
-  purpose — how a pass is known to ask before it asks is the mechanism's
-  problem, not the rule's; a `truth-asks` oracle in the generator runner
-  records every stale ask today. Last, S-57 (the experiment's A2, "optimism
+  the first answer shows); S-55 standing (F-11). Built the same day for S-51
+  (`askerJoins`, core `frameRead`/`read`, verdict.ts, scheduler `laneDirty`,
+  the seat table's V0/Vp0 rows): the marker is `CONFIG_ASYNC` kept across
+  windows (`holdWork` pairs it with CONFIG_OWN_PROBE); a plain or
+  `isPending` read of a held or staged node by such a pass joins the frame
+  and un-seats it from a verdict lane; it is re-derived by neither the seam
+  nor a verdict lane's pass; it carries no inherited verdict posture, so a
+  memo over it inherits none (#4504). `latest`-only askers stay lane work
+  (F-6), so the verdict lane keeps those flights — the simplification §17
+  hoped for is not there. Cost: +205 B brotli on the isPending/latest chunk.
+  The `truth-asks` oracle's twelve gate cases became improvements; 29 pins
+  in four files lost their display-ahead questions. Last, S-57 (the experiment's A2, "optimism
   winning when combined"): a plain write whose derivation became a guess's
   lane work was published beside the stale derivation because the lane had
   taken the only question; ruled F-2 as written — the write holds on the

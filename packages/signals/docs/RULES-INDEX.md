@@ -473,58 +473,58 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 |---|---|---|---|---|---|
 | S-1 | prose | `docs/SCENARIOS.md:18` | — | — | [prose] Navigation: page B appears whole — D-1, F-2, F-7 |
 | S-2 | prose | `docs/SCENARIOS.md:41` | — | — | [prose] A memo that starts reading a held value reveals with it — D-1 (#3408) |
-| S-3 | executable, standing | `docs/SCENARIOS.md:62` | — | — | [executable, standing] A mount during a hold: a derivation born held holds the mount; the branch appears whole at the commit — D-1, D-3 (A29) |
-| S-4 | prose | `docs/SCENARIOS.md:93` | — | — | [prose] One hole, two sources: an unrelated sync write passes through — D-3 (A15 shared hole) |
-| S-5 | prose | `docs/SCENARIOS.md:116` | constants.ts×1 | boundary-mounts-separate-flushes-4283.test.ts×1 | [prose] Membership is the tick's — D-4 |
-| S-6 | executable, standing | `docs/SCENARIOS.md:136` | — | — | [executable, standing] A new async memo a render effect consumes waits with the hold — D-1, F-2 (#3800) |
-| S-7 | prose | `docs/SCENARIOS.md:185` | — | — | [prose] Root mount with uncaught async waits to attach; with a boundary it shows the fallback — D-6, D-12 |
-| S-8 | prose | `docs/SCENARIOS.md:207` | — | — | [prose] An action holds its writes; display-ahead readers show them — D-7, F-2, F-6, F-10 |
-| S-9 | prose | `docs/SCENARIOS.md:225` | — | — | [prose] `yield` is the hold-safe suspension; a fresh write after `await` escapes — D-7 (A26) |
-| S-10 | prose | `docs/SCENARIOS.md:248` | — | — | [prose] A write is a proposal — D-8 (A34) |
-| S-11 | prose | `docs/SCENARIOS.md:267` | — | — | [prose] Entanglement through a shared derivation; a reveal that discovers a flight — D-9 (A15) |
-| S-12 | prose | `docs/SCENARIOS.md:286` | — | — | [prose] The committed frame keeps its inputs — D-10 (A30) |
-| S-13 | prose | `docs/SCENARIOS.md:310` | — | — | [prose] The last on-screen reader leaving releases the hold — D-11 (O3) |
-| S-14 | prose | `docs/SCENARIOS.md:330` | — | boundary-fallback-held-swap-3991.test.ts×1 | [prose] A fresh `<Loading>` a separate change mounts over a held value shows its fallback now — D-12 (#3540) |
-| S-15 | prose | `docs/SCENARIOS.md:358` | — | — | [prose] A boundary whose own mount is held appears at that hold's commit — D-13 |
-| S-16 | prose | `docs/SCENARIOS.md:378` | — | — | [prose] A `Loading` reset ends the hold on writes only its readers observed; an outside reader keeps it — D-14 (A33, #3375) |
-| S-17 | prose | `docs/SCENARIOS.md:398` | — | — | [prose] After a reset the fallback stays until every reader under it settles — D-14 (#3459) |
-| S-18 | prose | `docs/SCENARIOS.md:415` | — | — | [prose] `on` follows the frame of the change — D-15 (#3575) |
-| S-19 | prose | `docs/SCENARIOS.md:437` | — | — | [prose] A same-source outside read: the fallback is armed off screen and never seen — D-16 |
-| S-20 | prose | `docs/SCENARIOS.md:453` | — | — | [prose] The action outlasts the data: a race the fallback lost, not reported — D-16 |
-| S-21 | executable, standing | `docs/SCENARIOS.md:466` | — | — | [executable, standing] A display-ahead read in `on` shows the fallback now, beside the held frame — D-17 |
-| S-22 | prose | `docs/SCENARIOS.md:538` | boundaries.ts×1 | loading-on-rearm-fallback-effect-4268.test.ts×1 | [prose] A fallback that itself reads pending data — D-18 |
-| S-23 | prose | `docs/SCENARIOS.md:561` | — | — | [prose] Queued runs behind a fallback wait; portals included — D-19 |
-| S-24 | prose | `docs/SCENARIOS.md:571` | — | — | [prose] An armed boundary lets a lane reveal immediately — D-21 |
-| S-25 | executable, standing | `docs/SCENARIOS.md:596` | — | — | [executable, standing] Nothing shows a write before its flush; then every channel at once — D-22 (A28) |
-| S-26 | executable, standing | `docs/SCENARIOS.md:639` | — | — | [executable, standing] `isPending` is about a new question — D-23 (A19, A24) |
-| S-27 | executable, standing | `docs/SCENARIOS.md:665` | — | — | [executable, standing] `[isPending(x), x()]` is atomic; the `latest` form follows x's own async only — D-23, D-25 (A10, A8) |
-| S-28 | prose | `docs/SCENARIOS.md:706` | — | latest-uninitialized-over-latest-4362.test.ts×1 | [prose] `isPending` never throws unowned; `latest` throws uninitialized everywhere — D-24 (A16, A7) |
-| S-29 | executable, standing | `docs/SCENARIOS.md:718` | scheduler.ts×1 | — | [executable, standing] A display-ahead reader's own async is held — D-25 (A31, #3442) |
-| S-30 | prose | `docs/SCENARIOS.md:762` | — | — | [prose] A `latest()` reader mounted mid-hold shows the committed value and reveals with the lane — D-26 (#3460) |
-| S-31 | executable, standing | `docs/SCENARIOS.md:788` | — | display-ahead-plain-write-content.test.ts×3 | [executable, standing] A verdict reader's mount is mainline: `Show when={latest(x)}` → `Loading` shows its fallback — D-1, D-25 (#3851) |
-| S-32 | prose | `docs/SCENARIOS.md:993` | — | — | [prose] An optimistic write shows from its flush; held writes beside it; one frame at the end — D-32, D-33 (A17) |
-| S-33 | executable, standing | `docs/SCENARIOS.md:1022` | — | — | [executable, standing] A different truth corrects the graph now and the screen at the commit; a never-shown guess is void — D-34 (#3331) |
-| S-34 | prose | `docs/SCENARIOS.md:1047` | — | — | [prose] Provenance: an older action's late answer never corrects a newer guess — D-35 (Q-D) |
-| S-35 | prose | `docs/SCENARIOS.md:1065` | — | — | [prose] The body's end corrects a guess nothing authoritative is answering — D-35 (#3427) |
-| S-36 | prose | `docs/SCENARIOS.md:1108` | — | — | [prose] A declared first paint is loading, not pending — D-30 (A27) |
-| S-37 | prose | `docs/SCENARIOS.md:1126` | — | derived-store-ispending-boundary-4269.test.ts×1 | [prose] A derived store's seed is never visible; pending is per key — D-30 (A25, A22, A9) |
-| S-38 | prose | `docs/SCENARIOS.md:1142` | async.ts×1 | — | [prose] An error is a boundary returning to its fallback; a write beside an old error — D-39 (§27 7b) |
-| S-39 | prose | `docs/SCENARIOS.md:875` | lanes.ts×2 seat.ts×1 | latest-first-later-throw-4275.test.ts×1 | [prose] A later unread value still throws — D-28 |
-| S-40 | prose | `docs/SCENARIOS.md:896` | — | first-load-superseded-answer-4569.test.ts×3 | [prose] A fresh `<Loading>` that reads only `latest` shows it now — D-12, F-6 |
-| S-41 | prose | `docs/SCENARIOS.md:1238` | — | — | [prose] Independent panels over one selection: the write shows now, each panel lags to its own landing — D-40 |
-| S-42 | prose | `docs/SCENARIOS.md:1166` | — | error-is-an-answer.test.ts×2 | [prose] A held rejection reveals with its frame — D-41 (#3886) |
-| S-43 | prose | `docs/SCENARIOS.md:1224` | — | error-is-an-answer.test.ts×2 | [prose] A held recovery keeps the shown error; recovering to the last good value is a change — D-41, D-39 (#3886) |
-| S-44 | executable, ruled-not-built | `docs/SCENARIOS.md:1076` | — | optimistic-outside-reask-4690.test.ts×2 | [executable, ruled-not-built] An outside input change under a guess is held with the guess's hold — D-34, F-1 (#4336) |
-| S-45 | executable, ruled-not-built | `docs/SCENARIOS.md:930` | — | — | [executable, ruled-not-built] A first answer landing in the same tick as an action that writes its input: `latest` shows it, the plain read waits — D-22, F-9 (E9) |
-| S-46 | executable, standing | `docs/SCENARIOS.md:811` | verdict.ts×1 | display-ahead-plain-write-content.test.ts×2 | [executable, standing] The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-25 |
-| S-47 | prose | `docs/SCENARIOS.md:1190` | dev.ts×1 | caught-reactive-read-diagnostic.test.ts×2 try-catch-reactive-read.test.ts×1 | [prose] `try/catch` around a reactive read: caught on one pass, bypassed on the next — D-42, F-12 |
-| S-48 | executable, standing | `docs/SCENARIOS.md:490` | — | — | [executable, standing] `on={id()}`: the `on` pass reads the held value plainly, so the swap lands with the write's frame — D-17 (#3540) |
-| S-49 | executable, ruled-not-built | `docs/SCENARIOS.md:514` | seat.ts×3 | — | [executable, ruled-not-built] A mixed `on`: a plain read of a held value makes the re-arm wait — D-17 |
-| S-50 | executable, ruled-not-built | `docs/SCENARIOS.md:741` | seat.ts×4 | — | [executable, ruled-not-built] A memo that probed once, re-run by a sync write, holds the tick — D-25 |
-| S-51 | executable, standing | `docs/SCENARIOS.md:1266` | core.ts×1 scheduler.ts×1 seat.ts×5 verdict.ts×2 | latest-first-one-pass-4402.test.ts×1 latest-two-readers-one-ask-4393.test.ts×4 midflight-memo-over-reask-4504.test.ts×1 unread-derive-midflight-mount-4491.test.ts×1 verdict-memo-flight-no-reask.test.ts×1 | [executable, standing] A question is asked only of the truth: an async derivation of a held value is the hold's, never a display-ahead pass — F-2, F-6, D-25 (#4677) |
-| S-52 | executable, standing | `docs/SCENARIOS.md:1292` | — | — | [executable, standing] `[isPending(x), x()]` in one pass shows pending beside the committed value — the display's declared inconsistency, in a render effect or a memo alike — D-25, D-23, F-6 (#4349, #… |
-| S-53 | executable, ruled-not-built | `docs/SCENARIOS.md:1345` | — | — | [executable, ruled-not-built] `latest` shows a held recovery ahead, as it shows a held value: the boundary recovers while the action is open — D-41, D-22, F-6 (#4403) |
-| S-54 | executable, ruled-not-built | `docs/SCENARIOS.md:1369` | — | — | [executable, ruled-not-built] `isPending` of a ready answer the frame still holds: cleared, or pending until it shows — D-23 |
-| S-55 | executable, standing | `docs/SCENARIOS.md:1394` | — | — | [executable, standing] `refresh` of an optimistic derivation under a guess: the authoritative view replaces the guess, or the guess stays until its action ends — F-11, D-34 |
-| S-56 | executable, ruled-not-built | `docs/SCENARIOS.md:1420` | — | — | [executable, ruled-not-built] A guess before the first answer is the newest value the node has produced: it shows, and the first answer judges it — F-11, D-22, D-2 |
-| S-57 | executable, standing | `docs/SCENARIOS.md:1445` | core.ts×1 verdict.ts×1 | — | [executable, standing] A change whose derivation became a guess's lane work holds on that flight, and reveals with the lane — F-2, F-1, F-6 |
+| S-3 | executable, standing | `docs/SCENARIOS.md:63` | — | — | [executable, standing] A mount during a hold: a derivation born held holds the mount; the branch appears whole at the commit — D-1, D-3 (A29) |
+| S-4 | prose | `docs/SCENARIOS.md:95` | — | — | [prose] One hole, two sources: an unrelated sync write passes through — D-3 (A15 shared hole) |
+| S-5 | prose | `docs/SCENARIOS.md:118` | constants.ts×1 | boundary-mounts-separate-flushes-4283.test.ts×1 | [prose] Membership is the tick's — D-4 |
+| S-6 | executable, standing | `docs/SCENARIOS.md:139` | — | — | [executable, standing] A new async memo a render effect consumes waits with the hold — D-1, F-2 (#3800) |
+| S-7 | prose | `docs/SCENARIOS.md:189` | — | — | [prose] Root mount with uncaught async waits to attach; with a boundary it shows the fallback — D-6, D-12 |
+| S-8 | prose | `docs/SCENARIOS.md:211` | — | — | [prose] An action holds its writes; display-ahead readers show them — D-7, F-2, F-6, F-10 |
+| S-9 | prose | `docs/SCENARIOS.md:229` | — | — | [prose] `yield` is the hold-safe suspension; a fresh write after `await` escapes — D-7 (A26) |
+| S-10 | prose | `docs/SCENARIOS.md:252` | — | — | [prose] A write is a proposal — D-8 (A34) |
+| S-11 | prose | `docs/SCENARIOS.md:271` | — | — | [prose] Entanglement through a shared derivation; a reveal that discovers a flight — D-9 (A15) |
+| S-12 | prose | `docs/SCENARIOS.md:290` | — | — | [prose] The committed frame keeps its inputs — D-10 (A30) |
+| S-13 | prose | `docs/SCENARIOS.md:314` | — | — | [prose] The last on-screen reader leaving releases the hold — D-11 (O3) |
+| S-14 | prose | `docs/SCENARIOS.md:334` | — | boundary-fallback-held-swap-3991.test.ts×1 | [prose] A fresh `<Loading>` a separate change mounts over a held value shows its fallback now — D-12 (#3540) |
+| S-15 | prose | `docs/SCENARIOS.md:362` | — | — | [prose] A boundary whose own mount is held appears at that hold's commit — D-13 |
+| S-16 | prose | `docs/SCENARIOS.md:382` | — | — | [prose] A `Loading` reset ends the hold on writes only its readers observed; an outside reader keeps it — D-14 (A33, #3375) |
+| S-17 | prose | `docs/SCENARIOS.md:402` | — | — | [prose] After a reset the fallback stays until every reader under it settles — D-14 (#3459) |
+| S-18 | prose | `docs/SCENARIOS.md:419` | — | — | [prose] `on` follows the frame of the change — D-15 (#3575) |
+| S-19 | prose | `docs/SCENARIOS.md:441` | — | — | [prose] A same-source outside read: the fallback is armed off screen and never seen — D-16 |
+| S-20 | prose | `docs/SCENARIOS.md:457` | — | — | [prose] The action outlasts the data: a race the fallback lost, not reported — D-16 |
+| S-21 | executable, standing | `docs/SCENARIOS.md:471` | — | — | [executable, standing] A display-ahead read in `on` shows the fallback now, beside the held frame — D-17 |
+| S-22 | prose | `docs/SCENARIOS.md:548` | boundaries.ts×1 | loading-on-rearm-fallback-effect-4268.test.ts×1 | [prose] A fallback that itself reads pending data — D-18 |
+| S-23 | prose | `docs/SCENARIOS.md:571` | — | — | [prose] Queued runs behind a fallback wait; portals included — D-19 |
+| S-24 | prose | `docs/SCENARIOS.md:581` | — | — | [prose] An armed boundary lets a lane reveal immediately — D-21 |
+| S-25 | executable, standing | `docs/SCENARIOS.md:607` | — | — | [executable, standing] Nothing shows a write before its flush; then every channel at once — D-22 (A28) |
+| S-26 | executable, standing | `docs/SCENARIOS.md:652` | — | — | [executable, standing] `isPending` is about a new question — D-23 (A19, A24) |
+| S-27 | executable, standing | `docs/SCENARIOS.md:682` | — | — | [executable, standing] `[isPending(x), x()]` is atomic; the `latest` form follows x's own async only — D-23, D-25 (A10, A8) |
+| S-28 | prose | `docs/SCENARIOS.md:724` | — | latest-uninitialized-over-latest-4362.test.ts×1 | [prose] `isPending` never throws unowned; `latest` throws uninitialized everywhere — D-24 (A16, A7) |
+| S-29 | executable, standing | `docs/SCENARIOS.md:737` | scheduler.ts×1 | — | [executable, standing] A display-ahead reader's own async is held — D-25 (A31, #3442) |
+| S-30 | prose | `docs/SCENARIOS.md:786` | — | — | [prose] A `latest()` reader mounted mid-hold shows the committed value and reveals with the lane — D-26 (#3460) |
+| S-31 | executable, standing | `docs/SCENARIOS.md:813` | — | display-ahead-plain-write-content.test.ts×3 | [executable, standing] A verdict reader's mount is mainline: `Show when={latest(x)}` → `Loading` shows its fallback — D-1, D-25 (#3851) |
+| S-32 | prose | `docs/SCENARIOS.md:1023` | — | — | [prose] An optimistic write shows from its flush; held writes beside it; one frame at the end — D-32, D-33 (A17) |
+| S-33 | executable, standing | `docs/SCENARIOS.md:1053` | — | — | [executable, standing] A different truth corrects the graph now and the screen at the commit; a never-shown guess is void — D-34 (#3331) |
+| S-34 | prose | `docs/SCENARIOS.md:1079` | — | — | [prose] Provenance: an older action's late answer never corrects a newer guess — D-35 (Q-D) |
+| S-35 | prose | `docs/SCENARIOS.md:1097` | — | — | [prose] The body's end corrects a guess nothing authoritative is answering — D-35 (#3427) |
+| S-36 | prose | `docs/SCENARIOS.md:1142` | — | — | [prose] A declared first paint is loading, not pending — D-30 (A27) |
+| S-37 | prose | `docs/SCENARIOS.md:1160` | — | derived-store-ispending-boundary-4269.test.ts×1 | [prose] A derived store's seed is never visible; pending is per key — D-30 (A25, A22, A9) |
+| S-38 | prose | `docs/SCENARIOS.md:1176` | async.ts×1 | — | [prose] An error is a boundary returning to its fallback; a write beside an old error — D-39 (§27 7b) |
+| S-39 | prose | `docs/SCENARIOS.md:903` | lanes.ts×2 seat.ts×1 | latest-first-later-throw-4275.test.ts×1 | [prose] A later unread value still throws — D-28 |
+| S-40 | prose | `docs/SCENARIOS.md:924` | — | first-load-superseded-answer-4569.test.ts×3 | [prose] A fresh `<Loading>` that reads only `latest` shows it now — D-12, F-6 |
+| S-41 | prose | `docs/SCENARIOS.md:1272` | — | — | [prose] Independent panels over one selection: the write shows now, each panel lags to its own landing — D-40 |
+| S-42 | prose | `docs/SCENARIOS.md:1200` | — | error-is-an-answer.test.ts×2 | [prose] A held rejection reveals with its frame — D-41 (#3886) |
+| S-43 | prose | `docs/SCENARIOS.md:1258` | — | error-is-an-answer.test.ts×2 | [prose] A held recovery keeps the shown error; recovering to the last good value is a change — D-41, D-39 (#3886) |
+| S-44 | executable, ruled-not-built | `docs/SCENARIOS.md:1109` | — | optimistic-outside-reask-4690.test.ts×2 | [executable, ruled-not-built] An outside input change under a guess is held with the guess's hold — D-34, F-1 (#4336) |
+| S-45 | executable, ruled-not-built | `docs/SCENARIOS.md:959` | — | — | [executable, ruled-not-built] A first answer landing in the same tick as an action that writes its input: `latest` shows it, the plain read waits — D-22, F-9 (E9) |
+| S-46 | executable, standing | `docs/SCENARIOS.md:838` | verdict.ts×1 | display-ahead-plain-write-content.test.ts×2 | [executable, standing] The content a display-ahead `Show` opens reads the screen, whoever opened the hold — D-25 |
+| S-47 | prose | `docs/SCENARIOS.md:1224` | dev.ts×1 | caught-reactive-read-diagnostic.test.ts×2 try-catch-reactive-read.test.ts×1 | [prose] `try/catch` around a reactive read: caught on one pass, bypassed on the next — D-42, F-12 |
+| S-48 | executable, standing | `docs/SCENARIOS.md:497` | — | — | [executable, standing] `on={id()}`: the `on` pass reads the held value plainly, so the swap lands with the write's frame — D-17 (#3540) |
+| S-49 | executable, ruled-not-built | `docs/SCENARIOS.md:523` | seat.ts×3 | — | [executable, ruled-not-built] A mixed `on`: a plain read of a held value makes the re-arm wait — D-17 |
+| S-50 | executable, ruled-not-built | `docs/SCENARIOS.md:762` | seat.ts×4 | — | [executable, ruled-not-built] A memo that probed once, re-run by a sync write, holds the tick — D-25 |
+| S-51 | executable, standing | `docs/SCENARIOS.md:1301` | core.ts×1 scheduler.ts×1 seat.ts×5 verdict.ts×2 | latest-first-one-pass-4402.test.ts×1 latest-two-readers-one-ask-4393.test.ts×4 midflight-memo-over-reask-4504.test.ts×1 unread-derive-midflight-mount-4491.test.ts×1 verdict-memo-flight-no-reask.test.ts×1 | [executable, standing] A question is asked only of the truth: an async derivation of a held value is the hold's, never a display-ahead pass — F-2, F-6, D-25 (#4677) |
+| S-52 | executable, standing | `docs/SCENARIOS.md:1331` | — | — | [executable, standing] `[isPending(x), x()]` in one pass shows pending beside the committed value — the display's declared inconsistency, in a render effect or a memo alike — D-25, D-23, F-6 (#4349, #… |
+| S-53 | executable, ruled-not-built | `docs/SCENARIOS.md:1386` | — | — | [executable, ruled-not-built] `latest` shows a held recovery ahead, as it shows a held value: the boundary recovers while the action is open — D-41, D-22, F-6 (#4403) |
+| S-54 | executable, ruled-not-built | `docs/SCENARIOS.md:1412` | — | — | [executable, ruled-not-built] `isPending` of a ready answer the frame still holds: cleared, or pending until it shows — D-23 |
+| S-55 | executable, standing | `docs/SCENARIOS.md:1439` | — | — | [executable, standing] `refresh` of an optimistic derivation under a guess: the authoritative view replaces the guess, or the guess stays until its action ends — F-11, D-34 |
+| S-56 | executable, ruled-not-built | `docs/SCENARIOS.md:1467` | — | — | [executable, ruled-not-built] A guess before the first answer is the newest value the node has produced: it shows, and the first answer judges it — F-11, D-22, D-2 |
+| S-57 | executable, standing | `docs/SCENARIOS.md:1496` | core.ts×1 verdict.ts×1 | — | [executable, standing] A change whose derivation became a guess's lane work holds on that flight, and reveals with the lane — F-2, F-1, F-6 |
