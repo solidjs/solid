@@ -27,7 +27,6 @@ export default {
   names: { s0: "s", m0: "x", m1: "both" },
   cases: [
     {
-      status: "ruled-not-built",
       scenario: {
         signals: [41],
         memos: [asyncMemo(s(0))],

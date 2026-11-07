@@ -392,7 +392,18 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   optimistic stores: without it the store's screen stays loading while an
   untracked read sees the guess, and the first answer folds the guess in
   rather than judging a shown one — store engine work, parked with the
-  store branch. Three pins flipped. Last, S-57 (the experiment's A2, "optimism
+  store branch. Three pins flipped. S-52's #4349 shape built next
+  (verdict.ts `observeFlight`): a render effect routed into a verdict lane
+  no longer reads a flight "as lane work" that holds nothing (the D-26
+  arm, #4661) — it observes the flight as a memo reading the same pair
+  does (`verdictRead`, a frame reader), so an action ending inside the
+  call is held on the flight it just probed instead of landing beneath it
+  (CONFIG_INPUTS_PUBLISHED, #3305) and re-running the effect on the
+  committed world, where the published-inputs read parked it. The pair
+  shows `[true, 41]` ahead in every shape — render effect or memo, probe
+  before or after the plain read — and the landing reveals `[false, 42]`.
+  One pin flipped (the #4349 file's last case); the refresh shapes are
+  unchanged. A few bytes fewer. Last, S-57 (the experiment's A2, "optimism
   winning when combined"): a plain write whose derivation became a guess's
   lane work was published beside the stale derivation because the lane had
   taken the only question; ruled F-2 as written — the write holds on the

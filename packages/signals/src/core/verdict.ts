@@ -157,10 +157,11 @@ function route(c: Computed<any>, t: Transaction): void {
  * transaction (`bornInto`, #4010): it has no screen — it waits on the flight
  * with the rest of its frame. */
 function observeFlight(c: Computed<any>, el: Computed<any>): boolean {
-  // A render effect routed into a verdict lane reads the screen as lane
-  // work (D-26). A memo still observes the flight: a plain read after its
-  // window is the frame's read, as one before it is (A10, F-6, #4661).
-  if (passLane && (c as any)._type && !(c._statusFlags & STATUS_UNINITIALIZED)) return true;
+  // A plain read after the pass's window is the frame's read, as one before
+  // it is (A10, F-6, #4661): the reader observes the flight — a render
+  // effect routed into a verdict lane too (S-52, 2026-11-07; before, it read
+  // the screen as lane work and held nothing, so an action ending inside the
+  // call landed beneath the flight it had just probed, #4349's held shape).
   if (el._config & CONFIG_INPUTS_PUBLISHED || (el._config & CONFIG_HELD && bornInto(c, txOf(el))))
     return false;
   // A derived store's derive whose store has no reader (`fam.live` empty:
