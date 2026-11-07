@@ -3165,6 +3165,12 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 escape_html_text_expression(text)
             }
         };
+        // The caller escapes a literal at the top when it inlines it into
+        // the template. A literal in a branch or a return is the hole's
+        // value, which `_$ssr` and `_$ssrAttribute` write as is, so those
+        // positions escape literals. The exception is a function value in an
+        // attribute: `_$ssrAttribute` stringifies its source.
+        let return_literals = escape_literals || !attr;
         match value {
             Expression::StringLiteral(literal) => {
                 if escape_literals {
@@ -3179,7 +3185,9 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             Expression::NumericLiteral(_) => {}
             Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
                 if escape_literals {
-                    let escaped = escape_static(&template.quasis[0].value.raw);
+                    let quasi = &template.quasis[0].value;
+                    let text = quasi.cooked.as_deref().unwrap_or(quasi.raw.as_str());
+                    let escaped = escape_static(text);
                     *value = self.ast().expression_string_literal(
                         template.span,
                         self.ast().str(&escaped),
@@ -3189,14 +3197,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             }
             Expression::ArrowFunctionExpression(arrow) => {
                 if let Some(expression) = arrow.get_expression_mut() {
-                    self.escape_expression_in_place(expression, attr, escape_literals);
+                    self.escape_expression_in_place(expression, attr, return_literals);
                 } else if let Some(body) = arrow.get_function_body_mut() {
-                    self.escape_body_returns(&mut body.statements, false, attr, escape_literals);
+                    self.escape_body_returns(&mut body.statements, false, attr, return_literals);
                 }
             }
             Expression::FunctionExpression(function) => {
                 if let Some(body) = function.body.as_mut() {
-                    self.escape_body_returns(&mut body.statements, false, attr, escape_literals);
+                    self.escape_body_returns(&mut body.statements, false, attr, return_literals);
                 }
             }
             Expression::TemplateLiteral(template) => {
@@ -3217,15 +3225,15 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 self.escape_expression_in_place(&mut binary.right, attr, escape_literals);
             }
             Expression::ConditionalExpression(conditional) => {
-                self.escape_expression_in_place(&mut conditional.consequent, attr, escape_literals);
-                self.escape_expression_in_place(&mut conditional.alternate, attr, escape_literals);
+                self.escape_expression_in_place(&mut conditional.consequent, attr, true);
+                self.escape_expression_in_place(&mut conditional.alternate, attr, true);
             }
             // `&&` keeps the cheaper short-circuit path; `||`/`??` escape the
             // selected result as a whole (default wrap below).
             Expression::LogicalExpression(logical)
                 if logical.operator == oxc_ast::ast::LogicalOperator::And =>
             {
-                self.escape_expression_in_place(&mut logical.right, attr, escape_literals);
+                self.escape_expression_in_place(&mut logical.right, attr, true);
             }
             Expression::CallExpression(call)
                 if matches!(
@@ -3236,24 +3244,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 match &mut call.callee {
                     Expression::ArrowFunctionExpression(arrow) => {
                         if let Some(expression) = arrow.get_expression_mut() {
-                            self.escape_expression_in_place(expression, attr, escape_literals);
+                            self.escape_expression_in_place(expression, attr, true);
                         } else if let Some(body) = arrow.get_function_body_mut() {
-                            self.escape_body_returns(
-                                &mut body.statements,
-                                false,
-                                attr,
-                                escape_literals,
-                            );
+                            self.escape_body_returns(&mut body.statements, false, attr, true);
                         }
                     }
                     Expression::FunctionExpression(function) => {
                         if let Some(body) = function.body.as_mut() {
-                            self.escape_body_returns(
-                                &mut body.statements,
-                                false,
-                                attr,
-                                escape_literals,
-                            );
+                            self.escape_body_returns(&mut body.statements, false, attr, true);
                         }
                     }
                     _ => unreachable!("guarded by matches!"),

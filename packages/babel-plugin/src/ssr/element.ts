@@ -329,6 +329,12 @@ function escapeExpression(
   escapeLiterals?: boolean
 ): babelTypes.Expression | babelTypes.JSXElement | babelTypes.JSXFragment | null | undefined {
   if (!expression) return expression;
+  // The caller escapes a literal at the top when it inlines it into the
+  // template. A literal in a branch or a return is the hole's value, which
+  // `ssr` and `ssrAttribute` write as is, so those positions escape literals.
+  // The exception is a function value in an attribute: `ssrAttribute`
+  // stringifies its source.
+  const returnLiterals = escapeLiterals || !attr;
   if (
     t.isStringLiteral(expression) ||
     t.isNumericLiteral(expression) ||
@@ -338,7 +344,12 @@ function escapeExpression(
       if (t.isStringLiteral(expression))
         return t.stringLiteral(escapeHTML(expression.value, attr) as string);
       else if (t.isTemplateLiteral(expression))
-        return t.stringLiteral(escapeHTML(expression.quasis[0].value.raw, attr) as string);
+        return t.stringLiteral(
+          escapeHTML(
+            expression.quasis[0].value.cooked ?? expression.quasis[0].value.raw,
+            attr
+          ) as string
+        );
     }
     return expression;
   } else if (t.isFunction(expression)) {
@@ -349,12 +360,12 @@ function escapeExpression(
             path,
             e.argument,
             attr,
-            escapeLiterals
+            returnLiterals
           ) as babelTypes.Expression | null;
         return e;
       });
     } else
-      expression.body = escapeExpression(path, expression.body, attr, escapeLiterals) as
+      expression.body = escapeExpression(path, expression.body, attr, returnLiterals) as
         | babelTypes.Expression
         | babelTypes.BlockStatement;
     return expression;
@@ -395,13 +406,13 @@ function escapeExpression(
       path,
       expression.consequent,
       attr,
-      escapeLiterals
+      true
     ) as babelTypes.Expression;
     expression.alternate = escapeExpression(
       path,
       expression.alternate,
       attr,
-      escapeLiterals
+      true
     ) as babelTypes.Expression;
     return expression;
   } else if (t.isLogicalExpression(expression)) {
@@ -412,7 +423,7 @@ function escapeExpression(
         path,
         expression.right,
         attr,
-        escapeLiterals
+        true
       ) as babelTypes.Expression;
       return expression;
     }
@@ -424,17 +435,14 @@ function escapeExpression(
             path,
             e.argument,
             attr,
-            escapeLiterals
+            true
           ) as babelTypes.Expression | null;
         return e;
       });
     } else
-      expression.callee.body = escapeExpression(
-        path,
-        expression.callee.body,
-        attr,
-        escapeLiterals
-      ) as babelTypes.Expression | babelTypes.BlockStatement;
+      expression.callee.body = escapeExpression(path, expression.callee.body, attr, true) as
+        | babelTypes.Expression
+        | babelTypes.BlockStatement;
     return expression;
   } else if (t.isJSXElement(expression) && !isComponent(getTagName(expression))) {
     (expression as babelTypes.JSXElement & { wontEscape?: boolean }).wontEscape = true;
