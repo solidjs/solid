@@ -28,7 +28,14 @@ import {
   NewSet
 } from "./constants.js";
 import { attrHooks } from "./attribution-hooks.js";
-import { context, setSignal, untrack, ext, statusNotifierOf } from "./core.js";
+import {
+  context,
+  setSignal,
+  untrack,
+  ext,
+  statusNotifierOf,
+  landThroughSetSignal
+} from "./core.js";
 import { devTrackHeldPending } from "./invariants.js";
 import {
   caughtReadFlightSettled,
@@ -612,10 +619,10 @@ export function handleAsync<T>(
     const carried = holdWorkHook && pendingNodes.some(n => n._pendingValue !== NOT_PENDING);
     const wasUninitialized = el._statusFlags & STATUS_UNINITIALIZED;
     landStatus(el);
-    // Attribution hook: lets the engine snapshot state before the landing
-    // branches, so it can tell whether the plain path's setSignal committed a
-    // change (and only then classify it as an async landing).
-    if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncStart(el);
+    // Observe: what a setter landing moves on the node, to say whether it committed.
+    const observed = __OBSERVE__ && attrHooks !== null;
+    const before = observed ? el._value : undefined;
+    const beforeTime = observed ? el._time : 0;
     if (setter) {
       try {
         setter(value);
@@ -635,14 +642,20 @@ export function handleAsync<T>(
       if (wasUninitialized) landStatus(el, true);
       // Attribution hook: this path landed through the setter (derived
       // stores, projections), which does not go through setSignal, so the
-      // plain branch's asyncEnd never ran and the flight stayed open — the
-      // next flight counted a committed answer as abandoned (#3947).
-      // direct=true: asyncEnd finalizes either way and stamps an async write
-      // only if the commit moved `_value`/`_time` or parked `_pendingValue`.
-      // A store setter does not move this node's `_value`, so no stamp is
-      // recorded and waterfall chaining through derived stores stays
-      // unmeasured. Outside the try (#2883 — see attribution-hooks.ts).
-      if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, true);
+      // flight is closed here (#3947). It committed if the commit moved
+      // `_value`/`_time` or parked `_pendingValue`; a store setter does not
+      // move this node's `_value`, so waterfall chaining through derived
+      // stores stays unmeasured. Outside the try (#2883 — see attribution-hooks.ts).
+      if (observed)
+        attrHooks!.asyncLanded(
+          el,
+          value,
+          el._value !== before || el._time !== beforeTime || el._pendingValue === value
+        );
+    } else if (observed) {
+      // The plain landing below, reported once: as an async landing, not a write.
+      const changed = landThroughSetSignal(el, value);
+      attrHooks!.asyncLanded(el, value, changed);
     } else {
       // CARVE 2: the override-covered landing (hold + A18 supersession) and the
       // lane-routed landing (derived override, lane effect queue) went with
@@ -650,11 +663,6 @@ export function handleAsync<T>(
       // already held stages its answer into that hold (`setSignal`). Its
       // comparator throw is contained there (`isSame`, A3).
       setSignal(el, () => value);
-      // Attribution hook: this path landed through setSignal, whose write
-      // hook already saw any committed change — direct=false lets the engine
-      // reclassify that write as an async landing iff it actually committed.
-      // Outside the try (#2883 — see attribution-hooks.ts).
-      if (__OBSERVE__ && attrHooks !== null) attrHooks.asyncEnd(el, undefined, value, false);
     }
     // First real answer landing: the window closes when the answer becomes
     // OBSERVABLE. A direct commit is observable now; a staged write

@@ -2692,6 +2692,26 @@ export function isSame(el: Signal<any>, a: unknown, b: unknown): unknown {
   }
 }
 
+/** Observe: the async node `landThroughSetSignal` is landing, and whether its write passed the equality gate. */
+let landing: object | null = null;
+let landed = false;
+
+/**
+ * Observe: an async landing through `setSignal` (async.ts). Its write is not
+ * reported as a `write` — the landing reports it, as `asyncLanded` — and the
+ * answer is whether the value changed (passed the equality gate).
+ */
+export function landThroughSetSignal(el: Computed<any>, value: unknown): boolean {
+  landing = el;
+  landed = false;
+  try {
+    setSignal(el, () => value);
+  } finally {
+    landing = null;
+  }
+  return landed;
+}
+
 export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T)): T {
   if (writeHook !== null) writeHook(el);
   if (
@@ -2744,8 +2764,13 @@ export function setSignal<T>(el: Signal<T> | Computed<T>, v: T | ((prev: T) => T
     (custom === false ? currentValue !== v : !isSame(el, currentValue, v));
   if (!valueChanged) return v;
 
-  // Attribution hook: this committed write is where a re-run chain begins.
-  if (__OBSERVE__ && attrHooks !== null) attrHooks.write(el, currentValue, v);
+  // Attribution hook: this committed write is where a re-run chain begins —
+  // unless it is an async landing (`landThroughSetSignal`), which the
+  // landing reports itself, once.
+  if (__OBSERVE__ && attrHooks !== null) {
+    if (el === landing) landed = true;
+    else attrHooks.write(el, currentValue, v);
+  }
 
   // A write during hydration's snapshot capture to a source that has no
   // snapshot — created BEFORE capture began (module-level state: an identity

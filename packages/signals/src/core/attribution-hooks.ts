@@ -114,17 +114,13 @@ export interface AttributionHooks {
    * carry their true start time instead of the moment the graph saw them.
    */
   flightStart(el: Computed<any>, flight: object): void;
-  /** An async landing is about to apply its value (before any branch). */
-  asyncStart(el: Computed<any>): void;
   /**
-   * The async landing finished. `direct` = the landing applies the value
-   * itself (lane/override paths); false = it went through setSignal, whose
-   * own `write` hook already saw any committed change. Fired whether or not
-   * the landing committed — call sites cannot carry that fact out of their
-   * try blocks (see the try rule above), so the engine derives committed-ness
-   * from the node's state against its asyncStart snapshot.
+   * An async landing applied its value. `changed`: it committed or staged a
+   * change (it passed the equality gate) — a write the engine stamps as an
+   * async landing; false, the flight is over with nothing changed. A landing
+   * through `setSignal` is reported here only, never also as a `write`.
    */
-  asyncEnd(el: Computed<any>, prev: unknown, value: unknown, direct: boolean): void;
+  asyncLanded(el: Computed<any>, value: unknown, changed: boolean): void;
   /**
    * An effect's imperative half (its effect callback) is about to run /
    * has run. Both fire outside the run's try; `effectRunEnd` fires whether

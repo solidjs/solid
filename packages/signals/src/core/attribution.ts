@@ -4430,9 +4430,6 @@ function navigationData(origin: ChangeOrigin): Record<string, unknown> {
 // The engine's implementation of the core's dev hook points. Installed by
 // enable(), uninstalled by disable() — while uninstalled the core pays one
 // null check per site and nothing else.
-let asyncStartSeq = 0;
-let asyncStartTime = 0;
-let asyncStartValue: unknown;
 const engineHooks: AttributionHooks = {
   interactionStart,
   interactionEnd,
@@ -4545,35 +4542,10 @@ const engineHooks: AttributionHooks = {
   flightStart(el, flight) {
     trackFlightStart(el, flight);
   },
-  asyncStart(el) {
-    asyncStartSeq = (el as AttributedNode)._devChange?.seq ?? 0;
-    asyncStartTime = el._time;
-    asyncStartValue = el._value;
-  },
-  asyncEnd(el, prev, value, direct) {
-    if (direct) {
-      // Core calls this unconditionally (hook calls cannot live inside its
-      // try blocks — see attribution-hooks.ts), so committed-ness is detected
-      // here against the asyncStart snapshot: a direct commit moves `_value`
-      // (or `_time`, for a same-reference commit under `equals: false`), and
-      // a transition hold parks the value in `_pendingValue`. A landing the
-      // equality gate swallowed moves none of them and must leave no stamp.
-      const committed =
-        el._value !== asyncStartValue ||
-        el._time !== asyncStartTime ||
-        (el as Computed<any>)._pendingValue === value;
-      if (committed) stampWrite(el, "async", prev === undefined ? NO_VALUES : prev, value);
-      // Flight over either way — an equality-swallowed landing still spent
-      // the wall time (finalizeFlight only chains through a fresh stamp).
-      finalizeFlight(el);
-      return;
-    }
-    // Landed through setSignal: reclassify its "write" stamp as an async
-    // landing — but only if it actually stamped (the value changed) since
-    // asyncStart; a no-change landing must leave no fresh stamp behind.
-    const change = (el as AttributedNode)._devChange;
-    if (change !== undefined && change.seq > asyncStartSeq && change.kind === "write")
-      stampWrite(el, "async", NO_VALUES, value);
+  asyncLanded(el, value, changed) {
+    if (changed) stampWrite(el, "async", NO_VALUES, value);
+    // Flight over either way — an equality-swallowed landing still spent
+    // the wall time (finalizeFlight only chains through a fresh stamp).
     finalizeFlight(el);
   },
   effectRunStart(el) {
