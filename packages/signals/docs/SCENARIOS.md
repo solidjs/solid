@@ -1128,8 +1128,6 @@ const [comments, setComments] = createOptimistic(async () => fetch(1 + sel()));
 | 5   | comments(2) lands; tick                            | `sel 1 \| comments 2 \| latest(comments) 2 \| isPending(comments) false`                 | one frame                                                                                  |
 | ✗   |                                                    | after 3: `sel 1 \| comments 2 \| latest(comments) 2 \| isPending(comments) false`        | a `sel 1` frame before the post settles                                                    |
 | ✗   |                                                    | today, after 2: `sel 3 \| comments 9 \| latest(comments) 9 \| isPending(comments) false` | not yet built — the frames test is `it.fails`                                              |
-| ✗   |                                                    | today, after 3: `sel 3 \| comments 9 \| latest(comments) 2 \| isPending(comments) true`  | not yet built — the frames test is `it.fails`                                              |
-| ✗   |                                                    | today, after 4: `sel 3 \| comments 9 \| latest(comments) 2 \| isPending(comments) true`  | not yet built — the frames test is `it.fails`                                              |
 
 The prose row's 1″/1⁗ (an optimistic `sel`), 1‴ (a keyed store) and the layered two-action case are not migrated yet.
 

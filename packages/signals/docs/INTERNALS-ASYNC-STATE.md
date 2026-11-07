@@ -456,7 +456,21 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   trims the core floor is 7,423 B brotli (M1 7,406, cap 7,430) and the
   compiled hello world 9,979 B (cap 9,980): S-53 ~10 B, S-46's stamp ~8 B;
   the isPending/latest chunk carries the rest (+415 B over M1, the seam
-  walk `mountPending` ~335 B minified the next thing to trim).
+  walk `mountPending` ~335 B minified the next thing to trim). Last, D-34's
+  `latest` clause (decision 3, #4689): a shown guess a correction re-homed
+  into its hold (`supersede`/`dissolveLane` mark it, `keptGuess`) keeps the
+  screen's value for `latest` while the hold is blocked — verdict.ts's held
+  arm returns `_value` before `heldLatest`; once the hold lands (`blocked`
+  false) the landing's re-derive reads the staging, so a `latest`-only
+  reader shows the truth at the commit and not a frame later. Built for a
+  signal and for a superseded keyed row; seven pins flipped from "latest
+  answers the truth" to the displayed guess (#4336's signal form, #4329,
+  #3698, #3331's entangled and provenance cases). Not built for a lane a
+  correction folded under (rows removed, `Transaction.folded`): `latest`
+  of a folded guess reads the world whole as before — kept rows beside the
+  truth's length tore inside one `latest` (#4336's store forms) when tried
+  per leaf; the arrangement needs to be kept as a whole or not at all.
+  +25 B brotli on the isPending/latest chunk, 0 on the core floor.
 
 - 2026-07-17: **A18 store corollary — per-transaction optimistic layer**
   (#2899). `createOptimisticStore`'s override layer is one record per store

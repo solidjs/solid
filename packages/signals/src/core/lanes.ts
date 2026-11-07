@@ -196,6 +196,13 @@ const kept: any[] = [];
  * own flight as it did while a guess (`lanesBlocked`, #4690); the hold's
  * landing clears them (`endLanes`). */
 const marked = /* @__PURE__ */ new WeakSet<Transaction | Signal<any>>();
+/** A shown guess a correction re-homed into its hold (`supersede`,
+ * `dissolveLane`): the screen's and the untracked reads' value until the
+ * commit, and `latest`'s (D-34, decision 3 of 2026-11-05, #4689) — the
+ * displayed slot's newest value is the guess, the truth its staging. */
+export function keptGuess(n: Signal<any> | Computed<any>): boolean {
+  return guessed && marked.has(n);
+}
 /** Lane `l` takes `n`'s guess (another action's), kept to come back if `l`
  * reverts. Its readers saw the guess: they re-derive at the lane's reveal
  * (and, a flight's, hold the lane while they would show it). `d`: a guess

@@ -67,6 +67,7 @@ import {
   STATUS_UNINITIALIZED,
   CONFIG_ASYNC
 } from "./constants.js";
+import { keptGuess } from "./lanes.js";
 import {
   clock,
   flushTransaction,
@@ -75,6 +76,7 @@ import {
   GlobalQueue,
   latestOpened,
   passLane,
+  blocked,
   liveTx,
   passTx,
   resolveTx,
@@ -710,6 +712,10 @@ export function slot(
           return pred("Vl1'", SLOT_C, MARK_ST, t);
         // Vl1 (D-22 F-6): the proposal — a staged error included (D-41:
         // `staged` throws it); `isPending`'s value is the screen's (Vp1).
+        // Vl1g (D-34, #4689): a shown guess a correction re-homed into the
+        // hold keeps the screen's value for `latest` until the commit.
+        if (latest && staged && keptGuess(el) && blocked(t))
+          return pred("Vl1g", SLOT_C, tr ? MARK_AH : 0, t);
         if (latest && staged) return pred("Vl1", stagedSlot, tr ? MARK_AH : 0, t);
         return pred(latest ? "Vl1" : "Vp1", SLOT_C, tr ? MARK_AH : 0, t);
       }

@@ -68,7 +68,7 @@ import { settlePendingSource } from "./async.js";
 import { forgetThrownRead, warnStrictReadUntracked } from "./dev.js";
 import { NotReadyError } from "./error.js";
 import { link } from "./graph.js";
-import { ahead, screenOf, verdictLane, waiting } from "./lanes.js";
+import { ahead, keptGuess, screenOf, verdictLane, waiting } from "./lanes.js";
 import { latestOf } from "./truth.js";
 import { deleteFromHeap, enqueueSub } from "./heap.js";
 import {
@@ -564,6 +564,9 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
           probeFound = true;
         // A lane a correction folded under (D-34): `latest()` shows the hold's
         // world whole — the truth beneath each guess, else what it covered.
+        // (The displayed-guess clause, #4689, is built for a signal and for
+        // a superseded keyed row below; a folded arrangement still reads the
+        // truth — kept rows beside the truth's length would tear.)
         if (latestActive && l.folded) {
           if (__TEST__) shadowActual(el._pendingValue !== NOT_PENDING ? SLOT_P : SLOT_C);
           return l.folded(null, el);
@@ -677,6 +680,15 @@ function verdictValue(el: Signal<any> | Computed<any>, c: Computed<any> | null):
             watchVerdict(c!);
         }
       if (latestActive && el._pendingValue !== NOT_PENDING) {
+        // D-34 (#4689): a shown guess a correction re-homed into the hold
+        // keeps the screen's value for `latest` until the commit — the
+        // displayed slot's newest value is the guess, the truth its staging.
+        // Until the commit: the landing's re-derive of this reader reads the
+        // truth (`blocked` is false once the hold lands).
+        if (keptGuess(el) && blocked(t)) {
+          if (__TEST__) shadowActual(SLOT_C);
+          return el._value;
+        }
         // An action body reading another transaction's proposal derives
         // from it: the two settle as one (A15; posture C, 2026-09-15). An
         // untracked read elsewhere has no transaction to entangle.
