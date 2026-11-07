@@ -785,7 +785,7 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
     clearDeps(el);
     clearInFlight(el);
     if (__OBSERVE__ && attrHooks !== null)
-      attrHooks.recomputeEnd(el, create, false, false, false, false);
+      attrHooks.recomputeEnd(el, create, false, "plain", false);
     if (laneStageHook) setPassLane(prevLane);
     return;
   }
@@ -845,11 +845,9 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       !isSame(el, compareValue, value);
 
     // A committed derived change becomes a cause for this node's subscribers,
-    // chaining their attribution through this node to the root write.
-    if (__OBSERVE__ && attrHooks !== null) {
-      devChanged = !!valueChanged && !el._x?._error;
-      if (devChanged && !isEffect && !create) attrHooks.derivedChanged(el);
-    }
+    // chaining their attribution through this node to the root write
+    // (`recomputeEnd`'s `changed`).
+    if (__OBSERVE__ && attrHooks !== null) devChanged = !!valueChanged && !el._x?._error;
 
     // Effects use `_equals: false` (no per-effect closure). The side effects that
     // the equals closure used to perform — flagging the effect dirty and enqueueing
@@ -1048,8 +1046,11 @@ export function recompute(el: Computed<any>, create: boolean = false): void {
       el,
       create,
       devChanged,
-      lane !== null,
-      flushTransaction !== null || passTx !== null || (el._config & CONFIG_HELD) !== 0,
+      lane !== null
+        ? "optimistic"
+        : flushTransaction !== null || passTx !== null || (el._config & CONFIG_HELD) !== 0
+          ? "held"
+          : "plain",
       el._pendingValue !== NOT_PENDING
     );
   // A staged value, a parked frame (L2: the commit retires it), or status the

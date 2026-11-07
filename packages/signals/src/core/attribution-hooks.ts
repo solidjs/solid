@@ -76,22 +76,19 @@ export interface AttributionHooks {
   recomputeStart(el: Computed<any>, create: boolean): void;
   /**
    * The recompute finished. `changed` = committed a changed value (false for
-   * errored runs); `optimistic` = ran under an optimistic lane / lane-dirty
-   * posture; `transition` = a transition was active or owns this node;
-   * `held` = the value went to `_pendingValue` (a transition hold) rather
-   * than committing directly — its reveal happens later on the transition's
-   * own schedule.
+   * errored runs) — for a memo's re-run, a derived change its subscribers
+   * will name as their cause; `phase` = the posture it ran under: a lane's
+   * work (`"optimistic"`), a hold open or owning the node (`"held"`), or
+   * neither (`"plain"`); `held` = the value went to `_pendingValue` rather
+   * than committing directly — its reveal happens later on its own schedule.
    */
   recomputeEnd(
     el: Computed<any>,
     create: boolean,
     changed: boolean,
-    optimistic: boolean,
-    transition: boolean,
+    phase: "plain" | "held" | "optimistic",
     held: boolean
   ): void;
-  /** A non-effect computed committed a changed value during a re-run. */
-  derivedChanged(el: Computed<any>): void;
   /** A signal write committed (value passed the equality gate). */
   write(el: Signal<any> | Computed<any>, prev: unknown, value: unknown): void;
   /**

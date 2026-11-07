@@ -4467,12 +4467,12 @@ const engineHooks: AttributionHooks = {
             : enclosingInteraction()
     });
   },
-  derivedChanged(el) {
-    const frame = frames[frames.length - 1];
-    stampDerived(el, frame !== undefined && frame.causes !== null ? frame.causes : []);
-  },
-  recomputeEnd(el, _create, changed, optimistic, transition, held) {
+  recomputeEnd(el, create, changed, phase, held) {
     const frame = frames.pop();
+    // A memo's re-run that changed its value is a derived change: its
+    // subscribers name it as their cause, chaining back to the root write.
+    if (changed && !create && !(el as { _type?: number })._type)
+      stampDerived(el, frame !== undefined && frame.causes !== null ? frame.causes : []);
     // enable() can land mid-recompute: no opening frame, nothing to report.
     if (frame === undefined) return;
     const totalMs = now() - frame.start;
@@ -4495,13 +4495,7 @@ const engineHooks: AttributionHooks = {
     // plain-flush memo commits and in `_value` for direct ones. Overlay runs
     // are excluded — an optimistic re-derive legitimately produces fresh
     // equivalents while the lane settles.
-    if (
-      frame.causes !== null &&
-      changed &&
-      !optimistic &&
-      !transition &&
-      !(el as { _type?: number })._type
-    )
+    if (frame.causes !== null && changed && phase === "plain" && !(el as { _type?: number })._type)
       checkUnstableOutput(
         el,
         frame.prevValue,
@@ -4513,15 +4507,7 @@ const engineHooks: AttributionHooks = {
     // proves nothing. Reported as changed, so no consumer counts it as waste.
     if (!changed && (el._pendingValue !== NOT_PENDING ? el._pendingValue : el._value) === undefined)
       changed = true;
-    if (frame.causes !== null)
-      recordRerun(
-        el,
-        frame,
-        { selfMs, totalMs },
-        changed,
-        optimistic ? "optimistic" : transition ? "held" : "plain",
-        held
-      );
+    if (frame.causes !== null) recordRerun(el, frame, { selfMs, totalMs }, changed, phase, held);
     else if (!excludedNode(el)) {
       // Creation runs still get the wide-scope check: a memo can be born with
       // its coarse-read problem already in place — and their time is charged
@@ -4541,7 +4527,7 @@ const engineHooks: AttributionHooks = {
           depCount: captureDeps(el).length,
           selfMs,
           totalMs,
-          phase: optimistic ? "optimistic" : transition ? "held" : "plain",
+          phase,
           held
         };
         if (frame.interaction !== undefined) event.interaction = frame.interaction;
