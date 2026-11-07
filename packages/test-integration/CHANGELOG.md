@@ -1,5 +1,27 @@
 # test-integration
 
+## 2.0.0-rc.22
+
+### Patch Changes
+
+- Updated dependencies [90d1a51]
+- Updated dependencies [cf839ea]
+- Updated dependencies [f6b6737]
+- Updated dependencies [5208944]
+- Updated dependencies [6b7474b]
+- Updated dependencies [54456c9]
+- Updated dependencies [c50abb6]
+- Updated dependencies [4fe7532]
+- Updated dependencies [fb672ca]
+- Updated dependencies [c8c5eb1]
+  - @solidjs/web@2.0.0-rc.22
+  - solid-js@2.0.0-rc.22
+  - @solidjs/signals@2.0.0-rc.22
+  - @solidjs/babel-plugin@2.0.0-rc.22
+  - @solidjs/h@2.0.0-rc.22
+  - @solidjs/html@2.0.0-rc.22
+  - @solidjs/universal@2.0.0-rc.22
+
 ## 2.0.0-rc.21
 
 ### Patch Changes

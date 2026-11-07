@@ -1,5 +1,22 @@
 # solid-js
 
+## 2.0.0-rc.22
+
+### Patch Changes
+
+- cf839ea: Context providers no longer create an owner of their own: the provided value now sits on the two memos that resolve the provider's children, so each provider allocates one node and one bound function fewer.
+- c50abb6: A `dynamic` mount of a live server component that switches arguments and comes back to its first call (a windowed view scrolling back to the slice the page was served with) shows that call again. The equals gate compared the incoming binding with the one the memo holds, which is the first resolution's, so the way back read as "nothing changed" and the mount stayed on the other address.
+
+  A live connection cancelled before its body's `start` arrived now reads as a death, and the loop reconnects. A remount replaying a warm store gives up on a row-op record by cancelling the new connection so the resume re-sends the hole whole; with nothing open yet, the end read as a completion and the mount was left with no live connection.
+
+- c8c5eb1: Server rendering only treats nodes the runtime made as finished markup. `ssr()`, `ssrElement()` and the frames sink now stamp their nodes with the `Symbol.for("solid.ssrNode")` symbol (as `$`, a value no data can hold), and every insert position checks it instead of the object's shape. A plain object with a `t` key (or `t`, `h` and `p`), such as one parsed from JSON, is data: it renders nothing and gets the dev warning UNRECOGNIZED_INSERT_VALUE, like any other plain object. The async-memo landing check (ASYNC_MEMO_ELEMENT) uses the same brand, so such data now serializes like other data instead of being refused. Server only; no client bytes.
+- Updated dependencies [f6b6737]
+- Updated dependencies [5208944]
+- Updated dependencies [6b7474b]
+- Updated dependencies [4fe7532]
+- Updated dependencies [fb672ca]
+  - @solidjs/signals@2.0.0-rc.22
+
 ## 2.0.0-rc.21
 
 ### Patch Changes
