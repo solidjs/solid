@@ -58,6 +58,11 @@ export type Finding = {
  * `latestDerive` reads every `latest(x)` through a memo of it (E9).
  */
 export type Variant = {
+  /** Render each `show` as a hand-written gate instead of `<Show>`: `"memo"`
+   * is one memo whose own pass reads `when` and mounts the branch (the
+   * single-memo gate, zero hops); `"cond"` is a truthiness memo over `when`
+   * and a branch memo reading it (one hop — `<Show>` has two). */
+  gate?: "memo" | "cond";
   split?: boolean;
   grouped?: boolean;
   identity?: boolean;
@@ -353,7 +358,18 @@ function buildApp(
             return renderNode(n.child, `${id}.0`);
           }
         });
-      case "show":
+      case "show": {
+        if (variant.gate) {
+          const branch = (open: unknown) =>
+            open
+              ? (n.owns?.forEach(makeMemo), renderNode(n.child, `${id}.0`))
+              : n.fallback
+                ? "[F]"
+                : undefined;
+          if (variant.gate === "memo") return createMemo(() => branch(read(n.when)));
+          const cond = createMemo(() => read(n.when), { equals: (a, b) => !a === !b });
+          return createMemo(() => branch(cond()));
+        }
         return createComponent(Show, {
           get when() {
             return read(n.when);
@@ -366,6 +382,7 @@ function buildApp(
             return renderNode(n.child, `${id}.0`);
           }
         } as any);
+      }
       case "group":
         return n.kids.map((k, i) => renderNode(k, `${id}.${i}`));
       case "leaf": {
