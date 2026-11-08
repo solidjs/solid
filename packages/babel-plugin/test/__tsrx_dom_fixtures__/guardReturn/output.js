@@ -10,8 +10,7 @@ export function Dashboard({ user }) {
     return _tmpl$();
   }
   var _el$2 = _tmpl$2(),
-    _el$3 = _el$2.firstChild,
-    _el$4 = _el$3.firstChild;
+    _el$3 = _el$2.firstChild;
   _$insert(_el$3, () => user.name, null);
   return _el$2;
 }

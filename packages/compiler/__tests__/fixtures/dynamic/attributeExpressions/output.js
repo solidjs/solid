@@ -267,7 +267,6 @@ _$spread(_el$35, [
 const template27 = _el$35;
 var _el$36 = _tmpl$19();
 var _el$37 = _el$36.firstChild;
-var _el$38 = _el$37.firstChild;
 var _el$39 = _el$37.nextSibling;
 var _el$40 = _el$39.nextSibling;
 _$spread(_el$36, api, true);

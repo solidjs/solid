@@ -91,14 +91,10 @@ export function supersededGraph(initDownstream: boolean) {
       const run = action(function* () {
         setValue(1); // new question → refetch
         // Wrong guess; truth will be 2. Before the first commit (the
-        // `initDownstream: false` state) the screen is still loading: the
-        // write is OPTIMISTIC_WRITE_BEFORE_LOAD in DEV and guesses nothing
-        // (ruled 2026-11-03, #4656, RULES-DERIVED D-34).
-        try {
-          setDouble(3);
-        } catch (e) {
-          if (initDownstream || !/OPTIMISTIC_WRITE_BEFORE_LOAD/.test(String(e))) throw e;
-        }
+        // `initDownstream: false` state) the guess is written (S-56,
+        // 2026-11-07; the 2026-11-03 DEV guard, #4656, is gone for memos)
+        // and voided at the correction, its lane never shown (D-34).
+        setDouble(3);
         yield never();
       });
       run();
@@ -289,10 +285,9 @@ export const STATES: State[] = [
       return built;
     },
     expect: {
-      // Ruled 2026-11-03 (#4656, RULES-DERIVED D-34): never committed, the
-      // source is loading, so the override is OPTIMISTIC_WRITE_BEFORE_LOAD
-      // in DEV and no guess is made (`supersede` above). The reads are the
-      // ones the void guess gave before the ruling (lanes 2026-10-01/02:
+      // Never committed: the guess (`supersede` above; S-56) is written in
+      // the frame that re-asked its source and voided at the correction,
+      // its lane never shown (D-34). The reads are the void guess's (lanes 2026-10-01/02:
       // written in the frame that re-asked its source, its lane blocked and
       // never displayed, §16): there is no displayed override — direct reads
       // see the committed value, the truth is staged under the action, a
@@ -324,10 +319,9 @@ export const STATES: State[] = [
       return built;
     },
     expect: {
-      // Ruled 2026-11-03 (#4656, RULES-DERIVED D-34): never committed, the
-      // source is loading, so the override is OPTIMISTIC_WRITE_BEFORE_LOAD
-      // in DEV and no guess is made (`supersede` above). The reads are the
-      // ones the void guess gave before the ruling (lanes 2026-10-01/02:
+      // Never committed: the guess (`supersede` above; S-56) is written in
+      // the frame that re-asked its source and voided at the correction,
+      // its lane never shown (D-34). The reads are the void guess's (lanes 2026-10-01/02:
       // written in the frame that re-asked its source, its lane blocked and
       // never displayed, §16): there is no displayed override — direct reads
       // see the committed value, the truth is staged under the action, a

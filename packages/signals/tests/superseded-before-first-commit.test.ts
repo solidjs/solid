@@ -7,14 +7,15 @@
  * its source, and its own source lands a differing truth. Found by the
  * visibility oracle.
  *
- * Ruled 2026-11-03 (#4656, RULES-DERIVED D-34): "if it hadn't landed it
- * isn't optimistic, its loading". Nothing has committed, so the screen is
- * still loading, and an override here is a write before load: in DEV the
- * setter throws OPTIMISTIC_WRITE_BEFORE_LOAD and no guess is made. (Before
- * the ruling the guess was written and voided at the correction, as its
- * lane never showed; the reads below were the same.) What stays pinned: the
- * node, never committed, has nothing to serve a direct read (A19 exc. 1:
- * loading, not pending), and `latest` tunnels to the arrived truth (A18 d).
+ * Ruled 2026-11-03 (#4656): "if it hadn't landed it isn't optimistic, its
+ * loading" — in DEV the setter threw OPTIMISTIC_WRITE_BEFORE_LOAD. Reversed
+ * for optimistic memos by S-56 (2026-11-07): a guess before the first
+ * answer is the newest value the node has produced and shows; here its
+ * lane never shows (the downstream reveal never lands) and the differing
+ * truth voids it at the correction (D-34), so the reads are the guard's.
+ * What stays pinned: the node, never committed, has nothing to serve a
+ * direct read (A19 exc. 1: loading, not pending), and `latest` tunnels to
+ * the arrived truth (A18 d).
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -72,25 +73,19 @@ function graph() {
 }
 
 describe("A18 (d) before the first commit", () => {
-  it("an override before the first commit is OPTIMISTIC_WRITE_BEFORE_LOAD; the arrival is latest's, and isPending reads false", async () => {
+  it("an override before the first commit is a guess its lane never shows, void at the correction; the arrival is latest's, and isPending reads false", async () => {
     const g = graph();
     flush();
     g.fetches.shift()!(); // x's first landing (0) — held by the downstream reveal, which never lands
     await settle();
-    let diagnosed: unknown;
     action(function* () {
       g.setValue(1);
-      try {
-        g.setX(3); // a write before load (ruled 2026-11-03): no guess
-      } catch (e) {
-        diagnosed = e;
-      }
+      g.setX(3); // a guess before the first commit (S-56, 2026-11-07): written, its lane never shown
       yield g.never();
     })();
     flush();
-    g.fetches.shift()!(); // own source lands 2 ≠ 3
+    g.fetches.shift()!(); // own source lands 2 ≠ 3: the correction voids the unshown guess (D-34)
     await settle();
-    expect(String(diagnosed)).toMatch(/OPTIMISTIC_WRITE_BEFORE_LOAD/);
     // Never committed, the node has nothing to serve a direct read (A19
     // exc. 1: loading, not pending); `latest` tunnels to the staged truth.
     expect(() => g.x()).toThrow(NotReadyError);

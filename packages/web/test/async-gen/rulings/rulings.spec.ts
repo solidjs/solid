@@ -49,7 +49,12 @@ for (const r of RULINGS)
                 .join(" ")}\n`
           );
         (results.get(r.id) ?? results.set(r.id, []).get(r.id)!)[k] = res;
-        expect(res.findings).toEqual([]);
+        expect(res.findings.filter(f => !c.allow?.includes(f.law))).toEqual([]);
+        for (const law of c.allow ?? [])
+          expect(
+            res.findings.some(f => f.law === law),
+            `expected a \`${law}\` finding`
+          ).toBe(true);
       });
       (status === "ruled-not-built" ? it.fails : it)(
         `${name}: screens${status === "ruled-not-built" ? " (ruled, not built)" : ""}`,

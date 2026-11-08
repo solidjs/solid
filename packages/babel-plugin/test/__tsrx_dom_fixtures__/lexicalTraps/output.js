@@ -7,8 +7,7 @@ const template = `literal @{ ${"value"} }`;
 export function LexicalTraps({ value }) {
   const block = "@{ not a block }";
   const lazy = "&{ not a lazy pattern }";
-  var _el$ = _tmpl$(),
-    _el$2 = _el$.firstChild;
+  var _el$ = _tmpl$();
   _$insert(_el$, value, null);
   return _el$;
 }

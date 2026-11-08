@@ -82,7 +82,6 @@ const template23 = _$createComponent(Module, { get children() {
 	return state.children();
 } });
 var _el$15 = _tmpl$5();
-var _el$16 = _el$15.firstChild;
 _$spread(_el$15, dynamic, true);
 _$insert(_el$15, () => {
 	return dynamic.children;

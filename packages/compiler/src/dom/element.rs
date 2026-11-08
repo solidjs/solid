@@ -429,6 +429,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         };
         let has_hydratable_event = self.has_hydratable_event;
         self.has_hydratable_event = saved_hydratable_event;
+        let declarations = prune_unused_walks(declarations, &operations);
 
         if declarations.is_empty() && operations.is_empty() && !has_hydratable_event {
             Ok((
@@ -702,6 +703,69 @@ pub(crate) fn children_attribute_child_from_item<'a>(
         }
         _ => None,
     }
+}
+
+/// Drops `var _el$N = _el$M.firstChild` / `.nextSibling` walks whose node is
+/// never read. Positional ids are handed out before it is known whether a
+/// child's insert needs a marker, so a text node ahead of an appended
+/// expression keeps a walk nothing reads. A minifier keeps the property read
+/// (it could be a getter), so it would ship as `_el$M.firstChild;`.
+///
+/// Runs from the last declaration back, so a walk that only feeds a dropped
+/// walk is dropped too. Other declarations always stay.
+fn prune_unused_walks<'a>(
+    declarations: std::vec::Vec<Statement<'a>>,
+    operations: &[Statement<'a>],
+) -> std::vec::Vec<Statement<'a>> {
+    use oxc_ast_visit::Visit;
+
+    struct Reads<'n> {
+        names: &'n mut std::collections::HashSet<String>,
+    }
+    impl<'b> Visit<'b> for Reads<'_> {
+        fn visit_identifier_reference(&mut self, it: &oxc_ast::ast::IdentifierReference<'b>) {
+            self.names.insert(it.name.to_string());
+        }
+    }
+
+    // Names read by the statements that run after the walks
+    let mut read = std::collections::HashSet::new();
+    for statement in operations {
+        Reads { names: &mut read }.visit_statement(statement);
+    }
+
+    // Keep a walk only when something kept after it reads its node
+    let mut kept = std::vec::Vec::with_capacity(declarations.len());
+    for statement in declarations.into_iter().rev() {
+        if let Some(name) = walk_target(&statement)
+            && !read.contains(name)
+        {
+            continue;
+        }
+        Reads { names: &mut read }.visit_statement(&statement);
+        kept.push(statement);
+    }
+    kept.reverse();
+    kept
+}
+
+/// The declared name of a plain `var x = y.firstChild` / `y.nextSibling`.
+fn walk_target<'s>(statement: &'s Statement<'_>) -> Option<&'s str> {
+    let Statement::VariableDeclaration(declaration) = statement else {
+        return None;
+    };
+    let [declarator] = declaration.declarations.as_slice() else {
+        return None;
+    };
+    let oxc_ast::ast::BindingPattern::BindingIdentifier(id) = &declarator.id else {
+        return None;
+    };
+    let Some(Expression::StaticMemberExpression(member)) = &declarator.init else {
+        return None;
+    };
+    let is_walk = matches!(member.object, Expression::Identifier(_))
+        && matches!(member.property.name.as_str(), "firstChild" | "nextSibling");
+    is_walk.then(|| id.name.as_str())
 }
 
 pub(crate) fn jsx_expression_to_expression<'a>(

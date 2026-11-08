@@ -11,6 +11,14 @@ import { resolve } from "path";
 
 const rootDir = resolve(__dirname);
 
+// CI runs these in one CodSpeed job and everything else in another.
+const LANE_1_BENCHES = [
+  "test/frames-hydration-gather.bench.tsx",
+  "test/dynamic-tag.bench.tsx",
+  "test/replace-full.bench.tsx"
+];
+const BENCH_LANE = process.env.BENCH_LANE;
+
 export default defineConfig({
   plugins: [solidPlugin({ compiler }), codspeedPlugin()],
   server: {
@@ -49,7 +57,8 @@ export default defineConfig({
     // numbers (server build is loaded as client). SSR benches run via
     // `pnpm bench:server` against `vite.config.server-bench.mjs` instead.
     benchmark: {
-      exclude: ["**/node_modules/**", "test/server/**", "test/hydration/**", "test/consistency/**"]
+      ...(BENCH_LANE === "1" ? { include: LANE_1_BENCHES } : {}),
+      exclude: ["**/node_modules/**", "test/server/**", "test/hydration/**", "test/consistency/**", ...(BENCH_LANE === "2" ? LANE_1_BENCHES : [])]
     }
   },
   resolve: {
