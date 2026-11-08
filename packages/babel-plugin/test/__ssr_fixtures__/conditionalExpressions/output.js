@@ -312,3 +312,37 @@ var _v$39 = () => "&lt;i>";
 const template82 = _$ssr(_tmpl$, _v$39);
 var _v$40 = () => _$ssrAttribute("title", state.open ? "&quot;&lt;i>" : _$escape(undefined, true));
 const template83 = _$ssr(_tmpl$3, _v$40);
+// `ssrAttribute` stringifies a function value's source, so the literals in its
+// branches stay as written
+const template84 = _$ssr(
+  _tmpl$3,
+  _$ssrAttribute("title", () => (state.open ? '"<' : "b"))
+);
+const template85 = _$ssr(
+  _tmpl$3,
+  _$ssrAttribute("title", () => state.open && '"<')
+);
+// every `return` of a function child is the hole's value, at any depth
+var _v$41 = () =>
+  (() => {
+    if (state.open) return "&lt;i>";
+    return "&lt;b>";
+  })();
+const template86 = _$ssr(_tmpl$, _v$41);
+var _v$42 = () =>
+  (() => {
+    if (state.open) return _$escape(state.text);
+    return "&lt;b>";
+  })();
+const template87 = _$ssr(_tmpl$, _v$42);
+var _v$43 = () => {
+  switch (state.kind) {
+    case 1:
+      return "&lt;i>";
+    default: {
+      const inner = () => "<u>";
+      return _$escape(inner);
+    }
+  }
+};
+const template88 = _$ssr(_tmpl$, _v$43);

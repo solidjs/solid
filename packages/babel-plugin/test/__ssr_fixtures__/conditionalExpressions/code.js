@@ -164,3 +164,38 @@ const template80 = <div>{state.open ? `<i>` : 0}</div>;
 const template81 = <div>{state.a ? 0 : state.b ? 1 : "<i>"}</div>;
 const template82 = <div>{() => "<i>"}</div>;
 const template83 = <div title={state.open ? '"<i>' : undefined} />;
+// `ssrAttribute` stringifies a function value's source, so the literals in its
+// branches stay as written
+const template84 = <div title={() => (state.open ? '"<' : "b")} />;
+const template85 = <div title={() => state.open && '"<'} />;
+// every `return` of a function child is the hole's value, at any depth
+const template86 = (
+  <div>
+    {(() => {
+      if (state.open) return "<i>";
+      return "<b>";
+    })()}
+  </div>
+);
+const template87 = (
+  <div>
+    {(() => {
+      if (state.open) return state.text;
+      return "<b>";
+    })()}
+  </div>
+);
+const template88 = (
+  <div>
+    {() => {
+      switch (state.kind) {
+        case 1:
+          return "<i>";
+        default: {
+          const inner = () => "<u>";
+          return inner;
+        }
+      }
+    }}
+  </div>
+);
