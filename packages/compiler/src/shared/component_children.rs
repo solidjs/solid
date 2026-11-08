@@ -19,6 +19,7 @@ use crate::shared::classify::jsx_text_is_filtered;
 use crate::shared::condition::{is_condition_shape, transform_condition_inline};
 use crate::shared::fragment::lower_fragment;
 use crate::shared::mode_lower::{ModeLower, mode_ast};
+use crate::shared::classify::is_dynamic_deep;
 use crate::shared::utils::{
     coverage_ignore_block_comments, decode_html_entities, is_component_name, trim_jsx_text,
 };
@@ -218,6 +219,8 @@ pub(crate) fn component_children<'a, C: ComponentChildLower<'a>>(
 /// Where a run of coverage pragmas belongs after Babel's `filterChildren`
 /// hand-off (#2138): this element's `children` getter, or a nested component
 /// that the pragmas sit immediately before (fragments are transparent).
+/// Nested components without a `children` getter cannot host the pragma —
+/// fall back to the parent (#4701).
 enum CoverageHandoff {
     Parent(std::vec::Vec<Span>),
     ToComponent {
@@ -242,20 +245,68 @@ fn coverage_handoff(children: &[JSXChild<'_>], source: &str) -> Option<CoverageH
                 return coverage_handoff(&fragment.children, source);
             }
             JSXChild::Element(element) if !pending.is_empty() => {
-                return Some(if is_component_name(&element.opening_element.name) {
-                    CoverageHandoff::ToComponent {
-                        element_start: element.span.start,
-                        pragmas: pending,
-                    }
-                } else {
-                    CoverageHandoff::Parent(pending)
-                });
+                return Some(
+                    if is_component_name(&element.opening_element.name)
+                        && nested_component_has_children_getter(element, source)
+                    {
+                        CoverageHandoff::ToComponent {
+                            element_start: element.span.start,
+                            pragmas: pending,
+                        }
+                    } else {
+                        CoverageHandoff::Parent(pending)
+                    },
+                );
             }
             _ if !pending.is_empty() => return Some(CoverageHandoff::Parent(pending)),
             _ => {}
         }
     }
     None
+}
+
+/// Mirror of `component_children`'s `needs_getter` for a nested component,
+/// without running the full lower — used so a hand-off is not aimed at a
+/// getter that will never be emitted (#4701).
+///
+/// Prefer false when unsure: a Parent fallback keeps the pragma visible;
+/// ToComponent without a getter drops it. Namespace-import members need
+/// bindings we do not have at anchor time, so member expressions alone are
+/// treated as dynamic (same as `is_dynamic_deep`).
+fn nested_component_has_children_getter(element: &JSXElement<'_>, source: &str) -> bool {
+    let mut kinds = std::vec::Vec::new();
+    for child in element.children.iter() {
+        match child {
+            JSXChild::Text(text) => {
+                let value = decode_html_entities(&trim_jsx_text(&text.value));
+                if !value.is_empty() {
+                    kinds.push(false);
+                }
+            }
+            JSXChild::ExpressionContainer(container) => {
+                if matches!(container.expression, JSXExpression::EmptyExpression(_)) {
+                    continue;
+                }
+                let dynamic = container.expression.as_expression().is_some_and(|expression| {
+                    // Match Classify's default `/*@static*/` leading-comment gate.
+                    let from = container.span.start as usize;
+                    let to = expression.span().start as usize;
+                    let marked_static = source
+                        .get(from..to)
+                        .is_some_and(|slice| slice.contains("@static"));
+                    !marked_static && is_dynamic_deep(expression, true)
+                });
+                kinds.push(dynamic);
+            }
+            JSXChild::Element(_) | JSXChild::Fragment(_) => kinds.push(true),
+            JSXChild::Spread(spread) => kinds.push(is_dynamic_deep(&spread.expression, false)),
+        }
+    }
+    match kinds.as_slice() {
+        [] => false,
+        [only] => *only,
+        _ => true,
+    }
 }
 
 fn handoff_pragmas(handoff: &CoverageHandoff) -> &[Span] {
@@ -282,14 +333,16 @@ pub(crate) fn component_children_coverage_pragma_span(
 }
 
 /// Merge own-children pragmas with a pragma written immediately before this
-/// component in a parent (or transparent fragment).
+/// component in a parent (or transparent fragment). Prefer the incoming
+/// anchor when both exist — [`anchor_coverage_pragmas`] rebinds own pragmas
+/// onto that same span so Babel's concatenation is preserved (#4701).
 pub(crate) fn coverage_pragma_span_for(
     element_start: u32,
     children: &[JSXChild<'_>],
     source: &str,
 ) -> Option<Span> {
-    component_children_coverage_pragma_span(children, source)
-        .or_else(|| incoming_coverage_pragma_span(element_start))
+    incoming_coverage_pragma_span(element_start)
+        .or_else(|| component_children_coverage_pragma_span(children, source))
 }
 
 fn incoming_coverage_pragma_span(element_start: u32) -> Option<Span> {
@@ -311,19 +364,26 @@ pub(crate) fn anchor_coverage_pragmas(program: &mut Program<'_>, source: &str) {
     impl<'a> Visit<'a> for Collector<'_> {
         fn visit_jsx_element(&mut self, element: &JSXElement<'a>) {
             if let Some(handoff) = coverage_handoff(&element.children, self.source) {
-                if let Some(anchor) = handoff_pragmas(&handoff).first() {
-                    for pragma in handoff_pragmas(&handoff) {
-                        self.anchors.insert(pragma.start, anchor.start);
+                let own_pragmas = handoff_pragmas(&handoff);
+                // Stacked incoming + own must share one getter span: prefer the
+                // parent hand-off already registered for this element (#4701).
+                let anchor_start = self
+                    .incoming
+                    .get(&element.span.start)
+                    .map(|span| span.start)
+                    .or_else(|| own_pragmas.first().map(|span| span.start));
+                if let Some(anchor_start) = anchor_start {
+                    for pragma in own_pragmas {
+                        self.anchors.insert(pragma.start, anchor_start);
                     }
                 }
                 if let CoverageHandoff::ToComponent {
                     element_start,
                     pragmas,
                 } = handoff
+                    && let Some(anchor) = pragmas.first()
                 {
-                    if let Some(anchor) = pragmas.first() {
-                        self.incoming.insert(element_start, *anchor);
-                    }
+                    self.incoming.insert(element_start, *anchor);
                 }
             }
             walk::walk_jsx_element(self, element);

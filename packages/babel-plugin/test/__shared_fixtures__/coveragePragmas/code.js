@@ -138,3 +138,36 @@ export const lookalike = (
     <div>A</div>
   </Comp>
 );
+
+export const beforeComponentNoGetter = (
+  <Parent>
+    {/* istanbul ignore next */}
+    <Child when={condition()} />
+  </Parent>
+);
+
+export const beforeComponentStaticText = (
+  <Parent>
+    {/* istanbul ignore next */}
+    <Child>hello</Child>
+  </Parent>
+);
+
+export const fragmentBeforeComponentNoGetter = (
+  <Parent>
+    <>
+      {/* istanbul ignore next */}
+      <Child when={condition()} />
+    </>
+  </Parent>
+);
+
+export const stackedBeforeAndOwn = (
+  <Parent>
+    {/* istanbul ignore next */}
+    <Child>
+      {/* c8 ignore next */}
+      {state.value}
+    </Child>
+  </Parent>
+);
