@@ -108,8 +108,118 @@ export default {
           why: "the branch attached with the committed value beside its own ahead read — through a hand-written gate, grouped, before this case was built; `<Show>` and the split leaf already kept the fallback"
         }
       ]
+    },
+    {
+      label: "″",
+      scenario: {
+        signals: [0],
+        optimistic: [0],
+        memos: [
+          { async: true, deps: [{ src: s(0), how: "plain" }], poison: null },
+          {
+            async: false,
+            deps: [
+              { src: s(0), how: "plain" },
+              { src: m(0), how: "latest" }
+            ],
+            poison: null
+          },
+          {
+            async: false,
+            deps: [
+              { src: m(0), how: "latest" },
+              { src: m(1), how: "plain" }
+            ],
+            poison: null
+          }
+        ],
+        tree: {
+          t: "show",
+          when: { how: "pending", src: m(0) },
+          child: { t: "leaf", text: [], attrs: [lat(m(2)), plain(m(0))], grouped: true },
+          fallback: true
+        },
+        steps: [
+          settle(),
+          task,
+          { t: "action", before: [{ s: 0, v: 1 }] },
+          task,
+          settle(),
+          task,
+          settle(),
+          task
+        ]
+      },
+      variants: [{ gate: "memo" }, { gate: "cond" }, { split: true }],
+      frames: [
+        { after: 1, screen: "[F]", note: "primed" },
+        {
+          after: 3,
+          screen: "—",
+          note: "case ′'s write inside an action, as a guess on `id`: the lane re-asks `detail`, `isPending(detail)` opens the gate in the lane, and the mount's first pass reads the lane's flight plainly — born held on it, not served the screen as lane work is (A15's stale reader, D-28): served, it would initialize with S-46's frame inside the lane's, revealed at the landing. The fallback stays"
+        },
+        {
+          after: 5,
+          screen: "—",
+          note: "the action landed; the truth re-asks `detail` and the same mount still waits on the flight (its first pass never completed): the fallback stays. Not a hold the lane's work joined — a lane never makes a flush the hold's (D-37); `frameRead`'s mount arm is for a mainline pass, or a lane pass reading a pending node"
+        },
+        { after: 7, screen: "—", note: "`detail` answered: `isPending` is false again" }
+      ],
+      forbid: [
+        {
+          after: 3,
+          screen: "<span data-a0=lm2:5  data-a1=vm0:1 ></span>",
+          why: "the branch attached inside the lane with the committed value beside the lane's own derivation"
+        },
+        {
+          after: 5,
+          screen: "<span data-a0=lm2:4  data-a1=vm0:1 ></span>",
+          why: "the mount the lane served the screen revealed at the action's landing with the committed value — S-46's frame, through `<Show>`, a truthiness memo and a split leaf before this case was built (the single-memo gate re-created its branch at the landing and escaped it); it then stayed on screen after `detail` answered (F-1)"
+        }
+      ]
+    },
+    {
+      label: "‴",
+      scenario: {
+        signals: [0],
+        optimistic: [0],
+        memos: [{ async: true, deps: [{ src: s(0), how: "plain" }], poison: null }],
+        tree: {
+          t: "show",
+          when: { how: "pending", src: m(0) },
+          child: { t: "leaf", text: [], attrs: [plain(m(0))], grouped: true },
+          fallback: true
+        },
+        steps: [
+          settle(),
+          task,
+          { t: "action", before: [{ s: 0, v: 1 }] },
+          task,
+          settle(),
+          task,
+          settle(),
+          task
+        ]
+      },
+      variants: [{ gate: "memo" }, { gate: "cond" }, { split: true }],
+      frames: [
+        { after: 1, screen: "[F]", note: "primed" },
+        {
+          after: 3,
+          screen: "—",
+          note: "the plain-only leaf (S-46's row) under the same guess: the same seat in a lane as in a mainline flush — born held on the lane's flight, the fallback stays through the lane, the action's landing and the answer"
+        },
+        { after: 7, screen: "—" }
+      ],
+      forbid: [
+        {
+          after: 3,
+          screen: "<span data-a0=vm0:1 ></span>",
+          why: "the branch attached inside the lane with the committed value (S-46 ✗2, in a lane) — every gate shape before this case was built; the frame then stayed on screen after `detail` answered"
+        }
+      ]
     }
   ],
   prose:
-    "PR #4708 pinned a hop-less `<Show>` as never painting; with real JSX it paints at the landing and tears only during the flight, the same way `<Show>` did before S-46. The runner's `gate` variant here is the gate as written by hand, not an emulation."
+    "PR #4708 pinned a hop-less `<Show>` as never painting; with real JSX it paints at the landing and tears only during the flight, the same way `<Show>` did before S-46. The runner's `gate` variant here is the gate as written by hand, not an emulation. Cases ″ and ‴ (2026-11-08, #4723 review): the same mount under a guess lane — the write inside an action on an optimistic `id` — is the same mount; lane work served the screen (A15) is the one exception D-25 makes for no leaf a probing pass opened."
 } satisfies Ruling;

@@ -1600,6 +1600,44 @@ const m2 = createMemo(() => 1 + latest(detail) + m1()); // throws when the input
 | 1   | setId(1); tick        | —                                   | the write re-asks `m0`; `isPending(m0)` opens the gate, and the mount's one grouped effect reads `latest(m2)` ahead beside `m0()` plainly: the window it opened does not make it a D-3 leaf of the screen — it is the mount a probing pass opened, born held on its plain read of the flight, and the fallback stays until the landing, where `isPending` is false again (ruled 2026-11-08: neither hop count nor grouping changes a mount's seat, even when its own pass reads ahead of the same node) |
 | ✗   |                       | after 1: `latest(m2) 4 \| detail 1` | the branch attached with the committed value beside its own ahead read — through a hand-written gate, grouped, before this case was built; `<Show>` and the split leaf already kept the fallback                                                                                                                                                                                                                                                                                                        |
 
-PR #4708 pinned a hop-less `<Show>` as never painting; with real JSX it paints at the landing and tears only during the flight, the same way `<Show>` did before S-46. The runner's `gate` variant here is the gate as written by hand, not an emulation.
+**Case ″.**
+
+```tsx
+const [id, setId] = createOptimistic(0);
+const detail = createMemo(async () => fetch(1 + id()));
+const m1 = createMemo(() => 1 + id() + latest(detail));
+const m2 = createMemo(() => 1 + latest(detail) + m1());
+<Show when={isPending(detail)} fallback="[none]">
+  <span data-a0={latest(m2)} data-a1={detail()}></span> {/* one effect */}
+</Show>;
+```
+
+| #   | Action                 | Screen                              | Notes                                                                                                                                                                                                                                                                                                                                                                                        |
+| --- | ---------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | detail(1) lands; tick  | `[none]`                            | primed                                                                                                                                                                                                                                                                                                                                                                                       |
+| 1   | action: setId(1); tick | —                                   | case ′'s write inside an action, as a guess on `id`: the lane re-asks `detail`, `isPending(detail)` opens the gate in the lane, and the mount's first pass reads the lane's flight plainly — born held on it, not served the screen as lane work is (A15's stale reader, D-28): served, it would initialize with S-46's frame inside the lane's, revealed at the landing. The fallback stays |
+| 2   | the action lands; tick | —                                   | the action landed; the truth re-asks `detail` and the same mount still waits on the flight (its first pass never completed): the fallback stays. Not a hold the lane's work joined — a lane never makes a flush the hold's (D-37); `frameRead`'s mount arm is for a mainline pass, or a lane pass reading a pending node                                                                     |
+| 3   | detail(2) lands; tick  | —                                   | `detail` answered: `isPending` is false again                                                                                                                                                                                                                                                                                                                                                |
+| ✗   |                        | after 1: `latest(m2) 5 \| detail 1` | the branch attached inside the lane with the committed value beside the lane's own derivation                                                                                                                                                                                                                                                                                                |
+| ✗   |                        | after 2: `latest(m2) 4 \| detail 1` | the mount the lane served the screen revealed at the action's landing with the committed value — S-46's frame, through `<Show>`, a truthiness memo and a split leaf before this case was built (the single-memo gate re-created its branch at the landing and escaped it); it then stayed on screen after `detail` answered (F-1)                                                            |
+
+**Case ‴.**
+
+```tsx
+const [id, setId] = createOptimistic(0);
+const detail = createMemo(async () => fetch(1 + id()));
+<Show when={isPending(detail)} fallback="[none]">
+  <span data-a0={detail()}></span> {/* one effect */}
+</Show>;
+```
+
+| #   | Action                                        | Screen              | Notes                                                                                                                                                                                                            |
+| --- | --------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | detail(1) lands; tick                         | `[none]`            | primed                                                                                                                                                                                                           |
+| 1   | action: setId(1); tick                        | —                   | the plain-only leaf (S-46's row) under the same guess: the same seat in a lane as in a mainline flush — born held on the lane's flight, the fallback stays through the lane, the action's landing and the answer |
+| 2   | the action lands; tick; detail(2) lands; tick | —                   |                                                                                                                                                                                                                  |
+| ✗   |                                               | after 1: `detail 1` | the branch attached inside the lane with the committed value (S-46 ✗2, in a lane) — every gate shape before this case was built; the frame then stayed on screen after `detail` answered                         |
+
+PR #4708 pinned a hop-less `<Show>` as never painting; with real JSX it paints at the landing and tears only during the flight, the same way `<Show>` did before S-46. The runner's `gate` variant here is the gate as written by hand, not an emulation. Cases ″ and ‴ (2026-11-08, #4723 review): the same mount under a guess lane — the write inside an action on an optimistic `id` — is the same mount; lane work served the screen (A15) is the one exception D-25 makes for no leaf a probing pass opened.
 
 <!-- /ruling -->

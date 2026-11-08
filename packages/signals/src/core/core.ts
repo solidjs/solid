@@ -1397,8 +1397,17 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
   // attaches at the landing — whatever else that pass read, a window of its
   // own included (S-58: `[latest(m2), m0()]` in one grouped effect is the
   // same mount as `m0()` alone; neither hop count nor grouping changes it).
-  // (Only the lane engine stamps the flag: without it the arm folds away.)
-  if (laneStageHook && c._config & CONFIG_MOUNT_AHEAD && c._statusFlags & STATUS_UNINITIALIZED) {
+  // Not lane work reading a held node that is not pending (its guess's
+  // target, say): a lane sees the screen plus its own guesses and never
+  // makes a flush the hold's (D-37) — it is served or reads the re-based
+  // staging below, as before this arm. (Only the lane engine stamps the
+  // flag: without it the arm folds away.)
+  if (
+    laneStageHook &&
+    c._config & CONFIG_MOUNT_AHEAD &&
+    c._statusFlags & STATUS_UNINITIALIZED &&
+    (!lane || (el as Computed<any>)._statusFlags & STATUS_PENDING)
+  ) {
     joinPass(c, el);
     return false;
   }
