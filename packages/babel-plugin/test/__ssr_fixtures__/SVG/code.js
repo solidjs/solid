@@ -72,3 +72,48 @@ const template8 = (
     <text x="10" y="25" textContent={text} />
   </svg>
 );
+
+// `<style>`/`<script>` under `<svg>`/`<math>` are ordinary elements: their text
+// parses as markup, so it escapes. HTML-namespace ones stay raw text.
+const foreignStyle = (
+  <svg>
+    <style>{css}</style>
+    <script>{"a < b && c"}</script>
+  </svg>
+);
+const foreignMathStyle = (
+  <math>
+    <style>{css}</style>
+    <mtext>
+      <style>{css}</style>
+    </mtext>
+  </math>
+);
+const foreignPartial = (
+  <g>
+    <style>{"a < b"}</style>
+  </g>
+);
+const foreignThroughExpression = <svg>{show && <style>{css}</style>}</svg>;
+const foreignThroughComponent = (
+  <svg>
+    <Show when={show}>
+      <style>{css}</style>
+    </Show>
+  </svg>
+);
+const htmlInForeignObject = (
+  <svg>
+    <foreignObject>
+      <style>{css}</style>
+    </foreignObject>
+  </svg>
+);
+const htmlAnnotation = (
+  <math>
+    <annotation-xml encoding="text/html">
+      <style>{css}</style>
+    </annotation-xml>
+  </math>
+);
+const htmlStyle = <style>{"a < b && c"}</style>;
