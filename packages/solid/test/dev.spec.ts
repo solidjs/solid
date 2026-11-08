@@ -19,6 +19,7 @@ afterEach(() => {
   if (DEV) {
     DEV.hooks.onOwner = undefined;
     DEV.hooks.onGraph = undefined;
+    DEV.hooks.onUpdate = undefined;
   }
 });
 
@@ -326,6 +327,27 @@ describe("DEV.hooks", () => {
     });
 
     expect(entries.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("onUpdate fires after flush", () => {
+    const calls: number[] = [];
+    let setCount!: (value: number) => number;
+    DEV!.hooks.onUpdate = () => calls.push(1);
+
+    createRoot(() => {
+      const [count, _setCount] = createSignal(0);
+      setCount = _setCount;
+      createEffect(
+        () => count(),
+        () => {}
+      );
+      flush();
+    });
+
+    const initial = calls.length;
+    setCount(1);
+    flush();
+    expect(calls.length).toBe(initial + 1);
   });
 });
 

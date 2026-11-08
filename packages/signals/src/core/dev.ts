@@ -39,6 +39,7 @@ import type { Computed, Link, Owner, Root, Signal } from "./types.js";
 export interface DevHooks {
   onOwner?: (owner: Owner) => void;
   onGraph?: (value: any, owner: Owner | null) => void;
+  onUpdate?: () => void;
   /** @internal Every node read (the frames client's identity-drift check; `setReadWatch`). */
   onRead?: (node: object) => void;
 }

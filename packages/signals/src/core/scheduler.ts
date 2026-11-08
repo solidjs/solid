@@ -44,6 +44,7 @@ import {
   resyncUnflushedCompanions
 } from "./core.js";
 import {
+  DEV,
   emitDiagnostic,
   GRAPH_SIZE_WARN_AT,
   locationLines,
@@ -984,6 +985,7 @@ export class GlobalQueue implements IQueue {
           n => pendingNodes.includes(n) || (n._config & (CONFIG_HELD | CONFIG_OVERRIDE)) !== 0
         );
       }
+      if (__DEV__) DEV.hooks.onUpdate?.();
     } finally {
       this._running = false;
       passTx = null;
