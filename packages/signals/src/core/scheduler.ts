@@ -336,6 +336,8 @@ export interface Transaction {
    * The frame (`over`) holds on them and reveals with the lane (lanes.ts
    * `lanesBlocked`). */
   waits?: Computed<any>[];
+  /** How many of `_nodes` lanes.ts `collectMounts` has looked at (S-58). */
+  scanned?: number;
 }
 /** Live transactions — opened, unmerged, not landed. Scanned at every seam
  * while non-empty; nothing on the plain path. */

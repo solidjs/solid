@@ -39,7 +39,7 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | R (PJ) | 37 | 2 | 5 | 32 |
 | R (RS) | 38 | 0 | 2 | 36 |
 | § | 24 | 14 | 11 | 7 |
-| S | 58 | 15 | 18 | 35 |
+| S | 58 | 16 | 18 | 34 |
 
 ## Unresolved citations
 
@@ -528,4 +528,4 @@ Status legend: **live** stated and standing · **ruled** carries an explicit rul
 | S-55 | executable, standing | `docs/SCENARIOS.md:1460` | — | — | [executable, standing] `refresh` of an optimistic derivation under a guess: the authoritative view replaces the guess, or the guess stays until its action ends — F-11, D-34 |
 | S-56 | executable, standing | `docs/SCENARIOS.md:1488` | dev.ts×1 | createOptimistic.test.ts×1 superseded-before-first-commit.test.ts×2 uninitialized-visibility.test.ts×2 visibility-oracle.states.ts×3 | [executable, standing] A guess before the first answer is the newest value the node has produced: it shows, and the first answer judges it — F-11, D-22, D-2 |
 | S-57 | executable, standing | `docs/SCENARIOS.md:1513` | core.ts×1 lanes.ts×3 scheduler.ts×1 verdict.ts×1 | — | [executable, standing] A change whose derivation became a guess's lane work holds on that flight, and reveals with the lane — F-2, F-1, F-6 |
-| S-58 | executable, standing | `docs/SCENARIOS.md:1561` | — | — | [executable, standing] A display-ahead gate is the same mainline mount with any number of memos between the probe and the branch — D-25, F-1 (#4708) |
+| S-58 | executable, standing | `docs/SCENARIOS.md:1561` | scheduler.ts×1 | — | [executable, standing] A display-ahead gate is the same mainline mount with any number of memos between the probe and the branch — D-25, F-1 (#4708) |

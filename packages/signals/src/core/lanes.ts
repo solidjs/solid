@@ -1040,31 +1040,54 @@ function lanesBlocked(t: Transaction): boolean {
   if (t._lane && t._parent!._verdict === t && heldMountUnder(null, t)) return true;
   return (t._lane && linkBlocked(t)) || nestedBlocked(t);
 }
-/** A mount a probing pass opened, born held (CONFIG_MOUNT_AHEAD), on
- * screen, still waiting — on its own flight, an action open in its frame,
- * or a flight its frame holds — under `o`, or under one of lane `l`'s
- * nodes. Found on the live transactions' node lists (the park listed it
- * there when it held it) — no owner-tree walk — and attributed by its
- * owner chain. */
-export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean {
+/** Mounts a probing pass opened and a hold holds (CONFIG_MOUNT_AHEAD,
+ * born held render effects): collected from the live transactions' node
+ * lists — each list scanned once past where it was last scanned, so a
+ * node is looked at once in its life — and pruned as they attach or go
+ * away. Almost always empty: a born-held mount is rare, and every check
+ * below is a walk of this list, never of the holds. */
+const aheadMounts: Computed<any>[] = [];
+function collectMounts(): void {
   for (let k = 0; k < transactions.length; k++) {
     const t = transactions[k],
       nodes = t._nodes;
-    for (let i = 0; i < nodes.length; i++) {
+    for (let i = t.scanned ?? 0; i < nodes.length; i++) {
       const r = nodes[i] as Computed<any>;
-      if (
-        (r as any)._type === EFFECT_RENDER &&
-        (r._config & (CONFIG_MOUNT_AHEAD | CONFIG_HELD)) === (CONFIG_MOUNT_AHEAD | CONFIG_HELD) &&
-        r._statusFlags & STATUS_UNINITIALIZED &&
-        !(r._flags & REACTIVE_DISPOSED) &&
-        !hiddenHook?.(r) &&
-        (r._statusFlags & STATUS_PENDING ||
-          t._open !== 0 ||
-          nodes.some(n => !(n as any)._type && (n as Computed<any>)._statusFlags! & STATUS_PENDING))
-      )
-        for (let p: Owner | null = r._parent; p !== null; p = p._parent)
-          if (l !== null ? (p as Computed<any>)._x?._transaction === l : p === o) return true;
+      // (A node re-held into a second transaction is listed twice; the
+      // second entry is pruned with the first.)
+      if ((r as any)._type === EFFECT_RENDER && r._config & CONFIG_MOUNT_AHEAD) aheadMounts.push(r);
     }
+    t.scanned = nodes.length;
+  }
+}
+/** A collected mount still held, uninitialized, on screen and waiting —
+ * on its own flight, an action open in its frame, or a flight its frame
+ * holds — under `o`, or under one of lane `l`'s nodes (by its owner
+ * chain). */
+export function heldMountUnder(o: Owner | null, l: Transaction | null): boolean {
+  collectMounts();
+  for (let i = aheadMounts.length - 1; i >= 0; i--) {
+    const r = aheadMounts[i];
+    if (
+      !(r._statusFlags & STATUS_UNINITIALIZED) ||
+      !(r._config & CONFIG_HELD) ||
+      r._flags & REACTIVE_DISPOSED
+    ) {
+      aheadMounts.splice(i, 1);
+      continue;
+    }
+    const t = resolveTx(r._x!._transaction!);
+    if (
+      hiddenHook?.(r) ||
+      !(
+        r._statusFlags & STATUS_PENDING ||
+        t._open !== 0 ||
+        t._nodes.some(n => !(n as any)._type && (n as Computed<any>)._statusFlags! & STATUS_PENDING)
+      )
+    )
+      continue;
+    for (let p: Owner | null = r._parent; p !== null; p = p._parent)
+      if (l !== null ? (p as Computed<any>)._x?._transaction === l : p === o) return true;
   }
   return false;
 }

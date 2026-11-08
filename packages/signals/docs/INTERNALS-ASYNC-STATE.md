@@ -340,14 +340,22 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   the landing. And lanes.ts `mountPending` counted a mount as waiting only
   on a flight; a mount whose frame is an open action (`_open`) waits too —
   S-53′, the plain read under an errored boundary inside an action, which
-  the lane revealed with its hole empty. The S-58 row runs S-46's shape
+  the lane revealed with its hole empty. Both checks walk one lane-module
+  list (`aheadMounts`, `heldMountUnder`): born-held mounts collected from
+  the live transactions' node lists, each list scanned past where it was
+  last scanned (`Transaction.scanned`), so a held node is looked at once in
+  its life and a seam with no such mount, the common case, pays a loop over
+  an empty list — not readers × held nodes (review of PR 4720). The S-58
+  row runs S-46's shape
   through the runner's new `gate` variant: `"memo"` (one memo that probes
   and mounts) and `"cond"` (a truthiness memo and a branch memo), both
   pinned to `<Show>`'s screens; `web/test/display-ahead-gate-hops.spec.tsx`
   pins the four shapes in real JSX. Two pins guard the limits: a `<Loading>`
   inside the branch still shows its fallback ahead (#3851, S-31) and the
   #3540 matrix's early fallback (hidden mounts do not keep the branch;
-  memos never count, only render effects). 0 B on the core floor.
+  memos never count, only render effects). 0 B on the core floor; +57 B
+  brotli on the isPending/latest chunk (the list and its scan), caps raised
+  with ledger lines.
 - 2026-11-07: **A question is asked only of the truth** (F-2's producer
   clause; F-6's limit). Prompted by GabbeV's `experiment/unified-updates`
   (its tests run against `next`, the differing screens tabled as S-51–S-56)
