@@ -1,5 +1,5 @@
 import type { Ruling } from "./types.js";
-import { s, m, plain, leaf, settle, flush, write, task } from "./_h.js";
+import { s, m, plain, lat, leaf, settle, flush, write, task } from "./_h.js";
 
 /** S-46's shape with the `Show` replaced by a hand-written gate: `detail`
  * is `id + 1` (async); a plain write to `id` is held by `detail`'s flight;
@@ -58,6 +58,54 @@ export default {
           after: 3,
           screen: "<span>vs0:0 </span><span>vm0:1 </span><span>vs0:0 </span>",
           why: "the branch attached with the committed value: a mount under a display-ahead reader is born held, not a D-3 leaf (S-46)"
+        }
+      ]
+    },
+    {
+      label: "′",
+      scenario: {
+        signals: [0],
+        memos: [
+          { async: true, deps: [{ src: s(0), how: "plain" }], poison: null },
+          {
+            async: false,
+            deps: [
+              { src: s(0), how: "plain" },
+              { src: m(0), how: "latest" }
+            ],
+            poison: 0
+          },
+          {
+            async: false,
+            deps: [
+              { src: m(0), how: "latest" },
+              { src: m(1), how: "plain" }
+            ],
+            poison: 1
+          }
+        ],
+        tree: {
+          t: "show",
+          when: { how: "pending", src: m(0) },
+          child: { t: "leaf", text: [], attrs: [lat(m(2)), plain(m(0))], grouped: true },
+          fallback: true
+        },
+        steps: [settle(), task, write(0, 1), task]
+      },
+      variants: [{ gate: "memo" }, { gate: "cond" }, { split: true }],
+      frames: [
+        { after: 1, screen: "[F]", note: "primed: `isPending(m0)` is false" },
+        {
+          after: 3,
+          screen: "—",
+          note: "the write re-asks `m0`; `isPending(m0)` opens the gate, and the mount's one grouped effect reads `latest(m2)` ahead beside `m0()` plainly: the window it opened does not make it a D-3 leaf of the screen — it is the mount a probing pass opened, born held on its plain read of the flight, and the fallback stays until the landing, where `isPending` is false again (ruled 2026-11-08: neither hop count nor grouping changes a mount's seat, even when its own pass reads ahead of the same node)"
+        }
+      ],
+      forbid: [
+        {
+          after: 3,
+          screen: "<span data-a0=lm2:4  data-a1=vm0:1 ></span>",
+          why: "the branch attached with the committed value beside its own ahead read — through a hand-written gate, grouped, before this case was built; `<Show>` and the split leaf already kept the fallback"
         }
       ]
     }

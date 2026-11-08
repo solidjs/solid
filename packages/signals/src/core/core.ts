@@ -1391,6 +1391,17 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
     askerJoinsHook(c, el, txOf(el));
     return false;
   }
+  // S-46 (D-25): a render effect a probing pass is mounting
+  // (CONFIG_MOUNT_AHEAD) is not a D-3 leaf of the screen: its first pass
+  // reading the hold's staging or flight is born held, and the branch
+  // attaches at the landing — whatever else that pass read, a window of its
+  // own included (S-58: `[latest(m2), m0()]` in one grouped effect is the
+  // same mount as `m0()` alone; neither hop count nor grouping changes it).
+  // (Only the lane engine stamps the flag: without it the arm folds away.)
+  if (laneStageHook && c._config & CONFIG_MOUNT_AHEAD && c._statusFlags & STATUS_UNINITIALIZED) {
+    joinPass(c, el);
+    return false;
+  }
   if (
     !(verdict && holdStagingHook!(c, el)) &&
     !(
@@ -1398,15 +1409,8 @@ function frameRead(c: Computed<any>, el: Signal<any> | Computed<any>): boolean {
         (c._statusFlags & STATUS_UNINITIALIZED &&
           (el as Computed<any>)._statusFlags & STATUS_PENDING)) &&
       !verdict &&
-      // CONFIG_FRAME, spelled as at the effect's creation. S-46 (D-25): a
-      // render effect a probing pass is mounting (CONFIG_MOUNT_AHEAD) is not
-      // a D-3 leaf of the screen: its first pass reading the hold's staging
-      // or flight is born held, and the branch attaches at the landing.
-      // (Only the lane engine stamps the flag: without it the clause folds
-      // away, as the lane blocks in `recompute` do.)
-      (!(c._config & (EFFECT_RENDER << 23)) ||
-        el._config & CONFIG_INPUTS_PUBLISHED ||
-        (laneStageHook && c._config & CONFIG_MOUNT_AHEAD && c._statusFlags & STATUS_UNINITIALIZED))
+      // CONFIG_FRAME, spelled as at the effect's creation.
+      (!(c._config & (EFFECT_RENDER << 23)) || el._config & CONFIG_INPUTS_PUBLISHED)
     )
   ) {
     const t = txOf(el);
@@ -2393,7 +2397,13 @@ export function read<T>(el: Signal<T> | Computed<T>): T {
     // (A10; `observeFlight` serves a routed render effect as lane work, D-26,
     // #4661). A reader with no committed value yet sees the flight pending: a
     // boundary a lane mounts shows its fallback (A29's boundary exemption).
-    if (c !== null && c._config & CONFIG_VERDICT)
+    // A mount a probing pass opened (S-46, S-58) observes the flight on its
+    // first pass whatever it read ahead: born held, not served the screen.
+    if (
+      c !== null &&
+      c._config & CONFIG_VERDICT &&
+      !(c._config & CONFIG_MOUNT_AHEAD && (c as Computed<any>)._statusFlags & STATUS_UNINITIALIZED)
+    )
       committed = observeFlightHook!(c as Computed<any>, owner);
     else if (
       passLane !== null &&

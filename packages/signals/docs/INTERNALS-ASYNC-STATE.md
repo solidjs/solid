@@ -355,7 +355,21 @@ The findings that used to follow here (§5a–§5h, 2026-07-06 → 2026-07-16) a
   #3540 matrix's early fallback (hidden mounts do not keep the branch;
   memos never count, only render effects). 0 B on the core floor; +57 B
   brotli on the isPending/latest chunk (the list and its scan), caps raised
-  with ledger lines.
+  with ledger lines. The same day, the maintainer's table (S-58′): the row
+  held for a plain-only leaf and broke once the leaf's one grouped effect
+  also read ahead — `[latest(m2), m0()]`, or `[latest(m0), m0()]` of the
+  same node — under a hand-written gate: `<Show>` and a split leaf kept
+  the fallback, the gates attached with the committed `m0` beside the
+  ahead read. The born-held arm for a stamped mount sat inside core.ts
+  `frameRead`'s `!verdict` branch, so a mount whose own pass had opened a
+  window was a verdict reader first and served the screen (A10's pair,
+  which is a mainline leaf's rule, not a mount's); and `read`'s pending
+  arm handed such a reader to `observeFlight` the same way. Both now test
+  the stamp first: a mount a probing pass opened observes the flight on its
+  first pass whatever it read ahead, and is born held. −2 B brotli on the
+  core floor (the clause left the big condition), +7 B on the
+  isPending/latest chunk. Pins: S-58 case ′ (three variants) and
+  `web/test/display-ahead-gate-leaf-reads.spec.tsx`, the table itself.
 - 2026-11-07: **A question is asked only of the truth** (F-2's producer
   clause; F-6's limit). Prompted by GabbeV's `experiment/unified-updates`
   (its tests run against `next`, the differing screens tabled as S-51–S-56)
