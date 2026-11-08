@@ -9,6 +9,11 @@ on:
       - main
       - next
 
+# A push gets its own group, so every commit on next keeps its run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
  job:
   runs-on: ubuntu-latest
@@ -45,9 +50,10 @@ jobs:
     run: pnpm run build
 
   - name: Testing & Coverage
+    # Coveralls only reads solid-js's lcov, so signals and web skip a second run.
     run: |
       pnpm run test
-      pnpm run coverage
+      pnpm run coverage --filter=solid-js
 
   - name: Coveralls
     uses: coverallsapp/github-action@v2
